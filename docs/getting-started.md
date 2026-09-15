@@ -88,7 +88,7 @@ The main SandForge use case: **populate a sandbox from a real record**. Let's wa
 4. Tune the options: **Depth**, **Records per object**, **Anonymize PII**, excluded objects
 5. Click **Review & Execute**, then **Execute Forge** — records land in your sandbox with every ID remapped
 
-See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough (including the headless CLI).
+See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough. It also covers the command-line clone and cleanup: two TypeScript scripts, not an installed command, run with `pnpm exec tsx` from a checkout of this repository once `pnpm install` and `pnpm build:shared` have run.
 
 No real data to copy yet? The **Seed** module generates test data instead:
 

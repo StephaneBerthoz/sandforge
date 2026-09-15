@@ -21,6 +21,7 @@ import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
@@ -30,6 +31,8 @@ import type { ForgeComplianceService } from '../../modules/forge/ForgeCompliance
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
+import { queryAllPages } from '../../modules/forge/queryAllPages.js';
+import { RecordTypeMapper, type RecordTypeMapping } from '../../modules/sync/RecordTypeMapper.js';
 
 /** Strict Salesforce record/org ID format. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
@@ -79,6 +82,20 @@ const targetPreflightPayloadSchema = z.object({
     )
     .max(100),
 });
+
+/** Active record types of an org, with the object each belongs to. */
+const RECORD_TYPES_SOQL =
+  'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
+
+/** Shape of the rows {@link RECORD_TYPES_SOQL} returns, checked before mapping. */
+const recordTypeRowsSchema = z.array(
+  z.object({
+    Id: z.string().min(1),
+    Name: z.string(),
+    DeveloperName: z.string().min(1),
+    SobjectType: z.string().min(1),
+  }),
+);
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -184,6 +201,9 @@ const METADATA_DIFF_TIMEOUT_MS = 60_000;
 
 /** Timeout for the target preflight (per-object COUNT) in milliseconds. */
 const TARGET_PREFLIGHT_TIMEOUT_MS = 30_000;
+
+/** Timeout for reading both orgs' record types before a run, in milliseconds. */
+const RECORD_TYPES_TIMEOUT_MS = 30_000;
 
 /** ConfigStore key for persisted forge templates. */
 const TEMPLATES_KEY = 'forge:templates';
@@ -531,7 +551,12 @@ export class ForgeHandler implements DomainHandler {
     const parsed = parsePayload(discoverPayloadSchema, msg, 'forge:discover:error', this.deps);
     if (!parsed) return;
     const { config } = parsed;
-    this.discoverAbortController = new AbortController();
+    // A discovery still running belongs to a screen the user has left (Back,
+    // then Discover again). Overwriting its controller without aborting it
+    // left that BFS running beside the new one with nothing able to stop it.
+    this.discoverAbortController?.abort();
+    const controller = new AbortController();
+    this.discoverAbortController = controller;
     const operationId = `forge-discover-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Discovering object graph');
 
@@ -548,12 +573,19 @@ export class ForgeHandler implements DomainHandler {
     try {
       logger.info('Forge discover started');
       const graph = await this.orchestrator.discover(config, {
-        signal: this.discoverAbortController.signal,
+        signal: controller.signal,
         onProgress: (event) => {
           throttledProgress(event as unknown as Record<string, unknown>);
         },
       });
       throttledProgress.flush();
+      if (controller.signal.aborted) {
+        // Cancelled from the wizard or replaced by a newer discovery. The BFS
+        // hands back the partial graph it had reached; answering with it would
+        // land that truncated graph in whichever discovery screen is open now.
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        return;
+      }
       const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
@@ -562,6 +594,13 @@ export class ForgeHandler implements DomainHandler {
       // the latest queue state before the error response arrives. Without
       // this, an abort mid-BFS leaves the wizard frozen on stale counts.
       throttledProgress.flush();
+      // A cancelled or replaced walk can still throw on its way out. Its error
+      // would stop the spinner of the discovery screen open now, whose own walk
+      // is still running.
+      if (controller.signal.aborted) {
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        return;
+      }
       // Single error channel: `forge:discover:error` is what the webview
       // consumes (ForgeDiscovery clears loading + surfaces the message).
       // `operation:failed` is intentionally NOT emitted here — every
@@ -573,7 +612,12 @@ export class ForgeHandler implements DomainHandler {
         retryable: true,
       });
     } finally {
-      this.discoverAbortController = null;
+      // Only release the controller this call owns: a superseded discovery
+      // settles after its replacement started, and nulling the field then cut
+      // the live one off from forge:abort.
+      if (this.discoverAbortController === controller) {
+        this.discoverAbortController = null;
+      }
     }
   }
 
@@ -683,7 +727,8 @@ export class ForgeHandler implements DomainHandler {
       this.dmlTracker.register(forgeOpId, 'forge', 'upsert', totalRecords);
     }
 
-    this.abortController = new AbortController();
+    const runController = new AbortController();
+    this.abortController = runController;
     const operationId = `forge-execute-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
 
@@ -713,7 +758,16 @@ export class ForgeHandler implements DomainHandler {
 
     try {
       logger.info('Forge execute started');
-      const result = await this.orchestrator.execute(graph, config);
+      // RecordType Ids differ between orgs. Without this table every cloned
+      // record kept the source org's RecordTypeId, which the target rejects.
+      const recordTypeMappings = await this.loadRecordTypeMappings(config, runController.signal);
+      // An Abort that lands during that lookup reaches an executor that has not
+      // started yet, and execute() clears its abort flag on entry — the run
+      // would go ahead and write. Honour it here instead.
+      if (runController.signal.aborted) {
+        throw new Error('Forge execution was aborted before it started. Nothing was written.');
+      }
+      const result = await this.orchestrator.execute(graph, config, { recordTypeMappings });
 
       // Arm the duplicate cooldown only when the run wrote something: a
       // failure, or a run that remapped no record at all, leaves the recipe
@@ -781,6 +835,66 @@ export class ForgeHandler implements DomainHandler {
     this.abortController = null;
     this.orchestrator?.abort();
     logger.info('Forge aborted');
+  }
+
+  /**
+   * Build the source -> target RecordType table the executor translates
+   * `RecordTypeId` with, the way the command-line clone does: active record
+   * types of both orgs, matched by object and DeveloperName.
+   *
+   * A failure here does not stop the run. It is logged, and the clone proceeds
+   * as it did before the table existed — records keep the source Id — rather
+   * than refusing a clone whose objects may carry no record type at all. The
+   * lookup is bounded: a hung org falls back the same way after
+   * {@link RECORD_TYPES_TIMEOUT_MS}, and an Abort returns at once so the
+   * caller can refuse the run without waiting for the org to answer.
+   */
+  private async loadRecordTypeMappings(
+    config: ForgeConfig,
+    signal: AbortSignal,
+  ): Promise<RecordTypeMapping[] | undefined> {
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<undefined>((resolve) => {
+      onAbort = () => resolve(undefined);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      const lookup = new TimeoutManager(RECORD_TYPES_TIMEOUT_MS).withTimeout(
+        'forge:record-types',
+        () => this.readRecordTypeMappings(config),
+      );
+      return await Promise.race([lookup, aborted]);
+    } catch (err: unknown) {
+      logger.warn(
+        `[forge] Record types could not be read from both orgs (${extractErrorMessage(err)}); ` +
+          `cloned records keep their source RecordTypeId.`,
+      );
+      return undefined;
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  private async readRecordTypeMappings(config: ForgeConfig): Promise<RecordTypeMapping[]> {
+    const [sourceTypes, targetTypes] = await Promise.all(
+      [config.sourceOrgId, config.targetOrgId].map(async (orgId) => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const { records } = await queryAllPages<Record<string, unknown>>(
+          {
+            query: async (q) => conn.query<Record<string, unknown>>(q),
+            queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+          },
+          RECORD_TYPES_SOQL,
+        );
+        return recordTypeRowsSchema.parse(records).map((r) => ({
+          id: r.Id,
+          name: r.Name,
+          developerName: r.DeveloperName,
+          sobjectType: r.SobjectType,
+        }));
+      }),
+    );
+    return new RecordTypeMapper().buildMapping(sourceTypes, targetTypes);
   }
 
   private async handleTemplatesList(msg: InboundRequest): Promise<void> {

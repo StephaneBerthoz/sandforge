@@ -92,6 +92,25 @@ describe('examples/README.md CLI recipes', () => {
     // so a placeholder flag there costs them the fix they came for.
     expect(README).not.toMatch(/--upsert-mode/);
     expect(README).not.toMatch(/not yet a CLI flag/);
+    // Only the CLI sets an upsert mode; sending the reader to the wizard for
+    // it sends them to a control that does not exist.
+    expect(README).not.toMatch(/upsertMode|wizard "upsert mode"/);
+  });
+
+  it('narrows every real cleanup and calls the script the way it is run', () => {
+    // `--since today` matches every record the user created that day, cloned
+    // or not, so a delete described as "today's clones" removes more than it
+    // says. There is also no installed `sandforge-cleanup` command to call.
+    expect(README).not.toMatch(/today's clones/i);
+    expect(README).not.toMatch(/sandforge-cleanup --/);
+
+    const calls = [...README.matchAll(/sandforge-cleanup\.ts(?:[^\n]*\\\r?\n)*[^\n]*/g)].map(
+      ([call]) => call,
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls.filter((c) => !/\s--dry-run\b/.test(c))) {
+      expect(call).toMatch(/\s--objects\s/);
+    }
   });
 
   it('points the dry-run tip at the flag, not at the dev recipe', () => {

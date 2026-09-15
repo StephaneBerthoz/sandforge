@@ -1,5 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+
+const mockPostMessage = vi.hoisted(() => vi.fn());
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
+
 import '../../i18n';
 import { AIChatPanel } from './AIChatPanel';
 import type { ChatMessageDisplay, ConversationSummary } from './AIChatPanel';
@@ -184,5 +194,60 @@ describe('AIChatPanel', () => {
     const indicator = screen.getByTestId('ai-token-budget-indicator');
     expect(indicator.getAttribute('data-state')).toBe('warn');
     expect(screen.getByTestId('ai-token-budget-label').textContent).toBe('40000/50000');
+  });
+
+  const budgetSnapshot = {
+    sessionId: 'ai-window',
+    used: { input: 40_000, output: 0, cacheRead: 0, cacheCreate: 0, total: 40_000 },
+    budget: 50_000,
+    percent: 80,
+    state: 'warn' as const,
+  };
+
+  function pushStatus(budget?: typeof budgetSnapshot): void {
+    fireEvent(
+      window,
+      new MessageEvent('message', {
+        data: {
+          id: 'status-1',
+          type: 'ai:status:response',
+          timestamp: Date.now(),
+          payload: { enabled: true, provider: 'anthropic', model: 'm', budget },
+        },
+      }),
+    );
+  }
+
+  /** Types of the messages the panel posted to the host. */
+  function sentTypes(): string[] {
+    return mockPostMessage.mock.calls.map(
+      ([envelope]) => (envelope as { payload?: { type?: string } }).payload?.type ?? '',
+    );
+  }
+
+  // The gauge lived only in the panel's own state, so leaving the AI page and
+  // coming back hid it until the next AI call.
+  it('shows the gauge again after a remount, from the status the host answers with', () => {
+    const first = render(<AIChatPanel />);
+    pushStatus(budgetSnapshot);
+    expect(screen.getByTestId('ai-token-budget-indicator')).toBeDefined();
+    first.unmount();
+    mockPostMessage.mockClear();
+
+    render(<AIChatPanel />);
+
+    expect(sentTypes()).toContain('ai:status');
+    expect(screen.queryByTestId('ai-token-budget-indicator')).toBeNull();
+    pushStatus(budgetSnapshot);
+    expect(screen.getByTestId('ai-token-budget-label').textContent).toBe('40000/50000');
+  });
+
+  it('keeps the gauge when a status push carries no budget', () => {
+    render(<AIChatPanel />);
+    pushStatus(budgetSnapshot);
+
+    pushStatus(undefined);
+
+    expect(screen.getByTestId('ai-token-budget-indicator')).toBeDefined();
   });
 });

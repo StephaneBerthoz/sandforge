@@ -28,6 +28,23 @@ export const SF_FIELD_TYPES = [
 
 export type SfFieldType = (typeof SF_FIELD_TYPES)[number];
 
+/** Field types that hold free text, where a generated sentence is a valid value. */
+const SENTENCE_FIELD_TYPES: ReadonlySet<string> = new Set<SfFieldType>([
+  'string',
+  'textarea',
+  'encryptedstring',
+]);
+
+/**
+ * Whether a field of this describe type can hold a generated sentence. An AI
+ * rule is filled with a sentence when the call returns nothing, so it is valid
+ * only where a sentence is: in a number, date, boolean, email or restricted
+ * picklist field the insert fails or writes garbage.
+ */
+export function acceptsGeneratedSentence(fieldType: string): boolean {
+  return SENTENCE_FIELD_TYPES.has(fieldType.toLowerCase());
+}
+
 /** Field types that are auto-populated by Salesforce (not writable) */
 export const SF_AUTO_FIELDS = [
   'Id',

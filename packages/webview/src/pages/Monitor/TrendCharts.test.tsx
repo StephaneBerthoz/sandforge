@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import type { TrendSeries, TrendDataPoint } from './TrendCharts';
@@ -70,20 +70,10 @@ describe('TrendCharts', () => {
     expect((container.firstChild as HTMLElement).className).toContain('my-custom');
   });
 
-  it('should render period selector', () => {
+  it('offers no period buttons, since it charts every point it is given', () => {
     render(<TrendCharts series={baseSeries} />);
-    expect(screen.getByTestId('period-selector')).toBeDefined();
-    expect(screen.getByTestId('period-1h')).toBeDefined();
-    expect(screen.getByTestId('period-6h')).toBeDefined();
-    expect(screen.getByTestId('period-24h')).toBeDefined();
-    expect(screen.getByTestId('period-7d')).toBeDefined();
-  });
-
-  it('should call onPeriodChange when period button is clicked', () => {
-    const onPeriodChange = vi.fn();
-    render(<TrendCharts series={baseSeries} onPeriodChange={onPeriodChange} />);
-    fireEvent.click(screen.getByTestId('period-1h'));
-    expect(onPeriodChange).toHaveBeenCalledWith('1h');
+    expect(screen.queryByTestId('period-selector')).toBeNull();
+    expect(screen.queryByTestId('period-1h')).toBeNull();
   });
 
   it('should render threshold lines at 75% and 90%', () => {

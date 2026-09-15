@@ -7,6 +7,14 @@ import { sendExtensionMessage } from './mocks/vscode-api';
 /**
  * Conflict resolution E2E — the Sync panel's `conflicts` tab.
  *
+ * The tab is not offered today. Conflicts reach it only through the
+ * `realtime:*` stream, which the extension answers with a no-op, so it could
+ * only ever list nothing, and `SyncPage` leaves it out of its tab bar
+ * (`OFFERED_SYNC_TABS`). The first suite below holds the page to that. The
+ * suites after it drive the panel and are skipped until the tab is offered
+ * again: what they check — above all the payload of a resolution — is what a
+ * working stream has to honour.
+ *
  * Replaces `quarantine/quick-sync-conflict-resolve.spec.ts`, which drove a
  * `?e2e-harness=sync-conflict` stub over `sync:conflict:detected` /
  * `sync:conflict:resolve`. Neither message type exists anywhere in the repo:
@@ -206,7 +214,19 @@ async function confirmDanger(page: Page): Promise<void> {
   await expect(page.getByTestId('danger-input')).toHaveCount(0);
 }
 
-test.describe('Sync conflicts — arrival', () => {
+test.describe('Sync conflicts — not offered while the stream is a no-op', () => {
+  test('the Sync page has no conflicts tab, even when a conflict is pushed', async ({ page }) => {
+    await openSyncPanel(page);
+    await pushConflict(page, ACCOUNT_A);
+
+    await expect(page.getByTestId('tab-sync')).toBeVisible();
+    await expect(page.getByTestId('tab-conflicts')).toHaveCount(0);
+    await expect(page.getByTestId('conflict-count-badge')).toHaveCount(0);
+    await expect(page.getByTestId('conflict-list-panel')).toHaveCount(0);
+  });
+});
+
+test.describe.skip('Sync conflicts — arrival', () => {
   test('the tab is badge-free and the list empty until the host pushes something', async ({
     page,
   }) => {
@@ -271,7 +291,7 @@ test.describe('Sync conflicts — arrival', () => {
   });
 });
 
-test.describe('Sync conflicts — the diff', () => {
+test.describe.skip('Sync conflicts — the diff', () => {
   test.beforeEach(async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -318,7 +338,7 @@ test.describe('Sync conflicts — the diff', () => {
   });
 });
 
-test.describe('Sync conflicts — per-field resolution', () => {
+test.describe.skip('Sync conflicts — per-field resolution', () => {
   test('apply stays locked until every conflicting field has been decided', async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -417,7 +437,7 @@ test.describe('Sync conflicts — per-field resolution', () => {
   });
 });
 
-test.describe('Sync conflicts — bulk resolution', () => {
+test.describe.skip('Sync conflicts — bulk resolution', () => {
   test('"apply source to all" resolves every open conflict with source_wins', async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -490,7 +510,7 @@ test.describe('Sync conflicts — bulk resolution', () => {
   });
 });
 
-test.describe('Sync conflicts — switching between conflicts', () => {
+test.describe.skip('Sync conflicts — switching between conflicts', () => {
   /**
    * PRODUCT DEFECT — left red on purpose.
    *

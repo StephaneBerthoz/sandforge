@@ -18,9 +18,10 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 - **One write direction** -- Records always flow source to target. _Bidirectional_
   reverses nothing: it adds a pass that reads the matching target records first
   and applies the conflict strategy before the write, which still goes to the
-  target. _Target to source_ is offered in the selector but is not wired --
-  picking it runs the same source-to-target sync.
-- **Full Sync Only** -- Every run syncs the complete object set; mode selection returns when incremental, delta, and CDC are implemented
+  target. To copy the other way, swap the source and target orgs: a
+  configuration asking for _target to source_ is refused before it runs.
+- **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs
+- **No real-time sync or conflict review** -- The Sync page offers Sync, History and Schedules. Real-time (CDC) replication and the conflict list it would feed are not implemented, so their tabs are not shown
 - **5 Conflict Strategies** -- Source wins, target wins, newest wins, manual merge, or auto-merge
 
 ### Object Set Editor
@@ -28,6 +29,8 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
 - Add/remove objects to the sync scope
 - Configure batch size per object
 - Available objects are loaded from the source org schema
+- A per-object WHERE filter may only filter: a clause carrying `LIMIT`, `OFFSET`, `ORDER BY`, `FOR UPDATE`, a subquery, a comment or a semicolon is refused, including one imported from an SFDMU `export.json`
+- An upsert key (external ID) is a single field API name; an SFDMU composite key such as `Name;Parent.Name` is refused. An empty External ID box counts as no key
 
 ### Field Mapping
 
@@ -56,6 +59,7 @@ Before execution, the Review step shows:
 
 ### Execution and Results
 
+- Before anything is written, both orgs are described and every field a mapping copies unchanged is compared (the same-named fields when the object has no mapping). A field that cannot hold the other's type -- text onto a date, a number onto a checkbox -- stops the run with the list of mismatched pairs, and nothing is written. A mapping whose value a transform rewrites is not judged on its source type
 - Real-time progress bar with elapsed time
 - Sequential per-object execution. With Grappe enabled, the run reports progress
   one partition per object over that same sequential loop -- nothing is split and
@@ -67,7 +71,7 @@ Before execution, the Review step shows:
 
 - Use "Auto Match" in the Field Mapper first, then manually adjust the few fields that do not match
 - Narrow the object set and batch sizes for recurring syncs -- every run reprocesses the full scope
-- Files do not travel: Sync has no blob-transfer stage, so `Attachment`, `ContentVersion` and `Document` are deliberately absent from the prebuilt templates -- Bulk API 2.0 rejects base64, and adding one back breaks the run past 200 records
+- Files do not travel: Sync has no blob-transfer stage, so `Attachment`, `ContentVersion` and `Document` are not offered in the object picker, are absent from the prebuilt templates, and a configuration naming one is refused before it runs -- Bulk API 2.0 rejects base64, so such a run used to break past 200 records
 - Always review PII warnings in the Review step before executing
 - If sync fails on certain objects, check field-level security on the target org
 - Use the Sankey diagram to verify data flow before execution

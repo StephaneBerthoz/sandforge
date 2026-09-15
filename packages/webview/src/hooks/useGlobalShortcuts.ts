@@ -47,11 +47,16 @@ const CTRL_NUM_MAP: Record<string, ModuleRoute> = {
 };
 
 /**
- * Registers global keyboard shortcuts for navigation and actions.
- * Supports chord sequences like G followed by H for "Go to Home",
- * Ctrl+1..9/0 for direct module navigation,
- * Ctrl+Enter for execute, and Escape for cancel.
+ * Registers global keyboard shortcuts for navigation.
+ * Supports chord sequences like G followed by H for "Go to Home", and
+ * Ctrl+1..9/0 for direct module navigation where VS Code lets the keystroke
+ * reach the webview.
  * Ignores keystrokes inside input/textarea elements.
+ *
+ * Ctrl+Enter and Escape are not handled here. They used to broadcast
+ * `sandforge:execute` and `sandforge:cancel`, which no component listened to,
+ * so Ctrl+Enter did nothing while the Help page taught it; dialogs close on
+ * Escape through their own handlers.
  */
 export function useGlobalShortcuts(): void {
   const pendingChord = useRef<string | null>(null);
@@ -63,7 +68,6 @@ export function useGlobalShortcuts(): void {
       const isInput =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 
-      /* ── Ctrl/Meta shortcuts (work even in inputs for Ctrl+Enter) ── */
       const ctrlOrMeta = e.ctrlKey || e.metaKey;
 
       // Ctrl+1..9/0 — direct module navigation (skip in inputs)
@@ -74,19 +78,6 @@ export function useGlobalShortcuts(): void {
           useAppStore.getState().navigate(route);
           return;
         }
-      }
-
-      // Ctrl+Enter — dispatch sandforge:execute event
-      if (ctrlOrMeta && e.key === 'Enter') {
-        e.preventDefault();
-        document.dispatchEvent(new CustomEvent('sandforge:execute'));
-        return;
-      }
-
-      // Escape — dispatch sandforge:cancel event (only if not already handled)
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        document.dispatchEvent(new CustomEvent('sandforge:cancel'));
-        return;
       }
 
       // Skip chord navigation in inputs

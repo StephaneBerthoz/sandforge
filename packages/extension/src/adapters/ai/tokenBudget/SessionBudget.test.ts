@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SessionBudget, type BudgetBroker } from './SessionBudget.js';
+import { SessionBudget, type BudgetBroker, type BudgetThreshold } from './SessionBudget.js';
 
-function makeBroker(): { broker: BudgetBroker; sent: Array<{ type: string; payload: unknown }> } {
-  const sent: Array<{ type: string; payload: unknown }> = [];
+interface Recorded {
+  sent: Array<{ type: string; payload: unknown }>;
+  notices: Array<{ threshold: BudgetThreshold; percent: number }>;
+}
+
+function makeBroker(): { broker: BudgetBroker } & Recorded {
+  const sent: Recorded['sent'] = [];
+  const notices: Recorded['notices'] = [];
   const broker: BudgetBroker = {
     send: vi.fn((m) => sent.push({ type: m.type, payload: m.payload })),
+    notify: vi.fn((threshold, state) => notices.push({ threshold, percent: state.percent })),
   };
-  return { broker, sent };
+  return { broker, sent, notices };
 }
 
 const u = (input: number, output: number, cacheRead = 0, cacheCreate = 0) => ({
@@ -19,10 +26,11 @@ const u = (input: number, output: number, cacheRead = 0, cacheCreate = 0) => ({
 
 describe('SessionBudget', () => {
   let broker: BudgetBroker;
-  let sent: Array<{ type: string; payload: unknown }>;
+  let sent: Recorded['sent'];
+  let notices: Recorded['notices'];
 
   beforeEach(() => {
-    ({ broker, sent } = makeBroker());
+    ({ broker, sent, notices } = makeBroker());
   });
 
   it('initial state: zero usage, percent 0, state=ok', () => {
@@ -53,54 +61,93 @@ describe('SessionBudget', () => {
     expect(sb.increment(u(30, 0)).state).toBe('exceeded'); // 115%
   });
 
-  it('ai:budget:warn fires EXACTLY once per session at the first 80% crossing', () => {
+  it('gives the warning notice exactly once, at the first 80% crossing', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
     sb.increment(u(85, 0)); // crosses 80%
     sb.increment(u(5, 0));
     sb.increment(u(5, 0));
+    expect(notices).toEqual([{ threshold: 'warn', percent: 85 }]);
+  });
+
+  it('gives the refusal notice once, however many calls breach or are refused', () => {
+    const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
+    sb.increment(u(85, 0));
+    sb.increment(u(25, 0)); // 110%
     sb.increment(u(5, 0));
-    const warnCount = sent.filter((m) => m.type === 'ai:budget:warn').length;
-    expect(warnCount).toBe(1);
+    expect(sb.preflight(50).allowed).toBe(false);
+    expect(sb.preflight(50).allowed).toBe(false);
+    expect(notices.map((n) => n.threshold)).toEqual(['warn', 'exceeded']);
   });
 
-  it('ai:budget:exceeded fires on EVERY breach call (and every failing preflight)', () => {
+  it('announces only the refusal when one call jumps straight past 100%', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
-    sb.increment(u(110, 0)); // 110% — exceeded #1
-    sb.increment(u(5, 0)); // exceeded #2
-    sb.preflight(50); // exceeded #3 (preflight refuses)
-    const exceededCount = sent.filter((m) => m.type === 'ai:budget:exceeded').length;
-    expect(exceededCount).toBeGreaterThanOrEqual(3);
+    sb.increment(u(120, 0));
+    sb.increment(u(1, 0));
+    expect(notices.map((n) => n.threshold)).toEqual(['exceeded']);
   });
 
-  it('preflight refuses when projectedTotal > budget', () => {
+  it('preflight refuses when projectedTotal > budget and says so', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
-    sb.increment(u(80, 0));
-    const result = sb.preflight(25); // 80 + 25 = 105 > 100
+    sb.increment(u(70, 0));
+    const result = sb.preflight(35); // 70 + 35 = 105 > 100
     expect(result.allowed).toBe(false);
     expect(result.state.state).toBe('exceeded');
-    expect(sent.some((m) => m.type === 'ai:budget:exceeded')).toBe(true);
+    expect(notices.map((n) => n.threshold)).toEqual(['exceeded']);
   });
 
   it('preflight allows when projectedTotal <= budget', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
-    sb.increment(u(80, 0));
-    const result = sb.preflight(15); // 95 < 100
+    sb.increment(u(70, 0));
+    const result = sb.preflight(25); // 95 <= 100
     expect(result.allowed).toBe(true);
-    expect(sent.some((m) => m.type === 'ai:budget:exceeded')).toBe(false);
+    expect(notices).toEqual([]);
   });
 
-  it('reset clears state and warnFired (next 80% crossing fires warn again)', () => {
+  it('reset clears the count and re-arms the warning notice', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
     sb.increment(u(85, 0));
-    expect(sent.filter((m) => m.type === 'ai:budget:warn').length).toBe(1);
     sb.reset();
     expect(sb.getState().used.total).toBe(0);
     sb.increment(u(85, 0));
-    expect(sent.filter((m) => m.type === 'ai:budget:warn').length).toBe(2);
+    expect(notices.map((n) => n.threshold)).toEqual(['warn', 'warn']);
   });
 
-  it('budget=0 throws at construction', () => {
+  it('resize keeps the count and re-arms the notices the new limit clears', () => {
+    const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
+    sb.increment(u(110, 0));
+    expect(notices.map((n) => n.threshold)).toEqual(['exceeded']);
+
+    sb.resize(1000);
+    expect(sb.getState().used.total).toBe(110);
+    expect(sb.getState().state).toBe('ok');
+    expect(sent.at(-1)?.type).toBe('ai:budget:state');
+
+    sb.increment(u(700, 0)); // 81%
+    sb.increment(u(300, 0)); // 111%
+    expect(notices.map((n) => n.threshold)).toEqual(['exceeded', 'warn', 'exceeded']);
+  });
+
+  it('resize to the current limit changes nothing and sends nothing', () => {
+    const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
+    sb.resize(100);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses a limit that is not a positive number, at construction or resize', () => {
     expect(() => new SessionBudget({ sessionId: 's', budget: 0 })).toThrow(/positive/);
+    const sb = new SessionBudget({ sessionId: 's', budget: 100 });
+    expect(() => sb.resize(-5)).toThrow(/positive/);
+    expect(sb.getState().budget).toBe(100);
+  });
+
+  it('reports to the sink connected last', () => {
+    const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
+    const later = makeBroker();
+    sb.connect(later.broker);
+    sb.increment(u(90, 0));
+    expect(sent).toEqual([]);
+    expect(later.sent.map((m) => m.type)).toEqual(['ai:budget:state']);
+    expect(later.notices.map((n) => n.threshold)).toEqual(['warn']);
   });
 
   it('NaN guard — increment with NaN delta is ignored, state unchanged', () => {
@@ -110,23 +157,16 @@ describe('SessionBudget', () => {
     expect(sb.getState().used.total).toBe(50);
   });
 
-  it('ai:budget:state fires on EVERY increment (mini-bar live update)', () => {
-    const sb = new SessionBudget({ sessionId: 's', budget: 1000, broker });
-    sb.increment(u(10, 0));
-    sb.increment(u(20, 0));
-    sb.increment(u(30, 0));
-    sb.increment(u(40, 0));
-    sb.increment(u(50, 0));
-    const stateMsgs = sent.filter((m) => m.type === 'ai:budget:state');
-    expect(stateMsgs.length).toBe(5);
-  });
-
-  it('settingsKey on exceeded payload is the canonical key', () => {
+  it('sends only ai:budget:state to the webview, on every increment', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 100, broker });
-    sb.increment(u(110, 0));
-    const exceeded = sent.find((m) => m.type === 'ai:budget:exceeded');
-    expect(exceeded).toBeDefined();
-    const payload = exceeded!.payload as { settingsKey: string };
-    expect(payload.settingsKey).toBe('sandforge.ai.tokenBudgetMaxPerSession');
+    sb.increment(u(10, 0));
+    sb.increment(u(80, 0));
+    sb.increment(u(30, 0));
+    sb.preflight(10);
+    expect(sent.map((m) => m.type)).toEqual([
+      'ai:budget:state',
+      'ai:budget:state',
+      'ai:budget:state',
+    ]);
   });
 });

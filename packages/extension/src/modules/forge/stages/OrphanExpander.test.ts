@@ -226,6 +226,110 @@ describe('OrphanExpander', () => {
     expect(report?.samples[0].messages[0]).toContain('Invalid Salesforce record ID');
   });
 
+  it('refuses a malformed parent object name before any describe goes out', async () => {
+    const deps = makeDeps();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'Weird__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Bad/../Name'],
+        nillable: false,
+      },
+    ];
+    const { input } = makeInput(deps, {
+      fieldInfos: fields,
+      records: [{ Id: '02iOLD1', Weird__c: ORPHAN_ID }],
+    });
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(deps.describeFields).not.toHaveBeenCalled();
+    expect(deps.queryRecords).not.toHaveBeenCalled();
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+    const report = expander.buildErrorReport();
+    expect(report?.samples).toHaveLength(1);
+    expect(report?.samples[0].recordSummary).toBe(`Bad/../Name/${ORPHAN_ID}`);
+  });
+
+  it('does not expand a required reference to a job table discovery also excludes', async () => {
+    const deps = makeDeps();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'AsyncApexJobId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['AsyncApexJob'],
+        nillable: false,
+      },
+    ];
+    const { input } = makeInput(deps, {
+      fieldInfos: fields,
+      records: [{ Id: '02iOLD1', AsyncApexJobId: '707AP00000JOB01' }],
+    });
+
+    await new OrphanExpander(deps).expandForNode(input);
+
+    expect(deps.describeFields).not.toHaveBeenCalled();
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+  });
+
+  it('copies a Person Account parent without its computed Name, keeping __pc fields', async () => {
+    const deps = makeDeps({
+      describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Name', queryable: true, createable: true, isReference: false },
+        { name: 'LastName', queryable: true, createable: true, isReference: false },
+        { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+        { name: 'Loyalty__pc', queryable: true, createable: true, isReference: false },
+      ]),
+      queryRecords: vi.fn<ExpanderDeps['queryRecords']>().mockResolvedValue([
+        {
+          Id: ORPHAN_ID,
+          Name: 'Jane Doe',
+          LastName: 'Doe',
+          // The SOAP-normalized form some jsforce paths return.
+          IsPersonAccount: 1,
+          Loyalty__pc: 'Gold',
+        },
+      ]),
+    });
+    const { input } = makeInput(deps);
+
+    await new OrphanExpander(deps).expandForNode(input);
+
+    const [, objectName, payload] = vi.mocked(deps.insertRecords).mock.calls[0];
+    expect(objectName).toBe('Account');
+    expect(payload[0]).toEqual({ LastName: 'Doe', Loyalty__pc: 'Gold' });
+  });
+
+  it('drops __pc fields from a Business Account parent', async () => {
+    const deps = makeDeps({
+      describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Name', queryable: true, createable: true, isReference: false },
+        { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+        { name: 'Loyalty__pc', queryable: true, createable: true, isReference: false },
+      ]),
+      queryRecords: vi
+        .fn<ExpanderDeps['queryRecords']>()
+        .mockResolvedValue([
+          { Id: ORPHAN_ID, Name: 'Acme', IsPersonAccount: null, Loyalty__pc: 'Gold' },
+        ]),
+    });
+    const { input } = makeInput(deps);
+
+    await new OrphanExpander(deps).expandForNode(input);
+
+    const [, , payload] = vi.mocked(deps.insertRecords).mock.calls[0];
+    expect(payload[0]).toEqual({ Name: 'Acme' });
+  });
+
   it('expands more than one wave of orphans (concurrency 4)', async () => {
     const deps = makeDeps();
     const { input } = makeInput(deps, {

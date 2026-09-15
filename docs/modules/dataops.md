@@ -11,15 +11,17 @@ Back up your org data and anonymize sensitive fields from a single tabbed page.
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
 3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (Backup, Restore and Anonymize are wired today)
-4. Start with a backup to establish a restore point before other operations
+4. Start with a backup before other operations
 
 ## Features
 
 ### Backup
 
-Create full or incremental backups of your org data:
+Take a full snapshot of Account and Contact:
 
-- Select objects to include in the backup
+- The objects are fixed: every backup reads Account and Contact, every field
+  of each, up to the org's query limit (2,000 rows on a sandbox). There is no
+  object picker and no incremental mode -- each backup is a new full snapshot
 - Every backup is written to extension storage with per-object record counts, and listed newest-first in the Backup tab
 - One-click backup creation from the Backup Panel
 
@@ -34,7 +36,8 @@ Restore data from a previously saved backup:
 
 - Browse available backups with timestamps and record counts, newest first
 - Select a specific backup and restore it to the current org
-- Point-in-time recovery for precise rollback scenarios
+- A restore puts the whole backup back: there is no choice of records, objects
+  or moment in time, only of which snapshot
 
 What a restore does, in order:
 
@@ -63,34 +66,15 @@ Mask sensitive data using the built-in anonymization templates:
 
 ### Compliance (GDPR/CCPA)
 
-> **Coming soon.** the tab renders the DSR form and PII list but is not connected to a backend — submitting a request sends nothing and no data is loaded. PII _detection_ is live and already runs in the Seed and Sync pre-flight checks.
-
-The GDPR Panel provides compliance-focused data management:
-
-- Data Subject Request (DSR) workflows for access, deletion, and portability
-- PII detection and classification across your org schema
-- Audit-ready reports for regulatory compliance
-- Support for GDPR, CCPA, HIPAA, and PCI DSS frameworks
+> **Coming soon.** The tab shows a coming-soon notice and nothing else: there is no request form, no PII list and no backend behind it. PII _detection_ is live and already runs in the Seed and Sync pre-flight checks.
 
 ### Cleanup
 
-> **Coming soon.** the tab renders against an empty recommendation list; no scan produces one yet.
-
-Remove stale, orphaned, or duplicate records:
-
-- AI-powered recommendations for records to clean up
-- Review recommendations before executing
-- Safe cleanup with pre-operation backup
+> **Coming soon.** The tab shows a coming-soon notice: no scan finds stale, orphaned or duplicate records yet, and nothing deletes them from here.
 
 ### Data Quality
 
-> **Coming soon.** the dashboard renders against an empty result list; no quality scan produces one yet.
-
-A dashboard for monitoring data quality across your org:
-
-- Rule-based validation: completeness, format, consistency, uniqueness, range, and pattern
-- Quality score per object
-- Actionable insights for improving data health
+> **Coming soon.** The tab shows a coming-soon notice: no quality scan runs yet, so there is no score or result to show.
 
 ## Tips
 

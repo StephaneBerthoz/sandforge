@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  # The workflows pin every action to a commit SHA with its version in a
+  # trailing comment. A pin nobody moves stops receiving security fixes, and
+  # the runtime an action was built for is eventually retired: Dependabot
+  # proposes the new commit and rewrites the comment with it.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+
+  # One grouped pull request per week rather than one per package. The waiting
+  # period keeps a release published minutes ago, the usual window for a
+  # compromised version, out of the proposal.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      # vsce refuses to package when @types/vscode is newer than
+      # engines.vscode: this one moves with the supported VS Code version,
+      # never on its own.
+      - dependency-name: '@types/vscode'
+    commit-message:
+      prefix: build

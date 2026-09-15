@@ -1,6 +1,5 @@
 import type {
   JobInsight,
-  TrendData,
   StorageObjectEntry,
   DeploymentEntry,
   ApiUsageCategory,
@@ -653,9 +652,19 @@ export class MonitorOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      // 1. Get limits (uses shared 30s cache)
-      const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
-      const limits = transformLimitsResponse(limitsRaw);
+      // 1. Get limits (uses shared 30s cache) and the recent async jobs at the
+      // same time: neither call needs the other, and awaiting them in turn made
+      // every tick wait for both round trips back to back.
+      //
+      // allSettled, not all: the tick keeps the outcome the sequential order
+      // gave. A /limits failure is the one reported whichever call fails first,
+      // and the alerts below are still evaluated when only the job query fails.
+      const [limitsOutcome, jobsOutcome] = await Promise.allSettled([
+        this.getOrFetchLimits(payload.orgId, conn),
+        queryAll<AsyncApexJobRecord>(conn, ASYNC_APEX_JOB_SOQL),
+      ]);
+      if (limitsOutcome.status === 'rejected') throw limitsOutcome.reason;
+      const limits = transformLimitsResponse(limitsOutcome.value);
       checkApiLimits(conn.limitInfo, 'monitor:refresh limits');
 
       // 1b. Evaluate alerts against each limit
@@ -671,9 +680,10 @@ export class MonitorOpsHandler implements DomainHandler {
         this.alertStateStore.saveHistory(triggeredAlerts);
       }
 
-      // 2. Get async jobs — published for the rest of this refresh so the
+      // 2. The async jobs — published for the rest of this refresh so the
       // health check's jobs signal reads them instead of re-querying the org.
-      const jobRecords = await queryAll<AsyncApexJobRecord>(conn, ASYNC_APEX_JOB_SOQL);
+      if (jobsOutcome.status === 'rejected') throw jobsOutcome.reason;
+      const jobRecords = jobsOutcome.value;
       checkApiLimits(conn.limitInfo, 'monitor:refresh asyncJobs');
       this.inFlightJobRecords.set(payload.orgId, jobRecords);
       if (this.pastDeadline(deadline, 'org info and health check')) return;
@@ -710,70 +720,29 @@ export class MonitorOpsHandler implements DomainHandler {
       this.jobProgress.set(payload.orgId, progress);
       const jobInsights = computeJobInsights(observed, progress, observedAtMs);
 
-      // 3. Record snapshot and compute trends
+      // 3. Record the snapshot and compute the trends, from one read of the
+      // stored history: the series cover the week kept, the verdicts the last day.
       const snapshot = {
         orgId: payload.orgId,
         limits,
         timestamp: new Date().toISOString(),
       };
-      this.trendStorage.record(payload.orgId, snapshot);
-
-      const trends: Record<string, TrendData> = {};
-      for (const limitName of MONITOR_KEY_LIMITS) {
-        trends[limitName] = this.trendStorage.getTrendData(payload.orgId, limitName);
-      }
+      const trends = this.trendStorage.recordAndGetTrends(
+        payload.orgId,
+        snapshot,
+        MONITOR_KEY_LIMITS,
+      );
 
       // 4. Fetch org info (cached, non-blocking failure)
-      let orgInfo: import('@sandforge/shared').OrgInfo | undefined;
-      try {
-        const orgInfoConn: OrgInfoConnection = {
-          identity: async () => {
-            const id = await conn.identity();
-            return {
-              instanceName: ((id as Record<string, unknown>).instance_name as string) ?? '',
-              apiVersion: conn.version ?? SF_LIMITS.DEFAULT_API_VERSION,
-              lastLoginDate:
-                ((id as Record<string, unknown>).last_login_date as string) ??
-                new Date().toISOString(),
-            };
-          },
-          queryOrg: async () => {
-            const org = this.deps.orgManager.getOrg(payload.orgId);
-            const orgRecords = await queryAll<{
-              Name: string;
-              Id: string;
-              OrganizationType: string;
-              NamespacePrefix: string | null;
-              CreatedDate: string;
-            }>(
-              conn,
-              `SELECT Name, Id, OrganizationType, NamespacePrefix, CreatedDate FROM Organization LIMIT 1`,
-            );
-            checkApiLimits(conn.limitInfo, 'monitor:refresh orgInfo');
-            const rec = orgRecords[0];
-            const orgType = org?.orgType ?? 'Sandbox';
-            return {
-              name: rec?.Name ?? org?.alias ?? '',
-              orgId: rec?.Id ?? payload.orgId,
-              type: orgType as 'Production' | 'Sandbox' | 'Scratch' | 'Developer',
-              edition: org?.metadata.edition ?? '',
-            };
-          },
-          queryCount: async (soql: string) => {
-            const result = await conn.query<{ expr0: number }>(soql);
-            return result.totalSize;
-          },
-        };
-        orgInfo = await this.orgInfoFetcher.fetch(payload.orgId, orgInfoConn);
-      } catch (infoErr) {
-        this.deps.log(`[WARN] OrgInfo fetch failed: ${String(infoErr)}`);
-      }
+      const orgInfo = await this.fetchOrgInfo(payload.orgId, conn);
 
-      // 5. Calculate health report (after orgInfo so metadata dimensions can be included)
+      // 5. Calculate health report (after orgInfo so metadata dimensions can be
+      // included). It reads the trends just computed rather than the store,
+      // which would re-read and re-parse the history once per limit.
       const healthReport = this.healthCalculator.calculate({
         limits,
         orgId: payload.orgId,
-        trendStorage: this.trendStorage,
+        trends,
         orgInfo,
       });
       const healthScore = healthReport.overallScore;
@@ -811,6 +780,64 @@ export class MonitorOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * The org info the dashboard shows and the health score's metadata dimension
+   * reads, through the fetcher's 5-minute cache. A failure is logged and gives
+   * `undefined`: org info never fails the reply that asked for it.
+   *
+   * @param orgId - Org whose info to fetch.
+   * @param conn - Connection to that org.
+   */
+  private async fetchOrgInfo(
+    orgId: string,
+    conn: Connection,
+  ): Promise<import('@sandforge/shared').OrgInfo | undefined> {
+    try {
+      const orgInfoConn: OrgInfoConnection = {
+        identity: async () => {
+          const id = await conn.identity();
+          return {
+            instanceName: ((id as Record<string, unknown>).instance_name as string) ?? '',
+            apiVersion: conn.version ?? SF_LIMITS.DEFAULT_API_VERSION,
+            lastLoginDate:
+              ((id as Record<string, unknown>).last_login_date as string) ??
+              new Date().toISOString(),
+          };
+        },
+        queryOrg: async () => {
+          const org = this.deps.orgManager.getOrg(orgId);
+          const orgRecords = await queryAll<{
+            Name: string;
+            Id: string;
+            OrganizationType: string;
+            NamespacePrefix: string | null;
+            CreatedDate: string;
+          }>(
+            conn,
+            `SELECT Name, Id, OrganizationType, NamespacePrefix, CreatedDate FROM Organization LIMIT 1`,
+          );
+          checkApiLimits(conn.limitInfo, 'monitor:refresh orgInfo');
+          const rec = orgRecords[0];
+          const orgType = org?.orgType ?? 'Sandbox';
+          return {
+            name: rec?.Name ?? org?.alias ?? '',
+            orgId: rec?.Id ?? orgId,
+            type: orgType as 'Production' | 'Sandbox' | 'Scratch' | 'Developer',
+            edition: org?.metadata.edition ?? '',
+          };
+        },
+        queryCount: async (soql: string) => {
+          const result = await conn.query<{ expr0: number }>(soql);
+          return result.totalSize;
+        },
+      };
+      return await this.orgInfoFetcher.fetch(orgId, orgInfoConn);
+    } catch (infoErr) {
+      this.deps.log(`[WARN] OrgInfo fetch failed: ${String(infoErr)}`);
+      return undefined;
+    }
+  }
+
   private handleLiveOperations(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const operations = this.liveOperationTracker?.getAll() ?? [];
@@ -839,10 +866,15 @@ export class MonitorOpsHandler implements DomainHandler {
       );
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
+      // The org info monitor:data scores with. Without it the metadata
+      // dimension drops out, and this score is weighed over other factors
+      // than the one the dashboard shows for the same org.
+      const orgInfo = await this.fetchOrgInfo(payload.orgId, conn);
       const healthReport = this.healthCalculator.calculate({
         limits,
         orgId: payload.orgId,
         trendStorage: this.trendStorage,
+        orgInfo,
       });
 
       const dimensions = healthReport.factors.map((f) => ({

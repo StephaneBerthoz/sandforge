@@ -192,16 +192,20 @@ describe('SchemaCache', () => {
     expect(cache.get('key')).toBeUndefined();
   });
 
-  it('should increment access count on get', () => {
-    const cache = new SchemaCache<string>();
-    cache.set('key', 'value');
+  it('should evict the least recently read entry, not the oldest written one', () => {
+    const cache = new SchemaCache<string>({ maxSize: 2 });
+    cache.set('first', 'v1');
+    vi.advanceTimersByTime(10);
+    cache.set('second', 'v2');
+    vi.advanceTimersByTime(10);
 
-    // Access multiple times - verifying via LRU behavior
-    cache.get('key');
-    cache.get('key');
+    // Reading "first" makes "second" the least recently used entry.
+    expect(cache.get('first')).toBe('v1');
+    vi.advanceTimersByTime(10);
+    cache.set('third', 'v3');
 
-    // Key should still be accessible
-    expect(cache.get('key')).toBe('value');
+    expect(cache.keys().sort()).toEqual(['first', 'third']);
+    expect(cache.get('second')).toBeUndefined();
   });
 
   it('should track estimatedBytes', () => {

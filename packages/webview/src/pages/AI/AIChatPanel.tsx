@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AIProviderStatusMessage, AIBudgetStateMessage } from '@sandforge/shared';
+import type {
+  AIProviderStatusMessage,
+  AIBudgetStateMessage,
+  AIStatusResponse,
+} from '@sandforge/shared';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Spinner } from '../../components/ui/Spinner';
-import { useMessageListener } from '../../hooks/useMessageBus';
+import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { AIProviderStatusBanner, type AIProviderState } from './components/AIProviderStatusBanner';
 import { TokenBudgetIndicator, type TokenBudgetState } from './components/TokenBudgetIndicator';
 
@@ -69,8 +74,17 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setProviderStatus(msg.payload);
   });
 
+  const sendMessage = useSendMessage();
   const [budgetState, setBudgetState] = useState<TokenBudgetState | null>(null);
   useMessageListener<AIBudgetStateMessage>('ai:budget:state', (msg) => setBudgetState(msg.payload));
+  // The budget outlives this panel. Ask the host for it on mount rather than
+  // wait for the next AI call to push it; a status without one changes nothing.
+  useMessageListener<AIStatusResponse>('ai:status:response', (msg) => {
+    if (msg.payload.budget) setBudgetState(msg.payload.budget);
+  });
+  useEffect(() => {
+    sendMessage(buildMessage('ai:status'));
+  }, [sendMessage]);
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {

@@ -3,7 +3,7 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-#   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 #   4. VSIX package    — pnpm package, published as a pipeline artifact
 #
 # There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
@@ -15,7 +15,11 @@
 #     - SFDX_AUTH_URL_TARGET: sfdx auth URL of the target sandbox (secret)
 #     - SANDFORGE_SF_ORGS: set to 'true' to enable the Clone stage
 #     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
-#     - SLACK_WEBHOOK_URL: (optional) Slack webhook for failure notifications (secret)
+#
+# This example sends no failure message of its own: Azure DevOps notifies on
+# a failed run through Project settings > Notifications.
+#
+# `main` below stands for your default branch; rename it if yours differs.
 
 trigger:
   branches:
@@ -33,7 +37,7 @@ schedules:
 
 parameters:
   - name: dryRun
-    displayName: 'Dry Run Mode (clone/cleanup write nothing)'
+    displayName: 'Dry Run Mode (the clone writes nothing; cleanup is always a preview)'
     type: boolean
     default: true
 
@@ -63,8 +67,9 @@ stages:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@11
-            displayName: 'Install pnpm'
+          # pnpm comes from the `packageManager` pin in package.json.
+          - script: corepack enable
+            displayName: 'Enable pnpm'
 
           - script: pnpm install --frozen-lockfile
             displayName: 'Install dependencies'
@@ -81,31 +86,43 @@ stages:
   - stage: Clone
     displayName: 'Forge Clone (sandforge-clone)'
     dependsOn: Quality
-    # Only runs when sf org secrets have been configured
-    condition: eq(variables['SANDFORGE_SF_ORGS'], 'true')
+    # Only runs after the quality gates pass, and when sf org secrets and a
+    # record to clone have been configured. A custom condition drops the
+    # implicit succeeded(), so it is spelled out.
+    condition: and(succeeded(), eq(variables['SANDFORGE_SF_ORGS'], 'true'), ne(variables['SF_CLONE_RECORD_ID'], ''))
     jobs:
       - job: CloneRecords
-        displayName: 'Clone record graph + cleanup dry-run'
+        displayName: 'Clone record graph + cleanup preview'
         steps:
           - task: NodeTool@0
             inputs:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@11 @salesforce/cli
-            displayName: 'Install pnpm and Salesforce CLI'
+          - script: |
+              corepack enable
+              npm install -g @salesforce/cli
+            displayName: 'Enable pnpm and install Salesforce CLI'
 
           - script: |
               pnpm install --frozen-lockfile
               pnpm build:shared
             displayName: 'Install dependencies and build shared'
 
+          # The URLs go to a private directory that is removed when this shell
+          # exits, a failed login included: self-hosted agents keep /tmp.
           - script: |
-              echo "$(SFDX_AUTH_URL_SOURCE)" > /tmp/auth-source.txt
-              echo "$(SFDX_AUTH_URL_TARGET)" > /tmp/auth-target.txt
-              sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source
-              sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target
-              rm -f /tmp/auth-source.txt /tmp/auth-target.txt
+              umask 077
+              auth_dir=$(mktemp -d)
+              trap 'rm -rf "$auth_dir"' EXIT
+              printf '%s' "$SFDX_AUTH_URL_SOURCE" > "$auth_dir/source.txt"
+              printf '%s' "$SFDX_AUTH_URL_TARGET" > "$auth_dir/target.txt"
+              sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
+              sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
+            env:
+              # Secret variables reach a script only through an explicit mapping.
+              SFDX_AUTH_URL_SOURCE: $(SFDX_AUTH_URL_SOURCE)
+              SFDX_AUTH_URL_TARGET: $(SFDX_AUTH_URL_TARGET)
             displayName: 'Authenticate source and target orgs'
 
           - script: |
@@ -120,12 +137,15 @@ stages:
                 > clone-summary.json
             displayName: 'Clone record graph (sandforge-clone)'
 
+          # Always a preview, whatever dryRun says: `--since today` matches
+          # every record the CI user created today, not only the ones this
+          # clone wrote. Run the real delete by hand once you have read the counts.
           - script: |
               pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
                 --target ci-target \
                 --since today \
-                $(dryRunFlag)
-            displayName: 'Cleanup cloned records (sandforge-cleanup)'
+                --dry-run
+            displayName: 'Preview cleanup (sandforge-cleanup, dry-run)'
 
           - task: PublishPipelineArtifact@1
             condition: always()
@@ -154,8 +174,9 @@ stages:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@11
-            displayName: 'Install pnpm'
+          # pnpm comes from the `packageManager` pin in package.json.
+          - script: corepack enable
+            displayName: 'Enable pnpm'
 
           - script: pnpm install --frozen-lockfile
             displayName: 'Install dependencies'

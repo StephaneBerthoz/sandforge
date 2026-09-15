@@ -22,8 +22,8 @@ SandForge offers three Seed modes accessible from a card-based mode selector:
 The classic 4-step wizard for AI-powered data generation:
 
 - **Step 1 -- Select:** Choose an org, pick objects from the schema list, and set record volumes. The NL2SOQL helper lets you describe what you need in plain English.
-- **Step 2 -- Configure:** Customize field generation rules per object. Adjust batch sizes, configure parent-child relationships, and review PII warnings.
-- **Step 3 -- Execute:** Real-time progress tracking per object with a live progress bar.
+- **Step 2 -- Configure:** Customize field generation rules per object and review PII warnings. A Faker rule takes its method from the list of methods SandForge generates; a template or persona that names any other method is refused before the first record is written, with the object and field it sits on. A lookup field receives the ids of records its target object created earlier in the same run, so that object has to be part of the run; there is no editor for relationships.
+- **Step 3 -- Execute:** Progress is reported as each object starts, with the records written so far and a live progress bar.
 - **Step 4 -- Results:** Summary badge (success/partial/failure), records created vs. failed, per-object breakdown. Save as template, export CSV, or seed again.
 
 **Quick Seed** lets you skip configuration entirely: select a template from the gallery, pick your org, and seed in 1 click.
@@ -69,14 +69,15 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 ### AI and NL2SOQL
 
 - NL2SOQL translates natural language into SOQL. It describes up to five objects your request names, gives the model their field API names, and rejects a draft that selects a plain field they do not have -- a relationship path such as `Account.Name`, and any item carrying a bracket such as `COUNT(Id)`, are left to the org to judge. A draft where no plain field was compared comes back with a line saying so, naming the case: no object the org recognises was named, or the draft selects nothing but related-record paths and totals
-- AI Data Generation creates context-aware realistic values using Anthropic (Claude); additional providers are planned
+- AI Data Generation creates context-aware realistic values using Anthropic (Claude); additional providers are planned. When AI is off, or a call is refused (missing key, token budget) or returns fewer values than asked, the fields it left empty receive a generated sentence instead and the run continues; the refusal is written to the SandForge log. Because the value is always text, the wizard offers AI generation only on text and long text fields, and a run whose rules name a number, date, checkbox, email or picklist field type for it is refused before the first insert (wizard runs always name the field type; a template that omits it is not checked)
+- Personas you create from a description keep only the patterns Seed can generate: a pattern naming an unknown generator or Faker method is dropped, and numeric params written as text are read as numbers
 - PII Scanner auto-detects sensitive fields (email, phone, address, SSN, etc.) with confidence scores
 
 ### Dependency Resolution
 
 - Automatic topological sort of parent-child relationships before insert
 - Cycle detection with clear error messages
-- Visual relationship editor in Advanced Settings
+- Lookup fields point at records their target object inserted earlier in the same run; relationships cannot be edited by hand
 - Configurable depth: Direct (1 level), Full (all levels), or Custom (N levels)
 
 ### Templates and Export

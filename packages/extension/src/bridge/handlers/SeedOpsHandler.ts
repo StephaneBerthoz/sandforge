@@ -1,4 +1,9 @@
-import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
+import type {
+  SeedTemplate,
+  PersonaMsg,
+  SeedExecutionResult,
+  SeedExecuteRequest,
+} from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -44,6 +49,7 @@ import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
 
 /** Record count threshold above which streaming pipeline is used per object. */
 const STREAMING_THRESHOLD = 10_000;
@@ -73,6 +79,34 @@ function buildOfflineReplayHint(
     offlineReplayAvailable: false,
     retryHint:
       'Seed operations are not queued for offline replay (inserts are not idempotent — replaying could duplicate records). Re-run the template manually once the org is reachable again.',
+  };
+}
+
+/**
+ * Created ids and error messages posted back per object, at most. The whole
+ * lists went over the bridge: a 50,000-record seed serialised 50,000 ids into
+ * one message for a results step that shows counts. recordsCreated and
+ * recordsFailed keep the totals, and `truncated` says the lists were cut.
+ */
+const MAX_RESULT_ENTRIES_PER_OBJECT = 1_000;
+
+/** The result as it is posted to the webview, with its per-object lists capped. */
+function capResultForBridge(result: SeedExecutionResult): SeedExecutionResult {
+  if (!Array.isArray(result.objectResults)) return result;
+  return {
+    ...result,
+    objectResults: result.objectResults.map((objectResult) => {
+      const truncated =
+        objectResult.createdIds.length > MAX_RESULT_ENTRIES_PER_OBJECT ||
+        objectResult.errors.length > MAX_RESULT_ENTRIES_PER_OBJECT;
+      if (!truncated) return objectResult;
+      return {
+        ...objectResult,
+        createdIds: objectResult.createdIds.slice(0, MAX_RESULT_ENTRIES_PER_OBJECT),
+        errors: objectResult.errors.slice(0, MAX_RESULT_ENTRIES_PER_OBJECT),
+        truncated,
+      };
+    }),
   };
 }
 
@@ -369,8 +403,9 @@ export class SeedOpsHandler implements DomainHandler {
    * Build the AI call function for seed data generation.
    * When AI is enabled, routes prompts through the unified client (breaker +
    * budget). When AI is disabled — or when a call fails (missing key, open
-   * breaker, network) — returns '[]' so FieldMapper gracefully falls back to
-   * FakerFallback instead of failing the whole seed operation.
+   * breaker, token budget, network) — returns '[]': FieldMapper then fills
+   * every ai_generate field the call left empty with a generated sentence,
+   * so the run continues and the refusal is only logged.
    */
   private buildSeedCallAI(): (prompt: string) => Promise<string> {
     const services = this.deps.services;
@@ -484,8 +519,11 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(seedExecutePayloadSchema, msg, 'seed:error', this.deps);
-    if (!parsed) return;
+    const validated = validatePayload(seedExecutePayloadSchema, msg, 'seed:error', this.deps);
+    if (!validated) return;
+    // The declared message type must accept what the schema lets through:
+    // this assignment fails to compile when the two drift apart.
+    const parsed: SeedExecuteRequest['payload'] & typeof validated = validated;
     const operationId = crypto.randomUUID();
 
     try {
@@ -645,6 +683,18 @@ export class SeedOpsHandler implements DomainHandler {
         },
       });
       const handlerDeps = this.deps;
+      // Records written before the insert now running, and the run's total,
+      // from the orchestrator's report before each object and each partition.
+      // The bulk paths count within one insert call; offsetting them keeps the
+      // overall bar from dropping back to 0 when the next call starts.
+      const runProgress = { base: 0, total: 0 };
+      const reportInsertProgress = (processed: number, total: number, step: string): void => {
+        const overall = runProgress.base + processed;
+        const overallTotal = Math.max(runProgress.total, overall, total, 1);
+        const pct = Math.round((overall / overallTotal) * 100);
+        sendOperationProgress(handlerDeps, operationId, pct, overall, overallTotal, step);
+        this.liveTracker?.updateProgress(operationId, pct, overall, overallTotal, step);
+      };
 
       const insertFn = async (
         _orgId: string,
@@ -659,22 +709,7 @@ export class SeedOpsHandler implements DomainHandler {
             connection: conn as unknown as BulkApiConnection,
             bulkManager,
             onProgress: (processed, total) => {
-              const pct = Math.round((processed / total) * 100);
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                pct,
-                processed,
-                total,
-                `Streaming insert ${objectApiName}`,
-              );
-              this.liveTracker?.updateProgress(
-                operationId,
-                pct,
-                processed,
-                total,
-                `Streaming insert ${objectApiName}`,
-              );
+              reportInsertProgress(processed, total, `Streaming insert ${objectApiName}`);
             },
           };
           const streamResult = await chunkedExecutor.executeChunked(
@@ -696,22 +731,7 @@ export class SeedOpsHandler implements DomainHandler {
             connection: conn as unknown as BulkApiConnection,
             bulkManager,
             onProgress: (processed, total) => {
-              const pct = Math.round((processed / total) * 100);
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                pct,
-                processed,
-                total,
-                `Bulk insert ${objectApiName}`,
-              );
-              this.liveTracker?.updateProgress(
-                operationId,
-                pct,
-                processed,
-                total,
-                `Bulk insert ${objectApiName}`,
-              );
+              reportInsertProgress(processed, total, `Bulk insert ${objectApiName}`);
             },
           };
           const bulkResult = await bulkExecutor.executeBulk(
@@ -794,6 +814,11 @@ export class SeedOpsHandler implements DomainHandler {
         grappeAdapter: new SeedGrappeAdapter(() => crypto.randomUUID(), grappeConfig?.grappeSize),
         grappeConfig,
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
+        onProgress: (event: SeedProgressEvent) => {
+          runProgress.base = event.processedRecords;
+          runProgress.total = event.totalRecords;
+          reportInsertProgress(0, event.totalRecords, `Insert ${event.objectApiName}`);
+        },
       };
       if (!this.deps.services) {
         throw new Error(
@@ -806,7 +831,7 @@ export class SeedOpsHandler implements DomainHandler {
       sendOperationProgress(
         this.deps,
         operationId,
-        10,
+        0,
         0,
         1,
         'Validating template and building plan',
@@ -823,7 +848,7 @@ export class SeedOpsHandler implements DomainHandler {
         this.deps,
         msg,
         'seed:execute:response',
-        result as unknown as Record<string, unknown>,
+        capResultForBridge(result) as unknown as Record<string, unknown>,
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);

@@ -128,6 +128,15 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'The retry panel was removed; the replay path stays reachable via sync:history:rerun.',
   },
   { channel: 'realtime:status', reason: 'CDC stores send start/stop/metrics; status is unused.' },
+  {
+    channel: 'operation:cancel',
+    reason: 'Live Ops lists Seed and Sync runs, which stop on execution:abort instead.',
+  },
+  {
+    channel: 'operation:pause',
+    reason: 'No page pauses a pipeline run; Seed and Sync cannot pause.',
+  },
+  { channel: 'operation:resume', reason: 'Same — nothing is paused, so nothing resumes.' },
 ];
 
 function repoPath(...parts: string[]): string {

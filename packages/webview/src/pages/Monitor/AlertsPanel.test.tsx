@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import type { AlertInstance } from '@sandforge/shared';
@@ -12,6 +12,12 @@ const mockAcknowledgeMutate = vi.fn();
 const mockAcknowledgeReset = vi.fn();
 const mockDismissMutate = vi.fn();
 const mockDismissReset = vi.fn();
+
+/** The extension's answer to each mutation, as the panel sees it. */
+const mutationReplies: {
+  acknowledge: { success: boolean } | null;
+  dismiss: { success: boolean } | null;
+} = { acknowledge: null, dismiss: null };
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => ({
@@ -27,7 +33,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'monitor:alert:acknowledge') {
       return {
         mutate: mockAcknowledgeMutate,
-        data: null,
+        data: mutationReplies.acknowledge,
         loading: false,
         error: null,
         reset: mockAcknowledgeReset,
@@ -36,7 +42,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'monitor:alert:dismiss') {
       return {
         mutate: mockDismissMutate,
-        data: null,
+        data: mutationReplies.dismiss,
         loading: false,
         error: null,
         reset: mockDismissReset,
@@ -153,5 +159,40 @@ describe('AlertsPanel', () => {
   it('should show no alerts message when empty', () => {
     render(<AlertsPanel alerts={[]} />);
     expect(screen.getByText('No active alerts')).toBeDefined();
+  });
+
+  describe('after an acknowledge or dismiss succeeds', () => {
+    // Given its alerts, the panel's own query is skipped: refetching it would
+    // reach nobody, and the history panel fed by the same owner would keep the
+    // old status. The owner is the one asked to read the alerts again.
+    beforeEach(() => {
+      mockAlertsRefetch.mockClear();
+      mutationReplies.acknowledge = null;
+      mutationReplies.dismiss = null;
+    });
+
+    it.each(['acknowledge', 'dismiss'] as const)(
+      'asks the owner of the alerts to read them again after a %s',
+      (action) => {
+        const onAlertsChanged = vi.fn();
+        const { rerender } = render(
+          <AlertsPanel alerts={mockAlerts} onAlertsChanged={onAlertsChanged} />,
+        );
+        expect(onAlertsChanged).not.toHaveBeenCalled();
+
+        mutationReplies[action] = { success: true };
+        rerender(<AlertsPanel alerts={[...mockAlerts]} onAlertsChanged={onAlertsChanged} />);
+
+        expect(onAlertsChanged).toHaveBeenCalledTimes(1);
+        expect(mockAlertsRefetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refetches its own query when nobody else owns the alerts', () => {
+      const { rerender } = render(<AlertsPanel />);
+      mutationReplies.acknowledge = { success: true };
+      rerender(<AlertsPanel className="changed" />);
+      expect(mockAlertsRefetch).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -4,7 +4,7 @@ import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore, resetNotificationCounter } from '../../stores/useNotificationStore';
 import { MonitorPage } from './MonitorPage';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { AlertInstance, SalesforceOrg } from '@sandforge/shared';
 
 const mockNavigate = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
@@ -46,43 +46,64 @@ let mockOpenApexJobsState = {
   error: null as string | null,
 };
 
-vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => {
-    if (type === 'monitor:refresh') {
-      return mockMonitorQueryState;
-    }
-    // AlertsPanel query — return empty alerts by default
-    if (type === 'monitor:alerts') {
-      return { data: { alerts: [] }, loading: false, error: null, refetch: vi.fn() };
-    }
-    // New panels — return empty data by default
-    if (type === 'monitor:storage') {
-      return {
-        data: { success: true, objects: [], totalRecords: 0 },
-        loading: false,
-        error: null,
-        refetch: vi.fn(),
-      };
-    }
-    if (type === 'monitor:deployments') {
-      return {
-        data: { success: true, deployments: [] },
-        loading: false,
-        error: null,
-        refetch: vi.fn(),
-      };
-    }
-    if (type === 'monitor:api-usage') {
-      return {
-        data: { success: true, categories: [] },
-        loading: false,
-        error: null,
-        refetch: vi.fn(),
-      };
-    }
-    return { data: null, loading: false, error: null, refetch: vi.fn() };
-  },
-}));
+/** `monitor:alerts` messages sent by mounted, non-skipped queries. */
+const alertQueries = vi.hoisted(() => ({ sent: 0 }));
+
+/** What `monitor:alerts:result` answers in the current test. */
+let mockAlertsData: { alerts: AlertInstance[]; history: AlertInstance[] } = {
+  alerts: [],
+  history: [],
+};
+
+vi.mock('../../hooks/useBridgeQuery', async () => {
+  const { useEffect } = await import('react');
+  return {
+    useBridgeQuery: (type: string, _payload?: unknown, options?: { skip?: boolean }) => {
+      // The real hook sends its request from an effect, once per mounted query
+      // that is not skipped; counting the same way counts the messages.
+      const skip = options?.skip ?? false;
+      useEffect(() => {
+        if (type === 'monitor:alerts' && !skip) alertQueries.sent += 1;
+      }, [type, skip]);
+      return bridgeQueryAnswer(type);
+    },
+  };
+});
+
+function bridgeQueryAnswer(type: string) {
+  if (type === 'monitor:refresh') {
+    return mockMonitorQueryState;
+  }
+  if (type === 'monitor:alerts') {
+    return { data: mockAlertsData, loading: false, error: null, refetch: vi.fn() };
+  }
+  // New panels — return empty data by default
+  if (type === 'monitor:storage') {
+    return {
+      data: { success: true, objects: [], totalRecords: 0 },
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+  }
+  if (type === 'monitor:deployments') {
+    return {
+      data: { success: true, deployments: [] },
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+  }
+  if (type === 'monitor:api-usage') {
+    return {
+      data: { success: true, categories: [] },
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+  }
+  return { data: null, loading: false, error: null, refetch: vi.fn() };
+}
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
@@ -166,6 +187,8 @@ describe('MonitorPage', () => {
       refetch: mockRefetch,
     };
     mockOpenApexJobsState = { data: null, loading: false, error: null };
+    alertQueries.sent = 0;
+    mockAlertsData = { alerts: [], history: [] };
   });
 
   afterEach(() => {
@@ -1023,6 +1046,43 @@ describe('MonitorPage', () => {
 
     expect(screen.getByTestId('limit-export-btn')).toBeDefined();
     expect(screen.getByText('Export CSV')).toBeDefined();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Alerts                                                            */
+  /* ---------------------------------------------------------------- */
+
+  function renderDashboard(): void {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+  }
+
+  it('asks the extension for the alerts once, however many panels show them', () => {
+    const activeAlert: AlertInstance = {
+      id: 'alert-1',
+      definitionId: 'def-1',
+      severity: 'critical',
+      status: 'active',
+      message: 'API usage above 90%',
+      currentValue: 92,
+      threshold: 90,
+      orgId: 'org-1',
+      triggeredAt: '2026-03-20T14:30:00.000Z',
+    };
+    mockAlertsData = { alerts: [activeAlert], history: [activeAlert] };
+
+    renderDashboard();
+
+    // Both panels are on screen: the active list and the history timeline.
+    expect(screen.getByTestId('alert-alert-1')).toBeDefined();
+    expect(screen.getByTestId('history-entry-alert-1')).toBeDefined();
+    expect(alertQueries.sent).toBe(1);
   });
 
   /* ---------------------------------------------------------------- */

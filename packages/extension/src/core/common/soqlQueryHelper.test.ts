@@ -119,6 +119,115 @@ describe('soqlQueryHelper', () => {
   });
 
   describe('queryWithFieldsFallback', () => {
+    /** jsforce's HttpApiError: the code travels in `errorCode` and `name`, never in the message. */
+    function platformError(message: string, errorCode: string): Error {
+      const err = new Error(message);
+      err.name = errorCode;
+      return Object.assign(err, { errorCode });
+    }
+
+    it('retries with the described fields when the org refuses the query by error code alone', async () => {
+      mockConn.query
+        .mockRejectedValueOnce(
+          platformError(
+            'The SOQL FIELDS function must have a LIMIT of at most 200',
+            'MALFORMED_QUERY',
+          ),
+        )
+        .mockResolvedValueOnce(makeQueryResult([{ Id: '001', Name: 'Acme' }], true));
+      mockConn.describe.mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] });
+
+      const result = await queryWithFieldsFallback<TestRecord>(
+        mockConn as unknown as Connection,
+        'Account',
+        'SELECT FIELDS(ALL) FROM Account LIMIT 200',
+      );
+
+      expect(result).toEqual([{ Id: '001', Name: 'Acme' }]);
+      expect(mockConn.query).toHaveBeenLastCalledWith('SELECT Id, Name FROM Account LIMIT 200');
+    });
+
+    it('still surfaces a refusal whose code has nothing to do with FIELDS()', async () => {
+      mockConn.query.mockRejectedValueOnce(
+        platformError('Session expired or invalid', 'INVALID_SESSION_ID'),
+      );
+
+      await expect(
+        queryWithFieldsFallback<TestRecord>(
+          mockConn as unknown as Connection,
+          'Account',
+          'SELECT FIELDS(ALL) FROM Account LIMIT 200',
+        ),
+      ).rejects.toThrow('Session expired or invalid');
+      expect(mockConn.describe).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a LIMIT above 200', 'SELECT FIELDS(ALL) FROM Account LIMIT 500', ' LIMIT 500'],
+      ['no LIMIT at all', 'SELECT FIELDS(ALL) FROM Account', ''],
+    ])(
+      'never sends the FIELDS(ALL) query the platform refuses with %s',
+      async (_case, soql, tail) => {
+        mockConn.describe.mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] });
+        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001', Name: 'Acme' }], true));
+
+        const result = await queryWithFieldsFallback<TestRecord>(
+          mockConn as unknown as Connection,
+          'Account',
+          soql,
+        );
+
+        expect(result).toEqual([{ Id: '001', Name: 'Acme' }]);
+        expect(mockConn.query).toHaveBeenCalledTimes(1);
+        expect(mockConn.query).toHaveBeenCalledWith(`SELECT Id, Name FROM Account${tail}`);
+      },
+    );
+
+    describe('on an object too wide to name its fields in the query', () => {
+      // jsforce sends a query as a GET with the SOQL in the URL, so every
+      // described field lengthens it. 700 custom fields encode to about 27,000
+      // characters.
+      const wideDescribe = {
+        fields: Array.from({ length: 700 }, (_, i) => ({
+          name: `Custom_Field_${String(i).padStart(3, '0')}__c`,
+          custom: true,
+        })),
+      };
+
+      it('samples through FIELDS(ALL) at the 200 rows the platform allows', async () => {
+        mockConn.describe.mockResolvedValue(wideDescribe);
+        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
+
+        await queryWithFieldsFallback<TestRecord>(
+          mockConn as unknown as Connection,
+          'Account',
+          'SELECT FIELDS(ALL) FROM Account LIMIT 500',
+        );
+
+        expect(mockConn.query).toHaveBeenCalledTimes(1);
+        const sent = String(mockConn.query.mock.calls[0][0]);
+        expect(sent).toBe('SELECT FIELDS(ALL) FROM Account LIMIT 200');
+        expect(encodeURIComponent(sent).length).toBeLessThanOrEqual(15_000);
+      });
+
+      it('still names every field when the query reads without a LIMIT', async () => {
+        // Capping it at 200 rows would silently drop records the caller reads
+        // in full, so the long query is sent and a refusal surfaces as one.
+        mockConn.describe.mockResolvedValue(wideDescribe);
+        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
+
+        await queryWithFieldsFallback<TestRecord>(
+          mockConn as unknown as Connection,
+          'Account',
+          'SELECT FIELDS(ALL) FROM Account',
+        );
+
+        const sent = String(mockConn.query.mock.calls[0][0]);
+        expect(sent).toContain('Custom_Field_699__c');
+        expect(sent).not.toContain('LIMIT');
+      });
+    });
+
     it('should return results directly when FIELDS() syntax is supported', async () => {
       const records = [{ Id: '001', Name: 'Acme', Industry: 'Tech' }];
       mockConn.query.mockResolvedValue(makeQueryResult(records, true));

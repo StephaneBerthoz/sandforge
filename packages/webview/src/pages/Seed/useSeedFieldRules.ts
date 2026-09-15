@@ -1,10 +1,40 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { FieldRuleType, PersonaMsg, PersonaFieldPatternMsg } from '@sandforge/shared';
-import { personaPatternToFieldRule } from '@sandforge/shared';
+import { acceptsGeneratedSentence, personaPatternToFieldRule } from '@sandforge/shared';
 
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import type { ObjectFieldConfig, FieldConfig } from './Step3_ConfigureFields';
+
+/**
+ * Give every field a persona has a pattern for the rule that pattern
+ * translates to, and count them. Fields without a pattern, or whose generator
+ * has no rule type, are returned unchanged.
+ */
+function applyPersonaToFields(
+  fields: FieldConfig[],
+  persona: PersonaMsg,
+): { fields: FieldConfig[]; matched: number } {
+  let matched = 0;
+  const next = fields.map((field) => {
+    const pattern: PersonaFieldPatternMsg | undefined = persona.dataPatterns[field.fieldApiName];
+    if (!pattern) return field;
+
+    // Persona vocabulary (`generator` + free-form `params`) → seed
+    // contract (`FieldRuleType` + `FieldRuleConfig`). Both shapes are
+    // declared in @sandforge/shared, and so is the translation.
+    const rule = personaPatternToFieldRule(pattern);
+    if (!rule) return field;
+    // The described type decides, not the one the persona assumed: AI
+    // generation writes text, which the run refuses on any other field.
+    if (rule.ruleType === 'ai_generate' && !acceptsGeneratedSentence(field.type)) return field;
+
+    matched++;
+    return { ...field, ruleType: rule.ruleType, config: { ...rule.config } };
+  });
+  return { fields: next, matched };
+}
 
 /** Field description from describe-object response. */
 interface DescribedField {
@@ -57,6 +87,14 @@ export function useSeedFieldRules(
   currentStep: number,
 ): SeedFieldRulesState {
   const [fieldConfigs, setFieldConfigs] = useState<ObjectFieldConfig[]>([]);
+  const fieldConfigsRef = useRef(fieldConfigs);
+  fieldConfigsRef.current = fieldConfigs;
+
+  // Read through a ref so that picking a persona does not re-run the describe
+  // mapping below, which would reset the last described object's rules.
+  const selectedPersona = useSeedWizardStore((s) => s.selectedPersona);
+  const selectedPersonaRef = useRef(selectedPersona);
+  selectedPersonaRef.current = selectedPersona;
 
   const describeFieldsMutation = useBridgeMutation<{
     objectApiName: string;
@@ -68,27 +106,32 @@ export function useSeedFieldRules(
   useEffect(() => {
     if (!describeFieldsMutation.data) return;
     const { objectApiName, objectLabel, fields } = describeFieldsMutation.data;
+    const describedFields = fields.map(
+      (f: DescribedField): FieldConfig => ({
+        fieldApiName: f.fieldApiName,
+        label: f.label,
+        type: f.type,
+        required: f.required,
+        ruleType:
+          f.referenceTo.length > 0
+            ? 'reference'
+            : f.type === 'picklist'
+              ? 'picklist_random'
+              : 'faker',
+        config:
+          f.referenceTo.length > 0
+            ? { referenceObject: f.referenceTo[0], referenceField: 'Id' }
+            : {},
+      }),
+    );
+    // Objects are described one at a time, and the wizard applies a persona
+    // once per persona: an object whose describe arrived after that got none
+    // of its rules. The selected persona now shapes each object as it arrives.
+    const persona = selectedPersonaRef.current;
     const fieldConfig: ObjectFieldConfig = {
       objectApiName,
       objectLabel,
-      fields: fields.map(
-        (f: DescribedField): FieldConfig => ({
-          fieldApiName: f.fieldApiName,
-          label: f.label,
-          type: f.type,
-          required: f.required,
-          ruleType:
-            f.referenceTo.length > 0
-              ? 'reference'
-              : f.type === 'picklist'
-                ? 'picklist_random'
-                : 'faker',
-          config:
-            f.referenceTo.length > 0
-              ? { referenceObject: f.referenceTo[0], referenceField: 'Id' }
-              : {},
-        }),
-      ),
+      fields: persona ? applyPersonaToFields(describedFields, persona).fields : describedFields,
     };
 
     setFieldConfigs((prev) => {
@@ -157,30 +200,18 @@ export function useSeedFieldRules(
   );
 
   const applyPersona = useCallback((persona: PersonaMsg): number => {
-    let matchedCount = 0;
-
-    setFieldConfigs((prev) =>
-      prev.map((obj) => ({
-        ...obj,
-        fields: obj.fields.map((field) => {
-          const pattern: PersonaFieldPatternMsg | undefined =
-            persona.dataPatterns[field.fieldApiName];
-          if (!pattern) return field;
-
-          // Persona vocabulary (`generator` + free-form `params`) → seed
-          // contract (`FieldRuleType` + `FieldRuleConfig`). Both shapes are
-          // declared in @sandforge/shared, and so is the translation.
-          const rule = personaPatternToFieldRule(pattern);
-          if (!rule) return field;
-
-          matchedCount++;
-
-          return { ...field, ruleType: rule.ruleType, config: { ...rule.config } };
-        }),
-      })),
+    // Counted from the configs of the last render, not inside the updater: the
+    // wizard applies a persona from an effect that runs right after a
+    // fieldConfigs update, when React defers the updater, so a counter
+    // incremented there was still 0 when this function returned.
+    const matched = fieldConfigsRef.current.reduce(
+      (sum, obj) => sum + applyPersonaToFields(obj.fields, persona).matched,
+      0,
     );
-
-    return matchedCount;
+    setFieldConfigs((prev) =>
+      prev.map((obj) => ({ ...obj, fields: applyPersonaToFields(obj.fields, persona).fields })),
+    );
+    return matched;
   }, []);
 
   return {

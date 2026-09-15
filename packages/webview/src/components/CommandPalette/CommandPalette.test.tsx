@@ -118,6 +118,14 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('command-palette-item-refresh-monitor')).toBeDefined();
   });
 
+  it('labels the pipeline action as opening Automation, since it runs nothing', () => {
+    render(<CommandPalette />);
+    openPalette();
+    const item = screen.getByTestId('command-palette-item-run-pipeline');
+    expect(item.textContent).toContain('Open Pipelines');
+    expect(screen.queryByText('Run Last Pipeline')).toBeNull();
+  });
+
   it('should filter items based on query', () => {
     render(<CommandPalette />);
     openPalette();

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type * as vscode from 'vscode';
 
 import { createServices, runSecretMigration } from './services.js';
@@ -344,19 +346,56 @@ describe('services', () => {
     });
   });
 
-  describe('createSessionBudget', () => {
+  describe('sessionBudget', () => {
     afterEach(() => configValues.map.clear());
 
-    // The mocked vscode config returns the fallback, so this pins the value an
-    // unconfigured install gets — the ceiling every AI feature then shares.
-    it('builds a budget with the manifest default when nothing is configured', () => {
+    /** The default the manifest declares for sandforge.ai.tokenBudgetMaxPerSession. */
+    function manifestDefault(): unknown {
+      const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+        contributes: { configuration: { properties: Record<string, { default?: unknown }> } };
+      };
+      return manifest.contributes.configuration.properties['sandforge.ai.tokenBudgetMaxPerSession']
+        .default;
+    }
+
+    // The mocked vscode config returns the fallback, so this is the ceiling an
+    // unconfigured install gets. It must be the one the Settings editor shows.
+    it('uses the default the manifest declares when nothing is configured', () => {
       const services = createServices(createMockContext());
 
-      const budget = services.createSessionBudget('ai-session-test');
+      expect(services.sessionBudget.getState().budget).toBe(manifestDefault());
+      expect(services.sessionBudget.getState().used.total).toBe(0);
+      expect(services.sessionBudget.getState().state).toBe('ok');
+    });
 
-      expect(budget.getState().budget).toBe(50_000);
-      expect(budget.getState().used.total).toBe(0);
-      expect(budget.getState().state).toBe('ok');
+    it('reads a configured budget', () => {
+      configValues.map.set('tokenBudgetMaxPerSession', 200_000);
+      const services = createServices(createMockContext());
+
+      expect(services.sessionBudget.getState().budget).toBe(200_000);
+      expect(services.readTokenBudget()).toBe(200_000);
+    });
+
+    // Rebuilding the AI stack used to hand every feature a fresh, empty counter,
+    // so changing any sandforge.ai.* setting started the budget over.
+    it('builds every AI adapter with the same budget, so a rebuilt adapter keeps the count', () => {
+      const services = createServices(createMockContext());
+      const first = services.aiClient('anthropic');
+      services.sessionBudget.increment({
+        input: 1_200,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0,
+        total: 1_200,
+      });
+
+      services.aiClient.invalidate();
+      const rebuilt = services.aiClient('anthropic');
+
+      expect(rebuilt).not.toBe(first);
+      expect(first.budget).toBe(services.sessionBudget);
+      expect(rebuilt.budget).toBe(services.sessionBudget);
+      expect(rebuilt.budget?.getState().used.total).toBe(1_200);
     });
 
     // `minimum` in the manifest guards the settings editor, not a file edited by
@@ -370,9 +409,8 @@ describe('services', () => {
         configValues.map.set('tokenBudgetMaxPerSession', value);
         const services = createServices(createMockContext());
 
-        const budget = services.createSessionBudget('ai-session-test');
-
-        expect(budget.getState().budget).toBe(50_000);
+        expect(services.sessionBudget.getState().budget).toBe(manifestDefault());
+        expect(services.readTokenBudget()).toBe(manifestDefault());
       },
     );
   });

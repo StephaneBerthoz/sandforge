@@ -107,6 +107,25 @@ describe('ForgeOrchestrator', () => {
       });
     });
 
+    it('should not serve a cancelled discovery partial graph to the next identical request', async () => {
+      // An aborted BFS returns what it had reached. Caching it meant Back,
+      // then Discover on the same record, showed the truncated graph as if
+      // it were complete.
+      const partial = { ...createMockGraph(), nodes: [] };
+      const full = createMockGraph();
+      vi.mocked(deps.discoveryService.discover)
+        .mockResolvedValueOnce(partial)
+        .mockResolvedValueOnce(full);
+      const controller = new AbortController();
+      controller.abort();
+
+      await orchestrator.discover(createMockConfig(), { signal: controller.signal });
+      const second = await orchestrator.discover(createMockConfig());
+
+      expect(deps.discoveryService.discover).toHaveBeenCalledTimes(2);
+      expect(second).toBe(full);
+    });
+
     it('should propagate errors from discoveryService', async () => {
       vi.mocked(deps.discoveryService.discover).mockRejectedValue(
         new Error('Cannot resolve root object'),
@@ -118,6 +137,27 @@ describe('ForgeOrchestrator', () => {
   });
 
   describe('execute', () => {
+    it('should hand the RecordType translation table to the executor in both input modes', async () => {
+      const recordTypeMappings = [
+        { sourceId: '012SRC000000001', targetId: '012TGT000000001', developerName: 'Business' },
+      ];
+
+      await orchestrator.execute(createMockGraph(), createMockConfig(), { recordTypeMappings });
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Account',
+        }),
+        { recordTypeMappings },
+      );
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(optionsPassed[0]?.recordTypeMappings).toBe(recordTypeMappings);
+      expect(optionsPassed[1]?.recordTypeMappings).toBe(recordTypeMappings);
+    });
+
     it('should carry the source -> target Id map into the result', async () => {
       // The executor has always returned remapTable; the orchestrator kept
       // only its length, so a finished clone could report a record count while

@@ -116,11 +116,12 @@ describe('QuickSeedFlow', () => {
       phase: 'executing',
       selectedTemplate: mockTemplate,
       isRunning: true,
+      /* Figures from operation:progress: Account written, Contact under way. */
       objectProgress: [
-        { objectApiName: 'Account', total: 50, completed: 0, failed: 0, status: 'running' },
-        { objectApiName: 'Contact', total: 100, completed: 0, failed: 0, status: 'running' },
+        { objectApiName: 'Account', total: 50, completed: 50, failed: 0, status: 'done' },
+        { objectApiName: 'Contact', total: 100, completed: 40, failed: 0, status: 'running' },
       ],
-      overallPercent: 50,
+      overallPercent: 60,
       elapsedMs: 2000,
     };
 
@@ -128,6 +129,7 @@ describe('QuickSeedFlow', () => {
 
     expect(screen.getByTestId('quick-seed-executing')).toBeDefined();
     expect(screen.getByTestId('step-execute')).toBeDefined();
+    expect(screen.getAllByRole('progressbar')[0].getAttribute('aria-valuenow')).toBe('60');
   });
 
   it('renders results with execution summary in results phase', () => {

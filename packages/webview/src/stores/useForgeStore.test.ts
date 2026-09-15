@@ -224,6 +224,29 @@ describe('useForgeStore', () => {
     expect(accountNode?.included).toBe(true);
   });
 
+  it('sets the included flag of the named nodes only, leaving hidden ones as they were', () => {
+    getState().setGraph(
+      createMockGraph([
+        createMockNode({ objectApiName: 'Account', included: false }),
+        createMockNode({ objectApiName: 'AccountContactRelation', included: false }),
+        createMockNode({ objectApiName: 'Contact', included: false }),
+        createMockNode({ objectApiName: 'Case', included: true }),
+      ]),
+    );
+
+    // What a search for "account" shows.
+    getState().setNodesIncluded(['Account', 'AccountContactRelation'], true);
+    expect(getState().graph?.nodes.map((n) => [n.objectApiName, n.included])).toEqual([
+      ['Account', true],
+      ['AccountContactRelation', true],
+      ['Contact', false],
+      ['Case', true],
+    ]);
+
+    getState().setNodesIncluded(['Account', 'AccountContactRelation'], false);
+    expect(getState().graph?.nodes.map((n) => n.included)).toEqual([false, false, false, true]);
+  });
+
   it('should not modify state when toggleNodeIncluded is called with null graph', () => {
     getState().toggleNodeIncluded('Account');
     expect(getState().graph).toBeNull();

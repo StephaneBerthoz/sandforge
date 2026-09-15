@@ -26,8 +26,13 @@
  * before `vsce package` reads the old artifact, syncing after ships a stale
  * README. It was also the least informative of the set.
  *
- *   node scripts/sync-readme-badges.mjs           # rewrite both READMEs
- *   node scripts/sync-readme-badges.mjs --check   # exit 1 if they have drifted
+ * SECURITY.md's supported-versions table is derived here too, from the same
+ * version. It promises fixes to "the latest minor" and was typed by hand, so it
+ * still offered support for 1.21.x after 1.22.0 shipped: a security promise
+ * about the wrong release, which nothing compared with package.json.
+ *
+ *   node scripts/sync-readme-badges.mjs           # rewrite both READMEs and SECURITY.md
+ *   node scripts/sync-readme-badges.mjs --check   # exit 1 if any of them has drifted
  */
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -118,6 +123,55 @@ for (const [file, linkVersion] of [
   } else {
     writeFileSync(path, after);
     console.log(`  ${file}: updated`);
+  }
+}
+
+/**
+ * The supported-versions table, laid out the way Prettier writes a markdown
+ * table so the rewrite cannot fail `format:check`: every cell padded to its
+ * column's widest entry, the rule row as wide as the column.
+ */
+function securityTable() {
+  const minor = version.split('.').slice(0, 2).join('.');
+  const rows = [
+    ['Version', 'Supported'],
+    [`${minor}.x`, 'Yes'],
+    [`< ${minor}`, 'No'],
+  ];
+  const widths = [0, 1].map((col) => Math.max(...rows.map((row) => row[col].length)));
+  const line = (cells) => `| ${cells.map((cell, col) => cell.padEnd(widths[col])).join(' | ')} |`;
+  return [line(rows[0]), line(widths.map((w) => '-'.repeat(w))), ...rows.slice(1).map(line)].join(
+    '\n',
+  );
+}
+
+/** The table starts at its `| Version` header and runs to the last `|` line. */
+const SECURITY_TABLE = /^\| Version +\| Supported +\|\n(?:\|.*\|\n?)+/m;
+
+{
+  const file = 'SECURITY.md';
+  const path = join(ROOT, file);
+  const before = readFileSync(path, 'utf8');
+  const match = SECURITY_TABLE.exec(before);
+  if (!match) {
+    // A table that cannot be found cannot be kept in sync; that is drift too,
+    // and write mode must not guess where a replacement belongs.
+    drifted = true;
+    console.error(`  ${file}: STALE — supported-versions table not found`);
+  } else {
+    const trailing = match[0].endsWith('\n') ? '\n' : '';
+    const after = before.replace(SECURITY_TABLE, `${securityTable()}${trailing}`);
+    if (before === after) {
+      console.log(`  ${file}: up to date`);
+    } else {
+      drifted = true;
+      if (CHECK_ONLY) {
+        console.error(`  ${file}: STALE — run \`node scripts/sync-readme-badges.mjs\``);
+      } else {
+        writeFileSync(path, after);
+        console.log(`  ${file}: updated`);
+      }
+    }
   }
 }
 

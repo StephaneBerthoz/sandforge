@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type { BackupStatus } from '../dataops.types.js';
+import type { GovernancePolicySummary } from '../governance.types.js';
 
 /** Backup messages */
 export interface BackupExecuteRequest extends BaseMessage {
@@ -176,16 +177,7 @@ export interface GovernancePoliciesListRequest extends BaseMessage {
  */
 export interface GovernancePoliciesListResult extends BaseMessage {
   type: 'governance:policies:result';
-  payload: {
-    policies: Array<{
-      id: string;
-      name: string;
-      description: string;
-      ruleCount: number;
-      createdAt: string;
-      updatedAt: string;
-    }>;
-  };
+  payload: { policies: GovernancePolicySummary[] };
 }
 
 /** Request to get a single governance policy by ID. */

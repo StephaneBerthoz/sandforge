@@ -8,13 +8,19 @@ import type { ForgeGraph } from '../../stores/useForgeStore';
 
 const mockSetPhase = vi.fn();
 const mockSetGraph = vi.fn();
+const mockSendMessage = vi.fn();
+
+/** Graph the mocked store holds: null while the BFS is still running. */
+let mockGraph: ForgeGraph | null = null;
 
 /** Phase the mocked forge store reports; the late-response guard reads it. */
 let mockPhase: 'input' | 'discovery' = 'discovery';
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
-    graph: null,
+    get graph() {
+      return mockGraph;
+    },
     config: null,
     get phase() {
       return mockPhase;
@@ -28,7 +34,7 @@ vi.mock('../../stores/useForgeStore', () => {
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: vi.fn(),
     toggleAnonymizeField: vi.fn(),
-    setAllNodesIncluded: vi.fn(),
+    setNodesIncluded: vi.fn(),
     setResult: vi.fn(),
     reset: vi.fn(),
   };
@@ -43,7 +49,7 @@ vi.mock('../../stores/useForgeStore', () => {
 
 vi.mock('../../hooks/useMessageBus', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('../../hooks/useMessageBus');
-  return { ...actual, useSendMessage: () => vi.fn() };
+  return { ...actual, useSendMessage: () => mockSendMessage };
 });
 
 vi.mock('../../components/graph/LiveGraph', () => ({
@@ -87,7 +93,9 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
   beforeEach(() => {
     mockSetPhase.mockClear();
     mockSetGraph.mockClear();
+    mockSendMessage.mockClear();
     mockPhase = 'discovery';
+    mockGraph = null;
   });
 
   it('offers a way back while the BFS is still running', () => {
@@ -96,6 +104,25 @@ describe('ForgeDiscovery — escaping a running discovery', () => {
 
     fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
     expect(mockSetPhase).toHaveBeenCalledWith('input');
+  });
+
+  it('stops the running BFS when the user walks back', () => {
+    render(<ForgeDiscovery />);
+
+    fireEvent.click(screen.getByTestId('forge-discovery-cancel'));
+
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage.mock.calls[0][0]).toMatchObject({ type: 'forge:abort' });
+  });
+
+  it('sends no abort when leaving a discovery that already finished', () => {
+    mockGraph = graph;
+    render(<ForgeDiscovery />);
+
+    fireEvent.click(screen.getByTestId('forge-back-btn'));
+
+    expect(mockSetPhase).toHaveBeenCalledWith('input');
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('adopts the graph when the response lands during the discovery phase', () => {

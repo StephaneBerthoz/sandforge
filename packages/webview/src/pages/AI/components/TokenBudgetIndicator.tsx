@@ -13,9 +13,10 @@ export interface TokenBudgetIndicatorProps {
 }
 
 /**
- * Mini horizontal bar + numeric label showing the per-panel-session AI
- * token budget consumption. Renders nothing when `state` is null (panel
- * just opened, no calls yet). Bar colour: green / yellow / red.
+ * Mini horizontal bar + numeric label showing how much of the AI token budget
+ * is used: one counter for the window, shared by every AI feature. Renders
+ * nothing when `state` is null (the host has not reported the budget yet).
+ * Bar colour: green / yellow / red.
  *
  * `aria-live='polite'` so screen readers announce major state transitions.
  */

@@ -50,6 +50,11 @@ interface AuthMethodCard {
   labelKey: string;
   descKey: string;
   needsForm: boolean;
+  /**
+   * The host answers these with UNSUPPORTED_AUTH. Their cards looked like the
+   * working ones, and the tooltip described a login that does not exist.
+   */
+  comingSoon: boolean;
 }
 
 /** Available auth methods shown in the banner. */
@@ -60,6 +65,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.sfdxImport',
     descKey: 'auth.sfdxImportDesc',
     needsForm: false,
+    comingSoon: false,
   },
   {
     method: 'oauth_web',
@@ -67,6 +73,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.oauthWeb',
     descKey: 'auth.oauthWebDesc',
     needsForm: true,
+    comingSoon: false,
   },
   {
     method: 'usernamePassword',
@@ -74,6 +81,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.usernamePassword',
     descKey: 'auth.usernamePasswordDesc',
     needsForm: true,
+    comingSoon: false,
   },
   {
     method: 'jwt',
@@ -81,6 +89,7 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.jwt',
     descKey: 'auth.jwtDesc',
     needsForm: false,
+    comingSoon: true,
   },
   {
     method: 'oauth_device',
@@ -88,8 +97,34 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.oauthDevice',
     descKey: 'auth.oauthDeviceDesc',
     needsForm: false,
+    comingSoon: true,
   },
 ];
+
+/** Production first: it is where a mistake costs most, so it is never below the fold. */
+const ORG_TYPE_RANK: Record<SalesforceOrg['orgType'], number> = {
+  Production: 0,
+  Sandbox: 1,
+  Developer: 2,
+  Scratch: 3,
+};
+
+/** Within one type, usable orgs before those that need a reconnect. */
+const ORG_STATUS_RANK: Record<SalesforceOrg['status'], number> = {
+  connected: 0,
+  refreshing: 1,
+  expired: 2,
+  error: 3,
+};
+
+/** Display order of the org list: type, then status, then alias. */
+function compareOrgs(a: SalesforceOrg, b: SalesforceOrg): number {
+  return (
+    (ORG_TYPE_RANK[a.orgType] ?? 9) - (ORG_TYPE_RANK[b.orgType] ?? 9) ||
+    (ORG_STATUS_RANK[a.status] ?? 9) - (ORG_STATUS_RANK[b.status] ?? 9) ||
+    a.alias.localeCompare(b.alias)
+  );
+}
 
 /** OrgManager page — list, connect, edit, disconnect orgs. */
 export const OrgManagerPage: React.FC = () => {
@@ -235,6 +270,29 @@ export const OrgManagerPage: React.FC = () => {
         ? alias.trim().length > 0 && username.trim().length > 0 && password.length > 0
         : false;
 
+  // An expired or failed org used to show its badge and nothing else. Reconnect
+  // replays the method it was added with: a CLI import runs again, a browser or
+  // password login reopens its form with the alias — and the username — filled
+  // in. The password is never kept, so it is typed again.
+  const handleReconnect = useCallback(
+    (org: SalesforceOrg) => {
+      if (org.authMethod === 'sfdx_import') {
+        handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' });
+        return;
+      }
+      resetForm();
+      setActiveMethod(org.authMethod);
+      setAlias(org.alias);
+      setLoginUrl(
+        org.orgType === 'Sandbox' || org.orgType === 'Scratch'
+          ? 'https://test.salesforce.com'
+          : 'https://login.salesforce.com',
+      );
+      if (org.authMethod === 'usernamePassword') setUsername(org.username);
+    },
+    [handleConnect],
+  );
+
   const handleEdit = useCallback((org: SalesforceOrg) => {
     setEditingOrg(org);
   }, []);
@@ -276,13 +334,15 @@ export const OrgManagerPage: React.FC = () => {
   // can never leave cards filtered out by a box the user can no longer see.
   const showSearch = orgs.length > SEARCH_THRESHOLD;
   const searchTerm = showSearch ? search.trim().toLowerCase() : '';
-  const visibleOrgs = searchTerm
-    ? orgs.filter((o) =>
-        [o.alias, o.username, o.instanceUrl, o.orgType, o.tags.join(' ')].some((field) =>
-          field.toLowerCase().includes(searchTerm),
-        ),
-      )
-    : orgs;
+  const visibleOrgs = (
+    searchTerm
+      ? orgs.filter((o) =>
+          [o.alias, o.username, o.instanceUrl, o.orgType, o.tags.join(' ')].some((field) =>
+            field.toLowerCase().includes(searchTerm),
+          ),
+        )
+      : [...orgs]
+  ).sort(compareOrgs);
 
   // Fetching the registry, or importing from the CLI, used to paint nothing at
   // all: `orgs` is still empty, so the grid rendered zero cards and the empty
@@ -314,7 +374,8 @@ export const OrgManagerPage: React.FC = () => {
         <div className="flex items-center gap-2 px-4 pb-3 flex-wrap" data-testid="org-auth-methods">
           {AUTH_METHODS.map((card) => {
             const isActive = activeMethod === card.method;
-            const isNotSupported = card.method === 'jwt' || card.method === 'oauth_device';
+            // Still clickable: the click opens the panel that says why, which a
+            // `disabled` button would swallow.
             return (
               <button
                 key={card.method}
@@ -324,12 +385,13 @@ export const OrgManagerPage: React.FC = () => {
                   isActive
                     ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
                     : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] border-transparent hover:bg-[var(--sf-button-secondary-hover)]',
-                  isNotSupported && 'opacity-50',
+                  card.comingSoon && 'opacity-50',
                   isConnecting && 'pointer-events-none opacity-60',
                 )}
                 onClick={() => handleMethodClick(card)}
                 disabled={isConnecting}
-                title={t(card.descKey)}
+                aria-disabled={card.comingSoon || undefined}
+                title={card.comingSoon ? t('common.comingSoon') : t(card.descKey)}
                 data-testid={`org-auth-${card.method}`}
               >
                 {card.method === 'sfdx_import' && isConnecting ? (
@@ -338,6 +400,11 @@ export const OrgManagerPage: React.FC = () => {
                   card.icon
                 )}
                 <span>{t(card.labelKey)}</span>
+                {card.comingSoon && (
+                  <span className="px-1 py-px text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]">
+                    {t('common.comingSoon')}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -516,6 +583,7 @@ export const OrgManagerPage: React.FC = () => {
                   onSelect={selectOrg}
                   onEdit={handleEdit}
                   onDisconnect={handleDisconnect}
+                  onReconnect={handleReconnect}
                 />
               ))}
             </div>

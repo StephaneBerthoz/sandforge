@@ -622,15 +622,19 @@ async function loadRecordTypeMappings(
   sourceConn: jsforce.Connection,
   targetConn: jsforce.Connection,
 ): Promise<RecordTypeMapping[]> {
-  const soql = 'SELECT Id, Name, DeveloperName FROM RecordType WHERE IsActive = true';
+  // SobjectType is read so the match stays within one object: Account and
+  // Opportunity can each have a "Business" record type.
+  const soql = 'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
+  type RecordTypeRow = { Id: string; Name: string; DeveloperName: string; SobjectType: string };
   const [sourceRes, targetRes] = await Promise.all([
-    sourceConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
-    targetConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
+    sourceConn.query<RecordTypeRow>(soql),
+    targetConn.query<RecordTypeRow>(soql),
   ]);
-  const toInfo = (r: { Id: string; Name: string; DeveloperName: string }): RecordTypeInfo => ({
+  const toInfo = (r: RecordTypeRow): RecordTypeInfo => ({
     id: r.Id,
     name: r.Name,
     developerName: r.DeveloperName,
+    sobjectType: r.SobjectType,
   });
   return new RecordTypeMapper().buildMapping(
     sourceRes.records.map(toInfo),

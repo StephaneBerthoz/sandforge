@@ -22,6 +22,12 @@ export interface AlertsPanelProps {
   onAcknowledge?: (id: string) => void;
   /** External dismiss handler (overrides bridge mutation). */
   onDismiss?: (id: string) => void;
+  /**
+   * Called after an acknowledge or dismiss succeeds, so the owner of the
+   * pre-fetched `alerts` can ask for them again. Without it the panel refetches
+   * its own query.
+   */
+  onAlertsChanged?: () => void;
   className?: string;
 }
 
@@ -43,6 +49,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
     alerts: alertsProp,
     onAcknowledge: onAcknowledgeProp,
     onDismiss: onDismissProp,
+    onAlertsChanged,
     className,
   }) => {
     const { t } = useTranslation();
@@ -66,12 +73,19 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
       responseType: 'monitor:alert:dismiss:response',
     });
 
-    /** Refetch alerts after a successful acknowledge or dismiss. */
+    /**
+     * Refetch alerts after a successful acknowledge or dismiss: through the
+     * owner of the pre-fetched alerts when there is one, since this panel's own
+     * query is skipped then and its answer would reach nobody else. Depends on
+     * the refetch function, which is stable, not on the query object, which is
+     * new on every render and re-ran the effect after each answer.
+     */
+    const refetchAlerts = onAlertsChanged ?? alertsQuery.refetch;
     useEffect(() => {
       if (acknowledgeMutation.data || dismissMutation.data) {
-        alertsQuery.refetch();
+        refetchAlerts();
       }
-    }, [acknowledgeMutation.data, dismissMutation.data, alertsQuery]);
+    }, [acknowledgeMutation.data, dismissMutation.data, refetchAlerts]);
 
     /** Resolve alerts from props or bridge query. */
     const alerts = alertsProp ?? alertsQuery.data?.alerts ?? [];

@@ -16,6 +16,13 @@ on:
   pull_request:
     branches: [master]
 
+# A newer push to a pull request cancels the run it replaces. A master push is
+# a group of its own: a group keeps only one pending run, so a shared one would
+# drop a commit's result whenever a later push queued behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   format-check:
     name: Prettier check (blocking)
@@ -23,14 +30,14 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       # pnpm version comes from the packageManager field in package.json
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: 'pnpm'
@@ -38,8 +45,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The failing check is the whole report: the log lists the files that
+      # drifted, and `pnpm format` fixes them.
       - name: Run Prettier drift scan (changed files only on PR)
-        id: format
         run: |
           set +e
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -61,39 +69,6 @@ jobs:
             pnpm format:check
             CODE=$?
           fi
-          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
           set -e
           # Blocking: drift fails the check.
           exit $CODE
-
-      - name: Comment on PR if drift detected in changed files
-        if: github.event_name == 'pull_request' && steps.format.outputs.exit_code != '0'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            const body = [
-              '### Prettier — Drift detected in changed files',
-              '',
-              'One or more files in this PR have Prettier formatting drift.',
-              'Run locally: `pnpm format` (writes) or `pnpm format:check` (verify).',
-              '',
-              '_This check is blocking: fix the drift to merge._',
-            ].join('\n');
-            const comments = await github.rest.issues.listComments({
-              owner, repo, issue_number, per_page: 100,
-            });
-            const existing = comments.data.find(c =>
-              c.user && c.user.type === 'Bot' &&
-              c.body && c.body.startsWith('### Prettier — Drift detected')
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner, repo, comment_id: existing.id, body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number, body,
-              });
-            }

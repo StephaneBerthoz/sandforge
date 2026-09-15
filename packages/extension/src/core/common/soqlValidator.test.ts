@@ -5,6 +5,8 @@ import {
   assertSoqlIdentifier,
   isSafeSoqlOrderBy,
   assertSoqlOrderBy,
+  isSafeSoqlWhere,
+  assertSoqlWhere,
 } from './soqlValidator.js';
 
 describe('sanitizeSoqlValue', () => {
@@ -185,5 +187,58 @@ describe('assertSoqlOrderBy', () => {
 
   it('throws with the offending clause in the message', () => {
     expect(() => assertSoqlOrderBy('Id ASC LIMIT 1')).toThrow('"Id ASC LIMIT 1"');
+  });
+});
+
+describe('isSafeSoqlWhere', () => {
+  it.each([
+    "Status = 'Delete pending'",
+    "Name = 'Limit 1; for update -- /*'",
+    "Name = 'O\\'Brien'",
+    "Name = 'a\\\\' AND Type = 'b'",
+    'Amount > -5 AND (StageName = null OR IsWon = true)',
+    'Delete_Flag__c = false AND Limit__c > 2',
+    'CreatedDate = LAST_N_DAYS:30',
+    '',
+    '   ',
+  ])('accepts %j', (clause) => {
+    expect(isSafeSoqlWhere(clause)).toBe(true);
+  });
+
+  it.each([
+    'Id != null LIMIT 1',
+    'id != null limit 1',
+    'Id != null OFFSET 5',
+    'Id != null ORDER BY Name',
+    'Id != null GROUP BY Name',
+    'Id != null HAVING COUNT(Id) > 1',
+    'Id != null FOR UPDATE',
+    'Id != null FOR VIEW',
+    'Id != null WITH SECURITY_ENFORCED',
+    'Id != null ALL ROWS',
+    'Id IN (SELECT Id FROM Contact)',
+    "Name = 'x' DELETE",
+    'Id != null; Name = null',
+    'Id != null -- rest',
+    'Id != null /* rest */',
+    "Name = 'unterminated",
+    "Name = 'a') OR (Id != null",
+    '(Id != null',
+  ])('rejects %j', (clause) => {
+    expect(isSafeSoqlWhere(clause)).toBe(false);
+  });
+
+  it('rejects a clause longer than 2000 characters', () => {
+    expect(isSafeSoqlWhere(`Name = '${'x'.repeat(2000)}'`)).toBe(false);
+  });
+});
+
+describe('assertSoqlWhere', () => {
+  it('returns the clause when it only filters', () => {
+    expect(assertSoqlWhere("Status = 'Delete pending'")).toBe("Status = 'Delete pending'");
+  });
+
+  it('throws with the offending clause in the message', () => {
+    expect(() => assertSoqlWhere('Id != null LIMIT 1')).toThrow('"Id != null LIMIT 1"');
   });
 });

@@ -3,7 +3,7 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-#   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 #   4. VSIX package    — pnpm package, uploaded as an artifact
 #
 # There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
@@ -17,6 +17,8 @@
 #     - SANDFORGE_SF_ORGS: set to 'true' to enable the clone/cleanup stages
 #     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
 #   - SLACK_WEBHOOK_URL (optional secret): failure notifications
+#
+# `main` below stands for your default branch; rename it if yours differs.
 
 name: SandForge Pipeline
 
@@ -26,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run clone/cleanup in dry-run mode (no data written)'
+        description: 'Run the clone in dry-run mode (no data written); cleanup is always a preview'
         required: false
         default: 'true'
         type: choice
@@ -48,9 +50,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` — the action reads the `packageManager` pin in package.json.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -74,14 +75,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: quality
-    # Only runs when the repo admin has configured sf org secrets.
-    if: vars.SANDFORGE_SF_ORGS == 'true'
+    # Only runs when the repo admin has configured sf org secrets and a record.
+    if: vars.SANDFORGE_SF_ORGS == 'true' && vars.SF_CLONE_RECORD_ID != ''
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` — the action reads the `packageManager` pin in package.json.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v4
         with:
@@ -100,12 +100,16 @@ jobs:
         env:
           SFDX_AUTH_URL_SOURCE: ${{ secrets.SFDX_AUTH_URL_SOURCE }}
           SFDX_AUTH_URL_TARGET: ${{ secrets.SFDX_AUTH_URL_TARGET }}
+        # The URLs go to a private directory that is removed when this shell
+        # exits, a failed login included — self-hosted runners keep /tmp.
         run: |
-          echo "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt
-          echo "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt
-          sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source
-          sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target
-          rm -f /tmp/auth-source.txt /tmp/auth-target.txt
+          umask 077
+          auth_dir=$(mktemp -d)
+          trap 'rm -rf "$auth_dir"' EXIT
+          printf '%s' "$SFDX_AUTH_URL_SOURCE" > "$auth_dir/source.txt"
+          printf '%s' "$SFDX_AUTH_URL_TARGET" > "$auth_dir/target.txt"
+          sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
+          sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
 
       - name: Clone record graph (sandforge-clone)
         env:
@@ -123,14 +127,15 @@ jobs:
             --remap-csv remap.csv \
             > clone-summary.json
 
-      - name: Cleanup cloned records (sandforge-cleanup, dry-run)
+      # Always a preview, whatever dry_run says: `--since today` matches every
+      # record the CI user created today, not only the ones this clone wrote.
+      # Run the real delete by hand once you have read the counts.
+      - name: Preview cleanup (sandforge-cleanup, dry-run)
         run: |
-          DRY_FLAG=""
-          [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
           pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
             --target ci-target \
             --since today \
-            $DRY_FLAG
+            --dry-run
 
       - name: Upload clone artifacts
         if: always()
@@ -150,9 +155,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` — the action reads the `packageManager` pin in package.json.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - uses: actions/setup-node@v4
         with:

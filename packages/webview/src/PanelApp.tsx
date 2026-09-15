@@ -47,9 +47,9 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
   }, [moduleId]);
 
   /*
-   * Global keyboard shortcuts (Ctrl+1..9/0, G+key chords, Ctrl+Enter,
-   * Escape) — mounted here since the old App/AppShell shell is gone and
-   * panels are the only production roots.
+   * Global keyboard shortcuts (Ctrl+1..9/0, G+key chords) — mounted here
+   * since the old App/AppShell shell is gone and panels are the only
+   * production roots.
    * Known limitation: VS Code owns some of these chords at the workbench
    * level (Ctrl+1..8 focus editor groups, Ctrl+0 focuses the sidebar). When
    * the workbench consumes the keystroke the webview never receives it, so

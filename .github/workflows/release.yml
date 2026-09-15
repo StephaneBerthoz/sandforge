@@ -37,8 +37,12 @@ jobs:
     permissions:
       contents: write
 
+    # Every action below is pinned to a commit: this job can push to the
+    # repository, and pnpm/action-setup provides the binary that runs the
+    # Marketplace publish with VSCE_PAT in its environment. A tag can be moved
+    # by whoever controls the action; a commit cannot.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -58,9 +62,9 @@ jobs:
           echo "Preflight OK: VSCE_PAT present"
 
       # pnpm version comes from the packageManager field in package.json
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: 'pnpm'
@@ -142,10 +146,15 @@ jobs:
         if: ${{ inputs.publish_only }}
         run: echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
 
+      # `gh` is already on the runner, so the release needs no third-party
+      # action in a job that can push to the repository. --verify-tag refuses
+      # to create a missing tag: the release belongs on the tag that was pushed
+      # with the version, not on whatever master points to by then.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.NEW_VERSION }}
-          name: SandForge v${{ env.NEW_VERSION }}
-          files: sandforge.vsix
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "v$NEW_VERSION" sandforge.vsix
+          --verify-tag
+          --title "SandForge v$NEW_VERSION"
+          --generate-notes

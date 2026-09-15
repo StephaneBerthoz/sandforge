@@ -4,11 +4,19 @@ import { AnthropicAdapter } from './AnthropicAdapter.js';
 import { OpenAIAdapter } from './OpenAIAdapter.js';
 import { CustomAdapter } from './CustomAdapter.js';
 import { AINotImplementedError, type AIClient, type AIProviderType } from './AIClient.js';
+import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 export interface AIClientFactoryDeps {
   storage: StorageAdapter;
   telemetry?: TelemetryAdapter;
   logger?: Logger;
+  /**
+   * Token budget every adapter is built with. One instance for the factory's
+   * lifetime, so `invalidate()` rebuilds adapters without resetting the count
+   * and no adapter is ever unmetered, not even between a rebuild and the end
+   * of the AI composition that follows it.
+   */
+  budget?: SessionBudget;
   /** Reads the current provider from VSCode settings. */
   getProvider: () => AIProviderType;
   /** Reads the current model override from VSCode settings. */
@@ -58,6 +66,7 @@ export function createAIClientFactory(deps: AIClientFactoryDeps): AIClientFactor
           telemetry: deps.telemetry,
           logger: deps.logger,
           model: deps.getModel?.(),
+          budget: deps.budget,
         });
         break;
       case 'openai':

@@ -36,10 +36,11 @@ export interface AIChatResult {
 export interface AIClient {
   readonly provider: AIProviderType;
   /**
-   * Token budget for the current AI session, attached by the composition root
-   * once the stack is initialised (see `initAIComposition`). Every adapter
-   * declares the field; only the Anthropic one enforces it (the others are
-   * stubs that never reach an SDK). Left undefined, the adapter is unmetered.
+   * Token budget for the window, shared by every AI feature. The AI client
+   * factory builds each adapter with the same instance, so rebuilding adapters
+   * keeps the count. Every adapter declares the field; only the Anthropic one
+   * enforces it (the others are stubs that never reach an SDK). Left
+   * undefined, the adapter is unmetered.
    */
   budget?: SessionBudget;
   chat(opts: AIChatOpts): Promise<AIChatResult>;

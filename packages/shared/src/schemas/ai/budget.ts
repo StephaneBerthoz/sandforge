@@ -2,12 +2,13 @@ import { z } from 'zod';
 import { AIUsageSchema } from './callResult.js';
 
 /**
- * Per-panel-session token budget snapshot.
+ * Token budget snapshot: one counter for the window session, shared by every
+ * AI feature. Rebuilding the AI stack keeps it; a window reload starts anew.
  *
  * `state` discriminator:
  *   - 'ok'        — percent < 80
- *   - 'warn'      — 80 <= percent < 100 (one-shot toast at first crossing)
- *   - 'exceeded'  — percent >= 100 (modal blocks input until panel reload)
+ *   - 'warn'      — 80 <= percent < 100 (the host shows a notice at the first crossing)
+ *   - 'exceeded'  — percent >= 100 (AI calls are refused; the host says so once)
  *
  * `percent` is clamped to <= 200 in the schema.
  */

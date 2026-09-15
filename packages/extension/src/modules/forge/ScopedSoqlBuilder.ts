@@ -28,8 +28,13 @@ export type ScopeKind =
 
 /** Result returned by `ScopedSoqlBuilder.build`. */
 export interface ScopedSoqlResult {
-  /** The full SOQL string ready to be executed. */
-  soql: string;
+  /**
+   * The SOQL to execute, in order. One statement unless the scope is too
+   * large for a single query URI, in which case the Id lists are split across
+   * several statements whose results the caller merges by `Id` (a row that
+   * matches two FK clauses can come back from two statements).
+   */
+  statements: string[];
   /** True when a real scope restriction was applied (any kind except `unscoped`). */
   scoped: boolean;
   /** How the scope was determined. */
@@ -100,11 +105,12 @@ export class ScopedSoqlBuilder {
     const select = this.formatSelect(opts.selectFields);
     const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
     const reasonSuffix = opts.extraWhere ? ' + extra filter' : '';
+    const prefix = `SELECT ${select} FROM ${objectName} WHERE `;
 
     if (opts.node.objectApiName === opts.rootObjectApiName) {
       const escapedId = sanitizeSoqlValue(opts.rootRecordId);
       return {
-        soql: `SELECT ${select} FROM ${objectName} WHERE Id = '${escapedId}'${extraSuffix}`,
+        statements: [`${prefix}Id = '${escapedId}'${extraSuffix}`],
         scoped: true,
         scope: 'root',
         reason: `root record${reasonSuffix}`,
@@ -115,9 +121,11 @@ export class ScopedSoqlBuilder {
 
     const ownIds = opts.cache.get(opts.node.objectApiName);
     if (ownIds && ownIds.size > 0) {
-      const idList = formatIdList(ownIds, opts.node.objectApiName);
       return {
-        soql: `SELECT ${select} FROM ${objectName} WHERE Id IN (${idList})${extraSuffix}`,
+        statements: packInClauses(
+          { prefix, suffix: extraSuffix, wrap: false, objectApiName: opts.node.objectApiName },
+          [{ field: 'Id', ids: ownIds }],
+        ),
         scoped: true,
         scope: 'self-cached',
         reason: `${ownIds.size} ID(s) cached from earlier wave${reasonSuffix}`,
@@ -126,7 +134,7 @@ export class ScopedSoqlBuilder {
       };
     }
 
-    const fkClauses: string[] = [];
+    const fkClauses: InClause[] = [];
     const parentObjectsUsed: string[] = [];
     let totalScopeIds = 0;
 
@@ -140,9 +148,8 @@ export class ScopedSoqlBuilder {
       );
       if (fkFields.length === 0) continue;
 
-      const idList = formatIdList(parentIds, opts.node.objectApiName);
       for (const fk of fkFields) {
-        fkClauses.push(`${assertSoqlIdentifier(fk.name)} IN (${idList})`);
+        fkClauses.push({ field: assertSoqlIdentifier(fk.name), ids: parentIds });
       }
       if (!parentObjectsUsed.includes(edge.sourceObject)) {
         parentObjectsUsed.push(edge.sourceObject);
@@ -152,7 +159,7 @@ export class ScopedSoqlBuilder {
 
     if (fkClauses.length === 0) {
       return {
-        soql: `SELECT ${select} FROM ${objectName} WHERE ${ZERO_RESULT_WHERE}`,
+        statements: [`${prefix}${ZERO_RESULT_WHERE}`],
         scoped: false,
         scope: 'unscoped',
         reason: 'no parent in cache and not the root',
@@ -164,10 +171,16 @@ export class ScopedSoqlBuilder {
     // Wrap fk clauses in parens only when an extraWhere is appended, so
     // existing callers / snapshot tests aren't broken by gratuitous
     // parens. The extraWhere itself is always wrapped on its own.
-    const fkJoined = fkClauses.join(' OR ');
-    const fkWrapped = extraSuffix ? `(${fkJoined})` : fkJoined;
     return {
-      soql: `SELECT ${select} FROM ${objectName} WHERE ${fkWrapped}${extraSuffix}`,
+      statements: packInClauses(
+        {
+          prefix,
+          suffix: extraSuffix,
+          wrap: extraSuffix !== '',
+          objectApiName: opts.node.objectApiName,
+        },
+        fkClauses,
+      ),
       scoped: true,
       scope: 'parent-fk',
       reason: `via ${parentObjectsUsed.join(', ')}${reasonSuffix}`,
@@ -183,45 +196,121 @@ export class ScopedSoqlBuilder {
 }
 
 /**
- * Ids that still fit in a query request URI.
+ * Longest statement, measured as it travels in the request URI, that a scoped
+ * query may reach.
  *
- * Salesforce serves a scoped query over GET, and the request URI budget is
- * about 16 000 characters. An 18-character Id costs 22 once quoted and
- * separated, so the list stops fitting somewhere past 700 — and the whole
- * statement, not just the list, has to fit. 600 keeps a wide margin for the
- * SELECT clause, the object name and the suffix.
- *
- * This is a bound on what the transport can carry, not a product decision.
- * Raising it means batching the query, which is a real change with real
- * consumers — not a bigger number here.
+ * jsforce sends a query over GET with the SOQL percent-encoded into `?q=`, and
+ * Salesforce refuses a request URI much past 16 000 characters. Encoding is
+ * what makes an Id list expensive: `'001...AAA', ` is 22 characters in the
+ * statement and 30 in the URI. The budget leaves room for the API path in
+ * front of the query and the ` LIMIT N` a per-object cap appends after it.
  */
-const MAX_SCOPE_IDS = 600;
+const MAX_STATEMENT_URI_CHARS = 15_800;
 
 /**
- * Format a set of IDs as a SOQL `IN` list with single-quoted, sanitized values.
- *
- * Throws past {@link MAX_SCOPE_IDS} rather than building a statement the org
- * will reject. The rejection it replaces was a bare URI-too-long from
- * Salesforce, which is what the audit meant by "fails with no explanation": the
- * user saw a transport error and had no way to connect it to the 1 000 contacts
- * under the account they picked.
- *
- * Truncating instead was considered and rejected — a clone that silently
- * copies the first 600 of 1 000 children is worse than one that stops and says
- * why.
+ * Most Ids one statement carries even when the URI would take more. Keeps a
+ * single statement's result set, and the cost of retrying it, modest.
  */
-function formatIdList(ids: ReadonlySet<string>, objectApiName?: string): string {
-  if (ids.size > MAX_SCOPE_IDS) {
-    const where = objectApiName ? ` for ${objectApiName}` : '';
-    throw new Error(
-      `Scoped clone${where} needs ${ids.size} record Ids in one query, and a Salesforce ` +
-        `query URI holds about ${MAX_SCOPE_IDS}. Narrow the selection — lower the depth, ` +
-        `cap records per object, or filter the root — and run it again.`,
-    );
+const MAX_IDS_PER_STATEMENT = 500;
+
+/** One `field IN (...)` term of a scoped WHERE clause. */
+interface InClause {
+  /** Validated API name of the filtered field. */
+  field: string;
+  /** Ids the field is matched against. */
+  ids: ReadonlySet<string>;
+}
+
+/** The fixed parts of every statement {@link packInClauses} emits. */
+interface StatementFrame {
+  /** `SELECT ... FROM ... WHERE `. */
+  prefix: string;
+  /** ` AND (extraWhere)`, or empty. */
+  suffix: string;
+  /** Parenthesise the OR-joined clauses so the suffix's AND binds to all of them. */
+  wrap: boolean;
+  /** Named in the error when not even one Id fits. */
+  objectApiName: string;
+}
+
+/** Characters `text` occupies once percent-encoded into a query URI. */
+function uriLength(text: string): number {
+  return encodeURIComponent(text).length;
+}
+
+/**
+ * Lay `clauses` out over as few statements as fit the URI budget.
+ *
+ * The clauses of one statement are OR-joined, so splitting an Id list across
+ * statements selects exactly the union of the rows the single unsplit query
+ * would have selected. A small scope still produces the one statement it
+ * always did; a large one is cut wherever the next Id would push the
+ * statement past {@link MAX_STATEMENT_URI_CHARS} or
+ * {@link MAX_IDS_PER_STATEMENT}.
+ *
+ * This replaces a hard stop at 600 Ids per list, which was both too strict —
+ * a clone with more than 600 children refused to run at all — and not strict
+ * enough, because the list was repeated once per FK field and three fields
+ * near the cap still overflowed the URI.
+ *
+ * @throws Error when the fixed part of the statement leaves no room for a
+ *   single Id — only a field list of many hundreds of long names gets there.
+ */
+function packInClauses(frame: StatementFrame, clauses: readonly InClause[]): string[] {
+  const open = frame.wrap ? '(' : '';
+  const close = frame.wrap ? ')' : '';
+  const frameLength = uriLength(frame.prefix + open + close + frame.suffix);
+  const separatorLength = uriLength(', ');
+  const orLength = uriLength(' OR ');
+
+  const statements: string[] = [];
+  let terms: Array<{ field: string; values: string[] }> = [];
+  let length = frameLength;
+  let idCount = 0;
+
+  const flush = (): void => {
+    const where = terms.map((t) => `${t.field} IN (${t.values.join(', ')})`).join(' OR ');
+    statements.push(`${frame.prefix}${open}${where}${close}${frame.suffix}`);
+    terms = [];
+    length = frameLength;
+    idCount = 0;
+  };
+
+  for (const clause of clauses) {
+    const clauseFrameLength = uriLength(`${clause.field} IN ()`);
+    // A clause cut by a flush reopens as a new term in the next statement.
+    let continuesTerm = false;
+    for (const id of clause.ids) {
+      const value = `'${sanitizeSoqlValue(id)}'`;
+      const valueLength = uriLength(value);
+      let cost = continuesTerm
+        ? separatorLength + valueLength
+        : (terms.length > 0 ? orLength : 0) + clauseFrameLength + valueLength;
+
+      const full = length + cost > MAX_STATEMENT_URI_CHARS || idCount >= MAX_IDS_PER_STATEMENT;
+      if (terms.length > 0 && full) {
+        flush();
+        continuesTerm = false;
+        cost = clauseFrameLength + valueLength;
+      }
+      if (terms.length === 0 && length + cost > MAX_STATEMENT_URI_CHARS) {
+        throw new Error(
+          `Scoped clone for ${frame.objectApiName} selects so many fields that a Salesforce ` +
+            `query URI has no room left for a single record Id. Exclude fields from this ` +
+            `object and run it again.`,
+        );
+      }
+
+      if (continuesTerm) {
+        terms[terms.length - 1].values.push(value);
+      } else {
+        terms.push({ field: clause.field, values: [value] });
+        continuesTerm = true;
+      }
+      length += cost;
+      idCount++;
+    }
   }
-  const parts: string[] = [];
-  for (const id of ids) {
-    parts.push(`'${sanitizeSoqlValue(id)}'`);
-  }
-  return parts.join(', ');
+  if (terms.length > 0) flush();
+  return statements;
 }

@@ -1,11 +1,21 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    /*
+     * Paths below resolve from this directory, not from wherever the run
+     * starts. Stryker starts vitest from the repository root with this file
+     * as its config, and there `src/test/setup.ts` named nothing: every test
+     * file failed to load and the mutation run found no test at all.
+     */
+    root: fileURLToPath(new URL('.', import.meta.url)),
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts'],
-    setupFiles: ['src/test/setup.ts'],
+    include: ['src/**/*.test.ts', 'cli/**/*.test.ts'],
+    // Absolute for the same reason: tools that read this config without
+    // applying `root` (knip resolves it from the repository) find the file too.
+    setupFiles: [fileURLToPath(new URL('./src/test/setup.ts', import.meta.url))],
     /*
      * The full suite runs in parallel with the webview/shared suites during
      * `pnpm validate`; on loaded machines the event loop can starve a worker

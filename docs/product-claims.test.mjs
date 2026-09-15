@@ -74,6 +74,14 @@
  * sold as a working "near real-time" sync mode by the in-app help panel, in all
  * six languages.
  *
+ * The rest of that panel went further. Through v1.22 it taught a sync rollback
+ * nothing reads, an API-timeout setting the manifest never declared, Grappe as
+ * the cure for a slow run, deploying straight from a Compare diff, pipelines
+ * started by schedules and webhooks, DSR handling, quality scans and mass
+ * deletes that are coming-soon tabs, and two Ctrl shortcuts no listener
+ * answered. Those rules are vocabularies scoped by key, each tied to the code
+ * that makes it false.
+ *
  * The AI Assistant row in both READMEs sold "failed-job diagnosis over 10
  * read-only tools". No screen could start a diagnosis, the tools were wired to
  * nothing, and the one call into the tool loop handed it an empty list.
@@ -965,6 +973,539 @@ test('the in-app help panel does not sell CDC as a working sync mode', () => {
     offenders,
     [],
     'the help panel sells a sync mode that is a registered no-op:\n  ' + offenders.join('\n  '),
+  );
+});
+
+// ── In-app help: features the product does not have ───────────────────────
+
+/**
+ * The bundle keys a reader meets as the Help page (`help.*`, one bullet per
+ * line) and as the DataOps welcome (`dataops.emptyState.*`).
+ */
+const HELP_KEYS = /^help\./;
+const HELP_AND_DATAOPS_WELCOME_KEYS = /^(?:help\.|dataops\.emptyState\.)/;
+
+/**
+ * Every non-empty line of the keys a rule reads, in the six bundles, with the
+ * bundle's own `common.comingSoon` — the one disclaimer these rules accept, and
+ * only where the gap is on the roadmap.
+ */
+function helpLines(keys) {
+  const lines = [];
+  for (const file of localeFiles()) {
+    const bundle = JSON.parse(readFileSync(join(LOCALES_DIR, file), 'utf8'));
+    const comingSoon = bundle.common?.comingSoon;
+    assert.ok(
+      typeof comingSoon === 'string' && comingSoon.trim() !== '',
+      `locales/${file} has no common.comingSoon — the disclaimer these rules accept is missing, ` +
+        'so an honest "coming soon" line would be refused',
+    );
+    for (const [key, value] of jsonStrings(bundle)) {
+      if (!keys.test(key)) continue;
+      for (const line of value.split('\n')) {
+        if (line.trim() !== '') lines.push({ label: `locales/${file} ${key}`, line, comingSoon });
+      }
+    }
+  }
+  return lines;
+}
+
+/** Every string literal written in the shipped source under a root, JSX attribute values included. */
+const literalCache = new Map();
+function stringLiteralsUnder(root) {
+  if (literalCache.has(root)) return literalCache.get(root);
+  const literals = new Set();
+  for (const file of sourceFilesUnder(join(repoRoot, ...root.split('/')))) {
+    const visit = (node) => {
+      if (ts.isStringLiteralLike(node)) literals.add(node.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true));
+  }
+  literalCache.set(root, literals);
+  return literals;
+}
+
+/** The `data-testid` of every `<ComingSoon>` a page mounts, sorted. */
+function comingSoonMounts(relativePath) {
+  const source = parseFile(relativePath);
+  const ids = [];
+  const visit = (node) => {
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText(source) === 'ComingSoon'
+    ) {
+      for (const attribute of node.attributes.properties) {
+        if (
+          ts.isJsxAttribute(attribute) &&
+          attribute.name.getText(source) === 'data-testid' &&
+          attribute.initializer &&
+          ts.isStringLiteral(attribute.initializer)
+        ) {
+          ids.push(attribute.initializer.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return ids.sort();
+}
+
+const SHIPPED_SOURCE_ROOTS = [
+  'packages/extension/src',
+  'packages/shared/src',
+  'packages/webview/src',
+];
+const DATAOPS_PAGE_FILE = 'packages/webview/src/pages/DataOps/DataOpsPage.tsx';
+const COMPARE_PAGE_FILE = 'packages/webview/src/pages/Compare/ComparePage.tsx';
+
+/** Whether an initializer is `false`, or a schema default of `false`: `z.boolean().default(false)`. */
+function isFalseValue(expression) {
+  const node = unwrap(expression);
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return true;
+  return (
+    ts.isCallExpression(node) &&
+    invokedName(node.expression) === 'default' &&
+    node.arguments.length === 1 &&
+    unwrap(node.arguments[0]).kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * `enableRollback` is declared on the sync config and written `false` at every
+ * call site — the Sync page, Quick Sync, both migration importers — and read by
+ * nothing. So a sync run keeps no restore point, and the Help page that taught
+ * "enable Rollback before executing" described a switch no screen shows and no
+ * code consults.
+ */
+function assertNothingReadsEnableRollback() {
+  const writes = [];
+  const others = [];
+  for (const root of SHIPPED_SOURCE_ROOTS) {
+    for (const file of sourceFilesUnder(join(repoRoot, ...root.split('/')))) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const visit = (node) => {
+        if (
+          (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+          node.text === 'enableRollback'
+        ) {
+          const { parent } = node;
+          const at = `${toRepoPath(file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+          if (ts.isPropertySignature(parent) && parent.name === node) {
+            // A type naming the field reads nothing.
+          } else if (
+            ts.isPropertyAssignment(parent) &&
+            parent.name === node &&
+            isFalseValue(parent.initializer)
+          ) {
+            writes.push(at);
+          } else {
+            others.push(at);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+  }
+  // Positive control: the walk sees the four call sites that write it.
+  assert.ok(
+    writes.length >= 4,
+    `the scan found ${writes.length} places writing enableRollback: false, fewer than the four ` +
+      'call sites that do — it is not reading them, so the empty list below proves nothing',
+  );
+  assert.deepEqual(
+    others,
+    [],
+    'enableRollback is now read or set to something other than false — a sync may keep a restore ' +
+      'point. Re-read help.syncContent and help.faqContent in six locales before relaxing this:\n  ' +
+      others.join('\n  '),
+  );
+}
+
+/** The manifest declares one timeout, for a pipeline run; none for a Salesforce call. */
+function assertNoApiTimeoutSetting() {
+  const { configuration } = JSON.parse(read(...EXT, 'package.json')).contributes;
+  const sections = Array.isArray(configuration) ? configuration : [configuration];
+  const keys = sections.flatMap((section) => Object.keys(section.properties ?? {}));
+  assert.ok(
+    keys.length >= 12,
+    `the walk found ${keys.length} settings in the manifest, fewer than the 16 it declares — it ` +
+      'has stopped reading them',
+  );
+  assert.deepEqual(
+    keys.filter((key) => /timeout/i.test(key)),
+    ['sandforge.pipeline.timeout'],
+    'the manifest now declares another timeout setting — an API timeout may exist. Re-read ' +
+      'help.faqContent and help.troubleshootingContent before relaxing this.',
+  );
+}
+
+/** No channel deploys a Compare diff, and the Deploy tab says so. */
+function assertCompareDeploysNothing() {
+  const channels = SHIPPED_SOURCE_ROOTS.flatMap((root) => [...stringLiteralsUnder(root)]);
+  assert.ok(
+    channels.includes('compare:drift'),
+    'the literal scan does not see compare:drift, a channel that exists — it is not reading ' +
+      'channel names, so the absence below proves nothing',
+  );
+  assert.deepEqual(
+    channels.filter((literal) => literal.startsWith('compare:deploy')),
+    [],
+    'a compare:deploy channel exists — Deploy from Diff may be wired. Re-read help.compareContent ' +
+      'in six locales before relaxing this.',
+  );
+  assert.deepEqual(
+    comingSoonMounts(COMPARE_PAGE_FILE),
+    ['compare-deploy-soon'],
+    'ComparePage no longer mounts exactly the Deploy tab as coming soon',
+  );
+}
+
+/** Pipelines start by hand: every scheduler:* channel is answered by the no-op handler. */
+function assertSchedulerIsANoOp() {
+  const src = read(...HANDLERS_FILE.split('/'));
+  const noOpRoute = [...src.matchAll(/route\(\s*\[([^\]]*)\]\s*,\s*this\.(\w+)/g)].find(
+    ([, , handler]) => handler === 'noOpHandler',
+  );
+  assert.ok(noOpRoute, `no \`route([...], this.noOpHandler)\` call found in ${HANDLERS_FILE}`);
+  for (const channel of ['scheduler:list', 'scheduler:upsert', 'scheduler:delete']) {
+    assert.match(
+      noOpRoute[1],
+      new RegExp(`'${channel}'`),
+      `${channel} now has a real handler — pipelines may start on a timer. Re-read ` +
+        'help.automationContent and help.dataopsContent before relaxing this.',
+    );
+  }
+}
+
+/** Compliance, Cleanup and Quality are the three DataOps tabs mounted as coming soon. */
+function assertDataOpsTabsAreComingSoon() {
+  // Positive control: the same walk reads the Deploy tab out of ComparePage.
+  assert.deepEqual(comingSoonMounts(COMPARE_PAGE_FILE), ['compare-deploy-soon']);
+  assert.deepEqual(
+    comingSoonMounts(DATAOPS_PAGE_FILE),
+    ['dataops-cleanup-soon', 'dataops-gdpr-soon', 'dataops-quality-soon'],
+    'DataOpsPage no longer mounts Compliance, Cleanup and Quality as coming soon — one of them may ' +
+      'be built. Re-read help.dataopsContent and dataops.emptyState in six locales.',
+  );
+}
+
+/** Ctrl+Enter used to broadcast `sandforge:execute`, and nothing ever listened. */
+function assertNothingRunsOnCtrlEnter() {
+  const literals = stringLiteralsUnder('packages/webview/src');
+  assert.ok(
+    literals.has('help-search'),
+    'the literal scan does not see the Help page search box — it is not reading the webview',
+  );
+  assert.equal(
+    literals.has('sandforge:execute'),
+    false,
+    'the webview names sandforge:execute again — Ctrl+Enter may run something. Re-read ' +
+      'help.shortcutsContent in six locales before relaxing this.',
+  );
+}
+
+/** A run's history entry is one line per run: no step results, and no view that opens one. */
+function assertHistoryKeepsNoStepDetail() {
+  const typesFile = 'packages/shared/src/types/automation.types.ts';
+  const source = ts.createSourceFile(typesFile, read(typesFile), ts.ScriptTarget.Latest, true);
+  const entry = source.statements.find(
+    (node) => ts.isInterfaceDeclaration(node) && node.name.text === 'PipelineHistoryEntry',
+  );
+  assert.ok(entry, `PipelineHistoryEntry is no longer declared in ${typesFile}`);
+  const fields = entry.members.map((member) => member.name?.getText(source) ?? '');
+  // Positive control: the walk reads the run-level fields the history card shows.
+  assert.ok(
+    ['duration', 'stepCount', 'errorCount'].every((field) => fields.includes(field)),
+    `the walk read ${fields.join(', ')} from PipelineHistoryEntry — not the run-level fields the ` +
+      'history card shows, so the check below proves nothing',
+  );
+  assert.deepEqual(
+    fields.filter((field) => /step/i.test(field) && field !== 'stepCount'),
+    [],
+    'PipelineHistoryEntry now carries step detail — the history may show each step. Re-read ' +
+      'help.automationContent in six locales before relaxing this.',
+  );
+  assert.doesNotMatch(
+    read('packages/webview/src/pages/Automation/AutomationPage.tsx'),
+    /<PipelineHistoryView[^>]*onSelectRun/,
+    'AutomationPage now opens a run from the history — a per-step view may exist. Re-read ' +
+      'help.automationContent in six locales before relaxing this.',
+  );
+}
+
+/**
+ * What the Help page taught through v1.22, in six languages, and the code that
+ * says it is false. Each rule is a vocabulary over the keys it names, refused
+ * line by line. A line that carries the bundle's `common.comingSoon` passes the
+ * rules whose gap is on the roadmap; a rollback, a timeout setting, a Grappe
+ * speed-up and a shortcut nothing handles are not, so nothing excuses them.
+ *
+ * `shipped` is the wording each rule was written against, and `honest` what a
+ * true page says instead; the self-test below holds the vocabulary to both.
+ *
+ * What these rules do not see, one limit per line:
+ *  - They read `help.*`, and `dataops.emptyState.*` for the DataOps rule, in the six locale bundles. The same promise on a README, a module page or a walkthrough is left to the rules above and to the module gates.
+ *  - A vocabulary, not a meaning: "a sync can be reversed" passes the rollback rule, and any paraphrase that avoids a rule's words passes it.
+ *  - A line carrying its bundle's "Coming soon" passes a disclaimable rule whatever else it says.
+ *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
+ *  - The pipeline-start rule's anchor reads the scheduler route only. Webhook and event triggers have no executor either, and nothing here reads that absence.
+ *  - The DataOps and Compare anchors read `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
+ *  - The run-history anchor reads the fields of `PipelineHistoryEntry` and whether the page opens a run. Step results fetched some other way, into another view, are not seen.
+ */
+const HELP_CLAIM_RULES = [
+  {
+    name: 'a sync rollback or restore point',
+    keys: HELP_KEYS,
+    pattern:
+      /roll-?back|restore point|point de restauration|wiederherstellungspunkt|punto de restauraci[óo]n|ponto de restaura[çc][ãa]o|ロールバック|復元ポイント/iu,
+    disclaimable: false,
+    anchor: assertNothingReadsEnableRollback,
+    shipped: [
+      '- Rollback support for safe operations',
+      'A: Yes, enable Rollback before executing. SandForge creates a restore point.',
+      '- Support du rollback pour des opérations sécurisées',
+      "R : Oui, activez le Rollback avant l'exécution. SandForge crée un point de restauration.",
+      '- Rollback-Unterstuetzung fuer sichere Operationen',
+      'A: Ja, aktivieren Sie Rollback vor der Ausfuehrung. SandForge erstellt einen Wiederherstellungspunkt.',
+      '- Soporte de rollback para operaciones seguras',
+      'R: Si, habilite Rollback antes de ejecutar. SandForge crea un punto de restauracion.',
+      '- Suporte a rollback para operacoes seguras',
+      'R: Sim, habilite o Rollback antes de executar. O SandForge cria um ponto de restauracao.',
+      '- 安全な操作のためのロールバックサポート',
+      'A：はい、実行前にロールバックを有効にしてください。SandForgeが復元ポイントを作成します。',
+    ],
+    honest: [
+      'A: No. A sync run cannot be reversed.',
+      '- Restore: puts a backup back, whole, into the org it was taken from',
+    ],
+  },
+  {
+    name: 'an API timeout setting',
+    keys: HELP_KEYS,
+    pattern: /api[- ]?timeout|timeout (?:de |d'|da )?(?:l'|la )?api\b|api\s*タイムアウト/iu,
+    disclaimable: false,
+    anchor: assertNoApiTimeoutSetting,
+    shipped: [
+      'A: Increase API timeout in Settings > Advanced. For large datasets, enable Grappe mode.',
+      '- Increase API timeout in Settings > Advanced',
+      '- Augmentez le timeout API dans Paramètres > Avancé',
+      '- Erhöhen Sie das API-Timeout in Einstellungen > Erweitert',
+      '- Aumente el timeout de API en Configuración > Avanzado',
+      '- Aumente o timeout de API em Configurações > Avançado',
+      '- 設定 > 詳細設定でAPIタイムアウトを増やしてください',
+    ],
+    honest: ['A: SandForge has no timeout setting for Salesforce calls.'],
+  },
+  {
+    name: 'Grappe mode as the cure for a slow run',
+    keys: HELP_KEYS,
+    pattern: /grappe[- ]?(?:mode|modus)|mode grappe|modo grappe|grappe\s*モード/iu,
+    disclaimable: false,
+    anchor: assertSeedPartitionsAndReportsEachOne,
+    shipped: [
+      '- Enable Grappe mode for large datasets',
+      '- Activez le mode Grappe pour les gros volumes',
+      '- Aktivieren Sie den Grappe-Modus für große Datenmengen',
+      '- Habilite el modo Grappe para datasets grandes',
+      '- Habilite o modo Grappe para grandes volumes de dados',
+      '- 大規模データセットにはGrappeモードを有効にしてください',
+    ],
+    honest: ['Grappe does not make a run faster: it reports progress per partition.'],
+  },
+  {
+    name: 'deploying from a Compare diff, or an impact graph',
+    keys: HELP_KEYS,
+    pattern:
+      /deploy(?:ment)?s? directly|déploiement direct|direkte bereitstellung|despliegue directo|implanta[çc][ãa]o direta|直接デプロイ|impact analysis|analyse d'impact|auswirkungsanalyse|an[áa]lisis de impacto|an[áa]lise de impacto|影響分析/iu,
+    disclaimable: true,
+    anchor: assertCompareDeploysNothing,
+    shipped: [
+      '- Impact analysis graph',
+      '- Deploy directly from diff results',
+      "- Graphe d'analyse d'impact",
+      '- Déploiement direct depuis les résultats',
+      '- Auswirkungsanalyse-Diagramm',
+      '- Direkte Bereitstellung aus Diff-Ergebnissen',
+      '- Grafico de analisis de impacto',
+      '- Despliegue directo desde resultados de diferencias',
+      '- Grafico de analise de impacto',
+      '- Implantacao direta a partir dos resultados de diferenca',
+      '- 影響分析グラフ',
+      '- 差分結果からの直接デプロイ',
+    ],
+    honest: [
+      '- Deploy: coming soon, nothing is deployed from a diff yet',
+      '- Diff viewer grouped by category and risk level',
+    ],
+  },
+  {
+    name: 'pipelines or backups started by a schedule, a webhook or a trigger',
+    keys: HELP_KEYS,
+    pattern:
+      /schedul|webhook|\bcron\b|planifi|zeitpl(?:a|ä|ae)n|programaci[óo]n|agendament|スケジュール|trigger|d[ée]clencheur|ausl(?:ö|oe)ser|disparador|gatilho|トリガー/iu,
+    disclaimable: true,
+    anchor: assertSchedulerIsANoOp,
+    shipped: [
+      '- Backup & Restore with scheduling',
+      '- 6 trigger types including schedules and webhooks',
+      '- Sauvegarde & Restauration avec planification',
+      '- 6 types de déclencheurs dont planification et webhooks',
+      '- Sicherung & Wiederherstellung mit Zeitplanung',
+      '- 6 Ausloesertypen einschliesslich Zeitplaene und Webhooks',
+      '- Respaldo y restauracion con programacion',
+      '- 6 tipos de disparadores incluyendo programacion y webhooks',
+      '- Backup e restauracao com agendamento',
+      '- 6 tipos de gatilhos incluindo agendamento e webhooks',
+      '- スケジュール付きバックアップとリストア',
+      '- スケジュールとWebhookを含む6つのトリガータイプ',
+    ],
+    honest: ['- Pipelines start by hand, from the Run button; nothing else starts one yet'],
+  },
+  {
+    name: 'a run history that records each step',
+    keys: HELP_KEYS,
+    pattern:
+      /per[- ]step|each step|par [ée]tape|je Schritt|pro Schritt|por paso|por etapa|ステップごと/iu,
+    disclaimable: true,
+    anchor: assertHistoryKeepsNoStepDetail,
+    shipped: [
+      '- Execution history with per-step status and timing',
+      "- Historique d'exécution avec statut et durée par étape",
+      '- Ausführungsverlauf mit Status und Dauer je Schritt',
+      '- Historial de ejecución con estado y duración por paso',
+      '- ステップごとのステータスと所要時間を記録する実行履歴',
+      '- Histórico de execução com status e duração por etapa',
+    ],
+    honest: ['- Execution history: status, total duration, step count and errors for each run'],
+  },
+  {
+    name: 'DataOps tabs that are not built: DSR, quality, cleanup, mass delete',
+    keys: HELP_AND_DATAOPS_WELCOME_KEYS,
+    pattern:
+      /\bDSR\b|data subject request|sujets de donn[ée]es|betroffenenanfrage|titulares de datos|titulares de dados|データ主体|quality|qualit[éeä]|qualitaet|(?<!\p{L})calidad|qualidade|品質|clean(?:s|ing)? ?up|nettoi|nettoy|bereinig|limpi|limpa\b|limpez|クリーンアップ|mass delete|en masse|massenl(?:ö|oe)sch|eliminaci[óo]n masiva|em massa|一括削除|storage optimi|optimisation du stockage|speicheroptimierung|optimizaci[óo]n de almacenamiento|otimiza[çc][ãa]o de armazenamento|ストレージ最適化/iu,
+    disclaimable: true,
+    anchor: assertDataOpsTabsAreComingSoon,
+    shipped: [
+      '- Data quality scanning with 7 rule types',
+      '- Mass delete and storage optimization',
+      '- Data Subject Request (DSR) management',
+      'DataOps backs up, restores, anonymizes and cleans up your org data — with GDPR tooling and quality dashboards built in.',
+      'Schedule cleanups and track data quality',
+      '- Scan de qualité des données avec 7 types de règles',
+      '- Suppression en masse et optimisation du stockage',
+      '- Gestion des demandes de sujets de données (DSR)',
+      'Planifiez les nettoyages et suivez la qualité des données',
+      '- Datenqualitaets-Scan mit 7 Regeltypen',
+      '- Massenloeschung und Speicheroptimierung',
+      '- Verwaltung von Betroffenenanfragen (DSR)',
+      '- Escaneo de calidad de datos con 7 tipos de reglas',
+      '- Eliminacion masiva y optimizacion de almacenamiento',
+      'DataOps respalda, restaura, anonimiza y limpia los datos de su org — con herramientas GDPR y paneles de calidad integrados.',
+      '- Escaneamento de qualidade de dados com 7 tipos de regras',
+      '- Exclusao em massa e otimizacao de armazenamento',
+      'O DataOps faz backup, restaura, anonimiza e limpa os dados da sua org — com ferramentas GDPR e painéis de qualidade integrados.',
+      '- 7つのルールタイプによるデータ品質スキャン',
+      '- 一括削除とストレージ最適化',
+      '- データ主体リクエスト（DSR）管理',
+      'クリーンアップを計画しデータ品質を追跡',
+    ],
+    honest: [
+      '- Compliance, Cleanup and Quality: coming soon, nothing runs behind these tabs yet',
+      '- Anonymize: masks fields in place with the built-in GDPR, CCPA and HIPAA templates',
+      'Restore a backup into the org it was taken from',
+      // "localidade" carries the Spanish "calidad" inside it.
+      '- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário)',
+    ],
+  },
+  {
+    name: 'a Ctrl shortcut nothing handles: Ctrl+1..9/0 or Ctrl+Enter',
+    keys: HELP_KEYS,
+    pattern: /(?:ctrl|strg|cmd|⌘)\s*\+\s*(?:\d|enter|entr[ée]e|eingabe|intro)/iu,
+    disclaimable: false,
+    anchor: assertNothingRunsOnCtrlEnter,
+    shipped: [
+      'Ctrl+1..9/0 — Jump to a module (Monitor, Seed, Sync, Compare, DataOps, Automation, Grappe, Autopilot, Migration, Forge)',
+      'Ctrl+Enter — Run the current action',
+      "Ctrl+Entrée — Exécuter l'action courante",
+      'Strg+1..9/0 — Zu einem Modul springen (Monitor, Seed, Sync, Compare, DataOps, Automation, Grappe, Autopilot, Migration, Forge)',
+      'Strg+Eingabe — Aktuelle Aktion ausfuehren',
+      'Ctrl+1..9/0 — モジュールへ移動 (Monitor, Seed, Sync, Compare, DataOps, Automation, Grappe, Autopilot, Migration, Forge)',
+    ],
+    honest: ['Ctrl+K — Command palette', 'G + letter — Jump to a module (e.g. G then F for Forge)'],
+  },
+];
+
+/** Whether a line sells what the rule refuses, given the disclaimer its own bundle writes. */
+const helpLineOffends = (rule, line, comingSoon) =>
+  rule.pattern.test(line) &&
+  !(rule.disclaimable && line.toLowerCase().includes(comingSoon.toLowerCase()));
+
+for (const rule of HELP_CLAIM_RULES) {
+  test(`anchor: the in-app help rule on ${rule.name} still reads true code`, () => {
+    rule.anchor();
+  });
+}
+
+test('the in-app help teaches no feature the product does not have', () => {
+  const offenders = [];
+  for (const rule of HELP_CLAIM_RULES) {
+    rule.anchor();
+    const lines = helpLines(rule.keys);
+    // Positive control: six bundles of Help text are being read, not an empty walk.
+    assert.ok(
+      lines.length >= 6 * 40,
+      `the walk found ${lines.length} lines of help text across the locales — it has stopped ` +
+        'reading them, so an empty result below proves nothing',
+    );
+    for (const { label, line, comingSoon } of lines) {
+      if (helpLineOffends(rule, line, comingSoon)) {
+        offenders.push(`${label} — ${rule.name}: ${line.trim().slice(0, 140)}`);
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'the in-app help teaches these features, and the code above says they do not exist:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('the help rules refuse what shipped and leave an honest rewrite alone', () => {
+  const markers = localeFiles().map(
+    (file) => JSON.parse(readFileSync(join(LOCALES_DIR, file), 'utf8')).common.comingSoon,
+  );
+  const refusedBy = (rule, text) => markers.every((marker) => helpLineOffends(rule, text, marker));
+  const passedBy = (rule, text) => markers.some((marker) => !helpLineOffends(rule, text, marker));
+
+  assert.deepEqual(
+    HELP_CLAIM_RULES.flatMap((rule) =>
+      rule.shipped.filter((text) => !refusedBy(rule, text)).map((text) => `${rule.name}: ${text}`),
+    ),
+    [],
+    'these lines shipped in the Help page and the rule written against them lets them through',
+  );
+  assert.deepEqual(
+    HELP_CLAIM_RULES.flatMap((rule) =>
+      rule.honest.filter((text) => !passedBy(rule, text)).map((text) => `${rule.name}: ${text}`),
+    ),
+    [],
+    'the help rules refuse these true sentences — a gate that refuses the honest rewrite gets ' +
+      'weakened by hand',
+  );
+  // A coming-soon marker excuses only a gap that is on the roadmap.
+  assert.equal(
+    refusedBy(HELP_CLAIM_RULES[0], '- Rollback support: coming soon'),
+    true,
+    'a coming-soon marker now excuses a rollback, which nothing plans',
   );
 });
 

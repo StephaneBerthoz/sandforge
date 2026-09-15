@@ -8,7 +8,11 @@ import {
   QuickSyncConfigSchema,
 } from '@sandforge/shared';
 import { z } from 'zod';
-import { isSafeSoqlOrderBy } from '../core/common/soqlValidator.js';
+import {
+  isSafeSoqlOrderBy,
+  isSafeSoqlWhere,
+  SOQL_WHERE_RULE,
+} from '../core/common/soqlValidator.js';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
 
@@ -27,7 +31,9 @@ import { sendHandlerError } from './handlers/HandlerTypes.js';
  * against `packages/webview/src/pages/*`). Org ids are Salesforce 18-char
  * org IDs (not UUIDs), so the shared `syncConfigSchema` is extended with a
  * permissive org-id field rather than reused blindly. `.passthrough()` keeps
- * extra keys the webview legitimately sends (config `id`, `createdAt`, …).
+ * extra keys the webview legitimately sends (config `id`, `createdAt`, …);
+ * the sync schemas declare those keys instead and strip the rest, because what
+ * they accept is persisted as-is.
  */
 
 /** Permissive org-id schema (accepts SF 18-char org IDs as well as UUIDs). */
@@ -43,28 +49,16 @@ export const sfApiNameSchema = z
 export const opaqueIdSchema = z.string().min(1).max(200);
 
 /**
- * Free-text SOQL WHERE fragment. Subqueries and DML keywords are rejected at
- * validation time — the same filter is re-applied at query build time in
- * `SyncOpsHandler` (defense-in-depth, both layers stay).
+ * Free-text SOQL WHERE fragment: a filter and nothing else. A clause that goes
+ * on past the filter — `LIMIT 1`, `FOR UPDATE`, a comment, a subquery — would
+ * still run, so it is refused here (literals are set aside first, so
+ * `Status = 'Delete pending'` stays legal). The same rule is re-applied where
+ * the fragment becomes query text (`SyncOpsHandler`, `CloneRecordFetcher`).
  */
 export const whereClauseSchema = z
   .string()
   .max(2000)
-  .refine(
-    (where) => {
-      const upper = where.toUpperCase();
-      return !(
-        /\bSELECT\b/.test(upper) ||
-        /\bINSERT\b/.test(upper) ||
-        /\bUPDATE\b/.test(upper) ||
-        /\bDELETE\b/.test(upper)
-      );
-    },
-    {
-      message:
-        'WHERE clause contains forbidden keyword (SELECT/INSERT/UPDATE/DELETE). Subqueries are not allowed.',
-    },
-  );
+  .refine(isSafeSoqlWhere, { message: SOQL_WHERE_RULE });
 
 /**
  * SOQL ORDER BY fragment. Only field paths, `ASC`/`DESC` and `NULLS
@@ -92,59 +86,121 @@ const MAX_BATCH_SIZE = 10_000;
 // ── sync:* payload schemas ────────────────────────────────────────────────
 
 /**
+ * Objects whose content is a file held in a base64 body. Sync has no stage
+ * that moves one: Bulk API 2.0 rejects base64, so a run carrying one of these
+ * failed past the bulk threshold after the REST path had already written.
+ * Matched case-insensitively, as Salesforce matches object names.
+ */
+const SYNC_FILE_OBJECTS = new Set(['attachment', 'contentversion', 'document']);
+
+/** Whether `objectApiName` is an object whose content is a file, which Sync cannot transfer. */
+export function isSyncFileObject(objectApiName: string): boolean {
+  return SYNC_FILE_OBJECTS.has(objectApiName.toLowerCase());
+}
+
+/**
  * Per-object sync config as sent by the webview. `batchSize` is made optional
  * so the handler can fall back to the `sandforge.sync.defaultBatchSize`
- * setting (the shared schema hard-codes 200 otherwise).
+ * setting (the shared schema hard-codes 200 otherwise). `externalIdField` is
+ * the upsert key and the match key of a bidirectional run, so it is a field
+ * name like every other key the bridge accepts.
  */
 export const syncObjectPayloadSchema = syncObjectConfigSchema
   .extend({
-    objectApiName: sfApiNameSchema,
+    objectApiName: sfApiNameSchema.refine(
+      (name) => !isSyncFileObject(name),
+      (name) => ({
+        message:
+          `Sync does not transfer files: "${name}" keeps its content in a file body that no ` +
+          `sync stage moves. Remove it from this configuration; the sync was not started.`,
+      }),
+    ),
+    // The External ID box is shown for every operation and sends what it holds:
+    // a box left empty is no key, not a malformed one.
+    externalIdField: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      sfApiNameSchema.optional(),
+    ),
     where: whereClauseSchema.optional(),
     orderBy: orderByClauseSchema.optional(),
     batchSize: z.number().int().positive().max(MAX_BATCH_SIZE).optional(),
   })
-  .passthrough();
+  .strip();
 
 /**
- * Apex hooks a sync config used to carry. A sync moves data and never runs
- * code in an org, so these are refused rather than dropped: a configuration
- * saved when they still ran must say so out loud instead of quietly syncing
- * without the script its author expected.
+ * An Apex hook a sync config used to carry. A sync moves data and never runs
+ * code in an org, so the field is declared only to be refused rather than
+ * dropped: a configuration saved when it still ran must say so out loud
+ * instead of quietly syncing without the script its author expected. An
+ * explicit `undefined` (a stored config round-tripping through JSON) passes.
  */
-const REMOVED_SCRIPT_FIELDS = ['preScript', 'postScript'] as const;
+function removedScriptField(field: string): z.ZodUndefined {
+  return z.undefined({
+    errorMap: () => ({
+      message:
+        `Sync does not run Apex: remove "${field}" from this configuration. ` +
+        `The sync was not started so the script cannot be skipped without you knowing.`,
+    }),
+  });
+}
 
-/** Sync config accepted by `sync:execute` / `sync:config:save`. */
+/**
+ * Sync config accepted by `sync:execute` / `sync:config:save`.
+ *
+ * Unknown keys are stripped: the config store saves the parsed config and
+ * history snapshots it, so anything accepted here is persisted and replayed.
+ * The keys SandForge itself writes on a config are declared so they survive.
+ */
 export const syncConfigPayloadSchema = syncConfigSchema
   .extend({
+    id: opaqueIdSchema.optional(),
     sourceOrgId: orgIdSchema,
     targetOrgId: orgIdSchema,
     objects: z.array(syncObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
-  })
-  .passthrough()
-  .superRefine((config, ctx) => {
-    const extras = config as Record<string, unknown>;
-    for (const field of REMOVED_SCRIPT_FIELDS) {
-      if (extras[field] === undefined) continue;
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [field],
-        message:
-          `Sync does not run Apex: remove "${field}" from this configuration. ` +
-          `The sync was not started so the script cannot be skipped without you knowing.`,
-      });
-    }
-
+    createdAt: z.string().max(40).optional(),
+    updatedAt: z.string().max(40).optional(),
+    preScript: removedScriptField('preScript'),
+    postScript: removedScriptField('postScript'),
     // A sync run always writes to the target org; there is no simulated path
     // behind this flag. `false` stays legal — every config SandForge wrote
     // carries it with that value, and history reruns replay those snapshots.
-    if (extras.dryRun === true) {
+    dryRun: z
+      .literal(false, {
+        errorMap: () => ({
+          message:
+            `Sync has no dry run: remove "dryRun" from this configuration. ` +
+            `A sync run writes to the target org, and the run was not started ` +
+            `so it cannot write while you believed it was only reporting.`,
+        }),
+      })
+      .optional(),
+  })
+  .strip()
+  .superRefine((config, ctx) => {
+    // The orchestrator branches on `bidirectional` alone; every other value
+    // writes source to target, so this one would write into the org the user
+    // meant to read from.
+    if (config.direction === 'target_to_source') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['dryRun'],
+        path: ['direction'],
         message:
-          `Sync has no dry run: remove "dryRun" from this configuration. ` +
-          `A sync run writes to the target org, and the run was not started ` +
-          `so it cannot write while you believed it was only reporting.`,
+          `Sync writes source to target only: direction "target_to_source" is not supported. ` +
+          `Swap the source and target orgs to copy the other way. The sync was not started, ` +
+          `so it cannot write into the org you meant to read from.`,
+      });
+    }
+
+    // Only a full sync exists: any other mode would replay the whole object
+    // set while the configuration said otherwise.
+    if (config.mode !== 'full') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['mode'],
+        message:
+          `Sync runs a full sync only: mode "${config.mode}" is not implemented. ` +
+          `Set mode to "full". The sync was not started, so it cannot replay the whole ` +
+          `object set while you believed it was reading changes only.`,
       });
     }
   });
@@ -196,7 +252,11 @@ export const syncHistoryExportPayloadSchema = z.object({
 // Runtime fields (nextRunAt/lastRunAt/lastResult) are computed extension-side
 // by SyncScheduleExecutor, so the upsert payload must NOT carry them.
 
-/** Schedule entry as sent by the webview (Omit<SyncScheduleEntry, runtime fields>). */
+/**
+ * Schedule entry as sent by the webview (Omit<SyncScheduleEntry, runtime fields>).
+ * Unknown keys are stripped: `SyncScheduleExecutor.upsert` spreads the entry
+ * into storage.
+ */
 export const syncScheduleEntryPayloadSchema = z
   .object({
     id: opaqueIdSchema,
@@ -215,7 +275,7 @@ export const syncScheduleEntryPayloadSchema = z
     updatedAt: z.string().max(40),
     version: z.number().int().positive(),
   })
-  .passthrough();
+  .strip();
 
 export const syncScheduleUpsertPayloadSchema = z.object({
   schedule: syncScheduleEntryPayloadSchema,

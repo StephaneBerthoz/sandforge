@@ -1,7 +1,13 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FieldRuleType } from '@sandforge/shared';
+import {
+  SUPPORTED_FAKER_METHODS,
+  acceptsGeneratedSentence,
+  resolveFakerMethod,
+} from '@sandforge/shared';
 import { Select } from '../../components/ui/Select';
+import type { SelectOption } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Accordion } from '../../components/ui/Accordion';
@@ -46,6 +52,42 @@ const RULE_TYPE_OPTIONS: { value: FieldRuleType; labelKey: string }[] = [
   { value: 'regex', labelKey: 'seed.fieldRules.regex' },
   { value: 'from_csv', labelKey: 'seed.fieldRules.from_csv' },
 ];
+
+/** The methods SandForge generates, listed under the identifiers a rule stores. */
+const FAKER_METHOD_OPTIONS: SelectOption[] = SUPPORTED_FAKER_METHODS.map((method) => ({
+  value: method,
+  label: method,
+}));
+
+/**
+ * Options and value of a faker method picker. The method was free text, so a
+ * typo or a faker.js name nothing generates reached the run. A stored
+ * faker.js spelling shows the method it resolves to; a method nothing
+ * generates stays listed, disabled, so the field the run refuses is visible.
+ */
+function fakerMethodSelection(stored: unknown): { options: SelectOption[]; value: string } {
+  const method = typeof stored === 'string' ? stored : '';
+  if (method === '') return { options: FAKER_METHOD_OPTIONS, value: '' };
+  const resolved = resolveFakerMethod(method);
+  if (resolved) return { options: FAKER_METHOD_OPTIONS, value: resolved };
+  return {
+    options: [{ value: method, label: method, disabled: true }, ...FAKER_METHOD_OPTIONS],
+    value: method,
+  };
+}
+
+/**
+ * Rule types a field row offers. AI generation writes text, so it is offered
+ * only on fields that hold text; the run refuses it on any other. A field that
+ * already carries it keeps it listed, disabled, like an unknown faker method.
+ */
+function ruleOptionsFor(field: FieldConfig, ruleOptions: SelectOption[]): SelectOption[] {
+  if (acceptsGeneratedSentence(field.type)) return ruleOptions;
+  if (field.ruleType === 'ai_generate') {
+    return ruleOptions.map((o) => (o.value === 'ai_generate' ? { ...o, disabled: true } : o));
+  }
+  return ruleOptions.filter((o) => o.value !== 'ai_generate');
+}
 
 /**
  * Categorize an object API name into Standard, Custom, or Managed Package.
@@ -107,7 +149,7 @@ const ObjectPanel: React.FC<{
                 </div>
                 <span className="w-16 text-[var(--sf-text-secondary)] truncate">{field.type}</span>
                 <Select
-                  options={ruleOptions}
+                  options={ruleOptionsFor(field, ruleOptions)}
                   value={field.ruleType}
                   onChange={(e) =>
                     onChangeRule(
@@ -136,9 +178,9 @@ const ObjectPanel: React.FC<{
                   />
                 )}
                 {field.ruleType === 'faker' && (
-                  <Input
-                    placeholder="faker.method"
-                    value={String(field.config['fakerMethod'] ?? '')}
+                  <Select
+                    {...fakerMethodSelection(field.config['fakerMethod'])}
+                    placeholder={t('seed.fieldRules.faker')}
                     onChange={(e) =>
                       onChangeConfig(
                         obj.objectApiName,

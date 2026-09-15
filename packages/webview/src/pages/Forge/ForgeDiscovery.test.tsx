@@ -9,7 +9,7 @@ import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
 const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockToggleAnonymizeField = vi.fn();
-const mockSetAllNodesIncluded = vi.fn();
+const mockSetNodesIncluded = vi.fn();
 const mockSendMessage = vi.fn();
 
 function makeNode(overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
@@ -83,7 +83,7 @@ vi.mock('../../stores/useForgeStore', () => {
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     toggleAnonymizeField: (...args: unknown[]) => mockToggleAnonymizeField(...args),
-    setAllNodesIncluded: (...args: unknown[]) => mockSetAllNodesIncluded(...args),
+    setNodesIncluded: (...args: unknown[]) => mockSetNodesIncluded(...args),
     setResult: vi.fn(),
     reset: vi.fn(),
   };
@@ -136,7 +136,7 @@ describe('ForgeDiscovery', () => {
     mockSetGraph.mockClear();
     mockToggleNodeIncluded.mockClear();
     mockToggleAnonymizeField.mockClear();
-    mockSetAllNodesIncluded.mockClear();
+    mockSetNodesIncluded.mockClear();
     mockSendMessage.mockClear();
     mockGraph = defaultGraph;
     mockConfig = null;
@@ -347,17 +347,29 @@ describe('ForgeDiscovery', () => {
   });
 
   // Select All
-  it('should call setAllNodesIncluded(true) when Select All is clicked', () => {
+  it('should include every node when Select All is clicked with no search', () => {
     render(<ForgeDiscovery />);
     fireEvent.click(screen.getByTestId('forge-select-all'));
-    expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(true);
+    expect(mockSetNodesIncluded).toHaveBeenCalledWith(['Account', 'Contact'], true);
   });
 
   // Deselect All
-  it('should call setAllNodesIncluded(false) when Deselect All is clicked', () => {
+  it('should exclude every node when Deselect All is clicked with no search', () => {
     render(<ForgeDiscovery />);
     fireEvent.click(screen.getByTestId('forge-deselect-all'));
-    expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(false);
+    expect(mockSetNodesIncluded).toHaveBeenCalledWith(['Account', 'Contact'], false);
+  });
+
+  it('should only touch the rows a table search shows', () => {
+    render(<ForgeDiscovery />);
+    fireEvent.click(screen.getByTestId('forge-view-table'));
+    fireEvent.change(screen.getByTestId('forge-node-search'), { target: { value: 'cont' } });
+
+    fireEvent.click(screen.getByTestId('forge-deselect-all'));
+    expect(mockSetNodesIncluded).toHaveBeenLastCalledWith(['Contact'], false);
+
+    fireEvent.click(screen.getByTestId('forge-select-all'));
+    expect(mockSetNodesIncluded).toHaveBeenLastCalledWith(['Contact'], true);
   });
 
   // Search input

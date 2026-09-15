@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildNodeQuery,
   getParentObjects,
+  queryNodeRecords,
   seedOwnIds,
   seedScopeCache,
   sortNodesForExecution,
@@ -182,7 +183,7 @@ describe('buildNodeQuery', () => {
       scopedBuilder: null,
       scopeCache: null,
     });
-    expect(result).toEqual({ kind: 'query', soql: 'SELECT Id, Name FROM Account' });
+    expect(result).toEqual({ kind: 'query', statements: ['SELECT Id, Name FROM Account'] });
   });
 
   it('falls back to selecting Id when no field is queryable', () => {
@@ -193,7 +194,7 @@ describe('buildNodeQuery', () => {
       scopedBuilder: null,
       scopeCache: null,
     });
-    expect(result).toEqual({ kind: 'query', soql: 'SELECT Id FROM Account' });
+    expect(result).toEqual({ kind: 'query', statements: ['SELECT Id FROM Account'] });
   });
 
   it('appends a floored LIMIT when maxRecordsPerObject is positive', () => {
@@ -205,7 +206,11 @@ describe('buildNodeQuery', () => {
       scopeCache: null,
       maxRecordsPerObject: 50.7,
     });
-    expect(result).toEqual({ kind: 'query', soql: 'SELECT Id, Name FROM Account LIMIT 50' });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: ['SELECT Id, Name FROM Account LIMIT 50'],
+      limit: 50,
+    });
   });
 
   it('appends no LIMIT when the cap is undefined, 0 or negative', () => {
@@ -219,7 +224,7 @@ describe('buildNodeQuery', () => {
         maxRecordsPerObject,
       });
       expect(result.kind).toBe('query');
-      if (result.kind === 'query') expect(result.soql).not.toContain('LIMIT');
+      if (result.kind === 'query') expect(result.statements.join(' ')).not.toContain('LIMIT');
     }
   });
 
@@ -237,7 +242,7 @@ describe('buildNodeQuery', () => {
     });
     expect(result).toEqual({
       kind: 'query',
-      soql: "SELECT Id, Name FROM Case WHERE Id = '500XX00000000001AAA'",
+      statements: ["SELECT Id, Name FROM Case WHERE Id = '500XX00000000001AAA'"],
     });
   });
 
@@ -267,7 +272,68 @@ describe('buildNodeQuery', () => {
       rootObjectApiName: 'Case',
       rootRecordId: '500XX00000000001AAA',
     });
-    expect(result).toEqual({ kind: 'query', soql: 'SELECT Id, Name FROM Case' });
+    expect(result).toEqual({ kind: 'query', statements: ['SELECT Id, Name FROM Case'] });
+  });
+  it('puts the LIMIT on every statement of a chunked scope', () => {
+    const cache = new RecordScopeCache();
+    cache.add(
+      'Contact',
+      Array.from({ length: 1300 }, (_, i) => `003${String(i).padStart(15, '0')}`),
+    );
+    const result = buildNodeQuery({
+      node: makeNode('Contact'),
+      edges: [],
+      fieldInfos: FIELDS,
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Case',
+      rootRecordId: '500XX00000000001AAA',
+      maxRecordsPerObject: 25,
+    });
+    expect(result.kind).toBe('query');
+    if (result.kind !== 'query') return;
+    expect(result.statements).toHaveLength(3);
+    for (const soql of result.statements) expect(soql.endsWith(' LIMIT 25')).toBe(true);
+    expect(result.limit).toBe(25);
+  });
+});
+
+describe('queryNodeRecords', () => {
+  it('merges chunk results and keeps one row per Id', async () => {
+    const byStatement: Record<string, Record<string, unknown>[]> = {
+      q1: [{ Id: '003A' }, { Id: '003B' }],
+      // A row matching two FK clauses comes back from both chunks.
+      q2: [{ Id: '003B' }, { Id: '003C' }],
+    };
+    const queried: string[] = [];
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['q1', 'q2'] },
+      async (soql) => {
+        queried.push(soql);
+        return byStatement[soql] ?? [];
+      },
+    );
+    expect(queried).toEqual(['q1', 'q2']);
+    expect(records.map((r) => r['Id'])).toEqual(['003A', '003B', '003C']);
+  });
+
+  it('stops at the per-object cap across chunks', async () => {
+    const queried: string[] = [];
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['q1', 'q2', 'q3'], limit: 3 },
+      async (soql) => {
+        queried.push(soql);
+        return [{ Id: `${soql}-1` }, { Id: `${soql}-2` }];
+      },
+    );
+    expect(records).toHaveLength(3);
+    expect(queried).toEqual(['q1', 'q2']);
+  });
+
+  it('returns a single statement result untouched', async () => {
+    const rows = [{ Name: 'no Id selected' }, { Name: 'no Id selected' }];
+    const records = await queryNodeRecords({ kind: 'query', statements: ['q1'] }, async () => rows);
+    expect(records).toBe(rows);
   });
 });
 

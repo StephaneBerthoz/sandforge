@@ -1,5 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+  type Stats,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { syncConfigSavePayloadSchema, syncExecutePayloadSchema } from './validatePayload.js';
 
@@ -63,10 +75,13 @@ describe('a sync config may not carry Apex to run', () => {
     expect(issueFor(result, 'config.postScript')).toContain('postScript');
   });
 
-  it('sync:config:save refuses a config carrying preScript', () => {
+  it('sync:config:save refuses a config carrying preScript, and says why', () => {
     const config = { ...validSyncConfig(), preScript: 'System.debug("pre");' };
+    const result = syncConfigSavePayloadSchema.safeParse({ config });
 
-    expect(syncConfigSavePayloadSchema.safeParse({ config }).success).toBe(false);
+    expect(result.success).toBe(false);
+    expect(issueFor(result, 'config.preScript')).toContain('preScript');
+    expect(issueFor(result, 'config.preScript')).toContain('Apex');
   });
 
   it('still accepts a config with no script fields', () => {
@@ -96,31 +111,88 @@ const SKIPPED_DIRS = new Set([
   '.serena',
 ]);
 
-/** Hand-written source files under `packages/`, tests excluded. */
-function productionSources(): string[] {
+/**
+ * Hand-written source files under `root`, tests excluded.
+ *
+ * Entries are resolved through `statSync`, which follows links: a symlinked
+ * directory is walked like any other (a `Dirent` reports it as a link, not a
+ * directory, so it used to be skipped along with every file behind it), and a
+ * link whose target is gone is passed over instead of reaching `readFileSync`
+ * and failing the run. Directories are keyed on their real path, so a link
+ * back to an ancestor cannot loop.
+ */
+function productionSources(root: string): string[] {
   const found: string[] = [];
+  const visited = new Set<string>();
 
   const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (!SKIPPED_DIRS.has(entry.name)) walk(join(dir, entry.name));
+    const real = realpathSync(dir);
+    if (visited.has(real)) return;
+    visited.add(real);
+
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      let stats: Stats;
+      try {
+        stats = statSync(path);
+      } catch {
         continue;
       }
-      if (!/\.(ts|tsx)$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue;
-      found.push(join(dir, entry.name));
+      if (stats.isDirectory()) {
+        if (!SKIPPED_DIRS.has(name)) walk(path);
+        continue;
+      }
+      if (!stats.isFile() || !/\.(ts|tsx)$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+      found.push(path);
     }
   };
 
-  walk(PACKAGES_ROOT);
+  walk(root);
   return found;
+}
+
+/** `files` as `/`-separated paths relative to `root`, sorted. */
+function relativeSorted(root: string, files: string[]): string[] {
+  return files.map((file) => relative(root, file).split(sep).join('/')).sort();
 }
 
 describe('no production source runs anonymous Apex', () => {
   it('nothing under packages/ calls executeAnonymous', () => {
-    const offenders = productionSources()
-      .filter((file) => readFileSync(file, 'utf8').includes('executeAnonymous'))
-      .map((file) => relative(PACKAGES_ROOT, file).split(sep).join('/'));
+    const offenders = productionSources(PACKAGES_ROOT).filter((file) =>
+      readFileSync(file, 'utf8').includes('executeAnonymous'),
+    );
 
-    expect(offenders).toEqual([]);
+    expect(relativeSorted(PACKAGES_ROOT, offenders)).toEqual([]);
+  });
+
+  describe('the source walk', () => {
+    let scratch: string;
+
+    beforeEach(() => {
+      scratch = mkdtempSync(join(tmpdir(), 'sync-apex-walk-'));
+    });
+
+    afterEach(() => {
+      rmSync(scratch, { recursive: true, force: true });
+    });
+
+    it('reads through a symlinked directory, skips a dangling link and does not loop', () => {
+      const root = join(scratch, 'root');
+      const outside = join(scratch, 'outside');
+      mkdirSync(join(root, 'src'), { recursive: true });
+      mkdirSync(outside);
+      writeFileSync(join(root, 'src', 'real.ts'), 'export {};\n');
+      writeFileSync(join(root, 'src', 'real.test.ts'), 'export {};\n');
+      writeFileSync(join(outside, 'linked.ts'), 'export {};\n');
+      symlinkSync(outside, join(root, 'src', 'linked'), 'dir');
+      symlinkSync(root, join(root, 'src', 'loop'), 'dir');
+      symlinkSync(join(scratch, 'gone.ts'), join(root, 'src', 'dangling.ts'));
+
+      const found = productionSources(root);
+
+      expect(relativeSorted(root, found)).toEqual(['src/linked/linked.ts', 'src/real.ts']);
+      // Every path the walk returns can be read: the scan above calls readFileSync on each.
+      expect(() => found.forEach((file) => readFileSync(file, 'utf8'))).not.toThrow();
+    });
   });
 });

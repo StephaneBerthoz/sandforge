@@ -10,8 +10,8 @@ Only the latest minor on the marketplace receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| 1.21.x  | Yes       |
-| < 1.21  | No        |
+| 1.22.x  | Yes       |
+| < 1.22  | No        |
 
 ## Reporting a vulnerability
 
@@ -38,7 +38,7 @@ You can expect:
 - Credential exposure (org tokens, secrets stored via the
   `vscode.SecretStorage` adapter)
 - SOQL/SOQL-like injection in Forge / Clone / Seed paths
-- Path traversal via CLI flags (`sandforge-clone`, `recipe-forge-grappe`)
+- Path traversal via CLI flags (`sandforge-clone`)
 - CSP bypass in webview panels (nonce, sources, sandbox)
 - Privilege escalation in pipeline steps (approval gate, conditional router)
 - AI prompt injection via record-derived content

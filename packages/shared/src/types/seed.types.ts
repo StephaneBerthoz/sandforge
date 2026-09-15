@@ -44,6 +44,8 @@ export interface SeedObjectConfig {
 /** Field generation rule */
 export interface FieldRule {
   fieldApiName: string;
+  /** Describe type of the field (e.g. 'string', 'currency'), when the author knew it. */
+  fieldType?: string;
   ruleType: FieldRuleType;
   config: FieldRuleConfig;
 }
@@ -88,6 +90,11 @@ export interface SeedObjectResult {
   recordsFailed: number;
   createdIds: string[];
   errors: string[];
+  /**
+   * Set on the result posted to the webview when createdIds or errors hold
+   * only their first entries. recordsCreated and recordsFailed stay whole.
+   */
+  truncated?: boolean;
 }
 
 /** Seed data plan — preview of what will be created */

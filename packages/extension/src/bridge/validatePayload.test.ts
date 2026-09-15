@@ -252,6 +252,24 @@ describe('seedExecutePayloadSchema', () => {
     const template = { ...validSeedTemplate(), objects: [] };
     expect(seedExecutePayloadSchema.safeParse({ orgId: 'o', template }).success).toBe(false);
   });
+
+  it('strips the persona-side prompt key from a field rule, although objects pass extra keys through', () => {
+    const template = validSeedTemplate();
+    const object = (template.objects as Array<Record<string, unknown>>)[0];
+    object.extraObjectKey = 'kept';
+    object.fieldRules = [
+      {
+        fieldApiName: 'Description',
+        ruleType: 'ai_generate',
+        config: { prompt: 'persona wording', aiPrompt: 'a' },
+      },
+    ];
+
+    const parsed = seedExecutePayloadSchema.parse({ orgId: 'o', template });
+
+    expect(parsed.template.objects[0]).toHaveProperty('extraObjectKey', 'kept');
+    expect(parsed.template.objects[0].fieldRules[0].config).toEqual({ aiPrompt: 'a' });
+  });
 });
 
 describe('dataops payload schemas', () => {

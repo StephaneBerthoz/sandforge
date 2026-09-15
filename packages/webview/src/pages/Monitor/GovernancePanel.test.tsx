@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { GovernancePanel, GovernancePanelConnected } from './GovernancePanel';
-import type { GovernancePolicySummary, GovernanceRuleDisplay } from './GovernancePanel';
+import type { GovernancePolicySummary } from '@sandforge/shared';
+import type { GovernanceRuleDisplay } from './GovernancePanel';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

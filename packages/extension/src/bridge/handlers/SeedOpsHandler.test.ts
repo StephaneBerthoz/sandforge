@@ -1342,6 +1342,126 @@ describe('SeedOpsHandler', () => {
     });
   });
 
+  describe('seed:execute response and progress', () => {
+    function postedMessages(): Array<BaseMessage & { payload?: Record<string, unknown> }> {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls.map((c) => c[0]);
+    }
+
+    function runWith(
+      execute: (seedDeps: { onProgress?: (event: Record<string, unknown>) => void }) => unknown,
+    ): Promise<boolean> {
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps) => ({
+          execute: vi.fn(async () => execute(seedDeps)),
+        })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+      return handler.handle(
+        inboundRequest({
+          id: 'seed-size-1',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+    }
+
+    it('caps the created ids and errors posted per object, keeping the counts and flagging the cut', async () => {
+      const createdIds = Array.from(
+        { length: 5000 },
+        (_, i) => `003${String(i).padStart(12, '0')}`,
+      );
+      await runWith(() => ({
+        templateId: 'tpl-1',
+        operationId: 'op-1',
+        status: 'partial',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 5000,
+            recordsFailed: 2,
+            createdIds,
+            errors: ['REQUIRED_FIELD_MISSING', 'REQUIRED_FIELD_MISSING'],
+          },
+        ],
+        totalRecordsCreated: 5000,
+        totalRecordsFailed: 2,
+        duration: 10,
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }));
+
+      const response = postedMessages().find((m) => m.type === 'seed:execute:response');
+      const objectResult = (
+        response?.payload?.objectResults as Array<Record<string, unknown>> | undefined
+      )?.[0];
+      expect(objectResult?.createdIds).toEqual(createdIds.slice(0, 1000));
+      expect(objectResult?.recordsCreated).toBe(5000);
+      expect(objectResult?.errors).toHaveLength(2);
+      expect(objectResult?.truncated).toBe(true);
+      expect(response?.payload?.totalRecordsCreated).toBe(5000);
+    });
+
+    it('does not flag an object whose ids all fit', async () => {
+      await runWith(() => ({
+        templateId: 'tpl-1',
+        operationId: 'op-1',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 1,
+            recordsFailed: 0,
+            createdIds: ['003000000000001'],
+            errors: [],
+          },
+        ],
+        totalRecordsCreated: 1,
+        totalRecordsFailed: 0,
+        duration: 10,
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }));
+
+      const response = postedMessages().find((m) => m.type === 'seed:execute:response');
+      const objectResult = (
+        response?.payload?.objectResults as Array<Record<string, unknown>> | undefined
+      )?.[0];
+      expect(objectResult).toEqual({
+        objectApiName: 'Contact',
+        recordsCreated: 1,
+        recordsFailed: 0,
+        createdIds: ['003000000000001'],
+        errors: [],
+      });
+    });
+
+    it('relays each object the orchestrator reaches as operation:progress', async () => {
+      await runWith((seedDeps) => {
+        seedDeps.onProgress?.({
+          objectApiName: 'Contact',
+          processedRecords: 40,
+          totalRecords: 100,
+          percentage: 40,
+        });
+        return { objectResults: [], totalRecordsCreated: 0 };
+      });
+
+      const progress = postedMessages()
+        .filter((m) => m.type === 'operation:progress')
+        .map((m) => m.payload);
+      expect(progress).toContainEqual(
+        expect.objectContaining({
+          percentage: 40,
+          processedRecords: 40,
+          totalRecords: 100,
+          currentStep: 'Insert Contact',
+        }),
+      );
+    });
+  });
+
   describe('production guard record count', () => {
     /** Two-object template: 120 000 + 80 000 = 200 000 records planned. */
     function bigSeedTemplate(): Record<string, unknown> {

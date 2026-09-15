@@ -2,7 +2,59 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { PersonaMsg } from '@sandforge/shared';
 
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useSeedFieldRules } from './useSeedFieldRules';
+
+/** Same shapes as the built-in "Assureur français" persona. */
+const ASSUREUR_FR: PersonaMsg = {
+  id: 'assureur-fr',
+  name: 'Assureur français',
+  description: "Compagnie d'assurance française",
+  industry: 'Insurance',
+  locale: 'fr-FR',
+  dataPatterns: {
+    FirstName: {
+      fieldType: 'string',
+      generator: 'faker',
+      params: { method: 'person.firstName', locale: 'fr' },
+      examples: ['Jean'],
+    },
+    Premium__c: {
+      fieldType: 'currency',
+      generator: 'range',
+      params: { min: 200, max: 5000, currency: 'EUR' },
+      examples: ['450.00'],
+    },
+    Contract_Type__c: {
+      fieldType: 'picklist',
+      generator: 'random_pick',
+      params: { values: ['Auto', 'Habitation', 'Santé'] },
+      examples: ['Auto'],
+    },
+  },
+};
+
+function describedField(fieldApiName: string, type: string): Record<string, unknown> {
+  return {
+    fieldApiName,
+    label: fieldApiName,
+    type,
+    required: false,
+    picklistValues: [],
+    referenceTo: [],
+    length: 0,
+  };
+}
+
+const CONTRACT_DESCRIBE = {
+  objectApiName: 'Contract__c',
+  objectLabel: 'Contract',
+  fields: [
+    describedField('Premium__c', 'currency'),
+    describedField('Contract_Type__c', 'picklist'),
+    describedField('Notes__c', 'textarea'),
+  ],
+};
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -27,6 +79,84 @@ describe('useSeedFieldRules', () => {
   beforeEach(() => {
     bridge.mutate.mockClear();
     bridge.data = null;
+    useSeedWizardStore.getState().resetSeedWizard();
+  });
+
+  it('counts the fields a persona configures even when another update is still pending', () => {
+    bridge.data = CONTRACT_DESCRIBE;
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contract__c'], 1));
+
+    /* The wizard applies a persona from an effect that runs right after a
+       fieldConfigs update, which is when React defers the state updater. */
+    let count = 0;
+    act(() => {
+      result.current.handleChangeFieldConfig('Contract__c', 'Notes__c', 'staticValue', 'x');
+      count = result.current.applyPersona(ASSUREUR_FR);
+    });
+
+    expect(count).toBe(2);
+    expect(result.current.fieldConfigs[0].fields.map((f) => f.ruleType)).toEqual([
+      'random',
+      'picklist_random',
+      'faker',
+    ]);
+  });
+
+  it('applies the selected persona to an object described after the persona was applied', () => {
+    useSeedWizardStore.getState().setSelectedPersona(ASSUREUR_FR);
+    bridge.data = CONTRACT_DESCRIBE;
+    const { result, rerender } = renderHook(() =>
+      useSeedFieldRules('org-1', ['Contract__c', 'Contact'], 1),
+    );
+    act(() => {
+      result.current.applyPersona(ASSUREUR_FR);
+    });
+
+    bridge.data = {
+      objectApiName: 'Contact',
+      objectLabel: 'Contact',
+      fields: [describedField('FirstName', 'string'), describedField('Email', 'email')],
+    };
+    rerender();
+
+    const contact = result.current.fieldConfigs.find((c) => c.objectApiName === 'Contact');
+    expect(contact?.fields[0]).toMatchObject({
+      ruleType: 'faker',
+      config: { fakerMethod: 'firstName', fakerLocale: 'fr' },
+    });
+    expect(contact?.fields[1]).toMatchObject({ ruleType: 'faker', config: {} });
+  });
+
+  it('leaves the default rule on a field whose type a persona AI pattern cannot fill', () => {
+    const persona: PersonaMsg = {
+      ...ASSUREUR_FR,
+      dataPatterns: {
+        Premium__c: {
+          fieldType: 'string',
+          generator: 'ai_generate',
+          params: { prompt: 'Premium' },
+          examples: [],
+        },
+        Notes__c: {
+          fieldType: 'textarea',
+          generator: 'ai_generate',
+          params: { prompt: 'Claim notes' },
+          examples: [],
+        },
+      },
+    };
+    bridge.data = CONTRACT_DESCRIBE;
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contract__c'], 1));
+
+    let count = 0;
+    act(() => {
+      count = result.current.applyPersona(persona);
+    });
+
+    expect(count).toBe(1);
+    const [premium, , notes] = result.current.fieldConfigs[0].fields;
+    expect(premium).toMatchObject({ ruleType: 'faker', config: {} });
+    expect(notes).toMatchObject({ ruleType: 'ai_generate', config: { aiPrompt: 'Claim notes' } });
   });
 
   it('should initialize with empty field configs', () => {

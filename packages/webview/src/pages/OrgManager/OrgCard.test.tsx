@@ -86,6 +86,29 @@ describe('OrgCard', () => {
     expect(onDisconnect).toHaveBeenCalledWith('org-1');
   });
 
+  it.each(['expired', 'error'] as const)(
+    'should offer a reconnect on a %s org without selecting the card',
+    (status) => {
+      const onReconnect = vi.fn();
+      const onSelect = vi.fn();
+      const org = { ...mockOrg, status };
+      render(<OrgCard {...defaultProps} org={org} onSelect={onSelect} onReconnect={onReconnect} />);
+
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+
+      expect(onReconnect).toHaveBeenCalledWith(org);
+      expect(onSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['connected', 'refreshing'] as const)(
+    'should offer no reconnect on a %s org',
+    (status) => {
+      render(<OrgCard {...defaultProps} org={{ ...mockOrg, status }} onReconnect={vi.fn()} />);
+      expect(screen.queryByTestId('org-reconnect-org-1')).toBeNull();
+    },
+  );
+
   it('should derive orgTypeLabel correctly', () => {
     expect(orgTypeLabel({ ...mockOrg, orgType: 'Production' })).toBe('PROD');
     expect(orgTypeLabel({ ...mockOrg, orgType: 'Scratch' })).toBe('SCRATCH');

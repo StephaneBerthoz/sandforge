@@ -2,12 +2,12 @@
 export * from './types/common.types.js';
 export * from './types/org.types.js';
 export * from './types/errors.types.js';
-export * from './types/pipeline.types.js';
 export * from './types/grappe.types.js';
 export * from './types/seed.types.js';
 export * from './types/clone.types.js';
 export * from './types/sync.types.js';
 export * from './types/monitor.types.js';
+export * from './types/governance.types.js';
 export * from './types/compare.types.js';
 export * from './types/dataops.types.js';
 export * from './types/automation.types.js';
@@ -71,6 +71,7 @@ export * from './constants/defaults.js';
 export * from './constants/ai-config.js';
 export * from './constants/monitor.js';
 export * from './constants/seed-templates.js';
+export * from './constants/faker-methods.js';
 export * from './constants/sync-templates.js';
 
 // Barrel exports — Utils

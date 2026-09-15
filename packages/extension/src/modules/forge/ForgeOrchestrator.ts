@@ -1,7 +1,7 @@
 import { TypedEventEmitter } from '../../core/common/TypedEventEmitter.js';
 import type { ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgePlan } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
-import type { ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
+import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
@@ -125,7 +125,12 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       return cached;
     }
     const graph = await this.deps.discoveryService.discover(config, options);
-    this.discoveryCache.set(key, graph);
+    // A cancelled BFS returns the partial graph it had reached. It is still
+    // handed back, but never cached: the next identical request would
+    // otherwise be served the truncated graph as a complete one.
+    if (!options?.signal?.aborted) {
+      this.discoveryCache.set(key, graph);
+    }
     return graph;
   }
 
@@ -171,7 +176,16 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
     this.deps.executor.resume();
   }
 
-  async execute(graph: ForgeGraph, config: ForgeConfig): Promise<ForgeExecutionResult> {
+  /**
+   * @param runOptions - Execution inputs that come from the orgs rather than
+   *   from the user's config: the RecordType translation table the bridge
+   *   builds by querying both orgs before a run.
+   */
+  async execute(
+    graph: ForgeGraph,
+    config: ForgeConfig,
+    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings'>,
+  ): Promise<ForgeExecutionResult> {
     const startTime = Date.now();
 
     try {
@@ -180,7 +194,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // instead of the whole graph. Orphan parent expansion flows
       // through ForgeConfig. The maxRecordsPerObject cap
       // applies to all input modes — it's a safety knob, not scope-only.
-      const scoped =
+      const recordTypeMappings = runOptions?.recordTypeMappings;
+      const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
               rootRecordId: config.recordId,
@@ -191,18 +206,21 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               ownerMappings: config.ownerMappings,
               objectSoqlFilters: config.objectSoqlFilters,
               fieldMappings: config.fieldMappings,
+              recordTypeMappings,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
               config.ownerMappings ||
               config.objectSoqlFilters ||
-              config.fieldMappings
+              config.fieldMappings ||
+              recordTypeMappings
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
                 ownerMappings: config.ownerMappings,
                 objectSoqlFilters: config.objectSoqlFilters,
                 fieldMappings: config.fieldMappings,
+                recordTypeMappings,
               }
             : undefined;
 

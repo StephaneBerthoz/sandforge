@@ -1,7 +1,6 @@
 import type { Connection } from 'jsforce';
 import type { RetryConfig } from '../../core/engine/RetryStrategy.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
-import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type {
   BulkApiConnection,
@@ -10,8 +9,6 @@ import type {
 } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
-import { FieldTypeValidator } from './FieldTypeValidator.js';
-import type { FieldDescriptor } from './FieldTypeValidator.js';
 import type { OperationOutcome } from './DataSync.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
@@ -30,7 +27,11 @@ export interface BulkDataWriterDeps {
   bulkManager: BulkApiManager;
   /** Retry configuration for REST batch calls. */
   retryConfig: Partial<RetryConfig>;
-  /** Timeout (ms) for the pre-upsert describe call. */
+  /**
+   * Describe timeout (ms) of the calling module. The writer makes no describe
+   * call of its own — a sync compares both orgs' field types before it starts —
+   * and keeps the field because every caller still passes it.
+   */
   describeTimeoutMs: number;
   /** Abort signal cancelling the streaming upload path. */
   signal: AbortSignal;
@@ -38,14 +39,6 @@ export interface BulkDataWriterDeps {
   onProgress: (processed: number, total: number, label: string) => void;
   /** Log sink for non-fatal validation warnings. */
   log: (message: string) => void;
-}
-
-/**
- * Convert a describe field result to a FieldDescriptor for FieldTypeValidator.
- * Maps the jsforce describe shape to the validator's input type.
- */
-function toValidatorField(f: { name: string; type: string; length: number }): FieldDescriptor {
-  return { apiName: f.name, type: f.type, maxLength: f.length || undefined };
 }
 
 /**
@@ -61,7 +54,6 @@ function toValidatorField(f: { name: string; type: string; length: number }): Fi
  */
 export class BulkDataWriter {
   private readonly retryOp: RetryableOperation;
-  private readonly fieldValidator = new FieldTypeValidator();
 
   /** @param deps - Injected writer dependencies. */
   constructor(private readonly deps: BulkDataWriterDeps) {
@@ -104,7 +96,6 @@ export class BulkDataWriter {
 
   /**
    * Upsert records into the target org using an external ID field.
-   * The REST path validates source field types against the target describe first.
    *
    * @param objectName - Salesforce object API name.
    * @param externalIdField - External ID field used as the upsert key.
@@ -123,8 +114,6 @@ export class BulkDataWriter {
 
     const bulked = await this.tryBulk('upsert', objectName, records, externalIdField);
     if (bulked) return bulked;
-
-    await this.validateUpsertFieldTypes(objectName, records);
 
     return this.executeRestBatches(
       records,
@@ -309,51 +298,5 @@ export class BulkDataWriter {
       }
     }
     return outcomes;
-  }
-
-  /**
-   * Validate source field types against the target describe before a REST
-   * upsert. Validation failures are logged as warnings and never block the
-   * upsert (matches the pre-extraction behavior).
-   */
-  private async validateUpsertFieldTypes(
-    objectName: string,
-    records: Record<string, unknown>[],
-  ): Promise<void> {
-    const targetTimeout = new TimeoutManager(this.deps.describeTimeoutMs);
-    const targetDesc = await targetTimeout.withTimeout(`describe-${objectName}`, () =>
-      this.deps.connection.describe(objectName),
-    );
-    const targetFields = (
-      targetDesc.fields as Array<{
-        name: string;
-        type: string;
-        length: number;
-        createable: boolean;
-      }>
-    )
-      .filter((f) => f.createable)
-      .map(toValidatorField);
-    const sourceFields =
-      records.length > 0
-        ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' }))
-        : [];
-    const fieldMapping: Record<string, string> = {};
-    for (const sf of sourceFields) {
-      const matched = targetFields.find((tf) => tf.apiName === sf.apiName);
-      if (matched) {
-        fieldMapping[sf.apiName] = matched.apiName;
-      }
-    }
-    const validation = this.fieldValidator.validateMapping(
-      sourceFields,
-      targetFields,
-      fieldMapping,
-    );
-    if (!validation.valid) {
-      this.deps.log(
-        `[WARN] Field type validation failed for upsert on ${objectName}: ${validation.errors.length} error(s)`,
-      );
-    }
   }
 }

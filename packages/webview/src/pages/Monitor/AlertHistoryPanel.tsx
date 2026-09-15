@@ -17,6 +17,8 @@ interface AlertsWithHistoryPayload {
 
 /** AlertHistoryPanel component props. */
 export interface AlertHistoryPanelProps {
+  /** Pre-fetched alert history. When provided, skips the bridge query. */
+  history?: AlertInstance[];
   /** Additional CSS class names. */
   className?: string;
 }
@@ -96,15 +98,22 @@ function groupByDate(alerts: AlertInstance[]): Map<string, AlertInstance[]> {
  * Shows triggered, acknowledged, resolved, and dismissed alerts
  * grouped by date with status badges and timestamps.
  */
-export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className }) => {
+export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
+  history: historyProp,
+  className,
+}) => {
   const { t } = useTranslation();
   const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT);
 
   const alertsQuery = useBridgeQuery<AlertsWithHistoryPayload>('monitor:alerts', undefined, {
     responseType: 'monitor:alerts:result',
+    skip: historyProp !== undefined,
   });
 
-  const history = useMemo(() => alertsQuery.data?.history ?? [], [alertsQuery.data?.history]);
+  const history = useMemo(
+    () => historyProp ?? alertsQuery.data?.history ?? [],
+    [historyProp, alertsQuery.data?.history],
+  );
 
   /** Sorted history descending by triggeredAt. */
   const sortedHistory = useMemo(

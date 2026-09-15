@@ -5,6 +5,398 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A sync's WHERE filter can only filter.** A sync object's WHERE clause was
+  checked for four DML keywords and nothing else, so a clause carrying
+  `LIMIT 1`, `OFFSET` or `FOR UPDATE` was appended to the source read as
+  written: a filter ending in `LIMIT 1` copied one record and the run still
+  reported itself complete. An SFDMU `export.json` could carry such a clause
+  without anyone typing it. A clause that goes past the filter is now refused
+  before the run: an extra clause, a subquery, a comment, a semicolon, a
+  parenthesis that escapes its group or an unclosed quote. Quoted text is set
+  aside first, so `Status = 'Delete pending'` still works. The same rule is
+  applied again where the query is built, and to Clone filters when they
+  count, sample or fetch records. It now guards Clone, Frozen Dataset and
+  Autopilot filters as well, so a saved filter in any of them that relied on
+  one of these — an unbalanced parenthesis, or `FOR` or `WITH` outside quotes —
+  is refused too.
+- **A sync no longer runs the opposite way to what it says.** The direction
+  list offered _Target to source_, and the run then wrote source to target,
+  into the org you meant to read from. The option is gone and a configuration
+  asking for it is refused; to copy the other way, swap the two orgs.
+  Incremental, delta and CDC modes only ever replayed a full sync, and are
+  refused the same way.
+- **A field that cannot hold its value stops the sync before anything is
+  written.** The field-type check existed but never ran for a sync: its one
+  caller treated every source field as text and only logged a warning, so a
+  text field mapped onto a date field was discovered by Salesforce, record by
+  record, after the run had started writing. Both orgs are now described
+  before the run and every field a mapping copies unchanged is compared — with
+  no mapping, every same-named field. A mismatch ends the run with the pairs
+  that do not fit, and so does an org whose description cannot be compared. A
+  mapping whose value a transform rewrites is not judged on its source type.
+- **Files are refused instead of breaking a sync partway through.**
+  `Attachment`, `ContentVersion` and `Document` keep their content in a file
+  body that Bulk API 2.0 rejects, and the object picker still offered them: a
+  run that included one failed past the bulk threshold, after the REST path
+  had already written records. They are no longer offered, and a
+  configuration naming one is refused before it starts.
+- **A record-scoped clone with more than 600 children runs to the end.** A
+  scoped query travels in the request URI, and the list of Ids that scopes it
+  stopped fitting there at around 600, past which the clone refused to start.
+  Below that the query could still overflow, because the list is repeated once
+  per lookup field: three lookups on 600 parents built a query no org accepts.
+  Forge now splits a large scope across as many queries as fit the URI, reads
+  them in turn, keeps each record once and still honours the per-object cap.
+  Frozen dataset extraction, which builds its queries the same way, now reads
+  every part too. The one case still refused is an object whose field list
+  alone leaves no room for an Id; excluding fields from it lets it run.
+- **Records cloned by Forge carry the target org's record type.** Record type
+  Ids differ between orgs, and the in-product clone never translated them:
+  every record kept the source org's `RecordTypeId`, which the target refuses.
+  Before a run, Forge now reads the active record types of both orgs and
+  matches them by object and API name — the object matters, since Account and
+  Opportunity can each have a "Business" record type. A record type with no
+  match on the target is named in the output instead of surfacing later as an
+  insert error that points to nothing; the master record type, whose Id is the
+  same everywhere, is left as it is. The lookup gives up after 30 seconds and
+  the run goes ahead untranslated, and Abort while it waits refuses the run at
+  once. The command-line clone and the recipe tool match within the object as
+  well.
+- **Leaving a running discovery stops it.** Back on the discovery spinner
+  returned to the input screen but left the graph walk querying the org.
+  Discovering again started a second walk beside the first, whose late answer
+  — a truncated graph or an error — could replace what the new discovery
+  showed, and a truncated graph was cached for the next identical request.
+  Back now cancels the walk, a new discovery cancels the one it replaces, and a
+  cancelled walk reports only that it was cancelled — no graph, no error — and
+  caches nothing.
+- **Select All and Deselect All act on the rows the search shows.** With the
+  table filtered, both buttons changed every object in the graph, including
+  the hidden ones, so a clone could gain or lose objects nobody saw change.
+- **Forge refuses the same objects whether it walks the graph or fetches a
+  missing parent.** Discovery and parent expansion kept separate exclusion
+  lists that had drifted apart, so expansion could insert a job or log record
+  such as `AsyncApexJob` or `CronTrigger` that discovery refused to walk into.
+  There is now one list.
+- **A seed that names a Faker method SandForge does not generate is refused
+  before its first insert.** The method was checked only when the generator
+  reached it, so with a bad method on a later object the earlier objects were
+  already in the org when the run stopped. None of the three Quick Seed
+  templates could run: they named five methods nothing generated. Minimal Demo
+  and Service Cloud Starter failed on their first object; Sales Cloud Starter
+  inserted its price book, then failed on Product2. Job titles, street
+  addresses, catch phrases, product descriptions and near-future dates are now
+  generated, the validator refuses any other method and names the object and
+  field, and the wizard offers a list of methods instead of a free-text box.
+- **A persona applies to every object you seed.** Objects are described one at
+  a time, but a persona was applied once: every object whose description
+  arrived afterwards kept its default rules, with no warning. Each object now
+  receives the selected persona as it arrives.
+- **AI field rules never insert blank fields, and no longer write text into
+  typed fields.** When AI was off, over its token budget or refused a call, the
+  fields were written empty, while the release notes said they fell back to
+  Faker. A field the AI leaves empty now receives a generated sentence, and
+  the run continues with the refusal in the log. Because that value is text,
+  the wizard offers AI generation only on text and long text fields, a wizard
+  run that sets it on a number, currency, date, checkbox, email or picklist
+  field is refused before the first insert, and personas no longer set it on
+  such fields. The sentence is not cut to the field's length, so a short text
+  field can still refuse it, and the results step does not say that the AI
+  values were replaced.
+- **A persona written by AI keeps only what Seed can generate.** The model was
+  shown `"params": { "...": "..." }` and had to guess, and whatever it wrote
+  was stored: an unknown Faker method stopped the run later, and a minimum
+  written as `"200"` was ignored. The prompt now lists each generator's params
+  and the supported methods, patterns Seed cannot use are dropped, and numbers
+  written as text are read as numbers.
+- **Quick Seed shows how far the run has got.** Its bar sat at 50% for the
+  whole run and every object read 0 of N, because only a start and an end were
+  reported. Each object, and each partition of a partitioned object, now
+  reports the records written so far, the bulk paths count against the whole
+  run, and a second run in the same session starts at 0%.
+- **The AI token budget holds for the whole window.** Every change to a
+  `sandforge.ai.*` setting rebuilt the AI stack with a fresh, empty counter, so
+  toggling any AI setting was a way past the limit, and until the rebuild
+  finished, calls from Seed or an open chat went through with no budget at
+  all. There is now one counter per window, shared by every AI call and kept
+  across rebuilds. **Raising `sandforge.ai.tokenBudgetMaxPerSession` no longer
+  restarts the count, as 1.22.0 said it did**: the new limit applies to the
+  tokens already used, and only a window reload starts over.
+- **You are told when the AI budget runs low, wherever you are.** The 80%
+  warning and the refusal were sent to a page that never listened for them;
+  the only sign was the gauge on the AI page, and a Seed run whose AI values
+  were refused fell back quietly. VS Code now shows a notice once at 80% and
+  once when requests start being refused, with a button that opens the
+  setting. The gauge also shows as soon as the AI page opens, instead of
+  after the next AI call.
+- **A new API key is used as soon as you save it.** With AI already on, saving
+  a key changed no setting, so nothing rebuilt the client: a wrong key, once
+  saved, failed every call until the window was reloaded, even after it was
+  corrected. Saving a key now rebuilds the AI stack straight away.
+- **Turning AI off stays off.** Each setting change started its own AI setup,
+  and nothing kept them in order: a turn-on still waiting for the keychain
+  could finish after a later turn-off and put the assistant back. The latest
+  change now wins, and a setup overtaken by a newer one installs nothing.
+- **A failed AI call is one request to Anthropic, not three.** The Anthropic
+  SDK retried each failed call twice underneath the circuit breaker that
+  counts failures, so three counted overloads could mean nine requests before
+  the breaker opened. The SDK's own retries are off.
+- **The anomaly scan runs, on any object.** It asked Salesforce for
+  `FIELDS(ALL)` over 500 records, a query the platform refuses above 200 rows,
+  and the fallback meant to catch the refusal looked for its code in the
+  message, where jsforce does not put it. That query is no longer sent: the
+  scan names the object's fields itself and samples the 500 records it
+  promises, or 200 with `FIELDS(ALL)` when the field list would make the query
+  too long to send. A refusal is recognised by its code. Compare's data
+  comparison, Autopilot's record reads and Sync's fallback read go through the
+  same query and are fixed with it. The object dropdown now ends with **Other
+  object…**, which takes any object's API name. A name that is not shaped like
+  an API name is explained under the field and never sent; a well-formed name
+  the org does not have comes back as the org's refusal.
+- **Monitor trends span the week they claim.** The 7-day view drew the same 24
+  hours as the 24-hour view, and a 30-day button offered data that was never
+  kept: every snapshot stored some fifty limits, so the 500 KB cap held about
+  27 hours. History now keeps only the limits the dashboard charts, a full
+  week fits, the chart offers 24 hours and 7 days, and a second chart's period
+  buttons, which filtered nothing, are gone. Direction, change and
+  time-to-limit still read the last day, since most of these limits reset
+  daily, and the health score takes a trend penalty for the charted limits
+  only.
+- **Live Operations cancels what it lists, and offers pause nowhere.** The
+  panel lists Seed and Sync runs, but Cancel, Pause and Resume went to a
+  handler that only knows pipeline runs, so every click ended in "No active
+  operation found". Cancel now stops the run, scheduled syncs included, a
+  notification says when it could not, and the list is read again after a
+  cancel and on every refresh. Neither run can be paused, so the panel no
+  longer offers to.
+- **An acknowledged alert shows as acknowledged in the history too.** The
+  alerts panel, the alert history and the alerts count each asked for the same
+  list, and an acknowledge or dismiss refreshed only the panel that sent it.
+  All three now read one query.
+- **The Monitor's two health scores weigh the same factors.** The full
+  health-score request scored the org without its org info, leaving out the
+  metadata dimension the dashboard's own score includes, so the same org got
+  two different numbers.
+- **An expired org can be reconnected from its card.** An org whose session
+  had expired or failed showed a badge and no way forward. Its card now offers
+  Try Reconnect, which repeats how the org was added: a CLI import runs again,
+  a browser login reopens with the alias filled in, and a password login with
+  the alias and username (the password is typed again).
+- **The JWT and Device Flow cards say they are coming soon.** Both methods are
+  refused by the extension, but their cards looked like the working ones and
+  their tooltips described a login that does not exist. They are marked
+  "Coming soon" on the card, in the tooltip and for assistive technology.
+- **`sandforge-clone` refuses a bad flag before it contacts an org.**
+  `--depth deep` was cast straight into the depth type, and a malformed record
+  Id or API name was refused only after both orgs had been authenticated. The
+  flags now go through the schema the wizard uses, and a bad one exits with
+  code 2 before `sf org display` runs. `--owner-map` crashed on every use,
+  because the Id pattern it checked against was never defined; it now works.
+- **The in-app Help stops teaching a sync rollback, an API-timeout setting
+  and four other features that do not exist.** In all six languages it taught
+  a sync rollback nothing reads, an API-timeout setting the manifest never
+  declared, Grappe as the cure for a slow run, deploying straight from a
+  Compare diff, pipelines started by schedules and webhooks, and a DataOps
+  suite with data subject requests, quality scans and mass deletes. A user who
+  followed it expected a sync to be undoable. The Help now marks what is coming
+  as coming, and states that a sync cannot be undone and should be preceded by
+  a backup. Forge, Frozen Dataset and Grappe get sections of their own.
+  Ctrl+Enter, taught as "run the current action", broadcast an event nothing
+  listened to and is no longer handled or taught. The Help no longer teaches
+  Ctrl+1..9, which VS Code mostly keeps for itself, and teaches the G+letter
+  chords instead.
+- **Automation says which steps run before you press Run.** Only Delay and
+  Condition have handlers; every other step type reports success without
+  opening a connection, so a pipeline of Seed and Backup steps ran green and
+  moved no record. The canvas now carries a notice, the palette marks the
+  thirteen inert step types as coming soon, and the header and welcome no
+  longer promise automated seed and sync. The Home quick action and the
+  command palette entry "Run Last Pipeline" only ever opened the page, and now
+  say so: "Open Pipelines".
+- **The DataOps welcome and guide stop promising what is not built.** The
+  welcome offered to schedule cleanups and track data quality, and the guide
+  described a request form, cleanup recommendations, a quality dashboard,
+  incremental backups, an object picker and point-in-time recovery. A backup
+  is a full snapshot of Account and Contact, restored whole into the org it
+  came from, and both now say exactly that.
+- **The example pipelines can no longer delete what they did not clone.**
+  `sandforge-cleanup --since today` selects every record the user created that
+  day on the target, cloned or not, and its help, the CI README and the Forge
+  guides called that "records you cloned". In the pipelines, turning off dry
+  run for a real clone also made the next step delete for real. The pipeline
+  cleanup is now always a preview, the guides preview first and limit the real
+  delete with `--objects`, and in Jenkins the cleanup stage no longer runs
+  when the clone was skipped, where it would have used a login left by an
+  earlier build.
+- **A failed GitLab or Azure example run is reported, and the Azure clone waits
+  for the quality gates.** GitLab sent its failure message from the package
+  job only; a notify job now runs when any job fails. The Azure clone stage's
+  condition dropped the implicit `succeeded()`, so the clone reached the orgs
+  after the quality gates had failed, and the example asked for a Slack
+  webhook no step used. Every example now runs its org stages only when a
+  record Id is configured, and the Jenkins header says that Id is a build
+  parameter.
+
+### Changed
+
+- **Only Anthropic can be picked as the AI provider.** The provider setting
+  offered OpenAI and Custom, which fail on every call, and AI still reported
+  itself available with either selected. The setting now offers Anthropic
+  alone, and a `settings.json` that names another provider leaves AI off and
+  sends nothing.
+- **Production orgs are listed first.** The Organizations page showed orgs in
+  the order they were added; it now orders them by type, production first,
+  then by whether the org is usable, then by alias.
+- **A scheduled sync is tracked like a manual one.** It appears among
+  background operations, can be cancelled from Live Operations, and when no
+  SandForge panel is open it gets the same completion or failure notification
+  as a sync started by hand.
+- **Vlocity package objects are left out of a clone.** Objects in the
+  `vlocity_*` namespaces attach dozens of configuration records to standard
+  objects through reverse lookups, so following them from a single Case or
+  Account pulled the package's catalogue into a dev sandbox.
+- **`sandforge-cleanup` no longer sweeps insurance objects by default.**
+  InsurancePolicy and InsurancePolicyCoverage exist only in orgs with that data
+  model, and there the default sweep deleted policies created by hand that
+  day. Name them in `--objects` when a clone wrote them.
+- **A large seed no longer posts every created Id to the page.** A
+  50,000-record run serialised 50,000 Ids into one message for a results step
+  that shows counts. At most 1,000 Ids and 1,000 errors per object now reach
+  the page; the counts stay complete and a flag marks the cut.
+- **The Monitor and Forge wait on fewer round trips.** A Monitor refresh ran
+  the limits call and the job query one after the other, and parsed the stored
+  trend history once per limit; the two calls now run together and the
+  history is read once. Forge describes the target object while the source
+  records download instead of after.
+- **The CI examples and contributor guide take pnpm from the repository's
+  pin.** Every example pipeline hardcoded pnpm 11 while the repository's own
+  workflows read `packageManager`; CONTRIBUTING.md and the pnpm ADR cited a
+  release two bumps old, and the Jenkins header asked for a Node 20 tool.
+- **The guides describe what ships.** The Seed guide no longer describes a
+  relationship editor: a lookup receives records its target object created
+  earlier in the run, so that object has to be part of it. The Forge
+  quickstart and example recipes no longer offer an upsert mode the wizard
+  does not have — only the command line's `--upsert` — and say the command
+  line is two scripts run with `pnpm exec tsx` from a checkout, after
+  `pnpm install` and `pnpm build:shared`, not an installed CLI. The
+  record-scoped clone guide says its reduction figure came from one dry run on
+  one dataset, and describes how large scopes are read. The Monitor guide gains
+  a section for each of the nine panels it did not mention, and states their
+  current limits: Apex insights estimates from log size, the Username column
+  shows a user Id, the health check's job and error figures are points rather
+  than counts, and the built-in governance rules are checked against metrics
+  the org does not report.
+
+### Removed
+
+- **The Sync page no longer shows a Real-Time tab or a Conflicts tab.** Every
+  real-time channel is answered by a handler that does nothing, so the
+  Real-Time tab could only end at an error badge, and the Conflicts tab could
+  only list conflicts that stream never delivers.
+
+### Security
+
+- **Login credentials only go to Salesforce.** Username/password login sent
+  the username, password and security token to any `https:` host the connect
+  request named. The login URL is now checked against the Salesforce login
+  hosts — `login.salesforce.com`, `test.salesforce.com`, My Domain, and any
+  `*.force.com` or `*.cloudforce.com` host — and anything else is refused with
+  `INVALID_LOGIN_URL` before a credential leaves the extension. Browser login
+  goes through the same check before the Salesforce CLI starts. Logging in
+  through a host outside these domains — a legacy instance host such as
+  `na1.salesforce.com`, or a government or regional cloud domain — is now
+  refused too, and no setting allows one yet.
+- **Only a host reaches the Windows shell during browser login.** On Windows,
+  `sf org login web` runs as a shell command, and only the login URL's
+  hostname was checked: its path went into the command line unescaped, so a
+  path like `/"&calc&"` reached cmd.exe. The URL is reduced to
+  `https://<host>` before either the Windows or the POSIX command is built,
+  and a URL carrying a path, query, fragment, credentials or port is refused.
+- **A sync configuration stores what SandForge understands and nothing else.**
+  Saving or running a configuration, or saving a schedule, kept every key the
+  page sent, and those keys were saved, snapshotted into history and replayed
+  on reruns. Unknown keys are now dropped at the boundary. An upsert key must be
+  a single field name: a phrase or an SFDMU composite key such as
+  `Name;Parent.Name` used to reach the upsert job as-is. An empty External ID
+  box still counts as no key.
+- **An object name read from a describe is checked before a request is built
+  with it.** When Forge fetched a missing parent record, the parent's object
+  name went into two describe request paths before it was validated. It is
+  now validated first, and a malformed name sends nothing.
+- **The CI examples no longer leave Salesforce auth URLs on the build
+  machine.** All four pipelines wrote both auth URLs to fixed files under /tmp
+  at the default umask and removed them a line later; in Jenkins these were
+  separate shell steps, so a failed login stopped the build before the removal,
+  on a machine that keeps /tmp between builds. The URLs now go to a private
+  directory created under `umask 077`, removed by a trap when the shell exits,
+  failed login included, and Jenkins logs its CI aliases out after every build.
+- **The release job runs only code that cannot change under it.** Every action
+  in every workflow was referenced by a tag, which whoever controls the action
+  can move — in the release job, that included the pnpm setup whose binary
+  publishes with the Marketplace token in its environment, and a third-party
+  release action holding a token that can push. Every action is now pinned to a
+  commit with its version beside it, the GitHub release is created with `gh`,
+  and a check fails on any tag.
+- **A manual Stryker run no longer pastes its glob into a shell.** The optional
+  mutate glob was substituted into the script before bash parsed it, so a glob
+  containing a quote ran as shell code. It now reaches the script as a quoted
+  variable, and a check fails when any workflow interpolates a free-text input
+  into a `run:` step or a github-script `script:`.
+
+### Build
+
+- **The Stryker summary shows Stryker's score.** The job summary computed its
+  own: Ignored mutants counted as survivors and uncovered ones were left out,
+  so the same run page said 79.15% in the log and 46.95% in the summary, next
+  to a break threshold copied by hand. It now uses Stryker's formula, reads the
+  threshold from the config the run enforced, and fails the step when it
+  cannot read the report instead of leaving an empty summary on a green run.
+- **Mutation testing covers the extension's execution engine and runs when the
+  code it mutates changes.** It used to mutate seven files of the shared
+  package once a night, and fail only below 54 against a real score of 79. It
+  now also mutates the Bulk, retry and timeout engine, runs on every push and
+  pull request that touches the mutated code, its test setup, its runner
+  config or the lockfile, and each config fails no more than five points under
+  its measured score. The extension's test config resolves its paths from its
+  own folder: started from the repository root, as Stryker starts it, it found
+  no test at all.
+- **CI runs on current action versions and stops runs nobody will read.** The
+  actions ran on the retired Node 20 runtime; they now run on Node 24, and
+  Dependabot proposes new pins and dependency updates. CI, Knip, Format Check
+  and Stryker cancel a pull-request run that a newer push replaces, while
+  master pushes, the nightly and manual runs never share a group, so each
+  master commit keeps its own result. Format Check loses a PR comment step that
+  could never post.
+- **The security policy names the release that is out.** SECURITY.md promised
+  fixes for 1.21.x after 1.22.0 shipped, and listed a development script as a
+  CLI in scope. Its supported-versions table is now written from package.json
+  when the extension is packaged, and the pre-publish check fails when it
+  drifts.
+- **The claims check reads the Help page, and fails when the code changes
+  under it.** Each false Help claim above is a rule over the Help text of the
+  six languages, tied to the code that makes it false: nothing reads
+  `enableRollback`, the manifest has no API-timeout setting, no channel deploys
+  a diff, the scheduler does nothing, a run's history entry keeps no step
+  results, three DataOps tabs are mounted as coming soon, and nothing listens
+  for Ctrl+Enter. Build any of those features and its anchor fails first.
+- **Forge tests that could not fail now can.** The orphan-parent cap test
+  passed with zero parents fetched, the preview suite replaced SOQL escaping
+  with a pass-through, the pause test waited on a real timer, and the
+  query-size tests used field lists so short that the URI budget could have
+  been raised past what Salesforce accepts unnoticed. Each now fails when the
+  behaviour it names breaks, and the suite gains property tests for Id
+  remapping, a discovery case where two objects reference each other, and
+  Person Account cases.
+- **The CI and contributor docs describe the pipeline that runs.** ci.yml
+  still called Windows the only leg running E2E, and CONTRIBUTING and the pull
+  request template listed six validate gates where there are fifteen. They now
+  describe the ubuntu E2E leg, point to the validate script, and say it leaves
+  out the Playwright suite and mutation testing.
+
 ## [1.22.0] - 2026-09-15
 
 This release is about things that said they worked.

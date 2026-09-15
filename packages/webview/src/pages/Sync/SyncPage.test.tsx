@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useConflictStore } from '../../stores/useConflictStore';
@@ -266,36 +266,22 @@ describe('SyncPage', () => {
     expect(screen.getByText('Sync failed')).toBeDefined();
   });
 
-  it('should render realtime tab in tab bar', () => {
+  it('offers only the tabs whose backend exists: no Real-Time, no Conflicts', () => {
+    // Every realtime:* channel is answered by the no-op handler, and the
+    // Conflicts tab lists what that stream would have pushed — so both tabs
+    // could only ever show an error badge or an empty list.
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
-    expect(screen.getByTestId('tab-realtime')).toBeDefined();
+
+    const tabs = within(screen.getByTestId('sync-tabs'))
+      .getAllByRole('tab')
+      .map((tab) => tab.getAttribute('data-testid'));
+    expect(tabs).toEqual(['tab-sync', 'tab-history', 'tab-schedules']);
+    expect(screen.queryByTestId('tab-realtime')).toBeNull();
+    expect(screen.queryByTestId('tab-conflicts')).toBeNull();
   });
 
-  it('should render RealTimeSyncPanel when realtime tab is clicked', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SyncPage />);
-    const realtimeTab = screen.getByTestId('tab-realtime');
-    fireEvent.click(realtimeTab);
-    expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
-  });
-
-  it('should render conflicts tab in tab bar', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SyncPage />);
-    expect(screen.getByTestId('tab-conflicts')).toBeDefined();
-  });
-
-  it('should show conflict list when conflicts tab is clicked', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SyncPage />);
-    const conflictsTab = screen.getByTestId('tab-conflicts');
-    fireEvent.click(conflictsTab);
-    expect(screen.getByTestId('splitview')).toBeDefined();
-    expect(screen.getByTestId('conflict-list-panel')).toBeDefined();
-  });
-
-  it('should show unresolved count badge when conflicts exist', () => {
+  it('keeps the conflict count off the page while conflicts cannot be resolved', () => {
     const conflict: UIConflict = {
       id: 'Account:001:1',
       objectApiName: 'Account',
@@ -311,48 +297,19 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    // The badge should show "1"
-    const badge = screen.getByTestId('tab-conflicts');
-    expect(badge.textContent).toContain('1');
+    expect(screen.queryByTestId('conflict-count-badge')).toBeNull();
   });
 
-  it('should show placeholder when no conflict is selected on conflicts tab', () => {
+  it('offers the two directions a sync performs, never target to source', () => {
+    // The orchestrator branches on `bidirectional` only; `target_to_source`
+    // wrote source to target, the opposite of what the option said.
     useOrgStore.setState({ orgs: mockOrgs });
-    const conflict: UIConflict = {
-      id: 'Account:001:1',
-      objectApiName: 'Account',
-      recordId: '001',
-      conflictType: 'edit/edit',
-      sourceValues: { Name: 'Source' },
-      targetValues: { Name: 'Target' },
-      conflictFields: ['Name'],
-      timestamp: '2026-03-27T00:00:00Z',
-      resolved: false,
-    };
-    useConflictStore.setState({ conflicts: [conflict] });
     render(<SyncPage />);
-    fireEvent.click(screen.getByTestId('tab-conflicts'));
 
-    expect(screen.getByTestId('conflict-placeholder')).toBeDefined();
-  });
-
-  it('should show ConflictResolutionPanel when a conflict is selected', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    const conflict: UIConflict = {
-      id: 'Account:001:1',
-      objectApiName: 'Account',
-      recordId: '001',
-      conflictType: 'edit/edit',
-      sourceValues: { Name: 'Source' },
-      targetValues: { Name: 'Target' },
-      conflictFields: ['Name'],
-      timestamp: '2026-03-27T00:00:00Z',
-      resolved: false,
-    };
-    useConflictStore.setState({ conflicts: [conflict], selectedConflictId: 'Account:001:1' });
-    render(<SyncPage />);
-    fireEvent.click(screen.getByTestId('tab-conflicts'));
-
-    expect(screen.getByTestId('conflict-resolution-panel')).toBeDefined();
+    const direction = screen.getByLabelText('Direction') as HTMLSelectElement;
+    expect(Array.from(direction.options).map((o) => o.value)).toEqual([
+      'source_to_target',
+      'bidirectional',
+    ]);
   });
 });

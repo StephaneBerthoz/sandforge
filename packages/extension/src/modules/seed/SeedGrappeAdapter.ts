@@ -13,9 +13,10 @@ export type GenerateIdFn = () => UUID;
 const DEFAULT_GRAPPE_SIZE = 2000;
 
 /**
- * Adapts seed operations for grappe (parallel partitioned) mode.
+ * Adapts seed operations for grappe (partitioned) mode.
  * Splits seed template objects into partitions that respect
  * insert order and dependency chains, then aggregates results.
+ * The orchestrator writes the partitions one after another.
  */
 export class SeedGrappeAdapter {
   private readonly generateId: GenerateIdFn;
@@ -37,12 +38,7 @@ export class SeedGrappeAdapter {
     const objectPartitionIds = new Map<string, string[]>();
 
     for (const obj of sortedObjects) {
-      const objectPartitions = splitObject(
-        obj.objectApiName,
-        obj.recordCount,
-        this.grappeSize,
-        this.generateId,
-      );
+      const objectPartitions = splitObject(obj.recordCount, this.grappeSize, this.generateId);
 
       const deps = extractDependencyPartitionIds(obj, objectPartitionIds);
 
@@ -125,40 +121,26 @@ function sortByInsertOrder(objects: SeedTemplate['objects']): SeedTemplate['obje
   return [...objects].sort((a, b) => a.insertOrder - b.insertOrder);
 }
 
-/** Split an object's records into multiple partitions */
+/**
+ * Split an object's record count into partition sizes. A partition carries a
+ * count, not record ids: the records do not exist until the orchestrator
+ * generates them, and it reads only each partition's id and size.
+ */
 function splitObject(
-  objectApiName: string,
   recordCount: number,
   grappeSize: number,
   generateId: GenerateIdFn,
-): Array<{ id: string; recordCount: number; records: string[] }> {
-  const partitions: Array<{ id: string; recordCount: number; records: string[] }> = [];
+): Array<{ id: string; recordCount: number }> {
+  const partitions: Array<{ id: string; recordCount: number }> = [];
   let remaining = recordCount;
 
   while (remaining > 0) {
     const size = Math.min(remaining, grappeSize);
-    partitions.push({
-      id: generateId(),
-      recordCount: size,
-      records: generatePlaceholderRecordIds(objectApiName, size, recordCount - remaining),
-    });
+    partitions.push({ id: generateId(), recordCount: size });
     remaining -= size;
   }
 
   return partitions;
-}
-
-/** Generate placeholder record identifiers for partition tracking */
-function generatePlaceholderRecordIds(
-  objectApiName: string,
-  count: number,
-  offset: number,
-): string[] {
-  const ids: string[] = [];
-  for (let i = 0; i < count; i++) {
-    ids.push(`${objectApiName}:${offset + i}`);
-  }
-  return ids;
 }
 
 /** Get partition IDs of dependency objects */

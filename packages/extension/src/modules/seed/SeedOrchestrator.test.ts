@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOrchestrator } from './SeedOrchestrator';
 import type { SeedOrchestratorDependencies, InsertFn } from './SeedOrchestrator';
+import { SeedValidator } from './SeedValidator';
+import { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import type { SeedTemplate } from '@sandforge/shared';
 
 function createMockDeps(): SeedOrchestratorDependencies {
@@ -213,6 +215,122 @@ describe('SeedOrchestrator', () => {
 
       const result = await orchestrator.execute(template, 'org-1');
       expect(result.objectResults).toHaveLength(2);
+    });
+
+    it('writes nothing when a faker method on the second object is not implemented', async () => {
+      const guarded = new SeedOrchestrator({ ...deps, validator: new SeedValidator() });
+      const template = createTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 2,
+            fieldRules: [
+              { fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company' } },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+          {
+            objectApiName: 'Contact',
+            recordCount: 2,
+            fieldRules: [
+              {
+                fieldApiName: 'Pet__c',
+                ruleType: 'faker',
+                config: { fakerMethod: 'animal.petName' },
+              },
+            ],
+            excludedFields: [],
+            insertOrder: 1,
+            batchSize: 200,
+          },
+        ],
+      });
+
+      const result = await guarded.execute(template, 'org-1');
+
+      expect(result.status).toBe('failure');
+      expect(result.objectResults[0].errors[0]).toContain('"animal.petName"');
+      expect(deps.fieldMapper.mapFields).not.toHaveBeenCalled();
+      expect(deps.insert).not.toHaveBeenCalled();
+    });
+
+    it('reports progress before each object, counting the records already written', async () => {
+      const onProgress = vi.fn();
+      const reporting = new SeedOrchestrator({ ...deps, onProgress });
+      const template = createTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 2,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+          {
+            objectApiName: 'Contact',
+            recordCount: 6,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 1,
+            batchSize: 200,
+          },
+        ],
+      });
+
+      await reporting.execute(template, 'org-1');
+
+      expect(onProgress.mock.calls.map((call) => call[0])).toEqual([
+        { objectApiName: 'Account', processedRecords: 0, totalRecords: 8, percentage: 0 },
+        { objectApiName: 'Contact', processedRecords: 2, totalRecords: 8, percentage: 25 },
+      ]);
+    });
+
+    it('reports progress before each object on the partitioned path too', async () => {
+      const onProgress = vi.fn();
+      const reporting = new SeedOrchestrator({
+        ...deps,
+        onProgress,
+        grappeAdapter: new SeedGrappeAdapter(() => 'gid'),
+        grappeConfig: {
+          enabled: true,
+          autoActivateThreshold: 1,
+          grappeSize: 2000,
+        } as SeedOrchestratorDependencies['grappeConfig'],
+      });
+
+      await reporting.execute(createTemplate(), 'org-1');
+
+      expect(onProgress).toHaveBeenCalledWith({
+        objectApiName: 'Account',
+        processedRecords: 0,
+        totalRecords: 2,
+        percentage: 0,
+      });
+    });
+
+    it('reports progress before each partition of one object, counting its records already written', async () => {
+      const onProgress = vi.fn();
+      vi.mocked(deps.insert).mockResolvedValue({ successIds: ['001A'], errors: [] });
+      const reporting = new SeedOrchestrator({
+        ...deps,
+        onProgress,
+        grappeAdapter: new SeedGrappeAdapter(() => 'gid', 1),
+        grappeConfig: {
+          enabled: true,
+          autoActivateThreshold: 1,
+          grappeSize: 1,
+        } as SeedOrchestratorDependencies['grappeConfig'],
+      });
+
+      await reporting.execute(createTemplate(), 'org-1');
+
+      expect(onProgress.mock.calls.map((call) => call[0])).toEqual([
+        { objectApiName: 'Account', processedRecords: 0, totalRecords: 2, percentage: 0 },
+        { objectApiName: 'Account', processedRecords: 1, totalRecords: 2, percentage: 50 },
+      ]);
     });
   });
 

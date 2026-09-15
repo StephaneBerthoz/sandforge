@@ -285,6 +285,16 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('dataops-cleanup-soon')).toBeDefined();
   });
 
+  it('should tell the user the compliance tab is not built rather than show a request form', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<DataOpsPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /GDPR|Compliance/i }));
+    // No producer of data subject requests exists: a DSR form here would send
+    // nothing and list nothing.
+    expect(screen.getByTestId('dataops-gdpr-soon')).toBeDefined();
+    expect(screen.queryByTestId('gdpr-panel')).toBeNull();
+  });
+
   it('should tell the user the quality tab is not built rather than show an empty list', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);

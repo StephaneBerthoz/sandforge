@@ -132,6 +132,29 @@ describe('FakerFallback', () => {
       expect((value as string).split('.').length).toBeGreaterThan(2);
     });
 
+    it('reads the faker.js spelling a persona or a template writes', () => {
+      const iban = generateByMethod('finance.iban', 0, { min: 0, max: 100 }, 'fr_FR');
+      expect(iban).toMatch(/^FR\d{25}$/);
+      expect(generateByMethod('person.firstName', 0, { min: 0, max: 100 })).toBe(
+        generateByMethod('firstName', 0, { min: 0, max: 100 }),
+      );
+    });
+
+    it('generates every method the prebuilt templates name', () => {
+      const street = generateByMethod('location.streetAddress', 3, { min: 0, max: 100 });
+      expect(street).toMatch(/^\d+ \S/);
+      expect(street as string).not.toContain(',');
+      expect(generateByMethod('person.jobTitle', 0, { min: 0, max: 100 })).toEqual(
+        expect.stringMatching(/\S+ \S+/),
+      );
+      expect(generateByMethod('company.catchPhrase', 1, { min: 0, max: 100 })).toEqual(
+        expect.stringMatching(/\S+ \S+ \S+/),
+      );
+      const description = generateByMethod('commerce.productDescription', 2, { min: 0, max: 100 });
+      expect(description as string).not.toMatch(/lorem|ipsum/);
+      expect(generateByMethod('date.soon', 0, { min: 0, max: 100 })).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
     it('refuses an unknown method instead of passing a sentence off as its value', () => {
       expect(() => generateByMethod('unknownMethod', 0, { min: 0, max: 100 })).toThrow(
         /"unknownMethod" is not implemented/,

@@ -12,5 +12,8 @@
   "Show Details": "詳細を表示",
   "SandForge: pick an org in the launcher dropdown first.": "SandForge: 先にランチャーのドロップダウンで組織を選択してください。",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: 「{0}」を開けません — インスタンス URL が無効です: {1}",
-  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: 「{0}」を開くことを拒否しました — インスタンス URL は HTTPS である必要がありますが、「{1}」でした。"
+  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: 「{0}」を開くことを拒否しました — インスタンス URL は HTTPS である必要がありますが、「{1}」でした。",
+  "Open Settings": "設定を開く",
+  "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.": "SandForge: このウィンドウの AI トークン予算の {0}% を使用しました ({1} トークン)。100% に達すると AI リクエストは拒否されます。",
+  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge: AI リクエストは拒否されています — このウィンドウの AI トークン予算を超えるためです ({0} トークン使用済み)。続行するには sandforge.ai.tokenBudgetMaxPerSession を引き上げるか、ウィンドウを再読み込みしてください。"
 }

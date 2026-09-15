@@ -40,6 +40,18 @@ export interface GrappeEvent {
   payload: Record<string, unknown>;
 }
 
+/** Progress reported as a seed moves on to its next object or partition. */
+export interface SeedProgressEvent {
+  /** The object about to be generated and inserted. */
+  objectApiName: string;
+  /** Records already sent to the org, created or failed, across all objects. */
+  processedRecords: number;
+  /** Records the template plans across all objects. */
+  totalRecords: number;
+  /** processedRecords over totalRecords, 0-100. */
+  percentage: number;
+}
+
 /** Dependencies required by SeedOrchestrator */
 export interface SeedOrchestratorDependencies {
   validator: SeedValidator;
@@ -52,6 +64,11 @@ export interface SeedOrchestratorDependencies {
   grappeAdapter?: SeedGrappeAdapter;
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: GrappeEvent) => void;
+  /**
+   * Called before each object, on both the sequential and the partitioned path,
+   * and on the partitioned path before each further partition of an object.
+   */
+  onProgress?: (event: SeedProgressEvent) => void;
   /**
    * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -118,6 +135,31 @@ export class SeedOrchestrator {
     );
   }
 
+  /**
+   * Report the object about to run and the records written before it. Without
+   * it a run reported only its start and its end, and Quick Seed showed a bar
+   * fixed at 50% for the whole run. `writtenInObject` counts the partitions of
+   * the current object already inserted, so a partitioned object reports each
+   * partition instead of restarting its count at 0.
+   */
+  private reportProgress(
+    objectApiName: string,
+    objectResults: SeedObjectResult[],
+    totalRecords: number,
+    writtenInObject = 0,
+  ): void {
+    const processedRecords = objectResults.reduce(
+      (sum, r) => sum + r.recordsCreated + r.recordsFailed,
+      writtenInObject,
+    );
+    this.deps.onProgress?.({
+      objectApiName,
+      processedRecords,
+      totalRecords,
+      percentage: Math.round((processedRecords / Math.max(totalRecords, 1)) * 100),
+    });
+  }
+
   /** Standard sequential execution — original logic. */
   private async executeSequential(
     template: SeedTemplate,
@@ -128,8 +170,10 @@ export class SeedOrchestrator {
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects);
     const existingIds = new Map<string, string[]>();
     const objectResults: SeedObjectResult[] = [];
+    const plannedRecords = template.objects.reduce((sum, o) => sum + o.recordCount, 0);
 
     for (const obj of sortedObjects) {
+      this.reportProgress(obj.objectApiName, objectResults, plannedRecords);
       const records = await this.deps.fieldMapper.mapFields(obj, existingIds);
       const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
 
@@ -170,6 +214,7 @@ export class SeedOrchestrator {
     let processedPartitions = 0;
 
     for (const obj of sortedObjects) {
+      this.reportProgress(obj.objectApiName, objectResults, totalRecords);
       const records = await this.deps.fieldMapper.mapFields(obj, existingIds);
       const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
       const chunks = chunkArray(records, grappeSize);
@@ -179,7 +224,15 @@ export class SeedOrchestrator {
       const objErrors: string[] = [];
       const objCreatedIds: string[] = [];
 
-      for (const chunk of chunks) {
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        if (chunkIndex > 0) {
+          this.reportProgress(
+            obj.objectApiName,
+            objectResults,
+            totalRecords,
+            objSuccess + objFailed,
+          );
+        }
         const partitionStart = Date.now();
         const partitionId = partitions[processedPartitions]?.id ?? this.deps.generateId();
         const insertResult = await this.deps.insert(orgId, obj.objectApiName, chunk, obj.batchSize);

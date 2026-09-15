@@ -30,12 +30,6 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../core/common/soqlQueryHelper.js', () => ({
   queryWithFieldsFallback: vi.fn(),
 }));
-// Partial mock: only the escaping is stubbed. The module's other exports stay
-// real so adding one does not break this suite.
-vi.mock('../../core/common/soqlValidator.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../core/common/soqlValidator.js')>()),
-  sanitizeSoqlValue: vi.fn((v: string) => v),
-}));
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
@@ -279,6 +273,218 @@ describe('ForgeHandler', () => {
       };
       expect(progressResponse.correlationId).toBe(msg.id);
     });
+
+    it('aborts a discovery still running when a new one starts', async () => {
+      const signals: AbortSignal[] = [];
+      const resolvers: Array<(graph: ForgeGraph) => void> = [];
+      vi.mocked(orchestrator.discover).mockImplementation(
+        (_config: ForgeConfig, options?: DiscoveryOptions) =>
+          new Promise<ForgeGraph>((resolve) => {
+            if (options?.signal) signals.push(options.signal);
+            resolvers.push(resolve);
+          }),
+      );
+
+      const first = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+      const second = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+      await vi.waitFor(() => expect(signals).toHaveLength(2));
+
+      expect(signals[0].aborted).toBe(true);
+      expect(signals[1].aborted).toBe(false);
+
+      // The superseded BFS settles while its replacement is still running. It
+      // must not clear the live one's controller, or forge:abort could no
+      // longer reach the discovery on screen.
+      resolvers[0](createMockGraph());
+      await first;
+      await handler.handle(buildMsg('forge:abort'));
+      expect(signals[1].aborted).toBe(true);
+
+      resolvers[1](createMockGraph());
+      await second;
+    });
+
+    it('posts nothing for a discovery that was cancelled or superseded', async () => {
+      const resolvers: Array<(graph: ForgeGraph) => void> = [];
+      vi.mocked(orchestrator.discover).mockImplementation(
+        () =>
+          new Promise<ForgeGraph>((resolve) => {
+            resolvers.push(resolve);
+          }),
+      );
+
+      const firstMsg = buildMsg('forge:discover', { config: createMockConfig() });
+      const first = handler.handle(firstMsg);
+      await vi.waitFor(() => expect(resolvers).toHaveLength(1));
+      await handler.handle(buildMsg('forge:abort'));
+      // The aborted BFS hands back the partial graph it had reached.
+      resolvers[0]({ ...createMockGraph(), nodes: [] });
+      await first;
+
+      const answers = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { correlationId?: string })
+        .filter(
+          (m) =>
+            m.correlationId === firstMsg.id &&
+            (m.type === 'forge:discover:response' || m.type === 'forge:discover:error'),
+        );
+      expect(answers).toEqual([]);
+    });
+
+    it.each([
+      ['cancelled', 'forge:abort'],
+      ['superseded', 'forge:discover'],
+    ])('posts no error for a discovery that fails after it was %s', async (_label, next) => {
+      const rejecters: Array<(error: Error) => void> = [];
+      const resolvers: Array<(graph: ForgeGraph) => void> = [];
+      vi.mocked(orchestrator.discover).mockImplementation(
+        () =>
+          new Promise<ForgeGraph>((resolve, reject) => {
+            resolvers.push(resolve);
+            rejecters.push(reject);
+          }),
+      );
+
+      const firstMsg = buildMsg('forge:discover', { config: createMockConfig() });
+      const first = handler.handle(firstMsg);
+      await vi.waitFor(() => expect(rejecters).toHaveLength(1));
+      const second = handler.handle(
+        next === 'forge:abort'
+          ? buildMsg('forge:abort')
+          : // Its own id: two messages built in the same millisecond share one.
+            inboundRequest({
+              id: 'live-discover',
+              type: 'forge:discover',
+              timestamp: Date.now(),
+              payload: { config: createMockConfig() },
+            } as BaseMessage),
+      );
+      if (next === 'forge:discover') {
+        await vi.waitFor(() => expect(rejecters).toHaveLength(2));
+      }
+      // A cancelled walk can still throw: a describe cut short, a timeout.
+      rejecters[0](new Error('describeGlobal failed'));
+      await first;
+      resolvers[1]?.(createMockGraph());
+      await second;
+
+      const answers = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { correlationId?: string })
+        .filter(
+          (m) =>
+            m.correlationId === firstMsg.id &&
+            (m.type === 'forge:discover:response' || m.type === 'forge:discover:error'),
+        );
+      expect(answers).toEqual([]);
+    });
+  });
+
+  describe('forge:execute record type translation', () => {
+    /** Connection double answering the active RecordType query of one org. */
+    function recordTypeConn(rows: Array<Record<string, unknown>>) {
+      return {
+        query: vi.fn().mockResolvedValue({ records: rows, done: true, totalSize: rows.length }),
+        queryMore: vi.fn(),
+      };
+    }
+
+    it('builds the table from both orgs by object and DeveloperName and hands it to the run', async () => {
+      const source = recordTypeConn([
+        {
+          Id: '012SRCACC000001',
+          Name: 'Business',
+          DeveloperName: 'Business',
+          SobjectType: 'Account',
+        },
+        {
+          Id: '012SRCOPP000001',
+          Name: 'Business',
+          DeveloperName: 'Business',
+          SobjectType: 'Opportunity',
+        },
+        { Id: '012SRCCAS000001', Name: 'Legacy', DeveloperName: 'Legacy', SobjectType: 'Case' },
+      ]);
+      const target = recordTypeConn([
+        {
+          Id: '012TGTOPP000001',
+          Name: 'Business',
+          DeveloperName: 'Business',
+          SobjectType: 'Opportunity',
+        },
+        {
+          Id: '012TGTACC000001',
+          Name: 'Business',
+          DeveloperName: 'Business',
+          SobjectType: 'Account',
+        },
+      ]);
+      mockGetConn.mockImplementation(async (orgId: string) =>
+        orgId === 'src-org' ? (source as never) : (target as never),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(source.query.mock.calls[0][0]).toContain('FROM RecordType WHERE IsActive = true');
+      expect(target.query.mock.calls[0][0]).toContain('FROM RecordType WHERE IsActive = true');
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        recordTypeMappings: [
+          { sourceId: '012SRCACC000001', targetId: '012TGTACC000001', developerName: 'Business' },
+          { sourceId: '012SRCOPP000001', targetId: '012TGTOPP000001', developerName: 'Business' },
+        ],
+      });
+    });
+
+    it('still runs, untranslated, when the record types cannot be read', async () => {
+      mockGetConn.mockRejectedValue(new Error('INVALID_SESSION_ID'));
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        recordTypeMappings: undefined,
+      });
+      const responses = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:execute:response');
+      expect(responses).toHaveLength(1);
+    });
+
+    it('runs untranslated when the record type lookup never answers', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetConn.mockImplementation(() => new Promise(() => {}));
+
+        const executePromise = handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+        await vi.advanceTimersByTimeAsync(30_000);
+        await executePromise;
+
+        expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+          recordTypeMappings: undefined,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('refuses a RecordType row of the wrong shape instead of mapping it', async () => {
+      const conn = recordTypeConn([{ Id: 42, DeveloperName: null }]);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        recordTypeMappings: undefined,
+      });
+    });
   });
 
   describe('forge:execute', () => {
@@ -296,7 +502,10 @@ describe('ForgeHandler', () => {
 
       expect(handled).toBe(true);
       expect(orchestrator.on).toHaveBeenCalledWith('forge:progress', expect.any(Function));
-      expect(orchestrator.execute).toHaveBeenCalledWith(graph, config);
+      // No connection in this suite, so no record type table could be built.
+      expect(orchestrator.execute).toHaveBeenCalledWith(graph, config, {
+        recordTypeMappings: undefined,
+      });
       expect(unsubscribe).toHaveBeenCalled();
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
@@ -476,7 +685,8 @@ describe('ForgeHandler', () => {
       await handler.handle(buildMsg('forge:execute', { graph, config }));
 
       expect(duplicateErrors()).toBe(1);
-      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      // The first run reads both orgs' record types before it starts.
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
 
       release(createMockResult());
       await first;
@@ -725,6 +935,8 @@ describe('ForgeHandler', () => {
 
       const execMsg = buildMsg('forge:execute', { graph, config });
       const executePromise = handler.handle(execMsg);
+      // The run reads both orgs' record types before it starts.
+      await vi.waitFor(() => expect(resolveExecute).toBeDefined());
 
       await handler.handle(buildMsg('forge:abort'));
       expect(abortSpy).toHaveBeenCalled();
@@ -733,6 +945,52 @@ describe('ForgeHandler', () => {
       await executePromise;
 
       abortSpy.mockRestore();
+    });
+
+    it('never starts a run aborted while record types are still being read', async () => {
+      let releaseLookup: () => void = () => {};
+      mockGetConn.mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            releaseLookup = () => reject(new Error('lookup released'));
+          }),
+      );
+
+      const executePromise = handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+      await vi.waitFor(() => expect(mockGetConn).toHaveBeenCalled());
+      await handler.handle(buildMsg('forge:abort'));
+      releaseLookup();
+      await executePromise;
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload?: { message?: string } })
+        .filter((m) => m.type === 'forge:execute:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload?.message).toContain('aborted before it started');
+    });
+
+    it('refuses the run as soon as Abort is pressed during a record type lookup that hangs', async () => {
+      mockGetConn.mockImplementation(() => new Promise(() => {}));
+
+      const executePromise = handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+      await vi.waitFor(() => expect(mockGetConn).toHaveBeenCalled());
+      await handler.handle(buildMsg('forge:abort'));
+      // The lookup is never released: the handler must settle on the Abort alone.
+      await executePromise;
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload?: { message?: string } })
+        .filter((m) => m.type === 'forge:execute:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload?.message).toContain('aborted before it started');
     });
 
     it('aborts discovery when forge:abort is called during discover', async () => {
@@ -1337,6 +1595,42 @@ describe('ForgeHandler', () => {
       };
       expect(response.payload.estimatedRecordCount).toBe(0);
       expect(response.payload.estimatedSize).toBe(0);
+    });
+
+    it('refuses a record id carrying a quote before any query is built', async () => {
+      // The Id lands inside a quoted SOQL literal. This suite used to stub the
+      // escaping out, so nothing here showed a quote could not break out.
+      await handler.handle(
+        buildMsg('forge:preview', { recordId: "001xx0000' OR Id != '", orgId: 'org-1' }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(mockQueryFallback).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:preview:error');
+      expect(errors).toHaveLength(1);
+    });
+
+    it('queries the previewed record through a quoted, escaped Id literal', async () => {
+      const mockConn = {
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [{ name: 'Account', label: 'Account', keyPrefix: '001' }],
+        }),
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name' }] }),
+        query: vi.fn().mockResolvedValue({ totalSize: 1 }),
+        limitInfo: {},
+      };
+      mockGetConn.mockResolvedValue(mockConn as never);
+      mockQueryFallback.mockResolvedValue([{ Id: '001xx000003DGb1', Name: 'Acme' }]);
+
+      await handler.handle(
+        buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' }),
+      );
+
+      expect(mockQueryFallback.mock.calls[0][2]).toBe(
+        "SELECT FIELDS(STANDARD) FROM Account WHERE Id = '001xx000003DGb1' LIMIT 1",
+      );
     });
 
     // describeGlobal returns 1-2 MB of JSON and the webview fires a

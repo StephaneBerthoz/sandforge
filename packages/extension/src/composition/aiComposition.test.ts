@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const sdk = vi.hoisted(() => ({ create: vi.fn(), constructed: vi.fn() }));
+
 vi.mock('vscode', () => ({
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     getConfiguration: vi.fn(() => ({ get: vi.fn((_k: string, d: unknown) => d) })),
   },
+}));
+
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class Anthropic {
+    messages = { create: sdk.create };
+    constructor(args: { apiKey: string }) {
+      sdk.constructed(args);
+    }
+  },
+  APIUserAbortError: class APIUserAbortError extends Error {},
 }));
 
 // The composition dynamically imports the whole AI stack — stub every module.
@@ -15,10 +27,16 @@ vi.mock('../modules/ai/PipelineGenerator.js', () => ({ PipelineGenerator: vi.fn(
 vi.mock('../modules/ai/AnomalyDetector.js', () => ({ AnomalyDetector: vi.fn() }));
 vi.mock('../modules/ai/SchemaAdvisor.js', () => ({ SchemaAdvisor: vi.fn() }));
 
-import { initAIComposition } from './aiComposition';
+import { AnomalyDetector } from '../modules/ai/AnomalyDetector.js';
+import { initAIComposition, createAIReinit } from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
 import type { BreakerStateChangeEvent } from '../adapters/ai/AIClient';
-import { SessionBudget, type BudgetBroker } from '../adapters/ai/tokenBudget/index.js';
+import type { Services } from '../services.js';
+import type { StorageAdapter } from '../adapters/storage/StorageAdapter.js';
+import { createAIClientFactory } from '../adapters/ai/AIClientFactory.js';
+import { AIChatHandler } from '../bridge/handlers/ai/AIChatHandler.js';
+import type { HandlerDeps } from '../bridge/handlers/HandlerTypes.js';
+import { inboundRequest } from '../test/mockFactories.js';
 
 describe('initAIComposition — ai:provider:status forwarding', () => {
   const posted: Array<Record<string, unknown>> = [];
@@ -33,16 +51,21 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     },
   };
 
-  function makeDeps(overrides?: { aiEnabled?: boolean; hasKey?: boolean }): AICompositionDeps {
+  function makeDeps(overrides?: {
+    aiEnabled?: boolean;
+    hasKey?: boolean;
+    provider?: string;
+  }): AICompositionDeps {
     const aiEnabled = overrides?.aiEnabled ?? true;
     const hasKey = overrides?.hasKey ?? true;
+    const provider = overrides?.provider;
     return {
       services: {
         isAIEnabled: () => aiEnabled,
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          key === 'ai.provider' && provider !== undefined ? (provider as T) : fallback,
         aiClient: () => fakeClient,
         telemetry: { getLogger: () => ({}) },
-        createSessionBudget: (sessionId: string, budgetBroker?: BudgetBroker) =>
-          new SessionBudget({ sessionId, budget: 50_000, broker: budgetBroker }),
       },
       secretVault: {
         getSecret: vi.fn(() => Promise.resolve(hasKey ? 'sk-test' : undefined)),
@@ -96,5 +119,106 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
   it('subscribes nothing when no API key is stored', async () => {
     await initAIComposition(makeDeps({ hasKey: false }));
     expect(stateChangeListener).toBeUndefined();
+  });
+
+  // The openai and custom adapters throw on every call. A settings.json that
+  // still names one used to get AI reported as available, then fail each use.
+  it.each(['openai', 'custom'])(
+    'keeps AI off and says so when the provider setting names %s',
+    async (provider) => {
+      const deps = makeDeps({ provider });
+
+      await initAIComposition(deps);
+
+      expect(deps.handlers.setAIAssistant).toHaveBeenCalledWith(undefined);
+      expect(deps.handlers.setAIModules).toHaveBeenCalledWith(undefined);
+      expect(deps.handlers.setAIModules).not.toHaveBeenCalledWith(expect.anything());
+      const status = posted.filter((m) => m.type === 'ai:status:response').pop();
+      expect(status?.payload).toMatchObject({ enabled: false, provider: 'none' });
+      expect(stateChangeListener).toBeUndefined();
+    },
+  );
+
+  it('still wires the AI stack when a rule-based module fails to load', async () => {
+    vi.mocked(AnomalyDetector).mockImplementationOnce(() => {
+      throw new Error('rule module failed');
+    });
+    const deps = makeDeps();
+
+    await initAIComposition(deps);
+
+    expect(deps.handlers.setAIModules).toHaveBeenCalledWith(
+      expect.objectContaining({ nl2soql: expect.anything() }),
+    );
+    expect(posted.filter((m) => m.type === 'ai:status:response').pop()?.payload).toMatchObject({
+      enabled: true,
+    });
+  });
+});
+
+describe('saving a different API key while AI is already on', () => {
+  it('builds the next SDK client with the new key, without a reload', async () => {
+    const secrets = new Map<string, string>([['ai.anthropic.key', 'sk-old']]);
+    // AnthropicAdapter reads through StorageAdapter, which keeps the
+    // `sandforge.` prefix SecretVault adds on write.
+    const storage = {
+      getSecret: vi.fn((key: string) =>
+        Promise.resolve(secrets.get(key.replace(/^sandforge\./, ''))),
+      ),
+    } as unknown as StorageAdapter;
+    const services = {
+      isAIEnabled: () => true,
+      getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+      aiClient: createAIClientFactory({ storage, getProvider: () => 'anthropic' }),
+    } as unknown as Services;
+    const deps = {
+      services,
+      secretVault: { getSecret: (key: string) => Promise.resolve(secrets.get(key)) },
+      handlers: { setAIAssistant: vi.fn(), setAIModules: vi.fn(), setRuleModules: vi.fn() },
+      broker: { postToWebview: vi.fn() },
+      log: vi.fn(),
+    } as unknown as AICompositionDeps;
+    services.reinitAI = createAIReinit({
+      services,
+      run: () => initAIComposition(deps),
+      log: vi.fn(),
+    });
+    sdk.create.mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      model: 'm',
+      stop_reason: 'end_turn',
+    });
+    await initAIComposition(deps);
+    await services.aiClient().chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    // No settings backend: sandforge.ai.enabled is already true, so writing it
+    // again raises no configuration event to rebuild anything.
+    const handler = new AIChatHandler({
+      log: vi.fn(),
+      broker: { postToWebview: vi.fn() },
+      secretVault: {
+        storeSecret: vi.fn((key: string, value: string) => {
+          secrets.set(key, value);
+          return Promise.resolve();
+        }),
+        hasSecret: vi.fn(() => Promise.resolve(true)),
+      },
+      services,
+      nextId: () => 'resp-1',
+    } as unknown as HandlerDeps);
+    await handler.handle(
+      inboundRequest({
+        id: 'save-1',
+        type: 'ai:save-key',
+        timestamp: Date.now(),
+        payload: { apiKey: 'sk-new' },
+      }),
+    );
+    await services.aiClient().chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    expect(sdk.constructed.mock.calls.map(([args]) => (args as { apiKey: string }).apiKey)).toEqual(
+      ['sk-old', 'sk-new'],
+    );
   });
 });

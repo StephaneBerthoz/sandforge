@@ -124,8 +124,11 @@ export interface ForgeState {
   updateNodeStatus: (objectName: string, status: ForgeNodeStatus, progress?: number) => void;
   /** Toggle whether a node is included in execution. */
   toggleNodeIncluded: (objectName: string) => void;
-  /** Set all graph nodes' included flag to the given value. */
-  setAllNodesIncluded: (included: boolean) => void;
+  /**
+   * Set the included flag of the named nodes, leaving every other node as it
+   * is. Select All / Deselect All pass the nodes the search currently shows.
+   */
+  setNodesIncluded: (objectNames: readonly string[], included: boolean) => void;
   /** Toggle a field in a node's anonymizeFields list. */
   toggleAnonymizeField: (objectName: string, fieldName: string) => void;
   /** Apply a curated anonymization preset (replaces anonymizeFields per object). */
@@ -204,13 +207,16 @@ export const useForgeStore = create<ForgeState>((set) => ({
     });
   },
 
-  setAllNodesIncluded(included: boolean): void {
+  setNodesIncluded(objectNames: readonly string[], included: boolean): void {
+    const names = new Set(objectNames);
     set((state) => {
       if (!state.graph) return state;
       return {
         graph: {
           ...state.graph,
-          nodes: state.graph.nodes.map((n: ForgeGraphNode) => ({ ...n, included })),
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
+            names.has(n.objectApiName) ? { ...n, included } : n,
+          ),
         },
       };
     });

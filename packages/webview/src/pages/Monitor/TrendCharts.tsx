@@ -20,15 +20,16 @@ export interface TrendSeries {
   color: string;
 }
 
-/** Available period options for the period selector. */
-type PeriodOption = '1h' | '6h' | '24h' | '7d';
-
-/** TrendCharts component props. */
+/**
+ * TrendCharts component props.
+ *
+ * There is no period selector: the chart draws every point of the series it
+ * is given. The buttons it used to show changed a highlight and filtered
+ * nothing, so 1h and 7d drew the same line.
+ */
 export interface TrendChartsProps {
   series: TrendSeries[];
   className?: string;
-  /** Callback when period selector changes. */
-  onPeriodChange?: (period: string) => void;
 }
 
 /** Chart dimensions. */
@@ -124,34 +125,13 @@ export function buildChartPath(
   return path;
 }
 
-/** Period selector buttons. */
-const PERIODS: PeriodOption[] = ['1h', '6h', '24h', '7d'];
-
-/** Period label i18n keys. */
-const PERIOD_I18N: Record<PeriodOption, { key: string; defaultValue: string }> = {
-  '1h': { key: 'monitor.period1h', defaultValue: '1h' },
-  '6h': { key: 'monitor.period6h', defaultValue: '6h' },
-  '24h': { key: 'monitor.period24h', defaultValue: '24h' },
-  '7d': { key: 'monitor.period7d', defaultValue: '7d' },
-};
-
 /** Pure SVG trend charts for monitoring data visualization. */
-export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onPeriodChange }) => {
+export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) => {
   const { t } = useTranslation();
   const [activeSeriesId, setActiveSeriesId] = React.useState(series[0]?.id ?? '');
-  const [activePeriod, setActivePeriod] = React.useState<PeriodOption>('24h');
 
   const activeSeries = series.find((s) => s.id === activeSeriesId);
   const tabs = React.useMemo(() => series.map((s) => ({ id: s.id, label: s.name })), [series]);
-
-  /** Handle period button clicks. */
-  const handlePeriodChange = React.useCallback(
-    (period: PeriodOption): void => {
-      setActivePeriod(period);
-      onPeriodChange?.(period);
-    },
-    [onPeriodChange],
-  );
 
   const usableHeight = CHART_HEIGHT - PADDING_TOP - PADDING_BOTTOM;
 
@@ -192,34 +172,6 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onP
           </p>
         ) : (
           <>
-            {/* Period selector */}
-            <div
-              className="flex items-center"
-              style={{ gap: 'var(--sf-space-1)', marginBottom: 'var(--sf-space-3)' }}
-              data-testid="period-selector"
-            >
-              {PERIODS.map((period) => (
-                <button
-                  key={period}
-                  type="button"
-                  data-testid={`period-${period}`}
-                  onClick={() => handlePeriodChange(period)}
-                  style={{
-                    padding: '2px 8px',
-                    fontSize: 'var(--sf-font-size-xs)',
-                    borderRadius: 'var(--sf-radius-sm)',
-                    border: '1px solid var(--sf-border)',
-                    backgroundColor: activePeriod === period ? 'var(--sf-accent)' : 'transparent',
-                    color:
-                      activePeriod === period ? 'var(--sf-bg-card)' : 'var(--sf-text-secondary)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {t(PERIOD_I18N[period].key, PERIOD_I18N[period].defaultValue)}
-                </button>
-              ))}
-            </div>
-
             {/* Tab switcher */}
             {series.length > 1 && (
               <Tabs

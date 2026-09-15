@@ -47,7 +47,7 @@ export const ForgeDiscovery: React.FC = () => {
   const toggleAnonymizeField = useForgeStore((s) => s.toggleAnonymizeField);
 
   const config = useForgeStore((s) => s.config);
-  const setAllNodesIncluded = useForgeStore((s) => s.setAllNodesIncluded);
+  const setNodesIncluded = useForgeStore((s) => s.setNodesIncluded);
   const sendMessage = useSendMessage();
 
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
@@ -119,10 +119,17 @@ export const ForgeDiscovery: React.FC = () => {
     setSelectedNodeName(objectName);
   }, []);
 
-  /** Navigate back to input phase. */
+  /**
+   * Navigate back to input phase. Leaving while the BFS still runs also
+   * stops it: otherwise it kept querying the org behind the input screen, and
+   * a second Discover started another one beside it.
+   */
   const handleBack = useCallback(() => {
+    if (loading) {
+      sendMessage(buildMessage('forge:abort'));
+    }
     setPhase('input');
-  }, [setPhase]);
+  }, [loading, sendMessage, setPhase]);
 
   /** Advance to review phase. */
   const handleExecute = useCallback(() => {
@@ -179,6 +186,20 @@ export const ForgeDiscovery: React.FC = () => {
       estDuration: formatDurationSec(graph.estimatedDurationSeconds),
     };
   }, [graph]);
+
+  /**
+   * Nodes Select All / Deselect All act on: the rows the table shows. A search
+   * filters the table only — the graph view keeps drawing every node — so it
+   * narrows the selection in table view and nowhere else. Acting on the whole
+   * graph behind a filtered table silently flipped rows the user could not see.
+   */
+  const listedNodeNames = useMemo(() => {
+    if (!graph) return [];
+    const query = viewMode === 'table' ? searchQuery.toLowerCase() : '';
+    return graph.nodes
+      .filter((n) => !query || n.objectApiName.toLowerCase().includes(query))
+      .map((n) => n.objectApiName);
+  }, [graph, searchQuery, viewMode]);
 
   // Loading state while waiting for extension response
   if (loading) {
@@ -423,7 +444,7 @@ export const ForgeDiscovery: React.FC = () => {
             data-testid="forge-select-all"
             variant="ghost"
             size="sm"
-            onClick={() => setAllNodesIncluded(true)}
+            onClick={() => setNodesIncluded(listedNodeNames, true)}
             icon={<CheckSquare size={14} />}
           >
             {t('forge.selectAll')}
@@ -432,7 +453,7 @@ export const ForgeDiscovery: React.FC = () => {
             data-testid="forge-deselect-all"
             variant="ghost"
             size="sm"
-            onClick={() => setAllNodesIncluded(false)}
+            onClick={() => setNodesIncluded(listedNodeNames, false)}
             icon={<XSquare size={14} />}
           >
             {t('forge.deselectAll')}

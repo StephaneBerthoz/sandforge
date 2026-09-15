@@ -99,6 +99,7 @@ export function useSeedExecution(
           excludedFields: [],
           fieldRules: (objConfig?.fields ?? []).map((f) => ({
             fieldApiName: f.fieldApiName,
+            fieldType: f.type,
             ruleType: f.ruleType,
             config: f.config as import('@sandforge/shared').FieldRuleConfig,
           })),

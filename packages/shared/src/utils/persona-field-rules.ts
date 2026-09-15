@@ -16,42 +16,13 @@
 
 import type { PersonaFieldPatternMsg } from '../types/messages/seed.messages.js';
 import type { FieldRuleType, FieldRuleConfig } from '../types/seed.types.js';
+import { resolveFakerMethod } from '../constants/faker-methods.js';
 
 /** A persona pattern translated into the seed contract. */
 export interface PersonaFieldRule {
   ruleType: FieldRuleType;
   config: FieldRuleConfig;
 }
-
-/**
- * faker.js-style method names (`namespace.method`) mapped to the method names
- * FakerFallback understands. Personas — the built-in ones and those an AI
- * writes — quote the faker.js spelling; an unmapped name reaches the reader
- * unchanged and falls back to a lorem sentence there.
- */
-const FAKER_METHOD_ALIASES: Record<string, string> = {
-  'company.name': 'company',
-  'person.firstName': 'firstName',
-  'person.lastName': 'lastName',
-  'person.fullName': 'name',
-  'name.firstName': 'firstName',
-  'name.lastName': 'lastName',
-  'internet.email': 'email',
-  'internet.url': 'url',
-  'phone.number': 'phone',
-  'location.city': 'city',
-  'location.country': 'country',
-  'location.state': 'state',
-  'location.zipCode': 'zipCode',
-  'lorem.sentence': 'sentence',
-  'lorem.paragraph': 'paragraph',
-  'string.uuid': 'uuid',
-  'date.past': 'pastDate',
-  'date.future': 'futureDate',
-  'commerce.productName': 'productName',
-  'finance.iban': 'iban',
-  'finance.bic': 'bic',
-};
 
 /**
  * Map a persona field pattern generator string to the corresponding FieldRuleType.
@@ -126,7 +97,9 @@ export function personaPatternToFieldRule(
   switch (pattern.generator) {
     case 'faker': {
       const method = firstString(params['fakerMethod'], params['method']);
-      if (method !== undefined) config.fakerMethod = FAKER_METHOD_ALIASES[method] ?? method;
+      /* An unresolvable name is kept as written, so the validator can name it
+         when it refuses the run. */
+      if (method !== undefined) config.fakerMethod = resolveFakerMethod(method) ?? method;
       const locale = firstString(params['fakerLocale'], params['locale']);
       if (locale !== undefined) config.fakerLocale = locale;
       break;

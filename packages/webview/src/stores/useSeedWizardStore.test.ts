@@ -26,7 +26,6 @@ describe('useSeedWizardStore', () => {
     expect(state.relations).toEqual([]);
     expect(state.error).toBeNull();
     expect(state.selectedPersona).toBeNull();
-    expect(state.personaMatchedFields).toBe(0);
   });
 
   it('should update selected org via handleOrgSelect', () => {
@@ -90,14 +89,12 @@ describe('useSeedWizardStore', () => {
     expect(useSeedWizardStore.getState().error).toBeNull();
   });
 
-  it('should set the selected persona and matched fields count', () => {
+  it('should set the selected persona', () => {
     const persona = makeMockPersona('p-1');
     useSeedWizardStore.getState().setSelectedPersona(persona);
-    useSeedWizardStore.getState().setPersonaMatchedFields(7);
 
     const state = useSeedWizardStore.getState();
     expect(state.selectedPersona).toEqual(persona);
-    expect(state.personaMatchedFields).toBe(7);
 
     useSeedWizardStore.getState().setSelectedPersona(null);
     expect(useSeedWizardStore.getState().selectedPersona).toBeNull();
@@ -109,7 +106,6 @@ describe('useSeedWizardStore', () => {
     useSeedWizardStore.getState().handleAddRelation();
     useSeedWizardStore.getState().setError('boom');
     useSeedWizardStore.getState().setSelectedPersona(makeMockPersona('p-1'));
-    useSeedWizardStore.getState().setPersonaMatchedFields(3);
 
     useSeedWizardStore.getState().resetSeedWizard();
 
@@ -119,6 +115,6 @@ describe('useSeedWizardStore', () => {
     expect(state.relations).toEqual([]);
     expect(state.error).toBeNull();
     expect(state.selectedPersona).toBeNull();
-    expect(state.personaMatchedFields).toBe(0);
+    expect(state).not.toHaveProperty('personaMatchedFields');
   });
 });

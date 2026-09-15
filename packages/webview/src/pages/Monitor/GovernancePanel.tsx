@@ -8,6 +8,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
+import type { GovernancePolicySummary } from '@sandforge/shared';
 
 /** A single governance rule result for display. */
 export interface GovernanceRuleDisplay {
@@ -19,16 +20,6 @@ export interface GovernanceRuleDisplay {
   threshold: number;
   message: string;
   remediation: string;
-}
-
-/** A governance policy summary for the list. */
-export interface GovernancePolicySummary {
-  id: string;
-  name: string;
-  description: string;
-  ruleCount: number;
-  createdAt: string;
-  updatedAt: string;
 }
 
 /** Props for the GovernancePanel component. */

@@ -35,6 +35,15 @@ const STEP_ENTRIES: StepPaletteEntry[] = [
   { type: 'notification', category: 'notification' },
 ];
 
+/**
+ * The step types the extension actually executes. `StepExecutor` gives Delay
+ * and Condition real handlers and sends every other type to a pass-through
+ * that reports success without opening a connection, so a pipeline of Seed and
+ * Backup steps runs green and moves no record. Each of those is marked here
+ * until it gets a handler of its own.
+ */
+const EXECUTED_STEP_TYPES: ReadonlySet<PipelineStepType> = new Set(['delay', 'condition']);
+
 const CATEGORY_ORDER: StepCategory[] = ['data', 'quality', 'control', 'notification'];
 
 const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' | 'error' | 'info'> =
@@ -75,6 +84,14 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
                 <Badge variant={CATEGORY_VARIANT[entry.category]} className="text-[9px]">
                   {t(`automation.stepTypes.${entry.type}`)}
                 </Badge>
+                {!EXECUTED_STEP_TYPES.has(entry.type) && (
+                  <span
+                    className="text-[9px] text-[var(--sf-text-secondary)]"
+                    data-testid={`palette-${entry.type}-soon`}
+                  >
+                    {t('common.comingSoon')}
+                  </span>
+                )}
               </button>
             ))}
           </div>

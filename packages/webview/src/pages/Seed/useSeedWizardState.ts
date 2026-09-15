@@ -110,8 +110,6 @@ export interface SeedWizardState {
   setSelectedPersona: (persona: PersonaMsg | null) => void;
   /** Apply the selected persona's data patterns to field configs. Returns matched count. */
   applySelectedPersona: () => number;
-  /** Number of fields last configured by persona application. */
-  personaMatchedFields: number;
 
   /* Error */
   error: string | null;
@@ -148,8 +146,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   const setError = useSeedWizardStore((s) => s.setError);
   const selectedPersona = useSeedWizardStore((s) => s.selectedPersona);
   const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
-  const personaMatchedFields = useSeedWizardStore((s) => s.personaMatchedFields);
-  const setPersonaMatchedFields = useSeedWizardStore((s) => s.setPersonaMatchedFields);
 
   /* ------------------------------------------------------------------ */
   /* Sub-hooks                                                           */
@@ -248,13 +244,12 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   // stable, so disable it here with a rationale.
   const applySelectedPersona = useCallback((): number => {
     if (!selectedPersona) return 0;
-    const count = fieldConfig.applyPersona(selectedPersona);
-    setPersonaMatchedFields(count);
-    return count;
+    return fieldConfig.applyPersona(selectedPersona);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.applyPersona]);
 
-  /* Auto-apply persona when field configs become available */
+  /* Auto-apply a newly picked persona to the objects already described.
+     Objects described later receive it in useSeedFieldRules as they arrive. */
   const personaAppliedRef = useRef<string | null>(null);
   // Same rationale as applySelectedPersona above: depend on the specific
   // method + length scalar, not the full fieldConfig object.
@@ -265,8 +260,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       personaAppliedRef.current !== selectedPersona.id
     ) {
       personaAppliedRef.current = selectedPersona.id;
-      const count = fieldConfig.applyPersona(selectedPersona);
-      setPersonaMatchedFields(count);
+      fieldConfig.applyPersona(selectedPersona);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.fieldConfigs.length, fieldConfig.applyPersona]);
@@ -306,7 +300,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     selectedPersona,
     setSelectedPersona,
     applySelectedPersona,
-    personaMatchedFields,
     error,
     setError,
   };

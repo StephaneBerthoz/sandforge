@@ -36,51 +36,213 @@ function polymorphic(name: string, targets: string[]): ScopableField {
 const ROOT_ID = '500XX00000000001AAA';
 
 describe('ScopedSoqlBuilder', () => {
-  describe('scope id bound', () => {
-    it('refuses a scope too large for a query URI, and says what to do', () => {
-      // A scoped query travels over GET. Past roughly 600 quoted Ids the
-      // request URI stops fitting and the org rejects it with a transport
-      // error the user cannot connect to the record they picked — which is
-      // what the audit meant by "fails with no explanation".
+  describe('scopes too large for one query', () => {
+    /** Characters a statement costs once jsforce puts it in the query URI. */
+    const uriLength = (soql: string): number => encodeURIComponent(soql).length;
+    const ids = (prefix: string, count: number): string[] =>
+      Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(15, '0')}`);
+
+    it('splits 1,300 cached ids into 3 statements that each fit a query URI', () => {
+      // A scoped query travels over GET, so the whole statement has to fit
+      // the request URI. A single IN list of 1,300 Ids does not; three do.
       const builder = new ScopedSoqlBuilder();
       const cache = new RecordScopeCache();
-      cache.add(
-        'Contact',
-        Array.from({ length: 601 }, (_, i) => `003${String(i).padStart(15, '0')}`),
-      );
-
-      expect(() =>
-        builder.build({
-          node: makeNode('Contact', 1),
-          fields: [],
-          selectFields: ['Id'],
-          edges: [],
-          cache,
-          rootObjectApiName: 'Case',
-          rootRecordId: ROOT_ID,
-        }),
-      ).toThrow(/601 record Ids/);
-    });
-
-    it('builds the query when the scope still fits', () => {
-      const builder = new ScopedSoqlBuilder();
-      const cache = new RecordScopeCache();
-      cache.add(
-        'Contact',
-        Array.from({ length: 600 }, (_, i) => `003${String(i).padStart(15, '0')}`),
-      );
+      const contactIds = ids('003', 1300);
+      cache.add('Contact', contactIds);
 
       const result = builder.build({
         node: makeNode('Contact', 1),
         fields: [],
-        selectFields: ['Id'],
+        selectFields: ['Id', 'LastName'],
         edges: [],
         cache,
         rootObjectApiName: 'Case',
         rootRecordId: ROOT_ID,
       });
 
-      expect(result.scopeIdCount).toBe(600);
+      expect(result.scope).toBe('self-cached');
+      expect(result.scopeIdCount).toBe(1300);
+      expect(result.statements).toHaveLength(3);
+      for (const soql of result.statements) {
+        expect(soql.length).toBeLessThan(16_000);
+        expect(uriLength(soql)).toBeLessThan(16_000);
+        expect(soql.startsWith('SELECT Id, LastName FROM Contact WHERE Id IN (')).toBe(true);
+      }
+      const queried = result.statements.flatMap((soql) => soql.match(/003\d{15}/g) ?? []);
+      expect(queried).toHaveLength(1300);
+      expect(new Set(queried)).toEqual(new Set(contactIds));
+    });
+
+    it('never lets 3 FK fields over 600 parent ids exceed the limit', () => {
+      // The parent list is repeated once per FK field. Capping the list alone
+      // still built a 3 x 600 statement no org accepts.
+      const builder = new ScopedSoqlBuilder();
+      const cache = new RecordScopeCache();
+      const accountIds = ids('001', 600);
+      cache.add('Account', accountIds);
+      const fkFields = ['AccountId', 'BillingAccount__c', 'ShippingAccount__c'];
+
+      const result = builder.build({
+        node: makeNode('Contact', 1),
+        fields: fkFields.map((name) => lookup(name, 'Account')),
+        selectFields: ['Id', ...fkFields],
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+      });
+
+      expect(result.statements.length).toBeGreaterThan(1);
+      for (const soql of result.statements) {
+        expect(uriLength(soql)).toBeLessThan(16_000);
+      }
+      // Every (field, parent id) pair is asked for exactly once.
+      const pairs: string[] = [];
+      for (const soql of result.statements) {
+        for (const clause of soql.slice(soql.indexOf(' WHERE ') + 7).split(' OR ')) {
+          const [field, list] = clause.split(' IN ');
+          for (const id of list.match(/001\d{15}/g) ?? []) pairs.push(`${field}:${id}`);
+        }
+      }
+      expect(pairs).toHaveLength(1800);
+      expect(new Set(pairs).size).toBe(1800);
+    });
+
+    describe('a wide field list, where the URI fills before the Id cap', () => {
+      // 200 names of 25 characters take about 6,200 URI characters before the
+      // WHERE, so a statement runs out of URI well before it holds 500 Ids.
+      const wideFields = Array.from(
+        { length: 200 },
+        (_, i) => `Custom_Field_Name_${String(i).padStart(4, '0')}__c`,
+      );
+
+      it('keeps 600 cached ids under the URI limit and asks for each once', () => {
+        const builder = new ScopedSoqlBuilder();
+        const cache = new RecordScopeCache();
+        const contactIds = ids('003', 600);
+        cache.add('Contact', contactIds);
+
+        const result = builder.build({
+          node: makeNode('Contact', 1),
+          fields: [],
+          selectFields: wideFields,
+          edges: [],
+          cache,
+          rootObjectApiName: 'Case',
+          rootRecordId: ROOT_ID,
+        });
+
+        expect(result.scope).toBe('self-cached');
+        expect(result.statements.length).toBeGreaterThan(1);
+        const perStatement = result.statements.map((soql) => soql.match(/003\d{15}/g) ?? []);
+        for (const [i, soql] of result.statements.entries()) {
+          expect(uriLength(soql)).toBeLessThan(16_000);
+          expect(perStatement[i].length).toBeLessThan(500);
+        }
+        const queried = perStatement.flat();
+        expect(queried).toHaveLength(600);
+        expect(new Set(queried)).toEqual(new Set(contactIds));
+      });
+
+      it('keeps 3 FK fields over 600 parent ids under the URI limit and asks for each pair once', () => {
+        const builder = new ScopedSoqlBuilder();
+        const cache = new RecordScopeCache();
+        cache.add('Account', ids('001', 600));
+        const fkFields = ['AccountId', 'BillingAccount__c', 'ShippingAccount__c'];
+
+        const result = builder.build({
+          node: makeNode('Contact', 1),
+          fields: fkFields.map((name) => lookup(name, 'Account')),
+          selectFields: [...fkFields, ...wideFields],
+          edges: [
+            {
+              sourceObject: 'Account',
+              targetObject: 'Contact',
+              relationshipName: 'Contacts',
+              type: 'lookup',
+            },
+          ],
+          cache,
+          rootObjectApiName: 'Case',
+          rootRecordId: ROOT_ID,
+        });
+
+        expect(result.scope).toBe('parent-fk');
+        expect(result.statements.length).toBeGreaterThan(1);
+        const pairs: string[] = [];
+        for (const soql of result.statements) {
+          expect(uriLength(soql)).toBeLessThan(16_000);
+          let idsInStatement = 0;
+          for (const clause of soql.slice(soql.indexOf(' WHERE ') + 7).split(' OR ')) {
+            const [field, list] = clause.split(' IN ');
+            for (const id of list.match(/001\d{15}/g) ?? []) {
+              pairs.push(`${field}:${id}`);
+              idsInStatement++;
+            }
+          }
+          expect(idsInStatement).toBeLessThan(500);
+        }
+        expect(pairs).toHaveLength(1800);
+        expect(new Set(pairs).size).toBe(1800);
+      });
+    });
+
+    it('carries the extra filter on every statement', () => {
+      const builder = new ScopedSoqlBuilder();
+      const cache = new RecordScopeCache();
+      cache.add('Account', ids('001', 1200));
+
+      const result = builder.build({
+        node: makeNode('Contact', 1),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id'],
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+        extraWhere: "Status__c = 'Open'",
+      });
+
+      expect(result.statements.length).toBeGreaterThan(1);
+      for (const soql of result.statements) {
+        expect(soql).toMatch(/WHERE \(AccountId IN \([^)]*\)\) AND \(Status__c = 'Open'\)$/);
+      }
+    });
+
+    it('refuses a field list so long that no Id fits beside it, and names the object', () => {
+      const builder = new ScopedSoqlBuilder();
+      const cache = new RecordScopeCache();
+      cache.add('Contact', ids('003', 2));
+      const selectFields = Array.from(
+        { length: 700 },
+        (_, i) => `Very_Long_Custom_Field_${String(i).padStart(4, '0')}__c`,
+      );
+
+      expect(() =>
+        builder.build({
+          node: makeNode('Contact', 1),
+          fields: [],
+          selectFields,
+          edges: [],
+          cache,
+          rootObjectApiName: 'Case',
+          rootRecordId: ROOT_ID,
+        }),
+      ).toThrow(/Contact/);
     });
   });
 
@@ -100,7 +262,7 @@ describe('ScopedSoqlBuilder', () => {
 
       expect(result.scoped).toBe(true);
       expect(result.scope).toBe('root');
-      expect(result.soql).toBe(
+      expect(result.statements[0]).toBe(
         `SELECT Id, CaseNumber, AccountId FROM Case WHERE Id = '${ROOT_ID}'`,
       );
       expect(result.scopeIdCount).toBe(1);
@@ -118,7 +280,7 @@ describe('ScopedSoqlBuilder', () => {
         rootRecordId: "1' OR Id != '",
       });
 
-      expect(result.soql).toContain("WHERE Id = '1\\' OR Id != \\''");
+      expect(result.statements[0]).toContain("WHERE Id = '1\\' OR Id != \\''");
     });
   });
 
@@ -151,7 +313,7 @@ describe('ScopedSoqlBuilder', () => {
       expect(result.scope).toBe('parent-fk');
       expect(result.parentObjectsUsed).toEqual(['Account']);
       expect(result.scopeIdCount).toBe(2);
-      expect(result.soql).toBe(
+      expect(result.statements[0]).toBe(
         `SELECT Id, Name, AccountId FROM Contact WHERE AccountId IN ('001AAA', '001BBB')`,
       );
     });
@@ -182,7 +344,7 @@ describe('ScopedSoqlBuilder', () => {
 
       expect(result.scoped).toBe(true);
       expect(result.scope).toBe('parent-fk');
-      expect(result.soql).toBe(
+      expect(result.statements[0]).toBe(
         `SELECT Id, CaseId, Field FROM CaseHistory WHERE CaseId IN ('${ROOT_ID}')`,
       );
     });
@@ -220,7 +382,7 @@ describe('ScopedSoqlBuilder', () => {
 
       expect(result.scope).toBe('parent-fk');
       expect(result.parentObjectsUsed).toEqual(['Account', 'Case']);
-      expect(result.soql).toBe(
+      expect(result.statements[0]).toBe(
         `SELECT Id FROM Contact WHERE AccountId IN ('001AAA') OR Case_Source__c IN ('${ROOT_ID}')`,
       );
     });
@@ -249,8 +411,8 @@ describe('ScopedSoqlBuilder', () => {
         rootRecordId: ROOT_ID,
       });
 
-      expect(result.soql).toContain('AccountId IN');
-      expect(result.soql).toContain('PrimaryAccount__c IN');
+      expect(result.statements[0]).toContain('AccountId IN');
+      expect(result.statements[0]).toContain('PrimaryAccount__c IN');
     });
 
     it('handles polymorphic lookups (e.g. WhatId → [Account, Opportunity])', () => {
@@ -278,7 +440,7 @@ describe('ScopedSoqlBuilder', () => {
       });
 
       expect(result.scoped).toBe(true);
-      expect(result.soql).toBe(`SELECT Id, WhatId FROM Task WHERE WhatId IN ('001AAA')`);
+      expect(result.statements[0]).toBe(`SELECT Id, WhatId FROM Task WHERE WhatId IN ('001AAA')`);
     });
   });
 
@@ -299,7 +461,9 @@ describe('ScopedSoqlBuilder', () => {
       });
 
       expect(result.scope).toBe('self-cached');
-      expect(result.soql).toBe(`SELECT Id, Name FROM Account WHERE Id IN ('001AAA', '001BBB')`);
+      expect(result.statements[0]).toBe(
+        `SELECT Id, Name FROM Account WHERE Id IN ('001AAA', '001BBB')`,
+      );
       expect(result.scopeIdCount).toBe(2);
     });
   });
@@ -321,7 +485,7 @@ describe('ScopedSoqlBuilder', () => {
 
       expect(result.scoped).toBe(false);
       expect(result.scope).toBe('unscoped');
-      expect(result.soql).toBe('SELECT Id FROM Product2 WHERE Id = NULL');
+      expect(result.statements[0]).toBe('SELECT Id FROM Product2 WHERE Id = NULL');
       expect(result.scopeIdCount).toBe(0);
     });
 
@@ -394,7 +558,7 @@ describe('ScopedSoqlBuilder', () => {
         rootObjectApiName: 'Case',
         rootRecordId: ROOT_ID,
       });
-      expect(result.soql).toBe(`SELECT Id FROM Case WHERE Id = '${ROOT_ID}'`);
+      expect(result.statements[0]).toBe(`SELECT Id FROM Case WHERE Id = '${ROOT_ID}'`);
     });
 
     it('rejects field names that fail SOQL identifier validation', () => {

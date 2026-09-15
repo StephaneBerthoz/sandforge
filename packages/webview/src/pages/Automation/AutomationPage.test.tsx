@@ -201,6 +201,22 @@ describe('AutomationPage', () => {
     expect(screen.getByText('Pipeline validation failed')).toBeDefined();
   });
 
+  it('says on the canvas that most steps do nothing yet, before anyone runs a pipeline', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    const notice = screen.getByTestId('automation-steps-soon');
+    expect(notice.textContent).toContain('Coming soon');
+    expect(notice.textContent).toContain('Delay');
+    expect(notice.textContent).toContain('Condition');
+  });
+
+  it('does not describe the empty state as automating seed or sync work', () => {
+    useOrgStore.setState({ orgs: [] });
+    render(<AutomationPage />);
+    const emptyState = screen.getByTestId('empty-state');
+    expect(emptyState.textContent).not.toMatch(/automated workflows|seed, sync/i);
+  });
+
   it('should render KPI overview row', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);

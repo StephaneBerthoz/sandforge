@@ -1,3 +1,10 @@
+import { z } from 'zod';
+import {
+  SUPPORTED_FAKER_METHODS,
+  acceptsGeneratedSentence,
+  resolveFakerMethod,
+} from '@sandforge/shared';
+
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
@@ -566,22 +573,6 @@ export class AIPersonaManager {
   }
 
   /**
-   * Apply a persona to a specific field, returning the matching pattern if one exists.
-   * Matches by exact field name (case-insensitive key lookup).
-   * @param persona - The persona to apply
-   * @param _objectName - The Salesforce object API name (reserved for future per-object patterns)
-   * @param fieldName - The field API name to match
-   * @returns The matching field pattern or undefined
-   */
-  applyPersona(
-    persona: AIPersona,
-    _objectName: string,
-    fieldName: string,
-  ): PersonaFieldPattern | undefined {
-    return persona.dataPatterns[fieldName];
-  }
-
-  /**
    * Get all custom personas.
    * @returns Array of user-created personas
    */
@@ -590,10 +581,70 @@ export class AIPersonaManager {
   }
 }
 
+/** A number, or a numeric string as a model often writes one. */
+const numericParam = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim().length > 0 ? Number(value) : value),
+  z.number().finite(),
+);
+const optionalNumber = numericParam.optional().catch(undefined);
+const optionalText = z.string().min(1).optional().catch(undefined);
+
+/**
+ * The params each generator reads, as Zod schemas. A pattern whose params do
+ * not fit is dropped; keys no generator reads are stripped. The model used to
+ * be shown `"params": { "...": "..." }`, so it guessed the keys, and whatever it
+ * wrote was stored as is: an unknown faker method stopped the run, an unknown
+ * generator became a faker rule with no method.
+ */
+const PERSONA_PARAM_SCHEMAS = {
+  faker: z.object({
+    method: z.string().transform((method, ctx) => {
+      const resolved = resolveFakerMethod(method);
+      if (!resolved) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `unknown faker method ${method}` });
+        return z.NEVER;
+      }
+      return resolved;
+    }),
+    locale: optionalText,
+  }),
+  random_pick: z.object({
+    values: z.array(z.union([z.string(), z.number(), z.boolean()]).transform(String)).min(1),
+  }),
+  weighted_pick: z.object({
+    values: z.record(numericParam).refine((values) => Object.keys(values).length > 0),
+  }),
+  range: z.object({ min: optionalNumber, max: optionalNumber, currency: optionalText }),
+  sequence: z.object({
+    prefix: optionalText,
+    start: optionalNumber,
+    step: optionalNumber,
+    padLength: optionalNumber,
+  }),
+  pattern: z.object({ pattern: z.string().min(1) }),
+  ai_generate: z.object({ prompt: z.string().min(1) }),
+  relative_date: z.object({ minDaysFromNow: optionalNumber, maxDaysFromNow: optionalNumber }),
+} as const;
+
+/** How the prompt describes the params of each generator. */
+const PERSONA_PARAM_DESCRIPTIONS: Record<keyof typeof PERSONA_PARAM_SCHEMAS, string> = {
+  faker: '{ "method": one of the faker methods below, "locale" (optional): e.g. "fr_FR" }',
+  random_pick: '{ "values": ["value1", "value2"] }',
+  weighted_pick: '{ "values": { "value1": 0.7, "value2": 0.3 } }',
+  range: '{ "min": number, "max": number, "currency" (optional): e.g. "EUR" }',
+  sequence: '{ "prefix": "INV-", "start" (optional): integer, "step" (optional): integer }',
+  pattern: '{ "pattern": a mask where # stands for a digit, e.g. "FR-#####" }',
+  ai_generate: '{ "prompt": what to write in the field }, only on string and textarea fields',
+  relative_date: '{ "minDaysFromNow": integer, "maxDaysFromNow": integer, negative for the past }',
+};
+
 /**
  * Build the AI prompt for generating a custom persona from a description.
  */
 function buildCustomPersonaPrompt(description: string): string {
+  const generators = Object.keys(PERSONA_PARAM_SCHEMAS) as Array<
+    keyof typeof PERSONA_PARAM_SCHEMAS
+  >;
   const lines = [
     'You are a data generation expert. Based on the following description, create a data generation persona for Salesforce.',
     '',
@@ -608,17 +659,49 @@ function buildCustomPersonaPrompt(description: string): string {
     '  "dataPatterns": {',
     '    "FieldApiName": {',
     '      "fieldType": "string|number|picklist|currency|date|boolean|textarea",',
-    '      "generator": "faker|random_pick|sequence|range|ai_generate|pattern|weighted_pick",',
-    '      "params": { "...": "..." },',
+    `      "generator": "${generators.join('|')}",`,
+    '      "params": the params of that generator, listed below,',
     '      "examples": ["example1", "example2", "example3"]',
     '    }',
     '  }',
     '}',
     '',
+    'Params of each generator:',
+    ...generators.map((generator) => `- ${generator}: ${PERSONA_PARAM_DESCRIPTIONS[generator]}`),
+    '',
+    `Faker methods: ${SUPPORTED_FAKER_METHODS.join(', ')}.`,
+    'A pattern that uses another generator, another faker method or other params is discarded.',
+    '',
     'Include at least 5 relevant field patterns for the described industry.',
   ];
 
   return lines.join('\n');
+}
+
+/** The pattern with its params normalised, or null when Seed cannot generate it. */
+function normalisePattern(raw: Record<string, unknown>): PersonaFieldPattern | null {
+  const generator = raw['generator'];
+  if (typeof generator !== 'string' || !Object.hasOwn(PERSONA_PARAM_SCHEMAS, generator)) {
+    return null;
+  }
+  const schema = PERSONA_PARAM_SCHEMAS[generator as keyof typeof PERSONA_PARAM_SCHEMAS];
+  const params = schema.safeParse(raw['params'] ?? {});
+  if (!params.success) {
+    return null;
+  }
+  const fieldType = typeof raw['fieldType'] === 'string' ? raw['fieldType'] : 'string';
+  // AI generation writes text, and a sentence in a date or number field fails the insert.
+  if (generator === 'ai_generate' && !acceptsGeneratedSentence(fieldType)) {
+    return null;
+  }
+  return {
+    fieldType,
+    generator,
+    params: params.data as Record<string, unknown>,
+    examples: Array.isArray(raw['examples'])
+      ? (raw['examples'] as unknown[]).filter((e): e is string => typeof e === 'string')
+      : [],
+  };
 }
 
 /**
@@ -647,18 +730,10 @@ function parsePersonaResponse(response: string): Omit<AIPersona, 'id'> {
     const rawPatterns = obj['dataPatterns'] as Record<string, unknown>;
     for (const [key, value] of Object.entries(rawPatterns)) {
       if (typeof value === 'object' && value !== null) {
-        const p = value as Record<string, unknown>;
-        dataPatterns[key] = {
-          fieldType: typeof p['fieldType'] === 'string' ? p['fieldType'] : 'string',
-          generator: typeof p['generator'] === 'string' ? p['generator'] : 'faker',
-          params:
-            typeof p['params'] === 'object' && p['params'] !== null
-              ? (p['params'] as Record<string, unknown>)
-              : undefined,
-          examples: Array.isArray(p['examples'])
-            ? (p['examples'] as unknown[]).filter((e): e is string => typeof e === 'string')
-            : [],
-        };
+        const pattern = normalisePattern(value as Record<string, unknown>);
+        if (pattern) {
+          dataPatterns[key] = pattern;
+        }
       }
     }
   }

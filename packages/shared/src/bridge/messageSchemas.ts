@@ -374,10 +374,8 @@ const AIMessages = [
   msg('ai:schema-advice:response'),
   // Provider status banner (breaker open / half-open / closed).
   msg('ai:provider:status'),
-  // Per-panel-session token budget surface.
+  // Token budget gauge: one counter for the window, shared by every AI feature.
   msg('ai:budget:state'),
-  msg('ai:budget:warn'),
-  msg('ai:budget:exceeded'),
 ] as const;
 export const AIMessageSchema = z.discriminatedUnion('type', AIMessages);
 

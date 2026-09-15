@@ -19,7 +19,6 @@ import { NL2SOQL } from '../modules/ai/NL2SOQL.js';
 import { initAIComposition } from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
 import type { AIProvider } from '../modules/ai/types.js';
-import { SessionBudget, type BudgetBroker } from '../adapters/ai/tokenBudget/index.js';
 
 /**
  * The AI modules pass their spotlight system prompt as the second
@@ -36,10 +35,9 @@ describe('initAIComposition — aiProvider forwards the system prompt', () => {
     return {
       services: {
         isAIEnabled: () => true,
+        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
         aiClient: () => fakeClient,
         telemetry: { getLogger: () => ({}) },
-        createSessionBudget: (sessionId: string, budgetBroker?: BudgetBroker) =>
-          new SessionBudget({ sessionId, budget: 50_000, broker: budgetBroker }),
       },
       secretVault: { getSecret: vi.fn(() => Promise.resolve('sk-test')) },
       handlers: {

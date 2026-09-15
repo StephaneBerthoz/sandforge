@@ -27,15 +27,17 @@ export interface TrendChartProps {
   className?: string;
 }
 
-/** Available period options. */
-type Period = '24h' | '7d' | '30d';
+/**
+ * Available period options. Nothing longer than a week: trend history is kept
+ * for seven days, so a 30-day view could only show that same week again.
+ */
+type Period = '24h' | '7d';
 
 /** Period label i18n keys. */
 const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string; hours: number }> =
   [
     { key: '24h', i18nKey: 'monitor.period24h', defaultLabel: '24h', hours: 24 },
     { key: '7d', i18nKey: 'monitor.period7d', defaultLabel: '7d', hours: 168 },
-    { key: '30d', i18nKey: 'monitor.period30d', defaultLabel: '30d', hours: 720 },
   ];
 
 /** Formats a timestamp for the x-axis using locale-aware formatting. */

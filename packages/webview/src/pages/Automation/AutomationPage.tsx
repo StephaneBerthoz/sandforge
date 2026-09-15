@@ -13,6 +13,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
 import { Badge } from '../../components/ui/Badge';
+import { ComingSoon } from '../../components/ui/ComingSoon';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { PipelineCanvas } from './PipelineCanvas';
 import { StepPalette } from './StepPalette';
@@ -229,6 +230,13 @@ export const AutomationPage: React.FC = () => {
         <div className="p-4" data-testid="automation-content">
           {activeTab === 'canvas' && (
             <div className="flex flex-col gap-[var(--sf-space-4)]">
+              {/* A run walks every step and reports it green, but only Delay
+                  and Condition have handlers: the rest pass through without
+                  touching an org. Say so before the Run button is pressed. */}
+              <ComingSoon
+                data-testid="automation-steps-soon"
+                description={t('automation.soon.steps')}
+              />
               <div className="flex items-center gap-[var(--sf-space-2)]">
                 <Button
                   variant="secondary"

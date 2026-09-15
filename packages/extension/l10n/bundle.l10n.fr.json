@@ -12,5 +12,8 @@
   "Show Details": "Afficher les détails",
   "SandForge: pick an org in the launcher dropdown first.": "SandForge : sélectionnez d'abord une org dans la liste du lanceur.",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge : impossible d'ouvrir « {0} » — URL d'instance invalide : {1}",
-  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge : ouverture de « {0} » refusée — l'URL d'instance doit utiliser HTTPS, reçu « {1} »."
+  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge : ouverture de « {0} » refusée — l'URL d'instance doit utiliser HTTPS, reçu « {1} ».",
+  "Open Settings": "Ouvrir les paramètres",
+  "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.": "SandForge : {0} % du budget de jetons IA de cette fenêtre est utilisé ({1} jetons). Les requêtes IA sont refusées à 100 %.",
+  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge : les requêtes IA sont refusées — elles dépasseraient le budget de jetons IA de cette fenêtre ({0} jetons utilisés). Augmentez sandforge.ai.tokenBudgetMaxPerSession ou rechargez la fenêtre pour continuer."
 }

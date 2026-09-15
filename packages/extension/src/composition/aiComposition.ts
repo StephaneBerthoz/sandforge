@@ -1,11 +1,23 @@
 import * as vscode from 'vscode';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, TokenBudgetState } from '@sandforge/shared';
 import type { Services } from '../services.js';
 import type { SecretVault } from '../core/storage/SecretVault';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { MessageBroker } from '../bridge/MessageBroker';
 import type { BreakerStateChangeEvent } from '../adapters/ai/AIClient.js';
+import type { BudgetThreshold } from '../adapters/ai/tokenBudget/index.js';
+
+const BUDGET_SETTING = 'sandforge.ai.tokenBudgetMaxPerSession';
+
+/**
+ * Number of the latest {@link initAIComposition} run. Runs are not queued —
+ * every `sandforge.ai.*` change starts one — so a run checks this after each
+ * await and gives way to any run started meanwhile. Otherwise a turn-on still
+ * waiting for the keychain could finish after a later turn-off and put the
+ * assistant back.
+ */
+let latestRun = 0;
 
 /** Inputs required to (re-)initialise the AI stack. */
 export interface AICompositionDeps {
@@ -41,9 +53,6 @@ function postAIStatus(broker: MessageBroker | undefined, enabled: boolean): void
       enabled,
       provider: enabled ? AI_PROVIDER : 'none',
       model: enabled ? AI_CONFIG.MODEL : '',
-      // A fresh assistant is built on every (re-)init, so its counters start
-      // at zero either way — the Settings tab re-probes for live figures.
-      usage: { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
     },
   } as BaseMessage);
 }
@@ -64,10 +73,10 @@ function teardownAI(deps: AICompositionDeps, reason: string): void {
 /**
  * Wire up the AI stack — unified on services.aiClient (AnthropicAdapter
  * with circuit breaker, token budget and error redaction). The model-backed
- * half only initialises when `sandforge.ai.enabled` is true AND an API key is
- * stored under the unified `sandforge.ai.anthropic.key` secret; otherwise it
- * is torn back down, because this function re-runs on every `sandforge.ai.*`
- * change (see {@link registerAIConfigListener}).
+ * half only initialises when `sandforge.ai.enabled` is true, an API key is
+ * stored under the unified `sandforge.ai.anthropic.key` secret and the
+ * provider is Anthropic; otherwise it is torn back down, because this function
+ * re-runs on every `sandforge.ai.*` change (see {@link registerAIConfigListener}).
  *
  * The rule-based analysis modules (anomaly scan, schema advice) are wired
  * before that gate: they run on local heuristics, so an org can be analysed
@@ -79,24 +88,33 @@ function teardownAI(deps: AICompositionDeps, reason: string): void {
  */
 export async function initAIComposition(deps: AICompositionDeps): Promise<void> {
   const { services, secretVault, handlers, broker, log } = deps;
+  const run = ++latestRun;
+  const superseded = (): boolean => run !== latestRun;
 
   // Rule-based analysis: no provider, no key, no network. Wired on the way in
-  // so the AI gate below can never take it away.
-  const [{ AnomalyDetector }, { SchemaAdvisor }] = await Promise.all([
-    import('../modules/ai/AnomalyDetector.js'),
-    import('../modules/ai/SchemaAdvisor.js'),
-  ]);
-  handlers.setRuleModules({
-    anomalyDetector: new AnomalyDetector(),
-    schemaAdvisor: new SchemaAdvisor(),
-  });
-  log('Rule-based analysis modules initialized (anomaly scan, schema advice).');
+  // so the AI gate below can never take it away, and a failure to load it is
+  // logged rather than allowed to stop that gate from running.
+  try {
+    const [{ AnomalyDetector }, { SchemaAdvisor }] = await Promise.all([
+      import('../modules/ai/AnomalyDetector.js'),
+      import('../modules/ai/SchemaAdvisor.js'),
+    ]);
+    handlers.setRuleModules({
+      anomalyDetector: new AnomalyDetector(),
+      schemaAdvisor: new SchemaAdvisor(),
+    });
+    log('Rule-based analysis modules initialized (anomaly scan, schema advice).');
+  } catch (err) {
+    log(`Rule-based analysis modules failed to load: ${String(err)}`);
+  }
+  if (superseded()) return;
 
   if (!services.isAIEnabled()) {
     teardownAI(deps, 'AI disabled (sandforge.ai.enabled=false) — skipping AI init.');
     return;
   }
   const apiKey = await secretVault.getSecret('ai.anthropic.key');
+  if (superseded()) return;
   if (!apiKey) {
     teardownAI(
       deps,
@@ -104,24 +122,25 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     );
     return;
   }
-
-  // Meter the session BEFORE the first call can be made. The memoised adapter
-  // is the single chokepoint every AI feature funnels through — chat, NL2SOQL,
-  // pipeline generation, error resolution, Seed personas and AI field rules all
-  // call `services.aiClient().chat()` — so one budget covers them all: it
-  // soft-warns at 80% and refuses further requests at 100%. The counter belongs
-  // to this initialisation: it restarts whenever the AI stack is rebuilt (window
-  // reload, or any `sandforge.ai.*` setting change, which re-runs this function).
-  const aiClient = services.aiClient();
-  aiClient.budget = services.createSessionBudget(`ai-session-${Date.now()}`, {
-    send: (message) => broker?.postToWebview(message),
-  });
-  log(`AI session token budget attached (max ${aiClient.budget.getState().budget} tokens).`);
+  // Only the Anthropic adapter reaches a model: the openai and custom ones
+  // throw on every call. The setting no longer offers them, but a settings.json
+  // can still name one, and AI must then be reported off, not available.
+  const provider = services.getSandforgeSetting<string>('ai.provider', AI_PROVIDER);
+  if (provider !== AI_PROVIDER) {
+    teardownAI(
+      deps,
+      `AI provider "${provider}" is not implemented (only ${AI_PROVIDER} is) — skipping AI init.`,
+    );
+    return;
+  }
 
   const { AIAssistant } = await import('../modules/ai/AIAssistant.js');
+  if (superseded()) return;
 
-  // Route AIAssistant through the unified adapter: breaker + budget + lazy
-  // SecretStorage read all live in AnthropicAdapter.
+  // Every AI feature — chat, NL2SOQL, pipeline generation, error resolution,
+  // Seed personas and AI field rules — calls `services.aiClient().chat()`, and
+  // the factory builds that adapter with the window's one token budget. They
+  // are metered from the first call, including calls made while this runs.
   const aiCallFn: import('../modules/ai/AIAssistant').AICallFn = async (messages, callConfig) => {
     const start = Date.now();
     const result = await services.aiClient().chat({
@@ -146,8 +165,6 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     maxTokens: AI_CONFIG.MAX_TOKENS,
     temperature: AI_CONFIG.TEMPERATURE,
   });
-  handlers.setAIAssistant(aiAssistant);
-  log('AI Assistant initialized (unified adapter stack).');
 
   // Wire up the AI modules using the same unified client
   const aiProvider = async (prompt: string, system?: string): Promise<string> => {
@@ -164,7 +181,12 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     import('../modules/ai/ErrorResolver.js'),
     import('../modules/ai/PipelineGenerator.js'),
   ]);
+  if (superseded()) return;
 
+  // Installed together after the last await, so a run that gives way never
+  // leaves half a stack behind.
+  handlers.setAIAssistant(aiAssistant);
+  log('AI Assistant initialized (unified adapter stack).');
   handlers.setAIModules({
     nl2soql: new NL2SOQL(aiProvider),
     errorResolver: new ErrorResolver(aiProvider),
@@ -178,7 +200,7 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   // for this channel from the start, but nothing ever emitted it. Subscribing
   // per init is safe: adapters are disposed on invalidate() (which removes
   // every listener), and the re-init subscribes on the fresh instance.
-  const breakerFeed = aiClient.breakerEvents;
+  const breakerFeed = services.aiClient().breakerEvents;
   if (breakerFeed) {
     const listener = (event: BreakerStateChangeEvent): void => {
       broker?.postToWebview({
@@ -186,7 +208,7 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
         type: 'ai:provider:status',
         timestamp: Date.now(),
         payload: {
-          provider: 'anthropic',
+          provider: AI_PROVIDER,
           state: event.state,
           cooldownEndsAt: event.cooldownEndsAt,
           lastErrorKind: event.lastErrorVerdict?.kind,
@@ -200,6 +222,47 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   log('AI provider status feed wired (breaker state-change → ai:provider:status).');
 }
 
+/**
+ * Connect the window's token budget to the AI page gauge and to host notices.
+ * Called once from activate(), after the broker exists. The notices come from
+ * the host because most AI calls — Seed personas, NL2SOQL, error fixes — are
+ * made from pages that show no gauge.
+ */
+export function wireBudgetReporting(
+  services: Pick<Services, 'sessionBudget'>,
+  broker: MessageBroker | undefined,
+): void {
+  services.sessionBudget.connect({
+    send: (message) => broker?.postToWebview(message),
+    notify: (threshold, state) => {
+      void showBudgetNotice(threshold, state);
+    },
+  });
+}
+
+async function showBudgetNotice(
+  threshold: BudgetThreshold,
+  state: TokenBudgetState,
+): Promise<void> {
+  const openSettings = vscode.l10n.t('Open Settings');
+  const used = `${state.used.total}/${state.budget}`;
+  const message =
+    threshold === 'warn'
+      ? vscode.l10n.t(
+          'SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.',
+          Math.floor(state.percent),
+          used,
+        )
+      : vscode.l10n.t(
+          'SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.',
+          used,
+        );
+  const choice = await vscode.window.showWarningMessage(message, openSettings);
+  if (choice === openSettings) {
+    await vscode.commands.executeCommand('workbench.action.openSettings', BUDGET_SETTING);
+  }
+}
+
 /** Inputs for the sandforge.ai.* configuration watcher. */
 export interface AIConfigListenerDeps {
   services: Services;
@@ -208,17 +271,34 @@ export interface AIConfigListenerDeps {
 }
 
 /**
+ * Build the rebuild step shared by the configuration watcher and the key-save
+ * flow: drop the memoised adapters, so the next call builds an SDK client
+ * from the current settings and key, then re-run the composition.
+ */
+export function createAIReinit(deps: AIConfigListenerDeps): () => Promise<void> {
+  const { services, run } = deps;
+  return () => {
+    services.aiClient.invalidate();
+    return run();
+  };
+}
+
+/**
  * Re-initialise the AI stack when any sandforge.ai.* setting changes.
  * Memoised adapters are invalidated first so provider/model changes take
- * effect immediately (the API key is re-read lazily on the next call).
+ * effect immediately (the API key is re-read lazily on the next call). The
+ * token count survives the rebuild; only its limit follows the budget setting.
  *
  * @returns the Disposable — the caller MUST push it to context.subscriptions.
  */
 export function registerAIConfigListener(deps: AIConfigListenerDeps): vscode.Disposable {
-  const { services, run, log } = deps;
+  const { services, log } = deps;
+  const reinit = createAIReinit(deps);
   return vscode.workspace.onDidChangeConfiguration((e) => {
     if (!e.affectsConfiguration('sandforge.ai')) return;
-    services.aiClient.invalidate();
-    run().catch((err) => log(`Failed to re-init AI: ${String(err)}`));
+    if (e.affectsConfiguration(BUDGET_SETTING)) {
+      services.sessionBudget.resize(services.readTokenBudget());
+    }
+    reinit().catch((err) => log(`Failed to re-init AI: ${String(err)}`));
   });
 }

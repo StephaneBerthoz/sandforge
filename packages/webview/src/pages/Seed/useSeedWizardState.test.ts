@@ -194,7 +194,6 @@ describe('useSeedWizardState', () => {
   it('should initialize with no selected persona', () => {
     const { result } = renderHook(() => useSeedWizardState(mockT));
     expect(result.current.selectedPersona).toBeNull();
-    expect(result.current.personaMatchedFields).toBe(0);
   });
 
   it('should set selected persona via setSelectedPersona', () => {

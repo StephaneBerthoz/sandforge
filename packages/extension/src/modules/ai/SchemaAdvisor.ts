@@ -15,12 +15,10 @@ export interface ObjectDescribe {
   label: string;
   custom: boolean;
   fields: FieldDescribe[];
-  recordCount?: number;
 }
 
 /** Issue type classification. */
 export type SchemaIssueType =
-  | 'unused_field'
   | 'missing_index'
   | 'duplicate_field'
   | 'missing_relationship'
@@ -80,8 +78,9 @@ const SEVERITY_WEIGHTS: Record<SchemaIssueSeverity, number> = {
 export class SchemaAdvisor {
   /**
    * Analyze a complete schema and produce an advice report.
-   * Checks for unused fields, naming conventions, duplicates,
-   * and missing relationships across all objects.
+   * Checks naming conventions, duplicates, and missing relationships across
+   * all objects. Field usage is not judged: a describe carries no record or
+   * population counts, and counting them would cost API calls per field.
    * @param objects - Array of Salesforce object descriptions
    * @returns Schema advice with score, issues, and suggestions
    */
@@ -109,7 +108,6 @@ export class SchemaAdvisor {
   analyzeObject(obj: ObjectDescribe): SchemaIssue[] {
     const issues: SchemaIssue[] = [];
 
-    issues.push(...this.checkUnusedFields(obj));
     issues.push(...this.checkNamingConventions(obj));
 
     return issues;
@@ -126,16 +124,6 @@ export class SchemaAdvisor {
 
     for (const issue of issues) {
       issueCounts.set(issue.type, (issueCounts.get(issue.type) ?? 0) + 1);
-    }
-
-    const unusedCount = issueCounts.get('unused_field') ?? 0;
-    if (unusedCount > 0) {
-      suggestions.push({
-        title: 'Remove unused custom fields',
-        description: `${unusedCount} custom field(s) appear unused. Removing them simplifies the schema and reduces maintenance burden.`,
-        impact: unusedCount > 10 ? 'high' : 'medium',
-        effort: 'low',
-      });
     }
 
     const namingCount = issueCounts.get('naming_convention') ?? 0;
@@ -179,24 +167,6 @@ export class SchemaAdvisor {
     }
 
     return suggestions;
-  }
-
-  private checkUnusedFields(obj: ObjectDescribe): SchemaIssue[] {
-    const issues: SchemaIssue[] = [];
-
-    for (const field of obj.fields) {
-      if (field.custom && obj.recordCount === 0) {
-        issues.push({
-          type: 'unused_field',
-          objectName: obj.apiName,
-          fieldName: field.apiName,
-          description: `Custom field "${field.label}" on "${obj.label}" has no records and may be unused.`,
-          severity: 'low',
-        });
-      }
-    }
-
-    return issues;
   }
 
   private checkNamingConventions(obj: ObjectDescribe): SchemaIssue[] {

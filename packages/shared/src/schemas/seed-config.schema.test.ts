@@ -270,6 +270,27 @@ describe('fieldRuleSchema', () => {
     expect(result.config.maxValue).toBe(999999);
   });
 
+  it('drops the persona-side prompt key and keeps aiPrompt, the only key the model is given', () => {
+    const result = fieldRuleSchema.parse({
+      fieldApiName: 'Review_Text__c',
+      ruleType: 'ai_generate',
+      config: { prompt: 'persona wording', aiPrompt: 'a' },
+    });
+
+    expect(result.config).toEqual({ aiPrompt: 'a' });
+  });
+
+  it('keeps the field type a rule carries, so the run can check the rule against it', () => {
+    const result = fieldRuleSchema.parse({
+      fieldApiName: 'Amount__c',
+      fieldType: 'currency',
+      ruleType: 'ai_generate',
+      config: { aiPrompt: 'a' },
+    });
+
+    expect(result.fieldType).toBe('currency');
+  });
+
   it('should accept static value as boolean', () => {
     const result = fieldRuleSchema.parse({
       fieldApiName: 'IsActive',

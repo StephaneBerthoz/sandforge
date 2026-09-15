@@ -52,27 +52,21 @@ describe('LiveOperationsPanel', () => {
     expect(screen.getByText('1 active')).toBeTruthy();
   });
 
-  it('shows pause button for running operations', () => {
-    const onPause = vi.fn();
-    render(
-      <LiveOperationsPanel operations={[makeOperation({ status: 'running' })]} onPause={onPause} />,
-    );
-    const pauseBtn = screen.getByTestId('pause-op-1');
-    fireEvent.click(pauseBtn);
-    expect(onPause).toHaveBeenCalledWith('op-1');
-  });
-
-  it('shows resume button for paused operations', () => {
-    const onResume = vi.fn();
+  it('offers no pause or resume on a Seed or Sync run, only cancel', () => {
     render(
       <LiveOperationsPanel
-        operations={[makeOperation({ status: 'paused' })]}
-        onResume={onResume}
+        operations={[
+          makeOperation({ operationId: 'op-1', module: 'seed', status: 'running' }),
+          makeOperation({ operationId: 'op-2', module: 'sync', status: 'running' }),
+        ]}
+        onCancel={vi.fn()}
       />,
     );
-    const resumeBtn = screen.getByTestId('resume-op-1');
-    fireEvent.click(resumeBtn);
-    expect(onResume).toHaveBeenCalledWith('op-1');
+    expect(screen.queryByTestId('pause-op-1')).toBeNull();
+    expect(screen.queryByTestId('pause-op-2')).toBeNull();
+    expect(screen.queryByTestId('resume-op-1')).toBeNull();
+    expect(screen.getByTestId('cancel-op-1')).toBeTruthy();
+    expect(screen.getByTestId('cancel-op-2')).toBeTruthy();
   });
 
   it('shows cancel button for active operations', () => {

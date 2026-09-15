@@ -5,8 +5,37 @@ import {
   SF_AUTO_FIELDS,
   SF_EXTERNAL_ID_COMPATIBLE_TYPES,
   SF_FIELD_MAX_LENGTHS,
+  acceptsGeneratedSentence,
 } from './sf-field-types.js';
 import type { SfFieldType } from './sf-field-types.js';
+
+describe('acceptsGeneratedSentence', () => {
+  it.each(['string', 'textarea', 'encryptedstring', 'String', 'TextArea'])(
+    'accepts a sentence in a %s field',
+    (fieldType) => {
+      expect(acceptsGeneratedSentence(fieldType)).toBe(true);
+    },
+  );
+
+  it.each([
+    'int',
+    'double',
+    'currency',
+    'percent',
+    'date',
+    'datetime',
+    'boolean',
+    'email',
+    'phone',
+    'url',
+    'picklist',
+    'multipicklist',
+    'reference',
+    'number',
+  ])('refuses a sentence in a %s field', (fieldType) => {
+    expect(acceptsGeneratedSentence(fieldType)).toBe(false);
+  });
+});
 
 describe('SF_FIELD_TYPES', () => {
   it('should be a non-empty array', () => {

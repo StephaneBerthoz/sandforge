@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { RecordTypeMapper } from './RecordTypeMapper';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../../logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+import { logger } from '../../logger.js';
+import { RecordTypeMapper, warnUnmappedRecordType } from './RecordTypeMapper';
 import type { RecordTypeInfo, RecordTypeMapping } from './RecordTypeMapper';
 
 function createTypeInfo(overrides?: Partial<RecordTypeInfo>): RecordTypeInfo {
@@ -80,6 +86,26 @@ describe('RecordTypeMapper', () => {
 
       expect(mappings).toHaveLength(2);
     });
+
+    it('matches within the same object when both sides say which object a type belongs to', () => {
+      // DeveloperName is unique per object, not per org: Account and
+      // Opportunity can each have a "Business" record type.
+      const source = [
+        createTypeInfo({ id: 'src-acc', developerName: 'Business', sobjectType: 'Account' }),
+        createTypeInfo({ id: 'src-opp', developerName: 'Business', sobjectType: 'Opportunity' }),
+      ];
+      const target = [
+        createTypeInfo({ id: 'tgt-opp', developerName: 'Business', sobjectType: 'Opportunity' }),
+        createTypeInfo({ id: 'tgt-acc', developerName: 'Business', sobjectType: 'Account' }),
+      ];
+
+      const mappings = mapper.buildMapping(source, target);
+
+      expect(mappings).toEqual([
+        { sourceId: 'src-acc', targetId: 'tgt-acc', developerName: 'Business' },
+        { sourceId: 'src-opp', targetId: 'tgt-opp', developerName: 'Business' },
+      ]);
+    });
   });
 
   describe('apply', () => {
@@ -149,6 +175,62 @@ describe('RecordTypeMapper', () => {
 
       expect(result[0].Name).toBe('Acme');
       expect(result[0].Industry).toBe('Tech');
+    });
+
+    it('reports an unmapped id once, however many records carry it', () => {
+      const records = [
+        { Name: 'A', RecordTypeId: 'unknown-id' },
+        { Name: 'B', RecordTypeId: 'src-1' },
+        { Name: 'C', RecordTypeId: 'unknown-id' },
+        { Name: 'D', RecordTypeId: 'other-unknown' },
+        { Name: 'E' },
+      ];
+      const mappings: RecordTypeMapping[] = [
+        { sourceId: 'src-1', targetId: 'tgt-1', developerName: 'Business' },
+      ];
+      const unmapped: string[] = [];
+
+      const result = mapper.apply(records, mappings, (id) => unmapped.push(id));
+
+      expect(unmapped).toEqual(['unknown-id', 'other-unknown']);
+      expect(result.map((r) => r.RecordTypeId)).toEqual([
+        'unknown-id',
+        'tgt-1',
+        'unknown-id',
+        'other-unknown',
+        undefined,
+      ]);
+    });
+
+    it('keeps the master record type Id, which is the same in every org, without reporting it', () => {
+      const records = [
+        { Name: 'A', RecordTypeId: '012000000000000AAA' },
+        { Name: 'B', RecordTypeId: '012000000000000' },
+      ];
+      const unmapped: string[] = [];
+
+      const result = mapper.apply(
+        records,
+        [{ sourceId: 'src-1', targetId: 'tgt-1', developerName: 'Business' }],
+        (id) => unmapped.push(id),
+      );
+
+      expect(unmapped).toEqual([]);
+      expect(result.map((r) => r.RecordTypeId)).toEqual(['012000000000000AAA', '012000000000000']);
+    });
+  });
+
+  describe('warnUnmappedRecordType', () => {
+    it('names the object and the source Id, and the match on object and API name', () => {
+      vi.mocked(logger.warn).mockClear();
+
+      warnUnmappedRecordType('Case', '012SRC000000001AAA');
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      const line = vi.mocked(logger.warn).mock.calls[0][0] as string;
+      expect(line).toContain('Case');
+      expect(line).toContain('012SRC000000001AAA');
+      expect(line).toContain('no active Case record type with the same API name');
     });
   });
 });

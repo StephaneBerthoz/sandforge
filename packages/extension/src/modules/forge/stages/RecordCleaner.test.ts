@@ -131,6 +131,35 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned).toEqual({ Region__pc: 'EMEA' });
   });
 
+  it('treats IsPersonAccount 1 as a person account and null as a business account', () => {
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Name', queryable: true, createable: true, isReference: false },
+      { name: 'IsPersonAccount', queryable: true, createable: false, isReference: false },
+      { name: 'Custom__pc', queryable: true, createable: true, isReference: false },
+    ];
+    const creatableFields = new Set(['Name', 'Custom__pc']);
+
+    const [person] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '001C', Name: 'Jane Roe', IsPersonAccount: 1, Custom__pc: 'y' }],
+        fieldInfos: fields,
+        creatableFields,
+      }),
+    );
+    expect(person.cleaned).toEqual({ Custom__pc: 'y' });
+
+    const [business] = cleanNodeRecords(
+      makeInput({
+        // An org without Person Accounts enabled returns no value at all.
+        records: [{ Id: '001D', Name: 'Globex', IsPersonAccount: null, Custom__pc: 'y' }],
+        fieldInfos: fields,
+        creatableFields,
+      }),
+    );
+    expect(business.cleaned).toEqual({ Name: 'Globex' });
+  });
+
   it('strips __pc fields from business accounts but keeps them on person accounts (string coercion)', () => {
     const fields: FieldInfo[] = [
       { name: 'Id', queryable: true, createable: false, isReference: false },

@@ -46,6 +46,34 @@ describe('StepPalette', () => {
     expect(screen.getAllByText('Delay').length).toBeGreaterThan(0);
   });
 
+  it('marks the thirteen step types that run nothing as coming soon, and only those', () => {
+    render(<StepPalette />);
+    // The extension executes Delay and Condition; every other type goes to a
+    // pass-through handler that reports success without touching an org.
+    const inert = [
+      'seed',
+      'sync',
+      'backup',
+      'restore',
+      'anonymize',
+      'delete',
+      'compare',
+      'precheck',
+      'script',
+      'notification',
+      'approval',
+      'loop',
+      'parallel',
+    ];
+    for (const type of inert) {
+      expect(screen.getByTestId(`palette-${type}-soon`).textContent).toBe('Coming soon');
+    }
+    for (const type of ['delay', 'condition']) {
+      expect(screen.queryByTestId(`palette-${type}-soon`)).toBeNull();
+    }
+    expect(screen.getAllByText('Coming soon')).toHaveLength(inert.length);
+  });
+
   it('should show all categories in order', () => {
     render(<StepPalette />);
     const texts = screen.getAllByText(/(Data|Quality|Control Flow|Notification)/);

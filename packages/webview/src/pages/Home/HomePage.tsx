@@ -375,11 +375,11 @@ export const HomePage: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                icon={<Icon name="play" />}
+                icon={<Icon name="circuit-board" />}
                 onClick={() => navigate('automation')}
                 data-testid="run-pipeline-btn"
               >
-                {t('home.runLastPipeline')}
+                {t('home.openPipelines')}
               </Button>
               {hasSandbox && (
                 <Button

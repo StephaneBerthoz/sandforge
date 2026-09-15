@@ -88,6 +88,19 @@ describe('AnthropicAdapter — happy path', () => {
     expect(ConstructorSpy).toHaveBeenCalledTimes(1);
   });
 
+  // The breaker counts one failure per chat() call. Left at the SDK default of
+  // two retries, each counted failure would be up to three HTTP attempts, so a
+  // 529 storm opened the breaker only after nine requests had hit the provider.
+  it('builds the SDK client with its own retries turned off', async () => {
+    const { storage } = makeStorage('sk-ant-key');
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockResolvedValue(mkOkChat());
+
+    await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    expect(ConstructorSpy).toHaveBeenCalledWith({ apiKey: 'sk-ant-key', maxRetries: 0 });
+  });
+
   it('missing API key fast-fails BEFORE any SDK HTTP call', async () => {
     const { storage } = makeStorage(undefined);
     const adapter = new AnthropicAdapter({ storage });
@@ -434,7 +447,11 @@ describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → pre
   it('5 cumulative chats hit warn at 80% then 6th preflight refuses BEFORE the SDK call', async () => {
     const { SessionBudget } = await import('./tokenBudget/SessionBudget.js');
     const sentEnvelopes: Array<{ type: string }> = [];
-    const broker = { send: vi.fn((m: { type: string }) => sentEnvelopes.push({ type: m.type })) };
+    const notices: string[] = [];
+    const broker = {
+      send: vi.fn((m: { type: string }) => sentEnvelopes.push({ type: m.type })),
+      notify: vi.fn((threshold: string) => notices.push(threshold)),
+    };
 
     const budget = new SessionBudget({ sessionId: 'panel-1', budget: 10_000, broker });
     const { storage } = makeStorage();
@@ -453,9 +470,8 @@ describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → pre
       await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
     }
 
-    // exactly ONE warn envelope was sent (debounced)
-    const warnCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:warn').length;
-    expect(warnCount).toBe(1);
+    // the 80% notice was given exactly once, and the 5th call reaching 100% announced the refusal
+    expect(notices).toEqual(['warn', 'exceeded']);
 
     // at least one state envelope per increment
     const stateCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:state').length;
@@ -477,7 +493,7 @@ describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → pre
       }),
     ).rejects.toThrow(/budget exceeded/i);
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
-    const exceededCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:exceeded').length;
-    expect(exceededCount).toBeGreaterThanOrEqual(1);
+    // the refusal itself is not announced a second time
+    expect(notices).toEqual(['warn', 'exceeded']);
   });
 });

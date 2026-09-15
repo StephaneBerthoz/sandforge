@@ -4,21 +4,19 @@
  */
 
 import type { Connection } from 'jsforce';
-import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { assertSoqlIdentifier, assertSoqlWhere } from '../../core/common/soqlValidator.js';
 
 /**
- * Reject SOQL WHERE-clause inputs that contain comment markers, statement
- * separators, or are unreasonably long. Mirrors the Forge schema defense
- * (forge.schema.ts) so all SOQL builders share the same minimum baseline.
+ * Reject a WHERE clause that is unreasonably long or does more than filter.
+ * The fetcher appends `LIMIT` after it for previews, and a clause carrying its
+ * own `LIMIT`, `FOR UPDATE` or comment would change what the clone reads; the
+ * rule is the one the sync read and the bridge apply.
  */
 function assertSafeWhereClause(where: string): string {
   if (where.length > 512) {
     throw new Error(`SOQL WHERE clause too long (${where.length} > 512 chars)`);
   }
-  if (/--|\/\*|\*\/|;\s*$/.test(where)) {
-    throw new Error('SOQL WHERE clause contains forbidden comment marker or trailing semicolon');
-  }
-  return where;
+  return assertSoqlWhere(where);
 }
 
 /** Logger function type for CloneRecordFetcher. */

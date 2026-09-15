@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
 /**
- * sandforge-cleanup — bulk delete records cloned by the current user on a
- * target sandbox. Practical companion to `sandforge-clone` so dev
- * sandboxes don't fill up with leftover test data after iterative runs.
+ * sandforge-cleanup — bulk delete records the current user created on a
+ * target sandbox in the `--since` window, whether or not a clone wrote them.
+ * Practical companion to `sandforge-clone` so dev sandboxes don't fill up
+ * with leftover test data after iterative runs.
  *
  * Strategy:
  *   1. Resolve the running user's Id on the target via `sf org display`.
@@ -40,14 +41,17 @@ const SINCE_LITERAL_RE =
  * default is a suggestion to every user, and a `__c` from someone else's org
  * is a suggestion nobody can act on — besides publishing that org's schema.
  * Pass `--objects` to clean custom objects.
+ *
+ * Industry-cloud objects (InsurancePolicy and its coverages) are left out for
+ * the same reason: they exist only in orgs with that data model, and there a
+ * default sweep would delete policies the user created by hand that day. Name
+ * them in `--objects` when a clone wrote them.
  */
 const DEFAULT_OBJECTS = [
   'CaseComment',
   'EmailMessage',
   'Asset',
   'Contract',
-  'InsurancePolicy',
-  'InsurancePolicyCoverage',
   'Case',
   'Contact',
   'Account',
@@ -61,7 +65,9 @@ interface CliArgs {
   dryRun: boolean;
 }
 
-const HELP = `sandforge-cleanup — Bulk delete records cloned by you today on a sandbox.
+const HELP = `sandforge-cleanup — Bulk delete records you created on a sandbox in the
+--since window, whether or not a clone wrote them. Preview with --dry-run and
+narrow with --objects before deleting.
 
 Usage:
   sandforge-cleanup --target <alias> [options]

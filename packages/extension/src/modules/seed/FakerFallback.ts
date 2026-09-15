@@ -1,36 +1,8 @@
+import { resolveFakerMethod } from '@sandforge/shared';
 import type { FieldRule } from '@sandforge/shared';
 import { getLocaleData, formatPhone, fillDigitMask } from './LocaleData';
 import type { LocaleDataSet, SupportedLocale } from './LocaleData';
 import { GeoCoherentGenerator, resolveLocale } from './GeoCoherentGenerator';
-
-/** Supported faker method names */
-export type FakerMethodName =
-  | 'name'
-  | 'firstName'
-  | 'lastName'
-  | 'email'
-  | 'phone'
-  | 'address'
-  | 'city'
-  | 'country'
-  | 'state'
-  | 'company'
-  | 'date'
-  | 'pastDate'
-  | 'futureDate'
-  | 'number'
-  | 'integer'
-  | 'float'
-  | 'boolean'
-  | 'lorem'
-  | 'sentence'
-  | 'paragraph'
-  | 'uuid'
-  | 'url'
-  | 'zipCode'
-  | 'productName'
-  | 'iban'
-  | 'bic';
 
 /** Configuration for number generation ranges */
 interface NumberRange {
@@ -88,6 +60,28 @@ const PRODUCTS = [
   'Headphones',
   'Gloves',
   'Bench',
+];
+
+/** Street names shared by the full and the street-only address. */
+const STREETS = ['Main St', 'Oak Ave', 'Elm St', 'Park Blvd', 'Cedar Ln'];
+
+/** Word banks for job titles, in the level / area / role shape. */
+const JOB_LEVELS = ['Senior', 'Lead', 'Junior', 'Principal', 'Associate', 'Chief'];
+const JOB_AREAS = ['Marketing', 'Operations', 'Finance', 'Sales', 'Product', 'Customer Success'];
+const JOB_ROLES = ['Manager', 'Analyst', 'Coordinator', 'Specialist', 'Director', 'Consultant'];
+
+/** Word banks for a company slogan, in the adjective / descriptor / noun shape. */
+const PHRASE_ADJECTIVES = ['Adaptive', 'Integrated', 'Customer-focused', 'Scalable', 'Secure'];
+const PHRASE_DESCRIPTORS = ['cloud-based', 'real-time', 'data-driven', 'modular', 'global'];
+const PHRASE_NOUNS = ['platform', 'solution', 'workflow', 'service', 'framework', 'network'];
+
+/** Uses a product description names, after the product it describes. */
+const PRODUCT_USES = [
+  'daily use at home or in the office',
+  'long days on the move',
+  'teams that need something that lasts',
+  'small spaces',
+  'outdoor work in any weather',
 ];
 
 /**
@@ -176,19 +170,27 @@ export class FakerFallback {
    * Generate a value using the specified faker method, using instance locale data.
    */
   private generateByMethodInstance(method: string, index: number, range: NumberRange): unknown {
-    switch (method) {
+    const resolved = resolveFakerMethod(method);
+    if (!resolved) {
+      return unsupportedMethod(method);
+    }
+    switch (resolved) {
       case 'name':
         return this.generateName(index);
       case 'firstName':
         return this.generateFirstName(index);
       case 'lastName':
         return this.generateLastName(index);
+      case 'jobTitle':
+        return generateJobTitle(index);
       case 'email':
         return this.generateEmail(index);
       case 'phone':
         return this.generatePhone(index);
       case 'address':
         return this.generateAddress(index);
+      case 'streetAddress':
+        return generateStreetAddress(index);
       case 'city':
         return this.geoGenerator.getCity(index);
       case 'country':
@@ -197,6 +199,8 @@ export class FakerFallback {
         return this.geoGenerator.getState(index);
       case 'company':
         return this.generateCompany(index);
+      case 'catchPhrase':
+        return generateCatchPhrase(index);
       case 'date':
       case 'pastDate':
         return generatePastDate(index);
@@ -222,12 +226,12 @@ export class FakerFallback {
         return this.geoGenerator.getZipCode(index);
       case 'productName':
         return generateProductName(index);
+      case 'productDescription':
+        return generateProductDescription(index);
       case 'iban':
         return this.generateIban(index);
       case 'bic':
         return this.generateBic(index);
-      default:
-        return unsupportedMethod(method);
     }
   }
 
@@ -259,10 +263,7 @@ export class FakerFallback {
   }
 
   private generateAddress(index: number): string {
-    const number = 100 + index;
-    const streets = ['Main St', 'Oak Ave', 'Elm St', 'Park Blvd', 'Cedar Ln'];
-    const city = this.geoGenerator.getCity(index);
-    return `${number} ${streets[index % streets.length]}, ${city}`;
+    return `${generateStreetAddress(index)}, ${this.geoGenerator.getCity(index)}`;
   }
 
   private generateCompany(index: number): string {
@@ -303,7 +304,7 @@ export class FakerFallback {
 /**
  * Generate a value using the specified faker method name.
  * Standalone function for backward compatibility.
- * Falls back to a lorem-style string for unrecognized methods.
+ * Throws for a method nothing generates, as {@link FakerFallback.generate} does.
  *
  * @param method - Faker method name
  * @param index - Record index for deterministic generation
@@ -359,6 +360,33 @@ function generateProductName(index: number): string {
   return `${adjective} ${material} ${product}`;
 }
 
+/** A house number and a street, without the city: the value of a Street field. */
+function generateStreetAddress(index: number): string {
+  return `${100 + index} ${STREETS[index % STREETS.length]}`;
+}
+
+/** A job title — level, area, role — with the parts stepping at different rates. */
+function generateJobTitle(index: number): string {
+  const level = JOB_LEVELS[index % JOB_LEVELS.length];
+  const area = JOB_AREAS[(index * 5 + 1) % JOB_AREAS.length];
+  const role = JOB_ROLES[(index * 7 + 2) % JOB_ROLES.length];
+  return `${level} ${area} ${role}`;
+}
+
+/** A three-word company slogan, such as "Scalable real-time platform". */
+function generateCatchPhrase(index: number): string {
+  const adjective = PHRASE_ADJECTIVES[index % PHRASE_ADJECTIVES.length];
+  const descriptor = PHRASE_DESCRIPTORS[(index * 3 + 1) % PHRASE_DESCRIPTORS.length];
+  const noun = PHRASE_NOUNS[(index * 5 + 2) % PHRASE_NOUNS.length];
+  return `${adjective} ${descriptor} ${noun}`;
+}
+
+/** One sentence describing the product generateProductName gives the same index. */
+function generateProductDescription(index: number): string {
+  const use = PRODUCT_USES[(index * 3 + 2) % PRODUCT_USES.length];
+  return `${generateProductName(index)}, made for ${use}.`;
+}
+
 /**
  * The two check digits ISO 13616 computes for an IBAN body: move the country
  * code and '00' behind the BBAN, write every letter as its position + 9, take
@@ -376,14 +404,14 @@ function ibanCheckDigits(country: string, bban: string): string {
 
 /**
  * A faker method this generator does not implement. It used to become a lorem
- * sentence, which looks like a value and is inserted like one; a persona that
- * names a method nobody wrote should stop the run before anything reaches the
- * org, and say which method to fix.
+ * sentence, which looks like a value and is inserted like one. SeedValidator
+ * refuses such a template before the first insert; this throw is what a caller
+ * that skips validation meets, so it does not claim that nothing was written.
  */
 function unsupportedMethod(method: string): never {
   throw new Error(
     `Faker method "${method}" is not implemented: choose a method SandForge generates, ` +
-      `or remove it from the field rule. No record was written.`,
+      `or remove it from the field rule.`,
   );
 }
 

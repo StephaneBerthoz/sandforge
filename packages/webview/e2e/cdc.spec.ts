@@ -7,6 +7,14 @@ import { sendExtensionMessage } from './mocks/vscode-api';
 /**
  * Real-time CDC sync E2E — the Sync panel's `realtime` tab.
  *
+ * The tab is not offered today. Every `realtime:*` channel is answered by the
+ * no-op handler, so the panel could only ever end at an error badge, and
+ * `SyncPage` leaves the tab out of its tab bar (`OFFERED_SYNC_TABS`). The first
+ * suite below holds the page to that. The suites after it drive the panel
+ * itself and are skipped until the tab is offered again: they describe the
+ * contract a streaming extension has to meet, and they stay here so that
+ * contract is not rewritten from memory.
+ *
  * This file replaces `quarantine/cdc-subscription-event.spec.ts`, which was
  * deleted on the belief that the feature did not exist. It does: the channels
  * were renamed, not removed. `cdc:subscribe` / `cdc:event` became
@@ -190,7 +198,27 @@ function cdcEvent(
   };
 }
 
-test.describe('Real-time CDC — reaching the panel', () => {
+test.describe('Real-time CDC — not offered while the host is a no-op', () => {
+  test('the Sync page has no realtime tab, even with both orgs picked', async ({ page }) => {
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'sync';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await expect(page.getByTestId('sync-page')).toBeVisible({ timeout: 10_000 });
+    await page.getByLabel('Source', { exact: true }).selectOption(DEV_SANDBOX.id);
+    await page.getByLabel('Target', { exact: true }).selectOption(QA_SANDBOX.id);
+
+    await expect(page.getByTestId('tab-sync')).toBeVisible();
+    await expect(page.getByTestId('tab-realtime')).toHaveCount(0);
+    await expect(page.getByTestId('realtime-sync-panel')).toHaveCount(0);
+    expect(await outgoing(page, 'realtime:start')).toHaveLength(0);
+  });
+});
+
+test.describe.skip('Real-time CDC — reaching the panel', () => {
   test('the realtime tab mounts the subscription panel, metrics and feed', async ({ page }) => {
     await openRealtimeTab(page);
 
@@ -235,7 +263,7 @@ test.describe('Real-time CDC — reaching the panel', () => {
   });
 });
 
-test.describe('Real-time CDC — starting a subscription', () => {
+test.describe.skip('Real-time CDC — starting a subscription', () => {
   test('realtime:start carries the org pair, the watched objects and the flush budget', async ({
     page,
   }) => {
@@ -316,7 +344,7 @@ test.describe('Real-time CDC — starting a subscription', () => {
   });
 });
 
-test.describe('Real-time CDC — receiving events', () => {
+test.describe.skip('Real-time CDC — receiving events', () => {
   test('a pushed batch fills the feed oldest first and counts every event', async ({ page }) => {
     await openRealtimeTab(page);
     await startWatching(page, 'Account');
@@ -449,7 +477,7 @@ test.describe('Real-time CDC — receiving events', () => {
   });
 });
 
-test.describe('Real-time CDC — stopping', () => {
+test.describe.skip('Real-time CDC — stopping', () => {
   test('stop posts realtime:stop and realtime:stopped returns the panel to idle', async ({
     page,
   }) => {
@@ -545,7 +573,7 @@ test.describe('Real-time CDC — stopping', () => {
  * badge over a stream that would never deliver an event. The guard that fixed
  * it is one line and easy to lose.
  */
-test.describe('Real-time CDC — the host that ships', () => {
+test.describe.skip('Real-time CDC — the host that ships', () => {
   test('a comingSoon start is reported as an error, not as a live stream', async ({ page }) => {
     await openRealtimeTab(page);
     await startWatching(page, 'Account');

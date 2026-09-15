@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import {
@@ -14,6 +14,7 @@ import {
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
@@ -44,7 +45,12 @@ import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
 import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
 import { MonitorLimitsSection } from './MonitorLimitsSection';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
-import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import type {
+  SalesforceOrg,
+  LiveOperationSnapshot,
+  ExecutionAbortResponse,
+} from '@sandforge/shared';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
 export type { JobDisplayInfo } from './monitorUtils';
@@ -119,6 +125,9 @@ export const MonitorPage: React.FC = () => {
     lastUpdated,
     lastUpdatedStr,
     activeAlertsCount,
+    alerts,
+    alertHistory,
+    refetchAlerts,
     apiLimit,
     storageLimit,
     fileStorageLimit,
@@ -161,6 +170,49 @@ export const MonitorPage: React.FC = () => {
     { responseType: 'monitor:live-operations:response', skip: !selectedOrgId },
   );
   const liveOperations = liveOpsQuery.data?.operations ?? [];
+  const refetchLiveOps = liveOpsQuery.refetch;
+  const addNotification = useNotificationStore((s) => s.addNotification);
+
+  /*
+   * Cancel goes out on `execution:abort`, the channel that reaches the
+   * AbortController Seed and Sync register for their runs; the Seed page's own
+   * Cancel uses it. `operation:cancel` reaches the pipeline orchestrators only,
+   * and none of their runs is listed here, so every click answered "No active
+   * operation found". The reply is read: a run the extension cannot find is
+   * refused, and a click must not go unanswered. The list is read again either
+   * way, so a stopped run does not stay listed as running.
+   */
+  const abortMutation = useBridgeMutation<ExecutionAbortResponse['payload']>('execution:abort', {
+    responseType: 'execution:abort:response',
+  });
+  const abortReply = abortMutation.data;
+  const abortError = abortMutation.error;
+  useEffect(() => {
+    if (!abortReply && !abortError) return;
+    if (abortError || !abortReply?.success) {
+      addNotification({
+        level: 'warning',
+        category: 'monitor',
+        title: t('monitor.liveOps.cancelRefused'),
+        message: t('monitor.liveOps.cancelRefusedDetail'),
+      });
+    }
+    refetchLiveOps();
+  }, [abortReply, abortError, addNotification, refetchLiveOps, t]);
+
+  /*
+   * The list is read again on each dashboard refresh, manual or automatic, so
+   * progress does not stay as it was when the dashboard opened. The first
+   * refresh is skipped: the query has just sent its own request.
+   */
+  const liveOpsReadFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastUpdated) return;
+    if (liveOpsReadFor.current !== null && liveOpsReadFor.current !== lastUpdated) {
+      refetchLiveOps();
+    }
+    liveOpsReadFor.current = lastUpdated;
+  }, [lastUpdated, refetchLiveOps]);
 
   const navigate = useAppStore((s) => s.navigate);
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
@@ -513,18 +565,9 @@ export const MonitorPage: React.FC = () => {
               className="rounded-lg border border-blue-500/20 bg-surface-1 p-4"
               data-testid="live-ops-section"
             >
-              {/*
-                Fire-and-forget on purpose: AutomationHandler acknowledges
-                cancel/pause/resume with a `notification`, never an
-                `operation:*:response`. Sending these through a request/response
-                hook armed a 30 s timer per click that could only ever expire,
-                on a channel the shared protocol does not declare.
-              */}
               <LiveOperationsPanel
                 operations={liveOperations}
-                onCancel={(opId) => sendBridgeMessage('operation:cancel', { operationId: opId })}
-                onPause={(opId) => sendBridgeMessage('operation:pause', { operationId: opId })}
-                onResume={(opId) => sendBridgeMessage('operation:resume', { operationId: opId })}
+                onCancel={(opId) => abortMutation.mutate({ operationId: opId })}
               />
             </div>
           )}
@@ -619,14 +662,14 @@ export const MonitorPage: React.FC = () => {
                 <PredictionsTile predictions={predictions} />
               </div>
               <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-                <AlertsPanel />
+                <AlertsPanel alerts={alerts} onAlertsChanged={refetchAlerts} />
               </div>
             </div>
           )}
 
           {/* ── Alert History ── */}
           <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-            <AlertHistoryPanel />
+            <AlertHistoryPanel history={alertHistory} />
           </div>
 
           {/* ── Governance ── */}

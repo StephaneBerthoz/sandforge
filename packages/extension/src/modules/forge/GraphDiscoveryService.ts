@@ -2,6 +2,7 @@ import type { ForgeConfig, ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@s
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
+import { isForgeExcludedObject } from './excludedObjects.js';
 
 /** Describe result for an object returned by the org connection. */
 export interface ObjectDescribe {
@@ -89,64 +90,6 @@ const yieldToEventLoop: () => Promise<void> =
     ? () => new Promise<void>((resolve) => setImmediate(resolve))
     : () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** Hub/system objects excluded from BFS traversal (still referenced in edges). */
-const EXCLUDED_OBJECTS = new Set([
-  'User',
-  'Group',
-  'Profile',
-  'UserRole',
-  'RecordType',
-  'Organization',
-  'BusinessProcess',
-  'CurrencyType',
-  'DandBCompany',
-  'DuplicateRecordItem',
-  'DuplicateRecordSet',
-  'ProcessInstance',
-  // Big-org perf killers: SELECT COUNT() on these takes 30s+ each on big
-  // sandboxes. They never carry user data worth cloning anyway.
-  'LoginHistory',
-  'LoginEvent',
-  'LoginIp',
-  'LoginGeo',
-  'AsyncApexJob',
-  'ApexLog',
-  'ApexTestResult',
-  'ApexTestQueueItem',
-  'LightningUsageByPageMetrics',
-  'LightningExitByPageMetrics',
-  'EventBusSubscriber',
-  'PlatformEventUsageMetric',
-  'CronTrigger',
-  'CronJobDetail',
-  // Non-queryable virtual objects exposed in describe but unsupported by SOQL
-  'AttachedContentDocument',
-  'AttachedContentNote',
-  'CombinedAttachment',
-  'ContentBody',
-  'NoteAndAttachment',
-  'OwnedContentDocument',
-  'EntitySubscription',
-  'TopicAssignment',
-  'UserRecordAccess',
-  'DeclinedEventRelation',
-  'UndecidedEventRelation',
-  'AcceptedEventRelation',
-  'OpenActivity',
-  'ActivityHistory',
-]);
-
-/** Suffix patterns excluded from BFS traversal. */
-const EXCLUDED_SUFFIXES = ['History', 'Feed', 'Share', 'ChangeEvent', '__hd', '__Tag'];
-
-/** Check whether an object should be excluded from BFS traversal. */
-function isExcludedObject(objectName: string): boolean {
-  if (EXCLUDED_OBJECTS.has(objectName)) {
-    return true;
-  }
-  return EXCLUDED_SUFFIXES.some((suffix) => objectName.endsWith(suffix));
-}
-
 /**
  * Service that discovers the Salesforce dependency graph for a Forge operation.
  *
@@ -199,7 +142,7 @@ export class GraphDiscoveryService {
     let skippedDueToCap = 0;
 
     const addEdge = (e: ForgeGraphEdge): void => {
-      if (isExcludedObject(e.sourceObject) || isExcludedObject(e.targetObject)) return;
+      if (isForgeExcludedObject(e.sourceObject) || isForgeExcludedObject(e.targetObject)) return;
       if (e.sourceObject === e.targetObject) return;
       const key = `${e.sourceObject}|${e.targetObject}`;
       const existing = edgeMap.get(key);
@@ -374,7 +317,7 @@ export class GraphDiscoveryService {
                 relationshipName: field.relationshipName ?? field.name,
                 type: field.isMasterDetail ? 'master-detail' : 'lookup',
               });
-              if (!visitedObjects.has(targetObject) && !isExcludedObject(targetObject)) {
+              if (!visitedObjects.has(targetObject) && !isForgeExcludedObject(targetObject)) {
                 visitedObjects.add(targetObject);
                 if (nodes.length + queue.length < maxNodes) {
                   queue.push([targetObject, depth + 1]);
@@ -391,7 +334,10 @@ export class GraphDiscoveryService {
               relationshipName: child.relationshipName,
               type: child.isCascadeDelete ? 'master-detail' : 'lookup',
             });
-            if (!visitedObjects.has(child.childSObject) && !isExcludedObject(child.childSObject)) {
+            if (
+              !visitedObjects.has(child.childSObject) &&
+              !isForgeExcludedObject(child.childSObject)
+            ) {
               visitedObjects.add(child.childSObject);
               if (nodes.length + queue.length < maxNodes) {
                 queue.push([child.childSObject, depth + 1]);

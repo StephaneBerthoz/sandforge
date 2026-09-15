@@ -69,9 +69,9 @@ export class AnthropicAdapter implements AIClient {
   public readonly breaker: CircuitBreaker;
   public readonly breakerEvents = new EventEmitter();
   /**
-   * Per-session token budget. Mutable via field assignment so the composition
-   * root can attach a fresh budget without re-creating the adapter. Left
-   * undefined (tests, stub providers), the adapter is unmetered.
+   * Token budget for the window, shared by every AI feature. The AI client
+   * factory builds each adapter with the same instance, so a rebuilt adapter
+   * keeps the count. Left undefined (tests), the adapter is unmetered.
    */
   public budget?: SessionBudget;
 
@@ -110,12 +110,13 @@ export class AnthropicAdapter implements AIClient {
   }
 
   /**
-   * Cheap input-token estimator. The Anthropic SDK provides
-   * `messages.countTokens` for an authoritative answer, but that's a network
-   * round-trip per preflight — too expensive for the night-mode shipping
-   * scope. Heuristic ≈ chars/4 (Claude's average tokenizer ratio for
-   * English text); slightly over-estimates which is the safe direction
-   * for budget refusal.
+   * Cheap input-token estimate for the preflight: chars/4, the ratio for
+   * English prose. It under-estimates code, JSON and non-Latin text such as
+   * Japanese, which take more tokens per character, so a call the budget
+   * cannot afford can still be let through. What the counter adds is the usage
+   * the SDK reports after the call, so the overshoot is bounded to that one
+   * call. `messages.countTokens` would be exact, at a network round-trip per
+   * call.
    */
   private estimateInputTokens(payload: {
     messages?: { content: string }[];
@@ -280,7 +281,9 @@ export class AnthropicAdapter implements AIClient {
     // Lazy SDK load: the require only happens on the first actual AI call,
     // never at activation (the SDK is external to the bundle).
     const { default: AnthropicClient } = await import('@anthropic-ai/sdk');
-    const client: Anthropic = new AnthropicClient({ apiKey });
+    // The breaker counts one failure per call. The SDK's own two retries
+    // would make each counted failure up to three requests to the provider.
+    const client: Anthropic = new AnthropicClient({ apiKey, maxRetries: 0 });
     this.client = client;
     return client;
   }

@@ -11,7 +11,7 @@ import {
   type AIClientFactory,
   type AIProviderType,
 } from './adapters/ai/index.js';
-import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/index.js';
+import { SessionBudget } from './adapters/ai/tokenBudget/index.js';
 import type { ConfigStore } from './core/storage/ConfigStore.js';
 import type { TelemetryAdapterOptions } from './adapters/telemetry/TelemetryAdapter.js';
 
@@ -81,14 +81,25 @@ export interface CoreServices {
    */
   getWorkspaceFolders?: () => string[];
   /**
-   * Build a fresh `SessionBudget` for an AI session. `initAIComposition`
-   * calls this and attaches the result to the memoised adapter
-   * (`services.aiClient().budget`), so every AI feature shares one counter.
-   * A new one is built on each AI-stack init — i.e. the counter restarts on
-   * window reload and on any `sandforge.ai.*` setting change. Reads the
-   * current `sandforge.ai.tokenBudgetMaxPerSession` setting at construction.
+   * The window's one AI token counter, shared by every AI feature. `aiClient`
+   * builds each adapter with it, so rebuilding the AI stack (any
+   * `sandforge.ai.*` change, a new key) keeps the count and no adapter is ever
+   * unmetered; only a window reload starts a new one. `wireBudgetReporting`
+   * connects it to the webview and host notices once the broker exists.
    */
-  createSessionBudget: (sessionId: string, broker?: BudgetBroker) => SessionBudget;
+  sessionBudget: SessionBudget;
+  /**
+   * The current `sandforge.ai.tokenBudgetMaxPerSession`, or the manifest
+   * default when the setting holds nothing usable. Applied to
+   * `sessionBudget` when that setting changes.
+   */
+  readTokenBudget: () => number;
+  /**
+   * Drop the memoised AI adapters and re-run the AI composition. Late-injected
+   * by extension.ts (the composition needs the handlers and broker built
+   * after these services). Optional so partial test bundles still compile.
+   */
+  reinitAI?: () => Promise<void>;
 }
 
 /**
@@ -99,7 +110,11 @@ export interface CoreServices {
  * known when a webview message arrives. Instead, factories capture the
  * adapters and build fully-wired orchestrators on demand from handlers.
  */
-/** Token budget applied when the setting holds nothing usable. */
+/**
+ * Token budget applied when the setting holds nothing usable. The manifest
+ * declares the same default for the Settings editor; services.test holds the
+ * two together.
+ */
 const DEFAULT_TOKEN_BUDGET = 50_000;
 
 export interface OrchestratorFactories {
@@ -156,10 +171,29 @@ export function createServices(
   const salesforce = new SalesforceAdapter(storage, telemetry);
   const fs = new FsAdapter(telemetry);
 
+  const readTokenBudget = (): number => {
+    const configured = vscode.workspace
+      .getConfiguration('sandforge.ai')
+      .get<number>('tokenBudgetMaxPerSession', DEFAULT_TOKEN_BUDGET);
+    // `minimum` in the manifest guards the settings editor, not a hand-edited
+    // settings.json: 0, a negative number or a string reach us unchanged, and
+    // SessionBudget refuses them. This runs at activation and on a setting
+    // change, so a throw here would leave AI silently unavailable.
+    return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_TOKEN_BUDGET;
+  };
+  const sessionBudget = new SessionBudget({
+    sessionId: `ai-window-${Date.now()}`,
+    budget: readTokenBudget(),
+    logger: telemetry.getLogger(),
+  });
+
   const aiClient = createAIClientFactory({
     storage,
     telemetry,
     logger: telemetry.getLogger(),
+    budget: sessionBudget,
     getProvider: () => {
       const cfg = vscode.workspace.getConfiguration('sandforge.ai');
       return (cfg.get<AIProviderType>('provider') ?? 'anthropic') as AIProviderType;
@@ -187,25 +221,8 @@ export function createServices(
         .update(key, value, vscode.ConfigurationTarget.Global),
     getWorkspaceFolders: (): string[] =>
       vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
-    createSessionBudget: (sessionId, broker) => {
-      const configured = vscode.workspace
-        .getConfiguration('sandforge.ai')
-        .get<number>('tokenBudgetMaxPerSession', DEFAULT_TOKEN_BUDGET);
-      // `minimum` in the manifest guards the settings editor, not a hand-edited
-      // settings.json: 0, a negative number or a string reach us unchanged, and
-      // SessionBudget refuses them. This factory runs while the assistant is
-      // being wired, so a throw here would leave AI silently unavailable.
-      const budget =
-        typeof configured === 'number' && Number.isFinite(configured) && configured > 0
-          ? configured
-          : DEFAULT_TOKEN_BUDGET;
-      return new SessionBudget({
-        sessionId,
-        budget,
-        broker,
-        logger: telemetry.getLogger(),
-      });
-    },
+    sessionBudget,
+    readTokenBudget,
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),

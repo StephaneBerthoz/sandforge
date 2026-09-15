@@ -225,6 +225,13 @@ describe('HomePage', () => {
     expect(useAppStore.getState().currentRoute).toBe('automation');
   });
 
+  it('labels the pipeline quick action as opening Automation, since it runs nothing', () => {
+    render(<HomePage />);
+    const button = screen.getByTestId('run-pipeline-btn');
+    expect(button.textContent).toBe('Open Pipelines');
+    expect(screen.queryByText('Run Last Pipeline')).toBeNull();
+  });
+
   it('should render recent operations section', () => {
     render(<HomePage />);
     expect(screen.getByTestId('recent-ops-card')).toBeDefined();

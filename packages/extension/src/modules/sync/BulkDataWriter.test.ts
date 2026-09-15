@@ -195,46 +195,19 @@ describe('BulkDataWriter', () => {
     });
   });
 
-  describe('upsert field-type validation', () => {
-    it('logs a warning but still upserts when a source field is incompatible', async () => {
-      const h = createHarness({
-        describeFields: [{ name: 'Name', type: 'date', length: 0, createable: true }],
-      });
+  describe('upsert', () => {
+    it('writes without describing the target: field types are checked before the run starts', async () => {
+      // The check that lived here typed every source field as 'string' and only
+      // logged, so it could neither see a real mismatch nor stop one. The sync
+      // handler now compares both orgs' describes before anything is written.
+      const h = createHarness();
       h.sobject.upsert.mockResolvedValue(okResults(1));
 
       const outcomes = await h.writer.upsert('Account', 'External_Id__c', makeRecords(1), 200);
 
-      expect(h.describe).toHaveBeenCalledWith('Account');
-      expect(h.deps.log).toHaveBeenCalledWith(
-        expect.stringContaining('Field type validation failed for upsert on Account'),
-      );
+      expect(h.describe).not.toHaveBeenCalled();
       expect(h.sobject.upsert).toHaveBeenCalledWith([{ Name: 'Acme 0' }], 'External_Id__c');
       expect(outcomes[0].success).toBe(true);
-    });
-
-    it('stays silent when every mapped field is compatible', async () => {
-      const h = createHarness();
-      h.sobject.upsert.mockResolvedValue(okResults(1));
-
-      await h.writer.upsert('Account', 'External_Id__c', makeRecords(1), 200);
-
-      expect(h.deps.log).not.toHaveBeenCalledWith(
-        expect.stringContaining('Field type validation failed'),
-      );
-    });
-
-    it('ignores non-createable target fields when building the mapping', async () => {
-      const h = createHarness({
-        describeFields: [{ name: 'Name', type: 'date', length: 0, createable: false }],
-      });
-      h.sobject.upsert.mockResolvedValue(okResults(1));
-
-      await h.writer.upsert('Account', 'External_Id__c', makeRecords(1), 200);
-
-      // The only incompatible field is filtered out, so nothing is validated.
-      expect(h.deps.log).not.toHaveBeenCalledWith(
-        expect.stringContaining('Field type validation failed'),
-      );
     });
   });
 

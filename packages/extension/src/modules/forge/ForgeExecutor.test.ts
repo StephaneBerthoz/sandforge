@@ -1,7 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
+import { logger } from '../../logger.js';
+
+vi.mock('../../logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 /** Default field metadata returned by describeFields mock. */
 const DEFAULT_FIELDS: FieldInfo[] = [
@@ -252,6 +257,72 @@ describe('ForgeExecutor', () => {
       expect(summary.failedCount).toBe(2); // Account records
     });
 
+    describe('a parent that mostly failed', () => {
+      const accountToContact: ForgeGraphEdge = {
+        sourceObject: 'Account',
+        targetObject: 'Contact',
+        relationshipName: 'Contacts',
+        type: 'lookup',
+      };
+
+      /** Ten Accounts of which `failures` are refused by the target org. */
+      function failAccounts(failures: number): void {
+        vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) =>
+          soql.includes('FROM Account')
+            ? Array.from({ length: 10 }, (_, i) => ({ Id: `001OLD${i}`, Name: `A${i}` }))
+            : [{ Id: '003OLD1', Name: 'C' }],
+        );
+        vi.mocked(deps.insertRecords).mockImplementation(async (_o, objectName, recs) =>
+          recs.map((_, i) =>
+            objectName === 'Account' && i < failures
+              ? { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION'] }
+              : { id: `NEW${objectName}${i}`, success: true, errors: [] },
+          ),
+        );
+      }
+
+      it('skips the children when 7 of 10 parent records failed', async () => {
+        failAccounts(7);
+        const graph = makeGraph(
+          [makeNode('Account', { recordCount: 10 }), makeNode('Contact')],
+          [accountToContact],
+        );
+
+        const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+        expect(summary.successCount).toBe(3);
+        expect(summary.failedCount).toBe(7);
+        expect(summary.skippedCount).toBe(1);
+        expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1])).toEqual(['Account']);
+        const accountEnd = progressEvents.filter((e) => e.objectName === 'Account').pop();
+        expect(accountEnd?.status).toBe('error');
+        expect(accountEnd?.message).toContain('7/10');
+        expect(
+          progressEvents.find((e) => e.objectName === 'Contact' && e.status === 'skipped')?.message,
+        ).toContain('parent failed');
+      });
+
+      it('still clones the children when 4 of 10 parent records failed', async () => {
+        failAccounts(4);
+        const graph = makeGraph(
+          [makeNode('Account', { recordCount: 10 }), makeNode('Contact')],
+          [accountToContact],
+        );
+
+        const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+        expect(summary.successCount).toBe(7);
+        expect(summary.failedCount).toBe(4);
+        expect(summary.skippedCount).toBe(0);
+        expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1])).toEqual([
+          'Account',
+          'Contact',
+        ]);
+        const accountEnd = progressEvents.filter((e) => e.objectName === 'Account').pop();
+        expect(accountEnd?.status).toBe('done');
+      });
+    });
+
     it('should handle thrown errors during query', async () => {
       vi.mocked(deps.queryRecords).mockRejectedValue(new Error('Connection lost'));
 
@@ -365,7 +436,12 @@ describe('ForgeExecutor', () => {
   });
 
   describe('pause and resume', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should support pause and resume', async () => {
+      vi.useFakeTimers();
       const records = Array.from({ length: 400 }, (_, i) => ({
         Id: `001OLD${i}`,
         Name: `Record ${i}`,
@@ -389,7 +465,12 @@ describe('ForgeExecutor', () => {
         return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
       });
 
-      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+      const running = executor.execute(graph, 'src', 'tgt', onProgress);
+      // Settle the first batch so the run is parked on the pause.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(10);
+      const summary = await running;
 
       // Should complete all batches after resume
       expect(summary.successCount).toBe(400);
@@ -549,6 +630,122 @@ describe('ForgeExecutor', () => {
         .mock.calls.find((c) => c[1].includes('FROM Account'));
       expect(accountCall).toBeDefined();
       expect(accountCall![1]).toContain("Id IN ('001AAA')");
+    });
+
+    it('clones a child scoped by more than 600 parent ids, reading it in chunks', async () => {
+      // 1,300 Contacts under the root Account used to stop the run: their
+      // Tasks needed one IN list longer than a query URI holds.
+      const ACCOUNT_ID = '001XX00000000001AAA';
+      const contactIds = Array.from(
+        { length: 1300 },
+        (_, i) => `003${String(i).padStart(15, '0')}`,
+      );
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact'), makeNode('Task')],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Task',
+            relationshipName: 'Tasks',
+            type: 'lookup',
+          },
+        ],
+      );
+      const idField: FieldInfo = {
+        name: 'Id',
+        queryable: true,
+        createable: false,
+        isReference: false,
+      };
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Contact') {
+          return [
+            idField,
+            {
+              name: 'AccountId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Account'],
+            },
+          ];
+        }
+        if (name === 'Task') {
+          return [
+            idField,
+            { name: 'Subject', queryable: true, createable: true, isReference: false },
+            {
+              name: 'WhoId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Contact'],
+            },
+          ];
+        }
+        return [idField, { name: 'Name', queryable: true, createable: true, isReference: false }];
+      });
+      let taskChunk = 0;
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Account')) return [{ Id: ACCOUNT_ID, Name: 'Acme' }];
+        if (soql.includes('FROM Contact')) {
+          return contactIds.map((Id) => ({ Id, AccountId: ACCOUNT_ID }));
+        }
+        taskChunk++;
+        // The first Task matches Contacts from two chunks and comes back twice.
+        return taskChunk === 1
+          ? [{ Id: '00TXX0000000001AAA', Subject: 'Call', WhoId: contactIds[0] }]
+          : [
+              { Id: '00TXX0000000001AAA', Subject: 'Call', WhoId: contactIds[0] },
+              { Id: `00TXX000000000${taskChunk}AAA`, Subject: 'Mail', WhoId: contactIds[1200] },
+            ];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, objectName, recs) =>
+        recs.map((_, i) => ({ id: `${objectName}NEW${i}`, success: true, errors: [] })),
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT_ID,
+        rootObjectApiName: 'Account',
+      });
+
+      const taskQueries = vi
+        .mocked(deps.queryRecords)
+        .mock.calls.map((c) => c[1])
+        .filter((soql) => soql.includes('FROM Task'));
+      expect(taskQueries).toHaveLength(3);
+      for (const soql of taskQueries) expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+      expect(summary.errors.filter((e) => e.objectApiName === 'Task')).toEqual([]);
+      const taskWrites = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.filter((c) => c[1] === 'Task')
+        .flatMap((c) => c[2]);
+      expect(taskWrites.map((r) => r.Subject)).toEqual(['Call', 'Mail', 'Mail']);
+    });
+
+    it('describes the target org while the source query is still running', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      let targetDescribedBeforeQueryReturned = false;
+      vi.mocked(deps.queryRecords).mockImplementation(async () => {
+        targetDescribedBeforeQueryReturned = vi
+          .mocked(deps.describeFields)
+          .mock.calls.some((c) => c[0] === 'tgt');
+        return [{ Id: ROOT_ID, Name: 'X' }];
+      });
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      expect(targetDescribedBeforeQueryReturned).toBe(true);
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
     });
 
     it('should bring the root to the front of topo order regardless of cycle bucketing', async () => {
@@ -973,10 +1170,12 @@ describe('ForgeExecutor', () => {
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
         if (soql.includes('FROM Asset'))
+          // Real 15-character Ids: expansion refuses anything else before
+          // fetching, which is how this test used to pass with zero inserts.
           return [
-            { Id: '02iA', AccountId: '001A' },
-            { Id: '02iB', AccountId: '001B' },
-            { Id: '02iC', AccountId: '001C' },
+            { Id: '02iA', AccountId: '001AP00ORPHAN01' },
+            { Id: '02iB', AccountId: '001AP00ORPHAN02' },
+            { Id: '02iC', AccountId: '001AP00ORPHAN03' },
           ];
         if (soql.includes('FROM Account')) {
           // each parent fetch returns one row
@@ -999,7 +1198,7 @@ describe('ForgeExecutor', () => {
       const accountInserts = vi
         .mocked(deps.insertRecords)
         .mock.calls.filter((c) => c[1] === 'Account');
-      expect(accountInserts.length).toBeLessThanOrEqual(2);
+      expect(accountInserts).toHaveLength(2);
     });
 
     it('does nothing when expandOrphanParents is false (back-compat)', async () => {
@@ -1262,6 +1461,75 @@ describe('ForgeExecutor', () => {
 
       const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
       expect(inserted.RecordTypeId).toBe('012UNKNOWN0000');
+    });
+
+    it('warns once per object about a RecordTypeId the target org has no match for', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, RecordTypeId: '012UNKNOWN0000' },
+        { Id: '500XX00000000002AAA', RecordTypeId: '012UNKNOWN0000' },
+        { Id: '500XX00000000003AAA', RecordTypeId: SOURCE_RT },
+      ]);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, _n, recs) =>
+        recs.map((_, i) => ({ id: `500NEW${i}`, success: true, errors: [] })),
+      );
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
+      ]);
+      vi.mocked(logger.warn).mockClear();
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [
+          { sourceId: SOURCE_RT, targetId: TARGET_RT, developerName: 'CaseStandard' },
+        ],
+      });
+
+      const warnings = vi
+        .mocked(logger.warn)
+        .mock.calls.map((c) => c[0])
+        .filter((m) => m.includes('RecordTypeId'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('Case');
+      expect(warnings[0]).toContain('012UNKNOWN0000');
+      const written = vi.mocked(deps.insertRecords).mock.calls[0]![2];
+      expect(written.map((r) => r.RecordTypeId)).toEqual([
+        '012UNKNOWN0000',
+        '012UNKNOWN0000',
+        TARGET_RT,
+      ]);
+    });
+
+    it('warns about untranslated record types even when the target org shares none', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, RecordTypeId: SOURCE_RT }]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
+      ]);
+      vi.mocked(logger.warn).mockClear();
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [],
+      });
+
+      expect(vi.mocked(logger.warn).mock.calls.some((c) => c[0].includes(SOURCE_RT))).toBe(true);
     });
   });
 

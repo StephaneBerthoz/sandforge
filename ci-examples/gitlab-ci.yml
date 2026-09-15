@@ -3,8 +3,9 @@
 # Honest example built on what actually exists in this repo:
 #   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-#   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 #   4. VSIX package    — pnpm package, uploaded as an artifact
+#   5. Notify          — Slack message when any job failed
 #
 # There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
 # only in the VSCode extension UI. See ci-examples/README.md for details.
@@ -17,6 +18,8 @@
 #     - SANDFORGE_SF_ORGS: set to "true" to enable the clone/cleanup stages
 #     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
 #   - SLACK_WEBHOOK_URL (optional): failure notifications
+#
+# `main` below stands for your default branch; rename it if yours differs.
 
 image: node:22
 
@@ -27,19 +30,20 @@ cache:
     - .pnpm-store
 
 variables:
-  PNPM_VERSION: '11'
   DRY_RUN: 'true'
 
 stages:
   - quality
   - clone
   - package
+  - notify
 
 # ── Quality gates ────────────────────────────────────────────
 quality:
   stage: quality
   script:
-    - npm install -g pnpm@$PNPM_VERSION
+    # pnpm comes from the `packageManager` pin in package.json.
+    - corepack enable
     - pnpm config set store-dir .pnpm-store
     - pnpm install --frozen-lockfile
     # Chains build:shared → typecheck → lint → test → check:i18n → build.
@@ -56,16 +60,24 @@ quality:
 clone:
   stage: clone
   script:
-    - npm install -g pnpm@$PNPM_VERSION @salesforce/cli
+    - corepack enable
+    - npm install -g @salesforce/cli
     - pnpm config set store-dir .pnpm-store
     - pnpm install --frozen-lockfile
     - pnpm build:shared
-    # Authenticate both orgs; the CLIs shell out to `sf org display`.
-    - echo "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt
-    - echo "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt
-    - sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source
-    - sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target
-    - rm -f /tmp/auth-source.txt /tmp/auth-target.txt
+    # Authenticate both orgs; the CLIs shell out to `sf org display`. The URLs
+    # go to a private directory, removed once both logins are done, or by the
+    # trap when the job's shell exits after a failed one: self-hosted runners
+    # keep /tmp between jobs.
+    - |
+      umask 077
+      auth_dir=$(mktemp -d)
+      trap 'rm -rf "$auth_dir"' EXIT
+      printf '%s' "$SFDX_AUTH_URL_SOURCE" > "$auth_dir/source.txt"
+      printf '%s' "$SFDX_AUTH_URL_TARGET" > "$auth_dir/target.txt"
+      sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
+      sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
+      rm -rf "$auth_dir"
     - |
       DRY_FLAG=""
       [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
@@ -78,13 +90,14 @@ clone:
         --json \
         --remap-csv remap.csv \
         > clone-summary.json
+    # Always a preview, whatever DRY_RUN says: `--since today` matches every
+    # record the CI user created today, not only the ones this clone wrote.
+    # Run the real delete by hand once you have read the counts.
     - |
-      DRY_FLAG=""
-      [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
       pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
         --target ci-target \
         --since today \
-        $DRY_FLAG
+        --dry-run
   artifacts:
     paths:
       - clone-summary.json
@@ -92,14 +105,14 @@ clone:
     expire_in: 30 days
     when: always
   rules:
-    # Only when sf org secrets have been configured
-    - if: $SANDFORGE_SF_ORGS == "true"
+    # Only when sf org secrets and a record to clone have been configured
+    - if: $SANDFORGE_SF_ORGS == "true" && $SF_CLONE_RECORD_ID
 
 # ── VSIX package ─────────────────────────────────────────────
 package:
   stage: package
   script:
-    - npm install -g pnpm@$PNPM_VERSION
+    - corepack enable
     - pnpm config set store-dir .pnpm-store
     - pnpm install --frozen-lockfile
     - pnpm package
@@ -112,11 +125,24 @@ package:
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
-  # Notify on pipeline failure
-  after_script:
+# ── Failure notification ─────────────────────────────────────
+# A job of its own, so a failed quality or clone job is reported too: an
+# after_script only ever sees the job it belongs to.
+notify:
+  stage: notify
+  script:
     - |
-      if [ "$CI_JOB_STATUS" = "failed" ] && [ -n "$SLACK_WEBHOOK_URL" ]; then
-        curl -X POST "$SLACK_WEBHOOK_URL" \
-          -H 'Content-Type: application/json' \
-          -d "{\"text\": \"SandForge Pipeline FAILED on $CI_PROJECT_NAME ($CI_COMMIT_REF_NAME) — $CI_PIPELINE_URL\"}"
+      if [ -z "$SLACK_WEBHOOK_URL" ]; then
+        echo "No SLACK_WEBHOOK_URL variable configured, skipping notification"
+        exit 0
       fi
+      curl -X POST "$SLACK_WEBHOOK_URL" \
+        -H 'Content-Type: application/json' \
+        -d "{\"text\": \"SandForge Pipeline FAILED on $CI_PROJECT_NAME ($CI_COMMIT_REF_NAME) — $CI_PIPELINE_URL\"}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_failure
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_failure
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_failure

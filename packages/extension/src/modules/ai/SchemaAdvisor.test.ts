@@ -34,40 +34,6 @@ describe('SchemaAdvisor', () => {
     advisor = new SchemaAdvisor();
   });
 
-  // --- Unused field detection ---
-
-  it('should detect unused custom fields on objects with zero records', () => {
-    const obj = makeObject({
-      recordCount: 0,
-      fields: [makeField({ apiName: 'Unused__c', label: 'Unused' })],
-    });
-
-    const issues = advisor.analyzeObject(obj);
-    const unused = issues.find((i) => i.type === 'unused_field');
-    expect(unused).toBeDefined();
-    expect(unused?.fieldName).toBe('Unused__c');
-  });
-
-  it('should not flag standard fields as unused', () => {
-    const obj = makeObject({
-      recordCount: 0,
-      fields: [makeField({ apiName: 'Name', custom: false })],
-    });
-
-    const issues = advisor.analyzeObject(obj);
-    expect(issues.find((i) => i.type === 'unused_field')).toBeUndefined();
-  });
-
-  it('should not flag custom fields when object has records', () => {
-    const obj = makeObject({
-      recordCount: 100,
-      fields: [makeField()],
-    });
-
-    const issues = advisor.analyzeObject(obj);
-    expect(issues.find((i) => i.type === 'unused_field')).toBeUndefined();
-  });
-
   // --- Naming convention checks ---
 
   it('should detect custom fields missing __c suffix', () => {
@@ -217,7 +183,6 @@ describe('SchemaAdvisor', () => {
       makeObject({
         apiName: 'Account',
         custom: false,
-        recordCount: 100,
         fields: [makeField({ apiName: 'Name', custom: false, label: 'Name' })],
       }),
     ];
@@ -228,7 +193,6 @@ describe('SchemaAdvisor', () => {
 
   it('should reduce score for issues', () => {
     const obj = makeObject({
-      recordCount: 0,
       fields: [
         makeField({ apiName: 'Bad', label: 'Bad', custom: true }),
         makeField({ apiName: 'Wrong', label: '  Wrong  ', custom: true }),
@@ -243,7 +207,7 @@ describe('SchemaAdvisor', () => {
     const fields = Array.from({ length: 3 }, (_, i) =>
       makeField({ apiName: `Bad${i}`, label: `Bad ${i}`, custom: true }),
     );
-    const obj = makeObject({ recordCount: 0, fields });
+    const obj = makeObject({ fields });
 
     const advice = advisor.analyzeSchema([obj]);
     expect(advice.score).toBeGreaterThanOrEqual(0);
@@ -259,7 +223,6 @@ describe('SchemaAdvisor', () => {
 
   it('should generate recommendations from issues', () => {
     const issues: SchemaIssue[] = [
-      { type: 'unused_field', objectName: 'A', fieldName: 'X', description: '', severity: 'low' },
       {
         type: 'naming_convention',
         objectName: 'B',
@@ -278,8 +241,7 @@ describe('SchemaAdvisor', () => {
     ];
 
     const suggestions = advisor.getRecommendations(issues);
-    expect(suggestions.length).toBe(4);
-    expect(suggestions.some((s) => s.title.includes('unused'))).toBe(true);
+    expect(suggestions.length).toBe(3);
     expect(suggestions.some((s) => s.title.includes('naming'))).toBe(true);
     expect(
       suggestions.some((s) => s.title.includes('duplicate') || s.title.includes('Consolidate')),
@@ -291,20 +253,6 @@ describe('SchemaAdvisor', () => {
     expect(advisor.getRecommendations([])).toEqual([]);
   });
 
-  it('should classify high impact for many unused fields', () => {
-    const issues: SchemaIssue[] = Array.from({ length: 15 }, (_, i) => ({
-      type: 'unused_field' as const,
-      objectName: 'Obj',
-      fieldName: `Field${i}__c`,
-      description: '',
-      severity: 'low' as const,
-    }));
-
-    const suggestions = advisor.getRecommendations(issues);
-    const unused = suggestions.find((s) => s.title.includes('unused'));
-    expect(unused?.impact).toBe('high');
-  });
-
   // --- Full analysis integration ---
 
   it('should produce a complete advice report', () => {
@@ -312,7 +260,6 @@ describe('SchemaAdvisor', () => {
       makeObject({
         apiName: 'Account',
         custom: false,
-        recordCount: 500,
         fields: [
           makeField({ apiName: 'Name', label: 'Name', custom: false }),
           makeField({ apiName: 'Status__c', label: 'Status', custom: true }),
@@ -321,7 +268,6 @@ describe('SchemaAdvisor', () => {
       makeObject({
         apiName: 'Contact',
         custom: false,
-        recordCount: 200,
         fields: [
           makeField({
             apiName: 'AccountId',

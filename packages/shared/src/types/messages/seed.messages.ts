@@ -1,4 +1,6 @@
+import type { z } from 'zod';
 import type { BaseMessage } from './base.messages.js';
+import type { seedConfigSchema } from '../../schemas/seed-config.schema.js';
 import type {
   SeedTemplate,
   CsvImportConfig,
@@ -8,10 +10,18 @@ import type {
 } from '../seed.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 
-/** Seed messages */
+/**
+ * Seed messages.
+ *
+ * The payload is the template itself, as the webview sends it and as the
+ * extension validates it — it named a `templateId` the handler never read.
+ * The template type comes from the seed config schema, so a change to that
+ * schema reaches this contract; SeedOpsHandler assigns its validated payload
+ * to this type, which keeps the two from drifting apart unnoticed.
+ */
 export interface SeedExecuteRequest extends BaseMessage {
   type: 'seed:execute';
-  payload: { templateId: string; orgId: string; dryRun: boolean };
+  payload: { orgId: string; template: z.input<typeof seedConfigSchema>; dryRun?: boolean };
 }
 
 /** Seed describe global objects request. */

@@ -1,5 +1,11 @@
-import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
-import type { SyncConfig, SyncExecutionResult, SyncOperation } from '@sandforge/shared';
+import { z } from 'zod';
+import { assertSoqlOrderBy, assertSoqlWhere } from '../../core/common/soqlValidator.js';
+import type {
+  MappingType,
+  SyncConfig,
+  SyncExecutionResult,
+  SyncOperation,
+} from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -42,7 +48,10 @@ import {
   syncConfigIdPayloadSchema,
   syncDescribeGlobalPayloadSchema,
   syncDescribeFieldsPayloadSchema,
+  isSyncFileObject,
 } from '../validatePayload.js';
+import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
+import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import { isNetworkError } from '../../core/common/isNetworkError.js';
@@ -77,6 +86,51 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
   upsert: 2,
   delete: 3,
 };
+
+/**
+ * Mapping types that write the source value as it was read. A transform,
+ * constant, formula or add-on rewrites the value before it is written, so its
+ * source type says nothing about what reaches the target field.
+ */
+const VERBATIM_MAPPING_TYPES: ReadonlySet<MappingType> = new Set<MappingType>(['direct', 'rename']);
+
+/** Most field mismatches named in one refusal; the rest are counted. */
+const MAX_REPORTED_FIELD_MISMATCHES = 20;
+
+/**
+ * The part of a describe response the field-type comparison reads. The refusal
+ * rests on it, so an org answering without a field's type must end the run
+ * with a message rather than a TypeError inside the comparison.
+ */
+const describedFieldsSchema = z.object({
+  fields: z.array(
+    z
+      .object({
+        name: z.string(),
+        type: z.string(),
+        createable: z.boolean(),
+        updateable: z.boolean(),
+      })
+      .passthrough(),
+  ),
+});
+type DescribedField = z.infer<typeof describedFieldsSchema>['fields'][number];
+
+/** Read the describe fields of `objectApiName`, refusing a response of any other shape. */
+function parseDescribedFields(
+  describe: unknown,
+  objectApiName: string,
+  org: 'source' | 'target',
+): DescribedField[] {
+  const parsed = describedFieldsSchema.safeParse(describe);
+  if (parsed.success) return parsed.data.fields;
+  const issue = parsed.error.issues[0];
+  throw new Error(
+    `The ${org} org described ${objectApiName} in a shape field types cannot be compared on ` +
+      `(${issue.path.join('.')}: ${issue.message}), so the sync was not started and nothing ` +
+      `was written.`,
+  );
+}
 
 /**
  * Domain handler for sync-related webview-to-extension messages.
@@ -302,6 +356,76 @@ export class SyncOpsHandler implements DomainHandler {
     };
   }
 
+  /**
+   * Refuse the run before anything is written when a field it copies cannot
+   * hold the value it is given.
+   *
+   * Both orgs are described per object and every field a mapping writes
+   * verbatim is compared: the mapped pairs when the object has mappings, the
+   * same-named fields when it has none (the writer then copies the record as
+   * read). A mapping whose value a transform rewrites is not judged on its
+   * source type, and target fields nobody can write are left to the org.
+   * Without this, a text field mapped onto a date field was only discovered
+   * record by record by Salesforce, after the run had started writing.
+   *
+   * @throws {Error} Naming every mismatched pair, when at least one is found.
+   */
+  private async assertFieldTypesMatch(
+    config: SyncConfig,
+    sourceConn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    targetConn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    describeTimeoutMs: number,
+  ): Promise<void> {
+    const validator = new FieldTypeValidator();
+    const mismatches: string[] = [];
+    const toDescriptor = (f: DescribedField): FieldDescriptor => ({
+      apiName: f.name,
+      type: f.type,
+    });
+
+    for (const object of config.objects) {
+      // A delete writes no field value.
+      if (object.operation === 'delete') continue;
+      const name = object.objectApiName;
+      const timeout = new TimeoutManager(describeTimeoutMs);
+      const [sourceDesc, targetDesc] = await Promise.all([
+        timeout.withTimeout(`describe-source-${name}`, () => sourceConn.describe(name)),
+        timeout.withTimeout(`describe-target-${name}`, () => targetConn.describe(name)),
+      ]);
+      const sourceFields = parseDescribedFields(sourceDesc, name, 'source').map(toDescriptor);
+      const targetFields = parseDescribedFields(targetDesc, name, 'target')
+        .filter((f) => f.createable || f.updateable)
+        .map(toDescriptor);
+
+      const pairs: Array<Record<string, string>> =
+        object.fieldMappings.length === 0
+          ? [Object.fromEntries(sourceFields.map((f) => [f.apiName, f.apiName]))]
+          : object.fieldMappings
+              .filter((m) => VERBATIM_MAPPING_TYPES.has(m.type))
+              .map((m) => ({ [m.sourceField]: m.targetField }));
+
+      for (const mapping of pairs) {
+        for (const e of validator.validateMapping(sourceFields, targetFields, mapping).errors) {
+          mismatches.push(
+            `${name}.${e.sourceField} (${e.sourceType}) -> ${name}.${e.targetField} (${e.targetType})`,
+          );
+        }
+      }
+    }
+
+    if (mismatches.length === 0) return;
+    const named = mismatches.slice(0, MAX_REPORTED_FIELD_MISMATCHES).join('; ');
+    const more =
+      mismatches.length > MAX_REPORTED_FIELD_MISMATCHES
+        ? ` and ${mismatches.length - MAX_REPORTED_FIELD_MISMATCHES} more`
+        : '';
+    throw new Error(
+      `Field types do not match between the orgs, so the sync was not started and nothing ` +
+        `was written: ${named}${more}. Map each field onto a field of a compatible type, or ` +
+        `convert the value with a transform.`,
+    );
+  }
+
   private async handleDescribeGlobal(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
@@ -319,9 +443,12 @@ export class SyncOpsHandler implements DomainHandler {
       const result = await timeout.withTimeout('describe-global', () => conn.describeGlobal());
       checkApiLimits(conn.limitInfo, 'sync:describe-global');
 
+      // Objects whose content is a file are left out: Sync has no stage that
+      // moves one, and the bridge refuses a config naming them.
       const objects = result.sobjects
         .filter((s: { createable: boolean; queryable: boolean }) => s.createable && s.queryable)
-        .map((s: { name: string }) => s.name);
+        .map((s: { name: string }) => s.name)
+        .filter((name: string) => !isSyncFileObject(name));
 
       const response = buildResponse(this.deps, msg, 'sync:describe-global:response', { objects });
       this.deps.broker.postToWebview(response);
@@ -494,7 +621,11 @@ export class SyncOpsHandler implements DomainHandler {
     const abortController = new AbortController();
     // executeSync never rejects (it reports on operation:failed and converts
     // the outcome to a failure-status result), so no try/catch is needed here.
-    return this.executeSync(msg, filledConfig, operationId, abortController, 'schedule');
+    const execution = this.executeSync(msg, filledConfig, operationId, abortController, 'schedule');
+    // Registered like a manual run: Live Operations lists this run, and its
+    // Cancel (`execution:abort`) finds a run through the registry only.
+    this.registry?.register(operationId, 'sync', scheduledDescription, execution, abortController);
+    return execution;
   }
 
   /**
@@ -695,20 +826,12 @@ export class SyncOpsHandler implements DomainHandler {
         ): Promise<Record<string, unknown>[]> => {
           const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
           let soql = `SELECT FIELDS(ALL) FROM ${safeObj}`;
+          // The boundary refuses a WHERE that does more than filter; checked
+          // again here because this is where it becomes query text, and a
+          // `LIMIT 1` riding on the filter would cut the read short while the
+          // run still reported itself complete.
           if (objectConfig.where) {
-            // Defense-in-depth: reject WHERE clauses containing dangerous subquery patterns
-            const upperWhere = objectConfig.where.toUpperCase();
-            if (
-              /\bSELECT\b/.test(upperWhere) ||
-              /\bINSERT\b/.test(upperWhere) ||
-              /\bUPDATE\b/.test(upperWhere) ||
-              /\bDELETE\b/.test(upperWhere)
-            ) {
-              throw new Error(
-                'WHERE clause contains forbidden keyword (SELECT/INSERT/UPDATE/DELETE). Subqueries are not allowed.',
-              );
-            }
-            soql += ` WHERE ${objectConfig.where}`;
+            soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
           }
           // An SFDMU export carries its read order, and the importer keeps it.
           // The boundary refuses anything but field names, ASC/DESC and NULLS
@@ -853,6 +976,13 @@ export class SyncOpsHandler implements DomainHandler {
         );
       }
       const orchestrator = this.deps.services.syncOrchestrator(syncDeps);
+
+      await this.assertFieldTypesMatch(
+        config,
+        sourceConn,
+        targetConn,
+        robustnessConfig.timeouts.describe,
+      );
 
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
       const result = await orchestrator.execute(config);

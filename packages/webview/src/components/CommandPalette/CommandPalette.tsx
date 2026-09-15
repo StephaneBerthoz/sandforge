@@ -132,11 +132,11 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'run-pipeline',
-        label: t('home.runLastPipeline'),
+        label: t('home.openPipelines'),
         group: 'actions' as const,
-        icon: 'play',
+        icon: 'circuit-board',
         action: () => navigate('automation'),
-        keywords: ['pipeline', 'run', 'automation'],
+        keywords: ['pipeline', 'automation'],
       },
     ];
 

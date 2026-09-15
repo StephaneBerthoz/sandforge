@@ -25,6 +25,16 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   },
 }));
 
+/**
+ * The objects the picker offers, without the choice that opens the name field:
+ * that choice's value is not an API name, so no object can ever take it.
+ */
+function objectChoices(picker: HTMLSelectElement): string[] {
+  return Array.from(picker.options)
+    .map((o) => o.value)
+    .filter((value) => /^[A-Za-z]/.test(value));
+}
+
 const LIMITS: ApiLimit[] = [{ name: 'DailyApiRequests', max: 100, remaining: 20, usedPercent: 80 }];
 
 /** The scan outcome a test puts on screen, if any. */
@@ -97,7 +107,7 @@ describe('MonitorLimitsSection anomaly scan target', () => {
   it('offers the org objects that hold records as scan targets', () => {
     renderSection();
     const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
-    const values = Array.from(picker.options).map((o) => o.value);
+    const values = objectChoices(picker);
     expect(values).toEqual(['Account', 'Contact', 'Custom_Thing__c']);
   });
 
@@ -120,7 +130,7 @@ describe('MonitorLimitsSection anomaly scan target', () => {
     storageObjects = [];
     const { mutate } = renderSection();
     const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual(['Account']);
+    expect(objectChoices(picker)).toEqual(['Account']);
     fireEvent.click(screen.getByTestId('anomaly-scan-btn'));
     expect(mutate).toHaveBeenCalledWith({ orgId: 'org-1', objectName: 'Account' });
   });
@@ -144,11 +154,116 @@ describe('MonitorLimitsSection anomaly scan target', () => {
     ];
     renderSection();
     const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual([
-      'Account',
-      'Contact',
-      'Custom_Thing__c',
-    ]);
+    expect(objectChoices(picker)).toEqual(['Account', 'Contact', 'Custom_Thing__c']);
+  });
+});
+
+describe('MonitorLimitsSection scan target typed by name', () => {
+  beforeEach(() => {
+    storageObjects = [
+      { objectName: 'Account', label: 'Account', recordCount: 500 },
+      { objectName: 'Contact', label: 'Contact', recordCount: 400 },
+    ];
+    storageLoading = false;
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+  });
+
+  /** Picks the choice that lets an object outside the list be named. */
+  function chooseOtherObject(): void {
+    const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
+    const other = Array.from(picker.options).find(
+      (o) => !storageObjects.some((s) => s.objectName === o.value) && o.value !== 'Account',
+    );
+    if (!other) throw new Error('the picker offers no way to name another object');
+    fireEvent.change(picker, { target: { value: other.value } });
+  }
+
+  function typeObjectName(name: string): void {
+    fireEvent.change(screen.getByTestId('anomaly-scan-object-name'), { target: { value: name } });
+  }
+
+  it('shows no name field until the user asks for another object', () => {
+    renderSection();
+    expect(screen.queryByTestId('anomaly-scan-object-name')).toBeNull();
+
+    chooseOtherObject();
+
+    expect(screen.getByTestId('anomaly-scan-object-name')).toBeDefined();
+  });
+
+  it('scans an object the list does not offer, by the API name typed', () => {
+    const { mutate } = renderSection();
+    chooseOtherObject();
+    typeObjectName('Invoice_Line__c');
+
+    fireEvent.click(screen.getByTestId('anomaly-scan-btn'));
+
+    expect(mutate).toHaveBeenCalledWith({ orgId: 'org-1', objectName: 'Invoice_Line__c' });
+    expect(screen.getByTestId('anomaly-scan-btn').textContent).toContain('Invoice_Line__c');
+  });
+
+  it('ignores the spaces around the name typed', () => {
+    const { mutate } = renderSection();
+    chooseOtherObject();
+    typeObjectName('  Invoice__c ');
+
+    fireEvent.click(screen.getByTestId('anomaly-scan-btn'));
+
+    expect(mutate).toHaveBeenCalledWith({ orgId: 'org-1', objectName: 'Invoice__c' });
+  });
+
+  it('sends nothing while the name field is empty', () => {
+    const { mutate } = renderSection();
+    chooseOtherObject();
+
+    const button = screen.getByTestId('anomaly-scan-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('anomaly-scan-object-name-error')).toBeNull();
+  });
+
+  it.each([
+    ['a space', 'Invoice Line__c'],
+    ['a leading digit', '1Invoice__c'],
+    ['SOQL punctuation', 'Account WHERE Id != null'],
+    ['a dotted name', 'Account.Name'],
+    ['more than 80 characters', `A${'b'.repeat(80)}`],
+  ])('refuses a name with %s and says why, without sending it', (_case, name) => {
+    const { mutate } = renderSection();
+    chooseOtherObject();
+    typeObjectName(name);
+
+    const button = screen.getByTestId('anomaly-scan-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('anomaly-scan-object-name-error').textContent).not.toBe('');
+  });
+
+  it('drops the report of the previous target when the name typed changes', () => {
+    const { reset } = renderSection();
+    chooseOtherObject();
+    reset.mockClear();
+
+    typeObjectName('Invoice__c');
+
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it('goes back to Account and forgets the name typed when the org changes', () => {
+    const { mutate, rerenderSection } = renderSection();
+    chooseOtherObject();
+    typeObjectName('Invoice__c');
+
+    act(() => {
+      useOrgStore.setState({ selectedOrgId: 'org-2', orgs: [] });
+    });
+    rerenderSection();
+
+    expect(screen.queryByTestId('anomaly-scan-object-name')).toBeNull();
+    fireEvent.click(screen.getByTestId('anomaly-scan-btn'));
+    expect(mutate).toHaveBeenCalledWith({ orgId: 'org-2', objectName: 'Account' });
   });
 });
 
@@ -192,7 +307,7 @@ describe('MonitorLimitsSection across an org switch', () => {
     rerenderSection();
 
     const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual(['Account']);
+    expect(objectChoices(picker)).toEqual(['Account']);
     expect(picker.value).toBe('Account');
   });
 
@@ -215,7 +330,7 @@ describe('MonitorLimitsSection across an org switch', () => {
     rerenderSection();
 
     const picker = screen.getByTestId('anomaly-scan-object') as HTMLSelectElement;
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual(['Account']);
+    expect(objectChoices(picker)).toEqual(['Account']);
     storageLoading = false;
   });
 

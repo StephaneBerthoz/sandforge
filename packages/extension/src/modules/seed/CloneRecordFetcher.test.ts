@@ -107,6 +107,42 @@ describe('CloneRecordFetcher', () => {
     expect(soql).toContain('LIMIT 5');
   });
 
+  describe('a WHERE clause that does more than filter is refused before any query', () => {
+    it.each(['Id != null LIMIT 1', "Name = 'x' FOR UPDATE"])(
+      'fetchRecords refuses %j',
+      async (where) => {
+        await expect(fetcher.fetchRecords(conn, 'Account', where)).rejects.toThrow();
+        expect(conn.query).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['Id != null LIMIT 1', "Name = 'x' FOR UPDATE"])(
+      'countRecords refuses %j',
+      async (where) => {
+        await expect(fetcher.countRecords(conn, 'Account', where)).rejects.toThrow();
+        expect(conn.query).not.toHaveBeenCalled();
+      },
+    );
+
+    it('fetchSample refuses a clause carrying its own LIMIT', async () => {
+      await expect(fetcher.fetchSample(conn, 'Account', 5, 'Id != null LIMIT 1')).rejects.toThrow();
+      expect(conn.query).not.toHaveBeenCalled();
+    });
+
+    it('sends a filter whose literal spells a keyword unchanged', async () => {
+      vi.mocked(conn.query).mockResolvedValueOnce({
+        done: true,
+        totalSize: 0,
+        records: [],
+      } as unknown as Awaited<ReturnType<typeof conn.query>>);
+
+      await fetcher.fetchRecords(conn, 'Account', "Status = 'Delete pending'");
+
+      const soql = vi.mocked(conn.query).mock.calls[0][0] as string;
+      expect(soql).toMatch(/ WHERE Status = 'Delete pending'$/);
+    });
+  });
+
   it('handles empty result gracefully', async () => {
     const mockQuery = vi.mocked(conn.query);
     mockQuery.mockResolvedValueOnce({

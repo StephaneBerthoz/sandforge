@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
@@ -459,6 +459,51 @@ describe('SfdxBridge', () => {
       ).rejects.toThrow('Invalid instanceUrl');
       expect(mockExec).not.toHaveBeenCalled();
       expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject a host that is not a Salesforce login host', async () => {
+      await expect(bridge.loginWeb('my-org', 'https://evil.example.com')).rejects.toThrow(
+        'Invalid instanceUrl',
+      );
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The Windows branch builds a shell string, and the hostname check alone
+     * let the path through: `https://login.salesforce.com/"&calc&"` passed and
+     * reached cmd.exe. The platform is forced so this runs on every CI host.
+     */
+    describe('on Windows', () => {
+      const realPlatform = process.platform;
+
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+      });
+
+      afterEach(() => {
+        Object.defineProperty(process, 'platform', { value: realPlatform });
+      });
+
+      it.each([
+        ['a quoted command', 'https://login.salesforce.com/"&calc&"'],
+        ['an environment variable', 'https://login.salesforce.com/%PATH%'],
+      ])('throws on %s in the path before any shell runs', async (_label, instanceUrl) => {
+        await expect(bridge.loginWeb('my-org', instanceUrl)).rejects.toThrow('Invalid instanceUrl');
+        expect(mockExec).not.toHaveBeenCalled();
+        expect(mockExecFile).not.toHaveBeenCalled();
+      });
+
+      it('puts only the origin of the URL into the command', async () => {
+        mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
+
+        await bridge.loginWeb('my-org', 'https://Acme.my.salesforce.com/');
+
+        expect(mockExec).toHaveBeenCalledWith(
+          'sf org login web --instance-url "https://acme.my.salesforce.com" --alias "my-org"',
+          expect.objectContaining({ timeout: 120_000 }),
+        );
+      });
     });
   });
 

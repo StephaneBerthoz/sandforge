@@ -270,6 +270,8 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({
         query: vi.fn().mockResolvedValue({ records: [] }),
+        // Both orgs are described before the run to compare field types.
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -640,6 +642,8 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({
         query: vi.fn().mockResolvedValue({ records: [] }),
+        // Both orgs are described before the run to compare field types.
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -675,6 +679,8 @@ describe('SyncOpsHandler', () => {
       // Connection setup that will work
       mockGetConn.mockResolvedValue({
         query: vi.fn().mockResolvedValue({ records: [] }),
+        // Both orgs are described before the run to compare field types.
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -705,6 +711,36 @@ describe('SyncOpsHandler', () => {
         .map((c) => c[0] as BaseMessage)
         .filter((m) => m.type === 'operation:started');
       expect(startedMsgs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('scheduled runs in the background operation registry', () => {
+    // Live Operations lists scheduled syncs, and its Cancel reaches runs
+    // through the registry only: an unregistered run answers "Operation not
+    // found" and cannot be stopped.
+    it('registers a scheduled sync under its operationId while it runs', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      let refuseConnection: (err: Error) => void = () => undefined;
+      mockGetConn.mockReturnValue(
+        new Promise<never>((_resolve, reject) => {
+          refuseConnection = reject;
+        }),
+      );
+
+      const run = handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      await vi.waitFor(() => expect(registry.getActiveOperations()).toHaveLength(1));
+      const [op] = registry.getActiveOperations();
+      expect(op.operationId.startsWith('sync:schedule:')).toBe(true);
+      expect(op.module).toBe('sync');
+      expect(op.status).toBe('running');
+
+      refuseConnection(new Error('connection failed'));
+      await run;
+      await vi.waitFor(() => expect(registry.get(op.operationId)?.status).toBe('failed'));
     });
   });
 
@@ -828,6 +864,8 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({
         query: vi.fn().mockResolvedValue({ records: [] }),
+        // Both orgs are described before the run to compare field types.
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -1010,6 +1048,8 @@ describe('SyncOpsHandler', () => {
     function mockWorkingConnection(): void {
       mockGetConn.mockResolvedValue({
         query: vi.fn().mockResolvedValue({ records: [] }),
+        // Both orgs are described before the run to compare field types.
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
         sobject: vi.fn().mockReturnValue({
           create: vi.fn().mockResolvedValue([]),
           upsert: vi.fn().mockResolvedValue([]),
@@ -1545,6 +1585,262 @@ describe('SyncOpsHandler', () => {
       const lastSoql = conn.query.mock.calls[conn.query.mock.calls.length - 1][0] as string;
       expect(lastSoql).toContain('Id, Name, Custom__c');
       expect(notifications()).toHaveLength(0);
+    });
+  });
+
+  describe('the WHERE clause is checked again where it becomes query text', () => {
+    function queryConnection() {
+      return {
+        query: vi.fn(async () => ({ totalSize: 0, done: true, records: [] })),
+        queryMore: vi.fn(),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      };
+    }
+
+    async function captureQuerySource(): Promise<
+      (
+        orgId: string,
+        objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      ) => Promise<unknown>
+    > {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+      let captured:
+        | {
+            querySource: (
+              orgId: string,
+              objectConfig: import('@sandforge/shared').SyncObjectConfig,
+            ) => Promise<unknown>;
+          }
+        | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn((d: unknown) => {
+          captured = d as typeof captured;
+          return { execute: vi.fn().mockResolvedValue({ status: 'success' }) };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-where-build',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+      if (!captured) throw new Error('syncOrchestrator was never called');
+      return captured.querySource;
+    }
+
+    function accountConfig(where: string): import('@sandforge/shared').SyncObjectConfig {
+      const [object] = validSyncConfig().objects as import('@sandforge/shared').SyncObjectConfig[];
+      return { ...object, where };
+    }
+
+    it('refuses a WHERE that ends the statement, before any query leaves', async () => {
+      const conn = queryConnection();
+      mockGetConn.mockResolvedValue(conn as never);
+      const querySource = await captureQuerySource();
+
+      await expect(querySource('src-org', accountConfig('Id != null LIMIT 1'))).rejects.toThrow(
+        'Invalid SOQL WHERE clause',
+      );
+      expect(conn.query).not.toHaveBeenCalled();
+    });
+
+    it('sends a filter whose literal spells a keyword unchanged', async () => {
+      const conn = queryConnection();
+      mockGetConn.mockResolvedValue(conn as never);
+      const querySource = await captureQuerySource();
+
+      await querySource('src-org', accountConfig("Status__c = 'Delete pending'"));
+
+      expect(conn.query).toHaveBeenCalledWith(
+        "SELECT FIELDS(ALL) FROM Account WHERE Status__c = 'Delete pending'",
+      );
+    });
+  });
+
+  describe('sync:describe-global leaves out objects whose content is a file', () => {
+    it('does not offer Attachment, ContentVersion or Document', async () => {
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: ['Account', 'Attachment', 'ContentVersion', 'Document', 'Contact'].map(
+            (name) => ({ name, createable: true, queryable: true }),
+          ),
+        }),
+        limitInfo: undefined,
+      } as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-global-binary',
+          type: 'sync:describe-global',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: string[] };
+      };
+      expect(response.payload.objects).toEqual(['Account', 'Contact']);
+    });
+  });
+
+  describe('field types are compared across both orgs before anything is written', () => {
+    type DescribedField = {
+      name: string;
+      type: string;
+      createable?: boolean;
+      updateable?: boolean;
+    };
+
+    /** A connection whose describe answers `fields` and whose writes are spies. */
+    function orgConnection(fields: DescribedField[]) {
+      const sobject = {
+        create: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockResolvedValue([]),
+        destroy: vi.fn().mockResolvedValue([]),
+      };
+      return {
+        describe: vi.fn().mockResolvedValue({
+          fields: fields.map((f) => ({ length: 0, createable: true, updateable: true, ...f })),
+        }),
+        query: vi.fn(async () => ({ totalSize: 0, done: true, records: [] })),
+        queryMore: vi.fn(),
+        sobject: vi.fn().mockReturnValue(sobject),
+        writes: sobject,
+        limitInfo: undefined,
+      };
+    }
+
+    /** Run `sync:execute` for Account with `fieldMappings` between the two describes. */
+    async function runSync(
+      sourceFields: DescribedField[],
+      targetFields: DescribedField[],
+      fieldMappings: Array<{ sourceField: string; targetField: string; type: string }>,
+    ) {
+      const source = orgConnection(sourceFields);
+      const target = orgConnection(targetFields);
+      mockGetConn.mockImplementation(async (orgId: string) =>
+        orgId === 'src-org' ? (source as never) : (target as never),
+      );
+      const execute = vi.fn().mockResolvedValue({ status: 'success', objectResults: [] });
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn(() => ({ execute })),
+      } as unknown as HandlerDeps['services'];
+
+      const config = validSyncConfig();
+      (config.objects as Array<Record<string, unknown>>)[0].fieldMappings = fieldMappings;
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-field-types',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config },
+        } as BaseMessage),
+      );
+
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { message?: string } },
+      );
+      return { source, target, execute, posted };
+    }
+
+    it('a text field mapped onto a date field posts sync:error and writes nothing', async () => {
+      const { target, execute, posted } = await runSync(
+        [{ name: 'Legacy_Date__c', type: 'string' }],
+        [{ name: 'Birthdate__c', type: 'date' }],
+        [{ sourceField: 'Legacy_Date__c', targetField: 'Birthdate__c', type: 'direct' }],
+      );
+
+      const errors = posted.filter((m) => m.type === 'sync:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Account.Legacy_Date__c (string)');
+      expect(errors[0].payload.message).toContain('Account.Birthdate__c (date)');
+      expect(posted.some((m) => m.type === 'operation:failed')).toBe(true);
+      expect(execute).not.toHaveBeenCalled();
+      expect(target.writes.upsert).not.toHaveBeenCalled();
+      expect(target.writes.create).not.toHaveBeenCalled();
+    });
+
+    it('compares same-named fields when the object has no explicit mapping', async () => {
+      const { execute, posted } = await runSync(
+        [
+          { name: 'Name', type: 'string' },
+          { name: 'Score__c', type: 'double' },
+        ],
+        [
+          { name: 'Name', type: 'string' },
+          { name: 'Score__c', type: 'boolean' },
+        ],
+        [],
+      );
+
+      const errors = posted.filter((m) => m.type === 'sync:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Account.Score__c (double)');
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('lets a compatible mapping through to the run', async () => {
+      const { execute, posted } = await runSync(
+        [{ name: 'Legacy_Name__c', type: 'string' }],
+        [{ name: 'Name', type: 'string' }],
+        [{ sourceField: 'Legacy_Name__c', targetField: 'Name', type: 'rename' }],
+      );
+
+      expect(posted.filter((m) => m.type === 'sync:error')).toHaveLength(0);
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not judge a mapping whose value a transform rewrites', async () => {
+      const { execute, posted } = await runSync(
+        [{ name: 'Legacy_Date__c', type: 'string' }],
+        [{ name: 'Birthdate__c', type: 'date' }],
+        [{ sourceField: 'Legacy_Date__c', targetField: 'Birthdate__c', type: 'transform' }],
+      );
+
+      expect(posted.filter((m) => m.type === 'sync:error')).toHaveLength(0);
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores target fields the org does not let anyone write', async () => {
+      const { execute } = await runSync(
+        [{ name: 'Score__c', type: 'double' }],
+        [
+          {
+            name: 'Score__c',
+            type: 'boolean',
+            createable: false,
+            updateable: false,
+          } as DescribedField,
+        ],
+        [],
+      );
+
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('a describe that lists a field without a type ends the run naming the object', async () => {
+      const { execute, posted } = await runSync(
+        [{ name: 'Name' } as DescribedField],
+        [{ name: 'Name', type: 'string' }],
+        [],
+      );
+
+      const errors = posted.filter((m) => m.type === 'sync:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Account');
+      expect(errors[0].payload.message).toContain('source org');
+      expect(errors[0].payload.message).not.toContain('toLowerCase');
+      expect(execute).not.toHaveBeenCalled();
     });
   });
 });

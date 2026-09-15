@@ -249,6 +249,58 @@ describe('FrozenDatasetExtractor', () => {
     expect(fs.existsSync(insideRepo)).toBe(false);
   });
 
+  it('reads every query of a selection too large for one, keeping each record once', async () => {
+    const dir = makeTmpDir();
+    const accountIds = Array.from({ length: 1300 }, (_, i) =>
+      to18(`001A${String(i).padStart(11, '0')}`),
+    );
+    const sharedContact = to18('003A000000zzzzZ');
+    const captured: string[] = [];
+    const quotedIds = (soql: string): string[] =>
+      [...soql.matchAll(/'([A-Za-z0-9]{18})'/g)].map((m) => m[1]);
+    const extractor = new FrozenDatasetExtractor({
+      describeFields: async (objectApiName: string) => fieldsByObject[objectApiName] ?? [],
+      query: async (soql: string) => {
+        captured.push(soql);
+        if (soql.includes('FROM Account')) {
+          return quotedIds(soql).map((id) => ({ Id: id, Name: id }));
+        }
+        if (soql.includes('FROM Contact')) {
+          // One Contact per Account in the statement, plus one row every
+          // statement returns again.
+          return [
+            ...quotedIds(soql).map((accountId) => ({
+              Id: `003${accountId.slice(3)}`,
+              LastName: 'Dupont',
+              AccountId: accountId,
+            })),
+            { Id: sharedContact, LastName: 'Martin', AccountId: accountIds[0] },
+          ];
+        }
+        return [];
+      },
+    });
+
+    const result = await extractor.extract({
+      ...makeOptions(dir, captured),
+      rootRecordIds: accountIds,
+    });
+
+    const accountQueries = captured.filter((q) => q.includes('FROM Account'));
+    const contactQueries = captured.filter((q) => q.includes('FROM Contact'));
+    expect(accountQueries.length).toBeGreaterThan(1);
+    expect(contactQueries.length).toBeGreaterThan(1);
+    expect(accountQueries.flatMap(quotedIds).sort()).toEqual([...accountIds].sort());
+    expect(contactQueries.flatMap(quotedIds).sort()).toEqual([...accountIds].sort());
+
+    const recordsOf = (objectApiName: string) =>
+      result.objects.find((o) => o.objectApiName === objectApiName)?.records ?? [];
+    expect(recordsOf('Account')).toHaveLength(1300);
+    const contactIds = recordsOf('Contact').map((r) => r.sourceId);
+    expect(contactIds).toHaveLength(1301);
+    expect(new Set(contactIds).size).toBe(1301);
+  });
+
   it('rejects a malformed asOf bound and an empty root selection', async () => {
     const dir = makeTmpDir();
     const extractor = new FrozenDatasetExtractor(buildDeps([]));

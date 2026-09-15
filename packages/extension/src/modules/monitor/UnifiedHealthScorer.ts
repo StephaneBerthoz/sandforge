@@ -31,6 +31,11 @@ export interface UnifiedHealthInput {
   orgId: string;
   /** Optional trend storage for real trend data integration. */
   trendStorage?: TrendStorage;
+  /**
+   * Trends already computed for this org, keyed by limit name. Preferred over
+   * `trendStorage`, whose every lookup re-reads and re-parses the stored history.
+   */
+  trends?: Record<string, TrendData>;
   /** Optional org info (provides metadata counts fallback). */
   orgInfo?: OrgInfo;
   /** Optional code coverage percentage (0-100). */
@@ -525,13 +530,15 @@ export class UnifiedHealthScorer {
   }
 
   /**
-   * Fetch trend data for a limit from TrendStorage if available.
+   * Fetch trend data for a limit from the precomputed trends, or from
+   * TrendStorage if available.
    *
    * @param input - The unified health input.
    * @param limitName - The limit name to look up.
-   * @returns TrendData or undefined if TrendStorage is not available.
+   * @returns TrendData or undefined if no trend is known for the limit.
    */
   private fetchTrendData(input: UnifiedHealthInput, limitName: string): TrendData | undefined {
+    if (input.trends) return input.trends[limitName];
     if (!input.trendStorage) return undefined;
     return input.trendStorage.getTrendData(input.orgId, limitName);
   }

@@ -60,12 +60,24 @@ export interface NodeQueryInput {
   maxRecordsPerObject?: number;
 }
 
+/** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
+export interface NodeQuery {
+  kind: 'query';
+  /**
+   * SOQL to run in order. More than one only when a scope's Id lists do not
+   * fit one query URI; the rows are then merged by `Id`.
+   */
+  statements: string[];
+  /** Per-object cap, already appended as `LIMIT N` to every statement. */
+  limit?: number;
+}
+
 /**
- * Result of {@link buildNodeQuery}: either a runnable SOQL statement, or
+ * Result of {@link buildNodeQuery}: either the statements to run, or
  * `'skip'` with the reason the node is out of scope (caller skips the node
  * and surfaces the reason in the error report).
  */
-export type NodeQueryResult = { kind: 'query'; soql: string } | { kind: 'skip'; reason: string };
+export type NodeQueryResult = NodeQuery | { kind: 'skip'; reason: string };
 
 /**
  * Build the SOQL for one node: scoped to the transitive closure of the
@@ -78,7 +90,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     queryFields.push('Id');
   }
 
-  let soql: string;
+  let statements: string[];
   if (input.scopedBuilder && input.scopeCache && input.rootObjectApiName && input.rootRecordId) {
     const scopeFields = input.fieldInfos
       .filter((f) => f.isReference)
@@ -100,18 +112,55 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     if (!scopeResult.scoped) {
       return { kind: 'skip', reason: scopeResult.reason };
     }
-    soql = scopeResult.soql;
+    statements = scopeResult.statements;
   } else {
-    soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}`;
+    statements = [
+      `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}`,
+    ];
   }
 
   // Math.floor on positive non-integers is safe; guard against
   // negatives or NaN that would produce MALFORMED_QUERY.
   if (input.maxRecordsPerObject && input.maxRecordsPerObject > 0) {
     const cap = Math.floor(input.maxRecordsPerObject);
-    if (cap > 0) soql += ` LIMIT ${cap}`;
+    if (cap > 0) {
+      return { kind: 'query', statements: statements.map((s) => `${s} LIMIT ${cap}`), limit: cap };
+    }
   }
-  return { kind: 'query', soql };
+  return { kind: 'query', statements };
+}
+
+/**
+ * Run a node's statements against the source org and return its records.
+ *
+ * A chunked scope asks for the same row twice when it matches FK clauses that
+ * landed in different statements; inserting both copies would clone the
+ * record twice, so rows are kept once per `Id`. The per-object cap sits on
+ * each statement, which bounds a single read but not their sum, so it is
+ * enforced again here and the remaining statements are not sent once it is
+ * reached.
+ */
+export async function queryNodeRecords(
+  query: NodeQuery,
+  queryRecords: (soql: string) => Promise<Record<string, unknown>[]>,
+): Promise<Record<string, unknown>[]> {
+  if (query.statements.length === 1) {
+    return queryRecords(query.statements[0]);
+  }
+  const records: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const soql of query.statements) {
+    for (const record of await queryRecords(soql)) {
+      const id = record['Id'];
+      if (typeof id === 'string') {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      records.push(record);
+      if (query.limit !== undefined && records.length >= query.limit) return records;
+    }
+  }
+  return records;
 }
 
 /**

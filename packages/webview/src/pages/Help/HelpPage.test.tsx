@@ -56,6 +56,19 @@ describe('HelpPage', () => {
     expect(screen.getByTestId('help-section-faq')).toBeDefined();
   });
 
+  it('covers Forge, Frozen Dataset and Grappe, which have their own pages', () => {
+    render(<HelpPage />);
+    for (const [id, title, content] of [
+      ['forge', 'nav.forge', 'help.forgeContent'],
+      ['frozen', 'nav.frozen', 'help.frozenContent'],
+      ['grappe', 'nav.grappe', 'help.grappeContent'],
+    ]) {
+      expect(screen.getByTestId(`help-section-${id}`)).toBeDefined();
+      fireEvent.click(screen.getByText(title));
+      expect(screen.getByText(content)).toBeDefined();
+    }
+  });
+
   it('should render the new troubleshooting and release notes sections', () => {
     render(<HelpPage />);
     expect(screen.getByTestId('help-section-troubleshooting')).toBeDefined();

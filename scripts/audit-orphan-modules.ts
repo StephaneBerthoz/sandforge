@@ -176,11 +176,6 @@ const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
       'declares the ConfigStoreBackend interface the shipped store implements; only the InMemoryConfigStoreBackend test double is unreachable',
   },
   {
-    path: 'packages/shared/src/constants/sf-field-types.ts',
-    reason:
-      'SfFieldType, which sync/FieldTypeValidator imports, is derived from the SF_FIELD_TYPES array with `typeof`; the array is unreachable as a value but cannot be deleted without the type',
-  },
-  {
     path: 'packages/shared/src/schemas/ai/callResult.ts',
     reason:
       'AIUsage, which the AI client, the Anthropic adapter and SessionBudget import, is z.infer of AIUsageSchema; the schema is unreachable as a value but cannot be deleted without the type',

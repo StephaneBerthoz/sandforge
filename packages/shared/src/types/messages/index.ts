@@ -305,8 +305,6 @@ import type {
   AISchemaAdviceResponse,
   AIProviderStatusMessage,
   AIBudgetStateMessage,
-  AIBudgetWarnMessage,
-  AIBudgetExceededMessage,
 } from './ai.messages.js';
 import type {
   SettingsGetRequest,
@@ -766,8 +764,6 @@ export type ExtensionToWebViewMessage =
   | AISchemaAdviceResponse
   | AIProviderStatusMessage
   | AIBudgetStateMessage
-  | AIBudgetWarnMessage
-  | AIBudgetExceededMessage
   // Settings
   | SettingsResponse
   | NotificationMessage

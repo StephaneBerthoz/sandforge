@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FieldMapper, generateValue } from './FieldMapper';
 import type { FieldMapperDependencies } from './FieldMapper';
+import { FakerFallback } from './FakerFallback';
 import type { SeedObjectConfig, FieldRule } from '@sandforge/shared';
 
 function createMockDeps(): FieldMapperDependencies {
@@ -91,6 +92,45 @@ describe('FieldMapper', () => {
       const result = await mapper.mapFields(config, new Map());
       expect(deps.aiGenerator.generate).toHaveBeenCalledTimes(1);
       expect(result[0]['Bio']).toBe('AI text 1');
+    });
+
+    it('fills ai_generate fields with generated text when the AI call returns no records', async () => {
+      const realMapper = new FieldMapper({
+        aiGenerator: deps.aiGenerator,
+        fakerFallback: new FakerFallback(),
+      });
+      const config = createObjectConfig(
+        [{ fieldApiName: 'Bio', ruleType: 'ai_generate', config: { aiPrompt: 'Generate bio' } }],
+        3,
+      );
+
+      const result = await realMapper.mapFields(config, new Map());
+
+      expect(result).toHaveLength(3);
+      for (const record of result) {
+        expect(record['Bio']).toEqual(expect.stringMatching(/\S/));
+      }
+    });
+
+    it('keeps the values the AI returned and fills only the ones it left out', async () => {
+      vi.mocked(deps.aiGenerator.generate).mockResolvedValue([{ Bio: 'AI text 1', Title: 'CEO' }]);
+      const realMapper = new FieldMapper({
+        aiGenerator: deps.aiGenerator,
+        fakerFallback: new FakerFallback(),
+      });
+      const config = createObjectConfig(
+        [
+          { fieldApiName: 'Bio', ruleType: 'ai_generate', config: { aiPrompt: 'Generate bio' } },
+          { fieldApiName: 'Title', ruleType: 'ai_generate', config: { aiPrompt: 'Job title' } },
+        ],
+        2,
+      );
+
+      const result = await realMapper.mapFields(config, new Map());
+
+      expect(result[0]).toEqual({ Bio: 'AI text 1', Title: 'CEO' });
+      expect(result[1]['Bio']).toEqual(expect.stringMatching(/\S/));
+      expect(result[1]['Title']).toEqual(expect.stringMatching(/\S/));
     });
 
     it('should delegate faker rules to fakerFallback', async () => {

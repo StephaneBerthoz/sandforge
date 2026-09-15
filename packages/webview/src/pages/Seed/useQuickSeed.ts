@@ -6,6 +6,7 @@ import type {
   FieldRuleConfig,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOperationProgress } from '../../hooks/useOperationProgress';
 import type { ObjectProgress } from './Step7_Execute';
 
 /** Phase of the Quick Seed state machine. */
@@ -117,6 +118,15 @@ export function useQuickSeed(): QuickSeedState {
     setSelectedOrgId(orgId);
   }, []);
 
+  // The extension reports each object as it starts and the records written so
+  // far. The bar read a fixed 50% for the whole run and every row 0/N.
+  const { latest } = useOperationProgress();
+  // `latest` outlives a run and this hook stays mounted across reset(), so the
+  // event seen when a run starts belongs to the previous one: it is ignored
+  // until the extension sends a newer one.
+  const [previousRunProgress, setPreviousRunProgress] = useState<typeof latest>(null);
+  const progress = isRunning && latest !== previousRunProgress ? latest : null;
+
   const execute = useCallback(() => {
     if (!selectedTemplate || !selectedOrgId) return;
 
@@ -140,12 +150,13 @@ export function useQuickSeed(): QuickSeedState {
 
     setPhase('executing');
     setElapsedMs(0);
+    setPreviousRunProgress(latest);
 
     executeMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
     });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation]);
+  }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation, latest]);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -158,21 +169,38 @@ export function useQuickSeed(): QuickSeedState {
     executeMutation.reset();
   }, [executeMutation]);
 
-  /* Derive object progress from template */
+  /* Derive object progress from the template and the live figures */
   const objectProgress: ObjectProgress[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    return selectedTemplate.objects.map(
-      (obj): ObjectProgress => ({
-        objectApiName: obj.objectApiName,
-        total: customizedCounts[obj.objectApiName] ?? obj.recordCount,
-        completed: 0,
-        failed: 0,
-        status: isRunning ? 'running' : 'pending',
-      }),
+    const totals = selectedTemplate.objects.map(
+      (obj) => customizedCounts[obj.objectApiName] ?? obj.recordCount,
     );
-  }, [selectedTemplate, customizedCounts, isRunning]);
+    const currentIndex = progress
+      ? selectedTemplate.objects.findIndex((obj) =>
+          progress.currentStep.endsWith(` ${obj.objectApiName}`),
+        )
+      : -1;
+    let before = 0;
+    return selectedTemplate.objects.map((obj, index): ObjectProgress => {
+      const total = totals[index];
+      let status: ObjectProgress['status'] = isRunning ? 'running' : 'pending';
+      let completed = 0;
+      if (currentIndex !== -1 && progress) {
+        if (index < currentIndex) {
+          status = 'done';
+          completed = total;
+        } else if (index === currentIndex) {
+          completed = Math.min(total, Math.max(0, progress.processedRecords - before));
+        } else {
+          status = 'pending';
+        }
+      }
+      before += total;
+      return { objectApiName: obj.objectApiName, total, completed, failed: 0, status };
+    });
+  }, [selectedTemplate, customizedCounts, isRunning, progress]);
 
-  const overallPercent = isRunning ? 50 : executionResult ? 100 : 0;
+  const overallPercent = progress ? progress.percentage : executionResult ? 100 : 0;
 
   return {
     phase,

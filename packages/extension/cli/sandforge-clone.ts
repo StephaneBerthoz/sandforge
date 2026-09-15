@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
 
 import type { ForgeConfig } from '@sandforge/shared';
+import { forgeConfigSchemaStrict } from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
   GraphDiscoveryDeps,
@@ -119,6 +120,27 @@ Options:
   -h, --help             show this help and exit
 `;
 
+/** A 15- or 18-character Salesforce ID. */
+const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
+
+/** An SObject or field API name — the pattern the ForgeConfig schema enforces. */
+const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** The flag each ForgeConfig field is read from, to name it in an error. */
+const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
+  inputMode: '--record',
+  recordId: '--record',
+  depth: '--depth',
+  customDepth: '--custom-depth',
+  maxRecordsPerObject: '--max',
+  sourceOrgId: '--source',
+  targetOrgId: '--target',
+  fieldExclusions: '--exclude',
+  ownerMappings: '--owner-map',
+  objectSoqlFilters: '--filter',
+  fieldMappings: '--map',
+};
+
 function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) {
@@ -139,7 +161,7 @@ function parseArgs(argv: string[]): CliArgs {
     process.exit(2);
   }
 
-  const depthRaw = (get('--depth', 'custom') ?? 'custom') as 'direct' | 'full' | 'custom';
+  const depthRaw = get('--depth', 'custom') ?? 'custom';
   const customDepthRaw = get('--custom-depth', '5');
   const maxRaw = get('--max');
   // Repeatable flags: scan all positions for matches.
@@ -159,6 +181,12 @@ function parseArgs(argv: string[]): CliArgs {
     }
     const obj = raw.slice(0, dotIdx);
     const field = raw.slice(dotIdx + 1);
+    if (!API_NAME_RE.test(obj) || !API_NAME_RE.test(field)) {
+      process.stderr.write(
+        `Invalid --exclude name in "${raw}" (must match SObject API name pattern)\n`,
+      );
+      process.exit(2);
+    }
     (fieldExclusions[obj] ??= []).push(field);
   }
   const ownerMappings: Record<string, string> = {};
@@ -212,8 +240,7 @@ function parseArgs(argv: string[]): CliArgs {
     const obj = raw.slice(0, dotIdx);
     const src = raw.slice(dotIdx + 1, eqIdx);
     const tgt = raw.slice(eqIdx + 1);
-    const fieldRe = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
-    if (!fieldRe.test(src) || !fieldRe.test(tgt)) {
+    if (!API_NAME_RE.test(src) || !API_NAME_RE.test(tgt)) {
       process.stderr.write(
         `Invalid --map field name in "${raw}" (must match SObject API name pattern)\n`,
       );
@@ -221,13 +248,45 @@ function parseArgs(argv: string[]): CliArgs {
     }
     (fieldMappings[obj] ??= {})[src] = tgt;
   }
+  const customDepth = customDepthRaw ? Number(customDepthRaw) : 5;
+  const maxRecordsPerObject = maxRaw ? Number(maxRaw) : undefined;
+
+  // The schema the wizard's ForgeConfig goes through, run on the same fields.
+  // Without it `--depth deep` was cast into the union, and a malformed record
+  // ID or object name was only refused after both orgs had been authenticated.
+  const checked = forgeConfigSchemaStrict.safeParse({
+    inputMode: 'record',
+    recordId: record,
+    depth: depthRaw,
+    customDepth: depthRaw === 'custom' ? customDepth : undefined,
+    sourceOrgId: source,
+    targetOrgId: target,
+    anonymizePII: has('--anonymize'),
+    skipEmpty: true,
+    batchSize: 'auto',
+    maxRecordsPerObject,
+    fieldExclusions,
+    ownerMappings,
+    objectSoqlFilters,
+    fieldMappings,
+  });
+  if (!checked.success) {
+    for (const issue of checked.error.issues) {
+      const [field, ...rest] = issue.path.map(String);
+      const flag = FLAG_OF_FIELD[field ?? ''] ?? field ?? 'arguments';
+      const at = rest.length > 0 ? ` (${rest.join('.')})` : '';
+      process.stderr.write(`Invalid ${flag}${at}: ${issue.message}\n`);
+    }
+    process.exit(2);
+  }
+
   return {
     record,
     source,
     target,
-    depth: depthRaw,
-    customDepth: customDepthRaw ? Number(customDepthRaw) : 5,
-    maxRecordsPerObject: maxRaw ? Number(maxRaw) : undefined,
+    depth: checked.data.depth,
+    customDepth,
+    maxRecordsPerObject,
     anonymize: has('--anonymize'),
     dryRun: has('--dry-run'),
     upsert: has('--upsert'),
@@ -303,22 +362,27 @@ async function loadRecordTypes(
   sourceConn: jsforce.Connection,
   targetConn: jsforce.Connection,
 ): Promise<RecordTypeMapping[]> {
-  const soql = 'SELECT Id, Name, DeveloperName FROM RecordType WHERE IsActive = true';
+  // SobjectType is read so the match stays within one object: Account and
+  // Opportunity can each have a "Business" record type.
+  const soql = 'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
+  type RecordTypeRow = { Id: string; Name: string; DeveloperName: string; SobjectType: string };
   const [s, tgt] = await Promise.all([
-    sourceConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
-    targetConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
+    sourceConn.query<RecordTypeRow>(soql),
+    targetConn.query<RecordTypeRow>(soql),
   ]);
-  const toInfo = (r: { Id: string; Name: string; DeveloperName: string }): RecordTypeInfo => ({
+  const toInfo = (r: RecordTypeRow): RecordTypeInfo => ({
     id: r.Id,
     name: r.Name,
     developerName: r.DeveloperName,
+    sobjectType: r.SobjectType,
   });
   return new RecordTypeMapper().buildMapping(s.records.map(toInfo), tgt.records.map(toInfo));
 }
 
-async function main(): Promise<void> {
+/** Run one clone from the given command line; exported so its flag checks can be tested. */
+export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
-  const args = parseArgs(process.argv);
+  const args = parseArgs(argv);
   console.log(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
 
   const sourceOrg = loadOrg(args.source);
@@ -633,7 +697,10 @@ async function main(): Promise<void> {
   if (summary.failedCount > 0 && summary.successCount === 0) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error('FATAL:', err instanceof Error ? err.stack : err);
-  process.exit(1);
-});
+// Only when run as a script: importing the module must not start a clone.
+if (/sandforge-clone\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  main().catch((err) => {
+    console.error('FATAL:', err instanceof Error ? err.stack : err);
+    process.exit(1);
+  });
+}

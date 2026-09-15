@@ -5,12 +5,14 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type {
+  AlertInstance,
   ApiLimit,
   HealthReport,
   TrendData,
   JobInsight,
   OrgInfo,
   MonitorOpenApexJobsResponse,
+  MonitorAlertsResultMessage,
 } from '@sandforge/shared';
 import type { TrendSeries } from './TrendCharts';
 import type { JobDisplayInfo } from './MonitorPage';
@@ -92,6 +94,12 @@ export interface MonitorPageData {
   lastUpdatedStr: string;
   /** Number of active or acknowledged alerts. */
   activeAlertsCount: number;
+  /** Active alerts, from the page's one `monitor:alerts` query. */
+  alerts: AlertInstance[];
+  /** Alert history, from that same query. */
+  alertHistory: AlertInstance[];
+  /** Asks for the alerts again, after an acknowledge or dismiss changed them. */
+  refetchAlerts: () => void;
   /** DailyApiRequests limit detail. */
   apiLimit: ApiLimit;
   /** DataStorageMB limit detail. */
@@ -188,7 +196,11 @@ export function useMonitorPageData(): MonitorPageData {
     timeoutMs: 300_000,
   });
 
-  const alertsQuery = useBridgeQuery<{ alerts: Array<{ status: string }> }>(
+  // One query feeds the alerts KPI, the alerts panel and the history panel.
+  // Each used to send its own: three identical requests per mount, and since a
+  // reply answers only the request that carries its correlation id, an
+  // acknowledge refreshed the alerts panel and left the history on the old status.
+  const alertsQuery = useBridgeQuery<MonitorAlertsResultMessage['payload']>(
     'monitor:alerts',
     undefined,
     { responseType: 'monitor:alerts:result', skip: !selectedOrgId },
@@ -212,10 +224,14 @@ export function useMonitorPageData(): MonitorPageData {
   const orgHealthStatus = data?.orgHealthStatus;
   const lastUpdated = data?.lastUpdated ?? null;
 
-  const activeAlertsCount = useMemo(() => {
-    const alerts = alertsQuery.data?.alerts ?? [];
-    return alerts.filter((a) => a.status === 'active' || a.status === 'acknowledged').length;
-  }, [alertsQuery.data?.alerts]);
+  const alerts = useMemo(() => alertsQuery.data?.alerts ?? [], [alertsQuery.data?.alerts]);
+  const alertHistory = useMemo(() => alertsQuery.data?.history ?? [], [alertsQuery.data?.history]);
+  const refetchAlerts = alertsQuery.refetch;
+
+  const activeAlertsCount = useMemo(
+    () => alerts.filter((a) => a.status === 'active' || a.status === 'acknowledged').length,
+    [alerts],
+  );
 
   const apiLimit = useMemo(() => findLimit(limits, 'DailyApiRequests'), [limits]);
   const storageLimit = useMemo(() => findLimit(limits, 'DataStorageMB'), [limits]);
@@ -404,6 +420,9 @@ export function useMonitorPageData(): MonitorPageData {
     lastUpdated,
     lastUpdatedStr,
     activeAlertsCount,
+    alerts,
+    alertHistory,
+    refetchAlerts,
     apiLimit,
     storageLimit,
     fileStorageLimit,

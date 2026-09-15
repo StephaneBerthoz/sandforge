@@ -5,12 +5,13 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 import { ReferenceDataMapper } from './ReferenceDataMapper.js';
-import { RecordTypeMapper } from '../sync/RecordTypeMapper.js';
+import { RecordTypeMapper, warnUnmappedRecordType } from '../sync/RecordTypeMapper.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
 import {
   buildNodeQuery,
   getParentObjects,
+  queryNodeRecords,
   seedOwnIds,
   seedScopeCache,
   sortNodesForExecution,
@@ -477,10 +478,9 @@ export class ForgeExecutor {
       remapper: new IdRemapper(),
       scopeCache: config.isScoped ? new RecordScopeCache() : null,
       scopedBuilder: config.isScoped ? new ScopedSoqlBuilder() : null,
-      recordTypeMapper:
-        config.recordTypeMappings && config.recordTypeMappings.length > 0
-          ? new RecordTypeMapper()
-          : null,
+      // An empty mapping list still means "translate": the target org shares
+      // no record type, and every RecordTypeId met must be reported as such.
+      recordTypeMapper: config.recordTypeMappings ? new RecordTypeMapper() : null,
       referenceDataMapper: new ReferenceDataMapper((orgId, soql) =>
         this.deps.queryRecords(orgId, soql),
       ),
@@ -680,7 +680,22 @@ export class ForgeExecutor {
         return;
       }
 
-      const records = await this.deps.queryRecords(sourceOrgId, query.soql);
+      // The target describe does not depend on the source rows, so it runs
+      // while they are read instead of after: one round-trip less of waiting
+      // per node. It is settled into a value here and read below, so a failed
+      // describe cannot surface as an unhandled rejection when the query fails
+      // first. Only started on the path that writes.
+      const writes = !config.dryRun && !config.referenceDataObjects.has(node.objectApiName);
+      const targetSetsPending = writes
+        ? describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
+            (sets) => ({ ok: true as const, sets }),
+            (error: unknown) => ({ ok: false as const, error }),
+          )
+        : null;
+
+      const records = await queryNodeRecords(query, (soql) =>
+        this.deps.queryRecords(sourceOrgId, soql),
+      );
 
       // Reference-data branch: resolve source IDs against target rows by
       // Name/DeveloperName instead of cloning. Adds entries to the IdRemapper
@@ -739,19 +754,20 @@ export class ForgeExecutor {
       // way to detect missing fields/picklist drift before insert.
       let targetCreatableSet: Set<string> | null = null;
       let targetPicklistValuesByField: Map<string, Set<string>> | null = null;
-      try {
-        const targetSets = await describeTargetFieldSets(
-          this.deps.describeFields,
-          targetOrgId,
-          node.objectApiName,
-        );
-        targetCreatableSet = targetSets.creatable;
-        targetPicklistValuesByField = targetSets.picklistValuesByField;
-      } catch (err: unknown) {
+      const targetSets = await (targetSetsPending ??
+        describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
+          (sets) => ({ ok: true as const, sets }),
+          (error: unknown) => ({ ok: false as const, error }),
+        ));
+      if (targetSets.ok) {
+        targetCreatableSet = targetSets.sets.creatable;
+        targetPicklistValuesByField = targetSets.sets.picklistValuesByField;
+      } else {
         // Surface schema-drift defense failure: target describe is the
         // *only* way to detect missing fields/picklist drift before
         // insert. Without this signal the user sees cryptic INVALID_FIELD
         // and can't tell if it's drift or auth.
+        const err = targetSets.error;
         state.errors.push({
           objectApiName: node.objectApiName,
           stage: 'scope',
@@ -801,7 +817,11 @@ export class ForgeExecutor {
       });
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
-        recordsToInsert = state.recordTypeMapper.apply(recordsToInsert, config.recordTypeMappings);
+        recordsToInsert = state.recordTypeMapper.apply(
+          recordsToInsert,
+          config.recordTypeMappings,
+          (recordTypeId) => warnUnmappedRecordType(node.objectApiName, recordTypeId),
+        );
       }
 
       // Step 2b: Apply anonymization if configured

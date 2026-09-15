@@ -146,6 +146,115 @@ describe('OrgHandler', () => {
     });
   });
 
+  describe('org:connect login URL', () => {
+    /** The org:error reply posted for the connect request, if any. */
+    function connectError(): { code?: string } | undefined {
+      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+      const reply = calls
+        .map((c) => c[0] as { type: string; payload: { code?: string } })
+        .find((m) => m.type === 'org:error');
+      return reply?.payload;
+    }
+
+    it.each([
+      ['a host that is not Salesforce', 'https://evil.example.com'],
+      ['a Salesforce name used as a prefix', 'https://login.salesforce.com.evil.io'],
+      ['a path after the host', 'https://login.salesforce.com/"&calc&"'],
+    ])(
+      'refuses %s for username/password before any credential is sent',
+      async (_label, loginUrl) => {
+        const authenticate = vi.fn();
+        deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];
+
+        await handler.handle(
+          createMsg('org:connect', {
+            orgId: '',
+            authMethod: 'usernamePassword',
+            username: 'u@example.com',
+            password: 'secret',
+            loginUrl,
+          }),
+        );
+
+        expect(authenticate).not.toHaveBeenCalled();
+        expect(connectError()?.code).toBe('INVALID_LOGIN_URL');
+      },
+    );
+
+    it.each([
+      ['a host that is not Salesforce', 'https://evil.example.com'],
+      ['a Salesforce name used as a prefix', 'https://login.salesforce.com.evil.io'],
+      ['an environment variable in the path', 'https://login.salesforce.com/%PATH%'],
+    ])('refuses %s for OAuth web before the CLI runs', async (_label, loginUrl) => {
+      const loginWeb = vi.fn();
+      const isCliAvailable = vi.fn().mockResolvedValue(true);
+      deps.sfdxBridge = { loginWeb, isCliAvailable } as unknown as HandlerDeps['sfdxBridge'];
+
+      await handler.handle(
+        createMsg('org:connect', { orgId: '', authMethod: 'oauth_web', loginUrl }),
+      );
+
+      expect(loginWeb).not.toHaveBeenCalled();
+      expect(connectError()?.code).toBe('INVALID_LOGIN_URL');
+    });
+
+    it('sends username/password credentials to the origin of the login URL', async () => {
+      const authenticate = vi.fn().mockResolvedValue({ success: false, error: 'bad password' });
+      deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];
+
+      await handler.handle(
+        createMsg('org:connect', {
+          orgId: '',
+          authMethod: 'usernamePassword',
+          username: 'u@example.com',
+          password: 'secret',
+          loginUrl: 'https://Acme.my.salesforce.com/',
+        }),
+      );
+
+      expect(authenticate).toHaveBeenCalledWith(
+        expect.objectContaining({ loginUrl: 'https://acme.my.salesforce.com' }),
+      );
+    });
+
+    it('hands OAuth web the origin of the login URL, not the raw string', async () => {
+      const loginWeb = vi.fn().mockResolvedValue(undefined);
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        loginWeb,
+        listOrgs: vi.fn().mockResolvedValue([]),
+      } as unknown as HandlerDeps['sfdxBridge'];
+
+      await handler.handle(
+        createMsg('org:connect', {
+          orgId: '',
+          authMethod: 'oauth_web',
+          alias: 'uat',
+          loginUrl: 'https://TEST.salesforce.com/',
+        }),
+      );
+
+      expect(loginWeb).toHaveBeenCalledWith('uat', 'https://test.salesforce.com');
+    });
+  });
+
+  describe('org:connect with a method that is not implemented', () => {
+    it.each(['jwt', 'oauth_device'])(
+      'answers %s with UNSUPPORTED_AUTH and touches nothing',
+      async (authMethod) => {
+        await handler.handle(createMsg('org:connect', { orgId: '', authMethod }));
+
+        const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+        const reply = calls
+          .map((c) => c[0] as { type: string; correlationId?: string; payload: { code?: string } })
+          .find((m) => m.type === 'org:error');
+        expect(reply?.payload.code).toBe('UNSUPPORTED_AUTH');
+        expect(reply?.correlationId).toBe('req-99');
+        expect(deps.orgRegistry.saveOrg).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   describe('payload validation', () => {
     it('rejects org:disconnect without orgId (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(createMsg('org:disconnect', {}));

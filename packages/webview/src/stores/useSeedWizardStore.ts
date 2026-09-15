@@ -21,8 +21,6 @@ export interface SeedWizardState {
   error: string | null;
   /** Currently selected AI persona, or null. */
   selectedPersona: PersonaMsg | null;
-  /** Number of fields last configured by persona application. */
-  personaMatchedFields: number;
 
   /** Update the selected org. */
   handleOrgSelect: (orgId: string) => void;
@@ -38,8 +36,6 @@ export interface SeedWizardState {
   setError: (e: string | null) => void;
   /** Set the selected persona (from PersonaGallery callback). */
   setSelectedPersona: (persona: PersonaMsg | null) => void;
-  /** Record how many fields a persona application matched. */
-  setPersonaMatchedFields: (count: number) => void;
   /** Reset all wizard slices to their initial values. */
   resetSeedWizard: () => void;
 }
@@ -51,7 +47,6 @@ const INITIAL_STATE = {
   relations: [] as SeedRelation[],
   error: null as string | null,
   selectedPersona: null as PersonaMsg | null,
-  personaMatchedFields: 0,
 };
 
 /**
@@ -104,10 +99,6 @@ export const useSeedWizardStore = create<SeedWizardState>((set) => ({
 
   setSelectedPersona(persona: PersonaMsg | null): void {
     set({ selectedPersona: persona });
-  },
-
-  setPersonaMatchedFields(count: number): void {
-    set({ personaMatchedFields: count });
   },
 
   resetSeedWizard(): void {

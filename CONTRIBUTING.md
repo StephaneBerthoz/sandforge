@@ -8,7 +8,7 @@ review stays fast.
 
 - **Node** 22+ (a `.nvmrc` is committed; run `nvm use` or `fnm use`).
 - **pnpm** 11, pinned via the `packageManager` field in the root
-  `package.json` (`pnpm@11.18.0`). With Corepack enabled
+  `package.json`. With Corepack enabled
   (`corepack enable`) the right version is selected automatically.
   `pnpm-workspace.yaml` uses pnpm ≥ 10 settings (`allowBuilds`,
   `overrides`, `catalog`), so older pnpm versions will not install
@@ -21,7 +21,8 @@ review stays fast.
 git clone https://github.com/StephaneBerthoz/sandforge.git
 cd sandforge
 pnpm install          # also installs the git pre-commit hook (prepare script)
-pnpm validate         # build:shared + typecheck + lint + test + audit:disposables + build
+pnpm validate         # the gates CI runs, bar the Playwright E2E suite and mutation testing
+                      # (the list is the `validate` script in package.json)
 ```
 
 ## Workspace layout
@@ -59,9 +60,10 @@ Bypass with `--no-verify` only if you really have to (don't).
 - Fork or branch off `master`.
 - Branch name should describe the work: `fix/sync-conflict-merge`,
   `feat/forge-cycle-cap`.
-- PRs require green CI (`.github/workflows/ci.yml` runs on
-  ubuntu/macos/windows for typecheck + lint + test + build, plus
-  Playwright E2E on Windows).
+- PRs require green CI: `.github/workflows/ci.yml` runs typecheck, test
+  and build on ubuntu/macos/windows, then lint, the repository gates,
+  coverage and Playwright E2E on ubuntu; Format Check and Knip run from
+  their own workflows.
 
 ## Tests
 
@@ -73,9 +75,11 @@ Bypass with `--no-verify` only if you really have to (don't).
 - Coverage: `pnpm test:coverage` (v8 provider, per package).
 - E2E tests live in `packages/webview/e2e/` (Playwright):
   `pnpm --filter @sandforge/webview e2e`.
-- Mutation testing with Stryker: `pnpm stryker`
-  (`pnpm stryker:incremental` for faster local loops; config in
-  `stryker.conf.json`).
+- Mutation testing with Stryker: `pnpm stryker` mutates `packages/shared`
+  (`stryker.conf.json`), `pnpm exec stryker run stryker.extension.conf.json`
+  mutates the extension's execution engine. The Stryker workflow runs both
+  on every push that changes the code they mutate, and nightly; each run
+  fails below its config's `thresholds.break`.
 - The full suite runs in ~3 minutes locally and is required green
   pre-merge.
 

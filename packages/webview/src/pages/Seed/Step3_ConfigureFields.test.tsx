@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { SUPPORTED_FAKER_METHODS } from '@sandforge/shared';
 import { Step3ConfigureFields, categorizeObject } from './Step3_ConfigureFields';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 
@@ -43,7 +44,97 @@ const configs: ObjectFieldConfig[] = [
   },
 ];
 
+/** The rule types offered, then those shown but not selectable, for one field row. */
+function ruleChoices(testId: string): { offered: string[]; disabled: string[] } {
+  const ruleSelect = screen.getByTestId(testId).querySelectorAll('select')[0];
+  const options = Array.from(ruleSelect.querySelectorAll('option')).filter((o) => o.value !== '');
+  return {
+    offered: options.filter((o) => !o.disabled).map((o) => o.value),
+    disabled: options.filter((o) => o.disabled).map((o) => o.value),
+  };
+}
+
 describe('Step3ConfigureFields', () => {
+  it('offers AI generation only on fields a generated sentence can fill', () => {
+    const field = (fieldApiName: string, type: string) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type,
+      required: false,
+      ruleType: 'static' as const,
+      config: {},
+    });
+    render(
+      <Step3ConfigureFields
+        objectConfigs={[
+          {
+            objectApiName: 'Opportunity',
+            objectLabel: 'Opportunity',
+            fields: [
+              field('Description', 'textarea'),
+              field('NextStep', 'string'),
+              field('Amount', 'currency'),
+              field('Probability', 'double'),
+              field('CloseDate', 'date'),
+              field('IsPrivate', 'boolean'),
+              field('Email__c', 'email'),
+              field('StageName', 'picklist'),
+            ],
+          },
+        ]}
+        onChangeRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
+    );
+
+    expect(ruleChoices('field-Opportunity-Description').offered).toContain('ai_generate');
+    expect(ruleChoices('field-Opportunity-NextStep').offered).toContain('ai_generate');
+    for (const name of [
+      'Amount',
+      'Probability',
+      'CloseDate',
+      'IsPrivate',
+      'Email__c',
+      'StageName',
+    ]) {
+      const choices = ruleChoices(`field-Opportunity-${name}`);
+      expect(choices.offered, name).not.toContain('ai_generate');
+      expect(choices.offered, name).toContain('static');
+      expect(choices.disabled, name).toEqual([]);
+    }
+  });
+
+  it('keeps an AI rule already set on a number field visible but not selectable', () => {
+    render(
+      <Step3ConfigureFields
+        objectConfigs={[
+          {
+            objectApiName: 'Opportunity',
+            objectLabel: 'Opportunity',
+            fields: [
+              {
+                fieldApiName: 'Amount',
+                label: 'Amount',
+                type: 'currency',
+                required: false,
+                ruleType: 'ai_generate',
+                config: { aiPrompt: 'Deal size' },
+              },
+            ],
+          },
+        ]}
+        onChangeRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
+    );
+
+    const choices = ruleChoices('field-Opportunity-Amount');
+    expect(choices.offered).not.toContain('ai_generate');
+    expect(choices.disabled).toEqual(['ai_generate']);
+    const ruleSelect = screen.getByTestId('field-Opportunity-Amount').querySelector('select');
+    expect(ruleSelect?.value).toBe('ai_generate');
+  });
+
   it('should render the step', () => {
     render(
       <Step3ConfigureFields
@@ -185,6 +276,73 @@ describe('Step3ConfigureFields', () => {
     const input = field.querySelector('input');
     expect(input).toBeDefined();
     expect(input?.value).toBe('[A-Z]{3}');
+  });
+
+  it('offers the faker methods SandForge generates in a list instead of free text', () => {
+    const onChangeConfig = vi.fn();
+    render(
+      <Step3ConfigureFields
+        objectConfigs={[
+          {
+            objectApiName: 'Account',
+            objectLabel: 'Account',
+            fields: [
+              {
+                fieldApiName: 'Name',
+                label: 'Name',
+                type: 'string',
+                required: true,
+                ruleType: 'faker',
+                config: { fakerMethod: 'company.name' },
+              },
+            ],
+          },
+        ]}
+        onChangeRule={vi.fn()}
+        onChangeConfig={onChangeConfig}
+      />,
+    );
+
+    const field = screen.getByTestId('field-Account-Name');
+    expect(field.querySelector('input')).toBeNull();
+    const methodSelect = field.querySelectorAll('select')[1];
+    const values = Array.from(methodSelect.querySelectorAll('option'))
+      .map((o) => o.value)
+      .filter((v) => v !== '');
+    expect(values).toEqual([...SUPPORTED_FAKER_METHODS]);
+    /* A template written with the faker.js spelling shows the method it resolves to. */
+    expect(methodSelect.value).toBe('company');
+
+    fireEvent.change(methodSelect, { target: { value: 'iban' } });
+    expect(onChangeConfig).toHaveBeenCalledWith('Account', 'Name', 'fakerMethod', 'iban');
+  });
+
+  it('keeps a method nothing generates visible, so the refusal can be traced to it', () => {
+    render(
+      <Step3ConfigureFields
+        objectConfigs={[
+          {
+            objectApiName: 'Account',
+            objectLabel: 'Account',
+            fields: [
+              {
+                fieldApiName: 'Pet__c',
+                label: 'Pet',
+                type: 'string',
+                required: false,
+                ruleType: 'faker',
+                config: { fakerMethod: 'animal.petName' },
+              },
+            ],
+          },
+        ]}
+        onChangeRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
+    );
+
+    const methodSelect = screen.getByTestId('field-Account-Pet__c').querySelectorAll('select')[1];
+    expect(methodSelect.value).toBe('animal.petName');
   });
 
   it('should show grouped view with search filter for >20 objects', () => {

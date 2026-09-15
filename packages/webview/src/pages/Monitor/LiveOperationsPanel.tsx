@@ -1,22 +1,25 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, Pause, Play, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Activity, Pause, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../theme';
 import type { LiveOperationSnapshot } from '@sandforge/shared';
 
-/** Props for the LiveOperationsPanel component. */
+/**
+ * Props for the LiveOperationsPanel component.
+ *
+ * There is no pause or resume: the operations tracked here are Seed and Sync
+ * runs, which can be cancelled but not paused. The buttons this panel used to
+ * offer reached a handler that only knows pipeline runs, and every click
+ * answered "No active operation found to pause."
+ */
 export interface LiveOperationsPanelProps {
   /** Array of live operation snapshots. */
   operations: LiveOperationSnapshot[];
   /** Callback to cancel an operation. */
   onCancel?: (operationId: string) => void;
-  /** Callback to pause an operation. */
-  onPause?: (operationId: string) => void;
-  /** Callback to resume a paused operation. */
-  onResume?: (operationId: string) => void;
 }
 
 /** Formats elapsed milliseconds as human-readable string. */
@@ -78,10 +81,8 @@ const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status'] }> = ({ sta
 const OperationRow: React.FC<{
   operation: LiveOperationSnapshot;
   onCancel?: (id: string) => void;
-  onPause?: (id: string) => void;
-  onResume?: (id: string) => void;
   t: (key: string, defaultValue: string) => string;
-}> = ({ operation, onCancel, onPause, onResume, t }) => {
+}> = ({ operation, onCancel, t }) => {
   const isActive = operation.status === 'running' || operation.status === 'paused';
 
   return (
@@ -142,28 +143,6 @@ const OperationRow: React.FC<{
       {/* Action buttons */}
       {isActive && (
         <div className="flex items-center gap-1.5 mt-1">
-          {operation.status === 'running' && onPause && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onPause(operation.operationId)}
-              data-testid={`pause-${operation.operationId}`}
-            >
-              <Pause className="w-3 h-3 mr-1" />
-              {t('monitor.liveOps.pause', 'Pause')}
-            </Button>
-          )}
-          {operation.status === 'paused' && onResume && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onResume(operation.operationId)}
-              data-testid={`resume-${operation.operationId}`}
-            >
-              <Play className="w-3 h-3 mr-1" />
-              {t('monitor.liveOps.resume', 'Resume')}
-            </Button>
-          )}
           {onCancel && (
             <Button
               variant="ghost"
@@ -188,8 +167,6 @@ const OperationRow: React.FC<{
 export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
   operations,
   onCancel,
-  onPause,
-  onResume,
 }) => {
   const { t } = useTranslation();
 
@@ -226,14 +203,7 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
         )}
       </div>
       {operations.map((op) => (
-        <OperationRow
-          key={op.operationId}
-          operation={op}
-          onCancel={onCancel}
-          onPause={onPause}
-          onResume={onResume}
-          t={t}
-        />
+        <OperationRow key={op.operationId} operation={op} onCancel={onCancel} t={t} />
       ))}
     </div>
   );

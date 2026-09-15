@@ -22,6 +22,21 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => mockMutationState,
 }));
 
+/* Latest operation:progress event, as useOperationProgress hands it over. */
+const progressStream = vi.hoisted(() => ({
+  latest: null as null | {
+    operationId: string;
+    percentage: number;
+    processedRecords: number;
+    totalRecords: number;
+    currentStep: string;
+  },
+}));
+
+vi.mock('../../hooks/useOperationProgress', () => ({
+  useOperationProgress: () => ({ latest: progressStream.latest, getProgress: vi.fn() }),
+}));
+
 const mockTemplate: SeedTemplate = {
   id: 'prebuilt-minimal-demo',
   name: 'Minimal Demo',
@@ -66,6 +81,92 @@ describe('useQuickSeed', () => {
       error: null,
       reset: mockReset,
     };
+    progressStream.latest = null;
+  });
+
+  it('shows the progress the extension reports while the seed runs, not a fixed figure', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    mockMutationState = { ...mockMutationState, loading: true };
+    progressStream.latest = {
+      operationId: 'op-1',
+      percentage: 60,
+      processedRecords: 90,
+      totalRecords: 150,
+      currentStep: 'Insert Contact',
+    };
+    rerender();
+
+    expect(result.current.overallPercent).toBe(60);
+    expect(result.current.objectProgress).toEqual([
+      { objectApiName: 'Account', total: 50, completed: 50, failed: 0, status: 'done' },
+      { objectApiName: 'Contact', total: 100, completed: 40, failed: 0, status: 'running' },
+    ]);
+  });
+
+  it('reads 0% before the first progress event arrives', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    mockMutationState = { ...mockMutationState, loading: true };
+    rerender();
+
+    expect(result.current.overallPercent).toBe(0);
+    expect(result.current.objectProgress.map((o) => o.status)).toEqual(['running', 'running']);
+  });
+
+  it('reads 0% at the start of a second run instead of the last figure of the first', () => {
+    const { result, rerender } = renderHook(() => useQuickSeed());
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+      result.current.selectOrg('org-1');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, loading: true };
+    progressStream.latest = {
+      operationId: 'op-1',
+      percentage: 100,
+      processedRecords: 150,
+      totalRecords: 150,
+      currentStep: 'Insert Contact',
+    };
+    rerender();
+    expect(result.current.overallPercent).toBe(100);
+
+    mockMutationState = { ...mockMutationState, loading: false };
+    rerender();
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+      result.current.selectOrg('org-1');
+    });
+    act(() => {
+      result.current.execute();
+    });
+    mockMutationState = { ...mockMutationState, loading: true };
+    rerender();
+
+    expect(result.current.overallPercent).toBe(0);
+    expect(result.current.objectProgress.map((o) => o.completed)).toEqual([0, 0]);
+
+    progressStream.latest = {
+      operationId: 'op-2',
+      percentage: 20,
+      processedRecords: 30,
+      totalRecords: 150,
+      currentStep: 'Insert Account',
+    };
+    rerender();
+    expect(result.current.overallPercent).toBe(20);
   });
 
   it('starts in idle phase', () => {

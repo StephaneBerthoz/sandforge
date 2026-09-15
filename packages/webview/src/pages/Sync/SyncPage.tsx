@@ -41,6 +41,15 @@ import { SplitView } from '../../components/ui/SplitView';
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
 
+/**
+ * The tabs the page offers. Real-Time and Conflicts stay declared and wired
+ * below but are not offered: every `realtime:*` channel is answered by the
+ * no-op handler, so the first could only end at an error badge and the second
+ * could only list conflicts that stream never pushes. They belong back in this
+ * list once the extension streams changes.
+ */
+const OFFERED_SYNC_TABS: readonly SyncTab[] = ['sync', 'history', 'schedules'];
+
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
   { id: 'field-mapping', labelKey: 'sync.fieldMapping' },
@@ -234,9 +243,11 @@ export const SyncPage: React.FC = () => {
     value: org.id,
     label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
   }));
+  // No "target to source": the orchestrator branches on `bidirectional` alone,
+  // so that option wrote source to target, and the extension now refuses it.
+  // Swapping the two orgs is how a sync copies the other way.
   const directionOptions: { value: SyncDirection; label: string }[] = [
     { value: 'source_to_target', label: t('sync.directions.source_to_target') },
-    { value: 'target_to_source', label: t('sync.directions.target_to_source') },
     { value: 'bidirectional', label: t('sync.directions.bidirectional') },
   ];
   const conflictOptions: { value: ConflictStrategy; label: string }[] = [
@@ -292,7 +303,7 @@ export const SyncPage: React.FC = () => {
         role="tablist"
         data-testid="sync-tabs"
       >
-        {(['sync', 'history', 'schedules', 'realtime', 'conflicts'] as const).map((tab) => (
+        {OFFERED_SYNC_TABS.map((tab) => (
           <button
             key={tab}
             type="button"

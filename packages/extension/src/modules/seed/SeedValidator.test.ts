@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SeedValidator } from './SeedValidator';
+import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import type { SeedTemplate } from '@sandforge/shared';
 
 function createValidTemplate(overrides?: Partial<SeedTemplate>): SeedTemplate {
@@ -250,6 +251,131 @@ describe('SeedValidator', () => {
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
     });
+
+    it('fails a faker method the generator does not implement, on any object of the template', () => {
+      const template = createValidTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [
+              { fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company' } },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+          {
+            objectApiName: 'Contact',
+            recordCount: 10,
+            fieldRules: [
+              {
+                fieldApiName: 'Pet__c',
+                ruleType: 'faker',
+                config: { fakerMethod: 'animal.petName' },
+              },
+            ],
+            excludedFields: [],
+            insertOrder: 1,
+            batchSize: 200,
+          },
+        ],
+      });
+      const result = validator.validate(template);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([
+        {
+          field: 'objects[Contact].fieldRules[Pet__c].config.fakerMethod',
+          message: expect.stringContaining('"animal.petName"'),
+        },
+      ]);
+    });
+
+    it('accepts the faker.js spelling of a method the generator implements', () => {
+      const template = createValidTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [
+              {
+                fieldApiName: 'IBAN__c',
+                ruleType: 'faker',
+                config: { fakerMethod: 'finance.iban' },
+              },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+      });
+      expect(validator.validate(template).errors).toEqual([]);
+    });
+
+    it.each(['double', 'currency', 'date', 'boolean', 'email', 'picklist'])(
+      'fails an AI rule on a %s field, where a generated sentence is not a valid value',
+      (fieldType) => {
+        const template = createValidTemplate({
+          objects: [
+            {
+              objectApiName: 'Opportunity',
+              recordCount: 10,
+              fieldRules: [
+                {
+                  fieldApiName: 'Amount__c',
+                  fieldType,
+                  ruleType: 'ai_generate',
+                  config: { aiPrompt: 'Deal size' },
+                },
+              ],
+              excludedFields: [],
+              insertOrder: 0,
+              batchSize: 200,
+            },
+          ],
+        });
+        const result = validator.validate(template);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toEqual([
+          {
+            field: 'objects[Opportunity].fieldRules[Amount__c].ruleType',
+            message: expect.stringContaining(`"${fieldType}"`),
+          },
+        ]);
+      },
+    );
+
+    it('accepts an AI rule on a text field, and on a rule that does not name its field type', () => {
+      const template = createValidTemplate({
+        objects: [
+          {
+            objectApiName: 'Case',
+            recordCount: 10,
+            fieldRules: [
+              {
+                fieldApiName: 'Description',
+                fieldType: 'textarea',
+                ruleType: 'ai_generate',
+                config: { aiPrompt: 'Customer complaint' },
+              },
+              { fieldApiName: 'Subject', ruleType: 'ai_generate', config: { aiPrompt: 'Title' } },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+      });
+      expect(validator.validate(template).errors).toEqual([]);
+    });
+
+    it.each(PREBUILT_SEED_TEMPLATES.map((t) => [t.id, t] as const))(
+      'passes the prebuilt template %s',
+      (_id, template) => {
+        expect(validator.validate(template).errors).toEqual([]);
+      },
+    );
 
     it('should fail when regex rule has no pattern', () => {
       const template = createValidTemplate({

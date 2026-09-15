@@ -47,7 +47,6 @@ export interface SyncConfig {
   objects: SyncObjectConfig[];
   conflictStrategy: ConflictStrategy;
   enableRollback: boolean;
-  schedule?: SyncSchedule;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
@@ -105,15 +104,6 @@ export interface AddOnField {
   fieldApiName: string;
   value: string | number | boolean;
   overwriteExisting: boolean;
-}
-
-/** Sync schedule configuration */
-export interface SyncSchedule {
-  enabled: boolean;
-  cron: string;
-  timezone: string;
-  maxRetries: number;
-  notifyOnFailure: boolean;
 }
 
 /** Sync execution result */

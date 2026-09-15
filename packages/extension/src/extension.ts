@@ -28,7 +28,12 @@ import {
 } from './composition/backgroundComposition';
 import { initForgeComposition } from './composition/forgeComposition';
 import { initAutopilotComposition } from './composition/autopilotComposition';
-import { initAIComposition, registerAIConfigListener } from './composition/aiComposition';
+import {
+  createAIReinit,
+  initAIComposition,
+  registerAIConfigListener,
+  wireBudgetReporting,
+} from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
@@ -234,6 +239,10 @@ export function activate(context: vscode.ExtensionContext): void {
       log,
       disposables: context.subscriptions,
     });
+  wireBudgetReporting(services, broker);
+  // A saved key must reach the adapter even when sandforge.ai.enabled was
+  // already true and writing it raises no configuration event.
+  services.reinitAI = createAIReinit({ services, run: runAI, log });
   runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
 
@@ -451,7 +460,7 @@ export async function deactivate(): Promise<void> {
   broker?.dispose();
   router = undefined;
   broker = undefined;
-  // Drop memoised AI adapters (they hold SDK clients + budget state).
+  // Drop memoised AI adapters (they hold SDK clients and in-flight requests).
   servicesRef?.aiClient.invalidate();
   // Flush pending telemetry events before the host tears us down.
   await servicesRef?.telemetry.flush();

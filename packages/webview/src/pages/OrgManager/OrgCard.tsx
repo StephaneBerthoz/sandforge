@@ -14,6 +14,8 @@ export interface OrgCardProps {
   onSelect: (id: string) => void;
   onEdit: (org: SalesforceOrg) => void;
   onDisconnect: (id: string) => void;
+  /** Offered on an expired or failed org, whose badge alone left no way forward. */
+  onReconnect?: (org: SalesforceOrg) => void;
 }
 
 const statusBadgeVariant: Record<string, BadgeVariant> = {
@@ -38,10 +40,12 @@ export const OrgCard: React.FC<OrgCardProps> = ({
   onSelect,
   onEdit,
   onDisconnect,
+  onReconnect,
 }) => {
   const { t } = useTranslation();
   const typeStyle = ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT;
   const envLabel = orgTypeLabel(org);
+  const canReconnect = onReconnect && (org.status === 'expired' || org.status === 'error');
 
   return (
     <div
@@ -102,6 +106,18 @@ export const OrgCard: React.FC<OrgCardProps> = ({
 
       {/* Row 4: Actions */}
       <div className="mt-2 flex gap-2 justify-end">
+        {canReconnect && (
+          <button
+            className="text-xs text-[var(--sf-text-link)] hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReconnect(org);
+            }}
+            data-testid={`org-reconnect-${org.id}`}
+          >
+            {t('monitor.tryReconnect')}
+          </button>
+        )}
         <button
           className="text-xs text-[var(--sf-text-link)] hover:underline"
           onClick={(e) => {

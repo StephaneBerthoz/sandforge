@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] `pnpm validate` is green locally (build:shared + typecheck + lint + test + audit:disposables + check:i18n + build)
+- [ ] `pnpm validate` is green locally (the gates CI runs, bar the Playwright E2E suite and mutation testing; the list is the `validate` script in the root `package.json`)
 - [ ] New logic has colocated `*.test.ts` (vitest, one test file per source file)
 - [ ] User-facing strings go through i18next in **all 6 locales** (`en`, `fr`, `de`, `es`, `ja`, `pt-BR`); extension-side strings use `package.nls.*.json`
 - [ ] New bridge messages have **both** the Zod schema (`packages/shared/src/bridge/messageSchemas.ts`) **and** the TS interface (`packages/shared/src/types/messages/<domain>.messages.ts`) — zero-drift rule, ADR 0002

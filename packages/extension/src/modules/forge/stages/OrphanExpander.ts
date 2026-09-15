@@ -24,9 +24,14 @@ import type { ForgeGraphNode } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
+import { isForgeExcludedObject } from '../excludedObjects.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
-import type { RecordTypeMapper, RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
+import {
+  warnUnmappedRecordType,
+  type RecordTypeMapper,
+  type RecordTypeMapping,
+} from '../../sync/RecordTypeMapper.js';
 import { intersect } from './RecordCleaner.js';
 
 /**
@@ -34,43 +39,6 @@ import { intersect } from './RecordCleaner.js';
  * Used as a defense-in-depth check before SOQL interpolation.
  */
 const SF_RECORD_ID_RE = /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/;
-
-/**
- * Object names that the orphan-parent expansion path refuses to fetch
- * even when a child node references them as a required FK. These are
- * either system-managed (User, Group, RecordType) or audit-trail
- * style entities Salesforce won't let us insert anyway. Skipping them
- * here avoids burning API calls + spamming the error panel with
- * predictable REQUIRED_FIELD_MISSING / CANNOT_INSERT failures.
- *
- * Extended to mirror the BFS-side exclusion list. Without this,
- * orphan-expand could try to clone a BusinessProcess / DandBCompany /
- * ProcessInstance — silently round-tripping the API and littering the
- * error panel with predictable failures.
- */
-const EXPANSION_EXCLUDED_OBJECTS = new Set([
-  'User',
-  'Group',
-  'Profile',
-  'UserRole',
-  'RecordType',
-  'Organization',
-  'Queue',
-  'PermissionSet',
-  'BusinessProcess',
-  'CurrencyType',
-  'DandBCompany',
-  'DuplicateRecordItem',
-  'DuplicateRecordSet',
-  'ProcessInstance',
-]);
-
-const EXPANSION_EXCLUDED_SUFFIXES = ['History', 'Feed', 'Share', 'ChangeEvent', '__hd', '__Tag'];
-
-function isExpansionExcludedObject(name: string): boolean {
-  if (EXPANSION_EXCLUDED_OBJECTS.has(name)) return true;
-  return EXPANSION_EXCLUDED_SUFFIXES.some((s) => name.endsWith(s));
-}
 
 /** Inputs for {@link OrphanExpander.expandForNode}. */
 export interface OrphanExpansionInput {
@@ -144,10 +112,11 @@ export class OrphanExpander {
         if (remapper.get(value)) continue;
         for (const target of field.referenceTo ?? []) {
           if (target === node.objectApiName) continue;
-          // Excluded objects (User, RecordType, Group, history/feed/share/
-          // changeevent suffixes) can't be cloned in a meaningful way and
-          // would just burn API calls + add noise to the error report.
-          if (isExpansionExcludedObject(target)) continue;
+          // Excluded objects (User, RecordType, Group, job and log tables,
+          // history/feed/share/changeevent suffixes) can't be cloned in a
+          // meaningful way and would just burn API calls + add noise to the
+          // error report. Same list discovery uses, so the two cannot drift.
+          if (isForgeExcludedObject(target)) continue;
           const key = `${target}::${value}`;
           if (!requiredOrphans.has(key)) {
             requiredOrphans.set(key, { object: target, sourceId: value });
@@ -261,16 +230,20 @@ export class OrphanExpander {
     if (!SF_RECORD_ID_RE.test(sourceRecordId)) {
       throw new Error(`Invalid Salesforce record ID for orphan expansion: "${sourceRecordId}"`);
     }
-    const fields = await this.deps.describeFields(sourceOrgId, parentObject);
+    // The object name comes from a describe's `referenceTo` and goes into the
+    // REST path of both describes below, not only into the SOQL. Checking it
+    // only at the SOQL line let an unvalidated name reach two requests first.
+    const objectName = assertSoqlIdentifier(parentObject);
+    const fields = await this.deps.describeFields(sourceOrgId, objectName);
     const queryFields = fields.filter((f) => f.queryable).map((f) => f.name);
     if (queryFields.length === 0) queryFields.push('Id');
-    const soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(parentObject)} WHERE Id = '${sanitizeSoqlValue(sourceRecordId)}'`;
+    const soql = `SELECT ${queryFields.join(', ')} FROM ${objectName} WHERE Id = '${sanitizeSoqlValue(sourceRecordId)}'`;
     const records = await this.deps.queryRecords(sourceOrgId, soql);
     if (records.length === 0) return null;
 
     let targetCreatable: Set<string> | null = null;
     try {
-      const targetFields = await this.deps.describeFields(targetOrgId, parentObject);
+      const targetFields = await this.deps.describeFields(targetOrgId, objectName);
       targetCreatable = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
     } catch (err: unknown) {
       // Don't bury the error — the orphan path is high-blast-radius
@@ -303,9 +276,11 @@ export class OrphanExpander {
     }
     const payload =
       recordTypeMapper && recordTypeMappings
-        ? recordTypeMapper.apply([cleaned], recordTypeMappings)[0]
+        ? recordTypeMapper.apply([cleaned], recordTypeMappings, (id) =>
+            warnUnmappedRecordType(objectName, id),
+          )[0]
         : cleaned;
-    const result = await this.deps.insertRecords(targetOrgId, parentObject, [payload]);
+    const result = await this.deps.insertRecords(targetOrgId, objectName, [payload]);
     if (!result[0] || !result[0].success) return null;
     return result[0].id;
   }

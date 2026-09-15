@@ -245,7 +245,7 @@ test.describe('Automation panel — boot', () => {
     await expect(page.getByTestId('automation-page')).toBeVisible();
     await expect(page.getByTestId('page-header')).toContainText('Automation');
     await expect(page.getByTestId('page-header-subtitle')).toHaveText(
-      'Build and automate your Salesforce workflows',
+      'Compose and save multi-step pipelines',
     );
     await expect(page.getByTestId('automation-content')).toBeVisible();
   });

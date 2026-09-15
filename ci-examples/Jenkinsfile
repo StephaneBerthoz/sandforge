@@ -3,20 +3,21 @@
 // Honest example built on what actually exists in this repo:
 //   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 //   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
-//   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+//   3. Cleanup (always dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 //   4. VSIX package    — pnpm package, archived as an artifact
 //
 // There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
 // only in the VSCode extension UI. See ci-examples/README.md for details.
 //
 // Prerequisites:
-//   - Node.js 20 configured in Jenkins Global Tool Configuration ('Node-20')
+//   - Node.js 22 configured in Jenkins Global Tool Configuration ('Node-22')
 //   - Credentials (Secret text):
 //     - sfdx-auth-url-source: sfdx auth URL of the source org
 //     - sfdx-auth-url-target: sfdx auth URL of the target sandbox
 //     - slack-webhook: (optional) Slack webhook for failure notifications
-//   - Job environment: set SANDFORGE_SF_ORGS=true and SF_CLONE_RECORD_ID
-//     (e.g. in folder properties) to enable the clone/cleanup stages
+//   - To enable the clone/cleanup stages: set SANDFORGE_SF_ORGS=true in the
+//     job environment (e.g. in folder properties) and pass SF_CLONE_RECORD_ID
+//     as a build parameter; an environment variable of that name is ignored
 
 pipeline {
     agent any
@@ -29,7 +30,7 @@ pipeline {
         booleanParam(
             name: 'DRY_RUN',
             defaultValue: true,
-            description: 'Run clone/cleanup in dry-run mode (no data written to target org)'
+            description: 'Run the clone in dry-run mode (no data written to target org); cleanup is always a preview'
         )
         string(
             name: 'SF_CLONE_RECORD_ID',
@@ -53,7 +54,8 @@ pipeline {
         // ── Quality gates ──────────────────────────────────
         stage('Quality gates') {
             steps {
-                sh 'npm install -g pnpm@11'
+                // pnpm comes from the `packageManager` pin in package.json.
+                sh 'corepack enable'
                 sh 'pnpm install --frozen-lockfile'
                 // Chains build:shared → typecheck → lint → test → check:i18n
                 // → build. build:shared has to run first: the other packages
@@ -77,11 +79,18 @@ pipeline {
                     sh 'npm install -g @salesforce/cli'
                     sh 'pnpm build:shared'
                     // Authenticate both orgs; the CLIs shell out to `sf org display`.
-                    sh 'printf "%s" "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt'
-                    sh 'printf "%s" "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt'
-                    sh 'sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source'
-                    sh 'sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target'
-                    sh 'rm -f /tmp/auth-source.txt /tmp/auth-target.txt'
+                    // One `sh` for the whole sequence: each `sh` is its own shell,
+                    // and the trap that removes the URLs only covers the shell that
+                    // set it. Agents keep /tmp between builds, failed logins included.
+                    sh '''
+                        umask 077
+                        auth_dir=$(mktemp -d)
+                        trap 'rm -rf "$auth_dir"' EXIT
+                        printf '%s' "$SFDX_AUTH_URL_SOURCE" > "$auth_dir/source.txt"
+                        printf '%s' "$SFDX_AUTH_URL_TARGET" > "$auth_dir/target.txt"
+                        sf org login sfdxurl --sfdx-url-file "$auth_dir/source.txt" --alias ci-source
+                        sf org login sfdxurl --sfdx-url-file "$auth_dir/target.txt" --alias ci-target
+                    '''
                     script {
                         def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
                         sh """
@@ -105,21 +114,23 @@ pipeline {
             }
         }
 
-        // ── Cleanup (real CLI, dry-run default) ────────────
+        // ── Cleanup (real CLI, always a preview) ───────────
+        // Same condition as Clone: this stage has no login of its own, and on a
+        // persistent agent a `ci-target` alias left by an earlier build would
+        // otherwise answer for it. Always `--dry-run`, whatever DRY_RUN says:
+        // `--since today` matches every record the CI user created today, not
+        // only the ones this clone wrote. Run the real delete by hand.
         stage('Cleanup (sandforge-cleanup)') {
             when {
-                expression { return env.SANDFORGE_SF_ORGS == 'true' }
+                expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
             }
             steps {
-                script {
-                    def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
-                    sh """
-                        pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \\
-                            --target ci-target \\
-                            --since today \\
-                            ${dryRunFlag}
-                    """
-                }
+                sh '''
+                    pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \\
+                        --target ci-target \\
+                        --since today \\
+                        --dry-run
+                '''
             }
         }
 
@@ -154,8 +165,14 @@ pipeline {
             }
         }
 
-        // Clean up workspace
+        // Log the CI aliases out and clean up the workspace. A persistent agent
+        // keeps the sf CLI's auth store between builds, so a session left
+        // behind would outlive the credentials rotated in Jenkins.
         cleanup {
+            sh '''
+                sf org logout --target-org ci-source --no-prompt || true
+                sf org logout --target-org ci-target --no-prompt || true
+            '''
             cleanWs()
         }
     }

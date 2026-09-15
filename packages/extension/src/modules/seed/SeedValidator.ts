@@ -1,3 +1,4 @@
+import { acceptsGeneratedSentence, resolveFakerMethod } from '@sandforge/shared';
 import type { SeedTemplate, SeedObjectConfig, FieldRule, FieldRuleType } from '@sandforge/shared';
 
 /** Result of a seed template validation */
@@ -159,6 +160,29 @@ function validateRuleConfig(rule: FieldRule, prefix: string, errors: ValidationE
         errors.push({
           field: `${prefix}.config.fakerMethod`,
           message: 'Faker rule requires a fakerMethod',
+        });
+      } else if (!resolveFakerMethod(rule.config.fakerMethod)) {
+        // Refused here, before the first object is inserted: the generator
+        // would throw only when it reached this object, after the objects
+        // ahead of it had already been written to the org.
+        errors.push({
+          field: `${prefix}.config.fakerMethod`,
+          message:
+            `Faker method "${rule.config.fakerMethod}" in ${prefix} is not implemented: ` +
+            'choose a method SandForge generates. No record was written.',
+        });
+      }
+      break;
+
+    case 'ai_generate':
+      // A field the AI call leaves empty is filled with a generated sentence,
+      // which a number, date, boolean, email or picklist field cannot hold.
+      if (rule.fieldType !== undefined && !acceptsGeneratedSentence(rule.fieldType)) {
+        errors.push({
+          field: `${prefix}.ruleType`,
+          message:
+            `AI generation in ${prefix} writes text, which a "${rule.fieldType}" field cannot hold: ` +
+            'choose another rule for this field. No record was written.',
         });
       }
       break;

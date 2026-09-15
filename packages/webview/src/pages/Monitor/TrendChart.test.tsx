@@ -39,7 +39,8 @@ describe('TrendChart', () => {
     expect(screen.getByTestId('trend-period-selector')).toBeDefined();
     expect(screen.getByTestId('trend-period-24h')).toBeDefined();
     expect(screen.getByTestId('trend-period-7d')).toBeDefined();
-    expect(screen.getByTestId('trend-period-30d')).toBeDefined();
+    // History is kept for seven days: a 30-day view would show that same week.
+    expect(screen.queryByTestId('trend-period-30d')).toBeNull();
   });
 
   it('should default to 24h period', () => {

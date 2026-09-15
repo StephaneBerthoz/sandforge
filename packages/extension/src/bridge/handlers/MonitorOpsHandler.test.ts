@@ -1102,6 +1102,155 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
+  describe('what a refresh tick reads', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    /** A connection answering every call a refresh makes; `/limits` is `request`. */
+    function createRefreshConn(request: ReturnType<typeof vi.fn>): Record<string, unknown> {
+      return {
+        request,
+        identity: vi.fn().mockResolvedValue({
+          instance_name: 'NA99',
+          last_login_date: '2026-03-20T00:00:00Z',
+        }),
+        query: vi.fn().mockResolvedValue({ totalSize: 10, done: true, records: [] }),
+        version: '62.0',
+        limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+      };
+    }
+
+    /** Job rows for the AsyncApexJob query, the org row for the org info. */
+    function answerQueriesBySoql(): void {
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) =>
+        soql.includes('FROM Organization')
+          ? [
+              {
+                Name: 'TestOrg',
+                Id: '00Dtest',
+                OrganizationType: 'Developer Edition',
+                NamespacePrefix: null,
+                CreatedDate: '2026-01-01',
+              },
+            ]
+          : [],
+      );
+    }
+
+    function request(id: string, type: string, orgId: string): InboundRequest {
+      return inboundRequest({ id, type, timestamp: Date.now(), payload: { orgId } });
+    }
+
+    it('asks for the job list without waiting for /limits to answer', async () => {
+      let answerLimits: (limits: typeof FAKE_LIMITS) => void = () => {};
+      const limitsCall = vi.fn(
+        () =>
+          new Promise<typeof FAKE_LIMITS>((resolve) => {
+            answerLimits = resolve;
+          }),
+      );
+      mockGetJsforceConnection.mockResolvedValue(createRefreshConn(limitsCall));
+      answerQueriesBySoql();
+
+      const tick = handler.handle(request('req-parallel', 'monitor:refresh', 'org-parallel'));
+      await vi.waitFor(() => expect(limitsCall).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(mockQueryAll).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.stringContaining('FROM AsyncApexJob'),
+        ),
+      );
+      answerLimits(FAKE_LIMITS);
+      await tick;
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview.mock.calls.map(([m]) => (m as BaseMessage).type)).toEqual([
+        'monitor:data',
+      ]);
+    });
+
+    it('reports the /limits failure when both org calls fail, whichever fails first', async () => {
+      mockGetJsforceConnection.mockResolvedValue(
+        createRefreshConn(
+          vi.fn(
+            () =>
+              new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error('limits refused')), 20);
+              }),
+          ),
+        ),
+      );
+      mockQueryAll.mockRejectedValue(new Error('job query refused'));
+
+      await handler.handle(request('req-both-fail', 'monitor:refresh', 'org-both-fail'));
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const reply = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
+      expect(reply.type).toBe('monitor:error');
+      expect(reply.payload.message).toBe('limits refused');
+    });
+
+    it('sends the week of stored trend points and reads the stored history once', async () => {
+      const now = Date.now();
+      const at = (msAgo: number): string => new Date(now - msAgo).toISOString();
+      const apiAt = (usedPercent: number) => [
+        { name: 'DailyApiRequests', max: 15000, remaining: 15000 - usedPercent * 150, usedPercent },
+      ];
+      const stored = [
+        { orgId: 'org-week', limits: apiAt(40), timestamp: at(6 * DAY_MS) },
+        { orgId: 'org-week', limits: apiAt(50), timestamp: at(2 * 60 * 60 * 1000) },
+      ];
+      const configGet = deps.configStore.get as ReturnType<typeof vi.fn>;
+      configGet.mockImplementation((key: string) =>
+        key === 'trend:org-week' ? structuredClone(stored) : undefined,
+      );
+      mockGetJsforceConnection.mockResolvedValue(
+        createRefreshConn(vi.fn().mockResolvedValue(FAKE_LIMITS)),
+      );
+      answerQueriesBySoql();
+
+      await handler.handle(request('req-week', 'monitor:refresh', 'org-week'));
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const reply = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { trends: Record<string, { timestamps?: string[] }> };
+      };
+      expect(reply.type).toBe('monitor:data');
+      expect(reply.payload.trends.DailyApiRequests.timestamps?.[0]).toBe(at(6 * DAY_MS));
+      expect(configGet.mock.calls.filter(([key]) => key === 'trend:org-week')).toHaveLength(1);
+    });
+
+    it('scores monitor:health-score on the same dimensions as monitor:data', async () => {
+      mockGetJsforceConnection.mockResolvedValue(
+        createRefreshConn(vi.fn().mockResolvedValue(FAKE_LIMITS)),
+      );
+      answerQueriesBySoql();
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+
+      await handler.handle(request('req-score', 'monitor:health-score', 'org-score'));
+      await handler.handle(request('req-score-data', 'monitor:refresh', 'org-score'));
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const [scoreReply, dataReply] = postToWebview.mock.calls.map(([m]) => m) as [
+        BaseMessage & { payload: { overallScore: number; dimensions: Array<{ name: string }> } },
+        BaseMessage & {
+          payload: { healthReport: { overallScore: number; factors: Array<{ name: string }> } };
+        },
+      ];
+      expect(scoreReply.type).toBe('monitor:health-score:response');
+      expect(dataReply.type).toBe('monitor:data');
+      const scored = scoreReply.payload.dimensions.map((d) => d.name);
+      expect(scored).toContain('Metadata Complexity');
+      expect(scored).toEqual(dataReply.payload.healthReport.factors.map((f) => f.name));
+      expect(scoreReply.payload.overallScore).toBe(dataReply.payload.healthReport.overallScore);
+    });
+  });
+
   describe('one AsyncApexJob query per refresh tick', () => {
     /** One recent job row, shaped as the AsyncApexJob SOQL reads it. */
     const JOB_ROW = {

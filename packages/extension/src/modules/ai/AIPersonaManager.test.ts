@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { SUPPORTED_FAKER_METHODS } from '@sandforge/shared';
 import { AIPersonaManager, type AIProvider, type AIPersona } from './AIPersonaManager';
 
 function createMockPersonaResponse(overrides?: Partial<AIPersona>): string {
@@ -11,7 +12,7 @@ function createMockPersonaResponse(overrides?: Partial<AIPersona>): string {
       Pet_Name__c: {
         fieldType: 'string',
         generator: 'faker',
-        params: { method: 'animal.petName' },
+        params: { method: 'person.firstName' },
         examples: ['Buddy', 'Luna', 'Max'],
       },
       Species__c: {
@@ -216,6 +217,87 @@ describe('AIPersonaManager', () => {
       await expect(manager.createCustomPersona('Vet clinic', mockProvider)).rejects.toThrow();
     });
 
+    it('names the params of every generator and the faker methods Seed generates in the prompt', async () => {
+      await manager.createCustomPersona('A veterinary clinic', mockProvider);
+
+      const prompt = mockProvider.mock.calls[0][0];
+      expect(prompt).not.toContain('"...": "..."');
+      for (const param of ['"method"', '"values"', '"min"', '"max"', '"prefix"', '"pattern"']) {
+        expect(prompt).toContain(param);
+      }
+      expect(prompt).toContain('"prompt"');
+      expect(prompt).toContain('minDaysFromNow');
+      for (const method of SUPPORTED_FAKER_METHODS) {
+        expect(prompt).toContain(method);
+      }
+    });
+
+    it('drops patterns Seed cannot generate and normalises the params of the rest', async () => {
+      mockProvider.mockResolvedValue(
+        JSON.stringify({
+          name: 'Clinic',
+          dataPatterns: {
+            Magic__c: { fieldType: 'string', generator: 'magic', params: {}, examples: [] },
+            NoGenerator__c: { fieldType: 'string', params: { method: 'email' }, examples: [] },
+            Pet_Name__c: {
+              fieldType: 'string',
+              generator: 'faker',
+              params: { method: 'animal.petName' },
+              examples: ['Rex'],
+            },
+            Email__c: {
+              fieldType: 'string',
+              generator: 'faker',
+              params: { method: 'internet.email', locale: 'en_US', colour: 'red' },
+              examples: [],
+            },
+            Visit_Cost__c: {
+              fieldType: 'currency',
+              generator: 'range',
+              params: { min: '50', max: 2000, currency: 'USD' },
+              examples: ['75.00'],
+            },
+            Empty_Pick__c: {
+              fieldType: 'picklist',
+              generator: 'random_pick',
+              params: { values: [] },
+              examples: [],
+            },
+            Visit_Date__c: {
+              fieldType: 'date',
+              generator: 'ai_generate',
+              params: { prompt: 'Next visit' },
+              examples: [],
+            },
+            Visit_Notes__c: {
+              fieldType: 'textarea',
+              generator: 'ai_generate',
+              params: { prompt: 'Vet notes' },
+              examples: [],
+            },
+          },
+        }),
+      );
+
+      const persona = await manager.createCustomPersona('Clinic', mockProvider);
+
+      expect(Object.keys(persona.dataPatterns).sort()).toEqual([
+        'Email__c',
+        'Visit_Cost__c',
+        'Visit_Notes__c',
+      ]);
+      expect(persona.dataPatterns['Email__c'].params).toEqual({
+        method: 'email',
+        locale: 'en_US',
+      });
+      expect(persona.dataPatterns['Visit_Cost__c'].params).toEqual({
+        min: 50,
+        max: 2000,
+        currency: 'USD',
+      });
+      expect(persona.dataPatterns['Visit_Cost__c'].examples).toEqual(['75.00']);
+    });
+
     it('should provide defaults for missing fields in AI response', async () => {
       mockProvider.mockResolvedValue(JSON.stringify({ dataPatterns: {} }));
 
@@ -223,49 +305,6 @@ describe('AIPersonaManager', () => {
       expect(persona.name).toBe('Custom Persona');
       expect(persona.industry).toBe('General');
       expect(persona.locale).toBe('en-US');
-    });
-  });
-
-  // --- applyPersona ---
-
-  describe('applyPersona', () => {
-    it('should return the matching field pattern', () => {
-      const persona = manager.getPersona('assureur-fr');
-      expect(persona).toBeDefined();
-
-      const pattern = manager.applyPersona(persona!, 'Account', 'SIRET__c');
-
-      expect(pattern).toBeDefined();
-      expect(pattern?.fieldType).toBe('string');
-      expect(pattern?.generator).toBe('pattern');
-    });
-
-    it('should return undefined for non-matching field names', () => {
-      const persona = manager.getPersona('assureur-fr');
-      expect(persona).toBeDefined();
-
-      const pattern = manager.applyPersona(persona!, 'Account', 'NonExistentField__c');
-      expect(pattern).toBeUndefined();
-    });
-
-    it('should work with different personas and fields', () => {
-      const persona = manager.getPersona('hospital-us');
-      expect(persona).toBeDefined();
-
-      const pattern = manager.applyPersona(persona!, 'Case', 'ICD10_Code__c');
-
-      expect(pattern).toBeDefined();
-      expect(pattern?.generator).toBe('random_pick');
-    });
-
-    it('should return pattern with examples populated', () => {
-      const persona = manager.getPersona('ecommerce-b2c');
-      expect(persona).toBeDefined();
-
-      const pattern = manager.applyPersona(persona!, 'Product2', 'Product_Name__c');
-
-      expect(pattern).toBeDefined();
-      expect(pattern?.examples.length).toBeGreaterThan(0);
     });
   });
 

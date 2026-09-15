@@ -47,6 +47,15 @@ export class FieldMapper {
     const fakerRecords =
       fakerRules.length > 0 ? this.deps.fakerFallback.generate(fakerRules, recordCount) : [];
 
+    // The AI call yields no records when AI is off or the call is refused, and
+    // may return fewer records or fields than asked. A field it left out was
+    // inserted blank; it now gets a generated sentence, so the run writes what
+    // the rule promised and the refusal stays a log line.
+    const aiGaps = hasMissingAiValues(aiRules, aiRecords, recordCount);
+    const aiFallbackRecords = aiGaps
+      ? this.deps.fakerFallback.generate(aiRules.map(toSentenceRule), recordCount)
+      : [];
+
     const records: Record<string, unknown>[] = [];
 
     for (let i = 0; i < recordCount; i++) {
@@ -60,6 +69,12 @@ export class FieldMapper {
         Object.assign(record, aiRecords[i]);
       }
 
+      for (const rule of aiGaps ? aiRules : []) {
+        if (record[rule.fieldApiName] === undefined || record[rule.fieldApiName] === null) {
+          record[rule.fieldApiName] = aiFallbackRecords[i]?.[rule.fieldApiName] ?? null;
+        }
+      }
+
       if (fakerRecords[i]) {
         Object.assign(record, fakerRecords[i]);
       }
@@ -69,6 +84,33 @@ export class FieldMapper {
 
     return records;
   }
+}
+
+/** Whether any record lacks a value for one of the AI rules. */
+function hasMissingAiValues(
+  aiRules: FieldRule[],
+  aiRecords: Record<string, unknown>[],
+  recordCount: number,
+): boolean {
+  if (aiRules.length === 0) return false;
+  if (aiRecords.length < recordCount) return true;
+  return aiRecords.some((record) =>
+    aiRules.some(
+      (rule) => record[rule.fieldApiName] === undefined || record[rule.fieldApiName] === null,
+    ),
+  );
+}
+
+/**
+ * An AI rule restated as a faker rule that writes a sentence. SeedValidator
+ * refuses AI rules on fields that cannot hold text, so the sentence fits.
+ */
+function toSentenceRule(rule: FieldRule): FieldRule {
+  return {
+    fieldApiName: rule.fieldApiName,
+    ruleType: 'faker',
+    config: { fakerMethod: 'sentence' },
+  };
 }
 
 /**

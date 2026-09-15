@@ -50,7 +50,7 @@ export interface AIConversationListRequest extends BaseMessage {
   type: 'ai:conversation:list';
 }
 
-/** Request to get the current AI module status and usage stats */
+/** Request to get the current AI availability and token budget */
 export interface AIStatusRequest extends BaseMessage {
   type: 'ai:status';
 }
@@ -115,14 +115,18 @@ export interface AIErrorResponse extends BaseMessage {
   payload: { message: string };
 }
 
-/** Response containing AI module status, provider info, and usage stats */
+/** Response containing AI availability, provider info and the shared token budget */
 export interface AIStatusResponse extends BaseMessage {
   type: 'ai:status:response';
   payload: {
     enabled: boolean;
     provider: string;
     model: string;
-    usage: { totalCalls: number; totalOutputTokens: number; averageLatencyMs: number };
+    /**
+     * The token budget every AI feature shares for the window. Sent while AI
+     * is available, so the AI page can fill its gauge as soon as it mounts.
+     */
+    budget?: AIBudgetStateMessage['payload'];
   };
 }
 
@@ -256,7 +260,10 @@ export interface AIProviderStatusMessage extends BaseMessage {
 }
 
 /**
- * Per-panel-session token budget snapshots.
+ * Token budget snapshot, sent after every AI call. One counter for the window
+ * session, shared by every AI feature; the AI page draws it as a gauge. The 80%
+ * warning and the refusal are shown by the host as VS Code notices, because
+ * most AI calls are made from pages without the gauge.
  */
 export interface AIBudgetStateMessage extends BaseMessage {
   type: 'ai:budget:state';
@@ -266,33 +273,5 @@ export interface AIBudgetStateMessage extends BaseMessage {
     budget: number;
     percent: number;
     state: 'ok' | 'warn' | 'exceeded';
-  };
-}
-
-/** Fires once per session at the first crossing of the 80% threshold. */
-export interface AIBudgetWarnMessage extends BaseMessage {
-  type: 'ai:budget:warn';
-  payload: {
-    sessionId: string;
-    used: AITokenUsage;
-    budget: number;
-    percent: number;
-    state: 'ok' | 'warn' | 'exceeded';
-  };
-}
-
-/**
- * Fires every time a call (or pre-flight) breaches 100%. The webview shows
- * a modal that links straight to the Settings pane via `settingsKey`.
- */
-export interface AIBudgetExceededMessage extends BaseMessage {
-  type: 'ai:budget:exceeded';
-  payload: {
-    sessionId: string;
-    used: AITokenUsage;
-    budget: number;
-    percent: number;
-    state: 'ok' | 'warn' | 'exceeded';
-    settingsKey: 'sandforge.ai.tokenBudgetMaxPerSession';
   };
 }

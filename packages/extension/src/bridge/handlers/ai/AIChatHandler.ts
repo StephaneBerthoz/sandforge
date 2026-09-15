@@ -446,9 +446,9 @@ export class AIChatHandler implements DomainHandler {
       enabled: !!this.aiAssistant && hasKey,
       provider: this.aiAssistant ? AI_PROVIDER : 'none',
       model: this.aiAssistant ? AI_CONFIG.MODEL : '',
-      usage: this.aiAssistant
-        ? this.aiAssistant.getUsageStats()
-        : { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
+      // One counter for every AI feature, kept for the whole window. The AI
+      // page asks for it on mount so its gauge is filled before the next call.
+      budget: this.aiAssistant ? this.deps.services?.sessionBudget?.getState() : undefined,
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ai:status:response`);
@@ -476,6 +476,31 @@ export class AIChatHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Rebuild the AI stack so the key just stored is the one used. With
+   * `sandforge.ai.enabled` already true, the write in {@link enableAIFeature}
+   * raises no configuration event, and the adapter kept the SDK client built
+   * with the previous key until a window reload — a wrong key, once saved,
+   * could not be corrected. Like that step, a failure is logged and never
+   * fails the save.
+   */
+  private async rebuildAIStack(): Promise<void> {
+    const reinitAI = this.deps.services?.reinitAI;
+    if (!reinitAI) {
+      this.deps.log(
+        '[WARN] ai:save-key: no AI rebuild wired — the new key applies after a reload.',
+      );
+      return;
+    }
+    try {
+      await reinitAI();
+    } catch (err: unknown) {
+      this.deps.log(
+        `[ERR] ai:save-key: rebuilding the AI stack failed: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
   private async handleSaveKey(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSaveKeyPayloadSchema, msg, 'ai:error', this.deps);
@@ -484,15 +509,15 @@ export class AIChatHandler implements DomainHandler {
     try {
       await this.deps.secretVault.storeSecret(AI_API_KEY_SECRET, apiKey);
       await this.enableAIFeature();
+      await this.rebuildAIStack();
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {
         success: true,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ai:save-key:response success`);
       // Refresh the availability flag the webview keeps in its store. The
-      // re-init triggered by the setting above is asynchronous, so this
-      // snapshot can still read "disabled" — the Settings tab re-probes once
-      // the host has had time to wire the assistant.
+      // rebuild above has finished, so this snapshot reports the assistant it
+      // installed.
       await this.postStatus(msg);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);

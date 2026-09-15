@@ -1,5 +1,6 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
 import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
+import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
@@ -52,23 +53,22 @@ async function execFileAsync(
 }
 
 /**
- * Validate a Salesforce instance URL for CLI use.
- * Must be an https:// URL whose hostname contains only shell-safe characters
- * (letters, digits, dot, dash) — this is the shell-injection defense for the
- * Windows exec branch of loginWeb.
+ * Reduce a Salesforce instance URL to the origin passed to the CLI.
+ *
+ * This is the shell-injection defense for the Windows exec branch of loginWeb.
+ * Checking the hostname alone was not enough: the path went into the command
+ * string verbatim, so `https://login.salesforce.com/"&calc&"` reached cmd.exe.
+ * Only the origin of an https Salesforce login host — letters, digits, dots
+ * and dashes — is ever returned.
  */
-function validateInstanceUrl(instanceUrl: string): void {
-  let url: URL;
-  try {
-    url = new URL(instanceUrl);
-  } catch {
-    throw new Error(`Invalid instanceUrl: "${instanceUrl}"`);
-  }
-  if (url.protocol !== 'https:' || !/^[\w.-]+$/.test(url.hostname)) {
+function toLoginOrigin(instanceUrl: string): string {
+  const parsed = parseSalesforceLoginUrl(instanceUrl);
+  if (!parsed.ok) {
     throw new Error(
-      `Invalid instanceUrl: "${instanceUrl}" — expected an https:// URL with a valid hostname`,
+      `Invalid instanceUrl: "${instanceUrl}" — expected an https:// Salesforce login host with no path (${parsed.reason})`,
     );
   }
+  return parsed.origin;
 }
 
 /**
@@ -206,20 +206,20 @@ export class SfdxBridge {
     if (alias && !/^[\w.-]+$/.test(alias)) {
       throw new Error(`Invalid alias format: "${alias}"`);
     }
-    validateInstanceUrl(instanceUrl);
+    const origin = toLoginOrigin(instanceUrl);
 
     // POSIX: argv-as-array via execFile — no shell, no interpolation.
     // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
     // resolution, so keep exec there; the validated values (word/dot/dash
-    // alias + https URL) are shell-safe inside double quotes.
+    // alias + the origin's host characters) are shell-safe inside double quotes.
     if (process.platform === 'win32') {
-      let command = `sf org login web --instance-url "${instanceUrl}"`;
+      let command = `sf org login web --instance-url "${origin}"`;
       if (alias) {
         command += ` --alias "${alias}"`;
       }
       await execAsync(command, { timeout: 120_000 });
     } else {
-      const args = ['org', 'login', 'web', '--instance-url', instanceUrl];
+      const args = ['org', 'login', 'web', '--instance-url', origin];
       if (alias) {
         args.push('--alias', alias);
       }

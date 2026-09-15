@@ -111,7 +111,8 @@ describe('SeedGrappeAdapter', () => {
       ]);
 
       const partitions = adapter.partition(template);
-      const contactPartitions = partitions.filter((p) => p.records[0]?.startsWith('Contact:'));
+      // Partitions follow insert order: Account's 50 records fill the first one.
+      const contactPartitions = partitions.slice(1);
 
       expect(contactPartitions.length).toBeGreaterThan(0);
       expect(contactPartitions[0].dependencies.length).toBeGreaterThan(0);
@@ -188,7 +189,7 @@ describe('SeedGrappeAdapter', () => {
         },
         {
           objectApiName: 'Account',
-          recordCount: 50,
+          recordCount: 30,
           fieldRules: [],
           excludedFields: [],
           insertOrder: 1,
@@ -197,7 +198,11 @@ describe('SeedGrappeAdapter', () => {
       ]);
 
       const partitions = adapter.partition(template);
-      expect(partitions[0].records[0]).toContain('Account');
+      // A partition carries a size, not placeholder record ids, so the two
+      // objects are told apart by their record counts: Account's 30 come first.
+      expect(partitions.map((p) => p.recordCount)).toEqual([30, 50]);
+      expect(partitions.map((p) => p.index)).toEqual([0, 1]);
+      expect(partitions[0]).not.toHaveProperty('records');
     });
   });
 

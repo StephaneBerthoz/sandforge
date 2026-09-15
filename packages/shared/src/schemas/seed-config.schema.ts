@@ -24,6 +24,7 @@ export const fieldRuleConfigSchema = z.object({
 /** A field rule with its API name, type, and configuration */
 export const fieldRuleSchema = z.object({
   fieldApiName: z.string().min(1),
+  fieldType: z.string().min(1).optional(),
   ruleType: z.enum([
     'static',
     'random',

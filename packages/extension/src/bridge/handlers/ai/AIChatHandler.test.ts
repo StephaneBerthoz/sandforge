@@ -4,6 +4,7 @@ import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../../test/mockFactories.js';
 import { AIAssistant, type AICallFn, type AIModelConfig } from '../../../modules/ai/AIAssistant.js';
+import { SessionBudget } from '../../../adapters/ai/tokenBudget/SessionBudget.js';
 
 vi.mock('../../../core/common/extractErrorMessage.js', () => ({
   extractErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -679,6 +680,31 @@ describe('AIChatHandler', () => {
         }),
       );
     });
+
+    // The AI page gauge starts empty each time it mounts and used to stay empty
+    // until the next AI call pushed a fresh budget state.
+    it('carries the shared token budget so a reopened AI page can show the gauge', async () => {
+      const sessionBudget = new SessionBudget({ sessionId: 'ai-window', budget: 50_000 });
+      sessionBudget.increment({
+        input: 700,
+        output: 300,
+        cacheRead: 0,
+        cacheCreate: 0,
+        total: 1_000,
+      });
+      deps.services = { sessionBudget } as unknown as HandlerDeps['services'];
+      (deps.secretVault.hasSecret as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      handler.setAIAssistant(createMockAssistant());
+
+      await handler.handle(createMsg('ai:status'));
+
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .find((m) => m.type === 'ai:status:response');
+      expect(response?.payload.budget).toMatchObject({ budget: 50_000, used: { total: 1_000 } });
+      expect(response?.payload).not.toHaveProperty('usage');
+    });
   });
 
   describe('ai:save-key', () => {
@@ -710,6 +736,51 @@ describe('AIChatHandler', () => {
       await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
 
       expect(setSandforgeSetting).toHaveBeenCalledWith('ai.enabled', true);
+    });
+
+    // With sandforge.ai.enabled already true, writing it again raises no
+    // configuration event, so nothing rebuilt the adapter: it kept the SDK
+    // client built with the previous key until the window was reloaded.
+    it('rebuilds the AI stack after storing the key, even when AI was already on', async () => {
+      const reinitAI = vi.fn(() => Promise.resolve());
+      deps.services = {
+        setSandforgeSetting: vi.fn().mockResolvedValue(undefined),
+        reinitAI,
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(reinitAI).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(deps.secretVault.storeSecret).mock.invocationCallOrder[0]).toBeLessThan(
+        reinitAI.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('still reports success when rebuilding the AI stack fails', async () => {
+      deps.services = {
+        reinitAI: vi.fn(() => Promise.reject(new Error('keychain locked'))),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ai:save-key:response',
+          payload: expect.objectContaining({ success: true }),
+        }),
+      );
+    });
+
+    it('does not rebuild the AI stack when the key could not be stored', async () => {
+      const reinitAI = vi.fn(() => Promise.resolve());
+      deps.services = { reinitAI } as unknown as HandlerDeps['services'];
+      (deps.secretVault.storeSecret as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('keychain locked'),
+      );
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(reinitAI).not.toHaveBeenCalled();
     });
 
     it('does not enable AI when the key could not be stored', async () => {

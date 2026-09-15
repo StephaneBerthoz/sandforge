@@ -16,10 +16,13 @@ contributors' pnpm clients made these settings behave inconsistently.
 
 ## Decision
 
-- Pin the package manager: `"packageManager": "pnpm@11.18.0"` in the root
-  `package.json`, plus `"engines": { "pnpm": ">=11" }`. Corepack /
-  `pnpm/action-setup@v4` both honor the pin. CI takes its pnpm version
-  from the `packageManager` field, never from a workflow-level hardcode.
+- Pin the package manager in the `packageManager` field of the root
+  `package.json` (an exact pnpm 11 release with its integrity hash), plus
+  `"engines": { "pnpm": ">=11" }`. Corepack / `pnpm/action-setup@v4` both
+  honor the pin. CI — the repository's workflows and the `ci-examples/`
+  pipelines alike — takes its pnpm version from that field, never from a
+  workflow-level hardcode, and this record does not repeat the patch number
+  either: a copy here went stale on the first bump.
 - Keep all pnpm settings in `pnpm-workspace.yaml`:
   - `allowBuilds` (pnpm 11 spelling) approves `esbuild`, `keytar`,
     `@vscode/vsce-sign` build scripts and explicitly blocks the

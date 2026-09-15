@@ -636,6 +636,82 @@ describe('GraphDiscoveryService', () => {
   });
 
   describe('guardrails', () => {
+    it('should visit each object once when two objects reference each other', async () => {
+      // Account.PrimaryContact__c -> Contact and Contact.AccountId -> Account:
+      // each is both parent and child of the other.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return {
+            ...makeAccountDescribe([
+              {
+                childSObject: 'Contact',
+                field: 'AccountId',
+                relationshipName: 'Contacts',
+                isCascadeDelete: false,
+              },
+            ]),
+            fields: [
+              ...makeAccountDescribe().fields,
+              {
+                name: 'PrimaryContact__c',
+                type: 'reference',
+                referenceTo: ['Contact'],
+                relationshipName: 'PrimaryContact__r',
+                isMasterDetail: false,
+              },
+            ],
+          };
+        }
+        return {
+          ...makeContactDescribe(),
+          childRelationships: [
+            {
+              childSObject: 'Account',
+              field: 'PrimaryContact__c',
+              relationshipName: 'PrimaryAccounts__r',
+              isCascadeDelete: false,
+            },
+          ],
+        };
+      });
+
+      const graph = await service.discover(createConfig({ depth: 'full' }));
+
+      expect(graph.nodes.map((n) => n.objectApiName).sort()).toEqual(['Account', 'Contact']);
+      expect(deps.describeObject).toHaveBeenCalledTimes(2);
+      const edgeKeys = graph.edges.map((e) => `${e.sourceObject}->${e.targetObject}`).sort();
+      expect(edgeKeys).toEqual(['Account->Contact', 'Contact->Account']);
+    });
+
+    it('should leave Vlocity package objects out of the graph', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'vlocity_ins__Party__c',
+              field: 'vlocity_ins__AccountId__c',
+              relationshipName: 'vlocity_ins__Parties__r',
+              isCascadeDelete: false,
+            },
+          ]);
+        }
+        return makeContactDescribe();
+      });
+
+      const graph = await service.discover(createConfig({ depth: 'direct' }));
+
+      const objectNames = graph.nodes.map((n) => n.objectApiName);
+      expect(objectNames).toContain('Contact');
+      expect(objectNames).not.toContain('vlocity_ins__Party__c');
+      expect(graph.edges.some((e) => e.targetObject.startsWith('vlocity_'))).toBe(false);
+    });
+
     it('should exclude system suffix objects from traversal', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {

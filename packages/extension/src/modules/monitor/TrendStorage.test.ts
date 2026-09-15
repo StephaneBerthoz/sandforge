@@ -324,30 +324,129 @@ describe('TrendStorage', () => {
     });
   });
 
+  describe('a week of history', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const QUARTER_HOUR_MS = 15 * 60 * 1000;
+
+    /**
+     * A /limits response the size of a real org's: the six limits the
+     * dashboard trends, among the fifty-odd others the endpoint returns.
+     */
+    function realSizeLimits(
+      usedPercent: number,
+    ): Array<{ name: string; max: number; remaining: number; usedPercent: number }> {
+      const trended = [
+        'DailyApiRequests',
+        'DataStorageMB',
+        'FileStorageMB',
+        'DailySoqlQueries',
+        'DailyDmlStatements',
+        'DailyAsyncApexExecutions',
+      ];
+      const others = Array.from({ length: 47 }, (_, i) => `HourlyPublishedPlatformEvents${i}`);
+      return [...trended, ...others].map((name, i) => ({
+        name,
+        max: 250_000 + i,
+        remaining: 240_000 + i,
+        usedPercent,
+      }));
+    }
+
+    it('keeps seven days of snapshots of a real-size /limits response under the size cap', () => {
+      const start = new Date('2026-02-17T12:00:00Z').getTime();
+      const saves = 7 * 96;
+      for (let i = 0; i < saves; i++) {
+        const now = start + i * QUARTER_HOUR_MS;
+        vi.setSystemTime(now);
+        storage.record(
+          'org-1',
+          createSnapshot('org-1', new Date(now).toISOString(), realSizeLimits(10)),
+        );
+      }
+
+      const history = storage.getHistory('org-1', 7 * DAY_MS);
+      const spanMs =
+        Date.parse(history[history.length - 1].timestamp) - Date.parse(history[0].timestamp);
+      expect(spanMs).toBeGreaterThanOrEqual(7 * DAY_MS - 2 * QUARTER_HOUR_MS);
+    });
+
+    it('charts the week, judges direction on the last day, and reads the store once', () => {
+      const now = Date.parse('2026-02-24T12:00:00Z');
+      const at = (msAgo: number): string => new Date(now - msAgo).toISOString();
+      configStore.set(
+        'trend:org-1',
+        [
+          createSnapshot('org-1', at(6 * DAY_MS), makeSimpleLimits(90)),
+          createSnapshot('org-1', at(3 * 60 * 60 * 1000), makeSimpleLimits(10)),
+          createSnapshot('org-1', at(2 * 60 * 60 * 1000), makeSimpleLimits(20)),
+        ],
+        'trends',
+      );
+      const read = vi.spyOn(configStore, 'get');
+
+      const trends = storage.recordAndGetTrends(
+        'org-1',
+        createSnapshot('org-1', at(0), makeSimpleLimits(30)),
+        ['DailyApiRequests', 'DataStorageMB'],
+      );
+
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(trends.DailyApiRequests.timestamps).toEqual([
+        at(6 * DAY_MS),
+        at(3 * 60 * 60 * 1000),
+        at(2 * 60 * 60 * 1000),
+        at(0),
+      ]);
+      expect(trends.DailyApiRequests.sparklineData).toEqual([90, 10, 20, 30]);
+      // A daily counter resets every day: a week-long delta (90 -> 30) would
+      // call a climbing day "down". The verdict reads the last 24 hours only.
+      expect(trends.DailyApiRequests.direction).toBe('up');
+      expect(trends.DailyApiRequests.changePercent).toBe(20);
+      expect(trends.DataStorageMB.sparklineData).toEqual([41, 41, 41, 41]);
+    });
+
+    it('stores only the limits it trends', () => {
+      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', realSizeLimits(10)));
+
+      const [stored] = storage.getHistory('org-1');
+      expect(stored.limits.map((l) => l.name)).toEqual([
+        'DailyApiRequests',
+        'DataStorageMB',
+        'FileStorageMB',
+        'DailySoqlQueries',
+        'DailyDmlStatements',
+        'DailyAsyncApexExecutions',
+      ]);
+    });
+  });
+
   describe('size limit', () => {
-    it('should trim oldest snapshots when size limit is exceeded', () => {
-      // Create snapshots with very large limit arrays to hit the 500KB limit
-      const largeLimits = Array.from({ length: 200 }, (_, i) => ({
-        name: `Limit_${String(i).padStart(4, '0')}_${'x'.repeat(100)}`,
-        max: 10000,
+    it('drops the oldest snapshots once the history outgrows 500 KB, and keeps the newest', () => {
+      // Only trended limits survive the narrowing, so a snapshot is made large
+      // by repeating one of them: about 43 KB each, the cap is passed at the
+      // twelfth save.
+      const wideLimits = Array.from({ length: 600 }, (_, i) => ({
+        name: 'DailyApiRequests',
+        max: 15_000 + i,
         remaining: 5000,
         usedPercent: 50,
       }));
 
-      // Record multiple large snapshots
-      let count = 0;
-      for (let i = 0; i < 50; i++) {
+      const recorded = 30;
+      let newest = '';
+      for (let i = 0; i < recorded; i++) {
         vi.advanceTimersByTime(15 * 60 * 1000);
-        const ts = new Date(Date.now()).toISOString();
-        storage.record('org-1', createSnapshot('org-1', ts, largeLimits));
-        count++;
+        newest = new Date(Date.now()).toISOString();
+        storage.record('org-1', createSnapshot('org-1', newest, wideLimits));
       }
 
-      const history = storage.getHistory('org-1', 365 * 24 * 60 * 60 * 1000);
-      // Should have fewer snapshots than recorded due to size limit
-      expect(history.length).toBeLessThanOrEqual(count);
-      // Should have at least the most recent snapshot
-      expect(history.length).toBeGreaterThanOrEqual(1);
+      const history = storage.getHistory('org-1', 7 * 24 * 60 * 60 * 1000);
+      expect(history.length).toBeGreaterThan(0);
+      expect(history.length).toBeLessThan(recorded);
+      expect(new TextEncoder().encode(JSON.stringify(history)).length).toBeLessThanOrEqual(
+        500 * 1024,
+      );
+      expect(history[history.length - 1].timestamp).toBe(newest);
     });
   });
 });

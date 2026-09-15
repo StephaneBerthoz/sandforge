@@ -13,8 +13,10 @@ records. Not a dev dataset.
 After: execution is _scope-aware_. From the root record the engine follows the
 transitive closure (parents through foreign keys, children through
 reverse-lookup) and issues only SOQL carrying `WHERE Id = …` or
-`WHERE FK IN (cachedParentIds)`. On the same Case, that is a **99.86 %**
-reduction in records cloned.
+`WHERE FK IN (cachedParentIds)`. In a dry run on an internal test dataset
+built around one Case, the scoped plan read under 1 000 records where the
+unscoped one read about 262 000. That is one measurement on one dataset, not
+a guaranteed ratio: the reduction depends on how wide the root's graph is.
 
 ## Pipeline
 
@@ -30,8 +32,9 @@ ForgeOrchestrator.execute(graph, config)
        ├─ for each node (root-first, then topo):
        │    1. isObjectCreatable check (target)
        │    2. describeFields (source + target → intersect createable)
-       │    3. ScopedSoqlBuilder.build → SOQL with WHERE
-       │    4. queryRecords(source)
+       │    3. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
+       │       statements when the ID lists outgrow one query URI)
+       │    4. queryRecords(source) per statement, rows merged by Id
        │    5. (if reference-data object) ReferenceDataMapper.resolve(target by Name)
        │    6. seed cache (own IDs + FK values from results)
        │    7. clean records:
@@ -54,7 +57,7 @@ ForgeOrchestrator.execute(graph, config)
 | `rootObjectApiName`    | —                                        | resolved from `recordId` keyPrefix; required with `rootRecordId`               |
 | `dryRun`               | `false`                                  | runs every step except `insertRecords`, used by the recipe                     |
 | `referenceFallback`    | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper                  |
-| `recordTypeMappings`   | —                                        | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
+| `recordTypeMappings`   | built by the extension before each run   | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
 | `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 
@@ -107,9 +110,20 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
 
 ## Known limitations
 
-- **IN clause chunking**: at 4 000+ IDs per IN, Salesforce rejects the
-  query. Not a concern for typical record-graph clones (rarely >200 IDs
-  per object) but to be added before raw-graph mode.
+- **Large scopes are read in several queries**: a scoped query travels in
+  the request URI, which holds roughly 500 quoted IDs. When an object's
+  scope is larger — 1 300 Contacts under one Account, or one parent list
+  repeated across several FK fields — `ScopedSoqlBuilder` splits the IDs
+  over as many statements as needed (each kept under the URI budget, at
+  most 500 IDs apiece) and the executor merges the rows, keeping one per
+  `Id`. `maxRecordsPerObject` still caps the merged total. The one case
+  still refused is an object whose field list alone leaves no room for an
+  ID; exclude fields from that object to clone it.
+- **Excluded objects**: discovery and orphan-parent expansion share one
+  list (`excludedObjects.ts`) — system and hub objects such as `User`,
+  `RecordType`, `Queue`, job and log tables (`AsyncApexJob`, `CronTrigger`,
+  `LoginHistory`), history / feed / share / change-event variants, and
+  every Vlocity package object (`vlocity_*` namespaces).
 - **FLS profile awareness**: `Asset.RecordType ID not valid for the user`
   errors come from the running user's profile lacking access. The cloner
   reports them; resolution is org-side (assign permission set).

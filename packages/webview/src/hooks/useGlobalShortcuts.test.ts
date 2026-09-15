@@ -150,34 +150,29 @@ describe('useGlobalShortcuts', () => {
     document.body.removeChild(input);
   });
 
-  // ── Ctrl+Enter execute ──
+  // ── Keys that used to announce events nobody listened to ──
 
-  it('dispatches sandforge:execute on Ctrl+Enter', () => {
+  // Ctrl+Enter sent `sandforge:execute` and Escape sent `sandforge:cancel`, and
+  // no component ever subscribed to either: the Help page taught Ctrl+Enter as
+  // "run the current action" while pressing it did nothing. Escape still closes
+  // dialogs, through each dialog's own handler.
+  it.each([
+    ['Ctrl+Enter', { key: 'Enter', ctrlKey: true }],
+    ['Meta+Enter', { key: 'Enter', metaKey: true }],
+    ['Escape', { key: 'Escape' }],
+  ] as const)('sends no page-wide action event on %s', (_label, init) => {
     renderHook(() => useGlobalShortcuts());
-    const handler = vi.fn();
-    document.addEventListener('sandforge:execute', handler);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
-    expect(handler).toHaveBeenCalledOnce();
-    document.removeEventListener('sandforge:execute', handler);
-  });
-
-  it('dispatches sandforge:execute on Meta+Enter (Mac)', () => {
-    renderHook(() => useGlobalShortcuts());
-    const handler = vi.fn();
-    document.addEventListener('sandforge:execute', handler);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
-    expect(handler).toHaveBeenCalledOnce();
-    document.removeEventListener('sandforge:execute', handler);
-  });
-
-  // ── Escape cancel ──
-
-  it('dispatches sandforge:cancel on Escape', () => {
-    renderHook(() => useGlobalShortcuts());
-    const handler = vi.fn();
-    document.addEventListener('sandforge:cancel', handler);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(handler).toHaveBeenCalledOnce();
-    document.removeEventListener('sandforge:cancel', handler);
+    const execute = vi.fn();
+    const cancel = vi.fn();
+    document.addEventListener('sandforge:execute', execute);
+    document.addEventListener('sandforge:cancel', cancel);
+    const event = new KeyboardEvent('keydown', { ...init, cancelable: true });
+    document.dispatchEvent(event);
+    document.removeEventListener('sandforge:execute', execute);
+    document.removeEventListener('sandforge:cancel', cancel);
+    expect(execute).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(useAppStore.getState().currentRoute).toBe('home');
   });
 });

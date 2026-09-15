@@ -372,6 +372,96 @@ describe('OrgManagerPage', () => {
     expect(screen.getByTestId('org-card-org-1')).toBeDefined();
   });
 
+  describe('auth methods that are not implemented', () => {
+    it.each(['jwt', 'oauth_device'])(
+      'should mark %s as coming soon and send no org:connect when it is clicked',
+      (method) => {
+        render(<OrgManagerPage />);
+        const card = screen.getByTestId(`org-auth-${method}`);
+
+        expect(card.getAttribute('aria-disabled')).toBe('true');
+        expect(card.getAttribute('title')).toBe('Coming soon');
+        expect(card.textContent).toContain('Coming soon');
+
+        fireEvent.click(card);
+
+        expect(mockConnectMutate).not.toHaveBeenCalled();
+        expect(screen.getByTestId('org-inline-not-supported')).toBeDefined();
+      },
+    );
+
+    it('should leave the implemented methods enabled', () => {
+      render(<OrgManagerPage />);
+      expect(screen.getByTestId('org-auth-oauth_web').getAttribute('aria-disabled')).toBeNull();
+    });
+  });
+
+  it('should list production orgs first, then sandboxes, then scratch orgs', () => {
+    useOrgStore.setState({
+      orgs: [
+        { ...mockOrg, id: 'sbx', alias: 'a-sandbox', orgType: 'Sandbox' },
+        { ...mockOrg, id: 'scratch', alias: 'b-scratch', orgType: 'Scratch' },
+        { ...mockOrg, id: 'prod', alias: 'z-production', orgType: 'Production' },
+      ],
+    });
+    render(<OrgManagerPage />);
+
+    const order = screen
+      .getAllByTestId(/^org-card-/)
+      .map((card) => card.getAttribute('data-testid'));
+    expect(order).toEqual(['org-card-prod', 'org-card-sbx', 'org-card-scratch']);
+  });
+
+  describe('reconnecting an org whose session is gone', () => {
+    it('should offer no reconnect on a connected org', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      expect(screen.queryByTestId('org-reconnect-org-1')).toBeNull();
+    });
+
+    it('should reopen the browser login with the alias filled in for an expired OAuth org', () => {
+      useOrgStore.setState({ orgs: [{ ...mockOrg, status: 'expired' }] });
+      render(<OrgManagerPage />);
+
+      const reconnect = screen.getByTestId('org-reconnect-org-1');
+      expect(reconnect.textContent).toBe('Try Reconnect');
+      fireEvent.click(reconnect);
+
+      expect(screen.getByTestId('org-inline-form')).toBeDefined();
+      expect((screen.getByTestId('inline-alias-input') as HTMLInputElement).value).toBe(
+        'Dev Sandbox',
+      );
+      expect(mockConnectMutate).not.toHaveBeenCalled();
+    });
+
+    it('should prefill the username for an org in error that logged in with a password', () => {
+      useOrgStore.setState({
+        orgs: [{ ...mockOrg, status: 'error', authMethod: 'usernamePassword' }],
+      });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+
+      expect((screen.getByTestId('inline-username-input') as HTMLInputElement).value).toBe(
+        'dev@sandbox.com',
+      );
+      expect((screen.getByTestId('inline-password-input') as HTMLInputElement).value).toBe('');
+    });
+
+    it('should import again from the CLI for an expired org that came from it', () => {
+      useOrgStore.setState({
+        orgs: [{ ...mockOrg, status: 'expired', authMethod: 'sfdx_import' }],
+      });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(screen.getByTestId('org-reconnect-org-1'));
+
+      expect(mockConnectMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ authMethod: 'sfdx_import' }),
+      );
+    });
+  });
+
   it('should populate store when query data arrives', () => {
     mockQueryState = {
       ...mockQueryState,

@@ -1,4 +1,5 @@
 import { SF_API_VERSION } from '@sandforge/shared';
+import type { GovernancePolicySummary } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -20,16 +21,6 @@ import type {
 } from '../../modules/monitor/GovernanceEngine.js';
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
-
-/** Summary shape returned by governance:policies:list for the webview. */
-interface GovernancePolicySummary {
-  id: string;
-  name: string;
-  description: string;
-  ruleCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
 
 /** Message types handled by GovernanceOpsHandler. */
 const GOVERNANCE_TYPES = new Set([

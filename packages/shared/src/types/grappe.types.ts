@@ -75,7 +75,6 @@ export interface GrappePartition {
   index: number;
   totalPartitions: number;
   recordCount: number;
-  records: string[];
   dependencies: string[];
   status: GrappeStatus;
   assignedWorker?: number;

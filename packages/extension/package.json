@@ -315,9 +315,7 @@
           "type": "string",
           "default": "anthropic",
           "enum": [
-            "anthropic",
-            "openai",
-            "custom"
+            "anthropic"
           ],
           "description": "%config.ai.provider.description%"
         },

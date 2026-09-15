@@ -10,7 +10,7 @@ import {
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
-import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
+import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect', 'org:select']);
@@ -182,17 +182,10 @@ export class OrgHandler implements DomainHandler {
       return;
     }
 
-    const loginUrl = payload.loginUrl ?? 'https://login.salesforce.com';
-    const parsedLogin = parseHttpsUrl(loginUrl);
-    if (!parsedLogin.ok) {
-      const reason =
-        parsedLogin.reason === 'not-https'
-          ? 'Login URL must use HTTPS.'
-          : `Invalid login URL: "${loginUrl}".`;
-      sendNotification(this.deps, 'error', 'Auth', reason);
-      this.failConnect(msg, reason, 'INVALID_LOGIN_URL');
-      return;
-    }
+    // The username, password and token go to whatever host this names, so it
+    // is checked against the Salesforce login hosts and reduced to its origin.
+    const loginUrl = this.resolveLoginUrl(msg, payload);
+    if (!loginUrl) return;
 
     const authResult = await this.deps.authProvider.authenticate({
       method: 'usernamePassword',
@@ -246,7 +239,7 @@ export class OrgHandler implements DomainHandler {
       const connectionConfig = this.deps.authProvider.buildConnectionConfig(
         {
           method: 'usernamePassword',
-          loginUrl: payload.loginUrl ?? 'https://login.salesforce.com',
+          loginUrl,
           username: payload.username,
           password: payload.password,
           securityToken: payload.securityToken,
@@ -286,10 +279,42 @@ export class OrgHandler implements DomainHandler {
     }
   }
 
+  /**
+   * The login URL of a connect request, checked and reduced to its origin.
+   *
+   * Answers the request on `org:error` with `INVALID_LOGIN_URL` and returns
+   * `undefined` when the URL is not an `https:` Salesforce login host with
+   * nothing after it.
+   */
+  private resolveLoginUrl(
+    msg: InboundRequest,
+    payload: OrgConnectRequest['payload'],
+  ): string | undefined {
+    const loginUrl = payload.loginUrl ?? 'https://login.salesforce.com';
+    const parsed = parseSalesforceLoginUrl(loginUrl);
+    if (parsed.ok) return parsed.origin;
+    const reason =
+      parsed.reason === 'not-https'
+        ? 'Login URL must use HTTPS.'
+        : parsed.reason === 'not-salesforce'
+          ? `Login URL must be a Salesforce login host (login.salesforce.com, test.salesforce.com or a My Domain): "${loginUrl}".`
+          : parsed.reason === 'not-origin'
+            ? `Login URL must name a host only, with no path, query or credentials: "${loginUrl}".`
+            : `Invalid login URL: "${loginUrl}".`;
+    sendNotification(this.deps, 'error', 'Auth', reason);
+    this.failConnect(msg, reason, 'INVALID_LOGIN_URL');
+    return undefined;
+  }
+
   private async handleOAuthWeb(
     msg: InboundRequest,
     payload: OrgConnectRequest['payload'],
   ): Promise<void> {
+    // Checked before the CLI runs: the URL goes into an `sf org login web`
+    // command line, which on Windows is a shell string.
+    const loginUrl = this.resolveLoginUrl(msg, payload);
+    if (!loginUrl) return;
+
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
@@ -303,7 +328,6 @@ export class OrgHandler implements DomainHandler {
         return;
       }
 
-      const loginUrl = payload.loginUrl ?? 'https://login.salesforce.com';
       const alias = payload.alias ?? '';
       await this.deps.sfdxBridge.loginWeb(alias, loginUrl);
 

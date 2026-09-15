@@ -1,24 +1,23 @@
-import type {
-  AIUsage,
-  TokenBudgetState,
-  AIBudgetStateMessage,
-  AIBudgetWarnMessage,
-  AIBudgetExceededMessage,
-} from '@sandforge/shared';
+import type { AIUsage, TokenBudgetState, AIBudgetStateMessage } from '@sandforge/shared';
 
 import type { Logger } from '../../telemetry/TelemetryAdapter.js';
 
 const SOFT_THRESHOLD = 80;
 const HARD_THRESHOLD = 100;
-const SETTINGS_KEY = 'sandforge.ai.tokenBudgetMaxPerSession' as const;
+
+/** The two moments a budget tells its owner about. */
+export type BudgetThreshold = 'warn' | 'exceeded';
 
 /**
- * Lightweight bridge subset — `SessionBudget` only needs to send envelopes.
- * The handler / panel that owns the budget passes a thin send() callback.
- * Keeps the class fully testable without the full MessageBroker.
+ * Where a budget reports. `send` feeds the gauge on the AI page; `notify` lets
+ * the host tell the user wherever they are, since most AI calls (Seed personas,
+ * NL2SOQL, error fixes) are made from pages that show no gauge. Kept this thin
+ * so the class stays testable without the full MessageBroker.
  */
 export interface BudgetBroker {
-  send(message: AIBudgetStateMessage | AIBudgetWarnMessage | AIBudgetExceededMessage): void;
+  send(message: AIBudgetStateMessage): void;
+  /** Called once when the counter first reaches 80%, and once when calls start being refused. */
+  notify?(threshold: BudgetThreshold, state: TokenBudgetState): void;
 }
 
 export interface SessionBudgetDeps {
@@ -29,47 +28,52 @@ export interface SessionBudgetDeps {
 }
 
 /**
- * Per-session token counter, shared by every AI feature: the composition root
- * attaches one instance to the memoised AI adapter, which is the single
- * chokepoint all AI calls pass through.
+ * Token counter for one window session, shared by every AI feature: the AI
+ * client factory builds each adapter with this one instance, and the adapter
+ * is the chokepoint every AI call passes through. Rebuilding the AI stack
+ * (any `sandforge.ai.*` change, a new key) keeps the count; only a window
+ * reload starts a new one.
  *
  * Counts ALL four `AIUsage` fields (input + output + cacheRead + cacheCreate)
  * — an output-only counter under-bills by 5-20×.
  *
  * Lifecycle:
- *   - AI-stack init → `new SessionBudget({ sessionId, budget, broker })`
- *   - per-call      → `preflight(predictedInput)` then (after SDK) `increment(usage)`
- *   - re-init       → a fresh instance replaces this one (counter restarts)
+ *   - activation → `new SessionBudget({ sessionId, budget })`, `connect(sink)` once the broker exists
+ *   - per call   → `preflight(predictedInput)` then (after SDK) `increment(usage)`
+ *   - setting    → `resize(budget)` when `tokenBudgetMaxPerSession` changes (count kept)
  *
- * Envelopes:
- *   - `ai:budget:state`     — every increment + reset (mini-bar live update)
- *   - `ai:budget:warn`      — exactly once per session at the first 80% crossing
- *   - `ai:budget:exceeded`  — every breach call AND every failing preflight
+ * Reports:
+ *   - `ai:budget:state`    — every increment, reset and resize (the AI page gauge)
+ *   - `notify('warn')`     — once, at the first 80% crossing
+ *   - `notify('exceeded')` — once, when calls start being refused
+ *   A resize that brings the count back under a threshold re-arms its notice.
  */
 export class SessionBudget {
   private readonly sessionId: string;
-  private readonly budget: number;
-  private readonly broker?: BudgetBroker;
+  private budget: number;
+  private broker?: BudgetBroker;
   private readonly logger?: Logger;
 
   private used: AIUsage = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0 };
   private warnFired = false;
+  private exceededFired = false;
 
   constructor(deps: SessionBudgetDeps) {
-    if (!Number.isFinite(deps.budget) || deps.budget <= 0) {
-      throw new Error('Token budget must be positive');
-    }
     this.sessionId = deps.sessionId;
-    this.budget = deps.budget;
+    this.budget = assertPositive(deps.budget);
     this.broker = deps.broker;
     this.logger = deps.logger;
-    void this.logger; // retained for future warn/info logging hooks
+  }
+
+  /** Report to `broker` from now on (the broker is created after the budget). */
+  connect(broker: BudgetBroker | undefined): void {
+    this.broker = broker;
   }
 
   /**
    * Add the latest call's usage. Returns the new state. Always sends an
-   * `ai:budget:state` envelope; sends `ai:budget:warn` ONCE at the first
-   * 80% crossing; sends `ai:budget:exceeded` on every call past 100%.
+   * `ai:budget:state` envelope; gives the 80% notice ONCE at the first
+   * crossing, and the refusal notice ONCE when the count reaches 100%.
    */
   increment(usage: AIUsage): TokenBudgetState {
     this.used = {
@@ -82,35 +86,18 @@ export class SessionBudget {
     this.used.total =
       this.used.input + this.used.output + this.used.cacheRead + this.used.cacheCreate;
     const state = this.snapshot();
-    this.broker?.send({
-      id: `budget-${Date.now()}`,
-      type: 'ai:budget:state',
-      timestamp: Date.now(),
-      payload: state,
-    } as AIBudgetStateMessage);
-    if (state.percent >= SOFT_THRESHOLD && !this.warnFired) {
-      this.warnFired = true;
-      this.broker?.send({
-        id: `budget-warn-${Date.now()}`,
-        type: 'ai:budget:warn',
-        timestamp: Date.now(),
-        payload: state,
-      } as AIBudgetWarnMessage);
-    }
-    if (state.percent >= HARD_THRESHOLD) {
-      this.broker?.send({
-        id: `budget-exceeded-${Date.now()}`,
-        type: 'ai:budget:exceeded',
-        timestamp: Date.now(),
-        payload: { ...state, settingsKey: SETTINGS_KEY },
-      } as AIBudgetExceededMessage);
-    }
+    this.sendState(state);
+    // A call that jumps straight past 100% announces the refusal only: a
+    // warning that more calls remain would already be false.
+    if (state.percent >= HARD_THRESHOLD) this.announce('exceeded', state);
+    else if (state.percent >= SOFT_THRESHOLD) this.announce('warn', state);
     return state;
   }
 
   /**
-   * Pre-flight check. Returns `{ allowed: false, state }` and sends
-   * `ai:budget:exceeded` if `used.total + predictedInput > budget`.
+   * Pre-flight check. Returns `{ allowed: false, state }` if
+   * `used.total + predictedInput > budget`, and gives the refusal notice the
+   * first time that happens.
    */
   preflight(predictedInput: number): { allowed: boolean; state: TokenBudgetState } {
     const projected = this.used.total + Math.max(0, predictedInput);
@@ -122,27 +109,33 @@ export class SessionBudget {
         percent: clampPercent((projected / this.budget) * 100),
         state: 'exceeded',
       };
-      this.broker?.send({
-        id: `budget-exceeded-${Date.now()}`,
-        type: 'ai:budget:exceeded',
-        timestamp: Date.now(),
-        payload: { ...state, settingsKey: SETTINGS_KEY },
-      } as AIBudgetExceededMessage);
+      this.announce('exceeded', state);
       return { allowed: false, state };
     }
     return { allowed: true, state: this.snapshot() };
   }
 
+  /**
+   * Apply a new limit to the running count. Called when
+   * `sandforge.ai.tokenBudgetMaxPerSession` changes; the count is kept, so
+   * changing the setting is not a way to start over.
+   */
+  resize(budget: number): void {
+    const next = assertPositive(budget);
+    if (next === this.budget) return;
+    this.budget = next;
+    const state = this.snapshot();
+    if (state.percent < SOFT_THRESHOLD) this.warnFired = false;
+    if (state.percent < HARD_THRESHOLD) this.exceededFired = false;
+    this.logger?.info(`AI token budget set to ${next} tokens, ${state.used.total} already used.`);
+    this.sendState(state);
+  }
+
   reset(): void {
     this.used = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0 };
     this.warnFired = false;
-    const state = this.snapshot();
-    this.broker?.send({
-      id: `budget-${Date.now()}`,
-      type: 'ai:budget:state',
-      timestamp: Date.now(),
-      payload: state,
-    } as AIBudgetStateMessage);
+    this.exceededFired = false;
+    this.sendState(this.snapshot());
   }
 
   getState(): TokenBudgetState {
@@ -154,6 +147,30 @@ export class SessionBudget {
   }
 
   // ── internals ──────────────────────────────────────────────────────────
+
+  private announce(threshold: BudgetThreshold, state: TokenBudgetState): void {
+    if (threshold === 'warn') {
+      if (this.warnFired) return;
+      this.warnFired = true;
+    } else {
+      if (this.exceededFired) return;
+      this.exceededFired = true;
+    }
+    this.logger?.warn(
+      `AI token budget ${threshold === 'warn' ? 'at 80%' : 'reached, calls refused'}: ` +
+        `${state.used.total}/${state.budget} tokens.`,
+    );
+    this.broker?.notify?.(threshold, state);
+  }
+
+  private sendState(state: TokenBudgetState): void {
+    this.broker?.send({
+      id: `budget-${Date.now()}`,
+      type: 'ai:budget:state',
+      timestamp: Date.now(),
+      payload: state,
+    } as AIBudgetStateMessage);
+  }
 
   private snapshot(): TokenBudgetState {
     const percent = clampPercent((this.used.total / this.budget) * 100);
@@ -167,6 +184,13 @@ export class SessionBudget {
       state,
     };
   }
+}
+
+function assertPositive(budget: number): number {
+  if (!Number.isFinite(budget) || budget <= 0) {
+    throw new Error('Token budget must be positive');
+  }
+  return budget;
 }
 
 function safeAdd(current: number, delta: number): number {

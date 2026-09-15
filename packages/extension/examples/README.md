@@ -4,13 +4,17 @@ Copy-paste recipes for the most common dev sandbox seeding scenarios.
 All examples assume `sf` CLI is authenticated for the source and target
 aliases.
 
+The command-line recipes run two TypeScript scripts from the root of a
+checkout of this repository — there is no installed `sandforge` command —
+after `pnpm install` and `pnpm build:shared`.
+
 ## Scenario 1 — Clone a Service Cloud Case
 
 **Use case:** debug a customer support flow on a real Case from prod.
 
 ```bash
 # Dry-run first (no writes)
-pnpm tsx packages/extension/cli/sandforge-clone.ts \
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --record 500XX00000000001AAA \
   --source SOURCE-UAT \
   --target TARGET-DEV \
@@ -19,7 +23,7 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
   --dry-run
 
 # Real run with anonymization
-pnpm tsx packages/extension/cli/sandforge-clone.ts \
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --record 500XX00000000001AAA \
   --source SOURCE-UAT \
   --target TARGET-DEV \
@@ -60,7 +64,7 @@ In the wizard:
 Or via CLI:
 
 ```bash
-pnpm tsx packages/extension/cli/sandforge-clone.ts \
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --record 001XX00000000001AAA \
   --source PROD-COPY \
   --target DEV \
@@ -74,26 +78,30 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
 
 Two options depending on your External Id setup:
 
-**A) With External Id field on the object (recommended)** — wizard "upsert mode" automatically patches existing rows:
+**A) With External Id field on the object (recommended)** — `--upsert` patches existing rows. It is a command-line flag only: the wizard has no upsert mode and always inserts.
 
 ```bash
-# In the wizard, set "upsertMode: 'auto'" via ForgeConfig OR
-pnpm tsx packages/extension/cli/sandforge-clone.ts \
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --record 500XX00000000001AAA \
   --source SOURCE-UAT \
   --target TARGET-DEV \
   --upsert
 ```
 
-**B) Without External Id** — clean up first, then re-clone:
+**B) Without External Id** — clean up first, then re-clone. The cleanup selects every record your user created on the target in the `--since` window, cloned or not, so preview it and name only the cloned objects before deleting:
 
 ```bash
-# Step 1 — wipe today's clones
-pnpm tsx packages/extension/cli/sandforge-cleanup.ts \
-  --target TARGET-DEV --since today
+# Step 1 — preview what the window matches
+pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+  --target TARGET-DEV --since today --dry-run
 
-# Step 2 — re-clone
-pnpm tsx packages/extension/cli/sandforge-clone.ts \
+# Step 2 — delete, limited to the objects the clone wrote
+pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+  --target TARGET-DEV --since today \
+  --objects CaseComment,Case,Contact,Account
+
+# Step 3 — re-clone
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
   --record 500XX00000000001AAA \
   --source SOURCE-UAT --target TARGET-DEV
 ```
@@ -107,7 +115,7 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
 - name: Seed sandbox
   run: |
     for caseId in 500XX00000000003AAA 500XX00000000004AAA 500XX00000000005AAA; do
-      pnpm tsx packages/extension/cli/sandforge-clone.ts \
+      pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
         --record "$caseId" \
         --source PROD-COPY --target DEV-SHARED \
         --max 100 --anonymize \
@@ -124,4 +132,4 @@ CLI returns exit code `1` if all records failed, `0` otherwise — fail the job 
 - **Cap with `--max`** while iterating — start at 5, raise once you trust the output.
 - **Use `--anonymize`** as soon as you share the dev sandbox with anyone outside your immediate team.
 - **Pick a fresh Case** for each demo — re-runs hit `DUPLICATE_VALUE` until you pass `--upsert`.
-- **Cleanup** after sensitive demos: `sandforge-cleanup --target X --since today`.
+- **Cleanup** after sensitive demos: `pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --target X --since today --dry-run`, then rerun it with `--objects` naming the cloned objects and without `--dry-run`. It matches everything your user created in that window, not only the clone.

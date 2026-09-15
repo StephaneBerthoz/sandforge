@@ -26,6 +26,36 @@ const SOQL_ORDER_BY_MAX_TERMS = 32;
 /** Max length of an ORDER BY clause, mirroring the WHERE bound. */
 const SOQL_ORDER_BY_MAX_LENGTH = 2000;
 
+/** Max length of a WHERE clause (the bridge bound). */
+const SOQL_WHERE_MAX_LENGTH = 2000;
+
+/**
+ * What may not appear in a WHERE clause outside its string literals. A WHERE
+ * fragment is followed by whatever the builder appends, so each of these would
+ * turn the filter into something else: a clause that ends the statement
+ * (`LIMIT`, `OFFSET`, `ORDER BY`, `GROUP BY`, `HAVING`, `FOR`, `WITH`,
+ * `ALL ROWS`), a subquery or DML keyword, a statement separator, or a comment
+ * marker that would swallow the rest of the query.
+ */
+const SOQL_WHERE_FORBIDDEN: readonly RegExp[] = [
+  /\bLIMIT\b/i,
+  /\bOFFSET\b/i,
+  /\bORDER\s+BY\b/i,
+  /\bGROUP\s+BY\b/i,
+  /\bHAVING\b/i,
+  /\bFOR\b/i,
+  /\bWITH\b/i,
+  /\bALL\s+ROWS\b/i,
+  /\bSELECT\b/i,
+  /\bINSERT\b/i,
+  /\bUPDATE\b/i,
+  /\bDELETE\b/i,
+  /;/,
+  /--/,
+  /\/\*/,
+  /\*\//,
+];
+
 /**
  * Escape a string value for safe inclusion in a SOQL string literal.
  *
@@ -102,6 +132,91 @@ export function assertSoqlOrderBy(clause: string): string {
   }
   return clause;
 }
+
+/**
+ * The clause with the content of every single-quoted literal removed, or
+ * `undefined` when a literal is never closed. Backslash escapes inside a
+ * literal (`\'`, `\\`) are honoured, so `'O\'Brien'` is one literal.
+ */
+function withoutSoqlLiterals(clause: string): string | undefined {
+  let outside = '';
+  let inLiteral = false;
+  for (let i = 0; i < clause.length; i++) {
+    const ch = clause[i];
+    if (inLiteral) {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === "'") {
+        inLiteral = false;
+        outside += "'";
+      }
+      continue;
+    }
+    if (ch === "'") inLiteral = true;
+    outside += ch;
+  }
+  return inLiteral ? undefined : outside;
+}
+
+/** Whether every parenthesis in `text` closes one opened before it, and all are closed. */
+function hasBalancedParentheses(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === '(') depth++;
+    else if (ch === ')' && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+/**
+ * Check whether a string is a SOQL WHERE condition and nothing else.
+ *
+ * Literals are set aside first, so `Status = 'Delete pending'` is a filter.
+ * Outside them the clause may not carry anything that ends or extends the
+ * statement (see {@link SOQL_WHERE_FORBIDDEN}), may not leave a parenthesis
+ * open or close one it did not open — a builder that wraps the fragment in
+ * parentheses would otherwise see its grouping escaped — and may not leave a
+ * literal unterminated. A blank clause is accepted: the builders skip it.
+ *
+ * @param clause - The WHERE clause to check, without the `WHERE` keyword.
+ * @returns `true` if the clause only filters.
+ */
+export function isSafeSoqlWhere(clause: string): boolean {
+  if (clause.trim().length === 0) return true;
+  if (clause.length > SOQL_WHERE_MAX_LENGTH) return false;
+  const outside = withoutSoqlLiterals(clause);
+  if (outside === undefined) return false;
+  if (SOQL_WHERE_FORBIDDEN.some((pattern) => pattern.test(outside))) return false;
+  return hasBalancedParentheses(outside);
+}
+
+/**
+ * Assert that a string is a WHERE condition and nothing else, then return it.
+ *
+ * A WHERE fragment is followed by whatever the builder appends, so a clause
+ * that went on past the filter still runs: `Id != null LIMIT 1` copies one
+ * record from an object and the run reports itself complete.
+ *
+ * @param clause - The WHERE clause to validate.
+ * @returns The validated clause, unchanged.
+ * @throws {Error} If the clause does more than filter.
+ *
+ * @example
+ * ```ts
+ * const soql = `SELECT Id FROM Account WHERE ${assertSoqlWhere(where)}`;
+ * ```
+ */
+export function assertSoqlWhere(clause: string): string {
+  if (!isSafeSoqlWhere(clause)) {
+    throw new Error(`Invalid SOQL WHERE clause: "${clause}". ${SOQL_WHERE_RULE}`);
+  }
+  return clause;
+}
+
+/** What a WHERE clause may not contain, as the bridge and the builders both say it. */
+export const SOQL_WHERE_RULE =
+  'A WHERE clause may only filter: no LIMIT, OFFSET, ORDER BY, GROUP BY, HAVING, FOR, WITH, ' +
+  'ALL ROWS, subquery or DML keyword, no semicolon or comment, and every parenthesis and quote closed.';
 
 /**
  * Assert that a string is a valid Salesforce API identifier and return it.

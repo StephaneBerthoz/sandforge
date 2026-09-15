@@ -146,7 +146,12 @@ export class FrozenDatasetExtractor {
         // Unscoped node (no path to the root) — nothing to pull.
         continue;
       }
-      const rows = await this.deps.query(built.soql);
+      // A selection too large for one query URI arrives as several
+      // statements; the bucket below already keeps one row per Id.
+      const rows: Record<string, unknown>[] = [];
+      for (const soql of built.statements) {
+        rows.push(...(await this.deps.query(soql)));
+      }
       let bucket = recordsByObject.get(node.objectApiName);
       if (!bucket) {
         bucket = new Map();

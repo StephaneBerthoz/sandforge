@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import type { ApiLimit, StorageObjectEntry } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { Select } from '../../components/ui/Select';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -20,6 +21,19 @@ import { formatNumber } from '../../utils/formatters';
  * object list arrives and on an org whose objects are all empty.
  */
 const DEFAULT_SCAN_OBJECT = 'Account';
+
+/**
+ * Picker value that opens the name field, for an object the list does not
+ * offer. An API name starts with a letter, so no object can take this value.
+ */
+const OTHER_OBJECT = '__other__';
+
+/**
+ * The API name the extension accepts on `ai:anomaly-scan`: a letter, then
+ * letters, digits or underscores, 80 characters at most. Checked here so a
+ * mistyped name is explained next to the field instead of refused on the wire.
+ */
+const OBJECT_API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** The slice of `monitor:storage` this section reads: objects that hold records. */
 interface ScanTargetsData {
@@ -50,6 +64,8 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
     const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
     const [limitsExpanded, setLimitsExpanded] = useState(false);
     const [scanObject, setScanObject] = useState(DEFAULT_SCAN_OBJECT);
+    const [typedObject, setTypedObject] = useState('');
+    const nameErrorId = useId();
     const { reset: resetScan } = anomalyScan;
 
     // Same channel the storage panel reads: the org's objects that hold
@@ -71,6 +87,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
     if (targetOrgId !== selectedOrgId) {
       setTargetOrgId(selectedOrgId);
       setScanObject(DEFAULT_SCAN_OBJECT);
+      setTypedObject('');
     }
 
     // The report carries no org of its own, so leaving it up would relabel the
@@ -93,8 +110,24 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
         ? []
         : (scanTargets?.objects ?? []).map((o) => o.objectName);
       const names = [DEFAULT_SCAN_OBJECT, ...fromOrg];
-      return [...new Set(names)].map((name) => ({ value: name, label: name }));
-    }, [scanTargets?.objects, scanTargetsLoading]);
+      // The list holds at most 20 objects, the largest: the last choice lets
+      // the user name any other one.
+      return [
+        ...[...new Set(names)].map((name) => ({ value: name, label: name })),
+        {
+          value: OTHER_OBJECT,
+          label: t('monitor.anomalyScanOtherObject', 'Other object…'),
+        },
+      ];
+    }, [scanTargets?.objects, scanTargetsLoading, t]);
+
+    // The object the scan goes out for: the one picked, or the name typed.
+    const typingName = scanObject === OTHER_OBJECT;
+    const typedName = typedObject.trim();
+    const typedNameValid = OBJECT_API_NAME.test(typedName);
+    const target = typingName ? typedName : scanObject;
+    const nameRefused = typingName && typedName !== '' && !typedNameValid;
+    const canScan = !typingName || typedNameValid;
 
     // A scan that answers with nothing on screen is a scan the user cannot
     // tell from one that never ran: both failure channels are rendered, and
@@ -133,22 +166,57 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
                   className="w-44 py-1 text-xs"
                   data-testid="anomaly-scan-object"
                 />
+                {typingName && (
+                  <Input
+                    value={typedObject}
+                    onChange={(e) => {
+                      // Same reason as a switch in the picker: the report on
+                      // screen belongs to the name typed before.
+                      setTypedObject(e.target.value);
+                      anomalyScan.reset();
+                    }}
+                    placeholder={t('monitor.anomalyScanObjectName', 'Object API name')}
+                    aria-label={t('monitor.anomalyScanObjectName', 'Object API name')}
+                    aria-invalid={nameRefused || undefined}
+                    aria-describedby={nameRefused ? nameErrorId : undefined}
+                    disabled={anomalyScan.loading}
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="w-44 py-1 text-xs"
+                    data-testid="anomaly-scan-object-name"
+                  />
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() =>
-                    anomalyScan.mutate({ orgId: selectedOrgId, objectName: scanObject })
-                  }
-                  disabled={anomalyScan.loading || !selectedOrgId}
+                  onClick={() => {
+                    if (!canScan) return;
+                    anomalyScan.mutate({ orgId: selectedOrgId, objectName: target });
+                  }}
+                  disabled={anomalyScan.loading || !selectedOrgId || !canScan}
                   loading={anomalyScan.loading}
                   data-testid="anomaly-scan-btn"
                 >
                   <Search className="w-3.5 h-3.5 mr-1" />
-                  {t('monitor.scanAnomaliesOn', 'Scan {{object}}', { object: scanObject })}
+                  {t('monitor.scanAnomaliesOn', 'Scan {{object}}', { object: target || '…' })}
                 </Button>
               </div>
             }
           />
+
+          {nameRefused && (
+            <p
+              id={nameErrorId}
+              className="text-xs text-[var(--sf-error)] mt-2"
+              role="alert"
+              data-testid="anomaly-scan-object-name-error"
+            >
+              {t(
+                'monitor.anomalyScanObjectNameInvalid',
+                'Not an object API name: start with a letter, then use only letters, digits and underscores, 80 characters at most.',
+              )}
+            </p>
+          )}
 
           {scanFailure !== null && (
             <p
@@ -167,7 +235,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
               data-testid="anomaly-scan-empty"
             >
               {t('monitor.noAnomalies', 'No anomalies found in {{object}}', {
-                object: scanObject,
+                object: target,
               })}
             </p>
           )}

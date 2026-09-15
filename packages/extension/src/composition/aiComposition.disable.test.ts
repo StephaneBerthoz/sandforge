@@ -89,12 +89,10 @@ describe('initAIComposition — turning AI off mid-session', () => {
     return {
       services: {
         isAIEnabled: () => aiEnabled,
+        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
         aiClient: aiClientFactory,
         telemetry: { getLogger: () => ({}) },
-        // The composition attaches a session budget before wiring the
-        // assistant: a real one, so nothing here depends on its internals.
-        createSessionBudget: (sessionId: string, broker?: { send: (m: unknown) => void }) =>
-          new SessionBudget({ sessionId, budget: 50_000, broker }),
+        sessionBudget: new SessionBudget({ sessionId: 'ai-window', budget: 50_000 }),
       },
       secretVault: { getSecret: vi.fn(() => Promise.resolve('sk-test')) },
       handlers: {
@@ -238,6 +236,37 @@ describe('initAIComposition — turning AI off mid-session', () => {
     expect(toWebview.filter((m) => m.type === 'ai:status:response').pop()?.payload.enabled).toBe(
       true,
     );
+  });
+
+  // Runs are not queued: each setting change starts one. A turn-on still
+  // waiting for the keychain used to finish after a later turn-off and put the
+  // assistant back, with AI reported as available.
+  it('lets a later turn-off win over an earlier turn-on still waiting for the key', async () => {
+    let releaseKey: (key: string) => void = () => undefined;
+    const slowKey = new Promise<string>((resolve) => {
+      releaseKey = resolve;
+    });
+    const enabling = makeDeps();
+    const getSecret = vi.fn(() => slowKey);
+    (enabling.secretVault as unknown as { getSecret: typeof getSecret }).getSecret = getSecret;
+    const installs = vi.spyOn(aiHandler, 'setAIAssistant');
+
+    const turningOn = initAIComposition(enabling);
+    await vi.waitFor(() => expect(getSecret).toHaveBeenCalled());
+    aiEnabled = false;
+    await initAIComposition(makeDeps());
+    releaseKey('sk-test');
+    await turningOn;
+
+    expect(installs.mock.calls.at(-1)?.[0]).toBeUndefined();
+    expect(installs.mock.calls.some(([assistant]) => assistant !== undefined)).toBe(false);
+    expect(lastModules).toBeUndefined();
+    expect(toWebview.filter((m) => m.type === 'ai:status:response').pop()?.payload.enabled).toBe(
+      false,
+    );
+    chat.mockClear();
+    await sendChat();
+    expect(chat).not.toHaveBeenCalled();
   });
 
   it('keeps the rule-based analysis answering in both states', async () => {

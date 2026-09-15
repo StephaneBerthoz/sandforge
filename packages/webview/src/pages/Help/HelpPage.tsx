@@ -52,6 +52,14 @@ const HELP_SECTIONS: HelpSection[] = [
     contentKey: 'help.automationContent',
     icon: '\u26A1',
   },
+  { id: 'forge', titleKey: 'nav.forge', contentKey: 'help.forgeContent', icon: '\uD83D\uDD28' },
+  {
+    id: 'frozen',
+    titleKey: 'nav.frozen',
+    contentKey: 'help.frozenContent',
+    icon: '\u2744\uFE0F',
+  },
+  { id: 'grappe', titleKey: 'nav.grappe', contentKey: 'help.grappeContent', icon: '\uD83C\uDF47' },
   { id: 'ai', titleKey: 'nav.ai', contentKey: 'help.aiContent', icon: '\uD83E\uDD16' },
   {
     id: 'shortcuts',

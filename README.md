@@ -163,9 +163,9 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                      | `200`                        |
 | `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                               | `3`                          |
 | `sandforge.ai.enabled`                     | Enable the AI Assistant (requires an API key)                                                    | `false`                      |
-| `sandforge.ai.provider`                    | AI provider (`anthropic` supported; `openai`/`custom` planned)                                   | `anthropic`                  |
+| `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                    | `anthropic`                  |
 | `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)       | `claude-sonnet-4-5-20250929` |
-| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per session (all AI features share it)                                         | `50000`                      |
+| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                   | `50000`                      |
 | `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                       | `10`                         |
 | `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                  | `300000`                     |
 | `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                               | `true`                       |
