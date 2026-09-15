@@ -119,7 +119,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 
 1. Check field-level security -- the query may reference fields the connected user cannot access
 2. Verify object and field API names are correct (use the schema browser in Seed Step 1)
-3. The NL2SOQL helper checks the query only as far as it looked: it describes up to five objects your request names by API name or label, sends those objects' field API names to the model, and rejects a query that selects a plain field none of them has -- a relationship path such as `Account.Name` is left to the org to judge. Name no object it recognises and it falls back to the org's object names alone -- the draft then comes back with a line saying it could not be checked against your org, so run it and read the error
+3. The NL2SOQL helper checks the query only as far as it looked: it describes up to five objects your request names by API name or label, sends those objects' field API names to the model, and rejects a query that selects a plain field none of them has -- a relationship path such as `Account.Name`, and any item carrying a bracket such as `COUNT(Id)`, are left to the org to judge. When no plain field was compared the draft comes back with a line saying so, and the line says which of the two cases it is: the request named no object the org recognises, so the helper had no field list to check against; or it had one, but the draft selects nothing but related-record paths and totals. Run the query and read the error
 4. For relationship queries, ensure the relationship name (not the field name) is used
 5. Check the error message for specific SOQL syntax issues
 

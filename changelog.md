@@ -108,9 +108,11 @@ front of every destructive action could be armed without typing a word.
   invention and the panel gave no sign of it. SandForge now describes up to five
   objects your request names — by API name or by label, singular or plural —
   sends the model their field API names, labels and types, and rejects a draft
-  that selects a plain field none of them has, naming the field. When your
-  request names no object it recognises, the draft still comes back, under a
-  line saying it could not be checked against your org.
+  that selects a plain field none of them has, naming the field. When nothing
+  could be checked, the draft still comes back with a line that says why:
+  either the org returned no field list for the object the draft queries, or
+  the draft selects only values from related records or totals, which are left
+  to the org to judge.
 - **The anomaly scan reads the object you choose, and says how the run went.**
   It sampled Account and nothing else, whatever the org held. A dropdown beside
   the button now picks the object: Account first, then up to 20 of the org's
@@ -120,15 +122,16 @@ front of every destructive action could be armed without typing a word.
   object the new org does not have. A run that finds nothing says
   so, and one that fails shows the reason under the button instead of leaving
   the panel exactly as it was.
-- **A sync configuration's sort order can only sort.** A sync object accepts an
-  `orderBy`, and whatever it held was appended to the query unchecked: `Id ASC
-LIMIT 1` would have truncated the read, `Id ASC FOR UPDATE` would have locked
-  the rows it returned. Such a value could only arrive in a configuration
-  written by hand or converted from an SFDMU export, and the one place that
-  builds that query — the sync dry run — is reachable from no screen and no
-  command, so no run has ever been affected. The field is now refused at the
-  extension boundary unless it lists field names with an optional ASC/DESC and
-  NULLS FIRST/LAST, and checked again where the query is assembled.
+- **A sync configuration's sort order is honoured, and can only sort.** A sync
+  object accepts an `orderBy` — an SFDMU export carries one, and the importer
+  keeps it. It reached a query only through the sync dry run, which no screen
+  and no command could start, so every real run ignored an imported order. The
+  real read now sorts by it. An ORDER BY ends the statement, so whatever
+  followed the field names would run with it — `Id ASC LIMIT 1` would truncate
+  the read, `Id ASC FOR UPDATE` would lock the rows it returns. The field is
+  refused at the extension boundary unless it lists field names with an
+  optional ASC/DESC and NULLS FIRST/LAST, and checked again where the query is
+  assembled.
 - **A built-in persona's ranges, lists, prefixes and locales reach the
   generator.** A persona describes each field in its own vocabulary — a premium
   between 200 and 5,000, a contract type drawn from five values, a medical
@@ -136,11 +139,14 @@ LIMIT 1` would have truncated the read, `Id ASC FOR UPDATE` would have locked
   passed on under the persona's own key names, which the generation contract
   does not read, so they were dropped on the way and the fields fell back to
   defaults: 0 to 1,000 for a number, an empty value for a picklist, a lorem
-  sentence for a name. They now arrive under the names the generator reads. Two
-  gaps remain: a field described by a digit mask, such as the French SIRET,
-  still produces the mask itself rather than a number matching it, and a faker
-  method SandForge does not implement — `commerce.productName`, `finance.iban`,
-  `finance.bic` — still produces a lorem sentence.
+  sentence for a name. They now arrive under the names the generator reads. A field
+  described by a digit mask, such as the French SIRET, now gets a digit in place
+  of each `#`, different from one record to the next, instead of the mask
+  itself. Product names, IBANs whose check digits validate and BICs in the ISO
+  9362 shape replace the lorem sentences those three fields used to get. A faker
+  method SandForge does not implement now stops the run before any record is
+  written, and names the method, instead of inserting a sentence that looks
+  like a value.
 
 ### Changed
 
@@ -222,6 +228,14 @@ LIMIT 1` would have truncated the read, `Id ASC FOR UPDATE` would have locked
   token-counting method went with them, along with the three adapter
   implementations it obliged, and a shared schema factory neither side of the
   bridge read.
+
+- **A sync configuration no longer accepts a dry run it never performed.**
+  `dryRun` was accepted on a sync configuration and read by nothing on the way
+  to a run: a configuration that set it to `true` synchronised for real. The
+  simulated path behind it was reachable only from tests. The flag is gone from
+  the contract. A configuration that still sets it to `true` is refused, with a
+  message saying a sync writes to the target org; `false`, which every stored
+  configuration carries, stays accepted.
 
 ### Build
 

@@ -563,6 +563,7 @@
     },
     "nl2soqlError": "Could not turn that description into SOQL. Try naming the object and the filter explicitly.",
     "nl2soqlUnverified": "SandForge could not check this draft's field names against your org. Run the query to find out whether it works.",
+    "nl2soqlNothingToCheck": "This draft asks only for values from related records or for totals, so SandForge had no field name of its own to check. Run the query to find out whether it works.",
     "graph": {
       "title": "Dependency Graph"
     }

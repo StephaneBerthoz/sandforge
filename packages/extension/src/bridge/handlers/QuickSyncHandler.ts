@@ -337,7 +337,6 @@ export class QuickSyncHandler implements DomainHandler {
         objects: objectConfigs,
         conflictStrategy: QUICK_SYNC_DEFAULTS.conflictStrategy,
         enableRollback: false,
-        dryRun: false,
       };
 
       sendNotification(

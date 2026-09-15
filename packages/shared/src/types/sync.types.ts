@@ -47,7 +47,6 @@ export interface SyncConfig {
   objects: SyncObjectConfig[];
   conflictStrategy: ConflictStrategy;
   enableRollback: boolean;
-  dryRun: boolean;
   schedule?: SyncSchedule;
   createdAt: ISODateString;
   updatedAt: ISODateString;
@@ -249,16 +248,6 @@ export interface UIConflict {
   resolution?: ConflictStrategy;
   /** Per-field resolution choices when strategy is 'manual' */
   fieldResolutions?: Record<string, FieldResolution>;
-}
-
-/** Delta detection result */
-export interface DeltaResult {
-  objectApiName: ApiName;
-  newRecords: number;
-  modifiedRecords: number;
-  deletedRecords: number;
-  unchangedRecords: number;
-  lastSyncTimestamp?: ISODateString;
 }
 
 // ─── CDC (Change Data Capture) Real-Time Sync Types ──────────────────────────

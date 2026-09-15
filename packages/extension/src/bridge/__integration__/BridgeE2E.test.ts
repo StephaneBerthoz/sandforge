@@ -194,7 +194,6 @@ describe('Bridge E2E Integration', () => {
       mockPanel.simulateWebViewMessage(
         createMessage('sync:execute', {
           configId: 'cfg-1',
-          dryRun: false,
         }),
       );
 
@@ -396,7 +395,6 @@ describe('Bridge E2E Integration', () => {
       mockPanel.simulateWebViewMessage(
         createMessage('sync:execute', {
           configId: 'cfg-1',
-          dryRun: false,
         }),
       );
 
@@ -546,9 +544,7 @@ describe('Bridge E2E Integration', () => {
       mockPanel.simulateWebViewMessage(
         createMessage('seed:execute', { templateId: 'tpl-1', orgId: 'org-1', dryRun: false }),
       );
-      mockPanel.simulateWebViewMessage(
-        createMessage('sync:execute', { configId: 'cfg-1', dryRun: false }),
-      );
+      mockPanel.simulateWebViewMessage(createMessage('sync:execute', { configId: 'cfg-1' }));
 
       await Promise.resolve();
       await Promise.resolve();

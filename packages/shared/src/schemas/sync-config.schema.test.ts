@@ -41,7 +41,15 @@ describe('syncConfigSchema', () => {
     expect(result.direction).toBe('source_to_target');
     expect(result.mode).toBe('full');
     expect(result.enableRollback).toBe(false);
-    expect(result.dryRun).toBe(false);
+  });
+
+  it('should not carry a dryRun flag', () => {
+    const result = syncConfigSchema.parse({
+      ...createValidSyncConfig(),
+      dryRun: true,
+    }) as Record<string, unknown>;
+
+    expect('dryRun' in result).toBe(false);
   });
 
   it('should apply object batchSize default of 200', () => {
@@ -55,12 +63,10 @@ describe('syncConfigSchema', () => {
       ...createValidSyncConfig(),
       description: 'Full account sync',
       enableRollback: true,
-      dryRun: true,
     });
 
     expect(result.description).toBe('Full account sync');
     expect(result.enableRollback).toBe(true);
-    expect(result.dryRun).toBe(true);
   });
 
   it('should not carry script fields', () => {

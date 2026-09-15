@@ -1,6 +1,7 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
+import type { NL2SOQLUnverifiedReason } from '@sandforge/shared';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
@@ -34,13 +35,17 @@ export interface SOQLValidationResult {
   valid: boolean;
   errors: string[];
   /**
-   * Whether the field list was actually checked against a describe.
+   * Whether at least one selected field name was actually compared against a
+   * describe.
    *
-   * `false` when the queried object carries no described fields — the query
-   * may still reference fields that do not exist. A caller must not report a
-   * `valid: true, verified: false` result as a checked query.
+   * `false` when nothing was: the queried object carries no described fields,
+   * or every item in the SELECT list is one this check steps over. Either way
+   * the query may still reference fields that do not exist, so a caller must
+   * not report a `valid: true, verified: false` result as a checked query.
    */
   verified: boolean;
+  /** Which of the two shapes of "nothing was compared" applies, when `verified` is false. */
+  unverifiedReason?: NL2SOQLUnverifiedReason;
 }
 
 /** A saved SOQL query with a user-defined label. */
@@ -90,6 +95,11 @@ export class NL2SOQL {
    * unknown — an empty `fields` array means nobody fetched them, so calling
    * them all invented would be a lie in the other direction.
    *
+   * A described object is not enough on its own. Relationship paths and
+   * functions are handed to the org to judge, so a SELECT list made only of
+   * those leaves the check with nothing compared, and it comes back
+   * `verified: false` too: the flag counts work done, not work available.
+   *
    * @param soql - The SOQL query to validate
    * @param schema - The Salesforce schema context
    * @returns Validation result with any errors found
@@ -130,20 +140,28 @@ export class NL2SOQL {
     }
 
     if (objectDef.fields.length === 0) {
-      return { valid: true, errors, verified: false };
+      return { valid: true, errors, verified: false, unverifiedReason: 'fields-unknown' };
     }
 
     const fieldNames = selectClause.split(',').map((f) => f.trim());
     const knownFieldNames = new Set(objectDef.fields.map((f) => f.apiName.toLowerCase()));
+    let compared = 0;
 
     for (const fieldName of fieldNames) {
       if (fieldName === '') continue;
       // Skip aggregate functions and relationship fields
       if (/\(/.test(fieldName) || fieldName.includes('.')) continue;
 
+      compared++;
       if (!knownFieldNames.has(fieldName.toLowerCase())) {
         errors.push(`Field "${fieldName}" not found on object "${objectName}"`);
       }
+    }
+
+    // Every item was skipped, so the describe was never consulted and no error
+    // can have been raised: an accepted draft nobody checked.
+    if (compared === 0) {
+      return { valid: true, errors, verified: false, unverifiedReason: 'nothing-to-check' };
     }
 
     return { valid: errors.length === 0, errors, verified: true };

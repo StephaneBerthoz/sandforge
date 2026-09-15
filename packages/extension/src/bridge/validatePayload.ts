@@ -133,6 +133,20 @@ export const syncConfigPayloadSchema = syncConfigSchema
           `The sync was not started so the script cannot be skipped without you knowing.`,
       });
     }
+
+    // A sync run always writes to the target org; there is no simulated path
+    // behind this flag. `false` stays legal — every config SandForge wrote
+    // carries it with that value, and history reruns replay those snapshots.
+    if (extras.dryRun === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dryRun'],
+        message:
+          `Sync has no dry run: remove "dryRun" from this configuration. ` +
+          `A sync run writes to the target org, and the run was not started ` +
+          `so it cannot write while you believed it was only reporting.`,
+      });
+    }
   });
 
 /**

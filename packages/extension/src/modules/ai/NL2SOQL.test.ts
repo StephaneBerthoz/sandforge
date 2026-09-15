@@ -223,8 +223,35 @@ describe('NL2SOQL', () => {
       const result = converter.validateSOQL('SELECT Id, Whatever FROM Order', NAME_ONLY_SCHEMA);
 
       expect(result.verified).toBe(false);
+      expect(result.unverifiedReason).toBe('fields-unknown');
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
+    });
+
+    it('does not call a draft checked when every selected item was skipped', () => {
+      // Both lists are accepted, and neither was compared to anything: the
+      // relationship path and the function are the two shapes the field check
+      // steps over, so a list made only of them leaves it with no work done.
+      const relationship = converter.validateSOQL('SELECT Account.Name FROM Contact', MOCK_SCHEMA);
+      const aggregate = converter.validateSOQL('SELECT COUNT(Id) FROM Account', MOCK_SCHEMA);
+
+      expect(relationship.valid).toBe(true);
+      expect(relationship.verified).toBe(false);
+      expect(relationship.unverifiedReason).toBe('nothing-to-check');
+      expect(aggregate.valid).toBe(true);
+      expect(aggregate.verified).toBe(false);
+      expect(aggregate.unverifiedReason).toBe('nothing-to-check');
+    });
+
+    it('calls a draft checked when one plain field among skipped items was checked', () => {
+      const result = converter.validateSOQL(
+        'SELECT Id, Account.Name, COUNT(Id) FROM Contact',
+        MOCK_SCHEMA,
+      );
+
+      expect(result.valid).toBe(true);
+      expect(result.verified).toBe(true);
+      expect(result.unverifiedReason).toBeUndefined();
     });
 
     it('still reports an object absent from the catalog', () => {

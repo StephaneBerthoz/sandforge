@@ -563,6 +563,7 @@
     },
     "nl2soqlError": "Impossible de convertir cette description en SOQL. Essayez de nommer explicitement l’objet et le filtre.",
     "nl2soqlUnverified": "SandForge n'a pas pu vérifier les noms de champs de ce brouillon dans votre org. Lancez la requête pour savoir si elle fonctionne.",
+    "nl2soqlNothingToCheck": "Ce brouillon ne demande que des valeurs d'enregistrements liés ou des totaux : SandForge n'avait donc aucun nom de champ à vérifier. Lancez la requête pour savoir si elle fonctionne.",
     "graph": {
       "title": "Graphe de dépendances"
     }

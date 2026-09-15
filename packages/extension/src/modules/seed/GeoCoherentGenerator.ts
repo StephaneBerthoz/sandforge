@@ -109,7 +109,7 @@ const LOCALE_PREFIX_MAP: Record<string, SupportedLocale> = {
  * Resolve a locale string to a SupportedLocale.
  * Supports exact match and prefix match, falls back to en_US.
  */
-function resolveLocale(locale: string): SupportedLocale {
+export function resolveLocale(locale: string): SupportedLocale {
   if (locale in GEO_DATA) {
     return locale as SupportedLocale;
   }

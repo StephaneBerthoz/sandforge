@@ -5,7 +5,7 @@ import type { ExportFormat } from '../reporting.types.js';
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
   type: 'sync:execute';
-  payload: { configId: string; dryRun: boolean };
+  payload: { configId: string };
 }
 
 /** Response for sync execution — the SyncOrchestrator result (consumed by useSyncPageData). */

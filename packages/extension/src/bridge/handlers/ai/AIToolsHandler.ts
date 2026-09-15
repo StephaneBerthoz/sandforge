@@ -152,14 +152,17 @@ export class AIToolsHandler implements DomainHandler {
       // would leave the user with nothing to correct.
       //
       // `verified` travels with it because an accepted draft is two different
-      // things: one whose fields came back from a describe, and one written
-      // against an object nobody could describe. Computing the difference and
-      // dropping it would put both on screen as the same answer.
+      // things: one whose fields came back from a describe, and one nothing
+      // was compared against. Computing the difference and dropping it would
+      // put both on screen as the same answer. The reason travels too: the
+      // panel has one sentence per cause, and guessing which applies from the
+      // draft alone would put the wrong one on screen.
       const response = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
         success: validation.valid,
         soql: result.soql,
         explanation: result.explanation,
         verified: validation.verified,
+        ...(validation.unverifiedReason ? { unverifiedReason: validation.unverifiedReason } : {}),
         ...(validation.valid ? {} : { error: validation.errors.join(' ') }),
       });
       this.deps.broker.postToWebview(response);

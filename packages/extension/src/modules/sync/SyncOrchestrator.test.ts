@@ -29,7 +29,6 @@ function createConfig(overrides?: Partial<SyncConfig>): SyncConfig {
     objects: [createObjectConfig()],
     conflictStrategy: 'source_wins',
     enableRollback: false,
-    dryRun: false,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -57,15 +56,6 @@ function createMockDeps(): SyncOrchestratorDeps {
     metadataSync: {
       sync: vi.fn().mockResolvedValue(createSuccessResult('Metadata')),
     } as unknown as SyncOrchestratorDeps['metadataSync'],
-    deltaDetector: {
-      detect: vi.fn().mockResolvedValue({
-        objectApiName: 'Account',
-        newRecords: 1,
-        modifiedRecords: 0,
-        deletedRecords: 0,
-        unchangedRecords: 0,
-      }),
-    } as unknown as SyncOrchestratorDeps['deltaDetector'],
     conflictResolver: {
       detectConflicts: vi.fn().mockReturnValue([]),
       resolve: vi.fn().mockReturnValue([]),
@@ -223,35 +213,15 @@ describe('SyncOrchestrator', () => {
     });
   });
 
-  describe('dryRun', () => {
-    it('should query source records without writing', async () => {
-      await orchestrator.dryRun(createConfig());
-
-      expect(deps.querySource).toHaveBeenCalled();
-      expect(deps.dataSync.sync).not.toHaveBeenCalled();
+  describe('every run writes', () => {
+    it('offers no simulated entry point that could report a run it never performed', () => {
+      expect((orchestrator as unknown as Record<string, unknown>).dryRun).toBeUndefined();
     });
 
-    it('should return success status for dry run', async () => {
-      const result = await orchestrator.dryRun(createConfig());
+    it('reaches the writer on the only path there is', async () => {
+      await orchestrator.execute(createConfig());
 
-      expect(result.status).toBe('success');
-    });
-
-    it('should report record counts without modifying data', async () => {
-      vi.mocked(deps.querySource).mockResolvedValue([
-        { Id: '001', Name: 'A' },
-        { Id: '002', Name: 'B' },
-      ]);
-
-      const result = await orchestrator.dryRun(createConfig());
-
-      expect(result.totalProcessed).toBe(2);
-    });
-
-    it('should not record sync timestamps', async () => {
-      await orchestrator.dryRun(createConfig());
-
-      expect(deps.incrementalTracker.recordSync).not.toHaveBeenCalled();
+      expect(deps.dataSync.sync).toHaveBeenCalled();
     });
   });
 });

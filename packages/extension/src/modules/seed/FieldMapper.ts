@@ -1,6 +1,7 @@
 import type { SeedObjectConfig, FieldRule } from '@sandforge/shared';
 import type { AIDataGenerator } from './AIDataGenerator';
 import type { FakerFallback } from './FakerFallback';
+import { fillDigitMask } from './LocaleData';
 
 /** Dependencies required by FieldMapper */
 export interface FieldMapperDependencies {
@@ -99,7 +100,7 @@ export function generateValue(
       return rule.config.formula ?? null;
 
     case 'regex':
-      return rule.config.regexPattern ?? null;
+      return generatePatternValue(rule, index);
 
     case 'from_csv':
       return null;
@@ -122,6 +123,23 @@ function generateSequenceValue(rule: FieldRule, index: number): string {
   const step = rule.config.sequenceStep ?? 1;
   const prefix = rule.config.sequencePrefix ?? '';
   return `${prefix}${start + index * step}`;
+}
+
+/**
+ * Fill the digit mask the rule carries.
+ *
+ * `regexPattern` holds a mask, the shape personas and the wizard write it in:
+ * '#' stands for a digit and every other character is literal. The mask says
+ * what the value looks like — returning it unchanged put '###########00##' in
+ * the SIRET column of every inserted record. Patterns written in regex syntax
+ * are not expanded: they contain no '#' and come back as they were written.
+ */
+function generatePatternValue(rule: FieldRule, index: number): string | null {
+  const mask = rule.config.regexPattern;
+  if (!mask) {
+    return null;
+  }
+  return fillDigitMask(mask, index);
 }
 
 /** Pick a random value from the configured picklist values */

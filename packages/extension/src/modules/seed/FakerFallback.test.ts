@@ -132,9 +132,10 @@ describe('FakerFallback', () => {
       expect((value as string).split('.').length).toBeGreaterThan(2);
     });
 
-    it('should fall back to sentence for unknown method', () => {
-      const value = generateByMethod('unknownMethod', 0, { min: 0, max: 100 });
-      expect(typeof value).toBe('string');
+    it('refuses an unknown method instead of passing a sentence off as its value', () => {
+      expect(() => generateByMethod('unknownMethod', 0, { min: 0, max: 100 })).toThrow(
+        /"unknownMethod" is not implemented/,
+      );
     });
 
     it('should generate a zip code', () => {

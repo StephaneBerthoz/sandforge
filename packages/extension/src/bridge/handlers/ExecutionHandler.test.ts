@@ -55,7 +55,6 @@ function createSyncConfig(id: string): SyncConfig {
     objects: [],
     conflictStrategy: 'source_wins',
     enableRollback: false,
-    dryRun: false,
     createdAt: '2026-03-01T00:00:00Z',
     updatedAt: '2026-03-01T00:00:00Z',
   };

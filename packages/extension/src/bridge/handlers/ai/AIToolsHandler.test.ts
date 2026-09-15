@@ -239,6 +239,20 @@ describe('AIToolsHandler', () => {
       const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(response.payload.success).toBe(true);
       expect(response.payload.verified).toBe(false);
+      expect(response.payload.unverifiedReason).toBe('fields-unknown');
+    });
+
+    it('tells the panel a draft over a described object still checked nothing', async () => {
+      realNL2SOQL('SELECT COUNT(Id) FROM Account');
+
+      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
+
+      // Account was described here, so the panel must not read this as the org
+      // withholding its field list.
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.verified).toBe(false);
+      expect(response.payload.unverifiedReason).toBe('nothing-to-check');
     });
 
     it('tells the panel the draft was checked when the fields came from a describe', async () => {
@@ -249,6 +263,7 @@ describe('AIToolsHandler', () => {
       const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(response.payload.success).toBe(true);
       expect(response.payload.verified).toBe(true);
+      expect(response.payload.unverifiedReason).toBeUndefined();
     });
 
     it('reports an object that exists in no catalog entry', async () => {

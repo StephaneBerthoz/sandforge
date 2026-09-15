@@ -563,6 +563,7 @@
     },
     "nl2soqlError": "Não foi possível converter essa descrição em SOQL. Tente nomear o objeto e o filtro explicitamente.",
     "nl2soqlUnverified": "O SandForge não conseguiu verificar os nomes de campo deste rascunho na sua organização. Execute a consulta para ver se funciona.",
+    "nl2soqlNothingToCheck": "Este rascunho pede apenas valores de registros relacionados ou totais, portanto o SandForge não tinha nenhum nome de campo próprio para verificar. Execute a consulta para ver se funciona.",
     "graph": {
       "title": "Grafo de dependências"
     }

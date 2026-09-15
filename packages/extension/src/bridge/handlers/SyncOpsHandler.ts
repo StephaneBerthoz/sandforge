@@ -1,3 +1,4 @@
+import { assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 import type { SyncConfig, SyncExecutionResult, SyncOperation } from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
@@ -27,7 +28,7 @@ import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
+import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import {
   queryAllPages,
   FORGE_QUERY_MAX_RECORDS,
@@ -709,6 +710,14 @@ export class SyncOpsHandler implements DomainHandler {
             }
             soql += ` WHERE ${objectConfig.where}`;
           }
+          // An SFDMU export carries its read order, and the importer keeps it.
+          // The boundary refuses anything but field names, ASC/DESC and NULLS
+          // FIRST/LAST; checked again here because this is where it becomes
+          // query text — an ORDER BY ends the statement, so whatever followed
+          // it would run.
+          if (objectConfig.orderBy) {
+            soql += ` ORDER BY ${assertSoqlOrderBy(objectConfig.orderBy)}`;
+          }
           // This query used to end in a bare
           // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
           // page only — 2 000 rows from a sandbox source, 500 from a
@@ -801,7 +810,6 @@ export class SyncOpsHandler implements DomainHandler {
       // Lazy-import sync dependencies
       const { DataSync } = await import('../../modules/sync/DataSync.js');
       const { MetadataSync } = await import('../../modules/sync/MetadataSync.js');
-      const { DeltaDetector } = await import('../../modules/sync/DeltaDetector.js');
       const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
@@ -819,17 +827,6 @@ export class SyncOpsHandler implements DomainHandler {
         fetchMetadata: async () => [],
         deployMetadata: async () => [],
       });
-      const deltaDetector = new DeltaDetector({
-        query: async (_orgId, soql) => {
-          const retryResult = await queryRetryOp.execute(() =>
-            queryAll<Record<string, unknown>>(sourceConn, soql),
-          );
-          if (!retryResult.success) {
-            throw retryResult.error ?? new Error('Delta query failed after retries');
-          }
-          return (retryResult.result ?? []) as Array<{ Id: string; [key: string]: unknown }>;
-        },
-      });
       const conflictResolver = new ConflictResolver();
       const fieldMapping = new FieldMappingService();
       const transformPipeline = new TransformPipeline();
@@ -838,7 +835,6 @@ export class SyncOpsHandler implements DomainHandler {
       const syncDeps = {
         dataSync,
         metadataSync,
-        deltaDetector,
         conflictResolver,
         fieldMapping,
         transformPipeline,

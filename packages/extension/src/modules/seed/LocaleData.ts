@@ -475,3 +475,27 @@ export function formatZipCode(format: string, index: number): string {
     return String(digit);
   });
 }
+
+/**
+ * Fill a digit mask: every '#' becomes a digit, every other character is kept
+ * as written, so '###########00##' yields fourteen digits whose twelfth and
+ * thirteenth are '0'.
+ *
+ * Meant for identifiers — a SIRET, the account part of an IBAN — where two
+ * records must not collide. {@link formatZipCode} derives each digit from
+ * `index` modulo 10, which repeats every ten records: harmless for a postal
+ * code, wrong for anything that identifies a record. The digits here come from
+ * a Lehmer sequence seeded by the index, so the value is still the same for the
+ * same index and no longer the same for index and index + 10.
+ *
+ * @param mask - Mask string (e.g. '###########00##')
+ * @param index - Record index for deterministic digit generation
+ * @returns The mask with every '#' replaced by a digit
+ */
+export function fillDigitMask(mask: string, index: number): string {
+  let state = ((index + 1) * 48271) % 2147483647;
+  return mask.replace(/#/g, () => {
+    state = (state * 48271) % 2147483647;
+    return String(state % 10);
+  });
+}

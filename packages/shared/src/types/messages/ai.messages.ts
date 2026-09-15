@@ -135,14 +135,25 @@ export interface AINL2SOQLRequest extends BaseMessage {
 }
 
 /**
+ * Why a NL2SOQL draft came back unchecked.
+ *
+ * - `fields-unknown`: the org returned no field list for the queried object,
+ *   so nothing but the model's own guess backs the field names.
+ * - `nothing-to-check`: the org did return one, but every item the draft
+ *   selects is a shape the check steps over — a path into a related record,
+ *   or a function — so it compared nothing.
+ */
+export type NL2SOQLUnverifiedReason = 'fields-unknown' | 'nothing-to-check';
+
+/**
  * Response from AI natural-language to SOQL conversion.
  *
- * `verified` says whether the field list of the draft was checked against the
- * org's describe. `false` means the request named no object the org
- * recognises, so nothing but the model's own guess backs the field names —
- * the draft is still returned, and the panel says so. Optional: a producer
- * that cannot tell omits it, and a reader treats the absence as "not stated"
- * rather than as a check that passed.
+ * `verified` says whether at least one field name of the draft was actually
+ * compared against the org's describe. `false` means none was — the draft is
+ * still returned, and the panel says so, naming the cause `unverifiedReason`
+ * carries. Both are optional: a producer that cannot tell omits them, and a
+ * reader treats the absence as "not stated" rather than as a check that
+ * passed. `unverifiedReason` is meaningless unless `verified` is `false`.
  */
 export interface AINL2SOQLResponse extends BaseMessage {
   type: 'ai:nl2soql:response';
@@ -152,6 +163,7 @@ export interface AINL2SOQLResponse extends BaseMessage {
     explanation?: string;
     error?: string;
     verified?: boolean;
+    unverifiedReason?: NL2SOQLUnverifiedReason;
   };
 }
 

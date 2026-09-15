@@ -563,6 +563,7 @@
     },
     "nl2soqlError": "Diese Beschreibung konnte nicht in SOQL übersetzt werden. Nennen Sie Objekt und Filter explizit.",
     "nl2soqlUnverified": "SandForge konnte die Feldnamen dieses Entwurfs nicht gegen Ihre Org prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
+    "nl2soqlNothingToCheck": "Dieser Entwurf fragt nur Werte aus verknüpften Datensätzen oder Summen ab, also hatte SandForge keinen eigenen Feldnamen zum Prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
     "graph": {
       "title": "Abhängigkeitsgraph"
     }

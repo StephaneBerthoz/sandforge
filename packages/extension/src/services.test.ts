@@ -192,7 +192,6 @@ describe('services', () => {
       const sync = services.syncOrchestrator({
         dataSync: { sync: vi.fn() },
         metadataSync: { sync: vi.fn() },
-        deltaDetector: { detect: vi.fn() },
         conflictResolver: { detectConflicts: vi.fn(), resolve: vi.fn() },
         fieldMapping: { apply: vi.fn(), applyAddOns: vi.fn() },
         transformPipeline: { transformRecord: vi.fn() },

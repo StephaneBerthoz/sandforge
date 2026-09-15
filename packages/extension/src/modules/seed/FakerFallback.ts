@@ -1,7 +1,7 @@
 import type { FieldRule } from '@sandforge/shared';
-import { getLocaleData, formatPhone } from './LocaleData';
-import type { LocaleDataSet } from './LocaleData';
-import { GeoCoherentGenerator } from './GeoCoherentGenerator';
+import { getLocaleData, formatPhone, fillDigitMask } from './LocaleData';
+import type { LocaleDataSet, SupportedLocale } from './LocaleData';
+import { GeoCoherentGenerator, resolveLocale } from './GeoCoherentGenerator';
 
 /** Supported faker method names */
 export type FakerMethodName =
@@ -27,13 +27,68 @@ export type FakerMethodName =
   | 'paragraph'
   | 'uuid'
   | 'url'
-  | 'zipCode';
+  | 'zipCode'
+  | 'productName'
+  | 'iban'
+  | 'bic';
 
 /** Configuration for number generation ranges */
 interface NumberRange {
   min: number;
   max: number;
 }
+
+/** ISO 3166-1 alpha-2 code of each locale, for codes that carry a country. */
+const COUNTRY_CODES: Record<SupportedLocale, string> = {
+  en_US: 'US',
+  fr_FR: 'FR',
+  de_DE: 'DE',
+  es_ES: 'ES',
+  ja_JP: 'JP',
+  pt_BR: 'BR',
+};
+
+/**
+ * IBAN layout per locale: the country code and the BBAN length ISO 13616
+ * registers for it. Only countries whose BBAN is all digits are listed — the
+ * mask that fills it produces digits. IBAN is a European scheme, so a locale
+ * that has none borrows the German layout rather than inventing one.
+ */
+const IBAN_LAYOUTS: Record<SupportedLocale, { country: string; bbanLength: number }> = {
+  fr_FR: { country: 'FR', bbanLength: 23 },
+  de_DE: { country: 'DE', bbanLength: 18 },
+  es_ES: { country: 'ES', bbanLength: 20 },
+  en_US: { country: 'DE', bbanLength: 18 },
+  ja_JP: { country: 'DE', bbanLength: 18 },
+  pt_BR: { country: 'DE', bbanLength: 18 },
+};
+
+/** Letters a BIC location code may use: ISO 9362 excludes 'O' from it. */
+const BIC_LOCATION_LETTERS = 'ABCDEFGHIJKLMNPQRSTUVWXYZ';
+
+/** Word banks for product names, in the adjective / material / product shape. */
+const PRODUCT_ADJECTIVES = [
+  'Ergonomic',
+  'Handcrafted',
+  'Refined',
+  'Sleek',
+  'Rustic',
+  'Compact',
+  'Modular',
+  'Insulated',
+];
+const PRODUCT_MATERIALS = ['Steel', 'Wooden', 'Cotton', 'Granite', 'Rubber', 'Leather', 'Ceramic'];
+const PRODUCTS = [
+  'Chair',
+  'Table',
+  'Lamp',
+  'Keyboard',
+  'Backpack',
+  'Bottle',
+  'Headphones',
+  'Gloves',
+  'Bench',
+];
 
 /**
  * Generates data records using deterministic faker-like methods.
@@ -165,8 +220,14 @@ export class FakerFallback {
         return `https://example.com/resource/${index}`;
       case 'zipCode':
         return this.geoGenerator.getZipCode(index);
+      case 'productName':
+        return generateProductName(index);
+      case 'iban':
+        return this.generateIban(index);
+      case 'bic':
+        return this.generateBic(index);
       default:
-        return generateSentence(index);
+        return unsupportedMethod(method);
     }
   }
 
@@ -206,6 +267,36 @@ export class FakerFallback {
 
   private generateCompany(index: number): string {
     return this.localeData.companies[index % this.localeData.companies.length];
+  }
+
+  /**
+   * Build an IBAN whose check digits are the ones ISO 13616 computes for its
+   * body, so the value passes an IBAN validator. The digits inside the BBAN
+   * carry no national meaning: a French IBAN generated here does not hold a
+   * valid RIB key, and a German one no valid Bankleitzahl.
+   */
+  private generateIban(index: number): string {
+    const layout = IBAN_LAYOUTS[resolveLocale(this.locale)];
+    const bban = fillDigitMask('#'.repeat(layout.bbanLength), index);
+    return `${layout.country}${ibanCheckDigits(layout.country, bban)}${bban}`;
+  }
+
+  /**
+   * Build an 11-character BIC: four letters for the institution, the locale's
+   * country code, a two-letter location, and 'XXX' for the head office. The
+   * institution code is synthetic — it deliberately does not reproduce the
+   * code of a real bank. Unlike an IBAN a BIC identifies an institution, not a
+   * record, so repeating one across records is what real data looks like.
+   */
+  private generateBic(index: number): string {
+    const institution = Array.from({ length: 4 }, (_, i) =>
+      String.fromCharCode(65 + ((index * 5 + i * 7 + 3) % 26)),
+    ).join('');
+    const location = Array.from(
+      { length: 2 },
+      (_, i) => BIC_LOCATION_LETTERS[(index * 3 + i * 11 + 2) % BIC_LOCATION_LETTERS.length],
+    ).join('');
+    return `${institution}${COUNTRY_CODES[resolveLocale(this.locale)]}${location}XXX`;
   }
 }
 
@@ -254,6 +345,46 @@ function generateInteger(range: NumberRange): number {
 function generateFloat(range: NumberRange): number {
   const value = range.min + Math.random() * (range.max - range.min);
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * A three-word product name — adjective, material, product — in the shape a
+ * catalogue uses. The three indices step at different rates so that consecutive
+ * records do not share their first word.
+ */
+function generateProductName(index: number): string {
+  const adjective = PRODUCT_ADJECTIVES[index % PRODUCT_ADJECTIVES.length];
+  const material = PRODUCT_MATERIALS[(index * 3 + 1) % PRODUCT_MATERIALS.length];
+  const product = PRODUCTS[(index * 5 + 2) % PRODUCTS.length];
+  return `${adjective} ${material} ${product}`;
+}
+
+/**
+ * The two check digits ISO 13616 computes for an IBAN body: move the country
+ * code and '00' behind the BBAN, write every letter as its position + 9, take
+ * the remainder modulo 97 and subtract it from 98. Worked digit by digit, so a
+ * 30-digit number never has to fit in a double.
+ */
+function ibanCheckDigits(country: string, bban: string): string {
+  const numeric = `${bban}${country}00`.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let remainder = 0;
+  for (const digit of numeric) {
+    remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+  return String(98 - remainder).padStart(2, '0');
+}
+
+/**
+ * A faker method this generator does not implement. It used to become a lorem
+ * sentence, which looks like a value and is inserted like one; a persona that
+ * names a method nobody wrote should stop the run before anything reaches the
+ * org, and say which method to fix.
+ */
+function unsupportedMethod(method: string): never {
+  throw new Error(
+    `Faker method "${method}" is not implemented: choose a method SandForge generates, ` +
+      `or remove it from the field rule. No record was written.`,
+  );
 }
 
 function generateSentence(index: number): string {

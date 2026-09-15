@@ -7,7 +7,6 @@ import type {
 } from '@sandforge/shared';
 import type { DataSync } from './DataSync';
 import type { MetadataSync } from './MetadataSync';
-import type { DeltaDetector } from './DeltaDetector';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
@@ -30,7 +29,6 @@ export interface SyncGrappeEvent {
 export interface SyncOrchestratorDeps {
   dataSync: DataSync;
   metadataSync: MetadataSync;
-  deltaDetector: DeltaDetector;
   conflictResolver: ConflictResolver;
   fieldMapping: FieldMappingService;
   transformPipeline: TransformPipeline;
@@ -55,6 +53,9 @@ export interface SyncOrchestratorDeps {
  * A sync moves data and nothing else — it never runs code in an org. Configs
  * carrying a `preScript`/`postScript` are refused at the bridge boundary
  * (`syncConfigPayloadSchema`) rather than silently ignored here.
+ *
+ * Every run writes: there is no simulated path. A config asking for one
+ * (`dryRun: true`) is refused at that same boundary.
  */
 export class SyncOrchestrator {
   private readonly deps: SyncOrchestratorDeps;
@@ -128,48 +129,6 @@ export class SyncOrchestrator {
   private isGrappeActive(): boolean {
     const config = this.deps.grappeConfig;
     return !!config?.enabled;
-  }
-
-  /**
-   * Perform a dry run of the sync without writing any data.
-   * Returns what would happen if the sync were executed.
-   */
-  async dryRun(config: SyncConfig): Promise<SyncExecutionResult> {
-    const startTime = Date.now();
-    const operationId = `dryrun-${Date.now()}`;
-    const objectResults: SyncObjectResult[] = [];
-
-    const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
-
-    for (const objectConfig of sortedObjects) {
-      const sourceRecords = await this.deps.querySource(config.sourceOrgId, objectConfig);
-
-      const lastSync = this.deps.incrementalTracker.getLastSync(
-        config.id,
-        objectConfig.objectApiName,
-      );
-
-      const delta = await this.deps.deltaDetector.detect(
-        objectConfig,
-        config.sourceOrgId,
-        lastSync,
-      );
-
-      objectResults.push({
-        objectApiName: objectConfig.objectApiName,
-        operation: objectConfig.operation,
-        processed: sourceRecords.length,
-        success: sourceRecords.length,
-        failed: 0,
-        skipped: 0,
-        conflictCount: 0,
-        errors: [],
-      });
-
-      void delta;
-    }
-
-    return buildResult(config.id, operationId, objectResults, startTime, 'success');
   }
 
   private async syncObject(

@@ -394,7 +394,6 @@ export function useSyncPageData(): SyncPageData {
       ),
       conflictStrategy,
       enableRollback: false,
-      dryRun: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

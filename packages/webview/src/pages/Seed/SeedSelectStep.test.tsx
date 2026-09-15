@@ -14,6 +14,7 @@ function nl2soqlStub(
     explanation?: string;
     error?: string;
     verified?: boolean;
+    unverifiedReason?: 'fields-unknown' | 'nothing-to-check';
   } | null,
 ): SeedSelectStepProps['nl2soql'] {
   return {
@@ -55,6 +56,25 @@ describe('SeedSelectStep NL2SOQL draft', () => {
     expect(notice.textContent).toMatch(/could not check/i);
     // No jargon: the word the extension uses internally never reaches the user.
     expect(notice.textContent).not.toMatch(/describe/i);
+  });
+
+  it('tells the two causes apart instead of blaming the org for both', () => {
+    renderStep(
+      nl2soqlStub({
+        success: true,
+        soql: 'SELECT Account.Name FROM Contact',
+        verified: false,
+        unverifiedReason: 'nothing-to-check',
+      }),
+    );
+
+    const notice = screen.getByTestId('nl2soql-unverified');
+    // The org answered here; what it answered had nothing to compare the draft
+    // against, so the line must not read as a failed lookup.
+    expect(notice.textContent).not.toMatch(/could not check this draft's field names/i);
+    expect(notice.textContent).toMatch(/related records/i);
+    // No jargon: the words the extension uses internally never reach the user.
+    expect(notice.textContent).not.toMatch(/describe|relationship|aggregate|SELECT/i);
   });
 
   it('says nothing extra when the draft was checked against the org', () => {

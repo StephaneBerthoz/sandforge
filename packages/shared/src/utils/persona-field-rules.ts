@@ -48,6 +48,9 @@ const FAKER_METHOD_ALIASES: Record<string, string> = {
   'string.uuid': 'uuid',
   'date.past': 'pastDate',
   'date.future': 'futureDate',
+  'commerce.productName': 'productName',
+  'finance.iban': 'iban',
+  'finance.bic': 'bic',
 };
 
 /**

@@ -15,9 +15,6 @@ vi.mock('../../modules/sync/DataSync.js', () => ({
 vi.mock('../../modules/sync/MetadataSync.js', () => ({
   MetadataSync: vi.fn().mockImplementation(() => ({})),
 }));
-vi.mock('../../modules/sync/DeltaDetector.js', () => ({
-  DeltaDetector: vi.fn().mockImplementation(() => ({})),
-}));
 vi.mock('../../modules/sync/ConflictResolver.js', () => ({
   ConflictResolver: vi.fn().mockImplementation(() => ({})),
 }));
@@ -131,7 +128,6 @@ function validSyncConfig(): Record<string, unknown> {
     ],
     conflictStrategy: 'source_wins',
     enableRollback: false,
-    dryRun: false,
     createdAt: '2026-03-01T00:00:00Z',
     updatedAt: '2026-03-01T00:00:00Z',
   };
@@ -1428,6 +1424,34 @@ describe('SyncOpsHandler', () => {
       // And no server-side truncation to hide behind.
       expect(conn.query.mock.calls[0][0]).not.toMatch(/\bLIMIT\b/i);
       expect(notifications()).toHaveLength(0);
+    });
+
+    /**
+     * An SFDMU export carries a read order, and the importer keeps it. It is
+     * appended to the real read, between the filter and any limit, and checked
+     * again where it becomes query text: an ORDER BY ends the statement, so
+     * whatever followed it would run.
+     */
+    it('reads in the order the configuration names', async () => {
+      const conn = createOrgConnection(10, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox');
+      await querySource('src-org', { ...accountConfig(), orderBy: 'Name ASC NULLS LAST' });
+
+      expect(conn.query.mock.calls[0][0]).toMatch(/ ORDER BY Name ASC NULLS LAST$/);
+    });
+
+    it('refuses an order that carries more than a sort, before any query leaves', async () => {
+      const conn = createOrgConnection(10, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox');
+
+      await expect(
+        querySource('src-org', { ...accountConfig(), orderBy: 'Id ASC LIMIT 1' }),
+      ).rejects.toThrow();
+      expect(conn.query).not.toHaveBeenCalled();
     });
 
     it('says so when a read bound cuts the object short', async () => {

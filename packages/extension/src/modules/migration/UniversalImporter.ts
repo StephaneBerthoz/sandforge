@@ -303,7 +303,6 @@ export class UniversalImporter {
       objects: [objectConfig],
       conflictStrategy: 'source_wins',
       enableRollback: false,
-      dryRun: false,
       createdAt: now,
       updatedAt: now,
     };

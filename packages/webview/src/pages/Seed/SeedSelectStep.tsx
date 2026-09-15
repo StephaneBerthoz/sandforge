@@ -196,16 +196,19 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                 <span className="text-xs text-text-secondary">{nl2soql.data.explanation}</span>
               )}
               {/* An accepted draft comes in two kinds and they must not look
-                  alike: one whose field names came back from the org, and one
-                  the model wrote against an object the org never confirmed.
-                  Only the second says so. */}
+                  alike: one whose field names were compared to the org's, and
+                  one where nothing was compared. Only the second says so, and
+                  it says which of the two things went missing — the org's
+                  field list, or anything in the draft worth comparing. */}
               {nl2soql.data?.success === true && nl2soql.data.verified === false && (
                 <span
                   className="text-xs text-amber-400"
                   role="status"
                   data-testid="nl2soql-unverified"
                 >
-                  {t('seed.nl2soqlUnverified')}
+                  {nl2soql.data.unverifiedReason === 'nothing-to-check'
+                    ? t('seed.nl2soqlNothingToCheck')
+                    : t('seed.nl2soqlUnverified')}
                 </span>
               )}
               {(nl2soql.error ??
