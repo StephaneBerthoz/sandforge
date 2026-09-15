@@ -391,7 +391,7 @@
     "@sandforge/shared": "workspace:*",
     "cron-parser": "^5.5.0",
     "jsforce": "^3",
-    "p-limit": "^3.1.0",
+    "p-limit": "^7.3.2",
     "pino": "^9",
     "zod": "^3.25.0"
   },
