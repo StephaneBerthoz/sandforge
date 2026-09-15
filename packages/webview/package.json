@@ -41,8 +41,8 @@
     "zustand": "^4"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.1",
-    "@playwright/test": "^1.45",
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63",
     "@testing-library/jest-dom": "^6",
     "@testing-library/react": "^15",
     "@types/d3": "^7",
