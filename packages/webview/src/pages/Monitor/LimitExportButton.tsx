@@ -117,7 +117,7 @@ export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, tr
     // no branch and nothing to branch on. `useFileSave` announces the real
     // outcome, including the path.
     save(filename, csv, ['csv']);
-  }, [limits, trends, exportMode, save]);
+  }, [limits, trends, exportMode, save, addNotification, t]);
 
   return (
     <div className="flex items-center" data-testid="export-group">

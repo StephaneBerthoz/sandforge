@@ -16,7 +16,10 @@ front of every destructive action could be armed without typing a word.
   export — a DataOps backup over the size limit, for instance — the rejection
   came back on the channel the page reads as an outcome, matched nothing, and
   fell through to the success branch: a green confirmation for a file that was
-  never written. It is now an error, attached to the export that caused it.
+  never written. It is now an error, attached to the export that caused it,
+  and the DataOps page shows it. That page had never shown a refused backup
+  export: the effect that raises its errors read the export's error without
+  re-running when it changed.
 - **A restore Salesforce mostly rejected no longer reports success.** Restore
   and anonymization counted the records Salesforce accepted and dropped the
   rest. A rollback where 900 of 1,000 records were refused said "100 records
@@ -293,6 +296,17 @@ front of every destructive action could be armed without typing a word.
   now builds a TypeScript program per bundle and resolves every call to the
   declaration it actually reaches, so a namesake in another class, package or
   library is not a caller. Two seconds slower, and provably able to go red.
+- **The confidentiality check can pass.** Before a release it scans every
+  tracked file for client names and real org Ids, and it had not passed since
+  at least 1.20.0: its Id pattern matched 59 places and not one was an org —
+  fixtures counting up from `00D000000000001`, placeholders of one repeated
+  letter, the example Id from Salesforce's documentation, eighteen characters
+  in the middle of a lockfile hash, and its own definition. A check that always
+  fails hides the failure that matters among the ones everybody expects. An Id
+  now has to stand on its own and the stand-in shapes are named; a finding is
+  reported by file and line, without repeating a client name or a whole Id into
+  a log; and it runs on every push, where CI checks Ids and a local run checks
+  names as well.
 
 ## [1.21.0] - 2026-09-10
 

@@ -286,44 +286,24 @@ rm -f /tmp/sf-shots.txt
 # reads its images out of the same commit as the file on disk. 11c above still
 # proves every URL resolves to an anonymous visitor.
 
-# 12. Client-confidentiality gate — no client identity may reach a public
-# artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
-# Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.
+# 12. Client-confidentiality gate — no client name and no real org identifier
+# may reach a public artifact. Both the GitHub repo and the VSIX (which ships
+# changelog.md as the Marketplace "Changelog" tab) are public, so the whole
+# tracked tree is scanned, the scanner included.
 #
-# The names live OUTSIDE the repository, in an untracked `.confidential-names`
-# (one extended-regex alternative per line, `#` for comments). They used to be
-# hardcoded right here — so the gate meant to keep client identity out of a
-# public repo was itself publishing a client name and two of their org
-# aliases, and it excluded its own file from the scan, which is exactly why it
-# reported "PASS: No client identity in tracked files" on every run. A scanner
-# blind to itself cannot fail on the one file it is guaranteed to be wrong in.
-#
-# Nothing is excluded from the scan any more, this file included.
-NAMES_FILE=".confidential-names"
-if [[ -f "$NAMES_FILE" ]]; then
-  CONFIDENTIAL_PATTERN=$(grep -vE '^\s*(#|$)' "$NAMES_FILE" | paste -sd'|' -)
+# The names live OUTSIDE the repository, in an untracked `.confidential-names`.
+# They used to be hardcoded right here, so the gate meant to keep client
+# identity out of a public repo was itself publishing it. The identifier rules,
+# and why the pattern that preceded them could never pass, are in the script.
+if node scripts/check-confidential.mjs > /tmp/sf-confidential.txt 2>&1; then
+  grep "^WARN" /tmp/sf-confidential.txt || true
+  echo "PASS: $(tail -1 /tmp/sf-confidential.txt)"
 else
-  CONFIDENTIAL_PATTERN=''
-fi
-# Structural patterns are safe to keep in the open: they name no one. Real
-# Salesforce record Ids are blocked because synthetic fixtures use 00XX/001XX.
-STRUCTURAL_PATTERN='500AP0000|00D[A-Za-z0-9]{12,15}'
-if [[ -n "$CONFIDENTIAL_PATTERN" ]]; then
-  SCAN_PATTERN="${CONFIDENTIAL_PATTERN}|${STRUCTURAL_PATTERN}"
-else
-  echo "WARN: $NAMES_FILE absent — scanning structural patterns only."
-  SCAN_PATTERN="$STRUCTURAL_PATTERN"
-fi
-if git grep -inE "${SCAN_PATTERN}" -- . > /tmp/sf-confidential-hits.txt 2>/dev/null; then
-  echo "FAIL: client identity or real record Ids found in tracked files:"
-  head -20 /tmp/sf-confidential-hits.txt | sed 's/^/       /'
-  HIT_COUNT=$(wc -l < /tmp/sf-confidential-hits.txt)
-  echo "       ($HIT_COUNT occurrence(s) — scrub before publishing)"
+  echo "FAIL: client identity or real org identifiers in tracked files — scrub before publishing"
+  grep -E "✗|^Confidentiality:" /tmp/sf-confidential.txt | head -20 | sed 's/^/       /'
   ERRORS=$((ERRORS + 1))
-else
-  echo "PASS: No client identity in tracked files"
 fi
-rm -f /tmp/sf-confidential-hits.txt
+rm -f /tmp/sf-confidential.txt
 
 echo ""
 if [[ $ERRORS -gt 0 ]]; then

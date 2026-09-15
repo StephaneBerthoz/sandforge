@@ -171,7 +171,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
   const handleExportCsv = useCallback(() => {
     const date = new Date().toISOString().slice(0, 10);
     save(`sandforge-jobs-${date}.csv`, buildJobsCsv(filteredJobs), ['csv']);
-  }, [filteredJobs]);
+  }, [filteredJobs, save]);
 
   const toggleGroup = (className: string): void => {
     setExpandedGroups((prev) => {

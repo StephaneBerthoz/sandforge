@@ -76,6 +76,15 @@ let mockAnonymizeMutationState = {
   reset: mockAnonymizeReset,
 };
 
+/** Mutable mutation state for backup:export. */
+let mockExportMutationState = {
+  mutate: vi.fn(),
+  data: null as { operationId: string; filename: string; data: string } | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'backup:list') {
@@ -98,6 +107,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'dataops:rollback') {
       return mockRollbackMutationState;
+    }
+    if (type === 'backup:export') {
+      return mockExportMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -147,6 +159,13 @@ describe('DataOpsPage', () => {
     };
     mockRollbackMutationState = {
       mutate: mockRollbackMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+    mockExportMutationState = {
+      mutate: vi.fn(),
       data: null,
       loading: false,
       error: null,
@@ -285,6 +304,20 @@ describe('DataOpsPage', () => {
 
     expect(screen.getByTestId('dataops-error')).toBeDefined();
     expect(screen.getByText('Backup failed')).toBeDefined();
+  });
+
+  it('should show the error of an export the extension refused', () => {
+    // The effect that surfaces bridge errors read the export's error without
+    // re-running when it changed, so a refused export left the page silent.
+    useOrgStore.setState({ orgs: mockOrgs });
+    const { rerender } = render(<DataOpsPage />);
+    expect(screen.queryByTestId('dataops-error')).toBeNull();
+
+    mockExportMutationState = { ...mockExportMutationState, error: 'Backup too large to export' };
+    rerender(<DataOpsPage />);
+
+    expect(screen.getByTestId('dataops-error')).toBeDefined();
+    expect(screen.getByText('Backup too large to export')).toBeDefined();
   });
 
   it('should render KPI summary row', () => {

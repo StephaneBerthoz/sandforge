@@ -134,6 +134,7 @@ export const DataOpsPage: React.FC = () => {
     backupsQuery.error,
     backupMutation.error,
     rollbackMutation.error,
+    exportMutation.error,
     anonymizeMutation.error,
     templatesQuery.error,
     addNotification,
