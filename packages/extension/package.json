@@ -387,9 +387,9 @@
     "test:correlation": "vitest run src/bridge/handlerErrorChannels.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.93.0",
+    "@anthropic-ai/sdk": "0.124.0",
     "@sandforge/shared": "workspace:*",
-    "cron-parser": "^5.5.0",
+    "cron-parser": "^5.10.0",
     "jsforce": "^3",
     "p-limit": "^3.1.0",
     "pino": "^9",
