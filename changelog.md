@@ -5,10 +5,21 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.22.0] - 2026-09-15
 
-Three operations told you they had worked when they had not, and the guard in
-front of every destructive action could be armed without typing a word.
+This release is about things that said they worked.
+
+Almost every change below has the same shape: a feature, a setting, a button
+or a sentence in the listing promised something the code did not do. A sync
+dry run that synchronised for real. A token budget nobody counted. An anomaly
+scan that only ever read Account. A Grappe page selling parallel execution, in
+six languages, over a sequential loop. A diagnosis flow no screen could start,
+still able to run anonymous Apex when a message asked for it.
+
+Each one is now done, refused out loud, or gone — and where a check had let it
+through, the check was rewritten until it could fail. Thirty-five modules that
+nothing shipped were deleted along the way, the package lost a copy of zod, and
+the repository stopped addressing people who had its planning documents open.
 
 ### Fixed
 
