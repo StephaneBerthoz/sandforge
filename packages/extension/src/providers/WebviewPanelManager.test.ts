@@ -154,14 +154,37 @@ describe('WebviewPanelManager', () => {
       );
     });
 
-    it('should include localResourceRoots when extensionUri is set', () => {
+    it('should limit localResourceRoots to the webview bundle when extensionUri is set', () => {
       managerWithUri.openPanel({ viewType: 'test', title: 'Test' });
 
       expect(factory).toHaveBeenCalledWith('test', 'Test', 1, {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [mockExtensionUri],
+        localResourceRoots: [expect.anything()],
       });
+      const options = factory.mock.calls[0][3] as {
+        localResourceRoots: { toString(): string }[];
+      };
+      expect(options.localResourceRoots.map(String)).toEqual(['file:///ext/webview-dist']);
+    });
+
+    it('should announce the VS Code display language to the panel shell', () => {
+      const withLanguage = new WebviewPanelManager(
+        broker,
+        factory as WebviewPanelFactory,
+        mockExtensionUri,
+        mockUriJoinPath,
+        () => undefined,
+        () => 'de',
+      );
+
+      withLanguage.openPanel({
+        viewType: 'sandforge.monitor',
+        title: 'Monitor',
+        moduleId: 'monitor',
+      });
+
+      expect(lastCreatedPanel.webview.html).toContain('window.__SANDFORGE_EDITOR_LANGUAGE__="de"');
     });
 
     it('should generate HTML with moduleId injection when moduleId is provided', () => {

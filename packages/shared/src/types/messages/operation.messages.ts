@@ -1,5 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
-import type { ActiveOperation, RetryStatus } from '../execution.types.js';
+import type { RetryStatus } from '../execution.types.js';
 
 /** Operation control messages */
 /** Request to cancel a running operation */
@@ -84,45 +84,16 @@ export interface ExecutionRetryStatusMessage extends BaseMessage {
   payload: RetryStatus;
 }
 
-/** Request to manually retry a failed object operation (WebView -> Extension). */
-export interface ExecutionManualRetryRequest extends BaseMessage {
-  type: 'execution:manual-retry';
-  payload: { executionId: string; objectName: string };
-}
-
 /** Request to abort an execution or a single object (WebView -> Extension). */
 export interface ExecutionAbortRequest extends BaseMessage {
   type: 'execution:abort';
   payload: { executionId: string; objectName?: string };
 }
 
-/** Request the status of a single background operation (WebView -> Extension). */
-export interface ExecutionStatusRequest extends BaseMessage {
-  type: 'execution:status';
-  payload: { operationId: string };
-}
-
-/** Request the list of active background operations (WebView -> Extension, no payload). */
-export interface ExecutionListRequest extends BaseMessage {
-  type: 'execution:list';
-}
-
 /** Response for `execution:abort` — `operationId` is set on success, `error` on failure. */
 export interface ExecutionAbortResponse extends BaseMessage {
   type: 'execution:abort:response';
   payload: { success: boolean; operationId?: string; error?: string };
-}
-
-/** Response for `execution:status` — `operation` is present only when `found` is true. */
-export interface ExecutionStatusResponse extends BaseMessage {
-  type: 'execution:status:response';
-  payload: { found: boolean; operation?: ActiveOperation; error?: string };
-}
-
-/** Response for `execution:list` — active and recently completed operations, newest first. */
-export interface ExecutionListResponse extends BaseMessage {
-  type: 'execution:list:response';
-  payload: { operations: ActiveOperation[] };
 }
 
 /** Error response for execution operations (emitted via sendHandlerError). */

@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type * as vscode from 'vscode';
 
 import { TelemetryAdapter } from './TelemetryAdapter.js';
-
-function fakeContext(): vscode.ExtensionContext {
-  return {} as unknown as vscode.ExtensionContext;
-}
 
 /** Capture Pino output chunks for assertions. */
 function captureDestination(): {
@@ -25,7 +20,7 @@ function captureDestination(): {
 describe('TelemetryAdapter', () => {
   describe('Pino logger', () => {
     it('returns a working Pino logger instance', () => {
-      const adapter = new TelemetryAdapter(fakeContext());
+      const adapter = new TelemetryAdapter();
       const logger = adapter.getLogger();
 
       expect(logger).toBeDefined();
@@ -35,7 +30,7 @@ describe('TelemetryAdapter', () => {
 
     it('redacts apiKey / accessToken at top level and nested depth', () => {
       const { destination, chunks } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
+      const adapter = new TelemetryAdapter({ pinoDestination: destination });
 
       adapter.getLogger().info(
         {
@@ -60,7 +55,7 @@ describe('TelemetryAdapter', () => {
   describe('captureException', () => {
     it('logs at error level with sanitised extras', () => {
       const { destination, chunks } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
+      const adapter = new TelemetryAdapter({ pinoDestination: destination });
       const err = new Error('boom');
 
       adapter.captureException(err, { orgId: 'o1', accessToken: 'leak' });
@@ -78,7 +73,7 @@ describe('TelemetryAdapter', () => {
   describe('addBreadcrumb', () => {
     it('logs at debug level (below the default info threshold)', () => {
       const { destination, chunks } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
+      const adapter = new TelemetryAdapter({ pinoDestination: destination });
 
       adapter.addBreadcrumb('retrying-429', 'salesforce', 'warning');
 
@@ -87,7 +82,7 @@ describe('TelemetryAdapter', () => {
     });
 
     it('is safe to call without a category', () => {
-      const adapter = new TelemetryAdapter(fakeContext());
+      const adapter = new TelemetryAdapter();
       expect(() => adapter.addBreadcrumb('msg')).not.toThrow();
     });
   });
@@ -95,7 +90,7 @@ describe('TelemetryAdapter', () => {
   describe('flush', () => {
     it('resolves without throwing', async () => {
       const { destination } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
+      const adapter = new TelemetryAdapter({ pinoDestination: destination });
 
       await expect(adapter.flush()).resolves.toBeUndefined();
     });
@@ -104,7 +99,7 @@ describe('TelemetryAdapter', () => {
   describe('sandforge.telemetry gate', () => {
     it('suppresses captureException when the gate is closed', () => {
       const { destination, chunks } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), {
+      const adapter = new TelemetryAdapter({
         pinoDestination: destination,
         isEnabled: () => false,
       });
@@ -116,7 +111,7 @@ describe('TelemetryAdapter', () => {
     });
 
     it('suppresses addBreadcrumb when the gate is closed', () => {
-      const adapter = new TelemetryAdapter(fakeContext(), { isEnabled: () => false });
+      const adapter = new TelemetryAdapter({ isEnabled: () => false });
 
       adapter.addBreadcrumb('msg', 'cat', 'info');
 
@@ -126,7 +121,7 @@ describe('TelemetryAdapter', () => {
     it('counts emitted events while the gate is open and honours live toggling', () => {
       const { destination, chunks } = captureDestination();
       let enabled = true;
-      const adapter = new TelemetryAdapter(fakeContext(), {
+      const adapter = new TelemetryAdapter({
         pinoDestination: destination,
         isEnabled: () => enabled,
       });
@@ -143,7 +138,7 @@ describe('TelemetryAdapter', () => {
 
     it('never gates the operational Pino logger', () => {
       const { destination, chunks } = captureDestination();
-      const adapter = new TelemetryAdapter(fakeContext(), {
+      const adapter = new TelemetryAdapter({
         pinoDestination: destination,
         isEnabled: () => false,
       });

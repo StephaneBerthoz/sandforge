@@ -121,6 +121,7 @@ describe('OfflineManager', () => {
         return true;
       });
 
+      manager.enqueue(createOperation('op-pending'));
       manager.startProbing(10_000);
 
       vi.advanceTimersByTime(30_000);
@@ -153,12 +154,152 @@ describe('OfflineManager', () => {
         return true;
       });
 
+      manager.enqueue(createOperation('op-pending'));
       manager.startProbing(10_000);
       manager.startProbing(10_000);
 
       vi.advanceTimersByTime(10_000);
       // Only one interval should be running
       expect(probeCount).toBeLessThanOrEqual(2);
+    });
+  });
+
+  describe('probing only while there is something to wait for', () => {
+    function countingProbe(result: () => boolean): { count: () => number } {
+      let probes = 0;
+      manager.setProbeExecutor(async () => {
+        probes++;
+        return result();
+      });
+      return { count: () => probes };
+    }
+
+    it('does not probe while the queue is empty and the network is up', async () => {
+      const probe = countingProbe(() => true);
+
+      manager.startProbing(10_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(probe.count()).toBe(0);
+    });
+
+    it('starts probing when an operation is queued and stops once the queue is empty again', async () => {
+      const probe = countingProbe(() => true);
+      manager.startProbing(10_000);
+
+      manager.enqueue(createOperation('op-1'));
+      await vi.advanceTimersByTimeAsync(20_000);
+      // One check on enqueue, then one per interval.
+      expect(probe.count()).toBe(3);
+
+      manager.removeFromQueue('op-1');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(probe.count()).toBe(3);
+    });
+
+    it('holds an operation queued while online when the network turns out to be down, and replays it once it is back', async () => {
+      let online = false;
+      const probe = countingProbe(() => online);
+      const executor = vi.fn<OperationExecutor>().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+      manager.startProbing(30_000);
+
+      manager.enqueue(createOperation('op-network'));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(manager.getStatus()).toBe('offline');
+      expect(executor).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(executor).not.toHaveBeenCalled();
+      expect(manager.getQueueSize()).toBe(1);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(manager.getQueueSize()).toBe(0);
+
+      const probesAtReplay = probe.count();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(probe.count()).toBe(probesAtReplay);
+    });
+
+    it('replays an operation queued while online after one check finds the network up', async () => {
+      const probe = countingProbe(() => true);
+      const executor = vi.fn<OperationExecutor>().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+      manager.startProbing(30_000);
+
+      manager.enqueue(createOperation('op-online'));
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(probe.count()).toBe(1);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(manager.getQueueSize()).toBe(0);
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(probe.count()).toBe(1);
+    });
+
+    it('keeps probing while offline with an empty queue, and stops once back online', async () => {
+      let online = false;
+      const probe = countingProbe(() => online);
+      manager.setStatus('offline');
+      manager.startProbing(10_000);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(probe.count()).toBe(3);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(manager.getStatus()).toBe('online');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(probe.count()).toBe(4);
+    });
+
+    it('stops probing once the drain on reconnect has emptied the queue', async () => {
+      let online = false;
+      const probe = countingProbe(() => online);
+      const executor = vi.fn<OperationExecutor>().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+      manager.setStatus('offline');
+      manager.enqueue(createOperation('op-offline'));
+      manager.startProbing(10_000);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(manager.getQueueSize()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(probe.count()).toBe(1);
+    });
+
+    it('probes from the start when a queue survived from an earlier session', async () => {
+      store.set(
+        'offline:queue',
+        [
+          {
+            id: 'op-kept',
+            type: 'sync',
+            orgId: 'org-1',
+            payload: {},
+            queuedAt: 'x',
+            retryCount: 0,
+          },
+        ],
+        'offline-queue',
+      );
+      const reloaded = new OfflineManager(store);
+      let probes = 0;
+      reloaded.setProbeExecutor(async () => {
+        probes++;
+        return true;
+      });
+
+      reloaded.startProbing(10_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(probes).toBe(1);
+      reloaded.dispose();
     });
   });
 
@@ -565,6 +706,7 @@ describe('OfflineManager', () => {
         probeCount++;
         return true;
       });
+      manager.enqueue(createOperation('op-pending'));
       manager.startProbing(10_000);
 
       manager.dispose();

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
-import type { PipelineTrigger } from '@sandforge/shared';
+import type { PipelineTrigger, TriggerType } from '@sandforge/shared';
 
 const triggers: PipelineTrigger[] = [
   { id: 't1', type: 'schedule', enabled: true, config: { cron: '0 0 * * *', timezone: 'UTC' } },
@@ -10,6 +10,33 @@ const triggers: PipelineTrigger[] = [
 ];
 
 describe('TriggerConfigPanel', () => {
+  it('marks every trigger type but manual as coming soon', () => {
+    const types: TriggerType[] = [
+      'manual',
+      'schedule',
+      'event',
+      'webhook',
+      'sandbox_refresh',
+      'deployment_complete',
+    ];
+    render(
+      <TriggerConfigPanel
+        triggers={types.map((type) => ({ id: type, type, enabled: true, config: {} }))}
+      />,
+    );
+    // Nothing fires a pipeline on a schedule, an event, a webhook, a sandbox
+    // refresh or a deployment: the scheduler channels answer with a no-op.
+    expect(screen.queryByTestId('trigger-coming-soon-manual')).toBeNull();
+    for (const type of types.filter((type) => type !== 'manual')) {
+      expect(screen.getByTestId(`trigger-coming-soon-${type}`).textContent).toBe('Coming soon');
+    }
+  });
+
+  it('says in the panel that only manual runs start a pipeline', () => {
+    render(<TriggerConfigPanel />);
+    expect(screen.getByTestId('trigger-manual-only-note').textContent).toMatch(/manual/i);
+  });
+
   it('should render the panel', () => {
     render(<TriggerConfigPanel />);
     expect(screen.getByTestId('trigger-config')).toBeDefined();

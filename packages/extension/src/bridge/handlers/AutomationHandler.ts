@@ -24,7 +24,6 @@ import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.j
 
 /** Message types handled by AutomationHandler. */
 const AUTOMATION_TYPES = new Set([
-  'pipeline:run',
   'pipeline:execute',
   'pipeline:templates',
   'pipeline:list',
@@ -66,7 +65,6 @@ export class AutomationHandler implements DomainHandler {
     if (!AUTOMATION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
-      case 'pipeline:run':
       case 'pipeline:execute':
         await this.handlePipelineRun(msg);
         return true;
@@ -211,7 +209,7 @@ export class AutomationHandler implements DomainHandler {
       this.activeOperationIds.delete(operationId);
       // Single failure emission: `operation:failed` only (webview consumes it).
       const isTimeout = err instanceof TimeoutError;
-      this.deps.log(`[ERR] pipeline:run: ${extractErrorMessage(err)}`);
+      this.deps.log(`[ERR] pipeline:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout);
     }
   }

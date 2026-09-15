@@ -166,9 +166,15 @@ test.describe('Forge — input form', () => {
     await expect(page.getByTestId('forge-input-record')).toHaveCount(0);
   });
 
-  test('switches to the AI tab and shows its prompt textarea', async ({ page }) => {
-    await page.getByTestId('forge-tab-ai').click();
-    await expect(page.getByTestId('forge-input-ai')).toBeVisible();
+  test('shows the AI tab as coming soon, and it does not open', async ({ page }) => {
+    const aiTab = page.getByTestId('forge-tab-ai');
+    await expect(aiTab).toBeDisabled();
+    await expect(aiTab).toContainText('Coming soon');
+
+    await aiTab.click({ force: true });
+
+    await expect(page.getByTestId('forge-tab-record')).toHaveAttribute('data-state', 'active');
+    await expect(page.getByTestId('forge-input-ai')).toHaveCount(0);
   });
 
   test('displays the three depth chips, direct selected', async ({ page }) => {
@@ -219,7 +225,7 @@ test.describe('Forge — input form', () => {
 
     await expect(page.getByTestId('forge-discover-btn')).toBeDisabled();
     await expect(page.getByTestId('forge-discover-hint')).toHaveText(
-      'Enter a record ID, query, or prompt',
+      'Enter a record ID or a query, or pick a template',
     );
   });
 

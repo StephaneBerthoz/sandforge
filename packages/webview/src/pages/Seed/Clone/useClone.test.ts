@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useClone } from './useClone';
-import type { TFunction } from 'i18next';
 
 /* ------------------------------------------------------------------ */
 /* Mocks                                                               */
@@ -36,6 +35,7 @@ let mockExecuteState = {
   loading: false,
   error: null as string | null,
   reset: mockExecuteReset,
+  requestId: null as string | null,
 };
 
 /** Every mutation the hook creates, with the error channel it asked for. */
@@ -51,7 +51,21 @@ vi.mock('../../../hooks/useBridgeMutation', () => ({
   },
 }));
 
-const mockT: TFunction = ((key: string) => key) as unknown as TFunction;
+/** Deliver an `operation:failed` the way the extension posts it. */
+function operationFailed(operationId: string, error: string): void {
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: 'host-failed',
+          type: 'operation:failed',
+          timestamp: Date.now(),
+          payload: { operationId, error, retryable: false },
+        },
+      }),
+    );
+  });
+}
 
 describe('useClone', () => {
   beforeEach(() => {
@@ -83,11 +97,12 @@ describe('useClone', () => {
       loading: false,
       error: null,
       reset: mockExecuteReset,
+      requestId: null,
     };
   });
 
   it('should initialize with default state', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     expect(result.current.sourceOrgId).toBe('');
     expect(result.current.targetOrgId).toBe('target-1');
@@ -101,7 +116,7 @@ describe('useClone', () => {
   });
 
   it('should set sourceOrgId and send describe-source message on handleSourceOrgSelected', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleSourceOrgSelected('source-1');
@@ -112,7 +127,7 @@ describe('useClone', () => {
   });
 
   it('should add and remove objects via handleObjectToggle', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleObjectToggle('Account');
@@ -134,7 +149,7 @@ describe('useClone', () => {
   });
 
   it('should update WHERE clause via handleWhereClauseChange', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleObjectToggle('Account');
@@ -147,7 +162,7 @@ describe('useClone', () => {
   });
 
   it('should clear WHERE clause when set to empty string', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleObjectToggle('Account');
@@ -163,7 +178,7 @@ describe('useClone', () => {
   });
 
   it('should send preview mutation on handlePreview', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleSourceOrgSelected('source-1');
@@ -186,7 +201,7 @@ describe('useClone', () => {
   });
 
   it('should send execute mutation on handleExecute', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleSourceOrgSelected('source-1');
@@ -208,7 +223,7 @@ describe('useClone', () => {
   });
 
   it('should reset all state on reset()', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleSourceOrgSelected('source-1');
@@ -230,7 +245,7 @@ describe('useClone', () => {
   });
 
   it('should allow manual step navigation via setStep', () => {
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.setStep('objects');
@@ -252,7 +267,7 @@ describe('useClone', () => {
     // request, and the mutations listen there themselves. A separate
     // type-only listener used to catch them instead and hand each one to
     // whichever mutation happened to be loading.
-    renderHook(() => useClone(mockT, 'target-1'));
+    renderHook(() => useClone('target-1'));
 
     expect(mutationCalls).toEqual(
       expect.arrayContaining([
@@ -264,7 +279,7 @@ describe('useClone', () => {
   });
 
   it('unsticks the executing status when the execute mutation errors', () => {
-    const { result, rerender } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result, rerender } = renderHook(() => useClone('target-1'));
 
     act(() => {
       result.current.handleExecute();
@@ -282,9 +297,81 @@ describe('useClone', () => {
 
   it('surfaces a describe-source failure without touching the status', () => {
     mockDescribeState = { ...mockDescribeState, loading: false, error: 'Describe exploded' };
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+    const { result } = renderHook(() => useClone('target-1'));
 
     expect(result.current.error).toBe('Describe exploded');
     expect(result.current.executionStatus).toBe('idle');
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Execute failures arrive on operation:failed                         */
+  /* ------------------------------------------------------------------ */
+
+  it('ends the run as soon as the extension reports its clone failed, without waiting out the timeout', () => {
+    // The execute handler reports a failure — a declined production
+    // confirmation included — only on operation:failed, which nothing here
+    // listened to: the wizard sat on "executing" for 120 s, then showed a raw
+    // timeout.
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+    mockExecuteReset.mockClear();
+
+    operationFailed(
+      'wv-clone-run',
+      'Operation cancelled by user (production confirmation declined).',
+    );
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe(
+      'Operation cancelled by user (production confirmation declined).',
+    );
+    expect(mockExecuteReset).toHaveBeenCalled();
+  });
+
+  it('ignores a failure reported for another operation', () => {
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed('wv-some-other-run', 'Bulk job failed');
+
+    expect(result.current.executionStatus).toBe('executing');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('keeps a finished clone complete when a failure for it is reported afterwards', () => {
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = {
+      ...mockExecuteState,
+      loading: false,
+      requestId: 'wv-clone-run',
+      data: { success: true },
+    };
+    rerender();
+    expect(result.current.executionStatus).toBe('complete');
+
+    operationFailed('wv-clone-run', 'Bulk job failed');
+
+    expect(result.current.executionStatus).toBe('complete');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('selects the source org it is opened with and describes it, without previewing or running anything', () => {
+    const { result } = renderHook(() => useClone('target-1', 'source-9'));
+
+    expect(result.current.sourceOrgId).toBe('source-9');
+    expect(mockDescribeMutate).toHaveBeenCalledWith({ sourceOrgId: 'source-9' });
+    expect(mockPreviewMutate).not.toHaveBeenCalled();
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
   });
 });

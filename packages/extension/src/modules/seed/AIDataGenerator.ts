@@ -1,4 +1,4 @@
-import type { FieldRule } from '@sandforge/shared';
+import { DataRowsReplySchema, parseModelJson, type FieldRule } from '@sandforge/shared';
 
 /** Function signature for calling an AI model */
 export type CallAIFn = (prompt: string) => Promise<string>;
@@ -83,35 +83,10 @@ export function buildPrompt(fieldRules: FieldRule[], count: number, persona?: st
 
 /**
  * Parse the AI response string into an array of record objects.
- * Handles responses wrapped in markdown code blocks.
+ * Handles responses wrapped in markdown code blocks. An array keeps its
+ * objects, a single object is one record, any other JSON value is none.
+ * @throws Error when the reply is not JSON.
  */
 export function parseAIResponse(response: string): Record<string, unknown>[] {
-  const trimmed = response.trim();
-
-  const jsonContent = extractJsonFromMarkdown(trimmed);
-  const parsed: unknown = JSON.parse(jsonContent);
-
-  if (Array.isArray(parsed)) {
-    return parsed.filter(
-      (item): item is Record<string, unknown> =>
-        typeof item === 'object' && item !== null && !Array.isArray(item),
-    );
-  }
-
-  if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-    return [parsed as Record<string, unknown>];
-  }
-
-  return [];
-}
-
-/**
- * Extract JSON content from a string that may be wrapped in markdown code blocks.
- */
-function extractJsonFromMarkdown(text: string): string {
-  const codeBlockMatch = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/.exec(text);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
-  }
-  return text;
+  return parseModelJson(DataRowsReplySchema, response);
 }

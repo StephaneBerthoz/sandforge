@@ -25,7 +25,22 @@ export interface WebviewHtmlAssets {
    * six locales in an English voice. Unknown values fall back to `en`.
    */
   lang?: string;
+  /**
+   * `vscode.env.language`: the editor's display language, including a
+   * "Configure Display Language" override. VS Code does not pass that override
+   * on to webviews, whose `navigator.languages` is the OS locale, so the shell
+   * announces it as `window.__SANDFORGE_EDITOR_LANGUAGE__` for the `auto`
+   * language setting. Omitted unless it is a well-formed language tag.
+   */
+  editorLanguage?: string;
 }
+
+/**
+ * A BCP-47-shaped tag as VS Code reports it (`fr`, `pt-br`, `zh-tw`). The
+ * shape check is what keeps the value safe inside the inline script: letters,
+ * digits and hyphens only, and short.
+ */
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/;
 
 /**
  * Extract the configured UI language from the `settings` config category.
@@ -55,16 +70,21 @@ export function generateNonce(): string {
 /**
  * Build the HTML shell shared by full-editor panels and the sidebar view.
  * Strict CSP: default-src 'none', scripts only via nonce, styles via the
- * webview origin + 'unsafe-inline' (the bundle injects inline styles).
- * Both script tags share one nonce; the module id is injected before the
- * bundle loads so the React app can route to the correct view.
+ * webview origin + 'unsafe-inline' (the dialog scroll lock inserts a <style>
+ * element at runtime and a few components render <style> blocks; SECURITY.md
+ * lists them). Both script tags share one nonce; the module id and the editor
+ * display language are injected before the bundle loads.
  */
 export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
-  const { cspSource, scriptUri, styleUri, title, moduleId, lang } = assets;
+  const { cspSource, scriptUri, styleUri, title, moduleId, lang, editorLanguage } = assets;
   const nonce = generateNonce();
   // Whitelisted, never interpolated raw: the value originates in a
   // hand-editable config store and lands inside an HTML attribute.
   const htmlLang = isSupportedLocaleCode(lang) ? lang : 'en';
+  const editorLanguageScript =
+    typeof editorLanguage === 'string' && LANGUAGE_TAG.test(editorLanguage)
+      ? `window.__SANDFORGE_EDITOR_LANGUAGE__="${editorLanguage}";`
+      : '';
 
   return `<!DOCTYPE html>
 <html lang="${htmlLang}">
@@ -77,7 +97,7 @@ export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
 </head>
 <body>
   <div id="root"></div>
-  <script nonce="${nonce}">window.__SANDFORGE_MODULE__="${moduleId}";</script>
+  <script nonce="${nonce}">window.__SANDFORGE_MODULE__="${moduleId}";${editorLanguageScript}</script>
   <script nonce="${nonce}" src="${String(scriptUri)}"></script>
 </body>
 </html>`;

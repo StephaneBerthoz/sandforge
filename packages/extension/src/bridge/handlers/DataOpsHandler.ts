@@ -24,12 +24,10 @@ import {
   dataOpsBackupExportPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
-  dataOpsMaskingTemplatesPayloadSchema,
   piiScanPayloadSchema,
 } from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
-import type { MaskingTemplateService } from '../../modules/dataops/templates/MaskingTemplateService.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 
 /**
@@ -95,11 +93,9 @@ const DATAOPS_TYPES = new Set([
   'backup:execute',
   'backup:list',
   'backup:export',
-  'dataops:backup',
   'dataops:rollback',
   'dataops:anonymize',
   'dataops:anonymization-templates',
-  'dataops:masking-templates-by-object',
   'precheck:pii-scan',
 ]);
 
@@ -143,9 +139,6 @@ export class DataOpsHandler implements DomainHandler {
   /** Tracks DML operations to prevent duplicate submissions. */
   private readonly dmlTracker = new DmlOperationTracker();
 
-  /** Optional masking template service for per-object template lookups. */
-  private maskingTemplateService?: MaskingTemplateService;
-
   /**
    * File-backed store for backup record payloads.
    *
@@ -156,14 +149,6 @@ export class DataOpsHandler implements DomainHandler {
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
-
-  /**
-   * Inject the masking template service.
-   * @param service - The MaskingTemplateService instance.
-   */
-  setMaskingTemplateService(service: MaskingTemplateService): void {
-    this.maskingTemplateService = service;
-  }
 
   /**
    * Inject the file-backed record store so backups stop inflating globalState.
@@ -184,7 +169,6 @@ export class DataOpsHandler implements DomainHandler {
 
     switch (msg.type) {
       case 'backup:execute':
-      case 'dataops:backup':
         await this.handleBackup(msg);
         return true;
       case 'backup:list':
@@ -201,9 +185,6 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'dataops:anonymization-templates':
         this.handleAnonymizationTemplates(msg);
-        return true;
-      case 'dataops:masking-templates-by-object':
-        this.handleMaskingTemplatesByObject(msg);
         return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
@@ -252,7 +233,7 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[WARN] ${message}`);
       // Settle the in-flight useBridgeMutation listener on dataops:error
       // (same dual-channel contract as the catch below).
-      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', msg, new Error(message));
+      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, new Error(message));
       sendOperationFailed(this.deps, operationId, message, false);
       return;
     }
@@ -263,7 +244,7 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
         sendHandlerError(
           this.deps,
-          'dataops:backup',
+          'backup:execute',
           'dataops:error',
           msg,
           new Error(`Duplicate operation: ${operationId}`),
@@ -375,7 +356,7 @@ export class DataOpsHandler implements DomainHandler {
       // the `<domain>:error` channel useBridgeMutation listens on — it settles
       // the in-flight mutation with the real message. The webview surfaces the
       // error from dataops:error only, so the user sees it exactly once.
-      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', msg, err);
+      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -1012,36 +993,6 @@ export class DataOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
-  }
-
-  private handleMaskingTemplatesByObject(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(
-      dataOpsMaskingTemplatesPayloadSchema,
-      msg,
-      'dataops:error',
-      this.deps,
-    );
-    if (!parsed) return;
-    const payload = parsed;
-
-    if (!this.maskingTemplateService) {
-      sendNotification(
-        this.deps,
-        'warning',
-        'DataOps',
-        'Masking template service is not initialized.',
-      );
-      return;
-    }
-
-    const template = this.maskingTemplateService.getTemplate(payload.objectApiName);
-    const response = buildResponse(this.deps, msg, 'dataops:masking-templates-by-object:response', {
-      objectApiName: payload.objectApiName,
-      template: template ?? null,
-    });
-    this.deps.broker.postToWebview(response);
-    this.deps.log(`[TX] dataops:masking-templates-by-object:response`);
   }
 
   private async handlePIIScan(msg: InboundRequest): Promise<void> {

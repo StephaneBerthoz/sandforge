@@ -93,7 +93,7 @@ describe('DataOpsHandler', () => {
       ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
         inboundRequest({
           id,
-          type: 'dataops:backup',
+          type: 'backup:execute',
           timestamp: Date.now(),
           payload: { orgId: 'org-123', objects: ['Account'] },
         });
@@ -129,7 +129,7 @@ describe('DataOpsHandler', () => {
       ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
         inboundRequest({
           id,
-          type: 'dataops:backup',
+          type: 'backup:execute',
           timestamp: Date.now(),
           payload: { orgId, objects: ['Account'] },
         });
@@ -159,7 +159,7 @@ describe('DataOpsHandler', () => {
       ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
         inboundRequest({
           id,
-          type: 'dataops:backup',
+          type: 'backup:execute',
           timestamp: Date.now(),
           payload: { orgId: 'org-123', objects: ['Account'] },
         });
@@ -204,7 +204,7 @@ describe('DataOpsHandler', () => {
         payload: { orgId: string; objects: string[] };
       } = inboundRequest({
         id: 'msg-b1',
-        type: 'dataops:backup',
+        type: 'backup:execute',
         timestamp: Date.now(),
         payload: { orgId: 'org-123', objects: ['Account'] },
       });
@@ -261,10 +261,10 @@ describe('DataOpsHandler', () => {
   });
 
   describe('payload validation', () => {
-    it('rejects dataops:backup with injection-shaped object names', async () => {
+    it('rejects backup:execute with injection-shaped object names', async () => {
       const msg = inboundRequest({
         id: 'bad-backup',
-        type: 'dataops:backup',
+        type: 'backup:execute',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objects: ['Account; DROP TABLE'] },
       } as BaseMessage);
@@ -402,7 +402,7 @@ describe('DataOpsHandler', () => {
         payload: { orgId: string; objects: string[] };
       } = inboundRequest({
         id: 'new-backup',
-        type: 'dataops:backup',
+        type: 'backup:execute',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objects: ['Account'] },
       });
@@ -828,7 +828,7 @@ describe('DataOpsHandler', () => {
       await handler.handle(
         inboundRequest({
           id: 'bk-query',
-          type: 'dataops:backup',
+          type: 'backup:execute',
           timestamp: Date.now(),
           payload: { orgId: 'org-1', objects: ['Account'] },
         } as BaseMessage),
@@ -1005,7 +1005,7 @@ describe('DataOpsHandler', () => {
       await handler.handle(
         inboundRequest({
           id: 'backup-req',
-          type: 'dataops:backup',
+          type: 'backup:execute',
           timestamp: Date.now(),
           payload: { orgId: 'org-1', objects: ['Account'] },
         } as BaseMessage),
@@ -1071,5 +1071,13 @@ describe('DataOpsHandler', () => {
       expect(errors()).toHaveLength(1);
       expect(errors()[0].correlationId).toBe('restore-req');
     });
+  });
+
+  it('does not claim dataops:backup or the per-object masking lookup, which no page sends', async () => {
+    const handler = new DataOpsHandler(createMockDeps());
+    for (const type of ['dataops:backup', 'dataops:masking-templates-by-object']) {
+      const msg = inboundRequest({ id: `req-${type}`, type, timestamp: Date.now() });
+      expect(await handler.handle(msg)).toBe(false);
+    }
   });
 });

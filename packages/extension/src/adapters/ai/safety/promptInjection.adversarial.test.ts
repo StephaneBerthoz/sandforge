@@ -123,7 +123,7 @@ describe('Prompt injection adversarial', () => {
       // An errorCode absent from KNOWLEDGE_BASE is the only path that reaches AI.
       await new ErrorResolver(provider).resolveError(
         { errorCode: 'NOT_A_KNOWN_CODE', message: BREAKOUT },
-        { module: 'seed', operation: 'insert', orgId: '00D000000000001' },
+        { module: 'seed', operation: 'insert' },
       );
 
       const [prompt, system] = provider.mock.calls[0];

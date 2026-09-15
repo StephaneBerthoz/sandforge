@@ -257,6 +257,40 @@ describe('useMessageResponse', () => {
     expect(result.current.data).toEqual({ orgs: ['fallback'] });
   });
 
+  it('ignores an uncorrelated message of the response type when told to, and still takes its own reply', () => {
+    // `ai:status:response` is also pushed with no request behind it whenever
+    // the AI wiring changes. Accepted by type, that push closed the Settings
+    // query it happened to land on, and the real reply was then dropped.
+    const { result } = renderHook(() =>
+      useMessageResponse<{ enabled: boolean }>({
+        requestType: 'ai:status',
+        responseType: 'ai:status:response',
+        timeoutMs: 5000,
+        requestLabel: 'query',
+        acceptUncorrelated: false,
+      }),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-status');
+    });
+
+    act(() => {
+      simulateResponse('ai:status:response', { enabled: false });
+    });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+
+    act(() => {
+      simulateResponse('ai:status:response', { enabled: true }, 'req-status');
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ enabled: true });
+  });
+
   it('should allow setLoading and setError to be called externally', () => {
     const { result } = renderHook(() => useMessageResponse<unknown>(defaultOptions));
 

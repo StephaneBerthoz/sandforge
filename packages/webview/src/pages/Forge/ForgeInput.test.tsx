@@ -123,6 +123,95 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-tab-ai')).toBeDefined();
   });
 
+  it('shows the AI tab as coming soon and never opens it', () => {
+    render(<ForgeInput />);
+    const aiTab = screen.getByTestId('forge-tab-ai') as HTMLButtonElement;
+
+    // Nothing turns a prompt into a seed plan: discovery refuses the mode, so
+    // the tab must not collect one.
+    expect(aiTab.disabled).toBe(true);
+    expect(aiTab.textContent).toContain('Coming soon');
+    fireEvent.mouseDown(aiTab);
+    fireEvent.click(aiTab);
+
+    expect(aiTab.getAttribute('data-state')).toBe('inactive');
+    expect(screen.getByTestId('forge-tab-record').getAttribute('data-state')).toBe('active');
+    expect(screen.queryByTestId('forge-input-ai')).toBeNull();
+  });
+
+  it('asks for a record id, a query or a template, not a prompt', () => {
+    render(<ForgeInput />);
+    selectOrg('forge-target-org', 'org-tgt');
+
+    const hint = screen.getByTestId('forge-discover-hint').textContent ?? '';
+    expect(hint).not.toMatch(/prompt/i);
+    expect(hint).toMatch(/template/i);
+  });
+
+  it('sends the WHERE clause of a SOQL query as the filter of the object after FROM', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: "SELECT Id, Name FROM Account WHERE Industry = 'X' ORDER BY Name" },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    const config = mockSetConfig.mock.calls[0][0];
+    expect(config.inputMode).toBe('soql');
+    expect(config.objectSoqlFilters).toEqual({ Account: "Industry = 'X'" });
+    // Related objects are still read from their whole tables: the cap stays.
+    expect(config.maxRecordsPerObject).toBeLessThanOrEqual(200);
+  });
+
+  it('sends no filter for a SOQL query without a WHERE clause', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: 'SELECT Id FROM Account' },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+    expect(mockSetConfig.mock.calls[0][0].objectSoqlFilters).toBeUndefined();
+    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+  });
+
+  it.each([
+    ['longer than 512 characters', `Name = '${'x'.repeat(510)}'`],
+    ['containing a comment marker, even quoted', "Name LIKE '%--%'"],
+  ])('refuses to discover with a WHERE clause %s, and says why', (_label, where) => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: `SELECT Id FROM Account WHERE ${where}` },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    const refusal = screen.getByTestId('forge-soql-filter-refused').textContent ?? '';
+    expect(refusal).toContain('512');
+    expect(refusal).toContain('--');
+    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-discover-hint').textContent).toMatch(/WHERE/);
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(mockSetConfig).not.toHaveBeenCalled();
+  });
+
+  it('says the WHERE clause filters only the object after FROM', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: "SELECT Id FROM Account WHERE Industry = 'X'" },
+    });
+
+    const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
+    expect(warning).not.toMatch(/not applied/i);
+    expect(warning).toContain('Account');
+    expect(warning).toContain('200');
+  });
+
   it('should have record tab active by default', () => {
     render(<ForgeInput />);
     const recordTab = screen.getByTestId('forge-tab-record');

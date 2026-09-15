@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
 import type { SupportedLanguage } from '../../i18n';
@@ -70,15 +70,25 @@ export interface WelcomePageProps {
   orgType?: 'sandbox' | 'production';
 }
 
+/** What the overlay hosting the wizard can ask of it. */
+export interface WelcomePageHandle {
+  /** Leaves the wizard as its Skip button does, saving "Don't show again". */
+  skip: () => void;
+}
+
 /**
  * 5-step onboarding wizard shown on first launch.
  * Step 0: Bienvenue (logo + language + primary use case), Step 1: Connect Org,
  * Step 2: Pick a use-case path (Forge / Seed / Frozen), Step 3: Configure AI,
  * Step 4: First steps suggestion.
  */
-export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 'sandbox' }) => {
+function WelcomePageView(
+  { onComplete, orgType = 'sandbox' }: WelcomePageProps,
+  ref: React.ForwardedRef<WelcomePageHandle>,
+): React.ReactElement | null {
   const { t, i18n } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
+  const setShowWelcome = useAppStore((s) => s.setShowWelcome);
   const [step, setStep] = useState(0);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   /**
@@ -124,6 +134,8 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
     }
     onComplete();
   }, [dontShowAgain, onComplete]);
+
+  useImperativeHandle(ref, () => ({ skip: handleSkip }), [handleSkip]);
 
   const handleOpenSettings = useCallback((): void => {
     if (dontShowAgain) {
@@ -187,6 +199,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
         style={{ height: '4px', background: 'var(--sf-text-muted, #6a6a6a)' }}
         data-testid="progress-bar"
         role="progressbar"
+        aria-label={t('a11y.stepProgress')}
         aria-valuenow={progressPercent}
         aria-valuemin={0}
         aria-valuemax={100}
@@ -280,8 +293,11 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
               <Button
                 variant="primary"
                 onClick={() => {
+                  // Hide the overlay so the org manager behind it can be used,
+                  // without onComplete: that would record onboarding as done
+                  // at step 1 of 5, and the wizard would never come back.
                   navigate('orgs');
-                  onComplete();
+                  setShowWelcome(false);
                 }}
               >
                 {t('onboarding.connectOrg')}
@@ -461,4 +477,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
       </div>
     </div>
   );
-};
+}
+
+/** The wizard, with a handle the hosting overlay uses to skip it on Escape. */
+export const WelcomePage = React.forwardRef(WelcomePageView);

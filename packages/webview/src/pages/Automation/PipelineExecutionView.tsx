@@ -141,7 +141,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
 
       {/* Progress bar */}
       <div data-testid="execution-progress">
-        <ProgressBar value={execution.progress} max={100} />
+        <ProgressBar value={execution.progress} max={100} ariaLabel={t('common.progress')} />
       </div>
 
       {/* Stats row */}

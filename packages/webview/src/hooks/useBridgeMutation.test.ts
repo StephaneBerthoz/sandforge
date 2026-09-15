@@ -93,6 +93,37 @@ describe('useBridgeMutation', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('exposes the id of the request it sent, so a page can match the operation it started', () => {
+    const { result } = renderHook(() => useBridgeMutation<{ ok: boolean }>('seed:execute'));
+
+    expect(result.current.requestId).toBeNull();
+
+    act(() => {
+      result.current.mutate({ orgId: 'org-1' });
+    });
+
+    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage };
+    expect(result.current.requestId).toBe(envelope.payload.id);
+
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.requestId).toBeNull();
+  });
+
+  it('returns the same object across a rerender that changes nothing', () => {
+    // A fresh object on every render defeated React.memo on every component
+    // that receives the mutation as a prop (the Monitor limits section).
+    const { result, rerender } = renderHook(() =>
+      useBridgeMutation<{ ok: boolean }>('org:connect'),
+    );
+
+    const first = result.current;
+    rerender();
+
+    expect(result.current).toBe(first);
+  });
+
   it('drops the previous result when a new mutation starts', () => {
     // `mutate` used to clear `loading` and `error` but never `data`, and the
     // error channel never touches `data` either. So a run that succeeded

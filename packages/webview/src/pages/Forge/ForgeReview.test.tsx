@@ -11,6 +11,7 @@ import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge
 const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockSendBridgeMessage = vi.fn();
+const mockSetExecutionRequestId = vi.fn();
 const mockSetPlan = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
 
@@ -94,6 +95,7 @@ vi.mock('../../stores/useForgeStore', () => {
     plan: null,
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
+    setExecutionRequestId: (...args: unknown[]) => mockSetExecutionRequestId(...args),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
@@ -177,6 +179,9 @@ describe('ForgeReview', () => {
   });
 
   it('should send forge:execute with the graph and config when execute button clicked', () => {
+    mockSendBridgeMessage.mockImplementation((type: unknown) =>
+      type === 'forge:execute' ? 'wv-forge-request' : 'wv-other-request',
+    );
     render(<ForgeReview />);
     fireEvent.click(screen.getByTestId('execute-button'));
     // The phase switch alone is not the behaviour under test: without this
@@ -187,6 +192,8 @@ describe('ForgeReview', () => {
       config: mockConfig,
     });
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
+    // Mission control reads it to ignore messages answering another run.
+    expect(mockSetExecutionRequestId).toHaveBeenCalledWith('wv-forge-request');
   });
 
   it('should not send forge:execute when the graph is missing', () => {

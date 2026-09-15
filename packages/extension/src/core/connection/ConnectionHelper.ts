@@ -10,6 +10,35 @@ import { isAuthError } from '../common/isAuthError.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
+/**
+ * Longest an `sf` CLI read may run before the child is killed. A cold CLI
+ * start with plugins takes a few seconds and show-access-token may refresh
+ * over the network; anything past this is a hung process, and without a bound
+ * one stuck org held its caller (and the startup sweep behind it) forever.
+ */
+const CLI_TIMEOUT_MS = 30_000;
+
+/**
+ * Longest an identity() round-trip may take. jsforce sets no request timeout
+ * of its own, so an org whose instance accepts the TCP connection and never
+ * answers kept the await open indefinitely. Past this the check counts as a
+ * connection failure, breaker included.
+ */
+const IDENTITY_TIMEOUT_MS = 20_000;
+
+/**
+ * Settle with `promise`, or reject with `message` once `ms` has elapsed. The
+ * underlying request is not cancelled (jsforce exposes no abort for it); the
+ * caller simply stops waiting, and the timer is cleared on either outcome.
+ */
+export function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 /** Module-level singleton connection pool */
 const connectionPool = new ConnectionPool();
 
@@ -116,6 +145,9 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
   const { promisify } = await import('util');
   const opts = {
     maxBuffer: MAX_BUFFER,
+    // Kills the child past the bound; the rejection lands in the same catch
+    // blocks as a CLI failure. On Windows it kills the shell exec spawns.
+    timeout: CLI_TIMEOUT_MS,
     windowsHide: true,
     env: { ...process.env, NO_COLOR: '1' },
   } as const;
@@ -276,8 +308,9 @@ export async function getJsforceConnection(
 
   // Validate with a lightweight call, wrapped by the circuit breaker
   const start = Date.now();
+  const identityTimeoutMessage = `identity check did not answer within ${IDENTITY_TIMEOUT_MS / 1000} s`;
   try {
-    await conn.identity();
+    await withDeadline(conn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage);
     const latency = Date.now() - start;
     circuitBreaker.recordSuccess();
     connectionPool.acquire(uid, credentials.instanceUrl, credentials.accessToken);
@@ -320,7 +353,7 @@ export async function getJsforceConnection(
           accessToken: fresh.accessToken,
           version: apiVersion,
         });
-        await refreshedConn.identity();
+        await withDeadline(refreshedConn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage);
 
         // Persist only AFTER the new credentials have been validated — a CLI
         // token rejected by identity() must never reach the vault.

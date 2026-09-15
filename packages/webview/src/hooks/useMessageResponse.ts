@@ -20,6 +20,15 @@ export interface UseMessageResponseOptions {
    * success channel; without a listener the user only saw the 30 s timeout.
    */
   errorType?: string;
+  /**
+   * Whether a message of the response type carrying no correlationId is taken
+   * as the answer (default `true`). Some response types are also pushed with
+   * no request behind them — `org:list:response` on every org change — and a
+   * page that wants those keeps the default. Set it to `false` where the push
+   * can land between a request and its reply and must not stand in for it:
+   * `ai:status:response` is pushed whenever the AI wiring changes.
+   */
+  acceptUncorrelated?: boolean;
 }
 
 /** Duration in milliseconds before the `timedOut` flag is set. */
@@ -63,7 +72,14 @@ export interface MessageResponseHandler<T> {
 export function useMessageResponse<T>(
   options: UseMessageResponseOptions,
 ): MessageResponseHandler<T> {
-  const { requestType, responseType, timeoutMs, requestLabel, errorType } = options;
+  const {
+    requestType,
+    responseType,
+    timeoutMs,
+    requestLabel,
+    errorType,
+    acceptUncorrelated = true,
+  } = options;
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,11 +136,12 @@ export function useMessageResponse<T>(
         }
 
         // A response carrying a correlationId must carry ours. One carrying
-        // none is still accepted by type: handler responses are always
-        // correlated (`buildResponse` takes a typed origin), but some messages
-        // of a response type are broadcasts with no request behind them —
-        // `org:list:response` is pushed on every org change.
-        if (eventData.correlationId && eventData.correlationId !== messageId) {
+        // none is accepted by type unless the caller opted out: handler
+        // responses are always correlated (`buildResponse` takes a typed
+        // origin), but some messages of a response type are broadcasts with no
+        // request behind them — `org:list:response` is pushed on every org
+        // change.
+        if (eventData.correlationId ? eventData.correlationId !== messageId : !acceptUncorrelated) {
           return;
         }
 
@@ -243,7 +260,7 @@ export function useMessageResponse<T>(
         removeErrorListener?.();
       };
     },
-    [requestType, responseType, timeoutMs, requestLabel, errorType],
+    [requestType, responseType, timeoutMs, requestLabel, errorType, acceptUncorrelated],
   );
 
   const reset = useCallback(() => {

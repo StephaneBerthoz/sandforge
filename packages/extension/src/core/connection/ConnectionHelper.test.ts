@@ -486,6 +486,88 @@ describe('ConnectionHelper', () => {
     });
   });
 
+  describe('bounded waits', () => {
+    it('gives up on an identity check that never answers and counts it as a breaker failure', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      mockIdentity.mockReturnValueOnce(new Promise(() => undefined));
+
+      const pending = getJsforceConnection('org-1', orgRegistry, orgManager);
+      const settled = pending.then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      await vi.waitFor(() => expect(mockIdentity).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      const err = await settled;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/Connection failed for "test-org".*did not answer/);
+      expect(getCircuitBreaker('org-1').getFailureCount()).toBe(1);
+    });
+
+    it('gives up on a refreshed identity check that never answers and counts it as a breaker failure', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockReturnValueOnce(new Promise(() => undefined));
+      mockCliInvoker
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }),
+          stderr: '',
+        } as never)
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { accessToken: 'fresh-token' } }),
+          stderr: '',
+        } as never);
+
+      const settled = getJsforceConnection('org-1', orgRegistry, orgManager).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      await vi.waitFor(() => expect(mockIdentity).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      const err = await settled;
+      expect((err as Error).message).toMatch(/Authentication expired.*did not answer/);
+      expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
+      expect(getCircuitBreaker('org-1').getFailureCount()).toBe(1);
+    });
+
+    it('bounds every SF CLI call with a timeout, so a hung sf process is killed', async () => {
+      const org = makeOrg();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockResolvedValueOnce({ user_id: 'u1' });
+      mockCliInvoker
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }),
+          stderr: '',
+        } as never)
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { accessToken: 'fresh-token' } }),
+          stderr: '',
+        } as never);
+
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      const calls = mockCliInvoker.mock.calls;
+      expect(calls.length).toBe(2);
+      for (const call of calls) {
+        const opts = call[call.length - 1] as { timeout?: unknown };
+        expect(typeof opts.timeout).toBe('number');
+        expect(opts.timeout as number).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe('pooled connection expiry', () => {
     it('serves a recently validated pooled connection without calling identity() again', async () => {
       vi.useFakeTimers();

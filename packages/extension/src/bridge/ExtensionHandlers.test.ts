@@ -437,7 +437,7 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('monitor:start / monitor:refresh', () => {
+  describe('monitor:refresh', () => {
     it('should fetch limits and jobs from Salesforce', async () => {
       const mockConnection = {
         request: vi.fn().mockResolvedValue({
@@ -459,7 +459,7 @@ describe('ExtensionHandlers', () => {
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
 
-      broker['dispatch'](msg('monitor:start', { orgId: 'org-1' }));
+      broker['dispatch'](msg('monitor:refresh', { orgId: 'org-1' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const dataMsg = posted.find((p) => p.type === 'monitor:data');
@@ -479,7 +479,7 @@ describe('ExtensionHandlers', () => {
         new Error('Connection failed'),
       );
 
-      broker['dispatch'](msg('monitor:start', { orgId: 'org-1' }));
+      broker['dispatch'](msg('monitor:refresh', { orgId: 'org-1' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const errMsg = posted.find((p) => p.type === 'monitor:error');
@@ -684,7 +684,7 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('dataops:backup', () => {
+  describe('backup:execute', () => {
     it('should export records and send response', async () => {
       const mockRecords = Array.from({ length: 42 }, (_, i) => ({
         Id: `001${i}`,
@@ -699,7 +699,7 @@ describe('ExtensionHandlers', () => {
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
 
-      broker['dispatch'](msg('dataops:backup', { orgId: 'org-1', objects: ['Account'] }));
+      broker['dispatch'](msg('backup:execute', { orgId: 'org-1', objects: ['Account'] }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(4), { timeout: 10000 });
 
       const response = posted.find((p) => p.type === 'dataops:backup:response');
@@ -726,7 +726,7 @@ describe('ExtensionHandlers', () => {
     it('should send operation:failed on failure', async () => {
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('No access'));
 
-      broker['dispatch'](msg('dataops:backup', { orgId: 'org-1', objects: ['Account'] }));
+      broker['dispatch'](msg('backup:execute', { orgId: 'org-1', objects: ['Account'] }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       // Single failure emission: operation:failed is the channel the webview consumes.
@@ -735,14 +735,18 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('compare:start', () => {
+  describe('compare:execute', () => {
     it('should send compare:error on failure', async () => {
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Connection failed'),
       );
 
       broker['dispatch'](
-        msg('compare:start', { sourceOrgId: 'org-1', targetOrgId: 'org-2', types: ['ApexClass'] }),
+        msg('compare:execute', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          types: ['ApexClass'],
+        }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
@@ -753,10 +757,10 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('pipeline:run', () => {
+  describe('pipeline:execute', () => {
     it('should execute pipeline and send response', async () => {
       broker['dispatch'](
-        msg('pipeline:run', {
+        msg('pipeline:execute', {
           pipeline: {
             id: 'p1',
             name: 'Test',
@@ -1423,49 +1427,6 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('forge:target-preflight:request', () => {
-    it('should count existing rows on the target org', async () => {
-      const mockConnection = {
-        query: vi.fn().mockResolvedValue({ totalSize: 7 }),
-      };
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
-
-      broker['dispatch'](
-        msg('forge:target-preflight:request', {
-          targetOrgId: 'org-1',
-          objectApiNames: ['Account', 'Contact'],
-        }),
-      );
-      await vi.waitFor(() =>
-        expect(posted.some((p) => p.type === 'forge:target-preflight:response')).toBe(true),
-      );
-
-      const response = posted.find((p) => p.type === 'forge:target-preflight:response');
-      const payload = (
-        response as BaseMessage & {
-          payload: { counts: Array<{ objectApiName: string; existing: number }> };
-        }
-      ).payload;
-      expect(payload.counts).toEqual([
-        { objectApiName: 'Account', existing: 7 },
-        { objectApiName: 'Contact', existing: 7 },
-      ]);
-    });
-
-    it('should reject an invalid payload with forge:target-preflight:error', async () => {
-      broker['dispatch'](
-        msg('forge:target-preflight:request', {
-          targetOrgId: 'org-1',
-          objectApiNames: ['Account; DROP TABLE'],
-        }),
-      );
-      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
-
-      const errMsg = posted.find((p) => p.type === 'forge:target-preflight:error');
-      expect(errMsg).toBeDefined();
-    });
-  });
-
   describe('realtime no-op routing (webview contract types)', () => {
     it('realtime:resolve-conflict should respond on realtime:conflict-resolved', async () => {
       broker['dispatch'](
@@ -1851,38 +1812,6 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('execution:manual-retry routing', () => {
-    it('should answer execution:retry-status with canRetry:false (not replayable)', async () => {
-      const { BackgroundOperationRegistry } =
-        await import('../core/engine/BackgroundOperationRegistry.js');
-      const localBroker = new MessageBroker();
-      const localPosted: BaseMessage[] = [];
-      vi.spyOn(localBroker, 'postToWebview').mockImplementation((m) => {
-        localPosted.push(m);
-      });
-      const localRouter = new MessageRouter(localBroker);
-      const localHandlers = new ExtensionHandlers({ ...deps, broker: localBroker });
-      localHandlers.setBackgroundRegistry(new BackgroundOperationRegistry());
-      localHandlers.registerAll(localRouter);
-
-      localBroker['dispatch'](
-        msg('execution:manual-retry', { executionId: 'op-x', objectName: 'Account' }),
-      );
-      await vi.waitFor(() => expect(localPosted.length).toBeGreaterThanOrEqual(1));
-
-      const response = localPosted.find((p) => p.type === 'execution:retry-status');
-      expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & {
-          payload: { executionId: string; canRetry: boolean; lastError: string };
-        }
-      ).payload;
-      expect(payload.executionId).toBe('op-x');
-      expect(payload.canRetry).toBe(false);
-      expect(payload.lastError).toContain('Operation not found');
-    });
-  });
-
   describe('setLiveOperationTracker forwarding', () => {
     it('feeds the tracker from sync executions (register + fail)', async () => {
       const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
@@ -1997,10 +1926,12 @@ describe('ExtensionHandlers', () => {
         retryCount: 0,
       });
 
-      const response = posted.find((p) => p.type === 'seed:execute:response');
-      expect(response).toBeDefined();
-      expect((response as BaseMessage & { payload: { dryRun: boolean } }).payload.dryRun).toBe(
-        true,
+      // Seed has no dry run, so the replayed request is answered by the seed
+      // handler's refusal: proof it went through seed:execute without writing.
+      const refusal = posted.find((p) => p.type === 'seed:error');
+      expect(refusal).toBeDefined();
+      expect((refusal as BaseMessage & { payload: { code: string } }).payload.code).toBe(
+        'DRY_RUN_UNSUPPORTED',
       );
     });
 

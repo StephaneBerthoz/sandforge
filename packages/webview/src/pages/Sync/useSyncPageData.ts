@@ -16,6 +16,7 @@ import type {
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
@@ -158,7 +159,22 @@ export function useSyncPageData(): SyncPageData {
   };
 
   const [draft, setDraft] = useWebviewPersistedState<SyncDraftState>('syncDraft', defaultDraft);
-  const initialDraft = useRef(draft);
+  // Opened from Home's sync recommendation: a fresh draft on the two orgs it
+  // named, rather than whatever draft was left for another pair.
+  const [startingDraft] = useState<SyncDraftState>(() => {
+    const intent = useAppStore.getState().navigationIntent;
+    if (intent?.route !== 'sync') return draft;
+    return {
+      ...defaultDraft,
+      sourceOrgId: intent.sourceOrgId ?? '',
+      targetOrgId: intent.targetOrgId ?? '',
+    };
+  });
+  const initialDraft = useRef(startingDraft);
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  useEffect(() => {
+    if (useAppStore.getState().navigationIntent?.route === 'sync') clearNavigationIntent();
+  }, [clearNavigationIntent]);
 
   const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
   const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
@@ -253,8 +269,12 @@ export function useSyncPageData(): SyncPageData {
   // SyncOpsHandler emits operation:progress throughout the run; nothing
   // consumed it, so the bar sat at 0 % and the timer at 0.0s for the whole
   // sync — a healthy long run looked identical to a hung one.
-  const { latest: syncProgress } = useOperationProgress();
-  const overallPercent = isRunning ? (syncProgress?.percentage ?? 0) : 0;
+  // Read for this run only: SyncOpsHandler uses the request id as the
+  // operationId, and every panel receives every run's events.
+  const { getProgress } = useOperationProgress();
+  const syncRunId = executeMutation.requestId;
+  const syncProgress = isRunning && syncRunId !== null ? getProgress(syncRunId) : undefined;
+  const overallPercent = syncProgress?.percentage ?? 0;
   const elapsedMs = useElapsedSince(isRunning ? syncStartedAt : null);
 
   // Show error notifications from bridge hooks

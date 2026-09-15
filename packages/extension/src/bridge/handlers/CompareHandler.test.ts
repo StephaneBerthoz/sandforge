@@ -109,32 +109,15 @@ describe('CompareHandler', () => {
     expect(response.correlationId).toBe('req-cmp-1');
   });
 
-  it('handles compare:start as legacy alias', async () => {
-    mockGetConn.mockResolvedValue({
-      metadata: { list: vi.fn().mockResolvedValue([]) },
-      request: vi.fn().mockResolvedValue({}),
-      query: vi.fn().mockResolvedValue({ records: [], totalSize: 0 }),
-      limitInfo: undefined,
-    } as never);
-
-    const msg: InboundRequest & {
-      payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
-    } = inboundRequest({
-      id: 'req-cmp-legacy',
+  it('does not claim compare:start, the alias no page sends', async () => {
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-cmp-alias',
       type: 'compare:start',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types: ['ApexClass'] },
     });
 
-    const result = await handler.handle(msg);
-    expect(result).toBe(true);
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-      correlationId?: string;
-    };
-    expect(response.type).toBe('compare:execute:response');
-    expect(response.correlationId).toBe('req-cmp-legacy');
+    expect(await handler.handle(msg)).toBe(false);
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('error path sends typed error response', async () => {

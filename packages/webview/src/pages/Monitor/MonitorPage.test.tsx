@@ -842,7 +842,7 @@ describe('MonitorPage', () => {
     expect(screen.getByText('NA100')).toBeDefined();
   });
 
-  // ── Dashboard Refresh UX (05-02) ──
+  // ── Dashboard Refresh UX ──
 
   it('should show panel overlays when refreshing with existing data', () => {
     mockMonitorQueryState = {

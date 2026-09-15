@@ -111,27 +111,16 @@ describe('MonitorOpsHandler', () => {
     expect(response.payload.operations).toEqual([]);
   });
 
-  it('reports monitor:health-score failure on monitor:error, correlated', async () => {
-    // getJsforceConnection is unconfigured, so the handler takes its error
-    // path. That is the contract under test: a failure must land on the domain
-    // error channel, correlated to the request — not on the :response channel,
-    // where the webview reads the success shape and silently renders an empty
-    // state instead of the failure.
-    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-      id: 'req-health-1',
-      type: 'monitor:health-score',
-      timestamp: Date.now(),
-      payload: { orgId: 'org-1' },
-    });
-
-    const result = await handler.handle(msg);
-    expect(result).toBe(true);
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    expect(postToWebview).toHaveBeenCalledTimes(1);
-
-    const response = postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(response.type).toBe('monitor:error');
+  it('does not claim monitor:start or monitor:health-score, which no page sends', async () => {
+    for (const type of ['monitor:start', 'monitor:health-score']) {
+      const msg: InboundRequest = inboundRequest({
+        id: `req-${type}`,
+        type,
+        timestamp: Date.now(),
+      });
+      expect(await handler.handle(msg)).toBe(false);
+    }
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('reports monitor:storage failure on monitor:error, correlated', async () => {
@@ -259,16 +248,16 @@ describe('MonitorOpsHandler', () => {
     });
 
     /**
-     * Two rapid handler calls (handleHealthScore + handleApiUsage) to the same
-     * orgId should share a single /limits API call via the 30s cache.
+     * Two rapid monitor:api-usage calls to the same orgId should share a
+     * single /limits API call via the 30s cache.
      */
     it('should share /limits cache across handler calls (conn.request called once)', async () => {
       const localDeps = createMockDeps();
       const localHandler = new MonitorOpsHandler(localDeps);
 
-      const healthMsg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
+      const firstMsg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'cache-1',
-        type: 'monitor:health-score',
+        type: 'monitor:api-usage',
         timestamp: Date.now(),
         payload: { orgId: 'org-cache' },
       });
@@ -280,7 +269,7 @@ describe('MonitorOpsHandler', () => {
         payload: { orgId: 'org-cache' },
       });
 
-      await localHandler.handle(healthMsg);
+      await localHandler.handle(firstMsg);
       await localHandler.handle(apiMsg);
 
       // conn.request should have been called exactly once (for /limits)
@@ -291,8 +280,7 @@ describe('MonitorOpsHandler', () => {
       expect(postToWebview).toHaveBeenCalledTimes(2);
 
       const types = postToWebview.mock.calls.map((c: unknown[]) => (c[0] as BaseMessage).type);
-      expect(types).toContain('monitor:health-score:response');
-      expect(types).toContain('monitor:api-usage:response');
+      expect(types).toEqual(['monitor:api-usage:response', 'monitor:api-usage:response']);
     });
   });
 
@@ -1219,35 +1207,6 @@ describe('MonitorOpsHandler', () => {
       expect(reply.type).toBe('monitor:data');
       expect(reply.payload.trends.DailyApiRequests.timestamps?.[0]).toBe(at(6 * DAY_MS));
       expect(configGet.mock.calls.filter(([key]) => key === 'trend:org-week')).toHaveLength(1);
-    });
-
-    it('scores monitor:health-score on the same dimensions as monitor:data', async () => {
-      mockGetJsforceConnection.mockResolvedValue(
-        createRefreshConn(vi.fn().mockResolvedValue(FAKE_LIMITS)),
-      );
-      answerQueriesBySoql();
-      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
-        alias: 'TestOrg',
-        orgType: 'Developer',
-        metadata: { edition: 'Developer Edition' },
-      });
-
-      await handler.handle(request('req-score', 'monitor:health-score', 'org-score'));
-      await handler.handle(request('req-score-data', 'monitor:refresh', 'org-score'));
-
-      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const [scoreReply, dataReply] = postToWebview.mock.calls.map(([m]) => m) as [
-        BaseMessage & { payload: { overallScore: number; dimensions: Array<{ name: string }> } },
-        BaseMessage & {
-          payload: { healthReport: { overallScore: number; factors: Array<{ name: string }> } };
-        },
-      ];
-      expect(scoreReply.type).toBe('monitor:health-score:response');
-      expect(dataReply.type).toBe('monitor:data');
-      const scored = scoreReply.payload.dimensions.map((d) => d.name);
-      expect(scored).toContain('Metadata Complexity');
-      expect(scored).toEqual(dataReply.payload.healthReport.factors.map((f) => f.name));
-      expect(scoreReply.payload.overallScore).toBe(dataReply.payload.healthReport.overallScore);
     });
   });
 

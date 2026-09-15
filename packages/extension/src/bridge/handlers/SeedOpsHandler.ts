@@ -524,14 +524,32 @@ export class SeedOpsHandler implements DomainHandler {
     // The declared message type must accept what the schema lets through:
     // this assignment fails to compile when the two drift apart.
     const parsed: SeedExecuteRequest['payload'] & typeof validated = validated;
-    const operationId = crypto.randomUUID();
+    // Seed has no dry run. The flag used to return `{ dryRun: true,
+    // insertedCount: 0, results: [] }` before generating anything: nothing was
+    // written, but nothing was previewed either, and the answer read as a
+    // preview that had passed. Refused here, before the org is touched.
+    if (parsed.dryRun === true) {
+      sendHandlerError(
+        this.deps,
+        'seed:execute',
+        'seed:error',
+        msg,
+        new Error('Seed has no dry run: remove "dryRun" from this request to run the seed.'),
+        { code: 'DRY_RUN_UNSUPPORTED', retryable: false },
+      );
+      return;
+    }
+    // The request id is the operation id, as for sync: the page knows the id of
+    // the request it sent, so it can match operation:* events and aim
+    // execution:abort at its own run rather than whichever run reported last.
+    const operationId = msg.id;
 
     try {
       // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
       // setting when the webview omitted them.
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
-      const payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } = {
+      const payload: { orgId: string; template: Record<string, unknown> } = {
         orgId: parsed.orgId,
         template: {
           ...parsed.template,
@@ -540,7 +558,6 @@ export class SeedOpsHandler implements DomainHandler {
             batchSize: o.batchSize ?? defaultBatchSize,
           })),
         } as unknown as Record<string, unknown>,
-        dryRun: parsed.dryRun,
       };
 
       const conn = await getJsforceConnection(
@@ -574,37 +591,23 @@ export class SeedOpsHandler implements DomainHandler {
           );
         }
         // `safety.requireProdConfirmation`: explicit user consent before
-        // writing to a production org (skipped for dry runs — they write nothing).
-        if (!payload.dryRun) {
-          const confirmed = await guard.confirmIfNeeded(check);
-          if (!confirmed) {
-            const message = 'Operation cancelled by user (production confirmation declined).';
-            // Settle the in-flight useBridgeMutation listener on seed:error
-            // (same dual-channel contract as sync — without it the mutation
-            // spun until its 120 s timeout). Correlated to the request so the
-            // webview can drop stale error responses. The code is stable and
-            // SandForge-authored (unlike pass-through Salesforce messages), so
-            // the UI can key off it instead of matching English prose.
-            sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
-              code: 'PROD_CONFIRMATION_DECLINED',
-              retryable: false,
-            });
-            sendOperationFailed(this.deps, operationId, message, false);
-            return;
-          }
+        // writing to a production org.
+        const confirmed = await guard.confirmIfNeeded(check);
+        if (!confirmed) {
+          const message = 'Operation cancelled by user (production confirmation declined).';
+          // Settle the in-flight useBridgeMutation listener on seed:error
+          // (same dual-channel contract as sync — without it the mutation
+          // spun until its 120 s timeout). Correlated to the request so the
+          // webview can drop stale error responses. The code is stable and
+          // SandForge-authored (unlike pass-through Salesforce messages), so
+          // the UI can key off it instead of matching English prose.
+          sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
+            code: 'PROD_CONFIRMATION_DECLINED',
+            retryable: false,
+          });
+          sendOperationFailed(this.deps, operationId, message, false);
+          return;
         }
-      }
-
-      // Dry-run mode: skip real inserts, return synthetic result (stays synchronous)
-      if (payload.dryRun) {
-        const response = buildResponse(this.deps, msg, 'seed:execute:response', {
-          success: true,
-          dryRun: true,
-          insertedCount: 0,
-          results: [],
-        });
-        this.deps.broker.postToWebview(response);
-        return;
       }
 
       // Start performance tracking
@@ -664,7 +667,7 @@ export class SeedOpsHandler implements DomainHandler {
   private async executeSeed(
     msg: InboundRequest,
     conn: Awaited<ReturnType<typeof getJsforceConnection>>,
-    payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean },
+    payload: { orgId: string; template: Record<string, unknown> },
     operationId: string,
     abortController: AbortController,
   ): Promise<{ status: 'failure' } | void> {

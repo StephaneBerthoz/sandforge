@@ -10,7 +10,7 @@ What it handles for you:
 
 - **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, instead of every row of every related table)
 - **RecordType cross-org**: re-mapped automatically by `DeveloperName`
-- **Reference data**: `BusinessHours`, `OperatingHours`, `ServiceTerritory` mapped by `Name` instead of cloned
+- **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
 - **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record
 - **Picklist drift**: values not present on the target are silently stripped
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
@@ -117,7 +117,7 @@ CLI exit code is `1` when the run produced **only** failures and `0` otherwise; 
 | `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | Object is read-only (audit/history table).               | Auto-handled: node is now skipped pre-flight.                                   |
 | `FIELD_INTEGRITY_EXCEPTION` (Asset)       | Asset needs at least an Account or Contact.              | Enable "Auto-fetch parents" toggle.                                             |
 
-The wizard's Errors panel shows the explanation + action hint inline, in your VSCode locale (FR/EN).
+The wizard's Errors panel shows an explanation and an action hint under each message it recognizes, in the SandForge interface language: English, French, German, Spanish, Japanese or Brazilian Portuguese.
 
 ## What's next?
 

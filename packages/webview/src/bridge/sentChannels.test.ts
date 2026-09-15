@@ -145,7 +145,8 @@ describe('webview sent channels', () => {
     expect(declaredChannels().size).toBeGreaterThan(200);
     expect(sentChannels().size).toBeGreaterThan(50);
     expect(namedChannels().size).toBeGreaterThan(sentChannels().size);
-    expect(routedChannels().size).toBeGreaterThan(150);
+    // 148 routed once the unsent aliases and dead backends left the registry.
+    expect(routedChannels().size).toBeGreaterThan(140);
   });
 
   it('only names message types the shared protocol declares', () => {

@@ -96,7 +96,13 @@ export const ForgeDiscovery: React.FC = () => {
    */
   useMessageListener<
     BaseMessage & {
-      payload: { objectApiName: string; discoveredCount: number; queueRemaining: number };
+      payload: {
+        phase: 'resolving-root' | 'object' | 'cached';
+        /** Set on `object` events only. */
+        objectApiName?: string;
+        discoveredCount: number;
+        queueRemaining: number;
+      };
     }
   >(
     'forge:discover:progress',

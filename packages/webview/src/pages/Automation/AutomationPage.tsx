@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { m } from 'framer-motion';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -351,47 +352,79 @@ export const AutomationPage: React.FC = () => {
         </div>
       </BentoTile>
 
-      {/* Generate pipeline prompt dialog */}
       {showGenPrompt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setShowGenPrompt(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-[400px] rounded-xl border border-subtle bg-surface-1 p-4 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-semibold text-text-primary mb-3">
-              {t('automation.generatePipeline')}
-            </h3>
-            <input
-              className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-active"
-              placeholder={t('automation.generatePipelinePrompt')}
-              value={genDescription}
-              onChange={(e) => setGenDescription(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleGenSubmit();
-              }}
-              autoFocus
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <Button variant="secondary" size="sm" onClick={() => setShowGenPrompt(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleGenSubmit}
-                disabled={!genDescription.trim()}
-              >
-                {t('automation.generatePipeline')}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <GeneratePipelineDialog
+          description={genDescription}
+          onDescriptionChange={setGenDescription}
+          onSubmit={handleGenSubmit}
+          onClose={() => setShowGenPrompt(false)}
+        />
       )}
     </m.div>
+  );
+};
+
+/** Props for GeneratePipelineDialog. */
+interface GeneratePipelineDialogProps {
+  description: string;
+  onDescriptionChange: (description: string) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}
+
+/**
+ * Prompt dialog for generating a pipeline from a description. Its own
+ * component so the focus trap is set up when the dialog opens, not when the
+ * page mounts.
+ */
+const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
+  description,
+  onDescriptionChange,
+  onSubmit,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, onClose);
+
+  return (
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+    >
+      <div
+        className="w-[400px] rounded-xl border border-subtle bg-surface-1 p-4 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id={titleId} className="text-sm font-semibold text-text-primary mb-3">
+          {t('automation.generatePipeline')}
+        </h3>
+        <input
+          className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-active"
+          placeholder={t('automation.generatePipelinePrompt')}
+          aria-label={t('automation.generatePipelinePrompt')}
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSubmit();
+          }}
+          autoFocus
+        />
+        <div className="flex justify-end gap-2 mt-3">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" size="sm" onClick={onSubmit} disabled={!description.trim()}>
+            {t('automation.generatePipeline')}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 };

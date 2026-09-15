@@ -158,7 +158,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 
 | Setting                                    | Description                                                                                      | Default                      |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `sandforge.telemetry`                      | Enable anonymous usage telemetry                                                                 | `false`                      |
+| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                 | `false`                      |
 | `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                      | `200`                        |
 | `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                      | `200`                        |
 | `sandforge.sync.maxConcurrentOps`          | Maximum concurrent sync operations                                                               | `3`                          |

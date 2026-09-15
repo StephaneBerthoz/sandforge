@@ -1,11 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Info } from 'lucide-react';
 import { Tooltip } from './Tooltip';
-import {
-  getPersistedItem,
-  setPersistedItem,
-  removePersistedItem,
-} from '../../utils/webviewStorage';
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 
@@ -33,14 +29,6 @@ function getDismissedIds(): string[] {
  */
 export function isDismissed(id: string): boolean {
   return getDismissedIds().includes(id);
-}
-
-/**
- * Reset all dismissed tooltips by clearing the persisted webview state key.
- * Useful for a settings page "reset tips" button.
- */
-export function resetAllTooltips(): void {
-  removePersistedItem(STORAGE_KEY);
 }
 
 /** InfoTooltip component props. */

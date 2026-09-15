@@ -8,22 +8,13 @@ export interface CompareExecuteRequest extends BaseMessage {
 }
 
 /**
- * Result of a `compare:execute` (or legacy `compare:start`) run.
+ * Result of a `compare:execute` run.
  * This is the single response channel posted by CompareHandler for both
  * request types — the webview listens on `compare:execute:response`.
  */
 export interface CompareExecuteResponse extends BaseMessage {
   type: 'compare:execute:response';
   payload: CompareResult;
-}
-
-/**
- * Legacy alias of `compare:execute`, still routed by CompareHandler.
- * Payload validated server-side by `compareExecutePayloadSchema`.
- */
-export interface CompareStartRequest extends BaseMessage {
-  type: 'compare:start';
-  payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
 }
 
 /** Request to compare permission sets and profiles between two orgs. */

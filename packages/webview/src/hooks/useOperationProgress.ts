@@ -30,17 +30,16 @@ type OperationProgressMessage = BaseMessage & { payload: OperationProgress };
  * and per-object rows frozen at 0, and Sync rendered 0 % for the whole run, so
  * a healthy multi-minute bulk load was indistinguishable from a hung one.
  *
- * `latest` exists because the mutation hooks do not surface the id of the
- * request they sent, so a page cannot yet correlate by operationId. Only one
- * run is startable per page at a time, so the most recent event is the right
- * one; `getProgress` is there for callers that do know their id.
+ * Progress is read by operationId only. Seed and Sync use the id of the
+ * request that started the run as its operationId, and the mutation hooks
+ * expose that id, so a page asks for its own run. Reading "the most recent
+ * event" instead showed — and stopped — whichever run reported last, and
+ * every panel receives every run's events.
  */
 export function useOperationProgress(): {
-  latest: OperationProgress | null;
   getProgress: (operationId: string) => OperationProgress | undefined;
 } {
   const [progressMap, setProgressMap] = useState<Map<string, OperationProgress>>(() => new Map());
-  const [latest, setLatest] = useState<OperationProgress | null>(null);
 
   useMessageListener<OperationProgressMessage>(
     'operation:progress',
@@ -48,7 +47,6 @@ export function useOperationProgress(): {
       const progress = message.payload;
       if (!progress || typeof progress.operationId !== 'string') return;
 
-      setLatest(progress);
       setProgressMap((prev) => {
         const next = new Map(prev);
         // delete+set re-inserts at the end, refreshing recency.
@@ -69,5 +67,5 @@ export function useOperationProgress(): {
     [progressMap],
   );
 
-  return { latest, getProgress };
+  return { getProgress };
 }

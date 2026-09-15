@@ -4,8 +4,8 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.
 /**
  * Message types for features that are planned but not yet implemented.
  *
- * Scheduler types are targeted for v1.2, RealTime CDC types for v2.0.
- * This handler ensures the extension returns a clean "feature not available"
+ * Neither the scheduler nor RealTime CDC has an implementation yet, and no
+ * release is promised for either. This handler ensures the extension returns a clean "feature not available"
  * response instead of causing unhandled-message warnings in the MessageBroker.
  */
 const NOOP_TYPES = new Set([

@@ -75,8 +75,8 @@ export function generateHistoricalCsv(trends: Record<string, TrendData>): string
  * - "current": exports a single-row-per-limit snapshot (default).
  * - "historical": exports one row per limit per timestamp using trend data.
  *
- * Uses Blob + URL.createObjectURL for browser-side download.
- * Reports where the file was saved, or why it was not.
+ * Saves through the extension host and reports where the file was saved, or
+ * why it was not.
  */
 export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, trends }) => {
   const { t } = useTranslation();

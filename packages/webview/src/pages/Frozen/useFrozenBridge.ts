@@ -24,6 +24,10 @@ interface FrozenErrorPayload {
  * `useBridgeMutation` with a listener on the `{requestType}:error` channel:
  * handler errors (`{message, code, retryable}`) surface in `error` and
  * release the loading state instead of waiting for the timeout.
+ *
+ * Only an error correlated to this mutation's own request counts. Every panel
+ * receives every error, and taking them by type let another panel's failed
+ * request cancel this one.
  */
 export function useFrozenMutation<T>(
   requestType: string,
@@ -33,6 +37,7 @@ export function useFrozenMutation<T>(
   const setLastError = useFrozenStore((s) => s.setLastError);
 
   useMessageListener(`${requestType}:error`, (msg: BaseMessage) => {
+    if (mutation.requestId === null || msg.correlationId !== mutation.requestId) return;
     const payload = (msg as BaseMessage & { payload?: FrozenErrorPayload }).payload;
     setLastError({
       source: requestType,

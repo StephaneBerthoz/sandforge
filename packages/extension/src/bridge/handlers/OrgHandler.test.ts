@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
-import type { UUID } from '@sandforge/shared';
+import type { BaseMessage, SalesforceOrg, UUID } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper';
+import { OrgManager } from '../../core/connection/OrgManager';
+import { OrgRegistry } from '../../core/connection/OrgRegistry';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
@@ -253,6 +256,147 @@ describe('OrgHandler', () => {
         expect(deps.orgRegistry.saveOrg).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe('org:update', () => {
+    const SAVED: SalesforceOrg = {
+      id: 'org-1',
+      alias: 'dev',
+      username: 'dev@example.com',
+      instanceUrl: 'https://dev.my.salesforce.com',
+      orgId: 'org-1',
+      orgType: 'Sandbox',
+      authMethod: 'oauth_web',
+      safetyTier: OrgSafetyTier.MEDIUM,
+      appearance: { color: '#4a9eff', icon: 'cloud', position: 2 },
+      metadata: { apiVersion: '62.0', edition: 'Developer', features: [] },
+      status: 'connected',
+      lastConnected: '2026-09-01T00:00:00Z',
+      tags: [],
+    };
+
+    /** A real registry over an in-memory store, so a reload can be replayed. */
+    function registryHarness(): {
+      store: Map<string, unknown>;
+      orgManager: OrgManager;
+      orgRegistry: OrgRegistry;
+    } {
+      const store = new Map<string, unknown>();
+      const configStore = {
+        get: (key: string) => store.get(key),
+        set: (key: string, value: unknown) => {
+          store.set(key, value);
+        },
+        delete: (key: string) => store.delete(key),
+        getByCategory: () => Object.fromEntries(store),
+      } as unknown as HandlerDeps['configStore'];
+      const secretVault = {} as HandlerDeps['secretVault'];
+      const orgManager = new OrgManager();
+      const orgRegistry = new OrgRegistry(configStore, secretVault, orgManager);
+      configStore.set('org.org-1', SAVED, 'orgs');
+      orgRegistry.loadAll();
+      deps.orgManager = orgManager;
+      deps.orgRegistry = orgRegistry;
+      deps.configStore = configStore;
+      return { store, orgManager, orgRegistry };
+    }
+
+    const posted = (): Array<BaseMessage & { payload: Record<string, unknown> }> =>
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        ([m]) => m as BaseMessage & { payload: Record<string, unknown> },
+      );
+
+    it('saves alias, colour and tags to the registry and answers with the saved list', async () => {
+      const { store } = registryHarness();
+
+      const result = await handler.handle(
+        createMsg('org:update', {
+          orgId: 'org-1',
+          alias: 'QA sandbox',
+          color: '#F59E0B',
+          tags: ['qa', 'eu'],
+        }),
+      );
+      expect(result).toBe(true);
+
+      const saved = store.get('org.org-1') as SalesforceOrg;
+      expect(saved.alias).toBe('QA sandbox');
+      expect(saved.appearance).toEqual({ color: '#F59E0B', icon: 'cloud', position: 2 });
+      expect(saved.tags).toEqual(['qa', 'eu']);
+      expect(saved.safetyTier).toBe(OrgSafetyTier.MEDIUM);
+      expect(saved.username).toBe('dev@example.com');
+
+      const [reply] = posted();
+      expect(reply.type).toBe('org:list:response');
+      expect(reply.correlationId).toBe('req-99');
+      expect((reply.payload.orgs as SalesforceOrg[])[0].alias).toBe('QA sandbox');
+      expect(deps.stateSync.updateState).toHaveBeenCalledWith({
+        orgs: [expect.objectContaining({ alias: 'QA sandbox' })],
+      });
+    });
+
+    it('keeps the edit in the next org:list and after the registry loads again', async () => {
+      const { store } = registryHarness();
+      await handler.handle(
+        createMsg('org:update', {
+          orgId: 'org-1',
+          alias: 'QA sandbox',
+          color: '#F59E0B',
+          tags: [],
+        }),
+      );
+
+      await handler.handle(createMsg('org:list'));
+      const list = posted().at(-1);
+      expect(list?.type).toBe('org:list:response');
+      expect((list?.payload.orgs as SalesforceOrg[])[0].alias).toBe('QA sandbox');
+
+      const reloaded = new OrgManager();
+      new OrgRegistry(deps.configStore, {} as HandlerDeps['secretVault'], reloaded).loadAll();
+      expect(reloaded.getOrg('org-1' as UUID)?.alias).toBe('QA sandbox');
+      expect(store.size).toBe(1);
+    });
+
+    it('does not change the safety tier even when the payload names one', async () => {
+      const { store } = registryHarness();
+      await handler.handle(
+        createMsg('org:update', {
+          orgId: 'org-1',
+          alias: 'dev',
+          color: '#4a9eff',
+          tags: [],
+          safetyTier: 'low',
+        }),
+      );
+      expect((store.get('org.org-1') as SalesforceOrg).safetyTier).toBe(OrgSafetyTier.MEDIUM);
+    });
+
+    it('answers an unknown org on org:error and writes nothing', async () => {
+      const { store } = registryHarness();
+      await handler.handle(
+        createMsg('org:update', { orgId: 'ghost', alias: 'x', color: '#4a9eff', tags: [] }),
+      );
+
+      const [reply] = posted();
+      expect(reply.type).toBe('org:error');
+      expect(reply.correlationId).toBe('req-99');
+      expect(reply.payload.code).toBe('ORG_NOT_FOUND');
+      expect(store.has('org.ghost')).toBe(false);
+    });
+
+    it.each([
+      ['an empty alias', { orgId: 'org-1', alias: '  ', color: '#4a9eff', tags: [] }],
+      ['a colour that is not a hex code', { orgId: 'org-1', alias: 'dev', color: 'red', tags: [] }],
+      ['tags that are not strings', { orgId: 'org-1', alias: 'dev', color: '#4a9eff', tags: [1] }],
+    ])('refuses %s (INVALID_PAYLOAD) and writes nothing', async (_label, payload) => {
+      const { store } = registryHarness();
+      await handler.handle(createMsg('org:update', payload));
+
+      const [reply] = posted();
+      expect(reply.type).toBe('org:error');
+      expect(reply.payload.code).toBe('INVALID_PAYLOAD');
+      expect((store.get('org.org-1') as SalesforceOrg).alias).toBe('dev');
+    });
   });
 
   describe('payload validation', () => {

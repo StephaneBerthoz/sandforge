@@ -38,6 +38,18 @@ export interface OrgSelectRequest extends BaseMessage {
   payload: { orgId: string };
 }
 
+/**
+ * Request to save what the edit dialog changes on a registered org: its alias,
+ * its colour and its tags. The host writes them to the org registry and answers
+ * with a correlated `org:list:response` carrying the saved list. The safety
+ * tier is not part of it: the production guard reads the org type, never a
+ * tier typed here.
+ */
+export interface OrgUpdateRequest extends BaseMessage {
+  type: 'org:update';
+  payload: { orgId: string; alias: string; color: string; tags: string[] };
+}
+
 /** Notification that an org's connection status has changed */
 export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';

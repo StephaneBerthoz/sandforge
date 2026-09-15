@@ -215,10 +215,11 @@ export interface ExecuteOptions {
    */
   ownerMappings?: Record<string, string>;
   /**
-   * Per-object SOQL WHERE-clause fragment appended via `AND (...)` to the
-   * scope-derived clause. Lets BAs narrow a clone to a subset
+   * Per-object SOQL WHERE-clause fragment, appended via `AND (...)` to the
+   * scope-derived clause in scoped mode (record root) and used as the whole
+   * `WHERE (...)` otherwise. Lets BAs narrow a clone to a subset
    * (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without
-   * changing graph topology. Only applied in scoped mode (record root).
+   * changing graph topology.
    * Validated upstream — see `forgeConfigSchema.objectSoqlFilters`.
    */
   objectSoqlFilters?: Record<string, string>;

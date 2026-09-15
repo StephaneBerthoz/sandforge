@@ -92,6 +92,26 @@ const ERROR_CHANNEL_EXCEPTIONS = [
 ];
 
 /**
+ * Success answers built by hand rather than through `buildResponse`, as
+ * `<site>:<channel>`. Two are pushes no request asked for: the AI status feed
+ * through `broker.postToWebview`, and the org list sent on a change through
+ * `SidebarViewProvider.postMessage`. The other three answer the sidebar's raw,
+ * unenveloped requests (`sidebar:requestOrgs`, `sidebar:requestSettings`,
+ * `i18n:locale`), which reach `SidebarViewProvider` without a branded origin
+ * to hand `buildResponse`; the locale answer copies the request id by hand,
+ * the other two are matched by type. A sixth is a reviewed edit of this list:
+ * an answer to a broker request belongs in `buildResponse`, which stamps the id
+ * from the branded origin.
+ */
+const RESPONSE_BROADCAST_SITES = [
+  'composition/aiComposition.ts#postAIStatus:ai:status:response',
+  'extension.ts#activate:org:list:response',
+  'providers/SidebarViewProvider.ts#SidebarViewProvider.answerLocaleRequest:i18n:locale:response',
+  'providers/SidebarViewProvider.ts#SidebarViewProvider.resolveWebviewView:org:list:response',
+  'providers/SidebarViewProvider.ts#SidebarViewProvider.resolveWebviewView:settings:response',
+];
+
+/**
  * The only writers of `correlationId`: the two helpers, the envelope
  * rejection, and the sidebar's raw locale answer (it bypasses the broker).
  */
@@ -171,6 +191,8 @@ interface Analysis {
   handlerErrorChannels: string[];
   exceptionsSeen: string[];
   correlationWriters: string[];
+  /** Hand-built `:response` literals accepted at a listed site, `<site>:<channel>`. */
+  responseBroadcasts: string[];
 }
 
 /** `<file>#<callable>`, with the class for members: `bridge/handlers/SyncOpsHandler.ts#SyncOpsHandler.executeScheduled`. */
@@ -226,6 +248,7 @@ function analyze(program: ts.Program, overrides: Readonly<Record<string, string>
     handlerErrorChannels: [],
     exceptionsSeen: [],
     correlationWriters: [],
+    responseBroadcasts: [],
   };
   const report = (rule: string, node: ts.Node, detail: string): void => {
     out.findings.push(
@@ -645,6 +668,90 @@ function analyze(program: ts.Program, overrides: Readonly<Record<string, string>
           report('R9-error-channel', n, `${channel} is not the channel argument of a branded sink`);
         }
       }
+      // R11 — a success answer is built by `buildResponse`, which stamps the
+      // correlation from the branded origin; one written by hand, as the `type`
+      // of an object or assigned onto one — a literal, a template, or a value
+      // whose type is a `:response` literal or a union holding one, written
+      // `type: t`, `['type']: t`, `{ type }`, `.type = t` or `['type'] = t`
+      // with any assignment operator (`??=` included) — is allowed only at a
+      // listed site. Read wherever the object goes — `broker.postToWebview` and
+      // the sidebar's own `postMessage` alike. Not read, and the list may not be
+      // complete: a value the checker types as plain `string` —
+      // `let t: string = 'x:response'`, `'x:response' as string`,
+      // `String('x:response')`, `'x' + ':response'` — and a key computed at
+      // runtime (`answer[key] = t`, `{ [key]: t }`).
+      const isTypeKey = (name: ts.PropertyName): boolean =>
+        ((ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === 'type') ||
+        (ts.isComputedPropertyName(name) &&
+          ts.isStringLiteralLike(name.expression) &&
+          name.expression.text === 'type');
+      const isAssignmentOperator = (kind: ts.SyntaxKind): boolean =>
+        kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+      const assignsType = (target: ts.Expression): boolean =>
+        (ts.isPropertyAccessExpression(target) && target.name.text === 'type') ||
+        (ts.isElementAccessExpression(target) &&
+          ts.isStringLiteralLike(target.argumentExpression) &&
+          target.argumentExpression.text === 'type');
+      const writesType = (literal: ts.Node): boolean => {
+        const holder = literal.parent;
+        return (
+          (ts.isPropertyAssignment(holder) &&
+            holder.initializer === literal &&
+            isTypeKey(holder.name)) ||
+          (ts.isBinaryExpression(holder) &&
+            holder.right === literal &&
+            isAssignmentOperator(holder.operatorToken.kind) &&
+            assignsType(holder.left))
+        );
+      };
+      const responseChannels = (type: ts.Type): string[] =>
+        (type.isUnion() ? type.types : [type])
+          .filter((member): member is ts.StringLiteralType => member.isStringLiteral())
+          .map((member) => member.value)
+          .filter((value) => value.endsWith(':response'));
+      const handBuilt = (at: ts.Node, responseChannel: string): void => {
+        const entry = `${siteName(at)}:${responseChannel}`;
+        if (RESPONSE_BROADCAST_SITES.includes(entry)) out.responseBroadcasts.push(entry);
+        else
+          report(
+            'R11-hand-built-response',
+            at,
+            `${responseChannel} is built by hand, not by buildResponse`,
+          );
+      };
+      if (channel?.endsWith(':response') && writesType(n)) handBuilt(n, channel);
+      // The same answer through a name, `const t = 'x:response'; post({ type: t })`:
+      // the checker keeps the literal type on the name, so the channel is read
+      // where it is used, not only where it was written.
+      const typeValue =
+        ts.isPropertyAssignment(n) && isTypeKey(n.name)
+          ? n.initializer
+          : ts.isBinaryExpression(n) &&
+              isAssignmentOperator(n.operatorToken.kind) &&
+              assignsType(n.left)
+            ? n.right
+            : undefined;
+      if (
+        typeValue &&
+        !ts.isStringLiteral(typeValue) &&
+        !ts.isNoSubstitutionTemplateLiteral(typeValue) &&
+        !ts.isTemplateExpression(typeValue)
+      ) {
+        for (const responseChannel of responseChannels(checker.getTypeAtLocation(typeValue))) {
+          handBuilt(typeValue, responseChannel);
+        }
+      }
+      // `{ type }`: the property's own type is widened to `string` in the
+      // object literal, so the channel is read off the name it takes its value
+      // from.
+      if (ts.isShorthandPropertyAssignment(n) && n.name.text === 'type') {
+        const valueSymbol = checker.getShorthandAssignmentValueSymbol(n);
+        const resolved = valueSymbol && checker.getTypeOfSymbolAtLocation(valueSymbol, n.name);
+        for (const responseChannel of resolved ? responseChannels(resolved) : []) {
+          handBuilt(n, responseChannel);
+        }
+      }
+
       if (ts.isCallExpression(n)) {
         const decl = checker.getResolvedSignature(n)?.getDeclaration();
         const arg = n.arguments[2];
@@ -784,6 +891,29 @@ export function bypasses(deps: D, msg: InboundRequest, err: unknown, raw: string
   sendHandlerError(deps, 'p', 'sync:error', copy, err);
   // @ts-expect-error — a directive hides the forgery from tsc
   sendHandlerError(deps, 'p', 'sync:error', { id: '', type: 'x', timestamp: 0 }, err); // R4-suppressed
+  deps.broker.postToWebview({ id: 'x', type: 'org:list:response', timestamp: 0 } as BaseMessage); // R11-hand-built-response
+  const sidebarPost = (message: Record<string, unknown>): void => void message;
+  sidebarPost({ type: 'settings:response', payload: { settings: {} } }); // R11-hand-built-response
+  const answer: Record<string, unknown> = { payload: {} };
+  answer.type = \`\${raw}:response\`; // R11-hand-built-response
+  const listType = 'org:list:response';
+  deps.broker.postToWebview({ id: 'x', type: listType, timestamp: 0 } as BaseMessage); // R11-hand-built-response
+  answer.type = listType; // R11-hand-built-response
+  {
+    const type = 'org:list:response';
+    deps.broker.postToWebview({ id: 'x', type, timestamp: 0 } as BaseMessage); // R11-hand-built-response
+  }
+  answer['type'] = 'settings:response'; // R11-hand-built-response
+  answer['type'] = listType; // R11-hand-built-response
+  deps.broker.postToWebview({ id: 'x', type: Date.now() > 0 ? 'org:list:response' : 'settings:response', timestamp: 0 } as BaseMessage); // R11-hand-built-response
+  {
+    const type = Date.now() > 0 ? 'org:list:response' : 'settings:response';
+    sidebarPost({ type }); // R11-hand-built-response
+  }
+  answer.type ??= 'org:list:response'; // R11-hand-built-response
+  answer.type ||= listType; // R11-hand-built-response
+  sidebarPost({ ['type']: 'settings:response' }); // R11-hand-built-response
+  sidebarPost({ ['type']: listType }); // R11-hand-built-response
 }
 `;
 
@@ -808,6 +938,11 @@ export async function legitimate(deps: D, msg: InboundRequest & { payload?: unkn
   deps.broker.postToWebview({ id: deps.nextId(), type: 'operation:failed', timestamp: Date.now() } as BaseMessage);
   // A comment naming sendHandlerError(deps, 'c', 'sync:error', {} as InboundRequest, err) is not code.
   deps.log('a string naming x:error is not an emission either, unless it ends with the channel');
+  deps.broker.postToWebview(buildResponse(deps, msg, 'org:list:response', { orgs: [] }));
+  const expected: { type: 'org:list:response' } | undefined = undefined;
+  const channels: Record<string, string> = { list: 'org:list:response' };
+  deps.log('a log line about org:list:response builds nothing');
+  void [expected, channels];
 }
 `;
 
@@ -870,6 +1005,10 @@ describe('correlation gate', () => {
       expect(real().sinkChannels.length).toBeGreaterThan(200);
       expect(unique(real().exceptionsSeen)).toEqual([...ERROR_CHANNEL_EXCEPTIONS].sort());
       expect(unique(real().correlationWriters)).toEqual([...CORRELATION_WRITERS].sort());
+    }, 60_000);
+
+    it('builds a :response by hand only at the listed broadcast sites, and every one is live', () => {
+      expect(unique(real().responseBroadcasts)).toEqual([...RESPONSE_BROADCAST_SITES].sort());
     }, 60_000);
 
     it('never posts an error payload on a :response channel', () => {

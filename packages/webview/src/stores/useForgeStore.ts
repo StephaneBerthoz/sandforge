@@ -89,6 +89,7 @@ const INITIAL_STATE = {
   metadataDiffs: [] as MetadataDiffEntry[],
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
   logs: [] as ForgeLogEntry[],
+  executionRequestId: null as string | null,
 };
 
 /** Forge state machine store — state and actions. */
@@ -113,6 +114,13 @@ export interface ForgeState {
   metadataDiffs: MetadataDiffEntry[];
   /** Anonymization rules per category. */
   anonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod>;
+  /**
+   * Id of the forge:execute request that started the run on screen, or null.
+   * The extension correlates the run's progress, result and error to it.
+   */
+  executionRequestId: string | null;
+  /** Record the id of the forge:execute request that started the run. */
+  setExecutionRequestId: (requestId: string | null) => void;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -179,6 +187,10 @@ export const useForgeStore = create<ForgeState>((set) => ({
 
   setPhase(phase: ForgePhase): void {
     set({ phase });
+  },
+
+  setExecutionRequestId(executionRequestId: string | null): void {
+    set({ executionRequestId });
   },
 
   updateNodeStatus(objectName: string, status: ForgeNodeStatus, progress?: number): void {

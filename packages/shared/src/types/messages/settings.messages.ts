@@ -99,10 +99,10 @@ export interface TelemetryStatusRequest extends BaseMessage {
   type: 'telemetry:status';
 }
 
-/** Response containing current telemetry status and buffer metrics */
+/** Response containing the telemetry opt-in and the number of events recorded locally */
 export interface TelemetryStatusResponse extends BaseMessage {
   type: 'telemetry:status:response';
-  payload: { enabled: boolean; eventCount: number; bufferSize: number };
+  payload: { enabled: boolean; eventCount: number };
 }
 
 /** Request to enable or disable telemetry collection */

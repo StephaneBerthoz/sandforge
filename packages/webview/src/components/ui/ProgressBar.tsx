@@ -6,6 +6,11 @@ export interface ProgressBarProps {
   value: number;
   max?: number;
   label?: string;
+  /**
+   * Accessible name when no visible `label` is shown. A progressbar without a
+   * name is announced as a bare percentage, and axe reports it as serious.
+   */
+  ariaLabel?: string;
   showPercent?: boolean;
   variant?: 'default' | 'success' | 'warning' | 'error';
   size?: 'sm' | 'md';
@@ -24,6 +29,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   value,
   max = 100,
   label,
+  ariaLabel,
   showPercent = false,
   variant = 'default',
   size = 'md',
@@ -52,6 +58,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           size === 'sm' ? 'h-1' : 'h-2',
         )}
         role="progressbar"
+        aria-label={ariaLabel ?? label}
         aria-valuenow={value}
         aria-valuemin={0}
         aria-valuemax={max}

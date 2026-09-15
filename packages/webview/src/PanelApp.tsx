@@ -9,10 +9,12 @@ import { SkipLink } from './components/ui/SkipLink';
 import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { WelcomePage } from './pages/Welcome/WelcomePage';
+import type { WelcomePageHandle } from './pages/Welcome/WelcomePage';
 import { WhatsNewPage } from './pages/Welcome/WhatsNewPage';
 import { MojitoOverlay } from './components/EasterEgg/MojitoOverlay';
 import { PanelRouter } from './PanelRouter';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
+import { useFocusTrap } from './hooks/useFocusTrap';
 import { useKonamiCode } from './hooks/useKonamiCode';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
@@ -22,6 +24,35 @@ import { useAppStore } from './stores/useAppStore';
 export interface PanelAppProps {
   moduleId: string;
 }
+
+/** Props for OverlayDialog. */
+interface OverlayDialogProps {
+  label: string;
+  /** Escape does what the overlay's own close action does. */
+  onEscape: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * Full-panel modal overlay. Rendered only while open, so the focus trap moves
+ * focus in when it appears and hands it back when it goes.
+ */
+const OverlayDialog: React.FC<OverlayDialogProps> = ({ label, onEscape, children }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, onEscape);
+  return (
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      tabIndex={-1}
+    >
+      <div className="w-full max-h-screen overflow-auto">{children}</div>
+    </div>
+  );
+};
 
 /**
  * Inner panel content — calls hooks, so it must render under the providers.
@@ -70,6 +101,13 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
     setShowWelcome(false);
     sendMessage(buildMessage('onboarding:complete', { skipped: false }));
   }, [setShowWelcome, sendMessage]);
+
+  const welcomeRef = useRef<WelcomePageHandle>(null);
+  /** Escape skips the wizard the way its Skip button does, keeping "Don't show again". */
+  const handleWelcomeEscape = useCallback((): void => {
+    if (welcomeRef.current) welcomeRef.current.skip();
+    else handleWelcomeComplete();
+  }, [handleWelcomeComplete]);
 
   /** Handle what's new dismissal (same contract as App's overlay). */
   const handleWhatsNewDismiss = useCallback((): void => {
@@ -146,32 +184,29 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
         className="h-screen w-full overflow-auto bg-[var(--sf-bg-primary)] text-[var(--sf-text-primary)]"
         data-testid="panel-app"
       >
-        <PanelRouter moduleId={route} />
+        {/*
+         * A page crash is caught here rather than at the root, so the palette,
+         * the shortcuts and the overlays stay mounted and the user can still
+         * navigate away. Keying on the route gives the next page a fresh
+         * boundary instead of the fallback the last one left behind.
+         */}
+        <ErrorBoundary key={route}>
+          <PanelRouter moduleId={route} />
+        </ErrorBoundary>
       </main>
       <CommandPalette />
       {showWelcome && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('a11y.welcomeWizard', 'Welcome wizard')}
+        <OverlayDialog
+          label={t('a11y.welcomeWizard', 'Welcome wizard')}
+          onEscape={handleWelcomeEscape}
         >
-          <div className="w-full max-h-screen overflow-auto">
-            <WelcomePage onComplete={handleWelcomeComplete} />
-          </div>
-        </div>
+          <WelcomePage ref={welcomeRef} onComplete={handleWelcomeComplete} />
+        </OverlayDialog>
       )}
       {showWhatsNew && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('a11y.whatsNew', "What's new")}
-        >
-          <div className="w-full max-h-screen overflow-auto">
-            <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
-          </div>
-        </div>
+        <OverlayDialog label={t('a11y.whatsNew', "What's new")} onEscape={handleWhatsNewDismiss}>
+          <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
+        </OverlayDialog>
       )}
       {showEasterEgg && <MojitoOverlay onClose={() => setShowEasterEgg(false)} />}
       <FloatingToasts />

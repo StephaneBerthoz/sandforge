@@ -152,7 +152,7 @@ describe('GovernanceOpsHandler', () => {
     expect(response.payload.policies).toEqual([]);
   });
 
-  it('handles governance:policy:save + governance:policy:get round-trip', async () => {
+  it('handles governance:policy:save', async () => {
     const policy = createTestPolicy();
     const saveMsg = inboundRequest({
       id: 'req-save',
@@ -169,24 +169,22 @@ describe('GovernanceOpsHandler', () => {
     };
     expect(saveResponse.type).toBe('governance:policy:save:response');
     expect(saveResponse.payload.success).toBe(true);
+  });
 
-    postToWebview.mockClear();
-
-    const getMsg = inboundRequest({
-      id: 'req-get',
-      type: 'governance:policy:get',
-      timestamp: Date.now(),
-      payload: { policyId: 'test-policy-1' },
-    } as BaseMessage & { payload: { policyId: string } });
-
-    await handler.handle(getMsg);
-    const getResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { policy: { id: string; name: string } | null };
-    };
-    expect(getResponse.type).toBe('governance:policy:result');
-    expect(getResponse.payload.policy).not.toBeNull();
-    expect(getResponse.payload.policy?.id).toBe('test-policy-1');
-    expect(getResponse.payload.policy?.name).toBe('Test Policy');
+  it('does not claim the policy get, export and import requests no page sends', async () => {
+    for (const type of [
+      'governance:policy:get',
+      'governance:policies:export',
+      'governance:policies:import',
+    ]) {
+      const msg: InboundRequest = inboundRequest({
+        id: `req-${type}`,
+        type,
+        timestamp: Date.now(),
+      });
+      expect(await handler.handle(msg)).toBe(false);
+    }
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('handles governance:policies:list returns populated array after save', async () => {
@@ -244,73 +242,6 @@ describe('GovernanceOpsHandler', () => {
     };
     expect(delResponse.type).toBe('governance:policy:delete:response');
     expect(delResponse.payload.success).toBe(true);
-  });
-
-  it('handles governance:policies:export returns valid JSON', async () => {
-    const policy = createTestPolicy();
-    await handler.handle(
-      inboundRequest({
-        id: 'req-s2',
-        type: 'governance:policy:save',
-        timestamp: Date.now(),
-        payload: { policy },
-      } as BaseMessage & { payload: { policy: unknown } }),
-    );
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    postToWebview.mockClear();
-
-    const exportMsg: InboundRequest = inboundRequest({
-      id: 'req-exp',
-      type: 'governance:policies:export',
-      timestamp: Date.now(),
-    });
-    await handler.handle(exportMsg);
-
-    const exportResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { json: string };
-    };
-    expect(exportResponse.type).toBe('governance:policies:export:response');
-    const parsed: unknown = JSON.parse(exportResponse.payload.json);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect((parsed as unknown[]).length).toBe(1);
-  });
-
-  it('handles governance:policies:import with valid JSON', async () => {
-    const policies = [createTestPolicy('import-1'), createTestPolicy('import-2')];
-    const json = JSON.stringify(policies);
-
-    const importMsg = inboundRequest({
-      id: 'req-imp',
-      type: 'governance:policies:import',
-      timestamp: Date.now(),
-      payload: { json },
-    } as BaseMessage & { payload: { json: string } });
-    await handler.handle(importMsg);
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const importResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { success: boolean; count: number };
-    };
-    expect(importResponse.type).toBe('governance:policies:import:response');
-    expect(importResponse.payload.success).toBe(true);
-    expect(importResponse.payload.count).toBe(2);
-  });
-
-  it('handles governance:policies:import with invalid JSON', async () => {
-    const importMsg = inboundRequest({
-      id: 'req-imp-bad',
-      type: 'governance:policies:import',
-      timestamp: Date.now(),
-      payload: { json: 'not valid json' },
-    } as BaseMessage & { payload: { json: string } });
-    await handler.handle(importMsg);
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { message: string };
-    };
-    expect(errorResponse.type).toBe('governance:error');
   });
 
   it('handles governance:evaluate with mock connection and returns compliance score', async () => {

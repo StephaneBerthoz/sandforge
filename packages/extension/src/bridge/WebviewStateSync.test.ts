@@ -250,4 +250,25 @@ describe('WebviewStateSync', () => {
       expect(postToWebviewSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('dispose', () => {
+    it('cancels a pending push, so nothing is posted to a broker being torn down', () => {
+      stateSync.updateState({ extensionReady: true });
+
+      stateSync.dispose();
+      flushDebounce();
+
+      expect(postToWebviewSpy).not.toHaveBeenCalled();
+    });
+
+    it('schedules no push for updates that arrive after dispose', () => {
+      stateSync.dispose();
+
+      stateSync.updateState({ extensionReady: true });
+      stateSync.setActiveOperations([makeOp('op-late')]);
+      flushDebounce();
+
+      expect(postToWebviewSpy).not.toHaveBeenCalled();
+    });
+  });
 });

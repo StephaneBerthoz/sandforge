@@ -578,6 +578,9 @@ describe('AIChatHandler', () => {
       handler.setAIAssistant(assistant);
 
       await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+      // Without this the memory assertion below would pass whether or not the
+      // chat restored the conversation in the first place.
+      expect(assistant.getConversation('conv-old')).toBeDefined();
       await handler.handle(createMsg('ai:conversation:delete', { conversationId: 'conv-old' }));
 
       expect(assistant.getConversation('conv-old')).toBeUndefined();

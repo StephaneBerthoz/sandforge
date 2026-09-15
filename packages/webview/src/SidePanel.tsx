@@ -560,9 +560,13 @@ export const SidePanel: React.FC = () => {
               </button>
               <button
                 className={cn(
-                  'p-1 rounded-md opacity-40 hover:opacity-100 transition-all duration-150',
+                  // No opacity dimming: at 40% the unstarred outline fell far
+                  // below the 3:1 contrast a control's icon needs.
+                  'p-1 rounded-md transition-all duration-150',
                   'hover:bg-surface-1',
-                  favorites.includes(item.id) ? 'text-amber-400 opacity-100' : 'text-text-muted',
+                  favorites.includes(item.id)
+                    ? 'text-amber-400'
+                    : 'text-text-muted hover:text-text-primary',
                 )}
                 onClick={() => toggleFavorite(item.id)}
                 data-testid={`sidepanel-star-${item.id}`}

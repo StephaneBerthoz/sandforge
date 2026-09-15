@@ -197,14 +197,6 @@
         "icon": "$(globe)"
       }
     ],
-    "menus": {
-      "commandPalette": [
-        {
-          "command": "sandforge.openOrgInBrowser",
-          "when": "false"
-        }
-      ]
-    },
     "keybindings": [
       {
         "command": "sandforge.openGrappe",

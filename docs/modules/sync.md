@@ -61,9 +61,10 @@ Before execution, the Review step shows:
 
 - Before anything is written, both orgs are described and every field a mapping copies unchanged is compared (the same-named fields when the object has no mapping). A field that cannot hold the other's type -- text onto a date, a number onto a checkbox -- stops the run with the list of mismatched pairs, and nothing is written. A mapping whose value a transform rewrites is not judged on its source type
 - Real-time progress bar with elapsed time
-- Sequential per-object execution. With Grappe enabled, the run reports progress
-  one partition per object over that same sequential loop -- nothing is split and
-  nothing runs concurrently.
+- Sequential per-object execution. With Grappe enabled and the source records,
+  counted before the run, at or above `sandforge.grappe.autoActivateThreshold`,
+  the run reports progress one partition per object over that same sequential
+  loop -- nothing is split and nothing runs concurrently.
 - Per-object result breakdown: processed, succeeded, and failed counts
 - Detailed error messages per object for troubleshooting
 

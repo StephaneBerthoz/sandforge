@@ -131,10 +131,12 @@ export const ForgeReview: React.FC = () => {
    */
   const handleExecute = useCallback(() => {
     if (!graph || !config) return;
-    sendBridgeMessage<{ graph: ForgeGraph; config: ForgeConfig }>('forge:execute', {
-      graph,
-      config,
-    });
+    const requestId = sendBridgeMessage<{ graph: ForgeGraph; config: ForgeConfig }>(
+      'forge:execute',
+      { graph, config },
+    );
+    // Mission control takes only the messages correlated to this request.
+    useForgeStore.getState().setExecutionRequestId(requestId);
     setPhase('execution');
   }, [graph, config, setPhase]);
 

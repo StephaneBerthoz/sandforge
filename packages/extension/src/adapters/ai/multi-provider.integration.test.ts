@@ -158,10 +158,18 @@ describe('CI gate — zero regex-extract callsites in migrated AI modules', () =
     expect(src).toBeDefined();
   });
 
-  it('NL2SOQL.ts exists', async () => {
+  // These read a model reply only through parseModelJson, so a fenced reply
+  // and a reply of the wrong shape are handled the same way in each.
+  it.each([
+    'modules/ai/NL2SOQL.ts',
+    'modules/ai/PipelineGenerator.ts',
+    'modules/ai/AIPersonaManager.ts',
+    'modules/seed/AIDataGenerator.ts',
+  ])('%s parses no model reply of its own', async (file) => {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
-    const src = await fs.readFile(path.join(__dirname, '../../modules/ai/NL2SOQL.ts'), 'utf8');
-    expect(src).toBeDefined();
+    const src = await fs.readFile(path.join(__dirname, '../..', file), 'utf8');
+    expect(src).not.toMatch(/extractJsonFromMarkdown|JSON\.parse\(/);
+    expect(src).toMatch(/parseModelJson\(/);
   });
 });

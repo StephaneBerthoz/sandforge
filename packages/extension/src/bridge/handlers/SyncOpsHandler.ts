@@ -930,6 +930,28 @@ export class SyncOpsHandler implements DomainHandler {
           return records;
         };
 
+      // What the Grappe threshold is measured against: the rows the read above
+      // would return, counted with the same filter before the run writes. The
+      // read stops at a bound — the query limit on a production source,
+      // FORGE_QUERY_MAX_RECORDS elsewhere — so the count stops there too, and a
+      // run is never reported past the rows it will actually read.
+      const countSource = async (
+        orgId: string,
+        objectConfig: import('@sandforge/shared').SyncObjectConfig,
+      ): Promise<number> => {
+        const safeObj = sanitizeSoqlObjectName(objectConfig.objectApiName);
+        let soql = `SELECT COUNT() FROM ${safeObj}`;
+        if (objectConfig.where) {
+          soql += ` WHERE ${assertSoqlWhere(objectConfig.where)}`;
+        }
+        const { totalSize } = await sourceConn.query(soql);
+        const { tier, limits } = limitsFor(orgId);
+        return Math.min(
+          totalSize,
+          tier === 'production' ? limits.defaultQueryLimit : FORGE_QUERY_MAX_RECORDS,
+        );
+      };
+
       // Lazy-import sync dependencies
       const { DataSync } = await import('../../modules/sync/DataSync.js');
       const { MetadataSync } = await import('../../modules/sync/MetadataSync.js');
@@ -969,6 +991,7 @@ export class SyncOpsHandler implements DomainHandler {
         // `grappe:*` channels never fire and the Grappe page stays blank.
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
+        countSource,
       };
       if (!this.deps.services) {
         throw new Error(

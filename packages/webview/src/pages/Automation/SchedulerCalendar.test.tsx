@@ -72,16 +72,19 @@ describe('SchedulerCalendar', () => {
     expect(screen.getByText('0 0 * * *')).toBeDefined();
   });
 
-  it('should render "Coming in v1.2" badge', () => {
+  it('renders a coming-soon badge that names no release', () => {
     render(<SchedulerCalendar />);
-    expect(screen.getByTestId('scheduler-coming-soon')).toBeDefined();
-    expect(screen.getByText('Coming in v1.2')).toBeDefined();
+    const badge = screen.getByTestId('scheduler-coming-soon').textContent ?? '';
+    // It read "Coming in v1.2" in a product long past 1.2.
+    expect(badge).toBe('Coming soon');
+    expect(badge).not.toMatch(/v\d/);
   });
 
-  it('should render "Coming in v1.2" badge when scheduled items exist', () => {
+  it('renders the same badge when scheduled items exist', () => {
     render(<SchedulerCalendar scheduled={scheduled} />);
-    expect(screen.getByTestId('scheduler-coming-soon')).toBeDefined();
-    expect(screen.getByText('Coming in v1.2')).toBeDefined();
+    const badge = screen.getByTestId('scheduler-coming-soon').textContent ?? '';
+    expect(badge).toBe('Coming soon');
+    expect(badge).not.toMatch(/v\d/);
   });
 
   it('should have content with pointer-events-none and reduced opacity', () => {

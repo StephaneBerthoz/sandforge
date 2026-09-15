@@ -120,12 +120,12 @@ export function useQuickSeed(): QuickSeedState {
 
   // The extension reports each object as it starts and the records written so
   // far. The bar read a fixed 50% for the whole run and every row 0/N.
-  const { latest } = useOperationProgress();
-  // `latest` outlives a run and this hook stays mounted across reset(), so the
-  // event seen when a run starts belongs to the previous one: it is ignored
-  // until the extension sends a newer one.
-  const [previousRunProgress, setPreviousRunProgress] = useState<typeof latest>(null);
-  const progress = isRunning && latest !== previousRunProgress ? latest : null;
+  // Read for this run only: the operationId is the id of the seed:execute
+  // request, so a new run starts with no figure of its own, and another run's
+  // events (every panel receives them) never move this bar.
+  const { getProgress } = useOperationProgress();
+  const runId = executeMutation.requestId;
+  const progress = (isRunning && runId !== null ? getProgress(runId) : undefined) ?? null;
 
   const execute = useCallback(() => {
     if (!selectedTemplate || !selectedOrgId) return;
@@ -150,13 +150,12 @@ export function useQuickSeed(): QuickSeedState {
 
     setPhase('executing');
     setElapsedMs(0);
-    setPreviousRunProgress(latest);
 
     executeMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
     });
-  }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation, latest]);
+  }, [selectedTemplate, selectedOrgId, customizedCounts, executeMutation]);
 
   const reset = useCallback(() => {
     setPhase('idle');

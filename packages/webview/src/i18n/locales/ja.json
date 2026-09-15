@@ -73,7 +73,6 @@
     "status_expired": "セッション期限切れ",
     "status_error": "接続エラー",
     "status_refreshing": "更新中...",
-    "safetyTier": "安全レベル",
     "alias": "エイリアス",
     "username": "ユーザー名",
     "instanceUrl": "インスタンスURL",
@@ -86,10 +85,6 @@
     "tier_high": "高",
     "tier_medium": "中",
     "tier_low": "低",
-    "tier_critical_desc": "重大（本番）",
-    "tier_high_desc": "高（UAT / ステージング）",
-    "tier_medium_desc": "中（QA / 結合）",
-    "tier_low_desc": "低（開発 / Scratch）",
     "color": "カラー",
     "color_red": "赤",
     "color_amber": "アンバー",
@@ -822,7 +817,7 @@
   },
   "migration": {
     "title": "移行",
-    "subtitle": "既存の移行定義をインポートし、SandForge の同期設定に変換します。ファイルは読み取りのみで、書き込みや実行は行われません。",
+    "subtitle": "既存の移行定義をインポートし、SandForge の同期設定に変換します。インポートはファイルを読み取るだけで何も変更しません。変換した設定を実行すると、ターゲット組織にレコードが書き込まれます。",
     "sourceTitle": "ソースファイル",
     "type": {
       "sfdmu": {
@@ -935,6 +930,7 @@
     "triggersCount": "アクティブトリガー",
     "historyRuns": "履歴実行",
     "triggers": "トリガー",
+    "triggerManualOnlyNote": "パイプラインを開始できるのは手動実行だけです。その他のトリガータイプはここで設定できますが、まだ何も起動しません。",
     "addTrigger": "トリガーを追加",
     "run": "パイプラインを実行",
     "running": "パイプラインを実行中...",
@@ -1078,26 +1074,6 @@
     "generateReport": "レポートを生成",
     "exportReport": "レポートをエクスポート",
     "reportType": "レポートタイプ",
-    "reportTypes": {
-      "seed_execution": "Seed実行",
-      "sync_execution": "Sync実行",
-      "compare_result": "比較結果",
-      "backup_result": "バックアップ結果",
-      "anonymization_result": "匿名化結果",
-      "pipeline_run": "パイプライン実行",
-      "data_quality": "データ品質",
-      "org_health": "Org健全性",
-      "audit_trail": "監査ログ",
-      "custom": "カスタム"
-    },
-    "exportFormats": {
-      "json": "JSON",
-      "csv": "CSV",
-      "html": "HTML",
-      "pdf": "PDF",
-      "xlsx": "Excel",
-      "sarif": "SARIF"
-    },
     "summary": "サマリー",
     "sections": "セクション",
     "metadata": "メタデータ",
@@ -1151,14 +1127,14 @@
     "advanced": "詳細設定",
     "profiles": "プロファイル",
     "language": "言語",
+    "languageLoadFailed": "{{language}} を読み込めなかったため、画面は現在の言語のままです。",
     "clearCache": "キャッシュをクリア",
     "resetSettings": "デフォルトにリセット",
     "telemetry": "テレメトリ",
     "telemetryStatus": "ステータス",
     "telemetryEnabled": "有効",
     "telemetryDisabled": "無効",
-    "telemetryEventCount": "送信イベント数",
-    "telemetryBufferSize": "バッファサイズ",
+    "telemetryEventCount": "記録された診断イベント",
     "telemetryEnable": "テレメトリを有効にする",
     "telemetryDisable": "テレメトリを無効にする",
     "telemetryUnavailable": "利用不可",
@@ -1258,7 +1234,7 @@
     "automationContent": "ビジュアルパイプラインビルダー：\n- 4カテゴリ15のステップタイプ。現時点で動作するのは遅延と条件だけで、残りの13は Org に触れずに成功を報告します\n- パイプラインは「パイプラインを実行」ボタンから手動で開始します。それ以外の開始方法はまだありません\n- 11の演算子を持つ条件ステップ\n- 実行履歴：実行ごとのステータス、合計所要時間、ステップ数、エラー数\n- Marketplace のパイプラインテンプレート",
     "forgeContent": "Forge は実在のレコードとその周辺のレコードを、ある Org から別の Org へクローンします：\n1. レコード ID または Salesforce URL を貼り付け、ソース Org とターゲット Org を選択します\n2. 「グラフを検出」でそのレコードからリレーションをたどります\n3. 深さ、オブジェクトごとのレコード数、PII の匿名化を設定します\n4. プランを確認して実行します。挿入されるレコードの ID はすべて再マッピングされます\n\nヒント：レコード単位のクローンは、そのレコードに必要なものだけをコピーし、テーブル全体はコピーしません。",
     "frozenContent": "凍結データセットは、ソース Sandbox からデータセットを一度だけ抽出し、リフレッシュのたびに同じ内容を再投入します：\n- 抽出：カバレッジマトリクスでルートレコードを選び、ボリューム予算内に収めます\n- 仮名化は決定的で、リポジトリの外に保管するソルトを使います\n- データセットを書き込む前に、4項目のチェックに合格する必要があります\n- ロード：ターゲットは Sandbox のみ。本ロードの前に、ルート案件1件だけを対象とする任意のパイロットを実行でき、ロード後に検証します",
-    "grappeContent": "Grappe は大きな操作をパーティションに分割し、各パーティションの完了時に進捗を報告します：\n- sandforge.grappe.enabled 設定で有効にします\n- レコードしきい値を超えた Seed の実行は各パーティションを、Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します\n- パーティションは1つずつ順に処理されます。Grappe で実行が速くなることはありません",
+    "grappeContent": "Grappe は大きな操作をパーティションに分割し、各パーティションの完了時に進捗を報告します：\n- sandforge.grappe.enabled 設定で有効にします\n- レコードしきい値を超えた Seed の実行は各パーティションを、しきい値を超えた Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します\n- パーティションは1つずつ順に処理されます。Grappe で実行が速くなることはありません",
     "aiContent": "AIアシスタント（ご自身のAnthropicキーが必要）：\n- チャット、および Seed での NL2SOQL、カスタムペルソナ、AIフィールドルール\n- Automation でのパイプライン下書き\n- AIが有効な間は、失敗した Seed、Sync、DataOps、Automation の実行はエラーメッセージをモデルへ送り、修正案を受け取ります。ただし、組み込みの一覧がそのエラーコードに答える場合は送信しません\n- Compare のスキーマ提案と Monitor の異常スキャンはルールベースです。AIをオフにしてもキーがなくても動作します\n- 設定 > AIでAPIキーを構成",
     "shortcutsContent": "G + キー — モジュールへ移動 (例: G の後に F で Forge、G の後に Y で Sync、G の後に L でヘルプ)\nCtrl+K — コマンドパレット\nEscape — モーダルとダイアログを閉じる\nTab — 要素間の移動\nEnter/Space — ボタンとリンクの有効化",
     "faqContent": "Q：健全性スコアが低いのはなぜですか？\nA：API制限の使用量、失敗したジョブ、ストレージ消費量を確認してください。スコアは複数の要因を考慮しています。\n\nQ：タイムアウトエラーを修正するには？\nA：SandForge には Salesforce 呼び出しのタイムアウト設定はありません。バッチサイズ（VS Code 設定の sandforge.seed.defaultBatchSize と sandforge.sync.defaultBatchSize）を小さくし、大きな実行を小さな実行に分けてください。Grappe で実行が速くなることはありません。パーティションごとに進捗を報告するだけです。\n\nQ：同期操作を元に戻せますか？\nA：いいえ。同期の実行は取り消せません。リスクのある実行の前に、DataOps でターゲット Org のバックアップを取ってください。対象は Account と Contact で、その Org にのみリストアできます。\n\nQ：本番Orgを安全に接続するには？\nA：本番Orgは自動検出され、重大な安全レベルとしてマークされます。すべての破壊的操作には確認が必要です。",
@@ -1376,7 +1352,6 @@
     "aiTab": "AI",
     "recordIdPlaceholder": "レコードIDまたはSalesforce URL",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
-    "aiPlaceholder": "クローンしたいデータを記述してください...",
     "depth": "深さ",
     "depthDirect": "直接のみ",
     "depthFull": "ツリー全体",
@@ -1468,8 +1443,9 @@
     "sameOrgWarning": "ソースとターゲットのOrgは異なる必要があります",
     "hintNoSource": "ソースOrgを選択してください",
     "hintNoTarget": "ターゲットOrgを選択してください",
-    "hintNoInput": "レコードID、クエリ、またはプロンプトを入力してください",
+    "hintNoInput": "レコードIDまたはクエリを入力するか、テンプレートを選択してください",
     "hintSameOrg": "ソースとターゲットは異なる必要があります",
+    "hintSoqlFilterRefused": "グラフを検出するには、WHERE 句を短くするか書き直してください",
     "depthDirectTooltip": "直接関連する子オブジェクトのみ（1レベル）",
     "depthFullTooltip": "依存関係ツリー全体 — すべての深さ",
     "depthCustomTooltip": "リレーションの最大深さを指定",
@@ -1536,8 +1512,9 @@
       "step4": "深さ・レコード上限・匿名化を調整",
       "step5": "サンドボックスへ実行 — IDは自動で付け替えられます"
     },
-    "soqlUnscopedWarnTitle": "WHERE 句は適用されません。",
-    "soqlUnscopedWarnBody": "SandForge は FROM の後のオブジェクト名のみを読み取ります。レコードはテーブル全体から取得され、グラフ内の関連オブジェクトも同様に複製されます（この実行ではオブジェクトあたり {{cap}} 件が上限）。",
+    "soqlUnscopedWarnTitle": "WHERE 句で絞り込まれるのは {{object}} だけです。",
+    "soqlUnscopedWarnBody": "関連オブジェクトは、この句に一致したレコードに絞り込まれず、それぞれテーブル全体から読み取られます。この実行では、各オブジェクトが {{cap}} 件までに制限されます。",
+    "soqlFilterRefused": "この WHERE 句は適用できません。512 文字以内にし、--、/*、*/ を含めず（引用符で囲んだ値の中も含む）、末尾をセミコロンにしないでください。",
     "idMapping": {
       "title": "レコード Id の対応",
       "subtitle": "{{count}} 件のレコードを作成しました。左が元の Id、右がターゲット組織の新しい Id です。",
@@ -1591,6 +1568,68 @@
       "statusSuccess": "成功",
       "statusPartial": "部分的",
       "statusFailure": "失敗"
+    },
+    "error": {
+      "duplicateValue": {
+        "explanation": "同じ一意の値を持つレコードがターゲット組織に既に存在します。以前の実行で複製されたものであることがよくあります。",
+        "action": "以前の実行で作成されたレコードを削除するか、コマンドラインから --upsert を付けて複製を実行してください。外部 ID を持つオブジェクトでは更新になります。"
+      },
+      "invalidCrossReferenceKey": {
+        "explanation": "参照項目が、ターゲット組織に存在しないレコード（多くは所有者などのユーザー）を指しています。",
+        "action": "参照先のレコードをターゲット組織で作成または対応付けるか、参照項目を空のままにして複製後に設定してください。"
+      },
+      "requiredFieldMissing": {
+        "explanation": "必須項目に値がありません: {{detail}}。",
+        "action": "「親を自動取得」をオンにするか、必要な親が複製に含まれるよう深さを上げてください。"
+      },
+      "invalidPicklist": {
+        "explanation": "ソースの選択リスト値がターゲット組織の選択リストに存在しません。",
+        "action": "ターゲット組織の設定で選択リストに値を追加するか、ソースレコードの値を変更してください。"
+      },
+      "invalidFieldForInsert": {
+        "explanation": "作成時に設定できない項目があります。自動計算される項目か、項目レベルセキュリティで非表示か、ターゲット組織に存在しません。",
+        "action": "ターゲット組織でのユーザーの項目レベルセキュリティを確認し、両組織の項目を比較してください。"
+      },
+      "fieldIntegrity": {
+        "explanation": "Salesforce が整合性ルールによりレコードを拒否しました: {{detail}}。",
+        "action": "詳細を確認してください。Salesforce は通常、該当する項目またはルールを示します。"
+      },
+      "cannotInsertEntity": {
+        "explanation": "このオブジェクト（履歴、監査、システムオブジェクト）には Salesforce が新しいレコードを受け付けません。",
+        "action": "このオブジェクトを複製対象から外してください。"
+      },
+      "insufficientAccess": {
+        "explanation": "ターゲット組織のユーザーに、この書き込みに必要なアクセス権がありません。",
+        "action": "不足している権限を管理者に依頼するか、権限を持つユーザーでターゲット組織に接続してください。"
+      },
+      "storageLimit": {
+        "explanation": "ターゲット組織のデータストレージに空きがありません。",
+        "action": "ターゲット組織から不要なレコードを削除してから、もう一度実行してください。"
+      },
+      "invalidType": {
+        "explanation": "このオブジェクトはターゲット組織に存在しないか、ユーザーから参照できません。",
+        "action": "両組織のスキーマを比較するか、このオブジェクトを複製対象から外してください。"
+      },
+      "notFound": {
+        "explanation": "要求されたレコードまたはリソースが Salesforce で見つかりませんでした。",
+        "action": "レコード ID と、それがソース組織のものであることを確認してください。"
+      },
+      "stringTooLong": {
+        "explanation": "値が項目の最大長を超えています: {{detail}}。",
+        "action": "ソースの値を短くするか、両組織で項目の長さを揃えてください。"
+      },
+      "cycleFkUnresolved": {
+        "explanation": "項目 '{{fieldName}}' が複製されなかった親（ソース ID {{sourceRefId}}）を指しているため、レコードはその関連なしで作成されました。",
+        "action": "親が複製に含まれるよう深さを上げるか、後で項目を手動で設定してください。"
+      },
+      "outOfScope": {
+        "explanation": "このオブジェクトの親レコードが複製に含まれておらず、ルートオブジェクトでもないため、このオブジェクトのレコードは複製されませんでした。",
+        "action": "このオブジェクトのレコードを複製に含める必要がある場合は、深さを上げてください。"
+      },
+      "unknown": {
+        "explanation": "{{detail}}",
+        "action": "このエラーコードを Salesforce のドキュメントで確認してください。"
+      }
     }
   },
   "autopilot": {
@@ -1876,7 +1915,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe には sandforge.grappe.enabled が必要です。レコードしきい値を超えた Seed の実行は各パーティションの完了を報告し、Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します。",
+    "emptyDesc": "Grappe には sandforge.grappe.enabled が必要です。レコードしきい値を超えた Seed の実行は各パーティションの完了を報告し、しきい値を超えた Sync はオブジェクトごとに1パーティションを報告し、Autopilot プランは開始と終了だけを報告します。",
     "active": "Grappe",
     "completed": "完了",
     "partitions": "パーティション",
@@ -1926,9 +1965,6 @@
       "validProfile": "有効なプロファイル",
       "invalidProfile": "無効なプロファイル"
     }
-  },
-  "scheduler": {
-    "comingSoon": "v1.2で提供予定"
   },
   "governance": {
     "title": "Orgガバナンス",

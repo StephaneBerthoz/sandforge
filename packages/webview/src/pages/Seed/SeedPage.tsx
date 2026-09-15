@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
 import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import type { NavigationIntent } from '../../stores/useAppStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
-import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -43,6 +43,13 @@ const SEED_STEPS: WizardStep[] = [
 /** Threshold below which wizard auto-advances past Configure step. */
 const AUTO_ADVANCE_THRESHOLD = 5;
 
+/** Mode a Home recommendation opens on: clone wizard, quick-seed gallery, or the selector. */
+function modeForIntent(intent: NavigationIntent | null): SeedMode {
+  if (intent?.seedMode === 'clone') return 'clone';
+  if (intent?.seedMode === 'quick-seed') return 'ai-scratch';
+  return 'select';
+}
+
 /** Main Seed page -- mode selector + 4-step wizard with progressive disclosure. */
 export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
@@ -50,19 +57,30 @@ export const SeedPage: React.FC = () => {
   const navigate = useAppStore((s) => s.navigate);
   const state = useSeedWizardState(t);
   const quickSeed = useQuickSeed();
-  const [seedMode, setSeedMode] = useState<SeedMode>('select');
+  // Home's recommendation, read once on open: the page lands on the mode it
+  // names instead of the selector, and the clone wizard on its source org.
+  const [intent] = useState<NavigationIntent | null>(() => {
+    const pending = useAppStore.getState().navigationIntent;
+    return pending?.route === 'seed' ? pending : null;
+  });
+  const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
+  useEffect(() => {
+    if (intent) clearNavigationIntent();
+  }, [intent, clearNavigationIntent]);
+  const [seedMode, setSeedMode] = useState<SeedMode>(() => modeForIntent(intent));
+  /** Recommended clone source; dropped once the user leaves clone mode. */
+  const [recommendedCloneSource, setRecommendedCloneSource] = useState(
+    intent?.seedMode === 'clone' ? intent.sourceOrgId : undefined,
+  );
+  useEffect(() => {
+    if (seedMode !== 'clone') setRecommendedCloneSource(undefined);
+  }, [seedMode]);
   /** Tracks whether the configure step was auto-skipped (for the "Customize" banner). */
   const [configSkipped, setConfigSkipped] = useState(false);
   const prevStepRef = useRef(state.currentStep);
   const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
   const setCurrentStep = state.setCurrentStep;
   const sendMessage = useSendMessage();
-  /**
-   * The run's id only reaches the webview through the progress stream — the
-   * mutation hooks never surface the id of the request they sent — so the
-   * abort target is the latest `operation:progress` event.
-   */
-  const { latest: latestProgress } = useOperationProgress();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const handleSelectTemplate = (
@@ -121,16 +139,22 @@ export const SeedPage: React.FC = () => {
    * Stop a running seed. `execution:abort` is the channel that reaches the
    * AbortController SeedOpsHandler registers in the BackgroundOperationRegistry;
    * `operation:cancel` only reaches the pipeline orchestrators.
+   *
+   * The target is this wizard's own run: its operationId is the id of the
+   * seed:execute request it sent. Aiming at the latest `operation:progress`
+   * event stopped whichever run had reported last.
    */
+  const runOperationId = state.operationId;
   const handleConfirmCancelRun = useCallback(() => {
     setShowCancelConfirm(false);
-    const operationId = latestProgress?.operationId;
-    if (!operationId) return;
-    sendMessage(buildMessage<{ operationId: string }>('execution:abort', { operationId }));
-  }, [latestProgress, sendMessage]);
+    if (!runOperationId) return;
+    sendMessage(
+      buildMessage<{ operationId: string }>('execution:abort', { operationId: runOperationId }),
+    );
+  }, [runOperationId, sendMessage]);
 
-  /** Cancel is only offered while a run is actually abortable. */
-  const canCancelRun = state.isRunning && !!latestProgress?.operationId;
+  /** Cancel is only offered once the run has reported progress, i.e. is registered. */
+  const canCancelRun = state.isRunning && !!runOperationId;
 
   if (orgs.length === 0) {
     return (
@@ -261,7 +285,12 @@ export const SeedPage: React.FC = () => {
       {seedMode === 'csv' && <CsvUploadWizard onBack={() => setSeedMode('select')} />}
 
       {/* ----- CLONE MODE ----- */}
-      {seedMode === 'clone' && <CloneWizard onBack={() => setSeedMode('select')} />}
+      {seedMode === 'clone' && (
+        <CloneWizard
+          onBack={() => setSeedMode('select')}
+          initialSourceOrgId={recommendedCloneSource}
+        />
+      )}
 
       {/* ----- AI GENERATE MODE: Fork selection ----- */}
       {seedMode === 'ai' && quickSeed.phase === 'idle' && (

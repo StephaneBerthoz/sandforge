@@ -62,6 +62,7 @@ export class WebviewPanelManager {
    * @param extensionUri - Extension URI for resolving webview resources
    * @param uriJoinPath - URI path joiner (defaults to noop for backward compat)
    * @param languageGetter - Reads the configured UI language for `<html lang>`
+   * @param editorLanguageGetter - Reads the editor display language (`vscode.env.language`)
    */
   constructor(
     private broker: MessageBroker,
@@ -69,6 +70,7 @@ export class WebviewPanelManager {
     private extensionUri?: { toString(): string },
     private uriJoinPath?: UriJoinPath,
     private languageGetter?: () => string | undefined,
+    private editorLanguageGetter?: () => string | undefined,
   ) {}
 
   /**
@@ -84,12 +86,23 @@ export class WebviewPanelManager {
       return existing;
     }
 
+    // The shell loads only webview-dist (bundle, stylesheet); the locales are
+    // read from disk by the host. Rooting the webview at the whole extension
+    // let it request any packaged file, compiled host code included.
     const localResourceRoots = this.extensionUri
-      ? [this.extensionUri as { toString(): string }]
+      ? [
+          (this.uriJoinPath
+            ? this.uriJoinPath(this.extensionUri, 'webview-dist')
+            : this.extensionUri) as { toString(): string },
+        ]
       : undefined;
 
     const panel = this.panelFactory(config.viewType, config.title, config.column ?? 1, {
       enableScripts: true,
+      // Kept for every panel. VS Code delivers postMessage only to a live
+      // webview, so a Sync, Seed or DataOps panel moved to a background tab
+      // would miss the progress and completion messages of the run it started,
+      // and a half-filled wizard would be rebuilt empty on return.
       retainContextWhenHidden: true,
       localResourceRoots,
     });
@@ -203,6 +216,7 @@ export class WebviewPanelManager {
       // Read per panel, not per manager: the user can switch language between
       // two openPanel calls and each shell must announce the current one.
       lang: this.languageGetter?.(),
+      editorLanguage: this.editorLanguageGetter?.(),
     });
   }
 }

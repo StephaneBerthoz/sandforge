@@ -10,10 +10,13 @@
   "SandForge: {0} failed": "SandForge : échec de {0}",
   "SandForge: {0} failed — {1}": "SandForge : échec de {0} — {1}",
   "Show Details": "Afficher les détails",
-  "SandForge: pick an org in the launcher dropdown first.": "SandForge : sélectionnez d'abord une org dans la liste du lanceur.",
+  "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge : aucune org n'est encore enregistrée — connectez-en une depuis la page Organisations.",
+  "Select the org to open in the browser": "Sélectionnez l'org à ouvrir dans le navigateur",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge : impossible d'ouvrir « {0} » — URL d'instance invalide : {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge : ouverture de « {0} » refusée — l'URL d'instance doit utiliser HTTPS, reçu « {1} ».",
   "Open Settings": "Ouvrir les paramètres",
   "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.": "SandForge : {0} % du budget de jetons IA de cette fenêtre est utilisé ({1} jetons). Les requêtes IA sont refusées à 100 %.",
-  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge : les requêtes IA sont refusées — elles dépasseraient le budget de jetons IA de cette fenêtre ({0} jetons utilisés). Augmentez sandforge.ai.tokenBudgetMaxPerSession ou rechargez la fenêtre pour continuer."
+  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge : les requêtes IA sont refusées — elles dépasseraient le budget de jetons IA de cette fenêtre ({0} jetons utilisés). Augmentez sandforge.ai.tokenBudgetMaxPerSession ou rechargez la fenêtre pour continuer.",
+  "SandForge: fix suggested by the AI model — {0}": "SandForge : correctif proposé par le modèle d'IA — {0}",
+  "SandForge: suggested fix for a known Salesforce error — {0}": "SandForge : correctif proposé pour une erreur Salesforce connue — {0}"
 }

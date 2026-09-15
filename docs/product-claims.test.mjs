@@ -63,13 +63,15 @@
  *
  * What does partition is Seed: `executeWithGrappe` asks the adapter to split the
  * template, then walks the chunks in a `for` loop, awaiting each and reporting
- * it before the next begins. So the two anchors read the two paths — one for
- * what happens, one for what does not — and the surfaces are held to both: per
- * partition for Seed and Sync, start and end only for Autopilot, and no
- * sentence that reaches for the VOCABULARY of concurrency to describe either.
- * The vocabulary, not the idea: the limit is spelt out below.
+ * it before the next begins. Sync reports one partition per object from its own
+ * awaited loop. So three anchors read the three paths — two for what happens,
+ * one for what does not — and the surfaces are held to all of them: per
+ * partition for Seed, per object for Sync, start and end only for Autopilot,
+ * and no sentence that reaches for the vocabulary of concurrency, or for the
+ * ordinary phrases that say the same thing, to describe any of them. Words,
+ * not the idea: the limit is spelt out below.
  *
- * CDC is the same story: removed from the Sync UI, disclaimed in
+ * CDC is the same story: its tab hidden from the Sync page, disclaimed in
  * `docs/modules/sync.md`, routed to `NoOpHandler` in the extension — and still
  * sold as a working "near real-time" sync mode by the in-app help panel, in all
  * six languages.
@@ -121,7 +123,8 @@
  * phrase.
  *
  * What the AI Assistant checks do not see, one limit per line:
- *  - Code is read under `packages/extension/src` and `packages/shared/src`, plus the JSON under those and under `packages/extension/resources`; a fourth workspace package fails the control below instead of passing unread.
+ *  - Code is read under `packages/extension/src`, `packages/shared/src` and `packages/webview/src`, plus the JSON under the first two and under `packages/extension/resources`; a fourth workspace package fails the control below instead of passing unread.
+ *  - A key of that name that sends nothing — a log field `{ tools: 0 }`, a panel config — is refused like a request. Rename it: telling the two apart means reading where the object goes, and a rule that trusted the call target would let a request built in a helper through.
  *  - Provider options handed through from outside the code — a webview payload, a user setting spread into the request — carry a `tools` key written nowhere in the repository.
  *  - A tool catalogue written into the prompt text, whose reply is parsed by hand, gives the model tools under no key and no block type this scan knows.
  *  - A key computed at runtime (a variable, a template, `Reflect.set`, `Object.defineProperty`) hides `tools` from the scan.
@@ -130,16 +133,16 @@
  *  - A tool helper a later SDK exports under a new name or path is caught only through the request key it still needs.
  *  - An OpenAI-shaped request, `functions` with `function_call`, is not watched: Functions is a Salesforce product this extension talks about, so the key is ordinary vocabulary here. Reaching that shape means a second provider, which the code anchor's own controls would show.
  *  - A tool factory whose name carries on past the word, `createToolRegistry`, is not caught by name — `Tools` is also a panel label in this product, so the name has to end on it. What the factory builds is still caught when it reaches a request or an SDK helper.
- *  - A tool API reached through an alias, `const register = vscode.lm.registerTool.bind(vscode.lm)`, is not read as a call on `lm`.
+ *  - The editor's model namespace taken whole — `const api = vscode.lm`, `.bind(vscode.lm)` — is refused even when only a chat model is wanted, since the scan cannot follow the alias to what it calls. A renamed import of `vscode` itself is still read, because the member is still named `lm`.
  *  - Prose refuses published wording, whole: a paraphrase, a new sentence, a translation, or the same sentence with a word inflected — `diagnostics` for `diagnosis`, `surfaces` for `surface` — passes. The count is the one word that may change.
  *  - Any quotation of a published wording is refused like the promise: struck through, inside quotation marks, in a removal note or in an answer about an old version alike. A changelog is not a surface, so that is where the quote belongs.
  *  - A wording that does not name the tools is released by rewriting it, not by the anchor: the anchor answers one question, whether shipped code gives the model tools.
  *  - Markdown is read by paragraph, table row, heading and list item: a fenced code block is not prose, and a wording split across two rows or two items passes — as it does across two locale keys rendered side by side.
- *  - The webview's English fallbacks are read for these wordings and by the Grappe rules, which is how `grappe.subtitle` and `grappe.step2Desc` were caught — `Parallel execution engine`, six languages and the fallback, on the Grappe page header. The CDC rule reads the six locale bundles it was written against and nothing else.
+ *  - The webview's English fallbacks are read for these wordings, by the Grappe rules and by the CDC rule, which is how `grappe.subtitle` and `grappe.step2Desc` were caught — `Parallel execution engine`, six languages and the fallback, on the Grappe page header.
  *
  * What the two code anchors added last do not see, one limit per line:
  *  - The automatic-resolution anchor reads one emitter, `sendOperationFailed`. A second path to `resolveError` — another caller, a webview channel wired back — is not read; it would only make the wordings more false, never less.
- *  - It reads the call, not the condition: a resolution put behind `if (userAskedForIt)` inside `resolveFailedOperation` still reads as automatic. Move it back behind a screen and the wordings are true again while the anchor stays green, so rewrite the anchor with the feature.
+ *  - It reads the conditions around the call — an `if`, a ternary, the right side of `&&`, `||`, `??`, `&&=`, `||=` or `??=`, a `switch` case (its switch expression, its own label and the labels falling through into it), a `while`, `do`, `for`, `for…of` or `for…in` loop, an argument of an optional call `consent?.(…)` — inside the expression the call is made on, `(asked ? resolver : undefined)?.resolveError(…)`, and inside every value given to the name that expression starts from: assigned, destructured, set as a property, or held in an object literal, `const [r] = asked ? [resolver] : []` and `const box = { r: asked ? resolver : undefined }` included. It accepts only a condition that reads the resolver and nothing else, so `true` and a `case 'asked'` label are refused. What it does not read, and this list may not be complete: an early exit ABOVE the call — `if (!userAskedForIt) return;`, a `throw`, a `continue`, a `break` out of a labelled block — which is ordinary filtering there, and refusing it would fail the anchor on honest code; a call placed in a `catch` block or a `finally`; a resolver chosen inside a helper, `const resolver = pick(deps)`; the value of a name read through another name, `const alias = box; alias.r?.resolveError(…)`; and a call made inside a callback, `deps.onConsent(() => resolver.resolveError(error))`, since when a callback runs is decided by the function it is handed to.
  *  - It reads one wire, `setAIModules` writing the injected resolver into `handlerDeps` — the object every handler is constructed on, and the only one the emitter can be reading. A second injection — a constructor argument, a deps object built elsewhere — is not read.
  *  - The rule-module anchor counts constructor ARGUMENTS in the composition root. A provider reaching `AnomalyDetector` another way — a setter, a field assigned later, a default parameter — is invisible; the count only answers the question the composition root answers today.
  *  - It also reads POSITION: the statement that wires them runs before the first statement of `initAIComposition` that can return. A gate built some third way — a throw, an early exit inside a helper it awaits — is not read as a gate. And "the first statement that can return" is a proxy for the AI gate, not the gate itself: a guard clause added above it moves the line this anchor measures without moving the gate.
@@ -147,12 +150,18 @@
  *  - Both read `aiComposition.ts` by name. Move the composition root and they fail loudly on a missing construction rather than passing on an empty file, which is the failure mode worth having.
  *
  * What the Grappe rules do not see, one limit per line:
- *  - The Seed anchor reads `executeWithGrappe` in `SeedOrchestrator` and the Autopilot anchor reads `executePlan`. Sync reports one partition per object from its own loop, and that loop is read by neither: a change there is caught by the prose rules only when the prose changes with it.
- *  - The rule is a VOCABULARY, not a meaning: `paral*`, `concurren*`/`concorren*`, `gleichzeitig`/`nebenläufig`, `simult*`, 並列/並行/同時. Concurrency said in ordinary language — "at once", "à la fois", "auf einmal", "de una vez", "ao mesmo tempo", 一度に — passes in all six, and it is the one way to sell this feature falsely that costs nothing to write.
- *  - Concurrency reached without a word for it — an unawaited call inside the loop, a queue drained elsewhere — is invisible to the prose rules; the anchor's `Promise.all` check is what watches the Seed path for it.
+ *  - The Seed anchor reads `executeWithGrappe` in `SeedOrchestrator`, the Sync anchor reads `execute` in `SyncOrchestrator`, and the Autopilot anchor reads `executePlan`. A fourth path that emits `grappe:*` is read by none of them.
+ *  - The rules are VOCABULARIES, not a meaning: the words `paral*`, `concurren*`/`concorren*`, `gleichzeitig`/`nebenläufig`, `simult*`, 並列/並行/同時 anywhere Grappe is the subject, and the phrases "at once", "at the same time", "à la fois", "en même temps", "auf einmal", "zur gleichen Zeit", "zugleich", "de una vez", "a la vez", "al mismo tiempo", "ao mesmo tempo", "de uma vez", 一度に, 一斉に in a sentence that names Grappe or in a string whose key does. Any other paraphrase — "side by side", "in one go", "all together" — passes, and so does a phrase in a paragraph that names Grappe only in another sentence.
+ *  - Concurrency reached without a word for it — an unawaited call inside the loop, a queue drained elsewhere — is invisible to the prose rules; the anchors' `Promise.all` checks are what watch the Seed and Sync paths for it.
  *  - A sentence that denies concurrency passes, and a sentence that denies one thing while asserting concurrency in the same breath passes with it: "not queued: run in parallel" reads as a denial. Widening the negation class to the elided and contracted forms the six languages actually write widened that hole with it — deliberately, since the other direction refuses true sentences. What stands behind it is the mined list of wordings this product published, which is refused whole, quotation included.
  *  - Two wordings are too short to mine — `Motor de ejecución paralela`, `大規模データ操作のための並列実行エンジン` — and are left to the word rule, which is what caught them.
  *  - The Seed anchor pins the report to the innermost loop that inserts, which is the granularity the surfaces publish. It does not read what that loop iterates: chunk the objects into one partition each and the report is still per partition, and still true.
+ *  - The run-id check reads the name each opening and closing event hands as `operationId`. Two names bound to the same value pass only when they are one name; one name reassigned between the two events passes too.
+ *
+ * What the CDC and Production Guard rules do not see, one limit per line:
+ *  - The CDC rule is a word and a disclaimer: a sentence, clause (split at `;`) or list item naming CDC or Change Data Capture is refused unless that same piece carries a disclaimer word — refused, not implemented, coming soon, in its own language. It does not read what the word is about: "CDC streams every change, and a rejected record is refused" passes on the comma. "Real-time streaming of every change" names neither and passes.
+ *  - The Real-Time panel's strings (`sync.realtime.*`) are not read by it, for as long as the Sync page does not offer that tab — the anchor pins that. A screen that renders one of them elsewhere is not seen. A mode label (`sync.modes.*`) is read like any string, except when it is the mode's bare name.
+ *  - The Production Guard rule reads "audit trail" in the six languages in a string that names Production Guard. A persisted log sold under another name — "a history of every decision" — passes, and so does "audit trail" in a paragraph that names the guard only in the next one.
  *
  *   node --test docs/product-claims.test.mjs
  */
@@ -164,7 +173,14 @@ import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 
-import { NLS_FILES, isNlsPlaceholder, parallelAssertions, resolveNls } from './claims-surfaces.mjs';
+import { CODE_ATTACKS, PROSE_ATTACKS } from './claims-replay.fixtures.mjs';
+import {
+  NLS_FILES,
+  isNlsPlaceholder,
+  ordinaryConcurrencyAssertions,
+  parallelAssertions,
+  resolveNls,
+} from './claims-surfaces.mjs';
 
 const docsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(docsDir, '..');
@@ -362,6 +378,7 @@ function surfaceSources() {
 const SEED_ORCHESTRATOR_FILE = 'packages/extension/src/modules/seed/SeedOrchestrator.ts';
 const AUTOPILOT_ORCHESTRATOR_FILE =
   'packages/extension/src/modules/autopilot/AutopilotOrchestrator.ts';
+const SYNC_ORCHESTRATOR_FILE = 'packages/extension/src/modules/sync/SyncOrchestrator.ts';
 
 /** Whether a node sits inside a loop, without leaving the body it was found in. */
 function isLooped(node, body) {
@@ -599,6 +616,8 @@ function assertAutopilotOnlyBracketsTheRun() {
       'became false in six languages — re-read them before touching this test.',
   );
 
+  assertOneRunIdBracketsTheRun(body, 'AutopilotOrchestrator.executePlan');
+
   const orchestrator = read(...AUTOPILOT_ORCHESTRATOR_FILE.split('/'));
   assert.doesNotMatch(
     orchestrator,
@@ -614,8 +633,152 @@ function assertAutopilotOnlyBracketsTheRun() {
   );
 }
 
+/** The name an event call hands as `operationId`: the shorthand, or the identifier after the colon. */
+function operationIdName(call) {
+  let name = null;
+  const visit = (node) => {
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === 'operationId') {
+      name = 'operationId';
+    } else if (ts.isPropertyAssignment(node) && memberName(node) === 'operationId') {
+      const value = unwrap(node.initializer);
+      if (ts.isIdentifier(value)) name = value.text;
+    } else {
+      ts.forEachChild(node, visit);
+    }
+  };
+  call.args.forEach(visit);
+  return name;
+}
+
+/**
+ * The Grappe view opens a run on `grappe:started` and closes it on
+ * `grappe:completed`, and the id both carry is the only thing that says the
+ * second closes the first. Autopilot used to mint the id twice, from the clock,
+ * once on each side of the executor: every closing event named a run nobody
+ * had opened. So the two events hand over one name, or the view is told about
+ * two runs where there was one.
+ */
+function assertOneRunIdBracketsTheRun(body, where) {
+  const calls = callsWithin(body);
+  const started = calls.find((call) => call.args.some((arg) => mentions(arg, 'grappe:started')));
+  const completed = calls.find((call) =>
+    call.args.some((arg) => mentions(arg, 'grappe:completed')),
+  );
+  assert.ok(
+    started && completed,
+    `${where} no longer emits both grappe:started and grappe:completed — re-read this anchor`,
+  );
+  const opened = operationIdName(started);
+  assert.ok(
+    opened,
+    `${where} opens its run with an operationId written inline, not a name — the closing event ` +
+      'cannot be read as closing the same run',
+  );
+  assert.equal(
+    operationIdName(completed),
+    opened,
+    `${where} closes its run under another operationId than the one it opened — the Grappe view ` +
+      'is told about a run that never started',
+  );
+}
+
+/**
+ * What Sync's grappe mode does: its own loop over the objects of the run,
+ * each one synced and awaited, and reported with `grappe:partitionProgress`
+ * before the next begins — "a Sync reports one partition per object", in six
+ * locales, the manifest and `docs/modules/sync.md`. And it starts only past
+ * `sandforge.grappe.autoActivateThreshold`, like Seed and Autopilot, which is
+ * what the setting's description now says.
+ *
+ * Fails in both directions: take the report out of the loop, move it off the
+ * loop that syncs, hand the objects to `Promise.all`, or stop reading the
+ * threshold — each trips an assertion here.
+ */
+function assertSyncReportsOnePartitionPerObject() {
+  const source = parseFile(SYNC_ORCHESTRATOR_FILE);
+  const body = methodBody(source, 'execute');
+  assert.ok(
+    body,
+    `${SYNC_ORCHESTRATOR_FILE} no longer declares execute — the path that reports a sync moved, so ` +
+      'this anchor is reading nothing; find it and re-point the scan',
+  );
+  const calls = callsWithin(body);
+  const writes = calls.filter((call) => call.name === 'syncObject');
+  // Positive control: the walk reads that body, and sees it sync objects.
+  assert.ok(
+    writes.length > 0,
+    'the scan cannot see execute syncing an object — it is reading an empty body, so everything ' +
+      'below would prove nothing',
+  );
+
+  const started = calls.find((call) => call.args.some((arg) => mentions(arg, 'grappe:started')));
+  const progress = calls.find((call) =>
+    call.args.some((arg) => mentions(arg, 'grappe:partitionProgress')),
+  );
+  assert.ok(
+    progress,
+    'SyncOrchestrator.execute no longer emits grappe:partitionProgress — the surfaces that say a ' +
+      'Sync reports one partition per object became false',
+  );
+  assert.ok(
+    started,
+    'SyncOrchestrator.execute no longer emits grappe:started — re-read this anchor',
+  );
+  // Positive control for the loop test: the run-level event is in the same
+  // body and is NOT in a loop.
+  assert.equal(
+    isLooped(started.node, body),
+    null,
+    'grappe:started is now emitted inside a loop — the walk cannot tell a per-object event from ' +
+      'a per-run one, so the check below proves nothing',
+  );
+  const loop = isLooped(progress.node, body);
+  assert.ok(
+    loop,
+    'grappe:partitionProgress is no longer emitted from inside a loop — a sync reports once, not ' +
+      'once per object',
+  );
+  assert.ok(
+    writes.every((call) => isLooped(call.node, body) === loop),
+    'the loop that emits grappe:partitionProgress is no longer the loop that syncs each object — ' +
+      'a sync now reports at another grain than it writes',
+  );
+  assert.ok(
+    awaits(loop),
+    'the loop that reports each object no longer awaits anything — the objects may not be synced ' +
+      'one after another any more, which is what the surfaces say',
+  );
+  assert.deepEqual(
+    fanOutCalls(body).map((call) => accessChain(call.node.expression).join('.')),
+    [],
+    'SyncOrchestrator.execute now hands its work to Promise.all (or a sibling) — objects may really ' +
+      'sync at once. Re-read every Grappe surface before relaxing anything.',
+  );
+  assert.ok(
+    fanOutCalls(parseFile(AI_COMPOSITION_FILE)).length > 0,
+    `the scan sees no Promise.all in ${AI_COMPOSITION_FILE}, which is built on two — it is not ` +
+      'reading fan-out calls, so their absence above proves nothing',
+  );
+  assertOneRunIdBracketsTheRun(body, 'SyncOrchestrator.execute');
+
+  const activation = methodBody(source, 'isGrappeActive');
+  assert.ok(
+    activation && reads(activation, 'enabled'),
+    'SyncOrchestrator no longer decides activation in isGrappeActive — re-point this anchor',
+  );
+  assert.ok(
+    reads(activation, 'autoActivateThreshold'),
+    'SyncOrchestrator no longer holds a run to sandforge.grappe.autoActivateThreshold — the ' +
+      'setting description that names Sync became false in six languages',
+  );
+}
+
 test('anchor: a seed partitions, and reports each partition as it completes', () => {
   assertSeedPartitionsAndReportsEachOne();
+});
+
+test('anchor: a sync past the threshold reports one partition per object, one after another', () => {
+  assertSyncReportsOnePartitionPerObject();
 });
 
 test('anchor: an autopilot run is only bracketed by two events', () => {
@@ -795,15 +958,21 @@ test('no user-facing surface republishes the withdrawn Grappe wording', () => {
 
 test('no user-facing surface claims Grappe runs anything at once', () => {
   assertSeedPartitionsAndReportsEachOne();
+  assertSyncReportsOnePartitionPerObject();
   assertAutopilotOnlyBracketsTheRun();
 
   // Beyond the wordings that shipped, the claim itself: every grappe path is a
   // sequential `for await`, so no sentence about Grappe may assert concurrency
-  // in any of the six languages. A sentence that DENIES it is the honest one,
-  // and passes — `docs/faq.md` publishes exactly that.
+  // in any of the six languages, in the vocabulary or in ordinary words. A
+  // sentence that DENIES it is the honest one, and passes — `docs/faq.md`
+  // publishes exactly that.
   const offenders = [];
   for (const { label, text } of grappeUnits()) {
-    for (const sentence of parallelAssertions(text)) {
+    const aboutGrappe = /grappe/i.test(label);
+    for (const sentence of [
+      ...parallelAssertions(text),
+      ...ordinaryConcurrencyAssertions(text, { aboutGrappe }),
+    ]) {
       offenders.push(`${label}: ${sentence.slice(0, 140)}`);
     }
   }
@@ -860,6 +1029,45 @@ test('the Grappe rules refuse what shipped and leave an honest denial alone', ()
     'these sell a concurrency no grappe path has, and the word rule lets them through',
   );
 
+  // The same claim in ordinary words, which the word rule cannot see: refused
+  // in a sentence naming Grappe, and in any sentence of a string keyed to it.
+  const assertedInOrdinaryWords = [
+    'Grappe runs every partition at once.',
+    'With Grappe, all partitions are written at the same time.',
+    'Avec Grappe, les partitions sont traitées en même temps.',
+    'Grappe traite les partitions à la fois.',
+    'Grappe verarbeitet alle Partitionen auf einmal.',
+    'Grappe schreibt die Partitionen zur gleichen Zeit.',
+    'Grappe procesa todas las particiones al mismo tiempo.',
+    'Grappe escribe las particiones a la vez.',
+    'O Grappe grava as partições ao mesmo tempo.',
+    'O Grappe processa todas as partições de uma vez.',
+    'Grappe はすべてのパーティションを一度に処理します。',
+  ];
+  assert.deepEqual(
+    assertedInOrdinaryWords.filter((text) => ordinaryConcurrencyAssertions(text).length === 0),
+    [],
+    'these sell Grappe as concurrent without a word for it, and the phrase rule lets them through',
+  );
+  assert.deepEqual(
+    ordinaryConcurrencyAssertions('Partitions are processed at the same time', {
+      aboutGrappe: true,
+    }),
+    ['Partitions are processed at the same time'],
+    'a grappe.* string that never names Grappe sells concurrency, and the phrase rule lets it through',
+  );
+  // The phrases are ordinary prose everywhere else: a sentence that does not
+  // name Grappe, outside a string about it, is not read by this rule.
+  const ordinaryElsewhere = [
+    'Once Deploy from Diff ships, prefer it over deploying everything at once',
+    'The bar shows every object at once, so a long run stays readable.',
+  ];
+  assert.deepEqual(
+    ordinaryElsewhere.filter((text) => ordinaryConcurrencyAssertions(text).length > 0),
+    [],
+    'the phrase rule refuses sentences that are not about Grappe',
+  );
+
   // Prose an honest page could hold, in the six languages the extension ships:
   // the denials `docs/faq.md` and `docs/modules/sync.md` publish today, the ADR
   // such a decision deserves, and the sentences the newly-read surfaces carry —
@@ -901,11 +1109,21 @@ test('the Grappe rules refuse what shipped and leave an honest denial alone', ()
     'O Grappe relata cada partição ao concluí-la, em lugar da execução simultânea.',
     'Grappe は並列実行の代わりに、パーティションごとの進捗を報告します。',
     'Grappe は同時実行なしで、パーティションごとに結果を報告します。',
+    // The ordinary phrases, denied the way each language denies them.
+    'Grappe does not write the partitions at once: it reports each one as it completes.',
+    "Grappe n'écrit pas les partitions en même temps.",
+    'Grappe schreibt die Partitionen nicht auf einmal.',
+    'Grappe no escribe las particiones al mismo tiempo.',
+    'O Grappe não grava as partições ao mesmo tempo.',
+    'Grappe はパーティションを一度に書き込みません。',
+    'With Grappe enabled and a source counted at or above sandforge.grappe.autoActivateThreshold records, the run reports progress one partition per object over that same sequential loop -- nothing is split and nothing runs concurrently.',
   ];
   assert.deepEqual(
     honest.filter(
       (text) =>
-        republishedClaims(text, grappeClaims()).length > 0 || parallelAssertions(text).length > 0,
+        republishedClaims(text, grappeClaims()).length > 0 ||
+        parallelAssertions(text).length > 0 ||
+        ordinaryConcurrencyAssertions(text).length > 0,
     ),
     [],
     'the Grappe rules flag these honest sentences — a gate that refuses a true sentence gets ' +
@@ -949,30 +1167,205 @@ test('anchor: every realtime:* channel is still routed to the no-op handler', ()
   }
 });
 
-test('the in-app help panel does not sell CDC as a working sync mode', () => {
-  // `help.syncContent` is what the Help panel renders. It promised "4 sync
-  // modes: Full, Incremental, Delta, CDC" in six languages, for a mode the UI
-  // no longer offers and the extension answers with `comingSoon: true`.
-  const offenders = [];
-  for (const file of localeFiles()) {
-    const bundle = JSON.parse(readFileSync(join(LOCALES_DIR, file), 'utf8'));
-    const help = bundle.help?.syncContent;
-    if (typeof help !== 'string') continue;
-    // Accept any wording that marks the gap; reject a bare promise.
-    const promises = /\bCDC\b|change data capture/i.test(help);
-    // Built from what the six locales actually say, not from guessed wording:
-    // the first cut matched only English and flagged four correct translations.
-    const disclaims =
-      /coming soon|not (?:yet )?(?:wired|available|implemented)|no-op/i.test(help) ||
-      /ne sont pas impl|pas encore|no est[áa]n implementad|n[ãa]o est[ãa]o implementad|nicht implementiert|未実装/i.test(
-        help,
-      );
-    if (promises && !disclaims) offenders.push(`locales/${file}: help.syncContent promises CDC`);
-  }
+const SYNC_PAGE_FILE = 'packages/webview/src/pages/Sync/SyncPage.tsx';
+
+/**
+ * The Sync page offers the tabs `OFFERED_SYNC_TABS` lists, and Real-Time is not
+ * one of them: the CDC panel, its strings and its store stay in the tree, and
+ * no reader reaches them. That is what lets the CDC rule leave `sync.realtime.*`
+ * unread — offer the tab again and this trips before the strings go on screen.
+ */
+function assertRealtimeTabIsNotOffered() {
+  let tabs = null;
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'OFFERED_SYNC_TABS' &&
+      node.initializer &&
+      ts.isArrayLiteralExpression(unwrap(node.initializer))
+    ) {
+      tabs = unwrap(node.initializer)
+        .elements.filter(ts.isStringLiteralLike)
+        .map((element) => element.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parseFile(SYNC_PAGE_FILE));
+  // Positive control: the walk reads the list, and the tab that is offered.
+  assert.ok(
+    tabs?.includes('sync'),
+    `${SYNC_PAGE_FILE} no longer declares OFFERED_SYNC_TABS with the sync tab in it — the walk ` +
+      'reads nothing, so the absence below proves nothing',
+  );
+  assert.equal(
+    tabs.includes('realtime'),
+    false,
+    'the Sync page offers the Real-Time tab again — its sync.realtime.* strings are on screen, and ' +
+      'the CDC rule has to read them before this is relaxed',
+  );
+}
+
+test('anchor: the Sync page does not offer the Real-Time tab', () => {
+  assertRealtimeTabIsNotOffered();
+});
+
+const CDC_WORD = /\bCDC\b|change data capture/i;
+
+/**
+ * What marks the gap, in the six languages, built from what the surfaces
+ * actually say: the first cut matched only English and flagged four correct
+ * translations, and the next read "not implemented" and nothing else — which
+ * refused `docs/modules/sync.md` ("mode selection returns when incremental,
+ * delta, and CDC are implemented", and now "is refused before it runs").
+ */
+const CDC_DISCLAIMER = [
+  /coming soon|not (?:yet )?(?:wired|available|implemented|shown|offered)|no-op|\brefused\b|\breturns? when\b.*\bimplemented\b/i,
+  /n['’](?:est|sont) pas impl|ne sont pas impl|pas encore|refus/i,
+  /nicht implementiert|abgelehnt/i,
+  /no est[áa]n? implementad|rechaza/i,
+  /n[ãa]o est[ãa]o? implementad|recusad/i,
+  /未実装/,
+];
+
+/** The panel the Sync page does not offer; see {@link assertRealtimeTabIsNotOffered}. */
+const UNOFFERED_CDC_KEY = /^locales\/\S+ sync\.realtime\./;
+
+/**
+ * The mode labels are rendered on screens that are offered — a run's history
+ * detail, the template picker — so they are read like any string, and only the
+ * mode's bare name is a label rather than a claim.
+ */
+const CDC_MODE_KEY = /^locales\/\S+ sync\.modes\./;
+const BARE_CDC_NAME = /^\s*(?:CDC|Change Data Capture)\s*$/i;
+
+/**
+ * Where a disclaimer has to sit: in the sentence, clause or list item that
+ * names CDC. Read over the whole string, "refused" about a rejected record or a
+ * neighbouring bullet's "not implemented" cleared a promise beside it.
+ */
+const CDC_CLAUSE = /(?<=[.!?…])\s+|[。！？；;\n]+/u;
+
+/** The units that name CDC with nothing marking it as unbuilt, as `label: text`. */
+function cdcPromises(units) {
+  return units
+    .filter(
+      ({ label, text }) =>
+        !UNOFFERED_CDC_KEY.test(label) &&
+        !(CDC_MODE_KEY.test(label) && BARE_CDC_NAME.test(text)) &&
+        text
+          .split(CDC_CLAUSE)
+          .some(
+            (clause) =>
+              CDC_WORD.test(clause) && !CDC_DISCLAIMER.some((pattern) => pattern.test(clause)),
+          ),
+    )
+    .map(({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`);
+}
+
+test('no user-facing surface sells CDC as a working sync mode', () => {
+  assertRealtimeTabIsNotOffered();
+
+  // `help.syncContent` promised "4 sync modes: Full, Incremental, Delta, CDC"
+  // in six languages, for a mode the extension answers with `comingSoon: true`.
+  // The same promise on a README, a module page, a setting or a notification is
+  // the same defect, so every surface is read.
+  const units = userFacingProse();
+  const naming = units.filter(({ text }) => CDC_WORD.test(text));
+  // Positive control: the walk sees the disclaimers that name CDC today — the
+  // Sync module page and the help panel in six languages.
+  assert.ok(
+    naming.some(({ label }) => label === 'docs/modules/sync.md') &&
+      naming.filter(({ label }) => / help\.syncContent$/.test(label)).length >= 6,
+    'the walk no longer sees CDC named in docs/modules/sync.md and the six help.syncContent — it ' +
+      'is not reading those surfaces, so an empty result below proves nothing',
+  );
+  const offenders = cdcPromises(units);
   assert.deepEqual(
     offenders,
     [],
-    'the help panel sells a sync mode that is a registered no-op:\n  ' + offenders.join('\n  '),
+    'these surfaces sell a sync mode that is a registered no-op:\n  ' + offenders.join('\n  '),
+  );
+});
+
+test('the CDC rule refuses a promise on any surface and leaves a disclaimer alone', () => {
+  const refused = [
+    {
+      label: 'packages/extension/package.nls.json config.sync.mode.description',
+      text: 'Sync mode: Full, Incremental, Delta or CDC.',
+    },
+    { label: 'docs/modules/sync.md', text: '- **Near real-time** -- CDC keeps the target in step' },
+    {
+      label: 'README.md',
+      text: '| **Sync** | Change Data Capture streams every change to the target |',
+    },
+    {
+      label: 'locales/fr.json help.syncContent',
+      text: '- 4 modes : Complet, Incrémental, Delta, CDC',
+    },
+    { label: 'docs/faq.md', text: 'Start a CDC stream to see metrics.' },
+    {
+      label: 'packages/extension/l10n/bundle.l10n.json Sync',
+      text: 'CDC is running: changes replay as they happen.',
+    },
+    // A disclaimer word about something else, beside the promise.
+    {
+      label: 'docs/faq.md',
+      text: 'Sync streams every change with CDC; a record the target rejects is refused and logged.',
+    },
+    {
+      label: 'locales/en.json help.syncContent',
+      text: '- Full sync only (incremental and delta are not implemented)\n- CDC keeps the target org in step with every change',
+    },
+    {
+      label: 'docs/faq.md',
+      text: 'CDC keeps the target in step. Delta mode is not implemented yet.',
+    },
+    // A mode label that says more than the mode's name.
+    { label: 'locales/en.json sync.modes.cdc', text: 'CDC — near real-time streaming' },
+  ];
+  assert.deepEqual(
+    refused.filter((unit) => cdcPromises([unit]).length === 0).map((unit) => unit.text),
+    [],
+    'these sell CDC on a surface a reader meets, and the rule lets them through',
+  );
+
+  const honest = [
+    {
+      label: 'docs/modules/sync.md',
+      text: '- **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs',
+    },
+    {
+      label: 'docs/modules/sync.md',
+      text: '- mode selection returns when incremental, delta, and CDC are implemented',
+    },
+    {
+      label: 'docs/modules/sync.md',
+      text: '- **No real-time sync** -- Real-time (CDC) replication is not implemented, so its tab is not shown',
+    },
+    {
+      label: 'locales/de.json help.syncContent',
+      text: '- Nur Vollsynchronisierung (Inkrementell, Delta und CDC sind nicht implementiert)',
+    },
+    {
+      label: 'locales/ja.json help.syncContent',
+      text: '（インクリメンタル、デルタ、CDC は未実装です）',
+    },
+    // The hidden panel's own strings, for as long as the tab is not offered.
+    {
+      label: 'locales/en.json sync.realtime.metricsPanel.noMetrics',
+      text: 'Start a CDC stream to see metrics.',
+    },
+    { label: 'locales/en.json sync.modes.cdc', text: 'CDC' },
+    {
+      label: 'locales/en.json help.syncContent',
+      text: 'Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores',
+    },
+  ];
+  assert.deepEqual(
+    honest.filter((unit) => cdcPromises([unit]).length > 0).map((unit) => unit.text),
+    [],
+    'the CDC rule refuses these honest sentences',
   );
 });
 
@@ -1509,17 +1902,134 @@ test('the help rules refuse what shipped and leave an honest rewrite alone', () 
   );
 });
 
+// ── Production Guard: a log kept for the session, not a trail ─────────────
+
+const PRODUCTION_GUARD_FILE = 'packages/extension/src/core/precheck/ProductionGuard.ts';
+
+/**
+ * Production Guard records each safety-check decision in `auditLog`, an array
+ * field capped at 1 000 entries, and imports nothing: no file, no storage URI,
+ * no channel. So the log ends with the window, and nothing can read it back
+ * afterwards — which is what "audit trail" promises and what
+ * `docs/modules/frozen-dataset.md` said every Frozen Dataset write left behind.
+ *
+ * Fails in both directions: give the guard somewhere to write, and the import
+ * check trips before "kept in memory for the session" goes stale.
+ */
+function assertGuardLogStaysInMemory() {
+  const source = parseFile(PRODUCTION_GUARD_FILE);
+  const guard = source.statements.find(
+    (node) => ts.isClassDeclaration(node) && node.name?.text === 'ProductionGuard',
+  );
+  assert.ok(guard, `${PRODUCTION_GUARD_FILE} no longer declares ProductionGuard — re-point this`);
+  const field = guard.members.find(
+    (member) => ts.isPropertyDeclaration(member) && memberName(member) === 'auditLog',
+  );
+  assert.ok(
+    field?.initializer && ts.isArrayLiteralExpression(unwrap(field.initializer)),
+    'ProductionGuard no longer keeps its decisions in an auditLog array — the log moved; read ' +
+      'where before trusting the check below',
+  );
+  // Positive control: the same walk reads the imports of a file that has them.
+  const imports = (file) =>
+    parseFile(file)
+      .statements.filter((node) => ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly)
+      .map((node) => node.moduleSpecifier.text);
+  assert.ok(
+    imports(AI_COMPOSITION_FILE).length > 0,
+    `the walk reads no import in ${AI_COMPOSITION_FILE}, which has several — the empty list below ` +
+      'would prove nothing',
+  );
+  assert.deepEqual(
+    imports(PRODUCTION_GUARD_FILE),
+    [],
+    'ProductionGuard.ts now imports code — its decisions may be written somewhere that outlives ' +
+      'the session. Re-read every surface that says the log is kept in memory before relaxing this.',
+  );
+}
+
+test('anchor: Production Guard keeps its decisions in memory, for the session', () => {
+  assertGuardLogStaysInMemory();
+});
+
+const AUDIT_TRAIL =
+  /audit[- ]?trail|piste d['’]audit|pr(?:ü|ue)fpfad|registro de auditor[ií]a|trilha de auditoria|監査証跡/iu;
+const AUDIT_TRAIL_DISCLAIMER =
+  /still to come|coming soon|not (?:yet )?(?:built|persisted)|à venir|pas encore|noch nicht|todav[ií]a no|pr[óo]ximamente|ainda n[ãa]o|em breve|未実装|今後/iu;
+
+/** Units that sell Production Guard an audit trail, as `label: text`. */
+function guardAuditTrailClaims(units) {
+  return units
+    .filter(
+      ({ text }) =>
+        /production guard/i.test(text) &&
+        AUDIT_TRAIL.test(text) &&
+        !AUDIT_TRAIL_DISCLAIMER.test(text),
+    )
+    .map(({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`);
+}
+
+test('no user-facing surface gives Production Guard an audit trail', () => {
+  assertGuardLogStaysInMemory();
+
+  const units = userFacingProse();
+  // Positive control: the walk sees the guard named where its log is described.
+  assert.ok(
+    units.filter(({ text }) => /production guard/i.test(text)).length >= 10,
+    'the walk sees Production Guard named on fewer than ten surfaces — it is not reading them',
+  );
+  const offenders = guardAuditTrailClaims(units);
+  assert.deepEqual(
+    offenders,
+    [],
+    'Production Guard keeps its decisions in memory for the session; these surfaces promise a ' +
+      'trail that outlives it:\n  ' +
+      offenders.join('\n  '),
+  );
+
+  const refused = [
+    '- All DML goes through the existing **Production Guard** (tier check + audit trail).',
+    'Production Guard keeps a full audit trail of every write.',
+    "Production Guard conserve une piste d'audit de chaque écriture.",
+    'Production Guard führt einen Prüfpfad über jeden Schreibvorgang.',
+    'Production Guard mantiene un registro de auditoría de cada escritura.',
+    'O Production Guard mantém uma trilha de auditoria de cada gravação.',
+    'Production Guard はすべての書き込みの監査証跡を残します。',
+  ];
+  assert.deepEqual(
+    refused.filter((text) => guardAuditTrailClaims([{ label: 'fixture', text }]).length === 0),
+    [],
+    'these give Production Guard an audit trail, and the rule lets them through',
+  );
+  const honest = [
+    'Its safety-check decisions are held in memory for the session only — a persisted, readable audit trail is still to come.',
+    '| **Reports** | Execution reports and success-rate analytics _(audit trail and data lineage coming soon)_ |',
+    '- All DML goes through the existing **Production Guard** (tier check; with `sandforge.safety.auditLogging` on, its decisions are kept in memory for the session only).',
+    'Production Guard, on by default, and its log of safety-check decisions -- kept in memory for the session, never written to disk.',
+  ];
+  assert.deepEqual(
+    honest.filter((text) => guardAuditTrailClaims([{ label: 'fixture', text }]).length > 0),
+    [],
+    'the Production Guard rule refuses these honest sentences',
+  );
+});
+
 // ── AI Assistant ──────────────────────────────────────────────────────────
 
 /**
- * Everything esbuild puts in `dist/extension.js`: the extension's sources and
+ * Everything esbuild puts in `dist/extension.js` — the extension's sources and
  * the shared package it inlines (only `vscode`, the Anthropic SDK and the
- * jsforce entry stay external). The floors sit below today's counts; a scan
- * that falls under one has stopped reading shipped code.
+ * jsforce entry stay external) — and the webview sources Vite puts in
+ * `webview-dist/`. The webview never calls the model, but it can compose what
+ * the extension sends: a `tools` key in a payload an adapter spreads into its
+ * request lives there and nowhere else. The floors sit below today's counts; a
+ * scan that falls under one has stopped reading shipped code.
  */
+const WEBVIEW_ROOT = 'packages/webview/src';
 const SHIPPED_ROOTS = [
   { root: 'packages/extension/src', minFiles: 250 },
   { root: 'packages/shared/src', minFiles: 60 },
+  { root: WEBVIEW_ROOT, minFiles: 250 },
 ];
 
 /** The three packages that premise covers. A fourth would be inlined the same way, and read by nothing here. */
@@ -1837,32 +2347,14 @@ let shippedScan;
  */
 function scanShippedCode() {
   if (shippedScan) return shippedScan;
-  const scan = {
-    filesByRoot: new Map(),
-    /** Absolute paths of every file read. */
-    read: new Set(),
-    /** `path:line what` for every way shipped code could give the model tools or act on a tool call. */
-    findings: [],
-    /** `{ at, text }` for each tool-block literal listed in a schema enumeration. */
-    enumeratedToolBlocks: [],
-    /** `path:line` of every `max_tokens` member. */
-    maxTokensMembers: [],
-    /** `{ at, specifier, dynamic }` for every module specifier naming the Anthropic SDK. */
-    sdkImports: [],
-    /** `{ at, called }` for every use of a member named `chat`. */
-    chatUses: [],
-    /** `{ at, from, specifier }` for every relative import that is not type-only. */
-    relativeImports: [],
-    /** Repo paths of the JSON files that ship under the data roots; none today. */
-    jsonFiles: [],
-  };
+  const scan = emptyScan();
 
   for (const { root } of SHIPPED_ROOTS) {
     const files = sourceFilesUnder(join(repoRoot, root));
     scan.filesByRoot.set(root, files.map(toRepoPath));
     for (const file of files) {
       scan.read.add(file);
-      scanFile(scan, file);
+      scanFile(scan, file, { webview: root === WEBVIEW_ROOT });
     }
   }
 
@@ -1885,10 +2377,38 @@ function scanShippedCode() {
   return scan;
 }
 
-function scanFile(scan, file) {
+/** What one walk collects, before it has read anything. */
+function emptyScan() {
+  return {
+    filesByRoot: new Map(),
+    /** Absolute paths of every file read. */
+    read: new Set(),
+    /** `path:line what` for every way shipped code could give the model tools or act on a tool call. */
+    findings: [],
+    /** `{ at, text }` for each tool-block literal listed in a schema enumeration. */
+    enumeratedToolBlocks: [],
+    /** `path:line` of every `max_tokens` member. */
+    maxTokensMembers: [],
+    /** `{ at, specifier, dynamic }` for every module specifier naming the Anthropic SDK. */
+    sdkImports: [],
+    /** `{ at, called }` for every use of a member named `chat`. */
+    chatUses: [],
+    /** `{ at, from, specifier }` for every relative import that is not type-only. */
+    relativeImports: [],
+    /** Repo paths of the JSON files that ship under the data roots; none today. */
+    jsonFiles: [],
+  };
+}
+
+/**
+ * Read one file into a scan. `text` stands in for the file on disk, which is
+ * how the attack corpus is replayed without writing to the tree; `webview`
+ * marks a file of the panel, where importing the SDK at all is a finding.
+ */
+function scanFile(scan, file, { text, webview = false } = {}) {
   const source = ts.createSourceFile(
     file,
-    readFileSync(file, 'utf8'),
+    text ?? readFileSync(file, 'utf8'),
     ts.ScriptTarget.Latest,
     true,
   );
@@ -1901,7 +2421,9 @@ function scanFile(scan, file) {
       if (!typeOnly) scan.relativeImports.push({ at: where(node), from: file, specifier });
     } else if (isSdkSpecifier(specifier)) {
       scan.sdkImports.push({ at: where(node), specifier, dynamic });
-      if (SDK_TOOL_SUBPATH.test(specifier)) found(node, `import '${specifier}'`);
+      // The panel has no business with the SDK: anything it builds from it is
+      // a request, or a piece of one, that the extension would send.
+      if (webview || SDK_TOOL_SUBPATH.test(specifier)) found(node, `import '${specifier}'`);
     } else if (isToolRuntimeSpecifier(specifier)) {
       found(node, `import '${specifier}'`);
     }
@@ -1953,6 +2475,28 @@ function scanFile(scan, file) {
         // The editor's model API, reached through `lm` however it was imported.
         const chain = accessChain(node.expression);
         if (chain.includes(LANGUAGE_MODEL_NAMESPACE)) found(node, `${chain.join('.')}()`);
+      }
+    }
+
+    // The same API taken without being called: `vscode.lm` held whole — stored,
+    // destructured, handed to `.bind` — or one of its tool members read as a
+    // value. `const register = vscode.lm.registerTool.bind(vscode.lm)` calls
+    // `bind`, and the call rule above never sees `registerTool` invoked.
+    if (ts.isPropertyAccessExpression(node)) {
+      const outer = node.parent;
+      const accessed =
+        (ts.isPropertyAccessExpression(outer) || ts.isElementAccessExpression(outer)) &&
+        outer.expression === node;
+      const called = ts.isCallExpression(outer) && outer.expression === node;
+      const chain = accessChain(node);
+      if (node.name.text === LANGUAGE_MODEL_NAMESPACE && !accessed) {
+        found(node, `${chain.join('.')} taken whole`);
+      } else if (
+        LANGUAGE_MODEL_MEMBER.test(node.name.text) &&
+        !called &&
+        chain.slice(0, -1).includes(LANGUAGE_MODEL_NAMESPACE)
+      ) {
+        found(node, `${chain.join('.')} read without a call`);
       }
     }
 
@@ -2158,6 +2702,82 @@ test('anchor: nothing shipped gives the model tools or acts on a tool call', (t)
       'really use tools. Re-read every surface below before deleting this test: they are ' +
       'currently written to say it does not.\n  ' +
       found.join('\n  '),
+  );
+});
+
+/**
+ * Where a replayed piece of source is read as if it lived: the extension, the
+ * shared package, the webview, or the AI composition root itself — the one
+ * file where taking `chat` without calling it is a finding.
+ */
+const ATTACK_FILES = {
+  extension: 'packages/extension/src/attack',
+  shared: 'packages/shared/src/attack',
+  webview: `${WEBVIEW_ROOT}/attack`,
+  composition: 'packages/extension/src/composition/aiComposition',
+};
+
+/** What the scan finds in a piece of source that is not in the tree: `ts`, `js`, or a `json` data file. */
+function scanSource({ source, shape = 'ts', root = 'extension' }) {
+  if (shape === 'json') return jsonToolDefinitions(JSON.parse(source));
+  const scan = emptyScan();
+  const file = `${ATTACK_FILES[root]}.${shape}`;
+  scanFile(scan, join(repoRoot, ...file.split('/')), {
+    text: source,
+    webview: root === 'webview',
+  });
+  const indirectChat =
+    root === 'composition'
+      ? scan.chatUses
+          .filter((use) => !use.called)
+          .map((use) => `${use.at} chat taken without a call`)
+      : [];
+  return [...scan.findings, ...indirectChat];
+}
+
+/**
+ * The attacks this gate was written against, and the ones thrown at it since,
+ * replayed on every run without touching the tree: each piece of code through
+ * the same `scanFile` the anchor uses, each sentence through the same match the
+ * surfaces get. A verdict is what the gate does today — `unseen` and `passes`
+ * are the declared limits in the header, named in each entry's `why` — so a
+ * change to either rule that moves one of them fails here and has to be read.
+ */
+test('the recorded attacks get the verdicts this gate declares, in code and in prose', () => {
+  assert.deepEqual(
+    [...new Set(CODE_ATTACKS.map((attack) => attack.verdict))].sort(),
+    ['found', 'unseen'],
+    'the code corpus no longer holds both verdicts — it cannot tell a scan that sees nothing from ' +
+      'one that sees everything',
+  );
+  assert.deepEqual(
+    [...new Set(PROSE_ATTACKS.map((attack) => attack.verdict))].sort(),
+    ['passes', 'refused'],
+    'the prose corpus no longer holds both verdicts — it cannot tell a rule that refuses nothing ' +
+      'from one that refuses everything',
+  );
+
+  const code = CODE_ATTACKS.filter(
+    (attack) => (scanSource(attack).length > 0 ? 'found' : 'unseen') !== attack.verdict,
+  ).map((attack) => `declared ${attack.verdict}: ${attack.why}`);
+  assert.deepEqual(
+    code,
+    [],
+    'the scan no longer gives these the verdict the corpus declares — a limit was closed or a hole ' +
+      'opened; read the entry, then move the verdict or the scan:\n  ' +
+      code.join('\n  '),
+  );
+
+  const prose = PROSE_ATTACKS.filter(
+    (attack) =>
+      (republishedClaims(attack.text, PUBLISHED_CLAIMS).length > 0 ? 'refused' : 'passes') !==
+      attack.verdict,
+  ).map((attack) => `declared ${attack.verdict}: "${attack.text}" — ${attack.why}`);
+  assert.deepEqual(
+    prose,
+    [],
+    'the mined wordings no longer give these the verdict the corpus declares:\n  ' +
+      prose.join('\n  '),
   );
 });
 
@@ -2725,6 +3345,260 @@ function isConditional(node) {
   return false;
 }
 
+/**
+ * Whether a condition asks nothing but whether the resolver is wired:
+ * `resolver`, `deps.errorResolver`. A condition that reads neither — `true`, a
+ * `case 'asked'` label — is not the resolver check either.
+ */
+function asksOnlyForTheResolver(condition) {
+  let other = false;
+  let readsResolver = false;
+  const visit = (node) => {
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      if (accessChain(node).join('.') !== 'deps.errorResolver') other = true;
+      else readsResolver = true;
+      return;
+    }
+    if (ts.isCallExpression(node) || (ts.isIdentifier(node) && node.text !== 'resolver')) {
+      other = true;
+    }
+    if (ts.isIdentifier(node) && node.text === 'resolver') readsResolver = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(condition);
+  return !other && readsResolver;
+}
+
+const SHORT_CIRCUIT = [
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+];
+
+const LOGICAL_ASSIGNMENT = SHORT_CIRCUIT.slice(3);
+
+/** Whether control runs off the end of a `switch` clause into the next one. */
+function fallsThrough(clause) {
+  let last = clause.statements.at(-1);
+  while (last && ts.isBlock(last)) last = last.statements.at(-1);
+  return !(
+    last &&
+    (ts.isBreakStatement(last) ||
+      ts.isContinueStatement(last) ||
+      ts.isReturnStatement(last) ||
+      ts.isThrowStatement(last))
+  );
+}
+
+/**
+ * What decides whether a `switch` clause runs: the switch expression, the
+ * clause's own label, and the label of every clause that falls through into
+ * it — every label of the switch, once a `default` is on that path.
+ */
+function switchConditions(clause) {
+  const { clauses } = clause.parent;
+  const conditions = [clause.parent.parent.expression];
+  const add = (reached) => {
+    const labels = ts.isCaseClause(reached)
+      ? [reached.expression]
+      : clauses.filter(ts.isCaseClause).map((c) => c.expression);
+    for (const label of labels) if (!conditions.includes(label)) conditions.push(label);
+  };
+  add(clause);
+  for (let i = clauses.indexOf(clause) - 1; i >= 0 && fallsThrough(clauses[i]); i--) {
+    add(clauses[i]);
+  }
+  return conditions;
+}
+
+/**
+ * The conditions a node sits behind up to `body`: an `if` branch, a ternary
+ * arm, the right of `&&`, `||`, `??` and of `&&=`, `||=`, `??=`, a `case` or
+ * `default` of a `switch` (with the labels falling through into it), the body
+ * of a `while`, `do`, `for`, `for…of` or `for…in` loop, and an argument of an
+ * optional call or access, `consent?.(…)`.
+ */
+function enclosingConditions(node, body) {
+  const conditions = [];
+  for (let child = node; child.parent && child !== body; child = child.parent) {
+    const parent = child.parent;
+    if (ts.isIfStatement(parent) && child !== parent.expression) {
+      conditions.push(parent.expression);
+    } else if (ts.isConditionalExpression(parent) && child !== parent.condition) {
+      conditions.push(parent.condition);
+    } else if (
+      (ts.isCaseClause(parent) && child !== parent.expression) ||
+      ts.isDefaultClause(parent)
+    ) {
+      conditions.push(...switchConditions(parent));
+    } else if (
+      (ts.isCallExpression(parent) && parent.arguments.includes(child)) ||
+      (ts.isElementAccessExpression(parent) && child === parent.argumentExpression)
+    ) {
+      for (
+        let link = parent;
+        ts.isCallExpression(link) ||
+        ts.isPropertyAccessExpression(link) ||
+        ts.isElementAccessExpression(link);
+        link = link.expression
+      ) {
+        if (link.questionDotToken) conditions.push(link.expression);
+      }
+    } else if (
+      (ts.isWhileStatement(parent) ||
+        ts.isDoStatement(parent) ||
+        ts.isForOfStatement(parent) ||
+        ts.isForInStatement(parent)) &&
+      child === parent.statement
+    ) {
+      conditions.push(parent.expression);
+    } else if (ts.isForStatement(parent) && child === parent.statement) {
+      if (parent.condition) conditions.push(parent.condition);
+    } else if (
+      ts.isBinaryExpression(parent) &&
+      child === parent.right &&
+      SHORT_CIRCUIT.includes(parent.operatorToken.kind)
+    ) {
+      conditions.push(parent.left);
+    }
+  }
+  return conditions;
+}
+
+/**
+ * The conditions written inside a value: every ternary and every left side of
+ * a short-circuit in it, `{ r: asked ? resolver : undefined }` included. The
+ * body of a function written in it is not the value, and is not read.
+ */
+function valueConditions(value) {
+  const conditions = [];
+  const visit = (node) => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isConditionalExpression(node)) conditions.push(node.condition);
+    else if (ts.isBinaryExpression(node) && SHORT_CIRCUIT.includes(node.operatorToken.kind)) {
+      conditions.push(node.left);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(value);
+  return conditions;
+}
+
+/**
+ * Whether an assignment target gives `name` a value: the name itself, a
+ * property of it (`box.r = …`), or a destructuring pattern that binds it
+ * (`const [r] = …`, `({ r } = …)`).
+ */
+function bindsName(target, name) {
+  const node = unwrap(target);
+  if (ts.isIdentifier(node)) return node.text === name;
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return accessChain(node)[0] === name;
+  }
+  if (ts.isArrayBindingPattern(node) || ts.isObjectBindingPattern(node)) {
+    return node.elements.some(
+      (element) => ts.isBindingElement(element) && bindsName(element.name, name),
+    );
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.some((element) =>
+      bindsName(
+        ts.isSpreadElement(element)
+          ? element.expression
+          : ts.isBinaryExpression(element) &&
+              element.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            ? element.left
+            : element,
+        name,
+      ),
+    );
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some((property) =>
+      ts.isShorthandPropertyAssignment(property)
+        ? property.name.text === name
+        : ts.isPropertyAssignment(property)
+          ? bindsName(
+              ts.isBinaryExpression(property.initializer) &&
+                property.initializer.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                ? property.initializer.left
+                : property.initializer,
+              name,
+            )
+          : ts.isSpreadAssignment(property) && bindsName(property.expression, name),
+    );
+  }
+  return false;
+}
+
+/**
+ * The conditions under which a name is given its value inside a body: every
+ * ternary and short-circuit in the value it is assigned or destructured from,
+ * or in a default written in the pattern; the name's own earlier value, when
+ * it is assigned with `&&=`, `||=` or `??=`; and whatever the assignment itself
+ * sits behind.
+ */
+function bindingConditions(name, body) {
+  const conditions = [];
+  const visit = (node) => {
+    let target = null;
+    let value = null;
+    if (ts.isVariableDeclaration(node) && node.initializer && bindsName(node.name, name)) {
+      target = node.name;
+      value = node.initializer;
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      bindsName(node.left, name)
+    ) {
+      target = node.left;
+      value = node.right;
+      if (LOGICAL_ASSIGNMENT.includes(node.operatorToken.kind)) conditions.push(node.left);
+    }
+    if (value) {
+      conditions.push(...valueConditions(value));
+      if (!ts.isIdentifier(unwrap(target))) conditions.push(...valueConditions(target));
+      conditions.push(...enclosingConditions(node, body));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return conditions;
+}
+
+/**
+ * The conditions a `resolveError` call sits behind inside a body, as written,
+ * minus the resolver check — around the call, inside the expression it is
+ * called on, and around every value given to the name that expression starts
+ * from, so `const resolver = asked ? deps.errorResolver : undefined` is a gate
+ * like `if (asked)`.
+ */
+function resolveErrorConditions(body) {
+  const conditions = [];
+  for (const call of callsWithin(body).filter((c) => c.name === 'resolveError')) {
+    const found = enclosingConditions(call.node, body);
+    const callee = unwrap(call.node.expression);
+    if (ts.isIdentifier(callee)) {
+      found.push(...bindingConditions(callee.text, body));
+    } else if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+      const receiver = unwrap(callee.expression);
+      found.push(...valueConditions(receiver));
+      const [root] = accessChain(receiver);
+      if (root && root !== 'this') {
+        found.push(...bindingConditions(root, body));
+      }
+    }
+    for (const condition of found) {
+      if (!asksOnlyForTheResolver(condition)) conditions.push(condition.getText());
+    }
+  }
+  return conditions;
+}
+
 const OPERATION_FAILED_FILE = 'packages/extension/src/bridge/handlers/HandlerTypes.ts';
 const AI_COMPOSITION_FILE = 'packages/extension/src/composition/aiComposition.ts';
 const HANDLERS_FILE = 'packages/extension/src/bridge/ExtensionHandlers.ts';
@@ -2809,6 +3683,138 @@ function assertFailureResolutionIsAutomatic() {
     resolution.getText().includes('deps.errorResolver'),
     'resolveFailedOperation no longer reads deps.errorResolver — it resolves through something ' +
       'else, so the wire checked below is no longer the wire that matters',
+  );
+
+  // WHEN it is called. A resolution put behind `if (userAskedForIt)` still
+  // reads `resolveError` above, and the wordings below would be true again
+  // with every other assertion here green. The one condition that changes
+  // nothing is whether a resolver is wired at all: that is the AI switch.
+  // Positive control first: the same walk finds the gates a probe puts in.
+  const probe = functionBody(
+    ts.createSourceFile(
+      'probe.ts',
+      [
+        'function resolveFailedOperation(deps, error) {',
+        '  const resolver = deps.errorResolver;',
+        '  if (!resolver) return;',
+        '  if (resolver) void resolver.resolveError(error);',
+        '  void deps.errorResolver?.resolveError(error);',
+        '  if (deps.userAskedForIt) { void resolver.resolveError(error); }',
+        '  void (consented(error) ? resolver.resolveError(error) : undefined);',
+        '  deps.userAskedForIt && resolver.resolveError(error);',
+        '  const chosen = deps.userAskedForIt ? deps.errorResolver : undefined;',
+        '  void chosen?.resolveError(error);',
+        '  const either = deps.errorResolver ?? undefined;',
+        '  void either?.resolveError(error);',
+        '  let late;',
+        '  if (consented(error)) late = deps.errorResolver;',
+        '  void late?.resolveError(error);',
+        "  switch (deps.mode) { case 'asked': void resolver.resolveError(error); break; default: break; }",
+        '  switch (deps.mode) { default: void resolver.resolveError(error); }',
+        '  while (deps.pending()) void resolver.resolveError(error);',
+        '  do { void resolver.resolveError(error); } while (deps.again);',
+        '  for (let i = 0; i < deps.asked; i++) void resolver.resolveError(error);',
+        '  for (const failure of deps.askedFailures) void resolver.resolveError(failure);',
+        '  for (;;) { void resolver.resolveError(error); break; }',
+        '  switch (true) { case deps.userAskedForIt: void resolver.resolveError(error); }',
+        "  switch (deps.kind) { case deps.first: case 'second': void resolver.resolveError(error); }",
+        '  const [picked] = deps.userAskedForIt ? [deps.errorResolver] : [];',
+        '  void picked?.resolveError(error);',
+        '  void (deps.userAskedForIt ? resolver : undefined)?.resolveError(error);',
+        '  const box = { r: deps.userAskedForIt ? resolver : undefined };',
+        '  void box.r?.resolveError(error);',
+        '  const slot = {};',
+        '  slot.r = deps.userAskedForIt ? resolver : undefined;',
+        '  void slot.r?.resolveError(error);',
+        '  let other;',
+        '  ({ other } = deps.userAskedForIt ? { other: resolver } : {});',
+        '  void other?.resolveError(error);',
+        '  const { alt = deps.userAskedForIt ? resolver : undefined } = deps;',
+        '  void alt?.resolveError(error);',
+        '  const { resolveError } = deps.userAskedForIt ? resolver : {};',
+        '  void resolveError(error);',
+        '  let asked = deps.userAskedForIt;',
+        '  asked &&= !!resolver.resolveError(error);',
+        '  let kept = deps.userAskedForIt;',
+        '  kept &&= deps.errorResolver;',
+        '  void kept?.resolveError(error);',
+        '  deps.onConsent?.(resolver.resolveError(error));',
+        '}',
+      ].join('\n'),
+      ts.ScriptTarget.Latest,
+      true,
+    ),
+    'resolveFailedOperation',
+  );
+  assert.deepEqual(
+    resolveErrorConditions(probe),
+    [
+      'deps.userAskedForIt',
+      'consented(error)',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'consented(error)',
+      'deps.mode',
+      "'asked'",
+      'deps.mode',
+      'deps.pending()',
+      'deps.again',
+      'i < deps.asked',
+      'deps.askedFailures',
+      'true',
+      'deps.userAskedForIt',
+      'deps.kind',
+      "'second'",
+      'deps.first',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'deps.userAskedForIt',
+      'asked',
+      'kept',
+      'deps.onConsent',
+    ],
+    'the condition walk no longer tells a consent gate from the resolver check — the empty list ' +
+      'below would prove nothing',
+  );
+  // A gate written into `deps` itself is a gate too: a property set on it, or
+  // a new value for it, puts the call behind the condition exactly as an `if`
+  // would. Each shape gets a body of its own, because a value given to a name
+  // gates every call made through that name.
+  for (const written of [
+    'deps.errorResolver = deps.userAskedForIt ? deps.errorResolver : undefined;',
+    'deps = deps.userAskedForIt ? deps : { ...deps, errorResolver: undefined };',
+  ]) {
+    const body = functionBody(
+      ts.createSourceFile(
+        'probe.ts',
+        [
+          'function resolveFailedOperation(deps, error) {',
+          `  ${written}`,
+          '  void deps.errorResolver?.resolveError(error);',
+          '}',
+        ].join('\n'),
+        ts.ScriptTarget.Latest,
+        true,
+      ),
+      'resolveFailedOperation',
+    );
+    assert.deepEqual(
+      resolveErrorConditions(body),
+      ['deps.userAskedForIt'],
+      `the condition walk no longer reads a gate written into deps: ${written}`,
+    );
+  }
+  const gated = resolveErrorConditions(resolution);
+  assert.deepEqual(
+    gated,
+    [],
+    'resolveFailedOperation now calls resolveError behind a condition — a failure may reach the ' +
+      'model only when something asks for it, and the wordings below may be true again:\n  ' +
+      gated.join('\n  '),
   );
 
   // And something puts a resolver in those deps. `setAIModules` is the only

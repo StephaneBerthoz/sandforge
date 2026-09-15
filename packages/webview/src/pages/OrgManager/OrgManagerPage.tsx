@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from 'lucide-react';
-import type { SalesforceOrg, OrgSafetyTier, AuthMethod } from '@sandforge/shared';
+import type { SalesforceOrg, AuthMethod } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -143,7 +143,6 @@ export const OrgManagerPage: React.FC = () => {
     },
     [selectOrgLocal],
   );
-  const updateOrg = useOrgStore((s) => s.updateOrg);
   const removeOrg = useOrgStore((s) => s.removeOrg);
 
   const [activeMethod, setActiveMethod] = useState<AuthMethod | null>(null);
@@ -184,6 +183,19 @@ export const OrgManagerPage: React.FC = () => {
   const disconnectMutation = useBridgeMutation<OrgStatusPayload>('org:disconnect', {
     responseType: 'org:statusChanged',
   });
+
+  // The host saves an edit to the org registry and answers with the saved
+  // list. The card changes only then: an edit applied to this panel's copy
+  // alone was put back by the next org list and lost on reload.
+  const updateMutation = useBridgeMutation<OrgListPayload>('org:update', {
+    responseType: 'org:list:response',
+  });
+
+  useEffect(() => {
+    if (updateMutation.data) {
+      useOrgStore.getState().setOrgs(updateMutation.data.orgs);
+    }
+  }, [updateMutation.data]);
 
   const isConnecting = connectMutation.loading;
   const connectError = connectMutation.error;
@@ -297,17 +309,13 @@ export const OrgManagerPage: React.FC = () => {
     setEditingOrg(org);
   }, []);
 
+  const updateMutate = updateMutation.mutate;
   const handleSave = useCallback(
     (orgId: string, payload: OrgEditPayload) => {
-      updateOrg(orgId, {
-        alias: payload.alias,
-        safetyTier: payload.safetyTier as OrgSafetyTier,
-        appearance: { color: payload.color, icon: 'cloud', position: 0 },
-        tags: payload.tags,
-      });
+      updateMutate({ orgId, alias: payload.alias, color: payload.color, tags: payload.tags });
       setEditingOrg(null);
     },
-    [updateOrg],
+    [updateMutate],
   );
 
   const disconnectMutate = disconnectMutation.mutate;
@@ -409,6 +417,16 @@ export const OrgManagerPage: React.FC = () => {
             );
           })}
         </div>
+
+        {updateMutation.error && (
+          <div
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-[var(--sf-error)]"
+            role="alert"
+            data-testid="org-update-error"
+          >
+            {updateMutation.error}
+          </div>
+        )}
 
         {/* Connect failure — surfaced in the banner so it is visible for the
             form-less methods (sfdx_import) too. `mutate` clears it on retry. */}

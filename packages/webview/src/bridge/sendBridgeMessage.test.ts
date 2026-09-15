@@ -95,4 +95,10 @@ describe('postEnvelopedMessage', () => {
       payload: message,
     });
   });
+
+  it('sendBridgeMessage returns the id of the message it posted, so the caller can match the answer', () => {
+    const id = sendBridgeMessage('forge:execute', { graph: {} });
+
+    expect(id).toBe(lastEnvelope().payload.id);
+  });
 });

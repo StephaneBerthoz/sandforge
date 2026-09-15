@@ -1,3 +1,8 @@
+import {
+  PipelineDraftReplySchema,
+  PipelineSuggestionsReplySchema,
+  parseModelJson,
+} from '@sandforge/shared';
 import type { AIProvider } from './types.js';
 
 /** Salesforce org metadata. */
@@ -140,14 +145,7 @@ export class PipelineGenerator {
 
     try {
       const response = await this.provider(prompt);
-      const aiSuggestions: unknown = JSON.parse(response);
-      if (Array.isArray(aiSuggestions)) {
-        for (const s of aiSuggestions) {
-          if (typeof s === 'string') {
-            suggestions.push(s);
-          }
-        }
-      }
+      suggestions.push(...parseModelJson(PipelineSuggestionsReplySchema, response));
     } catch {
       // AI suggestions are best-effort; rule-based suggestions are always returned.
     }
@@ -276,21 +274,17 @@ export class PipelineGenerator {
     const response = await this.provider(prompt);
 
     try {
-      const parsed: unknown = JSON.parse(response);
-      if (typeof parsed === 'object' && parsed !== null) {
-        const obj = parsed as Record<string, unknown>;
-        return {
-          name: typeof obj['name'] === 'string' ? obj['name'] : `Pipeline_${Date.now()}`,
-          description: typeof obj['description'] === 'string' ? obj['description'] : description,
-          steps: Array.isArray(obj['steps']) ? this.validateSteps(obj['steps'] as unknown[]) : [],
-          schedule: typeof obj['schedule'] === 'string' ? obj['schedule'] : undefined,
-          triggers: Array.isArray(obj['triggers'])
-            ? (obj['triggers'] as unknown[]).filter((t): t is string => typeof t === 'string')
-            : undefined,
-        };
-      }
+      const draft = parseModelJson(PipelineDraftReplySchema, response);
+      return {
+        name: draft.name ?? `Pipeline_${Date.now()}`,
+        description: draft.description ?? description,
+        steps: draft.steps,
+        schedule: draft.schedule,
+        triggers: draft.triggers,
+      };
     } catch {
-      // Fall through to default pipeline.
+      // A reply that is not a pipeline object leaves a draft with no step,
+      // which the handler refuses to load.
     }
 
     return {
@@ -298,25 +292,5 @@ export class PipelineGenerator {
       description,
       steps: [],
     };
-  }
-
-  private validateSteps(raw: unknown[]): GeneratedPipelineStep[] {
-    return raw
-      .filter(
-        (item): item is Record<string, unknown> =>
-          typeof item === 'object' &&
-          item !== null &&
-          typeof (item as Record<string, unknown>)['name'] === 'string' &&
-          typeof (item as Record<string, unknown>)['type'] === 'string',
-      )
-      .map((item) => ({
-        name: item['name'] as string,
-        type: item['type'] as string,
-        config:
-          typeof item['config'] === 'object' && item['config'] !== null
-            ? (item['config'] as Record<string, unknown>)
-            : {},
-        description: typeof item['description'] === 'string' ? (item['description'] as string) : '',
-      }));
   }
 }

@@ -109,7 +109,8 @@ describe('SettingsHandler', () => {
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.payload.enabled).toBe(true);
     expect(response.payload.eventCount).toBe(7);
-    expect(response.payload.bufferSize).toBe(0);
+    // The adapter keeps no send buffer; a constant 0 read as a measurement.
+    expect(response.payload).not.toHaveProperty('bufferSize');
   });
 
   it('telemetry:toggle persists the setting and responds with the persisted value', async () => {

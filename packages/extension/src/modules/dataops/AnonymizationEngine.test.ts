@@ -173,6 +173,22 @@ describe('AnonymizationEngine', () => {
       expect(String(result['Email']).startsWith(`${firstName}.`)).toBe(true);
     });
 
+    it('gives a record the same fake persona in two engines under the same key', () => {
+      const records = [{ Id: '003xx000001', FirstName: 'Alexander', LastName: 'Hamilton' }];
+      const rules: DataOpsAnonymizationRule[] = [
+        { objectApiName: 'Contact', fieldApiName: 'FirstName', method: 'fake', config: {} },
+        { objectApiName: 'Contact', fieldApiName: 'LastName', method: 'fake', config: {} },
+      ];
+      const run = (key: string) =>
+        new AnonymizationEngine(undefined, key).anonymize(records, rules);
+
+      expect(run('engine-key')).toEqual(run('engine-key'));
+      const lastNames = new Set(
+        Array.from({ length: 8 }, (_, k) => run(`key-${k}`)[0]['LastName']),
+      );
+      expect(lastNames.size).toBeGreaterThan(1);
+    });
+
     it('should keep no plaintext prefix when truncating', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',

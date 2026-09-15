@@ -17,8 +17,8 @@ export interface MonitorRefreshRequest extends BaseMessage {
 /**
  * `monitor:data`. Extension -> WebView.
  *
- * Full monitor dashboard snapshot, result channel of `monitor:refresh` /
- * `monitor:start`. Mirrors the webview's `MonitorData` contract
+ * Full monitor dashboard snapshot, result channel of `monitor:refresh`.
+ * Mirrors the webview's `MonitorData` contract
  * (useMonitorPageData): `jobs` entries and `orgHealthStatus` are typed
  * webview-side only (JobDisplayInfo / OrgHealthStatus), hence the wide shapes.
  */
@@ -40,12 +40,6 @@ export interface MonitorDataMessage extends BaseMessage {
 export interface MonitorErrorResponse extends BaseMessage {
   type: 'monitor:error';
   payload: { message: string; code: string; retryable: boolean };
-}
-
-/** Request to start monitoring an org (alias for monitor:refresh). */
-export interface MonitorStartRequest extends BaseMessage {
-  type: 'monitor:start';
-  payload: { orgId: string };
 }
 
 /**
@@ -343,35 +337,6 @@ export interface MonitorSandboxRefreshResponse extends BaseMessage {
       sourceOrg?: string;
     }>;
     inProgress: boolean;
-    error?: string;
-  };
-}
-
-// ─── Org Health Score Messages ────────────────────────────────────────────────
-
-/** Request to compute the full org health score. */
-export interface OrgHealthScoreRequest extends BaseMessage {
-  type: 'monitor:health-score';
-  payload: { orgId: string };
-}
-
-/** Dimension score within the org health radar. */
-export interface OrgHealthDimension {
-  name: string;
-  score: number;
-  label: string;
-  detail: string;
-  recommendation: string;
-}
-
-/** Response containing the org health score breakdown. */
-export interface OrgHealthScoreResponse extends BaseMessage {
-  type: 'monitor:health-score:response';
-  payload: {
-    success: boolean;
-    overallScore: number;
-    dimensions: OrgHealthDimension[];
-    recommendations: string[];
     error?: string;
   };
 }

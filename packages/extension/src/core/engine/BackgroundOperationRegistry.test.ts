@@ -373,6 +373,38 @@ describe('BackgroundOperationRegistry', () => {
       registry.register('op-2', 'seed', 'Seed', promise, new AbortController());
       expect(listener).not.toHaveBeenCalled();
     });
+
+    it('aborts every running operation, and leaves finished ones alone', async () => {
+      const running = new AbortController();
+      const finished = new AbortController();
+      registry.register('op-run', 'sync', 'Sync', new Promise<void>(() => undefined), running);
+      registry.register('op-done', 'seed', 'Seed', Promise.resolve(), finished);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(registry.get('op-done')?.status).toBe('completed');
+
+      registry.dispose();
+
+      expect(running.signal.aborted).toBe(true);
+      expect(finished.signal.aborted).toBe(false);
+    });
+
+    it('emits no lifecycle event while aborting on dispose', () => {
+      const listener = vi.fn();
+      registry.onEvent(listener);
+      registry.register(
+        'op-1',
+        'sync',
+        'Sync',
+        new Promise<void>(() => undefined),
+        new AbortController(),
+      );
+      listener.mockClear();
+
+      registry.dispose();
+
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe('has and get', () => {

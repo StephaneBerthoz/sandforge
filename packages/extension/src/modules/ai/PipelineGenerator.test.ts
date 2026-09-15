@@ -136,6 +136,33 @@ describe('PipelineGenerator', () => {
     expect(pipeline.steps).toHaveLength(1);
   });
 
+  it('reads the steps of a draft the model wrapped in a markdown fence', async () => {
+    const draft = {
+      name: 'Fenced Pipeline',
+      steps: [{ name: 'step1', type: 'custom', config: {}, description: 'AI step' }],
+    };
+    mockProvider.mockResolvedValue(`\`\`\`json\n${JSON.stringify(draft, null, 2)}\n\`\`\``);
+
+    const pipeline = await generator.generatePipeline('do something very unusual', testOrgs);
+
+    expect(pipeline.name).toBe('Fenced Pipeline');
+    expect(pipeline.steps).toEqual([
+      { name: 'step1', type: 'custom', config: {}, description: 'AI step' },
+    ]);
+  });
+
+  it('adds the suggestions of a fenced model reply to the rule-based ones', async () => {
+    mockProvider.mockResolvedValue('```json\n["Run it off-hours"]\n```');
+
+    const suggestions = await generator.suggestImprovements({
+      name: 'Test',
+      description: 'test',
+      steps: [{ name: 's', type: 'seed', config: {}, description: '' }],
+    });
+
+    expect(suggestions).toContain('Run it off-hours');
+  });
+
   it('should return empty pipeline when AI returns invalid JSON', async () => {
     mockProvider.mockResolvedValue('not json');
     const pipeline = await generator.generatePipeline('something unusual', testOrgs);

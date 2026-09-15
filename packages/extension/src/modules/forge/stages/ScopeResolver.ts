@@ -81,7 +81,8 @@ export type NodeQueryResult = NodeQuery | { kind: 'skip'; reason: string };
 
 /**
  * Build the SOQL for one node: scoped to the transitive closure of the
- * root record when a scope builder is available, full-table otherwise.
+ * root record when a scope builder is available, full-table otherwise
+ * (narrowed by the object's filter when it has one).
  * Appends `LIMIT N` when a positive per-object cap is configured.
  */
 export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
@@ -114,8 +115,12 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     }
     statements = scopeResult.statements;
   } else {
+    // Outside scoped mode the object's filter is its whole WHERE clause. This
+    // is how a SOQL-mode run applies its query's WHERE to the object after FROM;
+    // without it that object was read from its whole table.
+    const where = input.extraWhere ? ` WHERE (${input.extraWhere})` : '';
     statements = [
-      `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}`,
+      `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(input.node.objectApiName)}${where}`,
     ];
   }
 

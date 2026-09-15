@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import {
   ErrorResolver,
+  normalizeErrorMessage,
   type AIProvider,
   type SalesforceError,
   type OperationContext,
@@ -10,7 +11,6 @@ import {
 const BASE_CONTEXT: OperationContext = {
   module: 'seed',
   operation: 'insert',
-  orgId: '00D000000000001',
   objectName: 'Account',
   batchSize: 200,
   recordCount: 1000,
@@ -42,6 +42,10 @@ describe('ErrorResolver', () => {
   beforeEach(() => {
     mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockAIResolution());
     resolver = new ErrorResolver(mockProvider);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // --- Knowledge base resolution ---
@@ -126,20 +130,6 @@ describe('ErrorResolver', () => {
       expect(resolution.suggestions.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('should enrich explanation with affected fields', async () => {
-      const error: SalesforceError = {
-        errorCode: 'REQUIRED_FIELD_MISSING',
-        message: 'Missing fields',
-        fields: ['Name', 'Email'],
-        objectName: 'Contact',
-      };
-
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.explanation).toContain('Name, Email');
-      expect(resolution.explanation).toContain('Contact');
-    });
-
     it('should add batch size suggestion when batch is large', async () => {
       const largeContext: OperationContext = { ...BASE_CONTEXT, batchSize: 500 };
       const error: SalesforceError = {
@@ -149,12 +139,34 @@ describe('ErrorResolver', () => {
 
       const resolution = await resolver.resolveError(error, largeContext);
 
-      const batchSuggestions = resolution.suggestions.filter(
-        (s) => s.action === 'reduce_batch_size',
+      const contextualSuggestion = resolution.suggestions.find(
+        (s) => s.action === 'reduce_batch_size' && s.description.includes('500'),
       );
-      expect(batchSuggestions.length).toBeGreaterThanOrEqual(1);
-      const contextualSuggestion = batchSuggestions.find((s) => s.description.includes('500'));
       expect(contextualSuggestion).toBeDefined();
+    });
+
+    it('should answer the ten most common error codes without calling AI', async () => {
+      const requiredCodes = [
+        'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
+        'DUPLICATE_VALUE',
+        'REQUIRED_FIELD_MISSING',
+        'STRING_TOO_LONG',
+        'INVALID_CROSS_REFERENCE_KEY',
+        'ENTITY_IS_DELETED',
+        'DELETE_FAILED',
+        'UNABLE_TO_LOCK_ROW',
+        'REQUEST_LIMIT_EXCEEDED',
+      ];
+
+      for (const code of requiredCodes) {
+        const error: SalesforceError = { errorCode: code, message: `${code} test` };
+        const resolution = await resolver.resolveError(error, BASE_CONTEXT);
+
+        expect(resolution.confidence).toBe(0.95);
+        expect(resolution.suggestions.length).toBeGreaterThan(0);
+      }
+      expect(mockProvider).not.toHaveBeenCalled();
     });
   });
 
@@ -195,7 +207,6 @@ describe('ErrorResolver', () => {
       const context: OperationContext = {
         module: 'sync',
         operation: 'upsert',
-        orgId: '00Dtest',
         objectName: 'Lead',
         batchSize: 100,
         recordCount: 5000,
@@ -204,11 +215,25 @@ describe('ErrorResolver', () => {
       await resolver.resolveError(error, context);
 
       const prompt = mockProvider.mock.calls[0][0];
-      expect(prompt).toContain('sync');
-      expect(prompt).toContain('upsert');
+      expect(prompt).toContain('Module: sync');
+      expect(prompt).toContain('Operation: upsert');
       expect(prompt).toContain('Lead');
       expect(prompt).toContain('100');
       expect(prompt).toContain('5000');
+    });
+
+    it('should leave out the context lines nobody knows', async () => {
+      // A failure reported through operation:failed names neither its module
+      // nor its operation; "Module: unknown" told the model nothing and read
+      // as a fact.
+      await resolver.resolveError({ errorCode: 'UNKNOWN', message: 'Error' }, {});
+
+      const prompt = mockProvider.mock.calls[0][0];
+      expect(prompt).not.toContain('Operation context:');
+      expect(prompt).not.toContain('Module:');
+      expect(prompt).not.toContain('Operation:');
+      expect(prompt).not.toContain('unknown');
+      expect(prompt).toContain('Error code: UNKNOWN');
     });
 
     it('should handle AI response wrapped in markdown code blocks', async () => {
@@ -229,142 +254,79 @@ describe('ErrorResolver', () => {
     });
   });
 
-  // --- History ---
+  // --- One model call per distinct failure ---
 
-  describe('resolution history', () => {
-    it('should start with empty history', () => {
-      expect(resolver.getResolutionHistory()).toHaveLength(0);
+  describe('repeated failures', () => {
+    const LOCKED = (recordId: string): SalesforceError => ({
+      errorCode: 'SOME_EXOTIC_ERROR',
+      message: `Record ${recordId} could not be processed by the org`,
     });
 
-    it('should record resolution in history', async () => {
-      const error: SalesforceError = { errorCode: 'DUPLICATE_VALUE', message: 'dup' };
-      await resolver.resolveError(error, BASE_CONTEXT);
+    it('shares one model call between failures in flight that differ only by record Id', async () => {
+      let answer: (value: string) => void = () => undefined;
+      mockProvider.mockReturnValue(
+        new Promise<string>((resolve) => {
+          answer = resolve;
+        }),
+      );
 
-      const history = resolver.getResolutionHistory();
-      expect(history).toHaveLength(1);
-      expect(history[0].error.errorCode).toBe('DUPLICATE_VALUE');
-      expect(history[0].resolution).toBeDefined();
-      expect(history[0].timestamp).toBeDefined();
+      const first = resolver.resolveError(LOCKED('001000000000001AAA'), {});
+      const second = resolver.resolveError(LOCKED('001000000000002AAA'), {});
+      answer(createMockAIResolution({ explanation: 'shared' }));
+
+      await expect(first).resolves.toMatchObject({ explanation: 'shared' });
+      await expect(second).resolves.toMatchObject({ explanation: 'shared' });
+      expect(mockProvider).toHaveBeenCalledTimes(1);
     });
 
-    it('should accumulate multiple entries', async () => {
-      const error1: SalesforceError = { errorCode: 'DUPLICATE_VALUE', message: 'dup' };
-      const error2: SalesforceError = { errorCode: 'UNKNOWN', message: 'err' };
+    it('answers the same failure again from memory until the answer expires', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-15T10:00:00Z'));
 
-      await resolver.resolveError(error1, BASE_CONTEXT);
-      await resolver.resolveError(error2, BASE_CONTEXT);
+      await resolver.resolveError(LOCKED('001000000000001'), {});
+      await resolver.resolveError(LOCKED('001000000000009'), {});
+      expect(mockProvider).toHaveBeenCalledTimes(1);
 
-      expect(resolver.getResolutionHistory()).toHaveLength(2);
+      vi.setSystemTime(new Date('2026-09-15T10:11:00Z'));
+      await resolver.resolveError(LOCKED('001000000000001'), {});
+      expect(mockProvider).toHaveBeenCalledTimes(2);
     });
 
-    it('should return a copy of history', async () => {
-      const error: SalesforceError = { errorCode: 'DUPLICATE_VALUE', message: 'dup' };
-      await resolver.resolveError(error, BASE_CONTEXT);
+    it('asks again for a different failure', async () => {
+      await resolver.resolveError(LOCKED('001000000000001'), {});
+      await resolver.resolveError({ errorCode: 'OTHER_EXOTIC_ERROR', message: 'Other' }, {});
+      await resolver.resolveError({ errorCode: 'SOME_EXOTIC_ERROR', message: 'Other' }, {});
 
-      const history = resolver.getResolutionHistory();
-      history.length = 0;
-
-      expect(resolver.getResolutionHistory()).toHaveLength(1);
-    });
-  });
-
-  // --- Learning ---
-
-  describe('learnFromSuccess', () => {
-    it('should prioritize learned resolution over knowledge base', async () => {
-      const learnedResolution: ErrorResolution = {
-        explanation: 'Learned fix: re-map the field.',
-        suggestions: [{ title: 'Remap', description: 'Remap the field.', probability: 0.99 }],
-        autoFixable: true,
-        autoFixAction: 'remap',
-        confidence: 1.0,
-        relatedDocs: [],
-      };
-
-      resolver.learnFromSuccess('REQUIRED_FIELD_MISSING', learnedResolution);
-
-      const error: SalesforceError = { errorCode: 'REQUIRED_FIELD_MISSING', message: 'missing' };
-      const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(resolution.explanation).toBe('Learned fix: re-map the field.');
-      expect(mockProvider).not.toHaveBeenCalled();
+      expect(mockProvider).toHaveBeenCalledTimes(3);
     });
 
-    it('should increment success count for repeated successful resolutions', async () => {
-      const resolution: ErrorResolution = {
-        explanation: 'Fixed it.',
-        suggestions: [],
-        autoFixable: false,
-        confidence: 0.9,
-        relatedDocs: [],
-      };
+    it('does not keep a failed model call, so the next failure asks again', async () => {
+      mockProvider.mockRejectedValueOnce(new Error('AI offline'));
 
-      resolver.learnFromSuccess('CUSTOM_ERR', resolution);
-      resolver.learnFromSuccess('CUSTOM_ERR', resolution);
-
-      const error: SalesforceError = { errorCode: 'CUSTOM_ERR', message: 'err' };
-      const result = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(result.explanation).toBe('Fixed it.');
-    });
-
-    it('should prefer the resolution with the highest success count', async () => {
-      const resolutionA: ErrorResolution = {
-        explanation: 'Resolution A',
-        suggestions: [],
-        autoFixable: false,
-        confidence: 0.8,
-        relatedDocs: [],
-      };
-      const resolutionB: ErrorResolution = {
-        explanation: 'Resolution B',
-        suggestions: [],
-        autoFixable: false,
-        confidence: 0.9,
-        relatedDocs: [],
-      };
-
-      resolver.learnFromSuccess('TEST_ERR', resolutionA);
-      resolver.learnFromSuccess('TEST_ERR', resolutionB);
-      resolver.learnFromSuccess('TEST_ERR', resolutionB);
-      resolver.learnFromSuccess('TEST_ERR', resolutionB);
-
-      const error: SalesforceError = { errorCode: 'TEST_ERR', message: 'test' };
-      const result = await resolver.resolveError(error, BASE_CONTEXT);
-
-      expect(result.explanation).toBe('Resolution B');
+      await expect(resolver.resolveError(LOCKED('001000000000001'), {})).rejects.toThrow(
+        'AI offline',
+      );
+      await expect(resolver.resolveError(LOCKED('001000000000001'), {})).resolves.toMatchObject({
+        explanation: 'AI-generated explanation of the error.',
+      });
+      expect(mockProvider).toHaveBeenCalledTimes(2);
     });
   });
+});
 
-  // --- Knowledge base ---
+describe('normalizeErrorMessage', () => {
+  it('replaces 15- and 18-character Salesforce Ids', () => {
+    expect(
+      normalizeErrorMessage(
+        'Backup op-1 was taken from org 00D000000000001AAA and cannot be restored into org 00D000000000002.',
+      ),
+    ).toBe('Backup op-1 was taken from org <id> and cannot be restored into org <id>.');
+  });
 
-  describe('knowledge base', () => {
-    it('should have at least 25 entries', () => {
-      expect(resolver.getKnowledgeBaseSize()).toBeGreaterThanOrEqual(25);
-    });
+  it('leaves error codes, field names and ordinary words alone', () => {
+    const message =
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: representations on External_Id__c are incomprehensible';
 
-    it('should handle all 10 required error codes', async () => {
-      const requiredCodes = [
-        'FIELD_CUSTOM_VALIDATION_EXCEPTION',
-        'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY',
-        'DUPLICATE_VALUE',
-        'REQUIRED_FIELD_MISSING',
-        'STRING_TOO_LONG',
-        'INVALID_CROSS_REFERENCE_KEY',
-        'ENTITY_IS_DELETED',
-        'DELETE_FAILED',
-        'UNABLE_TO_LOCK_ROW',
-        'REQUEST_LIMIT_EXCEEDED',
-      ];
-
-      for (const code of requiredCodes) {
-        const error: SalesforceError = { errorCode: code, message: `${code} test` };
-        const resolution = await resolver.resolveError(error, BASE_CONTEXT);
-
-        expect(resolution.confidence).toBe(0.95);
-        expect(resolution.suggestions.length).toBeGreaterThan(0);
-        expect(mockProvider).not.toHaveBeenCalled();
-      }
-    });
+    expect(normalizeErrorMessage(message)).toBe(message);
   });
 });

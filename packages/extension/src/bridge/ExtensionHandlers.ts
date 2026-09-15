@@ -18,7 +18,6 @@ import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { Services } from '../services.js';
 
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
-import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService.js';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
 import type {
   HandlerDeps,
@@ -176,7 +175,7 @@ export class ExtensionHandlers {
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
     // Sync execution history: one shared store — SyncOpsHandler writes via
     // SyncExecutionLogger, SyncHistoryHandler serves the read surface and
-    // ExecutionHandler replays failed runs from it (execution:manual-retry).
+    // replays a failed run from it (sync:history:rerun).
     this.syncHistoryStore = new SyncHistoryStore(deps.configStore);
     this.syncHandler.setHistoryLogger(new SyncExecutionLogger(this.syncHistoryStore));
     this.syncHistoryHandler = new SyncHistoryHandler(
@@ -216,13 +215,9 @@ export class ExtensionHandlers {
     this.syncHandler.setLiveOperationTracker(tracker);
   }
 
-  /** Inject masking template service for dataops:masking-templates-by-object messages. */
+  /** Inject the file-backed store that holds backup record payloads. */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.dataOpsHandler.setBackupRecordStore(store);
-  }
-
-  setMaskingTemplateService(service: MaskingTemplateService): void {
-    this.dataOpsHandler.setMaskingTemplateService(service);
   }
 
   /** Inject the AI assistant service, or `undefined` to take it away. */
@@ -264,14 +259,7 @@ export class ExtensionHandlers {
     this.seedCloneHandler.setRegistry(registry);
     this.seedCsvHandler.setRegistry(registry);
     this.frozenHandler.setRegistry(registry);
-    // The sync history store + sync handler turn execution:manual-retry into a
-    // real replay for failed sync runs (rerunFromSnapshot path).
-    this.executionHandler = new ExecutionHandler(
-      this.handlerDeps,
-      registry,
-      this.syncHistoryStore,
-      this.syncHandler,
-    );
+    this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
   /**
@@ -339,8 +327,9 @@ export class ExtensionHandlers {
   /** Inject the model-backed modules, or `undefined` to take them away. */
   setAIModules(modules: AIModules | undefined): void {
     this.aiHandler.setAIModules(modules);
-    // Mutate the shared deps object so `sendOperationFailed` can answer a
-    // failed operation from the knowledge base — once, where it is raised.
+    // Mutate the shared deps object so `sendOperationFailed` can ask the model
+    // about a failure the table of known codes cannot answer — once, where it
+    // is raised.
     // Taking the modules away takes the resolver with them: turning AI off
     // must stop the model being asked about a failure.
     this.handlerDeps.errorResolver = modules?.errorResolver;
@@ -395,7 +384,10 @@ export class ExtensionHandlers {
     };
 
     // Org
-    route(['org:list', 'org:connect', 'org:disconnect', 'org:select'], this.orgHandler);
+    route(
+      ['org:list', 'org:connect', 'org:disconnect', 'org:select', 'org:update'],
+      this.orgHandler,
+    );
 
     // Settings & infrastructure
     route(
@@ -486,10 +478,8 @@ export class ExtensionHandlers {
     route(
       [
         'monitor:refresh',
-        'monitor:start',
         'monitor:open-apex-jobs',
         'monitor:live-operations',
-        'monitor:health-score',
         'monitor:storage',
         'monitor:deployments',
         'monitor:api-usage',
@@ -508,11 +498,8 @@ export class ExtensionHandlers {
     route(
       [
         'governance:policies:list',
-        'governance:policy:get',
         'governance:policy:save',
         'governance:policy:delete',
-        'governance:policies:export',
-        'governance:policies:import',
         'governance:evaluate',
         'governance:templates',
       ],
@@ -521,13 +508,7 @@ export class ExtensionHandlers {
 
     // Compare
     route(
-      [
-        'compare:execute',
-        'compare:start',
-        'compare:permissions',
-        'compare:snapshots',
-        'compare:drift',
-      ],
+      ['compare:execute', 'compare:permissions', 'compare:snapshots', 'compare:drift'],
       this.compareHandler,
     );
 
@@ -535,13 +516,11 @@ export class ExtensionHandlers {
     route(
       [
         'backup:execute',
-        'dataops:backup',
         'backup:list',
         'backup:export',
         'dataops:rollback',
         'dataops:anonymize',
         'dataops:anonymization-templates',
-        'dataops:masking-templates-by-object',
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,
@@ -550,7 +529,6 @@ export class ExtensionHandlers {
     // Automation
     route(
       [
-        'pipeline:run',
         'pipeline:execute',
         'pipeline:templates',
         'pipeline:list',
@@ -613,7 +591,6 @@ export class ExtensionHandlers {
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',
-        'forge:target-preflight:request',
       ],
       this.forgeHandler,
     );
@@ -650,12 +627,9 @@ export class ExtensionHandlers {
     route(['file:save'], this.fileHandler);
     route(['reports:list'], this.reportsHandler);
 
-    // Execution lifecycle (abort/status/list/manual-retry)
+    // Execution lifecycle: abort a running background operation
     if (this.executionHandler) {
-      route(
-        ['execution:abort', 'execution:status', 'execution:list', 'execution:manual-retry'],
-        this.executionHandler,
-      );
+      route(['execution:abort'], this.executionHandler);
     }
 
     // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)

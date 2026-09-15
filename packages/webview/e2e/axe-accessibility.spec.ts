@@ -344,8 +344,7 @@ test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
       conversation: {
         id: 'axe-conv',
         title: 'Axe Test',
-        updatedAt: new Date().toISOString(),
-        messageCount: 0,
+        createdAt: new Date().toISOString(),
       },
     });
     await page
@@ -365,8 +364,7 @@ test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
       conversation: {
         id: 'axe-conv-2',
         title: 'Chat',
-        updatedAt: new Date().toISOString(),
-        messageCount: 0,
+        createdAt: new Date().toISOString(),
       },
     });
     await page
@@ -386,6 +384,66 @@ test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
       },
     });
     await page.getByTestId('message-bubble-assistant').waitFor({ state: 'visible', timeout: 5000 });
+
+    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
+    expectNoViolations(results);
+  });
+
+  test('Welcome overlay open over a page', async ({ page }) => {
+    await navigateToModule(bridge, page, 'home', 'home-page');
+    await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
+
+    const dialog = page.getByRole('dialog', { name: 'Welcome wizard' });
+    await dialog.getByTestId('welcome-page').waitFor({ state: 'visible', timeout: 5000 });
+    // The trap moved focus into the overlay when it opened.
+    await expect
+      .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
+      .toBe(true);
+
+    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
+    expectNoViolations(results);
+  });
+
+  test("What's New overlay open over a page", async ({ page }) => {
+    await navigateToModule(bridge, page, 'home', 'home-page');
+    // The panel opens only for a version that has highlights, and 1.0.0 has them.
+    await bridge.stream([{ type: 'whats-new:show', payload: { version: '1.0.0' } }]);
+
+    const dialog = page.getByRole('dialog', { name: "What's new" });
+    await dialog.getByTestId('whats-new-page').waitFor({ state: 'visible', timeout: 5000 });
+    await expect
+      .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
+      .toBe(true);
+
+    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
+    expectNoViolations(results);
+  });
+
+  test('Automation generate dialog open', async ({ page }) => {
+    await navigateToModule(bridge, page, 'automation', 'automation-page', { orgs: true });
+    await page.getByTestId('generate-pipeline-btn').click();
+
+    const dialog = page.getByRole('dialog', { name: 'Generate with AI' });
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    await expect(dialog.getByRole('textbox')).toBeFocused();
+
+    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
+    expectNoViolations(results);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test('Automation pipeline while a run is in progress', async ({ page }) => {
+    await navigateToModule(bridge, page, 'automation', 'automation-page', { orgs: true });
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-seed').click();
+
+    // `pipeline:execute` is left unanswered, so the run stays in flight and
+    // the canvas shows the execution view for the whole scan.
+    await page.getByTestId('run-pipeline-btn').click();
+    await bridge.waitForMessage('pipeline:execute');
+    await page.getByTestId('execution-view').waitFor({ state: 'visible', timeout: 5000 });
 
     const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
     expectNoViolations(results);

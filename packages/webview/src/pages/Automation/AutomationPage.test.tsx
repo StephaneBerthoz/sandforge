@@ -142,6 +142,45 @@ describe('AutomationPage', () => {
     expect(screen.getByTestId('create-pipeline-btn')).toBeDefined();
   });
 
+  it('names the generate dialog after its heading, keeps Tab inside it and closes it on Escape', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByTestId('generate-pipeline-btn'));
+
+    const dialog = screen.getByRole('dialog', { name: 'Generate with AI' });
+    const input = screen.getByPlaceholderText(/describe/i);
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(document.activeElement).toBe(input);
+
+    // The submit button is disabled while the description is empty, so Cancel
+    // is the last control that can take focus.
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: 'Tab' });
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
+
+    fireEvent.keyDown(cancel, { key: 'Escape' });
+    expect(dialog.isConnected).toBe(false);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('gives focus back to the generate button when its dialog closes on Escape', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    const opener = screen.getByTestId('generate-pipeline-btn');
+    opener.focus();
+    fireEvent.click(opener);
+
+    const input = screen.getByPlaceholderText(/describe/i);
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('should show run button after creating pipeline', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);

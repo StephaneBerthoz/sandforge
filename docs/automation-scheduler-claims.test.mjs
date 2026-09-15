@@ -107,3 +107,45 @@ test('the Triggers and Scheduler sections keep their coming-soon banners', () =>
     'the Scheduler banner must state the backend is a no-op, not merely hedge',
   );
 });
+
+test('the Triggers section lists exactly the trigger types the panel offers', () => {
+  // The section used to list File Watch, Record Change and Pipeline Completion,
+  // which no TriggerType names, and to omit three that the panel does offer.
+  const types = readFileSync(
+    join(repoRoot, 'packages', 'shared', 'src', 'types', 'automation.types.ts'),
+    'utf8',
+  );
+  const union = types.match(/export type TriggerType =([^;]+);/);
+  assert.ok(union, 'TriggerType union not found in automation.types.ts');
+  const ids = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  const en = JSON.parse(
+    readFileSync(
+      join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'locales', 'en.json'),
+      'utf8',
+    ),
+  );
+  const labels = ids.map((id) => en.automation.triggerTypes[id]);
+
+  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
+  assert.deepEqual(
+    listed.map((m) => m[1]),
+    labels,
+  );
+  for (const [, label, rest] of listed) {
+    if (label === en.automation.triggerTypes.manual) continue;
+    assert.match(rest, /_\(coming soon\)_/, `${label} is listed without its coming-soon marker`);
+  }
+});
+
+test('the Automation banners name no release', () => {
+  // "as of v1.3.0" sat in both banners of a v1.22 product. A banner that states
+  // the present needs no version, and one that names a version goes stale.
+  assert.doesNotMatch(automation, /\bas of v\d/i);
+  for (const heading of ['### Triggers', '### Scheduler']) {
+    const banner = section(automation, heading)
+      .split('\n')
+      .filter((line) => line.startsWith('>'))
+      .join('\n');
+    assert.doesNotMatch(banner, /\bv\d+\.\d+/, `${heading} banner pins a version`);
+  }
+});

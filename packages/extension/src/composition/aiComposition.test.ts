@@ -90,9 +90,16 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     stateChangeListener = undefined;
   });
 
+  /** Types of every message posted to the webview, in order. */
+  const postedTypes = (): unknown[] => posted.map((m) => m.type);
+
   it('forwards breaker state-change events as ai:provider:status', async () => {
     await initAIComposition(makeDeps());
 
+    // Every message counts, not only the one under test: a stray post from
+    // init would reach every open panel.
+    expect(postedTypes()).toEqual(['ai:status:response']);
+    expect(posted[0].payload).toMatchObject({ enabled: true, provider: 'anthropic' });
     expect(stateChangeListener).toBeDefined();
     stateChangeListener!({
       state: 'open',
@@ -100,9 +107,8 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
       lastErrorVerdict: { kind: 'overloaded', userMessageKey: 'ai.error.overloaded' },
     } as BreakerStateChangeEvent);
 
-    const statusFeed = posted.filter((m) => m.type === 'ai:provider:status');
-    expect(statusFeed).toHaveLength(1);
-    const payload = statusFeed[0].payload as Record<string, unknown>;
+    expect(postedTypes()).toEqual(['ai:status:response', 'ai:provider:status']);
+    const payload = posted[1].payload as Record<string, unknown>;
     expect(payload.provider).toBe('anthropic');
     expect(payload.state).toBe('open');
     expect(payload.cooldownEndsAt).toBe('2026-08-11T12:00:00Z');
@@ -113,12 +119,15 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
   it('subscribes nothing when AI is disabled', async () => {
     await initAIComposition(makeDeps({ aiEnabled: false }));
     expect(stateChangeListener).toBeUndefined();
-    expect(posted.filter((m) => m.type === 'ai:provider:status')).toHaveLength(0);
+    expect(postedTypes()).toEqual(['ai:status:response']);
+    expect(posted[0].payload).toMatchObject({ enabled: false, provider: 'none' });
   });
 
   it('subscribes nothing when no API key is stored', async () => {
     await initAIComposition(makeDeps({ hasKey: false }));
     expect(stateChangeListener).toBeUndefined();
+    expect(postedTypes()).toEqual(['ai:status:response']);
+    expect(posted[0].payload).toMatchObject({ enabled: false, provider: 'none' });
   });
 
   // The openai and custom adapters throw on every call. A settings.json that
@@ -133,8 +142,8 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
       expect(deps.handlers.setAIAssistant).toHaveBeenCalledWith(undefined);
       expect(deps.handlers.setAIModules).toHaveBeenCalledWith(undefined);
       expect(deps.handlers.setAIModules).not.toHaveBeenCalledWith(expect.anything());
-      const status = posted.filter((m) => m.type === 'ai:status:response').pop();
-      expect(status?.payload).toMatchObject({ enabled: false, provider: 'none' });
+      expect(postedTypes()).toEqual(['ai:status:response']);
+      expect(posted[0].payload).toMatchObject({ enabled: false, provider: 'none' });
       expect(stateChangeListener).toBeUndefined();
     },
   );
@@ -150,9 +159,8 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
     expect(deps.handlers.setAIModules).toHaveBeenCalledWith(
       expect.objectContaining({ nl2soql: expect.anything() }),
     );
-    expect(posted.filter((m) => m.type === 'ai:status:response').pop()?.payload).toMatchObject({
-      enabled: true,
-    });
+    expect(postedTypes()).toEqual(['ai:status:response']);
+    expect(posted[0].payload).toMatchObject({ enabled: true });
   });
 });
 

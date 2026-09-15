@@ -7,7 +7,11 @@ import type { ChatMessageDisplay, ConversationSummary } from './AIChatPanel';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { useAppStore } from '../../stores/useAppStore';
-import type { BaseMessage } from '@sandforge/shared';
+import type {
+  AIConversationCreatedResponse,
+  AIConversationListResponse,
+  BaseMessage,
+} from '@sandforge/shared';
 
 /** Main AI page — manages conversations and messages via extension bus. */
 export const AIPage: React.FC = () => {
@@ -48,12 +52,9 @@ export const AIPage: React.FC = () => {
   }, [aiAvailable, send]);
 
   // Listen for conversation list response
-  useMessageListener<BaseMessage & { payload: { conversations: ConversationSummary[] } }>(
-    'ai:conversation:list:response',
-    (msg) => {
-      setConversations(msg.payload.conversations);
-    },
-  );
+  useMessageListener<AIConversationListResponse>('ai:conversation:list:response', (msg) => {
+    setConversations(msg.payload.conversations);
+  });
 
   // Listen for AI responses
   useMessageListener<
@@ -63,19 +64,17 @@ export const AIPage: React.FC = () => {
     setIsLoading(false);
   });
 
-  useMessageListener<BaseMessage & { payload: { conversation: ConversationSummary } }>(
-    'ai:conversation:created',
-    (msg) => {
-      const conv = msg.payload.conversation;
-      setConversations((prev) => {
-        // Replace the optimistic local entry if it exists
-        const withoutLocal = prev.filter((c) => !c.id.startsWith('local-conv-'));
-        return [...withoutLocal, conv];
-      });
-      setActiveConversationId(conv.id);
-      setMessages([]);
-    },
-  );
+  useMessageListener<AIConversationCreatedResponse>('ai:conversation:created', (msg) => {
+    // The confirmation carries no count: a conversation just created holds no message.
+    const conv: ConversationSummary = { ...msg.payload.conversation, messageCount: 0 };
+    setConversations((prev) => {
+      // Replace the optimistic local entry if it exists
+      const withoutLocal = prev.filter((c) => !c.id.startsWith('local-conv-'));
+      return [...withoutLocal, conv];
+    });
+    setActiveConversationId(conv.id);
+    setMessages([]);
+  });
 
   // An AI failure used to only switch the spinner off, so a refused request
   // looked exactly like one that answered nothing — show what the host said.
@@ -126,7 +125,7 @@ export const AIPage: React.FC = () => {
       const localConv: ConversationSummary = {
         id: `local-conv-${Date.now()}-${nextId}`,
         title,
-        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         messageCount: 0,
       };
       setConversations((prev) => [...prev, localConv]);

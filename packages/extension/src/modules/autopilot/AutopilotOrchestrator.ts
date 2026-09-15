@@ -61,7 +61,7 @@ export interface AutopilotOrchestratorDeps {
    * cost nothing.
    */
   createExecutor: () => AutopilotExecutor;
-  /** Grappe adapter for parallel partitioning. */
+  /** Grappe adapter; its presence is part of what activates the start/end bracketing. */
   grappeAdapter: AutopilotGrappeAdapter;
   /** Grappe mode configuration. */
   grappeConfig?: GrappeConfig;
@@ -233,12 +233,15 @@ export class AutopilotOrchestrator {
   ): Promise<ExecutionResult> {
     const totalRecords = Array.from(recordCounts.values()).reduce((s, c) => s + c, 0);
     const grappeActive = this.isGrappeActive(totalRecords);
+    // One id for the run: the closing event names the run the opening one
+    // started, not a second one minted when the executor returns.
+    const operationId = `autopilot-${Date.now()}`;
 
     if (grappeActive) {
       this.deps.onGrappeEvent?.({
         type: 'grappe:started',
         payload: {
-          operationId: `autopilot-${Date.now()}`,
+          operationId,
           totalPartitions: plan.waves.length,
           totalRecords,
         },
@@ -268,7 +271,7 @@ export class AutopilotOrchestrator {
       this.deps.onGrappeEvent?.({
         type: 'grappe:completed',
         payload: {
-          operationId: `autopilot-${Date.now()}`,
+          operationId,
           totalProcessed: result.totalSuccess + result.totalSkipped,
           totalFailed: result.totalFailure,
         },

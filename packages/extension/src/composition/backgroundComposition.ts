@@ -47,7 +47,10 @@ export async function probeSalesforceConnectivity(): Promise<boolean> {
 }
 
 /**
- * Wire and start OfflineManager connectivity probing (30 s tick).
+ * Wire and enable OfflineManager connectivity probing. The 30 s probe only
+ * ticks while an operation waits in the offline queue or the last probe found
+ * the network down (see `OfflineManager.startProbing`), so an idle window
+ * sends no request.
  *
  * Side-effecting by design — call from `activate()`, never from
  * `createBackgroundComposition` (whose constructors stay side-effect free).

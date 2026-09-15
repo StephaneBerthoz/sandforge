@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AutopilotOrchestrator } from './AutopilotOrchestrator';
-import type { AutopilotOrchestratorDeps } from './AutopilotOrchestrator';
+import type { AutopilotGrappeEvent, AutopilotOrchestratorDeps } from './AutopilotOrchestrator';
+import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SchemaScanResult, ObjectDescribeResult, FieldDescribeResult } from './SchemaScanner';
 import type {
   AutopilotConfig,
@@ -626,5 +627,46 @@ describe('AutopilotOrchestrator — execution isolation (real executors)', () =>
     const result2 = await run2;
     expect(result2.skippedObjects).toEqual([]);
     expect(result2.completedObjects).toEqual(['Account', 'Contact']);
+  });
+});
+
+describe('AutopilotOrchestrator grappe bracketing', () => {
+  const counts = (): Map<string, number> => new Map([['Account', 12_000]]);
+
+  function bracketed(threshold: number): {
+    orchestrator: AutopilotOrchestrator;
+    events: AutopilotGrappeEvent[];
+  } {
+    const { deps } = createMockDeps();
+    const events: AutopilotGrappeEvent[] = [];
+    deps.grappeConfig = {
+      ...DEFAULT_GRAPPE_CONFIG,
+      enabled: true,
+      autoActivateThreshold: threshold,
+    };
+    deps.onGrappeEvent = (event) => events.push(event);
+    return { orchestrator: new AutopilotOrchestrator(deps), events };
+  }
+
+  it('opens and closes a run past the threshold under one operationId', async () => {
+    const { orchestrator, events } = bracketed(10_000);
+    // The run takes time: the clock the closing event reads has moved on.
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1_000).mockReturnValue(2_000);
+
+    await orchestrator.executePlan(mockPlan(), mockGraph(), [], counts());
+    vi.restoreAllMocks();
+
+    expect(events.map((event) => event.type)).toEqual(['grappe:started', 'grappe:completed']);
+    const [started, completed] = events;
+    expect(typeof started.payload.operationId).toBe('string');
+    expect(completed.payload.operationId).toBe(started.payload.operationId);
+  });
+
+  it('emits nothing below the threshold', async () => {
+    const { orchestrator, events } = bracketed(50_000);
+
+    await orchestrator.executePlan(mockPlan(), mockGraph(), [], counts());
+
+    expect(events).toEqual([]);
   });
 });

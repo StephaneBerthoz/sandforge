@@ -84,7 +84,7 @@ function mockConnection(): void {
 function backupMsg(id: string): InboundRequest & { payload: Record<string, unknown> } {
   return inboundRequest({
     id,
-    type: 'dataops:backup',
+    type: 'backup:execute',
     timestamp: Date.now(),
     payload: { orgId: 'org-1', objects: ['Account'] },
   });

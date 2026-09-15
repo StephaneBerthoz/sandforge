@@ -53,6 +53,7 @@ const OrgMessages = [
   msg('org:connect'),
   msg('org:disconnect'),
   msg('org:select'),
+  msg('org:update'),
   msg('org:statusChanged'),
   msg('org:selected'),
   msg('org:error'),
@@ -139,7 +140,6 @@ export const SyncMessageSchema = z.discriminatedUnion('type', SyncMessages);
 // ─── Domain: Monitor ─────────────────────────────────────────────────────────
 const MonitorMessages = [
   msg('monitor:refresh'),
-  msg('monitor:start'),
   // Dashboard snapshot (trends included) and the domain error channel.
   msg('monitor:data'),
   msg('monitor:error'),
@@ -148,8 +148,6 @@ const MonitorMessages = [
   msg('monitor:open-apex-jobs:response'),
   msg('monitor:live-operations'),
   msg('monitor:live-operations:response'),
-  msg('monitor:health-score'),
-  msg('monitor:health-score:response'),
   msg('monitor:storage'),
   msg('monitor:storage:response'),
   msg('monitor:deployments'),
@@ -187,7 +185,6 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', MonitorMessages
 const CompareMessages = [
   msg('compare:execute'),
   msg('compare:execute:response'),
-  msg('compare:start'),
   msg('compare:permissions'),
   msg('compare:snapshots'),
   msg('compare:drift'),
@@ -205,7 +202,6 @@ const DataOpsMessages = [
   msg('backup:list:result'),
   msg('backup:export'),
   msg('backup:export:result'),
-  msg('dataops:backup'),
   msg('dataops:rollback'),
   msg('dataops:anonymize'),
   msg('dataops:backup:response'),
@@ -215,8 +211,6 @@ const DataOpsMessages = [
   msg('dataops:error'),
   msg('dataops:anonymization-templates'),
   msg('dataops:anonymization-templates:response'),
-  msg('dataops:masking-templates-by-object'),
-  msg('dataops:masking-templates-by-object:response'),
   msg('precheck:pii-scan'),
   msg('precheck:pii-scan:response'),
   msg('governance:policies:list'),
@@ -224,18 +218,12 @@ const DataOpsMessages = [
   // `governance:policies:result`, not `:response` (same convention as
   // monitor:alerts:result — both handler and webview were built on it).
   msg('governance:policies:result'),
-  msg('governance:policy:get'),
   msg('governance:policy:save'),
   msg('governance:policy:delete'),
-  msg('governance:policies:export'),
-  msg('governance:policies:import'),
   msg('governance:evaluate'),
   msg('governance:templates'),
-  msg('governance:policy:result'),
   msg('governance:policy:save:response'),
   msg('governance:policy:delete:response'),
-  msg('governance:policies:export:response'),
-  msg('governance:policies:import:response'),
   msg('governance:evaluate:response'),
   msg('governance:templates:response'),
   // Error channel for governance operations.
@@ -245,7 +233,6 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', DataOpsMessages
 
 // ─── Domain: Automation (pipeline + marketplace + migration + plugins) ───────
 const AutomationMessages = [
-  msg('pipeline:run'),
   msg('pipeline:execute'),
   msg('pipeline:run:response'),
   // Error channel for pipeline run/cancel/list/history/save failures.
@@ -294,9 +281,6 @@ const AutomationMessages = [
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
-  msg('forge:target-preflight:request'),
-  msg('forge:target-preflight:response'),
-  msg('forge:target-preflight:error'),
   // Forge responses / progress events / error channels (Extension -> WebView).
   msg('forge:preview:response'),
   msg('forge:preview:error'),
@@ -331,13 +315,8 @@ const ExecutionMessages = [
   msg('operation:completed'),
   msg('operation:failed'),
   msg('execution:retry-status'),
-  msg('execution:manual-retry'),
   msg('execution:abort'),
-  msg('execution:status'),
-  msg('execution:list'),
   msg('execution:abort:response'),
-  msg('execution:status:response'),
-  msg('execution:list:response'),
   // Error channel for execution operations.
   msg('execution:error'),
   msg('grappe:started'),

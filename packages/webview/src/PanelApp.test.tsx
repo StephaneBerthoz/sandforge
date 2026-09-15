@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { forwardRef, useImperativeHandle } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PanelApp } from './PanelApp';
 import { useAppStore } from './stores/useAppStore';
@@ -35,28 +36,49 @@ vi.mock('./components/ui/FloatingToasts', () => ({
 }));
 
 vi.mock('./PanelRouter', () => ({
-  PanelRouter: ({ moduleId }: { moduleId: string }) => (
-    <div data-testid="panel-router">{moduleId}</div>
-  ),
+  PanelRouter: ({ moduleId }: { moduleId: string }) => {
+    if (moduleId === 'crashing') {
+      throw new Error('page render failed');
+    }
+    return <div data-testid="panel-router">{moduleId}</div>;
+  },
 }));
 
 vi.mock('./components/CommandPalette/CommandPalette', () => ({
   CommandPalette: () => <div data-testid="command-palette" />,
 }));
 
+const mockWelcomeSkip = vi.hoisted(() => vi.fn());
+
 vi.mock('./pages/Welcome/WelcomePage', () => ({
-  WelcomePage: ({ onComplete }: { onComplete: () => void }) => (
-    <button data-testid="welcome-page-stub" onClick={onComplete}>
-      welcome
-    </button>
+  WelcomePage: forwardRef<{ skip: () => void }, { onComplete: () => void }>(
+    function WelcomePageStub({ onComplete }, ref) {
+      useImperativeHandle(ref, () => ({
+        skip: () => {
+          mockWelcomeSkip();
+          onComplete();
+        },
+      }));
+      return (
+        <>
+          <button data-testid="welcome-page-stub" onClick={onComplete}>
+            welcome
+          </button>
+          <button data-testid="welcome-page-last">next</button>
+        </>
+      );
+    },
   ),
 }));
 
 vi.mock('./pages/Welcome/WhatsNewPage', () => ({
   WhatsNewPage: ({ version, onDismiss }: { version: string; onDismiss: () => void }) => (
-    <button data-testid="whats-new-page-stub" onClick={onDismiss}>
-      whats-new {version}
-    </button>
+    <>
+      <button data-testid="whats-new-page-stub" onClick={onDismiss}>
+        whats-new {version}
+      </button>
+      <button data-testid="whats-new-page-last">changelog</button>
+    </>
   ),
 }));
 
@@ -184,6 +206,66 @@ describe('PanelApp', () => {
 
     expect(useAppStore.getState().currentRoute).toBe('forge');
     expect(screen.getByTestId('panel-router').textContent).toBe('forge');
+  });
+
+  it('keeps the shortcuts and the palette after a page crash, and navigating away renders the new page', () => {
+    // React reports the caught render error; keep the run output readable.
+    const reportedError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(<PanelApp moduleId="crashing" />);
+
+    expect(screen.getByTestId('error-boundary')).toBeDefined();
+    expect(screen.getByTestId('command-palette')).toBeDefined();
+    expect(screen.getByTestId('floating-toasts')).toBeDefined();
+
+    // The store already sits on 'home' (beforeEach), so go somewhere else to
+    // produce a real route change.
+    fireEvent.keyDown(document, { key: 'g' });
+    fireEvent.keyDown(document, { key: 'm' });
+
+    expect(screen.queryByTestId('error-boundary')).toBeNull();
+    expect(screen.getByTestId('panel-router').textContent).toBe('monitor');
+    reportedError.mockRestore();
+  });
+
+  it('moves focus into the welcome dialog, keeps Tab inside it, and skips the wizard on Escape', () => {
+    mockWelcomeSkip.mockClear();
+    useAppStore.setState({ showWelcome: true });
+    render(<PanelApp moduleId="monitor" />);
+    const dialog = screen.getByRole('dialog', { name: 'Welcome wizard' });
+    const first = screen.getByTestId('welcome-page-stub');
+    const last = screen.getByTestId('welcome-page-last');
+
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    fireEvent.keyDown(last, { key: 'Escape' });
+    // Through the wizard's own skip, so a ticked "Don't show again" is kept.
+    expect(mockWelcomeSkip).toHaveBeenCalledOnce();
+    expect(useAppStore.getState().showWelcome).toBe(false);
+    expect(screen.queryByRole('dialog', { name: 'Welcome wizard' })).toBeNull();
+  });
+
+  it("moves focus into the what's new dialog, keeps Tab inside it, and closes it on Escape", () => {
+    useAppStore.setState({ showWhatsNew: true, whatsNewVersion: '1.6.0' });
+    render(<PanelApp moduleId="monitor" />);
+    const dialog = screen.getByRole('dialog', { name: "What's new" });
+    const first = screen.getByTestId('whats-new-page-stub');
+    const last = screen.getByTestId('whats-new-page-last');
+
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: 'Escape' });
+    expect(useAppStore.getState().showWhatsNew).toBe(false);
   });
 
   it('should not clobber the panel module with the store default on mount', () => {

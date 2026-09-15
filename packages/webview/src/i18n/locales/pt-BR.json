@@ -75,7 +75,6 @@
     "status_expired": "Sessao expirada",
     "status_error": "Erro de conexao",
     "status_refreshing": "Atualizando...",
-    "safetyTier": "Nivel de seguranca",
     "alias": "Alias",
     "username": "Nome de usuario",
     "instanceUrl": "URL da instancia",
@@ -88,10 +87,6 @@
     "tier_high": "Alto",
     "tier_medium": "Medio",
     "tier_low": "Baixo",
-    "tier_critical_desc": "Crítico (Produção)",
-    "tier_high_desc": "Alto (UAT / Homologação)",
-    "tier_medium_desc": "Médio (QA / Integração)",
-    "tier_low_desc": "Baixo (Dev / Scratch)",
     "color": "Cor",
     "color_red": "Vermelho",
     "color_amber": "Âmbar",
@@ -825,7 +820,7 @@
   },
   "migration": {
     "title": "Migração",
-    "subtitle": "Importe uma definição de migração existente e converta-a em uma configuração de sincronização do SandForge. O arquivo é apenas lido — nada é gravado ou executado.",
+    "subtitle": "Importe uma definição de migração existente e converta-a em uma configuração de sincronização do SandForge. A importação lê o arquivo sem alterar nada; executar a configuração convertida grava registros na org de destino.",
     "sourceTitle": "Arquivo de origem",
     "type": {
       "sfdmu": {
@@ -939,6 +934,7 @@
     "triggersCount": "Gatilhos ativos",
     "historyRuns": "Execuções no histórico",
     "triggers": "Gatilhos",
+    "triggerManualOnlyNote": "Só uma execução manual inicia um pipeline. Os outros tipos de gatilho podem ser configurados aqui, mas nada os dispara ainda.",
     "addTrigger": "Adicionar gatilho",
     "run": "Executar pipeline",
     "running": "Executando pipeline...",
@@ -1082,26 +1078,6 @@
     "generateReport": "Gerar relatorio",
     "exportReport": "Exportar relatorio",
     "reportType": "Tipo de relatorio",
-    "reportTypes": {
-      "seed_execution": "Execucao de Seed",
-      "sync_execution": "Execucao de Sync",
-      "compare_result": "Resultado de comparacao",
-      "backup_result": "Resultado de backup",
-      "anonymization_result": "Resultado de anonimizacao",
-      "pipeline_run": "Execucao de pipeline",
-      "data_quality": "Qualidade de dados",
-      "org_health": "Saude da Org",
-      "audit_trail": "Registro de auditoria",
-      "custom": "Personalizado"
-    },
-    "exportFormats": {
-      "json": "JSON",
-      "csv": "CSV",
-      "html": "HTML",
-      "pdf": "PDF",
-      "xlsx": "Excel",
-      "sarif": "SARIF"
-    },
     "summary": "Resumo",
     "sections": "Secoes",
     "metadata": "Metadados",
@@ -1155,14 +1131,14 @@
     "advanced": "Avancado",
     "profiles": "Perfis",
     "language": "Idioma",
+    "languageLoadFailed": "Não foi possível carregar {{language}}; a interface continua no idioma atual.",
     "clearCache": "Limpar cache",
     "resetSettings": "Restaurar padroes",
     "telemetry": "Telemetria",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Habilitada",
     "telemetryDisabled": "Desabilitada",
-    "telemetryEventCount": "Eventos enviados",
-    "telemetryBufferSize": "Tamanho do buffer",
+    "telemetryEventCount": "Eventos de diagnóstico registrados",
     "telemetryEnable": "Habilitar telemetria",
     "telemetryDisable": "Desabilitar telemetria",
     "telemetryUnavailable": "Indisponivel",
@@ -1262,7 +1238,7 @@
     "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Só Atraso e Condição fazem algo por enquanto: as outras 13 informam sucesso sem tocar em nenhuma org\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Etapas de Condição com 11 operadores\n- Histórico de execução: status, duração total, número de etapas e erros de cada execução\n- Modelos de pipeline do Marketplace",
     "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: cada registro inserido recebe seus IDs remapeados\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
     "frozenContent": "O Dataset congelado extrai um conjunto de dados de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Pseudonimização determinística, com um sal guardado fora do repositório\n- Uma verificação de quatro pontos precisa passar antes de o dataset ser gravado\n- Carga: somente sandboxes como destino, com um Piloto opcional sobre uma única pasta raiz antes da carga completa, e uma verificação depois da carga",
-    "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",
+    "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",
     "aiContent": "O Assistente IA, com sua própria chave da Anthropic:\n- Chat, e NL2SOQL, personas personalizadas e regras de campo IA no Seed\n- Rascunhos de pipeline no Automation\n- Enquanto a IA está ligada, uma execução de Seed, Sync, DataOps ou Automation com falha envia sua mensagem de erro ao modelo para uma sugestão de correção, a menos que uma tabela interna já responda ao seu código de erro\n- O conselho de esquema do Compare e a varredura de anomalias do Monitor são baseados em regras: funcionam com a IA desligada e sem chave\n- Configure sua chave de API em Configurações > IA",
     "shortcutsContent": "G + letra — Ir para um módulo (ex.: G e depois F para Forge, G e depois Y para Sync, G e depois L para Ajuda)\nCtrl+K — Paleta de comandos\nEscape — Fechar modais e diálogos\nTab — Navegar entre elementos\nEnter/Espaço — Ativar botões e links",
     "faqContent": "P: Por que minha Pontuacao de Saude esta baixa?\nR: Verifique o uso de limites de API, jobs com falha e consumo de armazenamento. A pontuacao pondera multiplos fatores.\n\nP: Como corrigir erros de timeout?\nR: O SandForge não tem nenhuma configuração de tempo limite para as chamadas ao Salesforce. Reduza o tamanho do lote (sandforge.seed.defaultBatchSize e sandforge.sync.defaultBatchSize nas configurações do VS Code) e divida uma execução grande em várias menores. O Grappe não deixa uma execução mais rápida: ele informa o progresso por partição.\n\nP: Posso desfazer uma operação de sync?\nR: Não. Uma execução de sync não pode ser revertida. Antes de uma execução arriscada, faça um backup DataOps da org de destino: ele cobre Account e Contact e só é restaurado nessa org.\n\nP: Como conectar uma org de producao com seguranca?\nR: As orgs de producao sao detectadas automaticamente e marcadas com nivel de seguranca Critico. Todas as operacoes destrutivas requerem confirmacao.",
@@ -1380,7 +1356,6 @@
     "aiTab": "IA",
     "recordIdPlaceholder": "ID do registro ou URL do Salesforce",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
-    "aiPlaceholder": "Descreva quais dados você quer clonar...",
     "depth": "Profundidade",
     "depthDirect": "Somente diretos",
     "depthFull": "Árvore completa",
@@ -1472,8 +1447,9 @@
     "sameOrgWarning": "Origem e destino devem ser orgs diferentes",
     "hintNoSource": "Selecione uma org de origem",
     "hintNoTarget": "Selecione uma org de destino",
-    "hintNoInput": "Insira um ID de registro, consulta ou prompt",
+    "hintNoInput": "Insira um ID de registro ou uma consulta, ou escolha um modelo",
     "hintSameOrg": "Origem e destino devem ser diferentes",
+    "hintSoqlFilterRefused": "Encurte ou reescreva a cláusula WHERE para descobrir o grafo",
     "depthDirectTooltip": "Somente objetos filhos diretamente relacionados (1 nível)",
     "depthFullTooltip": "Árvore de dependências completa — todos os níveis",
     "depthCustomTooltip": "Especifique a profundidade máxima de relacionamento",
@@ -1540,8 +1516,9 @@
       "step4": "Ajuste profundidade, limite de registros e anonimização",
       "step5": "Execute para sua sandbox — os IDs são remapeados"
     },
-    "soqlUnscopedWarnTitle": "Sua cláusula WHERE não é aplicada.",
-    "soqlUnscopedWarnBody": "O SandForge lê apenas o nome do objeto após FROM. Os registros vêm da tabela inteira, e cada objeto relacionado do grafo é clonado da mesma forma — limitado a {{cap}} registros por objeto nesta execução.",
+    "soqlUnscopedWarnTitle": "Sua cláusula WHERE filtra apenas {{object}}.",
+    "soqlUnscopedWarnBody": "Os objetos relacionados não são limitados aos registros que ela seleciona: cada um é lido da tabela inteira. Cada objeto é limitado a {{cap}} registros nesta execução.",
+    "soqlFilterRefused": "Esta cláusula WHERE não pode ser aplicada. Ela deve ter no máximo 512 caracteres, não conter --, /* nem */ (nem mesmo dentro de um valor entre aspas) e não terminar com ponto e vírgula.",
     "idMapping": {
       "title": "Mapeamento de Ids",
       "subtitle": "{{count}} registros criados. Id de origem à esquerda, novo Id na org de destino à direita.",
@@ -1595,6 +1572,68 @@
       "statusSuccess": "Bem-sucedida",
       "statusPartial": "Parcial",
       "statusFailure": "Falhou"
+    },
+    "error": {
+      "duplicateValue": {
+        "explanation": "Já existe na org de destino um registro com o mesmo valor único, muitas vezes clonado por uma execução anterior.",
+        "action": "Exclua os registros criados pela execução anterior, ou execute a clonagem pela linha de comando com --upsert, que atualiza por ID externo quando o objeto tem um."
+      },
+      "invalidCrossReferenceKey": {
+        "explanation": "Uma pesquisa aponta para um registro que não existe na org de destino, muitas vezes um usuário como o proprietário.",
+        "action": "Crie ou associe o registro referenciado na org de destino, ou deixe a pesquisa vazia e preencha-a depois da clonagem."
+      },
+      "requiredFieldMissing": {
+        "explanation": "Um campo obrigatório está sem valor: {{detail}}.",
+        "action": "Ative “Buscar pais automaticamente”, ou aumente a profundidade para que o pai obrigatório faça parte da clonagem."
+      },
+      "invalidPicklist": {
+        "explanation": "Um valor de lista de opções da origem não existe na lista da org de destino.",
+        "action": "Adicione o valor à lista de opções no Setup da org de destino, ou altere o valor no registro de origem."
+      },
+      "invalidFieldForInsert": {
+        "explanation": "Um campo não pode ser definido na criação: é calculado, está oculto pela segurança em nível de campo ou não existe na org de destino.",
+        "action": "Verifique a segurança em nível de campo do seu usuário na org de destino e compare o campo entre as duas orgs."
+      },
+      "fieldIntegrity": {
+        "explanation": "O Salesforce rejeitou o registro por uma regra de integridade: {{detail}}.",
+        "action": "Leia o detalhe: o Salesforce costuma indicar o campo ou a regra envolvidos."
+      },
+      "cannotInsertEntity": {
+        "explanation": "O Salesforce não aceita novos registros deste objeto (objeto de histórico, auditoria ou sistema).",
+        "action": "Exclua este objeto da clonagem."
+      },
+      "insufficientAccess": {
+        "explanation": "Seu usuário na org de destino não tem o acesso que esta gravação exige.",
+        "action": "Peça a permissão que falta a um administrador, ou conecte a org de destino com um usuário que a tenha."
+      },
+      "storageLimit": {
+        "explanation": "A org de destino não tem mais espaço de armazenamento de dados.",
+        "action": "Exclua da org de destino os registros de que não precisa mais e execute de novo."
+      },
+      "invalidType": {
+        "explanation": "Este objeto não existe na org de destino, ou seu usuário não consegue vê-lo.",
+        "action": "Compare os esquemas das duas orgs, ou exclua este objeto da clonagem."
+      },
+      "notFound": {
+        "explanation": "O Salesforce não encontrou o registro ou recurso solicitado.",
+        "action": "Verifique o ID do registro e se ele pertence à org de origem."
+      },
+      "stringTooLong": {
+        "explanation": "Um valor excede o tamanho permitido pelo campo: {{detail}}.",
+        "action": "Encurte o valor de origem, ou dê ao campo o mesmo tamanho nas duas orgs."
+      },
+      "cycleFkUnresolved": {
+        "explanation": "O campo '{{fieldName}}' aponta para um pai que não foi clonado (ID de origem {{sourceRefId}}), então o registro foi criado sem esse vínculo.",
+        "action": "Aumente a profundidade para incluir o pai, ou preencha o campo manualmente depois."
+      },
+      "outOfScope": {
+        "explanation": "Nenhum dos registros pai deste objeto faz parte da clonagem, e ele não é o objeto raiz, então nenhum de seus registros foi clonado.",
+        "action": "Aumente a profundidade se precisar de registros deste objeto na clonagem."
+      },
+      "unknown": {
+        "explanation": "{{detail}}",
+        "action": "Consulte este código de erro na documentação do Salesforce."
+      }
     }
   },
   "autopilot": {
@@ -1880,7 +1919,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "O Grappe precisa de sandforge.grappe.enabled. Uma execução de Seed acima do limite de registros passa a informar cada partição ao concluí-la, um Sync informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim.",
+    "emptyDesc": "O Grappe precisa de sandforge.grappe.enabled. Uma execução de Seed acima do limite de registros passa a informar cada partição ao concluí-la, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim.",
     "active": "Grappe",
     "completed": "Concluído",
     "partitions": "Partições",
@@ -1930,9 +1969,6 @@
       "validProfile": "Perfil válido",
       "invalidProfile": "Perfil inválido"
     }
-  },
-  "scheduler": {
-    "comingSoon": "Disponível na v1.2"
   },
   "governance": {
     "title": "Governança da org",

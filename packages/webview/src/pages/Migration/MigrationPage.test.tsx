@@ -347,6 +347,17 @@ describe('MigrationPage — running an imported config', () => {
     expect(screen.getByTestId('migration-run-hint')).toBeDefined();
   });
 
+  it('does not promise a read-only page while it offers to run the import', () => {
+    render(<MigrationPage />);
+
+    expect(screen.getByTestId('migration-run-btn')).toBeDefined();
+    const page = screen.getByTestId('migration-page').textContent ?? '';
+    // The subtitle said nothing is written, above a button that writes the
+    // converted configuration's records into the target org.
+    expect(page).not.toMatch(/nothing is written|not executed|only read/i);
+    expect(page).toMatch(/writes records to the target org/i);
+  });
+
   it('renders nothing about the outcome before the run answers', () => {
     render(<MigrationPage />);
     expect(screen.queryByTestId('migration-run-result')).toBeNull();

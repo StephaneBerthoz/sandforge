@@ -58,7 +58,7 @@ export interface MonitorOpsServices {
    * Return a cached /limits response or fetch a fresh one.
    *
    * Keyed by orgId with a 30-second TTL so that within a single refresh
-   * cycle, refresh, health-score, and api-usage handling share one
+   * cycle, refresh and api-usage handling share one
    * API call instead of each requesting /limits independently.
    */
   getOrFetchLimits: (orgId: string, conn: Connection) => Promise<RawLimitsResponse>;
@@ -312,7 +312,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       conn,
       `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`,
     );
-    checkApiLimits(conn.limitInfo, 'monitor:health-score asyncJobs');
+    checkApiLimits(conn.limitInfo, 'monitor:refresh asyncJobs');
     return records.map((r) => ({
       id: r.Id,
       jobType: (r.JobType ?? 'Batch') as JobInfo['jobType'],

@@ -30,10 +30,9 @@ export interface OrgHealthSummary {
 /**
  * Fetches the org health figures the Home dashboard displays.
  *
- * Uses the single `monitor:refresh` -> `monitor:data` round trip rather than
- * the narrower `monitor:health-score` / `monitor:api-usage` pair: one request
+ * Uses the single `monitor:refresh` -> `monitor:data` round trip: one request
  * carries the health score *and* the limits array, so Home costs the host one
- * call instead of two. Every field is `null` until a response lands, so the
+ * call. Every field is `null` until a response lands, so the
  * caller can render a placeholder instead of a fabricated zero.
  */
 export function useOrgHealthSummary(orgId: string | null): OrgHealthSummary {

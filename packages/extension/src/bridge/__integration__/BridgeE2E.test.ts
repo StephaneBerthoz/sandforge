@@ -295,8 +295,8 @@ describe('Bridge E2E Integration', () => {
     });
   });
 
-  describe('pipeline:run flow', () => {
-    it('should route pipeline:run and emit step progress', async () => {
+  describe('pipeline:execute flow', () => {
+    it('should route pipeline:execute and emit step progress', async () => {
       const handler = vi.fn().mockImplementation(async () => {
         broker.postToWebview(
           createMessage('operation:started', {
@@ -331,10 +331,10 @@ describe('Bridge E2E Integration', () => {
         );
       });
 
-      router.route('pipeline:run', handler);
+      router.route('pipeline:execute', handler);
 
       mockPanel.simulateWebViewMessage(
-        createMessage('pipeline:run', {
+        createMessage('pipeline:execute', {
           pipelineId: 'pip-1',
         }),
       );

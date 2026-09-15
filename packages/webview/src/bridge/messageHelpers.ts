@@ -1,14 +1,13 @@
 import type { BaseMessage } from '@sandforge/shared';
 
-let counter = 0;
-
-/** Reset counter (for tests). */
-export function resetMessageCounter(): void {
-  counter = 0;
-}
-
 /**
- * Build a typed BaseMessage with an auto-generated id and current timestamp.
+ * Build a typed BaseMessage with a random id and current timestamp.
+ *
+ * The id is random rather than a time and a counter: each panel runs its own
+ * copy of this module and every reply reaches every panel, so two panels that
+ * sent in the same millisecond used to mint the same id and could take each
+ * other's answers — and a sync whose id repeats is refused as a duplicate.
+ *
  * @param type - Message type string (e.g., 'org:list', 'settings:update').
  * @param payload - Optional payload to attach to the message.
  */
@@ -17,7 +16,7 @@ export function buildMessage<P = undefined>(
   ...args: P extends undefined ? [] : [payload: P]
 ): BaseMessage & (P extends undefined ? object : { payload: P }) {
   const msg: BaseMessage = {
-    id: `wv-${Date.now()}-${++counter}`,
+    id: `wv-${crypto.randomUUID()}`,
     type,
     timestamp: Date.now(),
   };

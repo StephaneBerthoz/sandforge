@@ -214,9 +214,20 @@ export class BackgroundOperationRegistry {
   }
 
   /**
-   * Clear all operations and listeners.
+   * Abort every running operation, then clear all operations and listeners.
+   *
+   * Runs when the extension is disposed. Clearing the maps alone left a sync
+   * or seed still writing to the org after the window closed or the extension
+   * reloaded, with nothing left to report it. No lifecycle event is emitted:
+   * the listeners are notification and panel wiring that is being torn down
+   * in the same pass.
    */
   dispose(): void {
+    for (const operation of this.operations.values()) {
+      if (operation.status === 'running') {
+        operation.abortController.abort();
+      }
+    }
     this.operations.clear();
     this.listeners.clear();
   }

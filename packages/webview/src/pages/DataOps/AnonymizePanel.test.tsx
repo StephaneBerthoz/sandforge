@@ -115,6 +115,13 @@ describe('AnonymizePanel', () => {
     expect(screen.getByText('J***')).toBeDefined();
   });
 
+  it('should disable Create Template and say it is coming when nothing handles it', () => {
+    render(<AnonymizePanel templates={templates} />);
+    const button = screen.getByTestId('create-template-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe('Coming soon');
+  });
+
   it('should call onCreateTemplate', () => {
     const onCreate = vi.fn();
     render(<AnonymizePanel onCreateTemplate={onCreate} />);

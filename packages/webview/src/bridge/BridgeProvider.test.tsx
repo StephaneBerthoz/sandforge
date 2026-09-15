@@ -7,7 +7,6 @@ import { useNotificationStore } from '../stores/useNotificationStore';
 import i18n from '../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
-import { resetMessageCounter } from './messageHelpers';
 import { answerCapturedLocaleRequests } from '../i18n/testing/mockLocaleBridge';
 
 const mockPostMessage = vi.fn();
@@ -52,7 +51,6 @@ function createTestOrg(id: string): SalesforceOrg {
 
 describe('BridgeProvider', () => {
   beforeEach(() => {
-    resetMessageCounter();
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [], selectedOrgId: null, isConnecting: false });
     useAppStore.setState({ extensionReady: false, isLoading: false });
@@ -386,11 +384,19 @@ describe('BridgeProvider', () => {
     expect(useAppStore.getState().isLoading).toBe(false);
   });
 
-  it('should still surface a resolution pushed by the extension', () => {
+  it('should leave the fix suggestion to the host, not toast it once per panel', () => {
+    // The host shows the suggestion as one VS Code notification. A panel that
+    // also toasted a pushed resolution put the same text on screen once per
+    // open panel.
     render(
-      <BridgeProvider>
-        <div />
-      </BridgeProvider>,
+      <>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+      </>,
     );
 
     fireMessage({
@@ -407,20 +413,11 @@ describe('BridgeProvider', () => {
       },
     });
 
-    const notifications = useNotificationStore.getState().notifications;
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toBe('Wait a moment and retry.');
+    expect(useNotificationStore.getState().notifications).toHaveLength(0);
   });
 
   describe('AI availability', () => {
-    /** Outbound message types sent since the provider mounted. */
-    function sentTypes(): string[] {
-      return mockPostMessage.mock.calls.map(
-        (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
-      );
-    }
-
-    it('stops resolving failures with the model once the host says AI is off', () => {
+    it('follows the availability the host pushes, on and then off', () => {
       render(
         <BridgeProvider>
           <div />
@@ -433,37 +430,17 @@ describe('BridgeProvider', () => {
         id: 'ai-status-1',
         type: 'ai:status:response',
         timestamp: Date.now(),
-        payload: {
-          enabled: true,
-          provider: 'anthropic',
-          model: 'm',
-          usage: { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
-        },
+        payload: { enabled: true, provider: 'anthropic', model: 'm' },
       });
       expect(useAppStore.getState().aiAvailable).toBe(true);
 
-      mockPostMessage.mockClear();
       fireMessage({
         id: 'ai-status-2',
         type: 'ai:status:response',
         timestamp: Date.now(),
-        payload: {
-          enabled: false,
-          provider: 'none',
-          model: '',
-          usage: { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
-        },
+        payload: { enabled: false, provider: 'none', model: '' },
       });
       expect(useAppStore.getState().aiAvailable).toBe(false);
-
-      fireMessage({
-        id: 'ext-op-failed',
-        type: 'operation:failed',
-        timestamp: Date.now(),
-        payload: { operationId: 'op-1', error: 'boom', retryable: true },
-      });
-
-      expect(sentTypes()).not.toContain('ai:resolve-error');
     });
   });
 });

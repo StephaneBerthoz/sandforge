@@ -23,7 +23,12 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { extractRecordId, soqlHasWhereClause, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
+import {
+  extractRecordId,
+  soqlFilterRefused,
+  soqlRootFilter,
+  SOQL_UNSCOPED_RECORD_CAP,
+} from './forgeUtils';
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
@@ -35,6 +40,8 @@ interface TabConfig {
   icon: React.ReactNode;
   /** data-testid for the tab trigger. */
   testId: string;
+  /** Shown as coming soon and cannot be opened. */
+  comingSoon?: boolean;
 }
 
 /** Static tab configuration. */
@@ -52,7 +59,15 @@ const TABS: TabConfig[] = [
     icon: <Layers size={14} />,
     testId: 'forge-tab-template',
   },
-  { id: 'ai', labelKey: 'forge.aiTab', icon: <Sparkles size={14} />, testId: 'forge-tab-ai' },
+  /* Nothing turns a prompt into a seed plan yet: discovery resolves a root
+     object from a record id or a query only, and refuses this mode. */
+  {
+    id: 'ai',
+    labelKey: 'forge.aiTab',
+    icon: <Sparkles size={14} />,
+    testId: 'forge-tab-ai',
+    comingSoon: true,
+  },
 ];
 
 /**
@@ -85,6 +100,10 @@ export const ForgeInput: React.FC = () => {
     extractRecordId(form.recordId) === null;
   /** The CTA gate: everything `canDiscover` asks, plus a record id that parses. */
   const canDiscoverNow = form.canDiscover && !recordIdInvalid;
+  /** The object the SOQL query reads and the WHERE clause that will filter it. */
+  const soqlRoot = soqlRootFilter(form.soqlQuery);
+  /** The WHERE clause breaks the filter rules the extension checks before a run. */
+  const soqlWhereRefused = soqlFilterRefused(form.soqlQuery);
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -148,15 +167,22 @@ export const ForgeInput: React.FC = () => {
                     key={tab.id}
                     value={tab.id}
                     data-testid={tab.testId}
+                    disabled={tab.comingSoon}
                     className={cn(
                       'flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm transition-colors',
                       'text-text-muted hover:text-text-primary',
                       'data-[state=active]:text-forge data-[state=active]:border-b-2 data-[state=active]:border-forge',
                       'data-[state=active]:bg-surface-2',
+                      'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:text-text-muted',
                     )}
                   >
                     {tab.icon}
                     {t(tab.labelKey)}
+                    {tab.comingSoon && (
+                      <span className="rounded-full border border-subtle px-1.5 text-[10px] leading-4">
+                        {t('common.comingSoon')}
+                      </span>
+                    )}
                   </Tabs.Trigger>
                 ))}
               </Tabs.List>
@@ -170,7 +196,7 @@ export const ForgeInput: React.FC = () => {
                       type="text"
                       value={form.recordId}
                       onChange={(e) => form.handleRecordIdChange(e.target.value)}
-                      /* The SOQL and AI tabs launch discovery from the keyboard;
+                      /* The SOQL tab launches discovery from the keyboard;
                          the record tab — the one people actually paste into —
                          had no shortcut, so the flagship path forced a trip to
                          the mouse. Enter (bare or with Ctrl/Cmd) submits. */
@@ -262,17 +288,28 @@ export const ForgeInput: React.FC = () => {
                       'focus:outline-none focus:border-forge/50',
                     )}
                   />
-                  {/* The placeholder invites "SELECT Id, Name FROM Account WHERE ..."
-                      but only the FROM object survives parsing, so the filter is
-                      discarded and the clone is full-table. Say so rather than
-                      letting the user believe their filter applied. */}
-                  {soqlHasWhereClause(form.soqlQuery) && (
+                  {/* The WHERE clause filters the object after FROM, and nothing
+                      else: related objects are read from their whole tables. A
+                      user who wrote a filter would otherwise expect the whole
+                      graph to follow it. */}
+                  {soqlWhereRefused && (
+                    <div
+                      data-testid="forge-soql-filter-refused"
+                      role="alert"
+                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      {t('forge.soqlFilterRefused')}
+                    </div>
+                  )}
+                  {soqlRoot?.where && !soqlWhereRefused && (
                     <div
                       data-testid="forge-soql-where-warning"
                       role="status"
                       className="mt-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
                     >
-                      <strong className="font-semibold">{t('forge.soqlUnscopedWarnTitle')}</strong>{' '}
+                      <strong className="font-semibold">
+                        {t('forge.soqlUnscopedWarnTitle', { object: soqlRoot.objectApiName })}
+                      </strong>{' '}
                       {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
                     </div>
                   )}
@@ -289,30 +326,6 @@ export const ForgeInput: React.FC = () => {
                     selectedTemplate={form.selectedTemplate}
                     onSelectTemplate={form.setSelectedTemplate}
                     buildTemplateConfig={form.buildTemplateConfig}
-                  />
-                </Tabs.Content>
-
-                {/* AI tab */}
-                <Tabs.Content value="ai">
-                  <textarea
-                    data-testid="forge-input-ai"
-                    value={form.aiPrompt}
-                    onChange={(e) => form.setAiPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && form.canDiscover) {
-                        e.preventDefault();
-                        form.handleDiscover();
-                      }
-                    }}
-                    placeholder={t('forge.aiPlaceholder')}
-                    rows={4}
-                    className={cn(
-                      'w-full px-3 py-2 rounded-md text-sm resize-y',
-                      'bg-[var(--sf-bg-input)]',
-                      'text-[var(--sf-text-input)]',
-                      'border border-[var(--sf-border-input)]',
-                      'focus:outline-none focus:border-forge/50',
-                    )}
                   />
                 </Tabs.Content>
               </div>
@@ -422,7 +435,9 @@ export const ForgeInput: React.FC = () => {
                   ? t('forge.hintNoTarget')
                   : form.sameOrgSelected
                     ? t('forge.hintSameOrg')
-                    : t('forge.hintNoInput')}
+                    : form.whereClauseRefused
+                      ? t('forge.hintSoqlFilterRefused')
+                      : t('forge.hintNoInput')}
             </p>
           )}
 

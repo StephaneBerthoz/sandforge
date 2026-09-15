@@ -19,8 +19,9 @@ interface ErrorBoundaryState {
 }
 
 /**
- * Global error boundary that catches unhandled React errors
- * and renders a recovery UI instead of a white screen.
+ * Error boundary that catches unhandled React errors and renders a recovery
+ * UI instead of a white screen. Mounted at each root and, in a panel, around
+ * the routed page (keyed on the route) so a page crash leaves navigation up.
  */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {

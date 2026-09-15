@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
+import type { Connection } from 'jsforce';
 import { SchemaCache } from '../core/metadata/SchemaCache';
 import { TimeoutManager } from '../core/engine/TimeoutManager';
 import type { ObjectDescribe } from '../modules/forge/GraphDiscoveryService';
@@ -14,6 +15,66 @@ import {
   objectOfQuery,
   queryAllPages,
 } from '../modules/forge/queryAllPages.js';
+
+/**
+ * The part of an object describe that Forge reads, kept once per org and
+ * object. A raw jsforce describe carries labels, help text, URLs and every
+ * picklist entry; only this projection is held in the cache.
+ */
+interface ForgeObjectDescribe {
+  name: string;
+  /** False only when the org says so: jsforce omits the flag on some entities. */
+  createable: boolean;
+  fields: Array<{
+    name: string;
+    type: string;
+    createable: boolean;
+    nillable: boolean;
+    referenceTo: string[];
+    relationshipName: string | null;
+    cascadeDelete: boolean;
+    /** Active picklist values only. */
+    picklistValues: string[];
+    externalId: boolean;
+  }>;
+  childRelationships: Array<{
+    childSObject: string;
+    field: string;
+    relationshipName: string;
+    cascadeDelete: boolean;
+  }>;
+}
+
+/** Reduce a jsforce describe to {@link ForgeObjectDescribe}. */
+function toForgeObjectDescribe(
+  meta: Awaited<ReturnType<Connection['describe']>>,
+): ForgeObjectDescribe {
+  return {
+    name: meta.name,
+    // Default to true when jsforce omits the flag — only opt out when
+    // the org explicitly says false (read-only system entities).
+    createable: meta.createable !== false,
+    fields: meta.fields.map((f) => ({
+      name: f.name,
+      type: f.type,
+      createable: f.createable ?? false,
+      nillable: f.nillable ?? true,
+      referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+      relationshipName: f.relationshipName ?? null,
+      cascadeDelete: f.cascadeDelete === true,
+      picklistValues: (f.picklistValues ?? [])
+        .filter((p) => p?.active !== false && typeof p?.value === 'string')
+        .map((p) => p.value as string),
+      externalId: f.externalId === true,
+    })),
+    childRelationships: (meta.childRelationships ?? []).map((cr) => ({
+      childSObject: cr.childSObject,
+      field: cr.field,
+      relationshipName: cr.relationshipName ?? cr.field,
+      cascadeDelete: cr.cascadeDelete === true,
+    })),
+  };
+}
 
 /** Inputs required to wire the Forge orchestrator. */
 export interface ForgeCompositionDeps {
@@ -78,11 +139,17 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         // of the extension-host budget even for raw describes (~1-2 MB each
         // real heap → ~50-100 MB worst case), while still covering the
         // working set of a typical forge run (root + direct children BFS).
-        const describeCache = new SchemaCache<ObjectDescribe>({
+        //
+        // One describe per org and object serves discovery, the executor
+        // (source fields, target creatability, target fields for drift) and
+        // the drift check. Each of them used to send its own: a run described
+        // every object three to four times per org.
+        const describeCache = new SchemaCache<ForgeObjectDescribe>({
           defaultTtl: 5 * 60_000,
-          maxSize: 50,
+          maxSize: 100,
           maxSizeBytes: 200 * 1024 * 1024,
         });
+        const describesUnderWay = new Map<string, Promise<ForgeObjectDescribe>>();
         const describeGlobalCache = new SchemaCache<
           Array<{ name: string; keyPrefix: string | null }>
         >({
@@ -92,49 +159,84 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         });
         const sfTimeouts = new TimeoutManager(30_000);
 
+        /**
+         * The cached describe of `objectApiName` on `orgId`, fetched once.
+         *
+         * A caller that arrives while the same describe is under way waits for
+         * it rather than sending a second one. `stops` are checked once the
+         * connection is open, before the request goes out: jsforce cannot
+         * cancel a request it has sent, so that is the last point where a
+         * cancelled discovery or an expired timeout can still save the call.
+         * They are the caller's own and never cancel a describe another
+         * caller started.
+         */
+        const describeOnce = async (
+          orgId: string,
+          objectApiName: string,
+          stops: Array<AbortSignal | undefined> = [],
+        ): Promise<ForgeObjectDescribe> => {
+          const key = `${orgId}::${objectApiName}`;
+          const cached = describeCache.get(key);
+          if (cached) return cached;
+          const underWay = describesUnderWay.get(key);
+          if (underWay) return underWay;
+
+          const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+          for (const stop of stops) stop?.throwIfAborted();
+          // The same describe may have started or finished while the
+          // connection was opening.
+          const settled = describeCache.get(key) ?? describesUnderWay.get(key);
+          if (settled) return settled;
+
+          const request = conn
+            .describe(objectApiName)
+            .then((meta) => {
+              const described = toForgeObjectDescribe(meta);
+              describeCache.set(key, described);
+              return described;
+            })
+            .finally(() => describesUnderWay.delete(key));
+          describesUnderWay.set(key, request);
+          return request;
+        };
+
         const discoveryService = new GraphDiscoveryService({
-          describeObject: async (orgId, objectApiName) => {
-            const cacheKey = `${orgId}::${objectApiName}`;
-            const cached = describeCache.get(cacheKey);
-            if (cached) return cached;
-            const formatted = await sfTimeouts.withTimeout(
+          describeObject: (orgId, objectApiName, signal) =>
+            sfTimeouts.withTimeout(
               `describe:${objectApiName}`,
-              async () => {
-                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-                const meta = await conn.describe(objectApiName);
+              async (timeoutSignal): Promise<ObjectDescribe> => {
+                const described = await describeOnce(orgId, objectApiName, [signal, timeoutSignal]);
                 return {
-                  name: meta.name,
-                  fields: meta.fields.map((f) => ({
+                  name: described.name,
+                  fields: described.fields.map((f) => ({
                     name: f.name,
                     type: f.type,
-                    referenceTo: f.referenceTo ?? [],
-                    relationshipName: f.relationshipName ?? null,
-                    isMasterDetail: f.cascadeDelete === true,
+                    referenceTo: f.referenceTo,
+                    relationshipName: f.relationshipName,
+                    isMasterDetail: f.cascadeDelete,
                   })),
-                  childRelationships: (meta.childRelationships ?? []).map((cr) => ({
+                  childRelationships: described.childRelationships.map((cr) => ({
                     childSObject: cr.childSObject,
                     field: cr.field,
-                    relationshipName: cr.relationshipName ?? cr.field,
-                    isCascadeDelete: cr.cascadeDelete === true,
+                    relationshipName: cr.relationshipName,
+                    isCascadeDelete: cr.cascadeDelete,
                   })),
                 };
               },
               30_000,
-            );
-            describeCache.set(cacheKey, formatted);
-            return formatted;
-          },
-          queryCount: async (orgId, soql) => {
-            return sfTimeouts.withTimeout(
+            ),
+          queryCount: (orgId, soql, signal) =>
+            sfTimeouts.withTimeout(
               `queryCount`,
-              async () => {
+              async (timeoutSignal) => {
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                signal?.throwIfAborted();
+                timeoutSignal.throwIfAborted();
                 const result = await conn.query<{ expr0: number }>(soql);
                 return result.totalSize;
               },
               15_000,
-            );
-          },
+            ),
           detectPII: (fields) => {
             const result = piiDetector.detectPII(
               'unknown',
@@ -142,13 +244,15 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             );
             return result.piiFields.map((p) => p.fieldApiName);
           },
-          describeGlobal: async (orgId) => {
+          describeGlobal: async (orgId, signal) => {
             const cached = describeGlobalCache.get(orgId);
             if (cached) return cached;
             const result = await sfTimeouts.withTimeout(
               'describeGlobal',
-              async () => {
+              async (timeoutSignal) => {
                 const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                signal?.throwIfAborted();
+                timeoutSignal.throwIfAborted();
                 const r = await conn.describeGlobal();
                 return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
               },
@@ -233,28 +337,20 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             }));
           },
           describeFields: async (orgId, objectName) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const meta = await conn.describe(objectName);
-            return meta.fields.map((f) => ({
+            const described = await describeOnce(orgId, objectName);
+            return described.fields.map((f) => ({
               name: f.name,
               queryable: true,
-              createable: f.createable ?? false,
+              createable: f.createable,
               isReference: f.type === 'reference',
-              referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
-              nillable: f.nillable ?? true,
-              picklistValues: (f.picklistValues ?? [])
-                .filter((p) => p?.active !== false && typeof p?.value === 'string')
-                .map((p) => p.value as string),
-              externalId: f.externalId === true,
+              referenceTo: f.referenceTo,
+              nillable: f.nillable,
+              picklistValues: f.picklistValues,
+              externalId: f.externalId,
             }));
           },
-          isObjectCreatable: async (orgId, objectName) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const meta = await conn.describe(objectName);
-            // Default to true when jsforce omits the flag — only opt out when
-            // the org explicitly says false (read-only system entities).
-            return meta.createable !== false;
-          },
+          isObjectCreatable: async (orgId, objectName) =>
+            (await describeOnce(orgId, objectName)).createable,
           batchStrategy: batchStrategyService,
           anonymize: (records, objectApiName) => {
             return anonymizer.anonymizeRecords(
@@ -271,13 +367,12 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
 
         const metadataDiff = new ForgeMetadataDiff({
           describeObject: async (orgId, objectApiName) => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const meta = await conn.describe(objectApiName);
+            const described = await describeOnce(orgId, objectApiName);
             return {
-              fields: meta.fields.map((f) => ({
+              fields: described.fields.map((f) => ({
                 name: f.name,
                 type: f.type,
-                createable: f.createable ?? false,
+                createable: f.createable,
               })),
             };
           },

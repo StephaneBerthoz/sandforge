@@ -96,38 +96,19 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
   { channel: 'sync:config:load', reason: 'Same quartet — no page loads a saved sync config.' },
   { channel: 'sync:config:list', reason: 'Same quartet — no saved-config picker exists.' },
   { channel: 'sync:config:delete', reason: 'Same quartet — nothing can delete a saved config.' },
-  { channel: 'monitor:start', reason: 'MonitorPage polls via monitor:refresh only.' },
-  { channel: 'governance:policy:get', reason: 'The policy editor loads from the list response.' },
-  { channel: 'governance:policies:export', reason: 'No export control on the governance page.' },
-  { channel: 'governance:policies:import', reason: 'No import control on the governance page.' },
-  { channel: 'compare:start', reason: 'ComparePage runs everything through compare:execute.' },
-  { channel: 'dataops:backup', reason: 'Legacy alias of backup:execute, which is what UI sends.' },
-  {
-    channel: 'dataops:masking-templates-by-object',
-    reason: 'Per-object lookup never wired; the UI sends dataops:anonymization-templates.',
-  },
-  { channel: 'pipeline:run', reason: 'Legacy alias of pipeline:execute, which is what UI sends.' },
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
-  { channel: 'forge:target-preflight:request', reason: 'Forge v2 preflight panel not built.' },
   { channel: 'cache:get-stats', reason: 'The Settings cache section was removed; nothing reads.' },
   { channel: 'cache:invalidate-all', reason: 'Same removed section — nothing clears the cache.' },
-  {
-    channel: 'monitor:health-score',
-    reason: 'Home reads the score off monitor:data instead, at one round trip.',
-  },
   { channel: 'scheduler:list', reason: 'SchedulerPanel was removed; no UI enumerates schedules.' },
   { channel: 'scheduler:upsert', reason: 'Same panel — nothing creates or edits a schedule.' },
   { channel: 'scheduler:delete', reason: 'Same panel — nothing deletes a schedule.' },
   { channel: 'scheduler:toggle', reason: 'Same panel — nothing enables or pauses a schedule.' },
-  { channel: 'execution:status', reason: 'No page polls one execution; Seed aborts by id only.' },
-  { channel: 'execution:list', reason: 'Same — no page enumerates running executions.' },
   {
-    channel: 'execution:manual-retry',
-    reason: 'The retry panel was removed; the replay path stays reachable via sync:history:rerun.',
+    channel: 'realtime:status',
+    reason: 'NoOp CDC surface: the stores send start/stop/metrics and read status off them.',
   },
-  { channel: 'realtime:status', reason: 'CDC stores send start/stop/metrics; status is unused.' },
   {
     channel: 'operation:cancel',
     reason: 'Live Ops lists Seed and Sync runs, which stop on execution:abort instead.',
@@ -216,7 +197,8 @@ describe('consumed channels (consumption-side anti-drift)', () => {
     // 163 registered / 147 sent at introduction. A renamed helper or a
     // restructured registerAll must fail here rather than pass vacuously with
     // an empty extraction on either side.
-    expect(readRegisteredChannels().size).toBeGreaterThanOrEqual(150);
+    // 148 registered once the unsent aliases and dead backends left the registry.
+    expect(readRegisteredChannels().size).toBeGreaterThanOrEqual(140);
     expect(readSentChannels().size).toBeGreaterThanOrEqual(120);
   });
 
@@ -262,13 +244,19 @@ describe('consumed channels (consumption-side anti-drift)', () => {
  *   5.   `useMessageListener<T>('<channel>', handler)`
  *   6.   the `responseType:` / `errorType:` options of a bridge hook
  *
- * Hand-built `type: '<channel>'` envelopes are deliberately *not* read here:
- * that shape also matches local discriminated-union state that never touches
- * the bridge, and a false failure in a contract guard is worse than a gap.
- * The raw `sidebar:*` channels reach the host that way, and stay out of the
- * Zod union on purpose.
+ *   7.   hand-built `type: '<channel>'` envelopes, read only in a file that
+ *        posts one (`sendMessage(`, `postEnvelopedMessage(` or `postMessage(`)
  *
- * Deliberate exclusion: `*.test.*`, as above.
+ * Idiom 7 is scoped to posting files because the same `type:` shape also
+ * matches local discriminated-union state that never touches the bridge, and a
+ * false failure in a contract guard is worse than a gap. Reading it nowhere
+ * left the opposite gap: a page could post `{ type: 'x:y' }` for a channel the
+ * union does not declare, and only the host's run-time refusal, a
+ * `bridge:error`, would catch it.
+ *
+ * Deliberate exclusions: `*.test.*`, as above, and the raw `sidebar:*`
+ * channels, which reach the host as hand-built envelopes and stay out of the
+ * Zod union on purpose.
  */
 
 /** Matches `msg('x:y')` member declarations in bridge/messageSchemas.ts. */
@@ -279,6 +267,12 @@ const LISTENER_CALL_RE = /\buseMessageListener\s*(?:<[\s\S]*?>\s*)?\(/g;
 
 /** Idiom 6: the reply channels a bridge hook resolves or rejects on. */
 const RESPONSE_OPTION_RE = /\b(?:responseType|errorType):\s*'([^']+)'/g;
+
+/** A call that posts a message, which makes the file's `type:` fields idiom 7. */
+const POSTING_CALL_RE = /\b(?:sendMessage|postEnvelopedMessage|postMessage)\s*\(/;
+
+/** Raw sidebar channels, posted by hand and kept out of the union on purpose. */
+const RAW_SIDEBAR_PREFIX = 'sidebar:';
 
 /**
  * Channels the webview names that the protocol does not declare.
@@ -292,6 +286,14 @@ const RESPONSE_OPTION_RE = /\b(?:responseType|errorType):\s*'([^']+)'/g;
  */
 export const KNOWN_CONSUMED_GAPS: ReadonlyArray<{ channel: string; reason: string }> = [];
 
+/** The webview production tree, read once per call. */
+function webviewSources(): Array<{ file: string; src: string }> {
+  return walk(repoPath('webview', 'src')).map((file) => ({
+    file,
+    src: readFileSync(file, 'utf8'),
+  }));
+}
+
 /** Every `msg()` literal in the discriminated union. */
 function readDeclaredChannels(): Set<string> {
   const src = readFileSync(join(__dirname, '..', '..', 'bridge', 'messageSchemas.ts'), 'utf8');
@@ -304,7 +306,10 @@ function readDeclaredChannels(): Set<string> {
  * `inbound: false` drops idioms 5-6 and leaves only the sender idioms, which is
  * how the sanity test proves the inbound halves of the scan match something.
  */
-function readConsumedChannels(inbound = true): Map<string, string[]> {
+function readConsumedChannels(
+  inbound = true,
+  sources: ReadonlyArray<{ file: string; src: string }> = webviewSources(),
+): Map<string, string[]> {
   const consumed = new Map<string, string[]>();
   const record = (channel: string, file: string): void => {
     if (!CHANNEL_SHAPE_RE.test(channel)) return;
@@ -313,8 +318,7 @@ function readConsumedChannels(inbound = true): Map<string, string[]> {
     consumed.set(channel, origins);
   };
   const calls = inbound ? [SENDER_CALL_RE, LISTENER_CALL_RE] : [SENDER_CALL_RE];
-  for (const file of walk(repoPath('webview', 'src'))) {
-    const src = readFileSync(file, 'utf8');
+  for (const { file, src } of sources) {
     for (const re of calls) {
       for (const call of src.matchAll(re)) {
         const arg = firstArgument(src, call.index + call[0].length);
@@ -322,6 +326,11 @@ function readConsumedChannels(inbound = true): Map<string, string[]> {
       }
     }
     if (inbound) for (const option of src.matchAll(RESPONSE_OPTION_RE)) record(option[1], file);
+    if (POSTING_CALL_RE.test(src)) {
+      for (const field of src.matchAll(TYPE_FIELD_RE)) {
+        if (!field[1].startsWith(RAW_SIDEBAR_PREFIX)) record(field[1], file);
+      }
+    }
   }
   return consumed;
 }
@@ -355,6 +364,32 @@ describe('consumed channels (declaration guard)', () => {
       undeclared.push(`'${channel}' named in ${origins[0]}`);
     }
     expect(undeclared).toEqual([]);
+  });
+
+  it('fails on a hand-built envelope posting a channel the union does not declare', () => {
+    // A probe, not the tree: nothing in the webview posts an undeclared
+    // hand-built channel today, so only a synthetic file can show the guard
+    // would see one.
+    const declared = readDeclaredChannels();
+    const consumed = readConsumedChannels(true, [
+      {
+        file: 'probe/PostsByHand.tsx',
+        src: "sendMessage({ id: nextId(), type: 'probe:undeclared', timestamp: Date.now() });",
+      },
+    ]);
+    expect(consumed.has('probe:undeclared')).toBe(true);
+    expect(declared.has('probe:undeclared')).toBe(false);
+  });
+
+  it('does not read `type:` fields in a file that posts nothing, nor raw sidebar channels', () => {
+    const consumed = readConsumedChannels(true, [
+      { file: 'probe/LocalState.tsx', src: "setStep({ type: 'wizard:next' });" },
+      {
+        file: 'probe/Sidebar.tsx',
+        src: "vscodeApi.postMessage({ type: 'sidebar:navigate', payload: { route } });",
+      },
+    ]);
+    expect([...consumed.keys()]).toEqual([]);
   });
 
   it('keeps the known-gap allowlist honest', () => {

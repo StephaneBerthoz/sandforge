@@ -1,9 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import '../../i18n';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
+
+const { mockPostMessage } = vi.hoisted(() => ({ mockPostMessage: vi.fn() }));
+
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
+/** Deliver a message from the extension host to the panel's window. */
+function fromHost(data: Record<string, unknown>): void {
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: { timestamp: Date.now(), ...data } }));
+  });
+}
 
 const makeMockEntry = (
   id: string,
@@ -120,5 +139,59 @@ describe('SyncHistoryPanel', () => {
     });
     render(<SyncHistoryPanel />);
     expect(screen.getByTestId('refresh-btn')).toBeDefined();
+  });
+
+  it('fills the table when the extension answers the history request', () => {
+    // The store's message handler had no caller: the request went out, the
+    // answer arrived, and the panel stayed on its loading state.
+    render(<SyncHistoryPanel />);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-list',
+            type: 'sync:history:list:response',
+            timestamp: Date.now(),
+            payload: { entries: [makeMockEntry('h-1'), makeMockEntry('h-2')] },
+          },
+        }),
+      );
+    });
+
+    expect(useSyncHistoryStore.getState().entries).toHaveLength(2);
+    expect(useSyncHistoryStore.getState().loading).toBe(false);
+  });
+
+  it('saves an exported history and says where the file went', () => {
+    // The export's content and the save dialog's answer both arrive as host
+    // messages: without the panel passing them on, the export never reached
+    // the dialog and its outcome was never announced.
+    useSyncHistoryStore.setState({ pendingSaveId: null });
+    useNotificationStore.setState({ notifications: [] });
+    render(<SyncHistoryPanel />);
+    mockPostMessage.mockClear();
+
+    fromHost({
+      id: 'host-export',
+      type: 'sync:history:export:response',
+      payload: { data: 'id\n1', format: 'csv' },
+    });
+
+    const save = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: { id: string; type: string } }).payload)
+      .find((message) => message.type === 'file:save');
+    expect(save).toBeDefined();
+
+    fromHost({
+      id: 'host-save',
+      type: 'file:save:response',
+      correlationId: save?.id,
+      payload: { status: 'saved', path: '/home/user/sync-history.csv' },
+    });
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.level).toBe('success');
+    expect(notification?.message).toContain('/home/user/sync-history.csv');
   });
 });

@@ -36,7 +36,7 @@ export interface CoreServices {
   storage: StorageAdapter;
   /** Telemetry + structured logger facade. */
   telemetry: TelemetryAdapter;
-  /** jsforce gateway with concurrency gate + describe cache. */
+  /** Describe cache + concurrency gate. No production code reads it. */
   salesforce: SalesforceAdapter;
   /** Safe filesystem wrapper constrained to workspace root. */
   fs: FsAdapter;
@@ -141,7 +141,7 @@ export type Services = CoreServices & OrchestratorFactories;
  * Construction order is a pure DAG:
  *   telemetry (no deps)
  *     → storage (no deps)
- *       → salesforce (storage, telemetry)
+ *       → salesforce (no deps)
  *         → fs (telemetry)
  *           → orchestrator factories (capture the above)
  *
@@ -162,13 +162,13 @@ export function createServices(
   // (breadcrumbs / captureException) at the point of emission — read live so
   // toggling the setting takes effect without a reload. The operational Pino
   // logger (OutputChannel) is intentionally NOT gated.
-  const telemetry = new TelemetryAdapter(context, {
+  const telemetry = new TelemetryAdapter({
     ...opts,
     isEnabled: () =>
       vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
   });
   const storage = new StorageAdapter(context);
-  const salesforce = new SalesforceAdapter(storage, telemetry);
+  const salesforce = new SalesforceAdapter();
   const fs = new FsAdapter(telemetry);
 
   const readTokenBudget = (): number => {

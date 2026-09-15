@@ -118,7 +118,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // events (was a perf cliff on big graphs: 350 sequential postMessages
       // blocked the event loop for ~200ms for no useful UI feedback).
       options?.onProgress?.({
-        objectApiName: '__cache_replay__',
+        phase: 'cached',
         discoveredCount: cached.nodes.length,
         queueRemaining: 0,
       });

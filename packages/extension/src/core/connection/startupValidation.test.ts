@@ -6,7 +6,9 @@ import type { OrgManager } from './OrgManager';
 
 const mockGetJsforceConnection = vi.fn();
 
-vi.mock('./ConnectionHelper', () => ({
+vi.mock('./ConnectionHelper', async (importOriginal) => ({
+  // The real deadline helper: the sweep's bound on a silent org is under test.
+  withDeadline: (await importOriginal<typeof import('./ConnectionHelper')>()).withDeadline,
   getJsforceConnection: (...args: unknown[]) => mockGetJsforceConnection(...args),
 }));
 
@@ -109,5 +111,30 @@ describe('validateOrgsOnStartup', () => {
     }
     expect(byOrg.get('org-1')).toEqual(['expired']);
     expect(byOrg.get('org-2')).toEqual(['connected']);
+  });
+
+  it('does not let an org that never answers hold back the next one', async () => {
+    vi.useFakeTimers();
+    try {
+      const orgs = [makeOrg('org-1', 'hung'), makeOrg('org-2', 'good')];
+      const deps = makeDeps(orgs);
+      mockGetJsforceConnection
+        .mockReturnValueOnce(new Promise(() => undefined))
+        .mockResolvedValueOnce({});
+
+      const done = validateOrgsOnStartup(deps);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await done;
+
+      expect(mockGetJsforceConnection).toHaveBeenCalledTimes(2);
+      const calls = vi.mocked(deps.orgManager.updateStatus).mock.calls;
+      expect(calls).toEqual([
+        ['org-1', 'error'],
+        ['org-2', 'connected'],
+      ]);
+      expect(deps.log).toHaveBeenCalledWith(expect.stringMatching(/"hung".*did not finish/));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

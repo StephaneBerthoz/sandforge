@@ -12,7 +12,6 @@ import { readConfiguredLanguage } from './providers/webviewHtml';
 import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerTypes';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
-import { MaskingTemplateService } from './modules/dataops/templates/MaskingTemplateService';
 import { BackupRecordStore } from './modules/dataops/BackupRecordStore';
 import { CacheManager } from './core/cache/CacheManager';
 import { createServices } from './services.js';
@@ -39,6 +38,7 @@ import { registerModuleCommands } from './composition/commandsComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
+import { formatPinoLine } from './adapters/telemetry/formatPinoLine.js';
 
 let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
@@ -106,11 +106,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 1b. Composition root — wires core adapters (telemetry, storage, salesforce, fs)
   // and exposes orchestrator factories. Also kicks off SecretStorage migration.
-  // Pino (telemetry logger) is routed to the OutputChannel instead of stdout.
+  // Pino (telemetry logger) is routed to the OutputChannel instead of stdout,
+  // each JSON record rewritten in the channel's `[time] [LEVEL] message` form.
   const services = createServices(context, {
     pinoDestination: {
       write: (chunk: string): void => {
-        outputChannel.appendLine(chunk.replace(/\n$/, ''));
+        outputChannel.appendLine(formatPinoLine(chunk));
       },
     },
   });
@@ -133,14 +134,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // 3. Infrastructure services + background operation registry
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
     createBackgroundComposition({ services, configStore });
-  // Start connectivity probing so connectivity:status reflects reality and the
-  // offline queue can drain on reconnect. Stopped by offlineManager.dispose().
+  // Enable connectivity probing so the offline queue can drain on reconnect.
+  // The probe only ticks while an operation is queued or the network is down.
+  // Stopped by offlineManager.dispose().
   startOfflineProbing(offlineManager);
 
   // 4. Standalone services
   const pipelineMarketplace = new PipelineMarketplace();
   const liveOperationTracker = new LiveOperationTracker();
-  const maskingTemplateService = new MaskingTemplateService();
   const fsReader = {
     readFile: (filePath: string) => fs.readFile(filePath, 'utf-8'),
     statSize: async (filePath: string) => (await fs.stat(filePath)).size,
@@ -149,7 +150,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // 5. MessageBroker + MessageRouter + WebviewStateSync
   // Telemetry adapter is injected so envelope validation failures
   // emit bridge breadcrumbs + Pino warn entries for observability.
-  broker = new MessageBroker({ telemetry: services.telemetry });
+  broker = new MessageBroker({
+    telemetry: services.telemetry,
+    // A fix suggestion for a failed operation is shown here, once: posted to
+    // the webviews it was repeated in every open panel.
+    showFixSuggestion: ({ source, text }) => {
+      void vscode.window.showInformationMessage(
+        source === 'model'
+          ? vscode.l10n.t('SandForge: fix suggested by the AI model — {0}', text)
+          : vscode.l10n.t('SandForge: suggested fix for a known Salesforce error — {0}', text),
+      );
+    },
+  });
   router = new MessageRouter(broker);
   const stateSync = new WebviewStateSync(broker);
   log('MessageBroker + Router + StateSync wired.');
@@ -194,7 +206,6 @@ export function activate(context: vscode.ExtensionContext): void {
     migrationFileReader: fsReader,
     pipelineMarketplace,
     liveOperationTracker,
-    maskingTemplateService,
     backupRecordStore,
   });
   // Replays operations queued on transport failure once connectivity returns
@@ -256,13 +267,17 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.createWebviewPanel(viewType, title, column, {
         enableScripts: options.enableScripts,
         retainContextWhenHidden: options.retainContextWhenHidden,
-        localResourceRoots: [context.extensionUri],
+        // The manager narrows the roots to webview-dist; it builds them with
+        // vscode.Uri.joinPath, passed just below.
+        localResourceRoots: options.localResourceRoots as readonly vscode.Uri[] | undefined,
       }),
     context.extensionUri,
     vscode.Uri.joinPath as UriJoinPath,
     // Same settings closure the sidebar gets (step 10) — the panel shell needs
     // it for `<html lang>` on first paint.
     () => readConfiguredLanguage(configStore.getByCategory('settings')),
+    // Editor display language, for the `auto` language setting.
+    () => vscode.env.language,
   );
 
   // 9b. Background-operation lifecycle -> stateSync + native notifications
@@ -313,6 +328,7 @@ export function activate(context: vscode.ExtensionContext): void {
     () => selectedOrgId,
     // `<html lang>` on the sidebar shell — same closure the panels get.
     () => readConfiguredLanguage(configStore.getByCategory('settings')),
+    () => vscode.env.language,
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,
@@ -345,18 +361,35 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   }
 
-  // Opens an org's instance URL in the system browser. Called from the
-  // launcher dropdown (the sidebar relays `sidebar:openOrgInBrowser` with the
-  // org id); without an id (Command Palette) the user is told where to pick.
+  // Opens an org's instance URL in the system browser. The launcher dropdown
+  // passes the org id (the sidebar relays `sidebar:openOrgInBrowser`); from
+  // the Command Palette no id comes in, so the user picks the org here.
   const openOrgInBrowserCommand = vscode.commands.registerCommand(
     'sandforge.openOrgInBrowser',
-    (orgId?: string) => {
-      const org = typeof orgId === 'string' ? orgManager.getOrg(orgId) : undefined;
+    async (orgId?: string) => {
+      let org = typeof orgId === 'string' ? orgManager.getOrg(orgId) : undefined;
       if (!org) {
-        void vscode.window.showInformationMessage(
-          vscode.l10n.t('SandForge: pick an org in the launcher dropdown first.'),
+        const orgs = orgManager.getAllOrgs();
+        if (orgs.length === 0) {
+          void vscode.window.showInformationMessage(
+            vscode.l10n.t(
+              'SandForge: no org is registered yet — connect one from the Organizations page first.',
+            ),
+          );
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          orgs.map((candidate) => ({
+            label: candidate.alias,
+            description: candidate.username,
+            orgId: candidate.id,
+          })),
+          { placeHolder: vscode.l10n.t('Select the org to open in the browser') },
         );
-        return;
+        org = picked ? orgManager.getOrg(picked.orgId) : undefined;
+        if (!org) {
+          return;
+        }
       }
       // instanceUrl comes from stored org state, which is hand-editable and
       // also populated by an sfdx import, and `Uri.parse` accepts `javascript:`
@@ -439,6 +472,9 @@ export function activate(context: vscode.ExtensionContext): void {
     openOrgInBrowserCommand,
     statusBar,
     panelManager,
+    stateSync,
+    // Aborts operations still running, so a sync or seed stops writing when
+    // the extension goes away.
     { dispose: () => backgroundRegistry.dispose() },
     { dispose: unsubOrgChange },
     { dispose: () => orgManager.dispose() },

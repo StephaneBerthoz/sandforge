@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { useSyncHistoryStore } from './useSyncHistoryStore';
+import { useNotificationStore } from './useNotificationStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
@@ -17,7 +18,7 @@ vi.mock('../hooks/useVSCodeApi', () => ({
 interface PostedEnvelope {
   protocolVersion: number;
   correlationId?: string;
-  payload: { type: string; payload?: Record<string, unknown> };
+  payload: { id: string; type: string; payload?: Record<string, unknown> };
 }
 
 const makeMockEntry = (id: string): SyncHistoryEntry => ({
@@ -212,6 +213,85 @@ describe('useSyncHistoryStore', () => {
       expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
       expect(envelope.payload.type).toBe('sync:history:export');
       expect(envelope.payload.payload).toEqual({ format: 'csv', entryIds: ['h-1', 'h-2'] });
+    });
+  });
+
+  describe('what happened to an export', () => {
+    /** Hand the store an export and return the id of the file:save it sent. */
+    function exportAndGetSaveId(): string {
+      mockPostMessage.mockClear();
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'sync:history:export:response',
+        payload: { data: 'id\n1', format: 'csv' },
+      });
+      const sent = mockPostMessage.mock.calls
+        .map((c) => (c[0] as PostedEnvelope).payload)
+        .find((m) => m.type === 'file:save');
+      expect(sent).toBeDefined();
+      return sent!.id;
+    }
+
+    beforeEach(() => {
+      useNotificationStore.setState({ notifications: [] });
+    });
+
+    it('says where the export was saved', () => {
+      // The store sent file:save and nothing read the answer: a history export
+      // gave no word of where the file went, or that it was never written.
+      const id = exportAndGetSaveId();
+
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'file:save:response',
+        correlationId: id,
+        payload: { status: 'saved', path: '/home/user/sync-history.csv' },
+      });
+
+      const [notification] = useNotificationStore.getState().notifications;
+      expect(notification.level).toBe('success');
+      expect(notification.message).toContain('/home/user/sync-history.csv');
+    });
+
+    it('says why a refused save was not written', () => {
+      const id = exportAndGetSaveId();
+
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'file:save:response',
+        correlationId: id,
+        payload: { status: 'error', message: 'Invalid payload — content: too large' },
+      });
+
+      const [notification] = useNotificationStore.getState().notifications;
+      expect(notification.level).toBe('error');
+      expect(notification.message).toBe('Invalid payload — content: too large');
+    });
+
+    it('says nothing when the dialog is dismissed, and takes no later answer for that save', () => {
+      const id = exportAndGetSaveId();
+
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'file:save:response',
+        correlationId: id,
+        payload: { status: 'cancelled' },
+      });
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'file:save:response',
+        correlationId: id,
+        payload: { status: 'saved', path: '/late.csv' },
+      });
+
+      expect(useNotificationStore.getState().notifications).toHaveLength(0);
+    });
+
+    it('takes no answer to a save another screen asked for', () => {
+      exportAndGetSaveId();
+
+      useSyncHistoryStore.getState().handleMessage({
+        type: 'file:save:response',
+        correlationId: 'wv-limits-export',
+        payload: { status: 'saved', path: '/limits.csv' },
+      });
+
+      expect(useNotificationStore.getState().notifications).toHaveLength(0);
     });
   });
 });

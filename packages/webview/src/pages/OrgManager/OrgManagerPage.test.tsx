@@ -38,6 +38,17 @@ let mockDisconnectState = {
   reset: mockDisconnectReset,
 };
 
+const mockUpdateMutate = vi.fn();
+const mockUpdateReset = vi.fn();
+
+let mockUpdateState = {
+  mutate: mockUpdateMutate,
+  data: null as { orgs: SalesforceOrg[] } | null,
+  loading: false,
+  error: null as string | null,
+  reset: mockUpdateReset,
+};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => mockQueryState,
 }));
@@ -49,6 +60,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'org:disconnect') {
       return mockDisconnectState;
+    }
+    if (type === 'org:update') {
+      return mockUpdateState;
     }
     return {
       mutate: vi.fn(),
@@ -123,6 +137,13 @@ describe('OrgManagerPage', () => {
       loading: false,
       error: null,
       reset: mockDisconnectReset,
+    };
+    mockUpdateState = {
+      mutate: mockUpdateMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockUpdateReset,
     };
   });
 
@@ -459,6 +480,62 @@ describe('OrgManagerPage', () => {
       expect(mockConnectMutate).toHaveBeenCalledWith(
         expect.objectContaining({ authMethod: 'sfdx_import' }),
       );
+    });
+  });
+
+  describe('editing an org', () => {
+    const openEditAndSave = (alias: string): void => {
+      fireEvent.click(within(screen.getByTestId('org-card-org-1')).getByText('Edit'));
+      fireEvent.change(screen.getByTestId('edit-alias-input'), { target: { value: alias } });
+      fireEvent.click(screen.getByText('Save'));
+    };
+
+    it('should send org:update with the alias, colour and tags, and no safety tier', () => {
+      useOrgStore.setState({ orgs: [{ ...mockOrg, tags: ['dev'] }] });
+      render(<OrgManagerPage />);
+
+      openEditAndSave('QA sandbox');
+
+      expect(mockUpdateMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        alias: 'QA sandbox',
+        color: '#10B981',
+        tags: ['dev'],
+      });
+    });
+
+    it('should not rename the card before the host has saved the edit', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+
+      openEditAndSave('QA sandbox');
+
+      expect(useOrgStore.getState().orgs[0].alias).toBe('Dev Sandbox');
+    });
+
+    it('should keep the saved edit when the host answers and the org list arrives again', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      const { rerender } = render(<OrgManagerPage />);
+      openEditAndSave('QA sandbox');
+
+      const saved = { ...mockOrg, alias: 'QA sandbox' };
+      mockUpdateState = { ...mockUpdateState, data: { orgs: [saved] } };
+      rerender(<OrgManagerPage />);
+      expect(useOrgStore.getState().orgs[0].alias).toBe('QA sandbox');
+
+      mockQueryState = { ...mockQueryState, data: { orgs: [saved] } };
+      rerender(<OrgManagerPage />);
+      expect(useOrgStore.getState().orgs[0].alias).toBe('QA sandbox');
+      expect(screen.getByText('QA sandbox')).toBeDefined();
+    });
+
+    it('should say so when the host refuses the edit', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      mockUpdateState = { ...mockUpdateState, error: 'Unknown org: org-1' };
+      render(<OrgManagerPage />);
+
+      expect(screen.getByTestId('org-update-error').textContent).toContain('Unknown org: org-1');
+      expect(useOrgStore.getState().orgs[0].alias).toBe('Dev Sandbox');
     });
   });
 

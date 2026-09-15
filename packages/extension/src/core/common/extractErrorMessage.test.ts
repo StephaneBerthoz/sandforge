@@ -178,6 +178,35 @@ describe('extractErrorCode', () => {
     );
   });
 
+  it('reads a code that only a later segment of an aggregated line carries', () => {
+    // jsforce renders a message-only error without a code, so the first
+    // segment of a MULTIPLE_API_ERRORS line can have none.
+    expect(
+      extractErrorCode(
+        'Required fields are missing: [Name] | DUPLICATE_VALUE: duplicate value found',
+      ),
+    ).toBe('DUPLICATE_VALUE');
+  });
+
+  it('prefers the first code the caller can answer over an earlier unknown one', () => {
+    const line =
+      'SOMETHING_EXOTIC: odd | DUPLICATE_VALUE: duplicate value found | ' +
+      'STRING_TOO_LONG: too long (+2 more)';
+    const known = (code: string): boolean => code === 'DUPLICATE_VALUE';
+
+    expect(extractErrorCode(line, known)).toBe('DUPLICATE_VALUE');
+    // Nothing answerable: the first code still names the failure.
+    expect(extractErrorCode(line, () => false)).toBe('SOMETHING_EXOTIC');
+    expect(extractErrorCode(line)).toBe('SOMETHING_EXOTIC');
+  });
+
+  it('does not guess a code wrapped in prose', () => {
+    expect(extractErrorCode('The org answered DUPLICATE_VALUE for this row')).toBeUndefined();
+    expect(
+      extractErrorCode('Upsert failed, see DUPLICATE_VALUE: duplicate', () => true),
+    ).toBeUndefined();
+  });
+
   it('reads the lower_snake codes of the OAuth token endpoint', () => {
     expect(extractErrorCode('invalid_grant: expired authorization code')).toBe('invalid_grant');
   });

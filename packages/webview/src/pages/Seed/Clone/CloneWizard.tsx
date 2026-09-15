@@ -36,6 +36,8 @@ const INDEX_STEP: CloneStep[] = ['source', 'objects', 'preview', 'execute'];
 export interface CloneWizardProps {
   /** Callback when the user exits the clone flow (back to mode selector). */
   onBack: () => void;
+  /** Source org selected on open (Home's clone recommendation), if any. */
+  initialSourceOrgId?: string;
 }
 
 /**
@@ -45,13 +47,13 @@ export interface CloneWizardProps {
  * 3. Preview -- view record counts, insert order, sample data
  * 4. Execute & Results -- progress tracking and final results
  */
-export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack }) => {
+export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack, initialSourceOrgId }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const targetOrgId = selectedOrgId ?? '';
 
-  const clone = useClone(t, targetOrgId);
+  const clone = useClone(targetOrgId, initialSourceOrgId);
 
   const currentStepIndex = STEP_INDEX[clone.step];
 

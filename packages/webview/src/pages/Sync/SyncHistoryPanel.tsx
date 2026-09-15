@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { DataTable } from '../../components/ui/DataTable';
 import type { DataTableColumn } from '../../components/ui/DataTable';
 import { Pagination } from '../../components/ui/Pagination';
@@ -40,6 +41,16 @@ export const SyncHistoryPanel: React.FC = () => {
   const { t } = useTranslation();
   const { entries, loading, selectedEntry, fetchHistory, fetchDetail, exportHistory } =
     useSyncHistoryStore();
+
+  // The store reads the extension's answers through handleMessage, which had
+  // no caller: the list request went out and the table never filled, and an
+  // export's save was never announced.
+  const handleMessage = useSyncHistoryStore((s) => s.handleMessage);
+  useMessageListener('sync:history:list:response', handleMessage);
+  useMessageListener('sync:history:detail:response', handleMessage);
+  useMessageListener('sync:history:export:response', handleMessage);
+  useMessageListener('sync:history:error', handleMessage);
+  useMessageListener('file:save:response', handleMessage);
 
   useEffect(() => {
     fetchHistory();

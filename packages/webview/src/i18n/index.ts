@@ -254,22 +254,44 @@ function matchSupportedLanguage(tag: string): SupportedLanguage | undefined {
 }
 
 /**
+ * The editor display language the host announced in the shell
+ * (`window.__SANDFORGE_EDITOR_LANGUAGE__`, read from `vscode.env.language` and
+ * shape-checked there), or undefined outside the extension.
+ */
+function readAnnouncedEditorLanguage(): string | undefined {
+  try {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const announced = (window as { __SANDFORGE_EDITOR_LANGUAGE__?: unknown })
+      .__SANDFORGE_EDITOR_LANGUAGE__;
+    return typeof announced === 'string' && announced !== '' ? announced : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * First shipped locale the editor itself asks for, or undefined when none of
  * its preferred tags has a bundle.
  *
- * `navigator.languages` inside a VS Code webview is the Chromium/Electron
- * locale of the editor window, i.e. the OS display language. It is NOT
- * `vscode.env.language`: VS Code does not forward its "Configure Display
- * Language" override to webviews (microsoft/vscode#207071 and #207178, both
- * still open under #206547), and nothing the host injects into this document
- * carries it either — the only injected values are
- * `window.__SANDFORGE_MODULE__` and `<html lang>`, and the latter is stamped
- * with the *configured* SandForge language, which is exactly `en` when the
- * setting is left on `auto`. Covering the override needs the host to inject
- * `vscode.env.language`; until then this is the best signal available from
- * inside the webview, and it is right whenever the editor follows the OS.
+ * The display language the host announced comes first: it is
+ * `vscode.env.language`, so it carries a "Configure Display Language"
+ * override. VS Code does not forward that override to webviews
+ * (microsoft/vscode#207071 and #207178, both still open under #206547), which
+ * is why the host injects it. `navigator.languages` is only the fallback — it
+ * is the Chromium/Electron locale of the editor window, i.e. the OS display
+ * language — used when nothing was announced or the announced language has no
+ * bundle here.
  */
 function detectEditorLanguage(): SupportedLanguage | undefined {
+  const announced = readAnnouncedEditorLanguage();
+  if (announced !== undefined) {
+    const match = matchSupportedLanguage(announced);
+    if (match !== undefined) {
+      return match;
+    }
+  }
   try {
     if (typeof navigator === 'undefined') {
       return undefined;

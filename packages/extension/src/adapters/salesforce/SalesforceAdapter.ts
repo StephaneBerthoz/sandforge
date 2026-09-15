@@ -1,6 +1,4 @@
 import pLimit from 'p-limit';
-import type { StorageAdapter } from '../storage/StorageAdapter.js';
-import type { TelemetryAdapter } from '../telemetry/TelemetryAdapter.js';
 import { DescribeCache } from './DescribeCache.js';
 
 type LimitFunction = pLimit.Limit;
@@ -12,47 +10,23 @@ export interface SalesforceAdapterOptions {
 }
 
 /**
- * SalesforceAdapter — gateway for jsforce IO. Currently exposes the per-org
- * `DescribeCache` (which removes the repeat describe round-trips) and the
- * concurrency gate handle used for diagnostics.
+ * SalesforceAdapter — a per-org `DescribeCache` and a concurrency gate.
  *
- * IMPORTANT: this class is purely additive — callers are moved onto it module
- * by module rather than in one sweep, so nothing is migrated here.
+ * No production code reads it: Salesforce calls go through
+ * `getJsforceConnection` in the module that makes them, the gate wraps no
+ * call, and the Forge, AI tools and frozen-dataset describes each use their
+ * own `SchemaCache`. It holds no storage or telemetry handle.
  */
 export class SalesforceAdapter {
-  // Fields kept for the in-progress DI wiring.
-  // @ts-expect-error reserved for the DI wiring.
-  private readonly storage: StorageAdapter;
-  // @ts-expect-error reserved for the DI wiring.
-  private readonly telemetry: TelemetryAdapter;
   private readonly limiter: LimitFunction;
   /**
-   * Per-org `Describe` cache.
-   *
-   * Wraps `describeFields(orgId, object)` calls with a TTL+LRU cache so the
-   * Forge executor (which calls describes twice per object) and the
-   * metadata-drift permission diff path share a single warm cache.
-   *
-   * Exposed as a public field so callers that already hold a jsforce
-   * connection can route their describe through the cache:
-   *
-   * ```ts
-   * await services.salesforce.describeCache.getOrFetch(
-   *   orgId,
-   *   'Account',
-   *   () => conn.describe('Account'),
-   * );
-   * ```
+   * Per-org `Describe` cache (TTL + LRU). A caller that already holds a
+   * jsforce connection routes a describe through it with
+   * `describeCache.getOrFetch(orgId, 'Account', () => conn.describe('Account'))`.
    */
   public readonly describeCache: DescribeCache;
 
-  constructor(
-    storage: StorageAdapter,
-    telemetry: TelemetryAdapter,
-    opts?: SalesforceAdapterOptions,
-  ) {
-    this.storage = storage;
-    this.telemetry = telemetry;
+  constructor(opts?: SalesforceAdapterOptions) {
     this.limiter = pLimit(opts?.concurrency ?? 8);
     this.describeCache = new DescribeCache();
   }

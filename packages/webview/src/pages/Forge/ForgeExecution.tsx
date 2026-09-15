@@ -55,6 +55,7 @@ export const ForgeExecution: React.FC = () => {
   const addLogToStore = useForgeStore((s) => s.addLog);
   const clearLogs = useForgeStore((s) => s.clearLogs);
   const setResult = useForgeStore((s) => s.setResult);
+  const executionRequestId = useForgeStore((s) => s.executionRequestId);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
@@ -118,6 +119,19 @@ export const ForgeExecution: React.FC = () => {
       const data = event.data as Record<string, unknown> | undefined;
       if (!data) return;
 
+      // Every panel receives every forge message. Once the run's request id is
+      // known, a progress event, result or error correlated to another request
+      // belongs to another run: such an error used to mark this run aborted.
+      if (
+        typeof executionRequestId === 'string' &&
+        (data.type === 'forge:execute:response' ||
+          data.type === 'forge:execute:error' ||
+          data.type === 'forge:progress') &&
+        data.correlationId !== executionRequestId
+      ) {
+        return;
+      }
+
       // Terminal states. `forge:progress` alone cannot close the run: on a
       // backend failure it simply stops arriving, no node reaches a terminal
       // status, and mission control spins forever with no way out but Abort.
@@ -171,7 +185,7 @@ export const ForgeExecution: React.FC = () => {
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [graph, updateNodeStatus, setPhase, addLog, setResult, t]);
+  }, [graph, updateNodeStatus, setPhase, addLog, setResult, t, executionRequestId]);
 
   // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
   const kpis = useMemo(() => {

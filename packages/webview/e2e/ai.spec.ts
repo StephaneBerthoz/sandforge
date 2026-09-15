@@ -27,7 +27,7 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  *
  * Everything the panel receives afterwards (`ai:conversation:created`,
  * `ai:chat:response`, `ai:error`, `ai:conversation:loaded`,
- * `ai:resolve-error:response`) arrives through `useMessageListener`, which
+ * `operation:failed`) arrives through `useMessageListener`, which
  * dispatches on `type` alone and never inspects `correlationId` — those are
  * posted with `sendExtensionMessage` rather than dressed up as replies to a
  * request that was never made.
@@ -108,7 +108,7 @@ async function createConversation(page: Page, id: string, title: string): Promis
     type: 'ai:conversation:created',
     id: `evt-${id}`,
     payload: {
-      conversation: { id, title, updatedAt: new Date().toISOString(), messageCount: 0 },
+      conversation: { id, title, createdAt: new Date().toISOString() },
     },
   });
   await page.getByTestId(`conversation-item-${id}`).waitFor({ state: 'visible', timeout: 5000 });
@@ -179,8 +179,7 @@ test.describe('AI Module — Chat', () => {
         conversation: {
           id: 'conv-1',
           title: 'New Chat',
-          updatedAt: new Date().toISOString(),
-          messageCount: 0,
+          createdAt: new Date().toISOString(),
         },
       },
     });
@@ -374,9 +373,9 @@ test.describe('AI Module — Conversation management', () => {
  * The quarantined version "tested" this by typing the words "I got this error"
  * into the chat box, which posts `ai:chat` like any other sentence — it never
  * touched the resolver. The real surface is a failed operation: the extension
- * resolves it where it raises it and pushes the answer on
- * `ai:resolve-error:response`, which the page turns into a toast. The page
- * itself asks nothing, because `operation:failed` reaches every open panel.
+ * resolves it where it raises it and shows the suggestion once, as a VS Code
+ * notification. The page asks nothing and toasts nothing, because
+ * `operation:failed` reaches every open panel.
  */
 test.describe('AI Module — Error resolver', () => {
   test.beforeEach(async ({ page }) => {
@@ -399,7 +398,7 @@ test.describe('AI Module — Error resolver', () => {
     expect(await outgoing(page, 'ai:resolve-error')).toHaveLength(0);
   });
 
-  test('surfaces the suggested fix as a notification', async ({ page }) => {
+  test('leaves the suggested fix to the host instead of toasting it', async ({ page }) => {
     await sendExtensionMessage(page, {
       type: 'operation:failed',
       id: 'evt-op-failed-2',
@@ -419,10 +418,15 @@ test.describe('AI Module — Error resolver', () => {
       },
     });
 
-    const toasts = page.getByTestId('floating-toasts');
-    await expect(toasts).toContainText('AI Fix Suggestion', { timeout: 5000 });
-    await expect(toasts).toContainText(
-      'Grant Edit on Account to the integration profile, then retry.',
-    );
+    // Positive control: a message posted after the suggestion does toast, so
+    // the page has dispatched everything before it by the time it shows.
+    await sendExtensionMessage(page, {
+      type: 'bridge:error',
+      id: 'evt-bridge-error-1',
+      payload: { reason: 'unhandled-type', details: 'no handler for "control:after-fix"' },
+    });
+    await expect(page.getByText('no handler for "control:after-fix"')).toBeVisible();
+
+    await expect(page.getByText('Grant Edit on Account to the integration profile')).toHaveCount(0);
   });
 });

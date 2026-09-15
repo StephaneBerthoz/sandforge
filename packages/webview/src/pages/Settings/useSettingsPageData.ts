@@ -38,7 +38,6 @@ interface AIStatusResponse {
 interface TelemetryStatusResponse {
   enabled: boolean;
   eventCount: number;
-  bufferSize: number;
 }
 
 /** Telemetry toggle response shape (SettingsHandler.handleTelemetryToggle). */
@@ -133,9 +132,15 @@ export function useSettingsPageData(
     responseType: 'settings:response',
   });
 
-  /** AI status query. */
+  /**
+   * AI status query. The extension also pushes `ai:status:response` with no
+   * request behind it whenever the AI wiring changes; taken as the answer, a
+   * push landing between a refetch and its reply closed the query and the real
+   * reply was dropped.
+   */
   const aiStatusQuery = useBridgeQuery<AIStatusResponse>('ai:status', undefined, {
     responseType: 'ai:status:response',
+    acceptUncorrelated: false,
   });
 
   /** AI save key mutation. */

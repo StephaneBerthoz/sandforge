@@ -102,6 +102,8 @@ export interface SeedWizardState {
   elapsedMs: number;
   /** Step label reported by the extension, e.g. "Bulk insert Contact". */
   progressLabel: string | null;
+  /** Id of this wizard's running seed once it has reported progress, else null. */
+  operationId: string | null;
 
   /* Persona */
   /** Currently selected AI persona, or null. */

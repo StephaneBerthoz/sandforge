@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
+import { NL2SOQLReplySchema } from '@sandforge/shared';
 
 import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from './index.js';
 
@@ -40,7 +41,8 @@ describe('system prompt contracts', () => {
   });
 
   it('the NL2SOQL prompt asks for the fields NL2SOQL parses', () => {
-    const keys = new Set(parsedKeys('NL2SOQL.ts'));
+    // NL2SOQL reads its reply through this schema, so its keys are the parsed ones.
+    const keys = new Set(Object.keys(NL2SOQLReplySchema.shape));
     expect(keys.size).toBeGreaterThan(0);
     for (const key of keys) {
       expect(

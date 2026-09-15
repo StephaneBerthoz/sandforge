@@ -33,7 +33,7 @@
   "walkthrough.step.exploreSettings.title": "Ajustez vos paramètres",
   "walkthrough.step.exploreSettings.description": "Tailles de lots, garde-fous production, journal des contrôles de sécurité en mémoire et assistant IA.\n[Ouvrir les paramètres](command:sandforge.openSettings)",
   "config.title": "SandForge",
-  "config.telemetry.description": "Activer la télémétrie d'utilisation anonyme",
+  "config.telemetry.description": "Enregistrer localement les erreurs de l'extension pour le diagnostic. Rien n'est envoyé sur le réseau.",
   "config.orgs.validateOnStartup.description": "Valider les organisations enregistrées au démarrage et rafraîchir automatiquement les sessions expirées via la CLI sf",
   "config.seed.defaultBatchSize.description": "Taille de lot par défaut pour les opérations Seed",
   "config.sync.defaultBatchSize.description": "Taille de lot par défaut pour les opérations Sync",
@@ -46,7 +46,7 @@
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les opérations sur les orgs de production",
   "config.safety.auditLogging.description": "Enregistrer chaque décision de contrôle de sécurité de Production Guard dans un journal en mémoire (les 1000 dernières, pour cette session uniquement, jamais écrites sur disque).",
-  "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe). Seed signale chaque partition à sa fin dans la vue Grappe, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution.",
-  "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
+  "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe). À partir de sandforge.grappe.autoActivateThreshold enregistrements, Seed signale chaque partition à sa fin dans la vue Grappe, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution.",
+  "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed, sync et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
   "config.grappe.grappeSize.description": "Nombre d'enregistrements par partition de grappe."
 }

@@ -1,6 +1,6 @@
 /**
  * SmartAnonymizer applies anonymization rules to records using 10 methods.
- * PersonaRegistry provides cross-object coherent fake data via deterministic hashing.
+ * PersonaRegistry provides cross-object coherent fake data via keyed hashing.
  */
 
 import { createHmac, randomBytes } from 'node:crypto';
@@ -77,9 +77,32 @@ function keystream(key: string, seed: string, byteLength: number): Buffer {
   return Buffer.concat(blocks).subarray(0, byteLength);
 }
 
+/**
+ * A non-negative 31-bit integer drawn from HMAC-SHA256 of `seed` under `key`.
+ *
+ * Every value SmartAnonymizer invents is picked with one of these, so the pick
+ * cannot be recomputed from the original without the key.
+ */
+function keyedSeed(key: string, seed: string): number {
+  return createHmac('sha256', key).update(seed).digest().readUInt32BE(0) & 0x7fffffff;
+}
+
 /** Registry of deterministic fake personas for cross-object coherence. */
 export class PersonaRegistry {
   private readonly personas = new Map<string, AnonymizedPersona>();
+
+  /** HMAC key the persona picks are drawn with. See the constructor. */
+  private readonly key: string;
+
+  /**
+   * @param key - HMAC key for choosing a record's persona. When omitted, a
+   *   random per-instance key is generated: a record keeps its persona for the
+   *   life of the registry, and gets another one in the next run. Pass the same
+   *   key to get the same personas across runs.
+   */
+  constructor(key?: string) {
+    this.key = key ?? randomBytes(32).toString('hex');
+  }
 
   private readonly firstNames = [
     'Alex',
@@ -166,7 +189,10 @@ export class PersonaRegistry {
 
   /**
    * Get or create a persona for a source record ID.
-   * Deterministic hash ensures same persona for same ID.
+   *
+   * The pick is keyed: an unkeyed hash of the id gives every installation the
+   * same persona for the same record, so a fake name can be traced back to its
+   * record by anyone who can list candidate ids.
    * @param sourceRecordId - The Salesforce record ID
    * @returns A coherent fake persona
    */
@@ -176,7 +202,7 @@ export class PersonaRegistry {
       return existing;
     }
 
-    const hash = this.simpleHash(sourceRecordId);
+    const hash = keyedSeed(this.key, `persona:${sourceRecordId}`);
     const firstName = this.firstNames[hash % this.firstNames.length];
     const lastName = this.lastNames[(hash >> 8) % this.lastNames.length];
     const city = this.cities[(hash >> 16) % this.cities.length];
@@ -195,15 +221,6 @@ export class PersonaRegistry {
 
     this.personas.set(sourceRecordId, persona);
     return persona;
-  }
-
-  /** Simple deterministic hash for a string. */
-  private simpleHash(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash);
   }
 
   /** Get count of registered personas. */
@@ -229,16 +246,20 @@ export class SmartAnonymizer {
 
   /**
    * @param personaRegistry - Shared registry for cross-object coherent fakes.
-   * @param hashSalt - HMAC key for the `hash` method. When omitted, a random
-   *   per-instance key is generated: hashed values stay consistent within a run
-   *   (so foreign keys still join) but differ between runs. Pass an explicit
-   *   salt when you need the same input to map to the same output across runs.
-   *   There is deliberately no fixed default — a hardcoded key would make every
-   *   installation's digests interchangeable and reversible by lookup table.
+   *   When omitted, one keyed with the salt is created, so the same salt gives
+   *   the same personas. A registry passed in keeps its own key.
+   * @param hashSalt - HMAC key for every method that derives its output from
+   *   the value or the record id: `hash`, `shuffle`, `preserve_format` and the
+   *   `fake` fallback. When omitted, a random per-instance key is generated:
+   *   outputs stay consistent within a run (so foreign keys still join) but
+   *   differ between runs. Pass an explicit salt when you need the same input to
+   *   map to the same output across runs. There is deliberately no fixed
+   *   default — a hardcoded key would make every installation's outputs
+   *   interchangeable and reversible by lookup table.
    */
   constructor(personaRegistry?: PersonaRegistry, hashSalt?: string) {
-    this.personaRegistry = personaRegistry ?? new PersonaRegistry();
     this.hashSalt = hashSalt ?? randomBytes(32).toString('hex');
+    this.personaRegistry = personaRegistry ?? new PersonaRegistry(this.hashSalt);
   }
 
   /** Get the persona registry for inspection/testing. */
@@ -325,9 +346,12 @@ export class SmartAnonymizer {
     if (personaKey) {
       return persona[personaKey];
     }
-    // Fallback: return a deterministic fake based on field name + record ID
-    const hash = this.simpleHash(`${fieldApiName}:${recordId}`);
-    return `fake_${hash.toString(16).slice(0, 8)}`;
+    // Fallback: a fixed-width token keyed with the salt, so it cannot be
+    // matched back to a record id by recomputing it.
+    const token = createHmac('sha256', this.hashSalt)
+      .update(`fake:${fieldApiName}:${recordId}`)
+      .digest('hex');
+    return `fake_${token.slice(0, 8)}`;
   }
 
   /**
@@ -346,9 +370,9 @@ export class SmartAnonymizer {
    *
    * Keyed rather than a bare digest because the inputs are low-entropy PII —
    * an unkeyed hash of an email or a phone number is recovered by enumeration.
-   * `simpleHash` remains in use below for persona selection and format
-   * preservation, where the output is a freshly invented value rather than a
-   * transformation of the original and reversibility carries no disclosure risk.
+   * The same holds for every value invented from the original: a replacement
+   * that is a public function of the original can be checked against a list
+   * of candidates, so persona picks and format-preserving output are keyed too.
    */
   private applyHash(value: string): string {
     return createHmac('sha256', this.hashSalt).update(value).digest('hex').slice(0, 32);
@@ -382,9 +406,12 @@ export class SmartAnonymizer {
    * Preserve format: replace characters with same-type characters.
    * Digits become random digits, letters become random letters.
    * Keeps separators (spaces, dashes, dots, etc.) intact.
+   *
+   * The sequence is seeded with the salt: seeded from the value alone, a phone
+   * number or a national id is confirmed by running candidates through it.
    */
   private applyPreserveFormat(value: string): string {
-    let seed = this.simpleHash(value);
+    let seed = keyedSeed(this.hashSalt, `preserve_format:${value}`);
     return value
       .split('')
       .map((ch) => {
@@ -455,14 +482,5 @@ export class SmartAnonymizer {
       return `${words[0]} ...`;
     }
     return value.slice(0, Math.max(1, Math.ceil(value.length / 2)));
-  }
-
-  /** Simple deterministic hash for a string. */
-  private simpleHash(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash);
   }
 }

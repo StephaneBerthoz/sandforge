@@ -48,22 +48,22 @@ because it runs no branch at all.
 
 ### Triggers
 
-> **Coming soon:** only **Manual** triggering is wired to an executor as of v1.3.0. The Automation scheduler is currently a no-op, so pipelines always start by hand. The trigger types below describe the planned design.
+> **Coming soon:** only **Manual** triggering is wired to an executor. The Automation scheduler is a no-op, so pipelines always start by hand. The other trigger types below can be added, but nothing fires them; the panel marks each one coming soon.
 
-Configure how and when pipelines start:
+The Trigger Config Panel offers these trigger types:
 
 - **Manual** -- Run on demand from the UI
-- **Scheduled (Cron)** _(coming soon)_ -- Set a cron expression with timezone support
-- **Webhook** _(coming soon)_ -- Trigger from external systems
-- **File Watch** _(coming soon)_ -- Start when a file appears in a watched directory
-- **Record Change** _(coming soon)_ -- React to Salesforce data changes
-- **Pipeline Completion** _(coming soon)_ -- Chain pipelines by triggering on another pipeline's completion
+- **Schedule** _(coming soon)_ -- Takes a cron expression
+- **Event** _(coming soon)_
+- **Webhook** _(coming soon)_
+- **Sandbox Refresh** _(coming soon)_
+- **Deployment Complete** _(coming soon)_
 
 The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
 
 ### Scheduler
 
-> **Coming soon:** the scheduler backend is a no-op as of v1.3.0 — no pipeline runs on a timer yet. The calendar view below describes the planned design.
+> **Coming soon:** the scheduler backend is a no-op — no pipeline runs on a timer yet. The calendar view below describes the planned design.
 
 A calendar view showing scheduled pipeline runs:
 

@@ -62,10 +62,15 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
     <div className="flex flex-col gap-3" data-testid="anonymize-panel">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-text-primary">{t('dataops.anonymize')}</h2>
+        {/* No channel creates a template: the library is the set that ships.
+            Without a handler the button stays visible and says so, rather
+            than taking a click that does nothing. */}
         <Button
           variant="secondary"
           size="sm"
           onClick={onCreateTemplate}
+          disabled={!onCreateTemplate}
+          title={onCreateTemplate ? undefined : t('common.comingSoon')}
           data-testid="create-template-btn"
         >
           {t('dataops.createTemplate')}

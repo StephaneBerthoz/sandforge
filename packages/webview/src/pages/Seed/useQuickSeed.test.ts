@@ -16,25 +16,29 @@ let mockMutationState = {
   loading: false,
   error: null as string | null,
   reset: mockReset,
+  requestId: null as string | null,
 };
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => mockMutationState,
 }));
 
-/* Latest operation:progress event, as useOperationProgress hands it over. */
+/* operation:progress events by operationId, as useOperationProgress hands them over. */
 const progressStream = vi.hoisted(() => ({
-  latest: null as null | {
-    operationId: string;
-    percentage: number;
-    processedRecords: number;
-    totalRecords: number;
-    currentStep: string;
-  },
+  byId: new Map<
+    string,
+    {
+      operationId: string;
+      percentage: number;
+      processedRecords: number;
+      totalRecords: number;
+      currentStep: string;
+    }
+  >(),
 }));
 
 vi.mock('../../hooks/useOperationProgress', () => ({
-  useOperationProgress: () => ({ latest: progressStream.latest, getProgress: vi.fn() }),
+  useOperationProgress: () => ({ getProgress: (id: string) => progressStream.byId.get(id) }),
 }));
 
 const mockTemplate: SeedTemplate = {
@@ -80,8 +84,9 @@ describe('useQuickSeed', () => {
       loading: false,
       error: null,
       reset: mockReset,
+      requestId: null,
     };
-    progressStream.latest = null;
+    progressStream.byId.clear();
   });
 
   it('shows the progress the extension reports while the seed runs, not a fixed figure', () => {
@@ -90,14 +95,21 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    mockMutationState = { ...mockMutationState, loading: true };
-    progressStream.latest = {
+    mockMutationState = { ...mockMutationState, loading: true, requestId: 'op-1' };
+    progressStream.byId.set('op-1', {
       operationId: 'op-1',
       percentage: 60,
       processedRecords: 90,
       totalRecords: 150,
       currentStep: 'Insert Contact',
-    };
+    });
+    progressStream.byId.set('op-other', {
+      operationId: 'op-other',
+      percentage: 5,
+      processedRecords: 1,
+      totalRecords: 20,
+      currentStep: 'Insert Lead',
+    });
     rerender();
 
     expect(result.current.overallPercent).toBe(60);
@@ -113,7 +125,14 @@ describe('useQuickSeed', () => {
       result.current.startQuickSeed(mockTemplate, {});
     });
 
-    mockMutationState = { ...mockMutationState, loading: true };
+    mockMutationState = { ...mockMutationState, loading: true, requestId: 'op-1' };
+    progressStream.byId.set('op-other', {
+      operationId: 'op-other',
+      percentage: 70,
+      processedRecords: 14,
+      totalRecords: 20,
+      currentStep: 'Insert Lead',
+    });
     rerender();
 
     expect(result.current.overallPercent).toBe(0);
@@ -129,14 +148,14 @@ describe('useQuickSeed', () => {
     act(() => {
       result.current.execute();
     });
-    mockMutationState = { ...mockMutationState, loading: true };
-    progressStream.latest = {
+    mockMutationState = { ...mockMutationState, loading: true, requestId: 'op-1' };
+    progressStream.byId.set('op-1', {
       operationId: 'op-1',
       percentage: 100,
       processedRecords: 150,
       totalRecords: 150,
       currentStep: 'Insert Contact',
-    };
+    });
     rerender();
     expect(result.current.overallPercent).toBe(100);
 
@@ -152,19 +171,19 @@ describe('useQuickSeed', () => {
     act(() => {
       result.current.execute();
     });
-    mockMutationState = { ...mockMutationState, loading: true };
+    mockMutationState = { ...mockMutationState, loading: true, requestId: 'op-2' };
     rerender();
 
     expect(result.current.overallPercent).toBe(0);
     expect(result.current.objectProgress.map((o) => o.completed)).toEqual([0, 0]);
 
-    progressStream.latest = {
+    progressStream.byId.set('op-2', {
       operationId: 'op-2',
       percentage: 20,
       processedRecords: 30,
       totalRecords: 150,
       currentStep: 'Insert Account',
-    };
+    });
     rerender();
     expect(result.current.overallPercent).toBe(20);
   });

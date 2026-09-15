@@ -39,10 +39,13 @@ export function postEnvelopedMessage(message: BaseMessage, api: VSCodeApi = getV
  *
  * @param type - Message type string (e.g., 'sync:history:list').
  * @param args - Optional payload, same convention as {@link buildMessage}.
+ * @returns The id of the posted message: its answer carries it as correlationId.
  */
 export function sendBridgeMessage<P = undefined>(
   type: string,
   ...args: P extends undefined ? [] : [payload: P]
-): void {
-  postEnvelopedMessage(buildMessage<P>(type, ...args));
+): string {
+  const message = buildMessage<P>(type, ...args);
+  postEnvelopedMessage(message);
+  return message.id;
 }

@@ -54,11 +54,16 @@ vi.mock('vscode', () => ({
     createOutputChannel: vi.fn(() => mockOutputChannel),
     registerWebviewViewProvider: vi.fn(() => mockDisposable),
     createStatusBarItem: vi.fn(() => ({ ...mockStatusBarItem })),
-    createWebviewPanel: vi.fn(() => ({ ...mockWebviewPanel, onDidDispose: vi.fn() })),
+    createWebviewPanel: vi.fn(() => ({
+      ...mockWebviewPanel,
+      onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+      onDidChangeViewState: vi.fn(() => ({ dispose: vi.fn() })),
+    })),
     createTreeView: vi.fn(() => ({ ...mockTreeView })),
     registerTreeDataProvider: vi.fn(() => mockDisposable),
     showInformationMessage: vi.fn().mockResolvedValue(undefined),
     showErrorMessage: vi.fn().mockResolvedValue(undefined),
+    showQuickPick: vi.fn().mockResolvedValue(undefined),
   },
   commands: {
     registerCommand: vi.fn((command: string, callback: (...args: unknown[]) => unknown) => {
@@ -101,6 +106,8 @@ vi.mock('vscode', () => ({
 
 import { activate, deactivate, buildStatusBarLabel } from './extension';
 import { OrgManager } from './core/connection/OrgManager';
+import { WebviewStateSync } from './bridge/WebviewStateSync';
+import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
 import { MODULE_COMMANDS } from './composition/moduleCommands';
 import type { SidebarViewProvider } from './providers/SidebarViewProvider';
 import type { StatusBarOrg } from './extension';
@@ -255,9 +262,78 @@ describe('extension', () => {
     const orgWith = (instanceUrl: string) =>
       ({ id: 'org-1', alias: 'Acme', instanceUrl }) as unknown as ReturnType<OrgManager['getOrg']>;
     let getOrg: MockInstance<OrgManager['getOrg']> | undefined;
+    let getAllOrgs: MockInstance<OrgManager['getAllOrgs']> | undefined;
 
     afterEach(() => {
       getOrg?.mockRestore();
+      getAllOrgs?.mockRestore();
+      getOrg = undefined;
+      getAllOrgs = undefined;
+    });
+
+    const registered = [
+      {
+        id: 'org-1',
+        alias: 'Acme',
+        username: 'admin@acme.test',
+        instanceUrl: 'https://acme.my.salesforce.com',
+      },
+      {
+        id: 'org-2',
+        alias: 'Globex',
+        username: 'admin@globex.test',
+        instanceUrl: 'https://globex.my.salesforce.com',
+      },
+    ] as unknown as ReturnType<OrgManager['getAllOrgs']>;
+
+    function stubRegisteredOrgs(orgs: ReturnType<OrgManager['getAllOrgs']>): void {
+      getAllOrgs = vi.spyOn(OrgManager.prototype, 'getAllOrgs').mockReturnValue(orgs);
+      getOrg = vi
+        .spyOn(OrgManager.prototype, 'getOrg')
+        .mockImplementation((id: string) => orgs.find((org) => org.id === id));
+    }
+
+    it('asks which org to open when it is run without an org id', async () => {
+      stubRegisteredOrgs(registered);
+      activate(createContext());
+      const vscode = await import('vscode');
+      vi.mocked(vscode.window.showQuickPick).mockImplementationOnce(
+        (async (items: unknown) => (items as { label: string }[])[1]) as never,
+      );
+
+      await registeredCommands.get('sandforge.openOrgInBrowser')?.();
+
+      const items = vi.mocked(vscode.window.showQuickPick).mock.calls[0][0] as {
+        label: string;
+        description?: string;
+      }[];
+      expect(items.map((item) => item.label)).toEqual(['Acme', 'Globex']);
+      expect(items[1].description).toBe('admin@globex.test');
+      expect(vscode.Uri.parse).toHaveBeenCalledWith('https://globex.my.salesforce.com/', true);
+      expect(vscode.env.openExternal).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens nothing when the org picker is dismissed', async () => {
+      stubRegisteredOrgs(registered);
+      activate(createContext());
+      const vscode = await import('vscode');
+
+      await registeredCommands.get('sandforge.openOrgInBrowser')?.();
+
+      expect(vscode.window.showQuickPick).toHaveBeenCalledTimes(1);
+      expect(vscode.env.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('says there is no org to open instead of showing an empty picker', async () => {
+      stubRegisteredOrgs([] as unknown as ReturnType<OrgManager['getAllOrgs']>);
+      activate(createContext());
+      const vscode = await import('vscode');
+
+      await registeredCommands.get('sandforge.openOrgInBrowser')?.();
+
+      expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+      expect(vscode.env.openExternal).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -298,10 +374,54 @@ describe('extension', () => {
     // 16 module commands + 1 cheers + 1 sandforge.ai config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command
-    // + statusBar + panelManager + backgroundRegistry + orgChange unsub
+    // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker + performanceTracker
-    // + cacheManager = 31
-    expect(context.subscriptions.length).toBe(31);
+    // + cacheManager = 32
+    expect(context.subscriptions.length).toBe(32);
+  });
+
+  it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {
+    activate(createContext());
+
+    // The secret migration runs at activation and logs its summary through pino.
+    await vi.waitFor(() =>
+      expect(mockOutputChannel.appendLine).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[[\d-]+T[\d:.]+Z\] \[INFO\] secret migration complete \{/),
+      ),
+    );
+    const lines = mockOutputChannel.appendLine.mock.calls.map((call) => String(call[0]));
+    expect(lines.some((line) => line.startsWith('{"level"'))).toBe(false);
+  });
+
+  it('lets a module panel load resources from the webview bundle only', async () => {
+    activate(createContext());
+    const vscode = await import('vscode');
+
+    registeredCommands.get('sandforge.openMonitor')?.();
+
+    const options = vi.mocked(vscode.window.createWebviewPanel).mock.calls[0][3] as {
+      localResourceRoots: readonly { toString(): string }[];
+    };
+    expect(options.localResourceRoots.map(String)).toEqual(['file:///test/webview-dist']);
+  });
+
+  it('disposes the state sync and the background registry with the extension', () => {
+    const stateSyncDispose = vi.spyOn(WebviewStateSync.prototype, 'dispose');
+    const registryDispose = vi.spyOn(BackgroundOperationRegistry.prototype, 'dispose');
+    try {
+      const context = createContext();
+      activate(context);
+
+      for (const sub of context.subscriptions as { dispose: () => unknown }[]) {
+        sub.dispose();
+      }
+
+      expect(stateSyncDispose).toHaveBeenCalledTimes(1);
+      expect(registryDispose).toHaveBeenCalledTimes(1);
+    } finally {
+      stateSyncDispose.mockRestore();
+      registryDispose.mockRestore();
+    }
   });
 
   it('should deactivate without error', async () => {

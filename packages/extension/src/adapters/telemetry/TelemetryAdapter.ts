@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import pino from 'pino';
 import type { Logger as PinoLogger, LoggerOptions } from 'pino';
 
@@ -73,16 +72,12 @@ const PINO_REDACT_PATHS = buildRedactPaths();
  *  - `flush()` drains the Pino destination — called on extension deactivate.
  */
 export class TelemetryAdapter {
-  // context retained for future wiring (e.g. SessionToken, LogOutputChannel).
-  // @ts-expect-error intentionally kept for downstream plans (DI wiring in 01-03).
-  private readonly context: vscode.ExtensionContext;
   private readonly opts: TelemetryAdapterOptions;
   private readonly logger: Logger;
   /** Count of telemetry events actually emitted while the gate was open. */
   private telemetryEventCount = 0;
 
-  constructor(context: vscode.ExtensionContext, opts?: TelemetryAdapterOptions) {
-    this.context = context;
+  constructor(opts?: TelemetryAdapterOptions) {
     this.opts = opts ?? {};
     this.logger = this.createLogger(this.opts.pinoDestination);
   }

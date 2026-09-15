@@ -211,7 +211,7 @@ function formatLimitDetail(limit: ApiLimit): string {
  * - Continuous linear interpolation scoring (no step-function cliffs)
  * - Real trend data integration from TrendStorage with degrading penalties
  * - Optional metadata/coverage/security dimensions with dynamic weight redistribution
- * - Single HealthReport output that serves both monitor:data and monitor:health-score
+ * - Single HealthReport output, which monitor:data carries
  */
 export class UnifiedHealthScorer {
   /**

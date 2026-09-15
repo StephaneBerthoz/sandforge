@@ -68,6 +68,21 @@ describe('PersonaRegistry', () => {
     registry.clear();
     expect(registry.size).toBe(0);
   });
+
+  it('gives an id the same persona under the same key, in a fresh registry', () => {
+    const first = new PersonaRegistry('key-a').getPersona('003xx000001');
+    const second = new PersonaRegistry('key-a').getPersona('003xx000001');
+    expect(second).toStrictEqual(first);
+  });
+
+  it('draws personas from the key, not from the id alone', () => {
+    // A persona picked from the bare id is the same in every installation, so
+    // anyone holding a list of candidate ids can tell which one a fake stands for.
+    const ids = ['003xx000001', '003xx000002', '003xx000003'];
+    const underA = ids.map((id) => new PersonaRegistry('key-a').getPersona(id));
+    const underB = ids.map((id) => new PersonaRegistry('key-b').getPersona(id));
+    expect(underB).not.toStrictEqual(underA);
+  });
 });
 
 describe('SmartAnonymizer', () => {
@@ -135,6 +150,33 @@ describe('SmartAnonymizer', () => {
 
       anonymizer.anonymize(records, rules, 'Contact' as ApiName);
       expect(records[0].CustomField__c).toMatch(/^fake_[0-9a-f]+$/);
+    });
+
+    it('gives the same persona for the same salt', () => {
+      const rules = [
+        makeRule({ fieldApiName: 'FirstName', method: 'fake' }),
+        makeRule({ fieldApiName: 'LastName', method: 'fake' }),
+        makeRule({ fieldApiName: 'Phone', method: 'fake' }),
+      ];
+      const first = [{ Id: '003xx000001', FirstName: 'John', LastName: 'Doe', Phone: '1' }];
+      const second = [{ Id: '003xx000001', FirstName: 'John', LastName: 'Doe', Phone: '1' }];
+
+      new SmartAnonymizer(undefined, 'salt-a').anonymize(first, rules, 'Contact' as ApiName);
+      new SmartAnonymizer(undefined, 'salt-a').anonymize(second, rules, 'Contact' as ApiName);
+
+      expect(second).toStrictEqual(first);
+    });
+
+    it('keys the unmapped-field fallback with the salt', () => {
+      const rules = [makeRule({ fieldApiName: 'CustomField__c', method: 'fake' })];
+      const withSaltA = [{ Id: '003xx000001', CustomField__c: 'secret data' }];
+      const withSaltB = [{ Id: '003xx000001', CustomField__c: 'secret data' }];
+
+      new SmartAnonymizer(undefined, 'salt-a').anonymize(withSaltA, rules, 'Contact' as ApiName);
+      new SmartAnonymizer(undefined, 'salt-b').anonymize(withSaltB, rules, 'Contact' as ApiName);
+
+      expect(withSaltA[0].CustomField__c).toMatch(/^fake_[0-9a-f]{8}$/);
+      expect(withSaltA[0].CustomField__c).not.toBe(withSaltB[0].CustomField__c);
     });
   });
 
@@ -285,6 +327,31 @@ describe('SmartAnonymizer', () => {
       expect(result[0]).toMatch(/[A-Z]/);
       expect(result[1]).toMatch(/[a-z]/);
       expect(result[2]).toMatch(/[0-9]/);
+    });
+
+    it('gives the same output for the same salt', () => {
+      const rules = [makeRule({ fieldApiName: 'Phone', method: 'preserve_format' })];
+      const first: Record<string, unknown>[] = [{ Id: '001', Phone: '+33 6 12 34 56 78' }];
+      const second: Record<string, unknown>[] = [{ Id: '002', Phone: '+33 6 12 34 56 78' }];
+
+      new SmartAnonymizer(registry, 'salt-a').anonymize(first, rules, 'Contact' as ApiName);
+      new SmartAnonymizer(registry, 'salt-a').anonymize(second, rules, 'Contact' as ApiName);
+
+      expect(second[0]['Phone']).toBe(first[0]['Phone']);
+    });
+
+    it('gives different output under two salts', () => {
+      // Seeded from the value alone, the output is a public function of the
+      // phone number: anyone can run the candidates through it and confirm one.
+      const rules = [makeRule({ fieldApiName: 'Phone', method: 'preserve_format' })];
+      const withSaltA: Record<string, unknown>[] = [{ Id: '001', Phone: '+33 6 12 34 56 78' }];
+      const withSaltB: Record<string, unknown>[] = [{ Id: '001', Phone: '+33 6 12 34 56 78' }];
+
+      new SmartAnonymizer(registry, 'salt-a').anonymize(withSaltA, rules, 'Contact' as ApiName);
+      new SmartAnonymizer(registry, 'salt-b').anonymize(withSaltB, rules, 'Contact' as ApiName);
+
+      expect(withSaltA[0]['Phone']).toMatch(/^\+\d\d \d \d\d \d\d \d\d \d\d$/);
+      expect(withSaltA[0]['Phone']).not.toBe(withSaltB[0]['Phone']);
     });
   });
 

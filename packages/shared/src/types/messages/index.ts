@@ -39,6 +39,7 @@ import type {
   OrgConnectRequest,
   OrgDisconnectRequest,
   OrgSelectRequest,
+  OrgUpdateRequest,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
@@ -122,7 +123,6 @@ import type {
 } from './sync.messages.js';
 import type {
   MonitorRefreshRequest,
-  MonitorStartRequest,
   MonitorDataMessage,
   MonitorErrorResponse,
   MonitorOpenApexJobsRequest,
@@ -149,8 +149,6 @@ import type {
   MonitorApexInsightsResponse,
   MonitorSandboxRefreshRequest,
   MonitorSandboxRefreshResponse,
-  OrgHealthScoreRequest,
-  OrgHealthScoreResponse,
 } from './monitor.messages.js';
 import type {
   CompareExecuteRequest,
@@ -161,7 +159,6 @@ import type {
   CompareErrorResponse,
 } from './compare.messages.js';
 import type {
-  CompareStartRequest,
   ComparePermissionsRequest,
   CompareSnapshotsRequest,
   CompareDriftRequest,
@@ -174,11 +171,8 @@ import type {
   BackupExportResult,
   AnonymizationTemplatesRequest,
   AnonymizationTemplatesResponse,
-  MaskingTemplatesByObjectRequest,
-  MaskingTemplatesByObjectResponse,
   PIIScanRequest,
   PIIScanResponse,
-  DataOpsBackupRequest,
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
   DataOpsBackupResponse,
@@ -187,24 +181,17 @@ import type {
   DataOpsErrorResponse,
   GovernancePoliciesListRequest,
   GovernancePoliciesListResult,
-  GovernancePolicyGetRequest,
   GovernancePolicySaveRequest,
   GovernancePolicyDeleteRequest,
-  GovernancePoliciesExportRequest,
-  GovernancePoliciesImportRequest,
   GovernanceEvaluateRequest,
   GovernanceTemplatesRequest,
-  GovernancePolicyResult,
   GovernancePolicySaveResponse,
   GovernancePolicyDeleteResponse,
-  GovernancePoliciesExportResponse,
-  GovernancePoliciesImportResponse,
   GovernanceEvaluateResponse,
   GovernanceTemplatesResponse,
   GovernanceErrorResponse,
 } from './dataops.messages.js';
 import type {
-  PipelineRunRequest,
   PipelineRunResponse,
   PipelineErrorResponse,
   PipelineTemplatesRequest,
@@ -254,9 +241,6 @@ import type {
   ForgePlanRequest,
   ForgeComplianceRequest,
   ForgeMetadataDiffRequest,
-  ForgeTargetPreflightRequest,
-  ForgeTargetPreflightResponse,
-  ForgeTargetPreflightErrorMessage,
   ForgePreviewResponse,
   ForgePreviewErrorMessage,
   ForgeDiscoverResponse,
@@ -349,13 +333,8 @@ import type {
   GrappePartitionProgress,
   GrappeCompleted,
   ExecutionRetryStatusMessage,
-  ExecutionManualRetryRequest,
   ExecutionAbortRequest,
-  ExecutionStatusRequest,
-  ExecutionListRequest,
   ExecutionAbortResponse,
-  ExecutionStatusResponse,
-  ExecutionListResponse,
   ExecutionErrorResponse,
 } from './operation.messages.js';
 import type {
@@ -440,6 +419,7 @@ export type WebViewToExtensionMessage =
   | OrgConnectRequest
   | OrgDisconnectRequest
   | OrgSelectRequest
+  | OrgUpdateRequest
   // Seed
   | SeedExecuteRequest
   | SeedDescribeGlobalRequest
@@ -473,7 +453,6 @@ export type WebViewToExtensionMessage =
   | SyncScheduleDeleteRequest
   // Monitor
   | MonitorRefreshRequest
-  | MonitorStartRequest
   | MonitorOpenApexJobsRequest
   | MonitorAlertsRequest
   | MonitorAlertAcknowledgeRequest
@@ -486,10 +465,8 @@ export type WebViewToExtensionMessage =
   | MonitorSessionsRequest
   | MonitorApexInsightsRequest
   | MonitorSandboxRefreshRequest
-  | OrgHealthScoreRequest
   // Compare + DataOps
   | CompareExecuteRequest
-  | CompareStartRequest
   | ComparePermissionsRequest
   | CompareSnapshotsRequest
   | CompareDriftRequest
@@ -497,22 +474,16 @@ export type WebViewToExtensionMessage =
   | BackupListRequest
   | BackupExportRequest
   | AnonymizationTemplatesRequest
-  | MaskingTemplatesByObjectRequest
   | PIIScanRequest
-  | DataOpsBackupRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
   // Governance
   | GovernancePoliciesListRequest
-  | GovernancePolicyGetRequest
   | GovernancePolicySaveRequest
   | GovernancePolicyDeleteRequest
-  | GovernancePoliciesExportRequest
-  | GovernancePoliciesImportRequest
   | GovernanceEvaluateRequest
   | GovernanceTemplatesRequest
   // Automation (pipeline + marketplace + migration + plugins)
-  | PipelineRunRequest
   | PipelineExecuteRequest
   | PipelineListRequest
   | PipelineHistoryRequest
@@ -543,7 +514,6 @@ export type WebViewToExtensionMessage =
   | ForgePlanRequest
   | ForgeComplianceRequest
   | ForgeMetadataDiffRequest
-  | ForgeTargetPreflightRequest
   // AI
   | AIChatRequest
   | AIConversationCreateRequest
@@ -575,10 +545,7 @@ export type WebViewToExtensionMessage =
   | CancelOperationRequest
   | PauseOperationRequest
   | ResumeOperationRequest
-  | ExecutionManualRetryRequest
   | ExecutionAbortRequest
-  | ExecutionStatusRequest
-  | ExecutionListRequest
   // Bridge control
   | WorkbenchReloadRequest
   | ErrorBoundaryReport
@@ -677,7 +644,6 @@ export type ExtensionToWebViewMessage =
   | MonitorSessionsResponse
   | MonitorApexInsightsResponse
   | MonitorSandboxRefreshResponse
-  | OrgHealthScoreResponse
   | MonitorDataMessage
   | MonitorErrorResponse
   // Compare
@@ -688,7 +654,6 @@ export type ExtensionToWebViewMessage =
   | CompareErrorResponse
   // DataOps
   | AnonymizationTemplatesResponse
-  | MaskingTemplatesByObjectResponse
   | PIIScanResponse
   | BackupListResult
   | BackupExportResult
@@ -698,11 +663,8 @@ export type ExtensionToWebViewMessage =
   | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult
-  | GovernancePolicyResult
   | GovernancePolicySaveResponse
   | GovernancePolicyDeleteResponse
-  | GovernancePoliciesExportResponse
-  | GovernancePoliciesImportResponse
   | GovernanceEvaluateResponse
   | GovernanceTemplatesResponse
   | GovernanceErrorResponse
@@ -726,8 +688,6 @@ export type ExtensionToWebViewMessage =
   | AutopilotComplianceReportReady
   | AutopilotErrorResponse
   // Forge
-  | ForgeTargetPreflightResponse
-  | ForgeTargetPreflightErrorMessage
   | ForgePreviewResponse
   | ForgePreviewErrorMessage
   | ForgeDiscoverResponse
@@ -791,8 +751,6 @@ export type ExtensionToWebViewMessage =
   | GrappeCompleted
   | ExecutionRetryStatusMessage
   | ExecutionAbortResponse
-  | ExecutionStatusResponse
-  | ExecutionListResponse
   | ExecutionErrorResponse
   // Scheduler
   | SchedulerListResponse

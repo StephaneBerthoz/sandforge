@@ -252,6 +252,7 @@ describe('ForgeHandler', () => {
       vi.mocked(orchestrator.discover).mockImplementation(
         async (_config: ForgeConfig, options?: DiscoveryOptions) => {
           options?.onProgress?.({
+            phase: 'object',
             objectApiName: 'Account',
             discoveredCount: 1,
             queueRemaining: 3,

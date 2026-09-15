@@ -406,9 +406,6 @@ export const dataOpsAnonymizePayloadSchema = z.object({
   templateId: opaqueIdSchema,
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
 });
-export const dataOpsMaskingTemplatesPayloadSchema = z.object({
-  objectApiName: sfApiNameSchema,
-});
 export const piiScanPayloadSchema = z.object({
   orgId: orgIdSchema,
   objectNames: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
@@ -681,11 +678,6 @@ export const executionAbortPayloadSchema = z
     objectName: z.string().min(1).max(200).optional(),
   })
   .passthrough();
-export const executionStatusPayloadSchema = z.object({ operationId: opaqueIdSchema });
-export const executionManualRetryPayloadSchema = z.object({
-  executionId: opaqueIdSchema,
-  objectName: z.string().min(1).max(200),
-});
 
 // ── governance:* payload schemas ──────────────────────────────────────────
 // Mirror what GovernancePanel posts. `policy` is deep-validated by
@@ -695,9 +687,6 @@ export const executionManualRetryPayloadSchema = z.object({
 export const governancePolicyIdPayloadSchema = z.object({ policyId: opaqueIdSchema });
 export const governancePolicySavePayloadSchema = z.object({
   policy: z.record(z.unknown()),
-});
-export const governancePoliciesImportPayloadSchema = z.object({
-  json: z.string().min(1).max(5_000_000),
 });
 export const governanceEvaluatePayloadSchema = z.object({
   policyId: opaqueIdSchema,
@@ -746,6 +735,18 @@ export const orgConnectPayloadSchema = z
   .passthrough();
 export const orgDisconnectPayloadSchema = z.object({ orgId: orgIdSchema });
 export const orgSelectPayloadSchema = z.object({ orgId: orgIdSchema });
+/**
+ * What the org edit dialog saves. The colour is one of the dialog's hex
+ * swatches and each tag a trimmed word; the bounds keep a crafted payload from
+ * bloating the registry every activation loads. Any other key — a safety tier
+ * included — is dropped, not stored.
+ */
+export const orgUpdatePayloadSchema = z.object({
+  orgId: orgIdSchema,
+  alias: z.string().trim().min(1).max(100),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20),
+});
 
 // ── settings:* / onboarding / plugins / telemetry payload schemas ──────────
 // Mirror what useSettingsPageData posts; plugins/telemetry/hint follow the

@@ -6,7 +6,6 @@ import {
   validatePayload,
   governancePolicyIdPayloadSchema,
   governancePolicySavePayloadSchema,
-  governancePoliciesImportPayloadSchema,
   governanceEvaluatePayloadSchema,
 } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -25,11 +24,8 @@ import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
 /** Message types handled by GovernanceOpsHandler. */
 const GOVERNANCE_TYPES = new Set([
   'governance:policies:list',
-  'governance:policy:get',
   'governance:policy:save',
   'governance:policy:delete',
-  'governance:policies:export',
-  'governance:policies:import',
   'governance:evaluate',
   'governance:templates',
 ]);
@@ -72,20 +68,11 @@ export class GovernanceOpsHandler implements DomainHandler {
       case 'governance:policies:list':
         this.handlePoliciesList(msg);
         return true;
-      case 'governance:policy:get':
-        this.handlePolicyGet(msg);
-        return true;
       case 'governance:policy:save':
         this.handlePolicySave(msg);
         return true;
       case 'governance:policy:delete':
         this.handlePolicyDelete(msg);
-        return true;
-      case 'governance:policies:export':
-        this.handlePoliciesExport(msg);
-        return true;
-      case 'governance:policies:import':
-        this.handlePoliciesImport(msg);
         return true;
       case 'governance:evaluate':
         await this.handleEvaluate(msg);
@@ -120,28 +107,6 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.log('[TX] governance:policies:result');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'governance:policies:list', 'governance:error', msg, err);
-    }
-  }
-
-  /**
-   * Get a single governance policy by ID.
-   * @param msg - The incoming request message with policyId payload.
-   */
-  private handlePolicyGet(msg: InboundRequest): void {
-    const parsed = validatePayload(
-      governancePolicyIdPayloadSchema,
-      msg,
-      'governance:error',
-      this.deps,
-    );
-    if (!parsed) return;
-    try {
-      const policy = this.store.getById(parsed.policyId) ?? null;
-      const response = buildResponse(this.deps, msg, 'governance:policy:result', { policy });
-      this.deps.broker.postToWebview(response);
-      this.deps.log('[TX] governance:policy:result');
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:get', 'governance:error', msg, err);
     }
   }
 
@@ -202,48 +167,6 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.log('[TX] governance:policy:delete:response');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'governance:policy:delete', 'governance:error', msg, err);
-    }
-  }
-
-  /**
-   * Export all policies as a JSON string.
-   * @param msg - The incoming request message.
-   */
-  private handlePoliciesExport(msg: InboundRequest): void {
-    try {
-      const json = this.store.exportPolicies();
-      const response = buildResponse(this.deps, msg, 'governance:policies:export:response', {
-        json,
-      });
-      this.deps.broker.postToWebview(response);
-      this.deps.log('[TX] governance:policies:export:response');
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:export', 'governance:error', msg, err);
-    }
-  }
-
-  /**
-   * Import policies from a JSON string.
-   * @param msg - The incoming request message with json payload.
-   */
-  private handlePoliciesImport(msg: InboundRequest): void {
-    const parsed = validatePayload(
-      governancePoliciesImportPayloadSchema,
-      msg,
-      'governance:error',
-      this.deps,
-    );
-    if (!parsed) return;
-    try {
-      const count = this.store.importPolicies(parsed.json);
-      const response = buildResponse(this.deps, msg, 'governance:policies:import:response', {
-        success: true,
-        count,
-      });
-      this.deps.broker.postToWebview(response);
-      this.deps.log('[TX] governance:policies:import:response');
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:import', 'governance:error', msg, err);
     }
   }
 

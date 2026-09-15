@@ -10,10 +10,13 @@
   "SandForge: {0} failed": "SandForge: {0} fehlgeschlagen",
   "SandForge: {0} failed — {1}": "SandForge: {0} fehlgeschlagen — {1}",
   "Show Details": "Details anzeigen",
-  "SandForge: pick an org in the launcher dropdown first.": "SandForge: Wählen Sie zuerst eine Org in der Launcher-Liste aus.",
+  "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: Noch keine Org registriert — verbinden Sie zuerst eine über die Seite „Organisationen“.",
+  "Select the org to open in the browser": "Wählen Sie die Org aus, die im Browser geöffnet werden soll",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: „{0}“ kann nicht geöffnet werden — ungültige Instanz-URL: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: Öffnen von „{0}“ abgelehnt — die Instanz-URL muss HTTPS verwenden, erhalten „{1}“.",
   "Open Settings": "Einstellungen öffnen",
   "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.": "SandForge: {0} % des KI-Token-Budgets dieses Fensters sind verbraucht ({1} Token). KI-Anfragen werden bei 100 % abgelehnt.",
-  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge: KI-Anfragen werden abgelehnt — sie würden das KI-Token-Budget dieses Fensters überschreiten ({0} Token verbraucht). Erhöhen Sie sandforge.ai.tokenBudgetMaxPerSession oder laden Sie das Fenster neu, um fortzufahren."
+  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge: KI-Anfragen werden abgelehnt — sie würden das KI-Token-Budget dieses Fensters überschreiten ({0} Token verbraucht). Erhöhen Sie sandforge.ai.tokenBudgetMaxPerSession oder laden Sie das Fenster neu, um fortzufahren.",
+  "SandForge: fix suggested by the AI model — {0}": "SandForge: vom KI-Modell vorgeschlagene Lösung — {0}",
+  "SandForge: suggested fix for a known Salesforce error — {0}": "SandForge: vorgeschlagene Lösung für einen bekannten Salesforce-Fehler — {0}"
 }

@@ -108,7 +108,7 @@ describe('GraphDiscoveryService', () => {
       const graph = await service.discover(config);
       expect(graph.nodes).toHaveLength(1);
       expect(graph.nodes[0].objectApiName).toBe('Account');
-      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org');
+      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org', undefined);
     });
 
     it('should resolve custom object prefix via describeGlobal', async () => {
@@ -157,7 +157,49 @@ describe('GraphDiscoveryService', () => {
 
       const graph = await service.discover(config);
       expect(graph.nodes[0].recordCount).toBe(42);
-      expect(deps.queryCount).toHaveBeenCalledWith('src-org', 'SELECT COUNT() FROM Contact');
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        'SELECT COUNT() FROM Contact',
+        undefined,
+      );
+    });
+  });
+
+  describe('per-object filters', () => {
+    it('counts an object with its filter, and the others without one', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Account'
+          ? makeAccountDescribe([
+              {
+                childSObject: 'Contact',
+                field: 'AccountId',
+                relationshipName: 'Contacts',
+                isCascadeDelete: false,
+              },
+            ])
+          : makeContactDescribe(),
+      );
+      const config = createConfig({
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: "SELECT Id FROM Account WHERE Industry = 'X'",
+        objectSoqlFilters: { Account: "Industry = 'X'" },
+      });
+
+      await service.discover(config);
+
+      // The graph sizes the run it will clone: the root's count is the rows
+      // the filter matches, not the whole table.
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        "SELECT COUNT() FROM Account WHERE (Industry = 'X')",
+        undefined,
+      );
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        'SELECT COUNT() FROM Contact',
+        undefined,
+      );
     });
   });
 
@@ -628,6 +670,7 @@ describe('GraphDiscoveryService', () => {
       await service.discover(config, { onProgress });
 
       expect(onProgress).toHaveBeenCalledWith({
+        phase: 'object',
         objectApiName: 'Account',
         discoveredCount: 1,
         queueRemaining: 0,
@@ -880,9 +923,6 @@ describe('GraphDiscoveryService', () => {
 
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         describeCallCount++;
-        if (describeCallCount === 1) {
-          controller.abort();
-        }
         return {
           name: objectName,
           fields: [
@@ -906,19 +946,26 @@ describe('GraphDiscoveryService', () => {
       });
 
       const config = createConfig({ depth: 'full' });
-      const graph = await service.discover(config, { signal: controller.signal });
+      // Cancel once the root is in the graph: the walk must not open another wave.
+      const graph = await service.discover(config, {
+        signal: controller.signal,
+        onProgress: (event) => {
+          if (event.phase === 'object') controller.abort();
+        },
+      });
 
       expect(graph.nodes.length).toBe(1);
+      expect(describeCallCount).toBe(1);
     });
 
-    it('should return partial graph when aborted', async () => {
+    it('settles with the partial graph when a describe never answers', async () => {
       const controller = new AbortController();
-      let callCount = 0;
 
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
-        callCount++;
-        if (callCount === 2) {
-          controller.abort();
+        if (objectName === 'Opportunity') {
+          // Cancel while this call hangs. Before, the wave waited on it forever.
+          setTimeout(() => controller.abort(), 0);
+          return new Promise<ObjectDescribe>(() => {});
         }
         if (objectName === 'Account') {
           return makeAccountDescribe([
@@ -954,9 +1001,61 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ depth: 'direct' });
       const graph = await service.discover(config, { signal: controller.signal });
 
-      // Account + Contact discovered, then aborted before Opportunity
-      expect(graph.nodes.length).toBe(2);
+      // Account and Contact answered; Opportunity was still pending at cancel.
+      expect(graph.nodes.map((n) => n.objectApiName)).toEqual(['Account', 'Contact']);
       expect(graph.totalRecords).toBe(20);
+    });
+
+    it('settles with the partial graph when a count never answers', async () => {
+      const controller = new AbortController();
+      vi.mocked(deps.queryCount).mockImplementation(() => {
+        setTimeout(() => controller.abort(), 0);
+        return new Promise<number>(() => {});
+      });
+
+      const graph = await service.discover(createConfig(), { signal: controller.signal });
+
+      // The root's count was pending: an object with no count is not added as
+      // if it had one, and nothing is left waiting.
+      expect(graph.nodes).toEqual([]);
+    });
+
+    it('settles with an empty graph when the root lookup never answers', async () => {
+      const controller = new AbortController();
+      vi.mocked(deps.describeGlobal).mockImplementation(() => {
+        setTimeout(() => controller.abort(), 0);
+        return new Promise(() => {});
+      });
+
+      const graph = await service.discover(createConfig(), { signal: controller.signal });
+
+      expect(graph.nodes).toEqual([]);
+      expect(deps.describeObject).not.toHaveBeenCalled();
+    });
+
+    it('hands the signal to every org call', async () => {
+      const controller = new AbortController();
+
+      await service.discover(createConfig(), { signal: controller.signal });
+
+      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org', controller.signal);
+      expect(deps.describeObject).toHaveBeenCalledWith('src-org', 'Account', controller.signal);
+      expect(deps.queryCount).toHaveBeenCalledWith(
+        'src-org',
+        'SELECT COUNT() FROM Account',
+        controller.signal,
+      );
+    });
+
+    it('makes no org call once the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const graph = await service.discover(createConfig(), { signal: controller.signal });
+
+      expect(graph.nodes).toEqual([]);
+      expect(deps.describeGlobal).not.toHaveBeenCalled();
+      expect(deps.describeObject).not.toHaveBeenCalled();
     });
   });
 
@@ -980,23 +1079,30 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ depth: 'direct' });
       await service.discover(config, { onProgress });
 
-      // 1 synthetic "resolving root" event + 1 per discovered node
+      // 1 "resolving root" event + 1 per discovered node
       expect(onProgress).toHaveBeenCalledTimes(3);
-      expect(onProgress).toHaveBeenCalledWith({
-        objectApiName: '__resolving_root__',
+      expect(onProgress).toHaveBeenNthCalledWith(1, {
+        phase: 'resolving-root',
         discoveredCount: 0,
         queueRemaining: 1,
       });
       expect(onProgress).toHaveBeenCalledWith({
+        phase: 'object',
         objectApiName: 'Account',
         discoveredCount: 1,
         queueRemaining: 1,
       });
       expect(onProgress).toHaveBeenCalledWith({
+        phase: 'object',
         objectApiName: 'Contact',
         discoveredCount: 2,
         queueRemaining: 0,
       });
+      // No object is named after a placeholder any more: the phase says what the
+      // event is, and only an object event carries an object name.
+      for (const [event] of onProgress.mock.calls) {
+        expect(String((event as { objectApiName?: string }).objectApiName)).not.toMatch(/^__/);
+      }
     });
 
     it('should work without onProgress callback', async () => {

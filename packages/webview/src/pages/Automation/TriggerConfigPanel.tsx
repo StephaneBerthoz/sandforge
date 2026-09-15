@@ -73,6 +73,12 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         </div>
       </div>
 
+      {/* The scheduler channels answer with a no-op, so a trigger of any type
+          but manual is stored and never fires. Say so where it is configured. */}
+      <p className="text-xs text-[var(--sf-text-secondary)]" data-testid="trigger-manual-only-note">
+        {t('automation.triggerManualOnlyNote')}
+      </p>
+
       {triggers.length === 0 && (
         <EmptyState
           icon="zap"
@@ -88,6 +94,11 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
               title={t(`automation.triggerTypes.${trigger.type}`)}
               action={
                 <div className="flex items-center gap-2">
+                  {trigger.type !== 'manual' && (
+                    <span data-testid={`trigger-coming-soon-${trigger.id}`}>
+                      <Badge variant="info">{t('common.comingSoon')}</Badge>
+                    </span>
+                  )}
                   <Badge variant={TRIGGER_VARIANT[trigger.type]}>
                     {trigger.enabled ? t('common.active') : t('common.disabled')}
                   </Badge>

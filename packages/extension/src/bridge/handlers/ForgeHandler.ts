@@ -69,19 +69,6 @@ const metadataDiffRequestPayloadSchema = z.object({
     )
     .max(100),
 });
-const targetPreflightPayloadSchema = z.object({
-  targetOrgId: orgIdSchema,
-  // Reuse SObject regex; cap matches metadataDiff bound (100 objects per
-  // request → 100 SELECT COUNT() round-trips, manageable in <30 s).
-  objectApiNames: z
-    .array(
-      z
-        .string()
-        .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
-        .max(80),
-    )
-    .max(100),
-});
 
 /** Active record types of an org, with the object each belongs to. */
 const RECORD_TYPES_SOQL =
@@ -187,7 +174,6 @@ const FORGE_TYPES = new Set([
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
-  'forge:target-preflight:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -198,9 +184,6 @@ const COMPLIANCE_TIMEOUT_MS = 30_000;
 
 /** Timeout for metadata diff comparison in milliseconds. */
 const METADATA_DIFF_TIMEOUT_MS = 60_000;
-
-/** Timeout for the target preflight (per-object COUNT) in milliseconds. */
-const TARGET_PREFLIGHT_TIMEOUT_MS = 30_000;
 
 /** Timeout for reading both orgs' record types before a run, in milliseconds. */
 const RECORD_TYPES_TIMEOUT_MS = 30_000;
@@ -370,9 +353,6 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:metadata-diff:request':
         await this.handleMetadataDiffRequest(msg);
-        return true;
-      case 'forge:target-preflight:request':
-        await this.handleTargetPreflightRequest(msg);
         return true;
       default:
         return false;
@@ -1029,70 +1009,6 @@ export class ForgeHandler implements DomainHandler {
         code: isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
         retryable: isTimeout,
       });
-    }
-  }
-
-  /**
-   * Pre-execute target preflight: count existing rows in the target org
-   * for each of the supplied object API names. Lets the wizard surface
-   * "X records already in target" before the user pulls the trigger.
-   *
-   * Bounded: max 100 objects per request (Zod), 30 s timeout. Failed
-   * counts (FLS, non-queryable, etc.) come back as `existing: -1` rather
-   * than failing the whole batch.
-   */
-  private async handleTargetPreflightRequest(msg: InboundRequest): Promise<void> {
-    const parsed = parsePayload(
-      targetPreflightPayloadSchema,
-      msg,
-      'forge:target-preflight:error',
-      this.deps,
-    );
-    if (!parsed) return;
-    const { targetOrgId, objectApiNames } = parsed;
-    const operationId = `forge-target-preflight-${this.deps.nextId()}`;
-    sendOperationStarted(this.deps, operationId, 'forge', 'Counting existing rows on target');
-    try {
-      logger.info('Forge target preflight started', { count: objectApiNames.length });
-      const conn = await getJsforceConnection(
-        targetOrgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-      const counts = await new TimeoutManager(TARGET_PREFLIGHT_TIMEOUT_MS).withTimeout(
-        'forge:target-preflight',
-        async () => {
-          const out: Array<{ objectApiName: string; existing: number }> = [];
-          // Run sequentially — parallel COUNT() bursts trip rate limits on
-          // big orgs and the 30 s timeout already bounds wall-time.
-          for (const name of objectApiNames) {
-            try {
-              const r = await conn.query(`SELECT COUNT() FROM ${name}`);
-              checkApiLimits(conn.limitInfo, `forge:target-preflight ${name}`);
-              out.push({ objectApiName: name, existing: r.totalSize });
-            } catch {
-              // Sentinel -1 keeps the per-object failure visible in the UI
-              // without aborting the whole preflight.
-              out.push({ objectApiName: name, existing: -1 });
-            }
-          }
-          return out;
-        },
-      );
-      const response = buildResponse(this.deps, msg, 'forge:target-preflight:response', { counts });
-      this.deps.broker.postToWebview(response);
-      sendOperationCompleted(this.deps, operationId, { objectCount: counts.length });
-    } catch (error: unknown) {
-      const isTimeout = error instanceof TimeoutError;
-      // Single error channel (see handleDiscover): no duplicate operation:failed.
-      sendHandlerError(
-        this.deps,
-        'forge:target-preflight',
-        'forge:target-preflight:error',
-        msg,
-        error,
-        { code: isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR', retryable: isTimeout },
-      );
     }
   }
 

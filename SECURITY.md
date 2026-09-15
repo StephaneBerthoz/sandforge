@@ -51,6 +51,18 @@ You can expect:
 - Issues that require write access to the user's machine to reproduce
 - Issues affecting unsupported VS Code versions (< 1.95)
 
+## Webview hardening
+
+- Scripts run only with the nonce generated for each render
+  (`script-src 'nonce-…'`).
+- Styles are allowed from the webview origin and `'unsafe-inline'`. The
+  inline part cannot be dropped today: the dialog scroll lock inserts a
+  `<style>` element at runtime, and the sparkline, the graph edge animation
+  and one overlay render `<style>` blocks. Without `'unsafe-inline'` the
+  policy blocks all four.
+- `localResourceRoots` is the packaged `webview-dist` folder only, so a
+  webview cannot load any other file shipped with the extension.
+
 ## Hardening references
 
 - `changelog.md` `### Security` entries — historical security fixes

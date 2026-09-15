@@ -90,6 +90,38 @@ describe('DiffDetailModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('focuses the close button on open and closes on Escape', () => {
+    const onClose = vi.fn();
+    render(<DiffDetailModal diff={sampleDiff} onClose={onClose} />);
+    expect(document.activeElement).toBe(screen.getByTestId('close-diff-modal'));
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Tab on the close button, the only control inside the modal', () => {
+    render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
+    const close = screen.getByTestId('close-diff-modal');
+    fireEvent.keyDown(close, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it('does not pull focus back to the close button when the parent re-renders', () => {
+    // In Compare the opener is the clicked diff row; a trap that re-subscribed
+    // on each render would hand focus to it and then back to the close button.
+    const row = document.createElement('button');
+    document.body.appendChild(row);
+    row.focus();
+    const { rerender } = render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
+    const meta = screen.getByTestId('diff-detail-meta');
+    meta.tabIndex = -1;
+    meta.focus();
+    rerender(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
+    expect(document.activeElement).toBe(meta);
+    row.remove();
+  });
+
   it('should not show source/target section for added items without values', () => {
     render(<DiffDetailModal diff={addedDiff} onClose={vi.fn()} />);
     expect(screen.queryByTestId('diff-source-value')).toBeNull();

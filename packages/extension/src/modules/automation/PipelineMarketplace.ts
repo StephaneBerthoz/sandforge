@@ -210,9 +210,12 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
     tags: ['release', 'validation', 'deployment'],
   },
   {
+    // The id predates the rename and is kept so pipelines already installed
+    // from it still resolve. Nothing in this template previews: once sync
+    // steps run, its sync step writes to the target org.
     id: 'tpl-migration-dry-run',
-    name: 'Data Migration Dry Run',
-    description: 'Simulate a data migration to identify issues before the actual migration.',
+    name: 'Data Migration Check',
+    description: 'Snapshot the source, check the field mappings, sync, then compare both orgs.',
     category: 'migration',
     rating: 4.4,
     steps: [
@@ -229,10 +232,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Verify field mappings',
       },
       {
-        name: 'Dry Run Sync',
+        name: 'Sync Records',
         type: 'sync',
-        config: { dryRun: true },
-        description: 'Execute migration in dry-run mode',
+        config: {},
+        description: 'Sync step (records are not transferred by pipelines yet)',
       },
       {
         name: 'Compare Results',
@@ -241,7 +244,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Diff source vs target',
       },
     ],
-    tags: ['migration', 'dry-run', 'validation'],
+    tags: ['migration', 'validation'],
   },
   {
     id: 'tpl-mass-anonymization',
@@ -278,9 +281,12 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
     tags: ['anonymization', 'bulk', 'compliance'],
   },
   {
+    // The id predates the rename and is kept so pipelines already installed
+    // from it still resolve. The sync step is a plain sync, not an
+    // incremental one.
     id: 'tpl-incremental-sync',
-    name: 'Incremental Sync',
-    description: 'Synchronize only changed records between orgs using last-modified timestamps.',
+    name: 'Checked Sync',
+    description: 'Check recent changes, sync the configured objects, then validate record counts.',
     category: 'migration',
     rating: 4.5,
     steps: [
@@ -291,10 +297,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Identify modified records',
       },
       {
-        name: 'Sync Changes',
+        name: 'Sync Records',
         type: 'sync',
-        config: { mode: 'incremental' },
-        description: 'Transfer changed records',
+        config: {},
+        description: 'Sync step (records are not transferred by pipelines yet)',
       },
       {
         name: 'Verify Sync',
@@ -303,7 +309,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Validate record counts',
       },
     ],
-    tags: ['sync', 'incremental', 'delta'],
+    tags: ['sync', 'validation'],
   },
   {
     id: 'tpl-full-org-backup',

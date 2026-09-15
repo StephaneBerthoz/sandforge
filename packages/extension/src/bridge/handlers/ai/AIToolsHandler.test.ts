@@ -131,10 +131,36 @@ describe('AIToolsHandler', () => {
     expect(response.correlationId).toBe('msg-1');
   });
 
+  it('refuses an AI draft with no step instead of loading an empty canvas', async () => {
+    const mockModules: Partial<AIModules> = {
+      pipelineGenerator: {
+        generatePipeline: vi
+          .fn()
+          .mockResolvedValue({ name: 'Pipeline_1', description: 'x', steps: [] }),
+      } as unknown as AIModules['pipelineGenerator'],
+    };
+    handler.setAIModules(mockModules as AIModules);
+
+    await handler.handle(
+      createMsg('ai:generate-pipeline', { description: 'something unusual', orgIds: ['org1'] }),
+    );
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:generate-pipeline:response');
+    expect(response.correlationId).toBe('msg-1');
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.pipeline).toBeUndefined();
+    expect(response.payload.error).toMatch(/no steps/);
+  });
+
   it('handles ai:generate-pipeline with modules with correlationId', async () => {
     const mockModules: Partial<AIModules> = {
       pipelineGenerator: {
-        generatePipeline: vi.fn().mockResolvedValue({ steps: [] }),
+        generatePipeline: vi.fn().mockResolvedValue({
+          name: 'Pipeline_Seed',
+          description: 'seed accounts',
+          steps: [{ name: 'seed_step', type: 'seed', config: {}, description: '' }],
+        }),
       } as unknown as AIModules['pipelineGenerator'],
     };
     handler.setAIModules(mockModules as AIModules);

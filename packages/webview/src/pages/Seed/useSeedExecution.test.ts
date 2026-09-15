@@ -6,20 +6,36 @@ import type { SeedTemplate } from '@sandforge/shared';
 import { useSeedExecution } from './useSeedExecution';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 
-const bridge = vi.hoisted(() => ({ mutate: vi.fn() }));
+const bridge = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  loading: false,
+  requestId: null as string | null,
+  /** operation:progress entries, by operationId. */
+  progress: new Map<
+    string,
+    {
+      operationId: string;
+      percentage: number;
+      processedRecords: number;
+      totalRecords: number;
+      currentStep: string;
+    }
+  >(),
+}));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => ({
     mutate: bridge.mutate,
     data: null,
-    loading: false,
+    loading: bridge.loading,
     error: null,
     reset: vi.fn(),
+    requestId: bridge.requestId,
   }),
 }));
 
 vi.mock('../../hooks/useOperationProgress', () => ({
-  useOperationProgress: () => ({ latest: null, getProgress: vi.fn() }),
+  useOperationProgress: () => ({ getProgress: (id: string) => bridge.progress.get(id) }),
 }));
 
 const FIELD_CONFIGS: ObjectFieldConfig[] = [
@@ -50,6 +66,69 @@ const FIELD_CONFIGS: ObjectFieldConfig[] = [
 describe('useSeedExecution', () => {
   beforeEach(() => {
     bridge.mutate.mockClear();
+    bridge.loading = false;
+    bridge.requestId = null;
+    bridge.progress.clear();
+  });
+
+  it('shows the progress of the run it started, not of another run reporting at the same time', () => {
+    // Every open panel receives every operation:progress. The bar used to read
+    // the last event from any run, so a second seed made this one jump around.
+    bridge.loading = true;
+    bridge.requestId = 'wv-own-run';
+    bridge.progress.set('wv-own-run', {
+      operationId: 'wv-own-run',
+      percentage: 25,
+      processedRecords: 1,
+      totalRecords: 4,
+      currentStep: 'Insert Case',
+    });
+    bridge.progress.set('wv-other-run', {
+      operationId: 'wv-other-run',
+      percentage: 90,
+      processedRecords: 9,
+      totalRecords: 10,
+      currentStep: 'Insert Account',
+    });
+
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 4, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    expect(result.current.overallPercent).toBe(25);
+    expect(result.current.progressLabel).toBe('Insert Case');
+    expect(result.current.operationId).toBe('wv-own-run');
+  });
+
+  it('names no operation to stop before its run has reported progress', () => {
+    bridge.loading = true;
+    bridge.requestId = 'wv-own-run';
+    bridge.progress.set('wv-other-run', {
+      operationId: 'wv-other-run',
+      percentage: 90,
+      processedRecords: 9,
+      totalRecords: 10,
+      currentStep: 'Insert Account',
+    });
+
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 4, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    expect(result.current.overallPercent).toBe(0);
+    expect(result.current.operationId).toBeNull();
   });
 
   it('sends the type of each field with its rule, so the run can refuse a rule the field cannot hold', () => {

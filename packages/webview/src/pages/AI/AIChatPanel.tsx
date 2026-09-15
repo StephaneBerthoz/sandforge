@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   AIProviderStatusMessage,
   AIBudgetStateMessage,
+  AIConversationListResponse,
   AIStatusResponse,
 } from '@sandforge/shared';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -24,13 +25,8 @@ export interface ChatMessageDisplay {
   timestamp: string;
 }
 
-/** Conversation summary for the list. */
-export interface ConversationSummary {
-  id: string;
-  title: string;
-  updatedAt: string;
-  messageCount: number;
-}
+/** Conversation summary for the list: one entry of the host's persisted index. */
+export type ConversationSummary = AIConversationListResponse['payload']['conversations'][number];
 
 /** Props for the AIChatPanel component. */
 export interface AIChatPanelProps {

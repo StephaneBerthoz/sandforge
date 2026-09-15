@@ -69,8 +69,8 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(DataOpsMessageSchema.safeParse(baseFields('dataops:unknown')).success).toBe(false);
   });
 
-  it('AutomationMessageSchema accepts pipeline:run and forge:execute; rejects unknown', () => {
-    expect(AutomationMessageSchema.safeParse(baseFields('pipeline:run')).success).toBe(true);
+  it('AutomationMessageSchema accepts pipeline:execute and forge:execute; rejects unknown', () => {
+    expect(AutomationMessageSchema.safeParse(baseFields('pipeline:execute')).success).toBe(true);
     expect(AutomationMessageSchema.safeParse(baseFields('forge:execute')).success).toBe(true);
     expect(AutomationMessageSchema.safeParse(baseFields('pipeline:bogus')).success).toBe(false);
   });
@@ -226,6 +226,9 @@ describe('retired AI channels', () => {
     'ai:suggestions:response',
     'ai:personas',
     'ai:personas:response',
+    // Error resolution runs where the failure is raised; only its reply, which
+    // the host posts, is still a channel.
+    'ai:resolve-error',
   ];
 
   it.each(RETIRED)('refuses %s', (type) => {
@@ -247,6 +250,58 @@ describe('retired AI channels', () => {
           payload: baseFields(type),
         }).success,
       ).toBe(true);
+    }
+  });
+});
+
+describe('requests no screen sends', () => {
+  // Each of these had a route and a handler but no sender: legacy aliases of
+  // the requests the pages do send, and backends for panels that were never
+  // built. A message nothing can send is not part of the protocol, so the
+  // envelope refuses it before any handler could see it.
+  const REMOVED = [
+    'compare:start',
+    'dataops:backup',
+    'dataops:masking-templates-by-object',
+    'dataops:masking-templates-by-object:response',
+    'pipeline:run',
+    'monitor:start',
+    'monitor:health-score',
+    'monitor:health-score:response',
+    'execution:status',
+    'execution:status:response',
+    'execution:list',
+    'execution:list:response',
+    'execution:manual-retry',
+    'governance:policy:get',
+    'governance:policy:result',
+    'governance:policies:export',
+    'governance:policies:export:response',
+    'governance:policies:import',
+    'governance:policies:import:response',
+    'forge:target-preflight:request',
+    'forge:target-preflight:response',
+    'forge:target-preflight:error',
+  ];
+
+  it.each(REMOVED)('refuses %s', (type) => {
+    expect(BridgeMessageSchema.safeParse(baseFields(type)).success).toBe(false);
+  });
+
+  it('keeps the replies the requests that ship still answer on', () => {
+    // backup:execute answers on dataops:backup:response and pipeline:execute
+    // on pipeline:run:response; both names outlived their request aliases.
+    for (const type of [
+      'backup:execute',
+      'dataops:backup:response',
+      'pipeline:execute',
+      'pipeline:run:response',
+      'compare:execute',
+      'monitor:refresh',
+      'execution:abort',
+      'org:update',
+    ]) {
+      expect(BridgeMessageSchema.safeParse(baseFields(type)).success).toBe(true);
     }
   });
 });

@@ -75,7 +75,6 @@
     "status_expired": "Session expirée",
     "status_error": "Erreur de connexion",
     "status_refreshing": "Actualisation...",
-    "safetyTier": "Niveau de sécurité",
     "alias": "Alias",
     "username": "Nom d'utilisateur",
     "instanceUrl": "URL de l'instance",
@@ -88,10 +87,6 @@
     "tier_high": "Élevé",
     "tier_medium": "Moyen",
     "tier_low": "Faible",
-    "tier_critical_desc": "Critique (Production)",
-    "tier_high_desc": "Élevé (UAT / Staging)",
-    "tier_medium_desc": "Moyen (QA / Integration)",
-    "tier_low_desc": "Faible (Dev / Scratch)",
     "color": "Couleur",
     "color_red": "Rouge",
     "color_amber": "Ambre",
@@ -825,7 +820,7 @@
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Importez une définition de migration existante et convertissez-la en configuration de synchronisation SandForge. Le fichier est uniquement lu — rien n'est écrit ni exécuté.",
+    "subtitle": "Importez une définition de migration existante et convertissez-la en configuration de synchronisation SandForge. L'import lit le fichier sans rien modifier ; exécuter la configuration convertie écrit des enregistrements dans l'org cible.",
     "sourceTitle": "Fichier source",
     "type": {
       "sfdmu": {
@@ -939,6 +934,7 @@
     "triggersCount": "Déclencheurs actifs",
     "historyRuns": "Historique des exécutions",
     "triggers": "Déclencheurs",
+    "triggerManualOnlyNote": "Seule une exécution manuelle démarre un pipeline. Les autres types de déclencheur se configurent ici, mais rien ne les déclenche encore.",
     "addTrigger": "Ajouter un déclencheur",
     "run": "Exécuter le pipeline",
     "running": "Exécution du pipeline...",
@@ -1082,26 +1078,6 @@
     "generateReport": "Générer un rapport",
     "exportReport": "Exporter le rapport",
     "reportType": "Type de rapport",
-    "reportTypes": {
-      "seed_execution": "Exécution Seed",
-      "sync_execution": "Exécution Sync",
-      "compare_result": "Résultat de comparaison",
-      "backup_result": "Résultat de sauvegarde",
-      "anonymization_result": "Résultat d'anonymisation",
-      "pipeline_run": "Exécution de pipeline",
-      "data_quality": "Qualité des données",
-      "org_health": "Santé de l'org",
-      "audit_trail": "Journal d'audit",
-      "custom": "Personnalisé"
-    },
-    "exportFormats": {
-      "json": "JSON",
-      "csv": "CSV",
-      "html": "HTML",
-      "pdf": "PDF",
-      "xlsx": "Excel",
-      "sarif": "SARIF"
-    },
     "summary": "Résumé",
     "sections": "Sections",
     "metadata": "Métadonnées",
@@ -1155,14 +1131,14 @@
     "advanced": "Avancé",
     "profiles": "Profils",
     "language": "Langue",
+    "languageLoadFailed": "Impossible de charger {{language}} : l'interface reste dans sa langue actuelle.",
     "clearCache": "Vider le cache",
     "resetSettings": "Réinitialiser par défaut",
     "telemetry": "Télémétrie",
     "telemetryStatus": "Statut",
     "telemetryEnabled": "Activée",
     "telemetryDisabled": "Désactivée",
-    "telemetryEventCount": "Événements envoyés",
-    "telemetryBufferSize": "Taille du buffer",
+    "telemetryEventCount": "Événements de diagnostic enregistrés",
     "telemetryEnable": "Activer la télémétrie",
     "telemetryDisable": "Désactiver la télémétrie",
     "telemetryUnavailable": "Indisponible",
@@ -1262,7 +1238,7 @@
     "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Seules Délai et Condition font quelque chose : les 13 autres signalent un succès sans toucher à une org\n- Les pipelines se lancent à la main, avec le bouton Exécuter le pipeline ; rien d'autre n'en démarre un pour l'instant\n- Étapes Condition avec 11 opérateurs\n- Historique d'exécution : statut, durée totale, nombre d'étapes et erreurs de chaque exécution\n- Modèles de pipeline depuis la Marketplace",
     "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : chaque enregistrement inséré voit ses ID remappés\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
-    "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
+    "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
     "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, et NL2SOQL, personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Tant que l'IA est activée, une exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur au modèle pour une suggestion de correction, sauf si une table intégrée répond déjà à son code d'erreur\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
     "shortcutsContent": "G + lettre — Accéder à un module (ex. G puis F pour Forge, G puis Y pour Sync, G puis L pour l'Aide)\nCtrl+K — Palette de commandes\nEscape — Fermer les modales et dialogues\nTab — Naviguer entre les éléments\nEntrée/Espace — Activer les boutons et liens",
     "faqContent": "Q : Pourquoi mon Score de Santé est-il bas ?\nR : Vérifiez l'utilisation des limites API, les jobs échoués et la consommation de stockage.\n\nQ : Comment corriger les erreurs de timeout ?\nR : SandForge n'a aucun réglage de délai pour les appels Salesforce. Réduisez la taille de lot (sandforge.seed.defaultBatchSize et sandforge.sync.defaultBatchSize dans les paramètres de VS Code) et découpez une grosse exécution en plusieurs petites. Grappe ne rend pas une exécution plus rapide : il signale la progression partition par partition.\n\nQ : Puis-je annuler une opération de sync ?\nR : Non. Une exécution de sync ne peut pas être défaite. Avant une exécution risquée, faites une sauvegarde DataOps de l'org cible : elle couvre Account et Contact, et ne se restaure que dans cette org.\n\nQ : Comment connecter une org de production en sécurité ?\nR : Les orgs de production sont auto-détectées et marquées comme niveau de sécurité Critique.",
@@ -1380,7 +1356,6 @@
     "aiTab": "IA",
     "recordIdPlaceholder": "ID d'enregistrement ou URL Salesforce",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
-    "aiPlaceholder": "Décrivez les données à cloner...",
     "depth": "Profondeur",
     "depthDirect": "Direct uniquement",
     "depthFull": "Arbre complet",
@@ -1472,8 +1447,9 @@
     "sameOrgWarning": "La source et la cible doivent être différentes",
     "hintNoSource": "Sélectionnez une org source",
     "hintNoTarget": "Sélectionnez une org cible",
-    "hintNoInput": "Entrez un ID, une requête ou un prompt",
+    "hintNoInput": "Entrez un ID ou une requête, ou choisissez un modèle",
     "hintSameOrg": "La source et la cible doivent être différentes",
+    "hintSoqlFilterRefused": "Raccourcissez ou réécrivez la clause WHERE pour découvrir le graphe",
     "depthDirectTooltip": "Uniquement les objets enfants directs (1 niveau)",
     "depthFullTooltip": "Arbre de dépendances complet — tous les niveaux",
     "depthCustomTooltip": "Spécifiez la profondeur maximale des relations",
@@ -1540,8 +1516,9 @@
       "step4": "Ajustez profondeur, limite d'enregistrements et anonymisation",
       "step5": "Exécutez vers votre sandbox — les IDs sont réattribués"
     },
-    "soqlUnscopedWarnTitle": "Votre clause WHERE n’est pas appliquée.",
-    "soqlUnscopedWarnBody": "SandForge ne lit que le nom d’objet après FROM. Les enregistrements sont pris dans toute la table, et chaque objet lié du graphe est cloné de la même façon — plafonné à {{cap}} enregistrements par objet pour cette exécution.",
+    "soqlUnscopedWarnTitle": "Votre clause WHERE ne filtre que {{object}}.",
+    "soqlUnscopedWarnBody": "Les objets liés ne sont pas limités aux enregistrements qu’elle retient : chacun est lu dans toute sa table. Chaque objet est plafonné à {{cap}} enregistrements pour cette exécution.",
+    "soqlFilterRefused": "Cette clause WHERE ne peut pas être appliquée. Elle doit compter au plus 512 caractères, ne contenir ni --, ni /*, ni */ (même dans une valeur entre guillemets), et ne pas se terminer par un point-virgule.",
     "idMapping": {
       "title": "Correspondance des Ids",
       "subtitle": "{{count}} enregistrements créés. Id source à gauche, nouvel Id dans l’org cible à droite.",
@@ -1595,6 +1572,68 @@
       "statusSuccess": "Réussie",
       "statusPartial": "Partielle",
       "statusFailure": "Échec"
+    },
+    "error": {
+      "duplicateValue": {
+        "explanation": "Un enregistrement avec la même valeur unique existe déjà dans l'org cible, souvent cloné par une exécution précédente.",
+        "action": "Supprimez les enregistrements créés par l'exécution précédente, ou lancez le clonage en ligne de commande avec --upsert, qui met à jour par ID externe quand l'objet en a un."
+      },
+      "invalidCrossReferenceKey": {
+        "explanation": "Une recherche pointe vers un enregistrement absent de l'org cible, souvent un utilisateur comme le propriétaire.",
+        "action": "Créez ou associez l'enregistrement référencé dans l'org cible, ou laissez la recherche vide et renseignez-la après le clonage."
+      },
+      "requiredFieldMissing": {
+        "explanation": "Un champ obligatoire n'a pas de valeur : {{detail}}.",
+        "action": "Activez « Récupérer les parents automatiquement », ou augmentez la profondeur pour que le parent requis fasse partie du clonage."
+      },
+      "invalidPicklist": {
+        "explanation": "Une valeur de liste de sélection de la source n'existe pas dans la liste de l'org cible.",
+        "action": "Ajoutez la valeur à la liste de sélection dans le Setup de l'org cible, ou modifiez la valeur sur l'enregistrement source."
+      },
+      "invalidFieldForInsert": {
+        "explanation": "Un champ ne peut pas être renseigné à la création : il est calculé, masqué par la sécurité au niveau du champ, ou absent de l'org cible.",
+        "action": "Vérifiez la sécurité au niveau du champ pour votre utilisateur dans l'org cible, et comparez le champ entre les deux orgs."
+      },
+      "fieldIntegrity": {
+        "explanation": "Salesforce a rejeté l'enregistrement sur une règle d'intégrité : {{detail}}.",
+        "action": "Lisez le détail : Salesforce nomme en général le champ ou la règle en cause."
+      },
+      "cannotInsertEntity": {
+        "explanation": "Salesforce n'accepte pas de nouveaux enregistrements pour cet objet (objet d'historique, d'audit ou système).",
+        "action": "Excluez cet objet du clonage."
+      },
+      "insufficientAccess": {
+        "explanation": "Votre utilisateur dans l'org cible n'a pas les droits nécessaires à cette écriture.",
+        "action": "Demandez l'autorisation manquante à un administrateur, ou connectez l'org cible avec un utilisateur qui la possède."
+      },
+      "storageLimit": {
+        "explanation": "L'org cible n'a plus d'espace de stockage de données.",
+        "action": "Supprimez de l'org cible les enregistrements dont vous n'avez plus besoin, puis relancez."
+      },
+      "invalidType": {
+        "explanation": "Cet objet n'existe pas dans l'org cible, ou votre utilisateur ne peut pas le voir.",
+        "action": "Comparez les schémas des deux orgs, ou excluez cet objet du clonage."
+      },
+      "notFound": {
+        "explanation": "Salesforce n'a pas trouvé l'enregistrement ou la ressource demandée.",
+        "action": "Vérifiez l'ID de l'enregistrement et qu'il appartient bien à l'org source."
+      },
+      "stringTooLong": {
+        "explanation": "Une valeur dépasse la longueur autorisée par le champ : {{detail}}.",
+        "action": "Raccourcissez la valeur source, ou donnez au champ la même longueur dans les deux orgs."
+      },
+      "cycleFkUnresolved": {
+        "explanation": "Le champ '{{fieldName}}' pointe vers un parent qui n'a pas été cloné (ID source {{sourceRefId}}) : l'enregistrement a été créé sans ce lien.",
+        "action": "Augmentez la profondeur pour inclure le parent, ou renseignez le champ à la main ensuite."
+      },
+      "outOfScope": {
+        "explanation": "Aucun des enregistrements parents de cet objet ne fait partie du clonage, et ce n'est pas l'objet racine : aucun de ses enregistrements n'a été cloné.",
+        "action": "Augmentez la profondeur si vous voulez des enregistrements de cet objet dans le clonage."
+      },
+      "unknown": {
+        "explanation": "{{detail}}",
+        "action": "Recherchez ce code d'erreur dans la documentation Salesforce."
+      }
     }
   },
   "autopilot": {
@@ -1880,7 +1919,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe nécessite sandforge.grappe.enabled. Un Seed au-delà du seuil d'enregistrements signale ensuite chaque partition à sa fin, une Sync signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin.",
+    "emptyDesc": "Grappe nécessite sandforge.grappe.enabled. Un Seed au-delà du seuil d'enregistrements signale ensuite chaque partition à sa fin, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin.",
     "active": "Grappe",
     "completed": "Terminé",
     "partitions": "Partitions",
@@ -1930,9 +1969,6 @@
       "validProfile": "Profil valide",
       "invalidProfile": "Profil invalide"
     }
-  },
-  "scheduler": {
-    "comingSoon": "Disponible dans la v1.2"
   },
   "governance": {
     "title": "Gouvernance Org",

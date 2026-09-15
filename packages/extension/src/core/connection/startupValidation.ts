@@ -1,8 +1,16 @@
 import type { UUID } from '@sandforge/shared';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
-import { getJsforceConnection } from './ConnectionHelper';
+import { getJsforceConnection, withDeadline } from './ConnectionHelper';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
+
+/**
+ * Longest the sweep waits for one org before moving on to the next. The
+ * connection path bounds its own CLI calls and identity checks, but a refresh
+ * chains several of them; this cap is what guarantees an org that never
+ * answers costs the orgs after it at most this long.
+ */
+const ORG_VALIDATION_DEADLINE_MS = 45_000;
 
 /** Dependencies for {@link validateOrgsOnStartup}. */
 export interface StartupValidationDeps {
@@ -23,7 +31,12 @@ export interface StartupValidationDeps {
  * counters visibly tick down one by one during the sweep.
  *
  * Sequential by design: each check may spawn an `sf org display` CLI call and
- * orgs are few — parallelism would only contend on the CLI's auth store.
+ * orgs are few — parallelism would only contend on the CLI's auth store. Each
+ * org gets at most ORG_VALIDATION_DEADLINE_MS, after which it is marked
+ * `error` and the sweep moves on; a late answer from it is ignored. The
+ * deadline only stops waiting: the abandoned check may still be running its
+ * CLI calls (and saving a refreshed token) while the next org is checked, so
+ * past a deadline two checks can reach the auth store at once.
  * Never throws: one org's failure must not skip the others, and a startup
  * probe must never break activation.
  */
@@ -42,13 +55,17 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
     // down one by one during the sweep — the panel looked like orgs were
     // dying in slow motion.
     try {
-      await getJsforceConnection(org.id, orgRegistry, orgManager);
+      await withDeadline(
+        getJsforceConnection(org.id, orgRegistry, orgManager),
+        ORG_VALIDATION_DEADLINE_MS,
+        `validation did not finish within ${ORG_VALIDATION_DEADLINE_MS / 1000} s`,
+      );
       orgManager.updateStatus(orgId, 'connected');
       log(`[startup] Org "${org.alias}" connected.`);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       // Auth problems are user-actionable (re-login) → 'expired'; anything
-      // else (network, breaker open…) is a plain 'error'.
+      // else (network, breaker open, no answer in time…) is a plain 'error'.
       const authRelated = /Authentication expired|No credentials/.test(message);
       orgManager.updateStatus(orgId, authRelated ? 'expired' : 'error');
       log(`[startup] Org "${org.alias}" validation failed: ${message}`);

@@ -1,11 +1,7 @@
-import type {
-  BaseMessage,
-  NotificationMessage,
-  GrappeConfig,
-  AIResolveErrorResponse,
-} from '@sandforge/shared';
+import type { BaseMessage, NotificationMessage, GrappeConfig } from '@sandforge/shared';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
+import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
 import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { MessageBroker } from '../MessageBroker.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
@@ -52,11 +48,11 @@ export interface HandlerDeps {
   /** Optional infrastructure services. */
   infraServices?: InfraServices;
   /**
-   * Optional curated error resolver (injected with the AI modules by
+   * Optional model-backed error resolver (injected with the AI modules by
    * `ExtensionHandlers.setAIModules`). Absent whenever the AI stack is not
    * configured — `aiComposition` only builds it with AI enabled and a stored
-   * key — which is exactly when a failed operation must be answered in
-   * silence. See {@link sendOperationFailed}.
+   * key — which is exactly when a failed operation must not reach the model.
+   * The table of known error codes answers either way. See {@link sendOperationFailed}.
    */
   errorResolver?: ErrorResolver;
   /**
@@ -441,7 +437,8 @@ type OperationFailedDeps = Pick<HandlerDeps, 'broker' | 'nextId'> &
  * belongs here: the broker fans the message out to every open panel, so a
  * panel that answers what it receives turns one failed operation into one
  * resolution *per panel* — and a panel cannot do it well anyway, since all it
- * gets is the rendered message.
+ * gets is the rendered message. The answer is shown by the host, once, for
+ * the same reason.
  */
 export function sendOperationFailed(
   deps: OperationFailedDeps,
@@ -463,48 +460,90 @@ export function sendOperationFailed(
 }
 
 /**
- * Ask the error resolver about a failure and push its answer to the webview.
+ * Failure messages SandForge writes itself.
  *
- * The resolver reads its knowledge base before it reads the model, keyed on
- * the Salesforce error code — so the code has to be recovered from the message
- * with {@link extractErrorCode}, the inverse of the `CODE: text` shape
- * `extractErrorMessage` produces. Without it every code reads as `UNKNOWN`,
- * no entry ever matches, and the org's error text is sent to the model even
- * when a curated answer was already on disk.
+ * None of them is a Salesforce error: the table of known codes cannot answer
+ * them, and the model can only paraphrase what they already say — at the cost
+ * of a call, and of the org ids several of them name. Matched here, on the
+ * message, because a handler that throws one of them reaches
+ * `sendOperationFailed` through a generic `catch` that no call-site flag sees.
+ */
+const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
+  // A declined production confirmation (every write path).
+  /^Operation cancelled by user\b/,
+  // ProductionGuard refusals, rethrown by the write paths.
+  /^Operation blocked by Production Guard: /,
+  // The duplicate-operation and per-org lock guards.
+  /^Duplicate operation: /,
+  /^A backup or rollback operation is already running for org /,
+  // CrudFlsGuard refusals.
+  /^Object describe not available for '/,
+  /^User lacks '[^']*' permission on '/,
+  /^FLS violation on '/,
+  // Rollback preconditions.
+  /^No backup found for operation /,
+  /^Backup \S+ was taken from org /,
+  // The pipeline runner's fallback when a failed run carries no error.
+  /^Pipeline failed$/,
+  // ConnectionHelper, before any call reaches the org: an unknown org, a
+  // missing session, a malformed CLI username. The first two carry the org Id.
+  /^Org not found: /,
+  /^No credentials for org /,
+  /^Invalid username format: /,
+];
+
+/** Whether a failure message is one SandForge wrote, rather than one the org returned. */
+function isSandForgeAuthoredFailure(message: string): boolean {
+  return SANDFORGE_AUTHORED_FAILURES.some((pattern) => pattern.test(message));
+}
+
+/**
+ * Find a fix suggestion for a failure and have the host show it once.
+ *
+ * The table of known Salesforce error codes answers first, AI on or off: it is
+ * keyed on the code, so the code has to be recovered from the message with
+ * {@link extractErrorCode}, the inverse of the `CODE: text` shape
+ * `extractErrorMessage` produces. Only what the table cannot answer goes to
+ * the model, and only while the AI stack is wired.
+ *
+ * Nothing is asked when no SandForge view is open — a scheduled run failing
+ * with every panel closed has nobody to show an answer to — nor about a
+ * message SandForge wrote itself.
  *
  * Fire-and-forget: the caller is on an error path and must not wait, and a
  * resolution that fails is an extra the user never asked for — it is logged,
  * not surfaced.
  */
 function resolveFailedOperation(deps: OperationFailedDeps, error: string): void {
+  const watched = deps.broker.panelCount > 0;
+  if (!watched || isSandForgeAuthoredFailure(error)) return;
+
+  const errorCode = extractErrorCode(error, hasKnownResolution) ?? 'UNKNOWN';
+  const known = resolveKnownError({ errorCode, message: error });
+  if (known) {
+    deps.broker.showFixSuggestion({ source: 'knowledge-base', text: suggestedFix(known) });
+    return;
+  }
+
   const resolver = deps.errorResolver;
   if (!resolver) return;
 
   resolver
-    .resolveError(
-      { errorCode: extractErrorCode(error) ?? 'UNKNOWN', message: error },
-      // The lifecycle message names neither the module nor the operation, and
-      // both only decorate the model prompt — the knowledge base lookup keys
-      // on the code alone.
-      { module: 'unknown', operation: 'unknown', orgId: '' },
-    )
+    // The lifecycle message names neither the module nor the operation, so the
+    // context is empty and the prompt leaves those lines out.
+    .resolveError({ errorCode, message: error }, {})
     .then((resolution) => {
-      const answer: AIResolveErrorResponse = {
-        id: deps.nextId(),
-        type: 'ai:resolve-error:response',
-        timestamp: Date.now(),
-        payload: {
-          success: true,
-          resolution: {
-            explanation: resolution.explanation,
-            suggestedFix: resolution.suggestions[0]?.description ?? resolution.explanation,
-            confidence: resolution.confidence,
-          },
-        },
-      };
-      deps.broker.postToWebview(answer);
+      deps.broker.showFixSuggestion({ source: 'model', text: suggestedFix(resolution) });
     })
     .catch((err: unknown) => {
       deps.log?.(`[ERR] operation:failed resolution: ${extractErrorMessage(err)}`);
     });
+}
+
+/** The line a notification has room for: the first suggestion, else the explanation. */
+function suggestedFix(resolution: {
+  explanation: string;
+  suggestions: ReadonlyArray<{ description: string }>;
+}): string {
+  return resolution.suggestions[0]?.description || resolution.explanation;
 }

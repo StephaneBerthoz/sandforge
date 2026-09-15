@@ -186,6 +186,27 @@ describe('buildNodeQuery', () => {
     expect(result).toEqual({ kind: 'query', statements: ['SELECT Id, Name FROM Account'] });
   });
 
+  it("applies the object's filter to a full-table SELECT outside scoped mode", () => {
+    // A SOQL-mode run carries its WHERE clause as the root object's filter. It
+    // used to be dropped here, and the root was read from the whole table.
+    const result = buildNodeQuery({
+      node: makeNode('Account'),
+      edges: [],
+      fieldInfos: FIELDS,
+      scopedBuilder: null,
+      scopeCache: null,
+      extraWhere: "Industry = 'X' OR Rating = 'Hot'",
+      maxRecordsPerObject: 200,
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        "SELECT Id, Name FROM Account WHERE (Industry = 'X' OR Rating = 'Hot') LIMIT 200",
+      ],
+      limit: 200,
+    });
+  });
+
   it('falls back to selecting Id when no field is queryable', () => {
     const result = buildNodeQuery({
       node: makeNode('Account'),

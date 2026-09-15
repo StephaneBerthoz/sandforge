@@ -1,13 +1,7 @@
 import type { BaseMessage } from './base.messages.js';
 
-/** Pipeline messages */
-export interface PipelineRunRequest extends BaseMessage {
-  type: 'pipeline:run';
-  payload: { pipelineId: string; variables?: Record<string, string> };
-}
-
 /**
- * Response for `pipeline:run` / `pipeline:execute` — the pipeline execution
+ * Response for `pipeline:execute` — the pipeline execution
  * result bag (`{ status, stepResults, ... }`). No shared TS mirror of the
  * orchestrator result exists yet; the webview consumes it as
  * `Record<string, unknown>` (useAutomationPageData).
@@ -43,8 +37,8 @@ export interface PipelineTemplatesResponse extends BaseMessage {
 }
 
 /**
- * Alias of `pipeline:run` routed to the same AutomationHandler method, carrying
- * an inline pipeline definition instead of a stored ID.
+ * Runs a pipeline from an inline definition (AutomationHandler.handlePipelineRun);
+ * answers on `pipeline:run:response`.
  */
 export interface PipelineExecuteRequest extends BaseMessage {
   type: 'pipeline:execute';

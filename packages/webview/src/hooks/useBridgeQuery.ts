@@ -46,6 +46,11 @@ export function useBridgeQuery<T>(
      * from the request type (the convention used by bridge handlers).
      */
     errorType?: string;
+    /**
+     * Whether an uncorrelated message of the response type answers the query
+     * (default `true`). See `UseMessageResponseOptions.acceptUncorrelated`.
+     */
+    acceptUncorrelated?: boolean;
   },
 ): BridgeQueryState<T> {
   const sendMessage = useSendMessage();
@@ -60,6 +65,7 @@ export function useBridgeQuery<T>(
     timeoutMs,
     requestLabel: 'query',
     errorType,
+    acceptUncorrelated: options?.acceptUncorrelated,
   });
 
   // Stabilise sendMessage in a ref so it never triggers re-execution of the
@@ -116,5 +122,7 @@ export function useBridgeQuery<T>(
     cleanupRef.current = cleanup ?? null;
   }, [execute]);
 
-  return { data, loading, error, refetch };
+  // Same identity until something changes, so the query can be handed to a
+  // memoised component without re-rendering it on every parent render.
+  return useMemo(() => ({ data, loading, error, refetch }), [data, loading, error, refetch]);
 }

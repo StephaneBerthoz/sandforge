@@ -66,14 +66,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the run goes ahead untranslated, and Abort while it waits refuses the run at
   once. The command-line clone and the recipe tool match within the object as
   well.
-- **Leaving a running discovery stops it.** Back on the discovery spinner
-  returned to the input screen but left the graph walk querying the org.
-  Discovering again started a second walk beside the first, whose late answer
-  — a truncated graph or an error — could replace what the new discovery
-  showed, and a truncated graph was cached for the next identical request.
-  Back now cancels the walk, a new discovery cancels the one it replaces, and a
-  cancelled walk reports only that it was cancelled — no graph, no error — and
-  caches nothing.
+- **A Forge SOQL query's WHERE clause now filters the object after FROM.** Forge
+  read only the object name and dropped the clause, so `SELECT Id FROM Account
+WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
+  cap, under a warning that admitted it. The clause now reaches the run as that
+  object's filter: discovery counts the rows it matches, and the clone reads
+  only those. An alias on the object (`FROM Account a WHERE a.Industry = …`) is
+  removed from the clause first. Related objects are still read from their whole
+  tables, not narrowed to the matching rows, and every object stays capped at
+  200 records or fewer; the warning under the query now says exactly that and
+  names the object it filters. ORDER BY, LIMIT and the other clauses after WHERE
+  are not applied. A clause the extension would refuse — longer than 512
+  characters, containing `--`, `/*` or `*/` even inside a quoted value, or
+  ending with a semicolon — keeps Discover disabled and hides Reuse last graph,
+  with a message saying why; such queries used to discover without their filter.
+  A saved template holding a SOQL query now runs as that query on Discover and
+  on Reuse last graph alike, with the same filter, the same cap and the same
+  refusal. Reuse last graph used to send only the template's id, and such a
+  template was not held to the cap.
+- **Leaving a running discovery stops it, at once.** Back on the discovery
+  spinner returned to the input screen but left the graph walk querying the org.
+  Discovering again started a second walk beside the first, whose late answer —
+  a truncated graph or an error — could replace what the new discovery showed,
+  and a truncated graph was cached for the next identical request. Back now
+  cancels the walk, a new discovery cancels the one it replaces, and a cancelled
+  walk reports only that it was cancelled — no graph, no error — and caches
+  nothing. The cancel also takes effect straight away: the walk used to notice
+  it only between batches of six objects, each waiting for its slowest call, up
+  to 30 seconds for a describe on a rate-limited org, and the lookup of the root
+  object waited for the org's whole object list. Each call now settles as soon
+  as the discovery is cancelled. A request whose connection was still opening is
+  not sent; one already sent to Salesforce runs to its end, and its answer is
+  dropped.
 - **Select All and Deselect All act on the rows the search shows.** With the
   table filtered, both buttons changed every object in the graph, including
   the hidden ones, so a clone could gain or lose objects nobody saw change.
@@ -82,6 +106,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists that had drifted apart, so expansion could insert a job or log record
   such as `AsyncApexJob` or `CronTrigger` that discovery refused to walk into.
   There is now one list.
+- **The Forge Errors panel explains the Salesforce errors it recognizes, in all
+  six languages.** No locale defined the hints the translator named, so the
+  panel printed raw key paths such as `forge.error.duplicateValue.explanation`
+  under the message. Every hint it can produce now has text in English, French,
+  German, Spanish, Japanese and Brazilian Portuguese, a test fails when the
+  translator names a key a locale lacks, and the Forge quickstart says the hints
+  follow the SandForge interface language rather than French or English.
 - **A seed that names a Faker method SandForge does not generate is refused
   before its first insert.** The method was checked only when the generator
   reached it, so with a bad method on a later object the earlier objects were
@@ -118,6 +149,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported. Each object, and each partition of a partitioned object, now
   reports the records written so far, the bulk paths count against the whole
   run, and a second run in the same session starts at 0%.
+- **Stop stops your own seed, and a progress bar follows its own run.** Every
+  open panel receives every run's progress, and the Seed wizard's Stop sent the
+  abort for whichever run had reported progress last, so with two runs going it
+  could stop the other one. A seed's operation id is now the id of the request
+  that started it, as a sync's already was. Stop targets that id, and the Seed,
+  Quick Seed and Sync progress bars read only their own run's figures, so
+  another run no longer moves them.
+- **A clone that fails says so at once.** A clone could fail after it started,
+  including when the production guard blocked it or its confirmation was
+  declined. The extension reported that only as an operation failure, which the
+  clone wizard never listened for, so the wizard stayed on its running screen
+  for two minutes and then showed a raw timeout instead of the reason. It now
+  matches that failure to the clone it started and shows the extension's message
+  straight away.
+- **Home's recommended action opens the screen it names, ready to go.**
+  Confirming a recommendation only switched page: Clone and Quick Seed landed on
+  Seed's mode picker, and Sync landed on Grappe, which can only display a run
+  already in progress. Clone now opens the clone wizard writing to the target
+  org the recommendation named, with its source org selected and that org's
+  objects loading; Quick Seed opens Seed on its templates, and Sync opens Sync
+  with both orgs set. Nothing runs from Home: the clone preview and the
+  production guard still come first.
+- **An answer reaches only the request that asked for it.** Each panel built
+  message ids from the time and its own counter, so two panels sending in the
+  same millisecond could mint the same id and take each other's answers, and a
+  sync sent under a repeated id was refused as a duplicate; ids are now random.
+  A Frozen Dataset request took any error of its type, so another panel's failed
+  load cancelled yours, and Forge mission control took any Forge error, progress
+  event or result, so another run's error marked yours aborted; each now takes
+  only what answers its own request. Settings mistook the AI status update that
+  the extension pushes whenever the AI wiring changes for the answer to its own
+  status check, and dropped the real reply; it now waits for that reply.
+- **A message the extension drops is answered.** A message refused by the rate
+  limiter, or of a type no handler takes, was only logged, and the page that
+  sent it waited out its whole timeout before showing a generic failure. The
+  extension now answers it with a bridge error correlated to it. Every open
+  SandForge panel shows that error as a Bridge error notice, not only the page
+  that sent the message.
+- **Sync history loads, and an export says where it went.** Nothing passed the
+  extension's answers to the history panel's store: the request went out, the
+  table never filled, and an export never reached the Save dialog. The panel now
+  feeds the store those answers, and a history export says where the file was
+  saved or why it was not; a dismissed dialog stays silent, as other exports
+  already did.
 - **The AI token budget holds for the whole window.** Every change to a
   `sandforge.ai.*` setting rebuilt the AI stack with a fresh, empty counter, so
   toggling any AI setting was a way past the limit, and until the rebuild
@@ -145,6 +220,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SDK retried each failed call twice underneath the circuit breaker that
   counts failures, so three counted overloads could mean nine requests before
   the breaker opened. The SDK's own retries are off.
+- **A failing run asks the model once per failure, not once per occurrence.** A
+  run failing the same way many times asked the model every time. Failures with
+  the same code whose messages differ only by a record or org Id now share one
+  call while it runs and reuse its answer for ten minutes; a call that fails is
+  not kept. An aggregated Salesforce error is answered from the built-in table
+  when any of its codes has an entry: only the first code was read, so an
+  unknown first code sent the message to the model even when a later one had a
+  curated answer. The prompt no longer tells the model "Module: unknown" and
+  "Operation: unknown": lines the extension cannot fill are left out.
+- **An AI pipeline draft wrapped in a markdown fence loads its steps, and a
+  draft with no step is refused with a reason.** The pipeline reader parsed the
+  model's raw reply, so JSON inside a `json` code fence read as no JSON and came
+  back with no step, and the Automation page opened an empty canvas as if the
+  draft had worked. The draft is now read from inside the fence. A draft left
+  with no step answers as a failure, and the page shows "The AI returned a
+  pipeline with no steps, so there is nothing to load" with an example of what
+  to ask for.
+- **The NL2SOQL check accepts a parent-child subquery.** `SELECT Id, Name,
+(SELECT LastName FROM Contacts) FROM Account` was rejected with `Object
+"Contacts" not found in schema`: the check took the subquery's relationship
+  name for the queried object. A subquery, in the field list or in WHERE, is now
+  left to the org, while the plain fields around it are still checked, so an
+  invented field next to a subquery is still reported. A draft whose only
+  selected item is a subquery comes back marked as not checked, and the FAQ says
+  subqueries are not checked.
 - **The anomaly scan runs, on any object.** It asked Salesforce for
   `FIELDS(ALL)` over 500 records, a query the platform refuses above 200 rows,
   and the fallback meant to catch the refusal looked for its code in the
@@ -177,10 +277,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alerts panel, the alert history and the alerts count each asked for the same
   list, and an acknowledge or dismiss refreshed only the panel that sent it.
   All three now read one query.
-- **The Monitor's two health scores weigh the same factors.** The full
-  health-score request scored the org without its org info, leaving out the
-  metadata dimension the dashboard's own score includes, so the same org got
-  two different numbers.
 - **An expired org can be reconnected from its card.** An org whose session
   had expired or failed showed a badge and no way forward. Its card now offers
   Try Reconnect, which repeats how the org was added: a CLI import runs again,
@@ -190,6 +286,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refused by the extension, but their cards looked like the working ones and
   their tooltips described a login that does not exist. They are marked
   "Coming soon" on the card, in the tooltip and for assistive technology.
+- **An org edit is saved, and the edit dialog no longer offers a safety tier.**
+  In the Organizations edit dialog, Save changed only the panel's own copy of
+  the org, so the next org list put the old alias, colour and tags back and a
+  window reload lost them. The extension now writes them to the org registry and
+  answers with the saved list; the card changes when that answer arrives, and a
+  refused edit is shown in the page banner. The safety tier select is gone: the
+  production guard decides from the org type and never read it, and the pick was
+  not saved either, so it looked like a safety control and did nothing.
+- **One org that never answers no longer holds up the others at startup.**
+  Startup validation checked orgs one after another with no bound, so an
+  identity call to an instance that accepted the connection and never replied
+  kept the sweep waiting, and the orgs after it were never checked. Each
+  identity check now gives up after 20 seconds and counts as a failure for that
+  org's circuit breaker, the two `sf` calls that refresh a session token are
+  stopped after 30 seconds (on Windows, the shell that runs them), and the sweep
+  moves on after 45 seconds per org and marks the silent one as an error.
+- **Open Org in Browser works from the Command Palette.** The command needed an
+  org id the palette cannot pass, so it was hidden there and the launcher
+  dropdown was the only way in. Run without one, it now lists the registered
+  orgs to choose from, or points to the Organizations page when none is
+  registered, in all six languages.
+- **Closing or reloading the window aborts the syncs, seeds, CSV imports and
+  frozen-dataset runs still going.** On dispose — a window close, a reload, an
+  update — the list of background operations was cleared without aborting
+  anything, so a running operation kept its live abort signal and nothing was
+  left to report on it. Running syncs, seeds, clones started from Seed, CSV
+  imports and frozen-dataset runs now receive their abort signal, and a state
+  update scheduled during shutdown is cancelled instead of being posted to a
+  bridge that is already gone.
 - **`sandforge-clone` refuses a bad flag before it contacts an org.**
   `--depth deep` was cast straight into the depth type, and a malformed record
   Id or API name was refused only after both orgs had been authenticated. The
@@ -223,6 +348,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   incremental backups, an object picker and point-in-time recovery. A backup
   is a full snapshot of Account and Contact, restored whole into the org it
   came from, and both now say exactly that.
+- **Create Template in DataOps › Anonymize says it is not built.** The button
+  accepted the click and did nothing, because nothing creates a template. It is
+  now disabled, with a "Coming soon" hint.
+- **Sync reports to the Grappe view only at or above
+  `sandforge.grappe.autoActivateThreshold`.** With Grappe enabled, every sync
+  opened a Grappe run whatever its size, while Seed and Autopilot waited for the
+  threshold the setting names. Before the first write, Sync now counts each
+  object's source records with the run's WHERE filter, one `SELECT COUNT()` per
+  object, and each count stops where the read stops: at the query cap on a
+  production source, at 50,000 records elsewhere. It reports one partition per
+  object only when the total reaches the threshold. If the org refuses a count,
+  the sync goes on and reports nothing to the Grappe view. The Grappe help, the
+  empty Grappe page and both Grappe setting descriptions now say that Sync waits
+  for the threshold too, in all six languages, and the Sync guide says when the
+  reporting starts.
+- **An Autopilot run opens and closes in the Grappe view under one id.** The
+  start and completion events each minted their own `autopilot-<timestamp>`, one
+  before the run's work started and one after it ended, so the closing event
+  named a run that had never been opened. Both now carry the id minted when the
+  run starts.
+- **SandForge follows VS Code's display language until you choose one.** A
+  webview only sees the OS locale, so VS Code set to French on an English system
+  opened SandForge in English. The extension now passes VS Code's display
+  language to every panel and to the sidebar, and as long as no language has
+  been chosen in SandForge, the interface tries it before the OS locale, falling
+  back to the OS locale when SandForge ships no bundle for it. An English VS
+  Code on a French, German, Spanish, Japanese or Portuguese system therefore now
+  opens SandForge in English, where it used to follow the system. A language
+  chosen in SandForge still wins.
+- **A language that fails to load in Settings is reported, and the selector
+  returns to the language on screen.** The change was fire-and-forget: when the
+  locale bundle could not be loaded, the selector showed the new language over
+  an interface still in the old one, and nothing said why.
+- **What's New shows only highlights written for the version you upgraded to,
+  and stays closed when there are none.** Every upgrade showed the same
+  launch-era list (bilingual support, new branding) under the new version
+  number. Highlights are now kept per version; this release has none, so
+  upgrading to it opens no panel.
+- **Connect org in the welcome wizard no longer ends onboarding at step 1 of 5.** The button opened the org manager and marked onboarding complete, so the
+  wizard never came back. It now closes the wizard for the session and leaves
+  onboarding unfinished, so the wizard returns the next time the extension
+  starts.
+- **The Migration page no longer says nothing is written above a button that
+  writes.** The subtitle said the file is only read and nothing is written or
+  executed, on the page whose Run button writes the converted configuration's
+  records to the target org. It now says importing changes nothing and running
+  writes to the target org, in six languages.
+- **A page that crashes no longer takes the panel's navigation down with it.**
+  The only error boundary sat above the whole panel, so a render error in one
+  page also unmounted the command palette and the keyboard shortcuts, leaving
+  Recover as the only way out, and Recover remounted the whole panel on the
+  module it was opened with. Each routed page now has its own boundary, keyed
+  on the route: the palette, the G-key chords and the overlays stay up, and
+  moving to another module renders that module.
+- **The Welcome, What's New and Generate with AI dialogs keep keyboard focus and
+  close on Escape.** They were marked modal, yet Tab walked out into the page
+  behind them and Escape did nothing, and the Welcome and What's New overlays
+  did not even take focus when they opened. Focus now moves into the dialog when
+  it opens, Tab and Shift+Tab wrap inside it, Escape closes it, and on close
+  focus goes back to the control that held it before, if there was one. Escape
+  on the Welcome wizard skips it the way its Skip button does, so a ticked
+  "Don't show again" is kept, and the Generate with AI dialog is named after its
+  heading. The Compare diff dialog uses the same trap and no longer pulls focus
+  back to its close button whenever its page re-renders.
+- **Two progress bars have an accessible name, and the side panel's unstarred
+  favorite star can be seen.** Screen readers announced the Welcome wizard's
+  step bar and the Automation run bar as a bare number, which axe rates as
+  serious; they are now named "Step progress" and "Progress", and a progress bar
+  with a visible label takes that label as its name. The unstarred star sat at
+  40% opacity over the muted text colour, well under the contrast an icon
+  control needs; it is now drawn at full strength and brightens on hover.
 - **The example pipelines can no longer delete what they did not clone.**
   `sandforge-cleanup --since today` selects every record the user created that
   day on the target, cloned or not, and its help, the CI README and the Forge
@@ -248,6 +444,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself available with either selected. The setting now offers Anthropic
   alone, and a `settings.json` that names another provider leaves AI off and
   sends nothing.
+- **A failed run's fix suggestion comes from the built-in table even with AI
+  off, and appears once, as a VS Code notification.** The table of common
+  Salesforce error codes needs no model and no key, but it was consulted only
+  once AI was on and an Anthropic key was stored, so users without a key got no
+  hint. While a SandForge panel or sidebar view is open, it now answers a failed
+  Seed, Sync, DataOps or Automation run whether AI is on or off, and only what
+  it cannot answer goes to the model, while AI is on. It covers every code the
+  retry classifier knows: `REQUEST_RUNNING_TOO_LONG`, `SERVER_UNAVAILABLE`,
+  `INVALID_FIELD` and `INSUFFICIENT_ACCESS_OR_READONLY` had no entry. The
+  suggestion used to be posted to every open panel, each of which showed it; it
+  is now a single VS Code notification. With no SandForge view open nothing is
+  asked, so a scheduled sync failing with every panel closed no longer costs a
+  model call for a suggestion nobody sees.
 - **Production orgs are listed first.** The Organizations page showed orgs in
   the order they were added; it now orders them by type, production first,
   then by whether the org is usable, then by alias.
@@ -267,29 +476,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   50,000-record run serialised 50,000 Ids into one message for a results step
   that shows counts. At most 1,000 Ids and 1,000 errors per object now reach
   the page; the counts stay complete and a flag marks the cut.
-- **The Monitor and Forge wait on fewer round trips.** A Monitor refresh ran
-  the limits call and the job query one after the other, and parsed the stored
-  trend history once per limit; the two calls now run together and the
-  history is read once. Forge describes the target object while the source
-  records download instead of after.
+- **Seed has no dry run, and a request for one is refused.** A seed request with
+  `dryRun` returned an empty success before generating anything: nothing was
+  written, but nothing was previewed either, and the answer read like a preview
+  that had passed. Such a request is now refused with an explicit error before
+  the org is touched.
+- **The Monitor and Forge wait on fewer round trips.** A Monitor refresh ran the
+  limits call and the job query one after the other, and parsed the stored trend
+  history once per limit; the two calls now run together and the history is read
+  once. Forge describes the target object while the source records download
+  instead of after, and describes each object once per org: discovery cached its
+  describes, but the source fields, whether the target accepts inserts, the
+  target fields and the drift check each sent their own, so one run described
+  the same object three times or more per org. They now share one describe per
+  org and object, kept five minutes like discovery's, and a caller that arrives
+  while it is under way waits for it instead of sending another. A field added
+  on the target within those five minutes is seen once they have passed.
+- **The AI tab on the Forge page is marked coming soon and cannot be opened.**
+  It took a prompt and enabled Discover, then discovery stopped with "Cannot
+  resolve root object": nothing turns a prompt into a Forge run. The tab is now
+  disabled with a Coming soon badge, the empty-input hint no longer asks for a
+  prompt, and a past AI run reopened from the history opens on the record tab.
+- **Automation stops promising triggers, a scheduler release and sync modes it
+  does not have.** Nothing starts a pipeline except a manual run, yet the
+  scheduler badge promised v1.2 and the Triggers tab offered Schedule, Event,
+  Webhook, Sandbox Refresh and Deployment Complete as if they fired. The badge
+  now says coming soon without naming a release, every trigger card except
+  Manual carries a coming-soon badge, the panel says that only a manual run
+  starts a pipeline, and the Automation guide lists the trigger types the panel
+  offers and names no release. Two marketplace templates promised a dry-run sync
+  and an incremental sync that the sync step does not perform: they are now
+  named Data Migration Check and Checked Sync, no longer carry the dry-run,
+  incremental or delta tags, and their sync step says pipelines do not transfer
+  records yet.
+- **Every AI draft reads the model's reply the same way.** NL2SOQL drafts,
+  pipeline drafts and suggestions, custom Seed personas and AI-generated Seed
+  records each handled a fenced reply their own way, or not at all, and cast its
+  fields one by one. They now share one schema-checked reader, so pipeline
+  suggestions are read from inside a fence too, and a NL2SOQL or custom-persona
+  reply that is not JSON shows the same message as a reply of the wrong shape
+  instead of a raw JSON syntax error. Error resolution still reads its replies
+  the old way.
+- **An idle window no longer calls Salesforce every 30 seconds.** The
+  connectivity probe sent a request to login.salesforce.com every 30 seconds
+  from every open window, whether or not anything waited in the offline queue.
+  It now repeats only while an operation is queued or the last check found the
+  network down. An operation queued while the network was last seen up gets one
+  check straight away: if the network turns out to be down, the operation stays
+  queued and is replayed when the network comes back, instead of being retried
+  at once and failing.
+- **Telemetry log records are readable in the SandForge output channel.** They
+  reached the channel as raw JSON lines. They are now written as `[time] [LEVEL]
+message`, followed by their extra fields, in the same layout as the channel's
+  other lines; a line that is not such a record is written unchanged.
+- **The telemetry setting says what it does: record errors locally, send
+  nothing.** The setting in six languages and both READMEs called it anonymous
+  usage telemetry, but it only feeds a local log with no network transport. The
+  Settings counter read "Events sent" beside a "Buffer size" row fixed at 0; it
+  now reads "Diagnostic events recorded", and the buffer row is gone. A docs
+  check ties the wording to what that logger imports.
 - **The CI examples and contributor guide take pnpm from the repository's
   pin.** Every example pipeline hardcoded pnpm 11 while the repository's own
   workflows read `packageManager`; CONTRIBUTING.md and the pnpm ADR cited a
   release two bumps old, and the Jenkins header asked for a Node 20 tool.
 - **The guides describe what ships.** The Seed guide no longer describes a
   relationship editor: a lookup receives records its target object created
-  earlier in the run, so that object has to be part of it. The Forge
-  quickstart and example recipes no longer offer an upsert mode the wizard
-  does not have — only the command line's `--upsert` — and say the command
-  line is two scripts run with `pnpm exec tsx` from a checkout, after
-  `pnpm install` and `pnpm build:shared`, not an installed CLI. The
-  record-scoped clone guide says its reduction figure came from one dry run on
-  one dataset, and describes how large scopes are read. The Monitor guide gains
-  a section for each of the nine panels it did not mention, and states their
-  current limits: Apex insights estimates from log size, the Username column
-  shows a user Id, the health check's job and error figures are points rather
-  than counts, and the built-in governance rules are checked against metrics
-  the org does not report.
+  earlier in the run, so that object has to be part of it. The Forge quickstart
+  and example recipes no longer offer an upsert mode the wizard does not have —
+  only the command line's `--upsert` — and say the command line is two scripts
+  run with `pnpm exec tsx` from a checkout, after `pnpm install` and `pnpm
+build:shared`, not an installed CLI. The record-scoped clone guide says its
+  reduction figure came from one dry run on one dataset, and describes how large
+  scopes are read. The Monitor guide gains a section for each of the nine panels
+  it did not mention, and states their current limits: Apex insights estimates
+  from log size, the Username column shows a user Id, the health check's job and
+  error figures are points rather than counts, and the built-in governance rules
+  are checked against metrics the org does not report. It also says background
+  operations do not survive a reload: after a window reload or an extension host
+  restart, Live Operations no longer shows a run that was in progress and cannot
+  cancel it. The Frozen Dataset guide no longer gives Production Guard an audit
+  trail: with `sandforge.safety.auditLogging` on, the guard keeps its
+  safety-check decisions in memory for the session only.
 
 ### Removed
 
@@ -297,6 +564,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   real-time channel is answered by a handler that does nothing, so the
   Real-Time tab could only end at an error badge, and the Conflicts tab could
   only list conflicts that stream never delivers.
+- **The bridge no longer routes requests no screen sends.** `compare:start`,
+  `dataops:backup` and `pipeline:run`, aliases of `compare:execute`,
+  `backup:execute` and `pipeline:execute`, are gone, and so are `monitor:start`,
+  `monitor:health-score`, `execution:status`, `execution:list`,
+  `execution:manual-retry`, `dataops:masking-templates-by-object`,
+  `governance:policy:get`, `governance:policies:export`,
+  `governance:policies:import` and `forge:target-preflight:request`, with their
+  protocol declarations, the handler code, payload schemas and replies only they
+  used, the per-object masking template service, and the governance policy
+  store's export and import. The message envelope now refuses them. Nothing in
+  the product could send them, yet they read as live features to anyone reading
+  the protocol.
 
 ### Security
 
@@ -327,6 +606,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with it.** When Forge fetched a missing parent record, the parent's object
   name went into two describe request paths before it was validated. It is
   now validated first, and a malformed name sends nothing.
+- **Refusals SandForge writes itself no longer reach the model.** While AI was
+  on, a run failing on any of these cost a model call: a declined production
+  confirmation, a duplicate run, the per-org backup and rollback lock, a CRUD or
+  FLS refusal, a Production Guard block, a missing backup or one taken from
+  another org, an org that is not found or has no stored credentials, a
+  malformed CLI username, and a pipeline that failed without an error of its
+  own. Several of those messages carry an org Id. None of them is sent now.
+  Other errors SandForge raises, such as a failed connection or a validation
+  error, still are.
+- **Fake personas and format-preserving values are keyed with the anonymizer's
+  salt.** The persona picked for a record, the placeholder for a field no
+  persona maps and the output of `preserve_format` all came from an unkeyed hash
+  of the record Id or of the original value. A record got the same fake identity
+  in every installation, and a phone number or national Id run through
+  `preserve_format` could be confirmed by trying candidates. They are now drawn
+  from HMAC-SHA256 under the salt that already keys `hash` and `shuffle`: random
+  for each anonymizer unless a salt is passed, and the same salt gives the same
+  output. In DataOps, a record now gets a different fake name, email or phone on
+  each anonymization run, even when the rule sets a hash salt.
+- **A webview can load files from the webview bundle only.** Panels and the
+  sidebar used the whole extension folder as their resource root, so a webview
+  could request any packaged file, compiled extension code included. The root is
+  now `webview-dist`, and SECURITY.md says why styles still allow
+  `'unsafe-inline'`: the dialog scroll lock inserts a `<style>` element at
+  runtime, and three components render `<style>` blocks.
 - **The CI examples no longer leave Salesforce auth URLs on the build
   machine.** All four pipelines wrote both auth URLs to fixed files under /tmp
   at the default umask and removed them a line later; in Jenkins these were
@@ -383,6 +687,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a diff, the scheduler does nothing, a run's history entry keeps no step
   results, three DataOps tabs are mounted as coming soon, and nothing listens
   for Ctrl+Enter. Build any of those features and its anchor fails first.
+- **The claims check reads the wording and code it used to skip.** The CDC rule
+  read only the Help page's sync text; it now reads every README, guide,
+  setting, notification and webview fallback, and a disclaimer counts only in
+  the sentence, clause or list item that names CDC. The Grappe rules also
+  refuse, in a sentence about Grappe, the ordinary phrases for concurrency in
+  the six languages ("at once", "à la fois", "auf einmal", 一度に and others), and
+  anchors pin Sync's per-object loop, its threshold check, and the single id
+  under which Sync and Autopilot open and close a Grappe run. A new rule refuses
+  "audit trail" next to Production Guard in six languages. The automatic error
+  resolution anchor refuses a `resolveError` call behind a condition that reads
+  anything but the resolver: around the call, in the expression it is made on,
+  or in any value given to the name that expression starts from. Some shapes,
+  listed in the rule, are not read, such as an early exit above the call or a
+  call made inside a callback. The tool scan now reads the webview and catches
+  `vscode.lm` taken whole or bound, and the attacks recorded against the AI
+  Assistant rules are replayed in memory on every run, except the
+  import-coverage ones, which the coverage control reads on the real tree.
+- **Hand-built bridge messages are checked.** In a webview file that posts a
+  message, every hand-built `type: '<channel>'` must be a channel the protocol
+  declares, the raw `sidebar:*` channels excepted; an undeclared one used to
+  surface only at run time, as a bridge error. On the extension side, a
+  `:response` type built outside `buildResponse` is refused whatever it is
+  posted through, the sidebar's own `postMessage` included, whether written as a
+  literal, a template, or a value typed as a `:response` literal or a union
+  holding one. Five listed sites are exempt — two pushes no request asked for,
+  and three answers to the sidebar's raw requests — and each of them has to
+  still exist. A value typed as plain `string` and a key computed at runtime are
+  not read.
 - **Forge tests that could not fail now can.** The orphan-parent cap test
   passed with zero parents fetched, the preview suite replaced SOQL escaping
   with a pass-through, the pause test waited on a real timer, and the
@@ -391,6 +723,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour it names breaks, and the suite gains property tests for Id
   remapping, a discovery case where two objects reference each other, and
   Person Account cases.
+- **AI and accessibility tests fail on regressions they let through.** The AI
+  page's tests fail when its error banner stops clearing on send or on opening
+  another conversation, the delete test starts from a restored conversation that
+  was never in memory, and AI setup fails its test when it posts the webview
+  anything beyond the status it owes. The accessibility scans now also cover the
+  Welcome and What's New overlays open over a page, the Generate with AI dialog
+  and the Automation canvas with a run in progress; on their first run they
+  found the two unnamed progress bars fixed above.
 - **The CI and contributor docs describe the pipeline that runs.** ci.yml
   still called Windows the only leg running E2E, and CONTRIBUTING and the pull
   request template listed six validate gates where there are fifteen. They now

@@ -679,5 +679,73 @@ describe('MessageBroker', () => {
 
       expect(logFn).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled'));
     });
+
+    it('answers a message no handler takes with a bridge:error correlated to it', () => {
+      // Without a reply the hook that sent it waits out its whole timeout and
+      // then reports a generic failure.
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
+      messageCallback(enveloped(createMessage('sync:execute', { id: 'req-unrouted' })));
+
+      const err = panel.webview.postMessage.mock.calls
+        .map((args) => args[0] as BaseMessage & { payload: { reason: string } })
+        .find((m) => m.type === 'bridge:error');
+      expect(err?.correlationId).toBe('req-unrouted');
+      expect(err?.payload.reason).toBe('unhandled-type');
+    });
+  });
+
+  describe('rate limiting', () => {
+    it('answers a dropped message with a bridge:error correlated to it', () => {
+      broker = new MessageBroker({ rateLimitMax: 1 });
+      const handler = vi.fn<MessageHandler>();
+      broker.on('org:list', handler);
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
+      messageCallback(enveloped(createMessage('org:list', { id: 'req-first' })));
+      messageCallback(enveloped(createMessage('org:list', { id: 'req-second' })));
+
+      expect(handler).toHaveBeenCalledOnce();
+      const errors = panel.webview.postMessage.mock.calls
+        .map((args) => args[0] as BaseMessage & { payload: { reason: string } })
+        .filter((m) => m.type === 'bridge:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].correlationId).toBe('req-second');
+      expect(errors[0].payload.reason).toBe('rate-limited');
+    });
+  });
+
+  describe('showFixSuggestion', () => {
+    it('hands the suggestion to the host once, whatever the number of panels', () => {
+      const showFixSuggestion = vi.fn();
+      broker = new MessageBroker({ showFixSuggestion });
+      const panels = [createMockPanel(), createMockPanel()];
+      for (const panel of panels) broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      broker.showFixSuggestion({ source: 'knowledge-base', text: 'Wait a moment and retry.' });
+
+      expect(showFixSuggestion).toHaveBeenCalledOnce();
+      expect(showFixSuggestion).toHaveBeenCalledWith({
+        source: 'knowledge-base',
+        text: 'Wait a moment and retry.',
+      });
+      for (const panel of panels) expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('shows nothing when no host notifier was given', () => {
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      expect(() => broker.showFixSuggestion({ source: 'model', text: 'x' })).not.toThrow();
+      expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    });
   });
 });

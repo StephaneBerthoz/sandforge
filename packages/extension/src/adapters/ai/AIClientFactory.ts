@@ -41,7 +41,7 @@ export interface AIClientFactory {
  * Build a memoised, provider-keyed factory for AI clients.
  *
  * Each provider gets ONE adapter instance per factory lifetime so that
- * per-provider state (CircuitBreaker in 04-02, in-flight registry, etc.)
+ * per-provider state (circuit breaker, in-flight registry, etc.)
  * persists across calls. Switching the provider in Settings returns a
  * different cached instance — both stay alive for the session (until
  * `invalidate()` is called).

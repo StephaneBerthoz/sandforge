@@ -202,6 +202,28 @@ describe('useBridgeQuery', () => {
     removeSpy.mockRestore();
   });
 
+  it('returns the same object across a rerender that changes nothing', () => {
+    const { result, rerender } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
+
+    const first = result.current;
+    rerender();
+
+    expect(result.current).toBe(first);
+  });
+
+  it('ignores an uncorrelated push of the response type when acceptUncorrelated is false', () => {
+    const { result } = renderHook(() =>
+      useBridgeQuery<{ enabled: boolean }>('ai:status', undefined, { acceptUncorrelated: false }),
+    );
+
+    act(() => {
+      simulateResponse('ai:status:response', { enabled: false });
+    });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+  });
+
   it('should not update state after unmount', () => {
     const { result, unmount } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 

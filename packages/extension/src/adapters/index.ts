@@ -1,6 +1,6 @@
 /**
  * Adapter layer — centralised IO facades shared across the extension.
- * Plans 01-03 / 01-04 wire these into the composition root.
+ * The composition root (services.ts) builds one of each.
  */
 export { SalesforceAdapter } from './salesforce/index.js';
 export type { SalesforceAdapterOptions } from './salesforce/index.js';

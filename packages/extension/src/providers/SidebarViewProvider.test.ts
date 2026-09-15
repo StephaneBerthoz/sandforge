@@ -57,12 +57,28 @@ describe('SidebarViewProvider', () => {
     expect(mockWebview.html).toContain('sidepanel.css');
   });
 
-  it('enables scripts and sets local resource roots', () => {
+  it('enables scripts and limits local resource roots to the webview bundle', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
     expect((mockWebview.options as Record<string, unknown>).enableScripts).toBe(true);
-    expect((mockWebview.options as Record<string, unknown>).localResourceRoots).toEqual([
+    const roots = (mockWebview.options as { localResourceRoots: unknown[] }).localResourceRoots;
+    expect(roots.map(String)).toEqual(['/ext/webview-dist']);
+  });
+
+  it('announces the VS Code display language to the sidebar shell', () => {
+    const withLanguage = new SidebarViewProvider(
       extensionUri,
-    ]);
+      uriJoinPath,
+      executeCommand,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => 'ja',
+    );
+    withLanguage.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    expect(mockWebview.html).toContain('window.__SANDFORGE_EDITOR_LANGUAGE__="ja"');
   });
 
   it('executes correct command on sidebar:navigate message', () => {

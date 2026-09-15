@@ -261,6 +261,14 @@ export class AIToolsHandler implements DomainHandler {
         description,
         availableOrgs,
       );
+      // A keyword match always yields a step, so a draft with none is a model
+      // reply nothing could be read from. Answered as a success it opened an
+      // empty canvas with no word of why; refused, the page shows the reason.
+      if (result.steps.length === 0) {
+        throw new Error(
+          'The AI returned a pipeline with no steps, so there is nothing to load. Name the operations it should run, for example: sync Account from dev to uat, then compare.',
+        );
+      }
       const response = buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
         success: true,
         pipeline: result as unknown as Record<string, unknown>,

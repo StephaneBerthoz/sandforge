@@ -111,38 +111,6 @@ describe('GovernancePolicyStore', () => {
     });
   });
 
-  describe('exportPolicies / importPolicies', () => {
-    it('should export policies as JSON', () => {
-      store.save(createPolicy());
-      const json = store.exportPolicies();
-      const parsed = JSON.parse(json);
-      expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed).toHaveLength(1);
-    });
-
-    it('should import policies from JSON', () => {
-      const policies = [createPolicy({ id: 'imported-1' })];
-      const json = JSON.stringify(policies);
-      const count = store.importPolicies(json);
-      expect(count).toBe(1);
-      expect(store.getById('imported-1')).toBeDefined();
-    });
-
-    it('should throw on invalid JSON', () => {
-      expect(() => store.importPolicies('not-json')).toThrow();
-    });
-
-    it('should throw when JSON is not an array', () => {
-      expect(() => store.importPolicies('{}')).toThrow('Expected an array');
-    });
-
-    it('should skip invalid entries during import', () => {
-      const json = JSON.stringify([{ id: 'bad' }, createPolicy({ id: 'good' })]);
-      const count = store.importPolicies(json);
-      expect(count).toBe(1);
-    });
-  });
-
   describe('getDefaultTemplates', () => {
     it('should return three default templates', () => {
       const templates = GovernancePolicyStore.getDefaultTemplates();

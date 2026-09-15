@@ -21,8 +21,9 @@ export interface SchedulerCalendarProps {
 /**
  * Calendar-like view of scheduled pipeline executions.
  *
- * Scheduler is a planned feature (v1.2). The component renders with a
- * "Coming Soon" badge and all interactive controls disabled.
+ * The scheduler is not implemented: every `scheduler:*` channel answers with
+ * a no-op. The component renders a "Coming soon" badge that names no release
+ * and keeps all interactive controls disabled.
  */
 export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled = [] }) => {
   const { t } = useTranslation();
@@ -31,7 +32,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
     return (
       <div className="relative" data-testid="scheduler-calendar">
         <span data-testid="scheduler-coming-soon">
-          <Badge variant="info">{t('scheduler.comingSoon')}</Badge>
+          <Badge variant="info">{t('common.comingSoon')}</Badge>
         </span>
         <div className="opacity-50 pointer-events-none mt-2">
           <EmptyState
@@ -47,7 +48,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
   return (
     <div className="relative" data-testid="scheduler-calendar">
       <span data-testid="scheduler-coming-soon">
-        <Badge variant="info">{t('scheduler.comingSoon')}</Badge>
+        <Badge variant="info">{t('common.comingSoon')}</Badge>
       </span>
       <div className="opacity-50 pointer-events-none mt-2">
         <div className="flex flex-col gap-3">

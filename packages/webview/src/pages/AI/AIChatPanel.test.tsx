@@ -15,8 +15,8 @@ import { AIChatPanel } from './AIChatPanel';
 import type { ChatMessageDisplay, ConversationSummary } from './AIChatPanel';
 
 const conversations: ConversationSummary[] = [
-  { id: 'conv-1', title: 'Seed Help', updatedAt: '2025-01-01T00:00:00Z', messageCount: 3 },
-  { id: 'conv-2', title: 'Sync Config', updatedAt: '2025-01-02T00:00:00Z', messageCount: 1 },
+  { id: 'conv-1', title: 'Seed Help', createdAt: '2025-01-01T00:00:00Z', messageCount: 3 },
+  { id: 'conv-2', title: 'Sync Config', createdAt: '2025-01-02T00:00:00Z', messageCount: 1 },
 ];
 
 const messages: ChatMessageDisplay[] = [

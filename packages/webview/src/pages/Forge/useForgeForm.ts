@@ -24,6 +24,8 @@ import {
   extractRecordId,
   extractSalesforceDomain,
   smartLimitForCount,
+  soqlFilterRefused,
+  soqlObjectFilters,
   SOQL_UNSCOPED_RECORD_CAP,
 } from './forgeUtils';
 
@@ -84,8 +86,6 @@ export interface ForgeFormState {
   setSoqlQuery: (q: string) => void;
   selectedTemplate: string;
   setSelectedTemplate: (id: string) => void;
-  aiPrompt: string;
-  setAiPrompt: (p: string) => void;
 
   /* Depth */
   depth: ForgeDepth;
@@ -128,6 +128,8 @@ export interface ForgeFormState {
 
   /* Derived / actions */
   canDiscover: boolean;
+  /** The query this run would send has a WHERE clause the extension refuses. */
+  whereClauseRefused: boolean;
   handleDiscover: () => void;
   canQuickStartTemplate: boolean;
   builtinTplCandidate: (typeof BUILTIN_FORGE_TEMPLATES)[number] | null;
@@ -156,6 +158,7 @@ export function useForgeForm(): ForgeFormState {
   const setPhase = useForgeStore((s) => s.setPhase);
   const setGraph = useForgeStore((s) => s.setGraph);
   const history = useForgeStore((s) => s.history);
+  const templates = useForgeStore((s) => s.templates);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const sendMessage = useSendMessage();
@@ -165,7 +168,6 @@ export function useForgeForm(): ForgeFormState {
   const [recordId, setRecordId] = useState('');
   const [soqlQuery, setSoqlQuery] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [aiPrompt, setAiPrompt] = useState('');
   const [depth, setDepth] = useState<ForgeDepth>('direct');
   const [customDepth, setCustomDepth] = useState(3);
   const [sourceOrgId, setSourceOrgId] = useState('');
@@ -228,6 +230,23 @@ export function useForgeForm(): ForgeFormState {
   const targetOrg = useMemo(() => orgs.find((o) => o.id === targetOrgId), [orgs, targetOrgId]);
 
   /**
+   * The root input a saved user template holds, when it holds one the
+   * extension can resolve (a record id or a SOQL query). Templates live in
+   * this webview's store, so a bare templateId reaches the extension
+   * unresolvable; the run sends this input instead.
+   */
+  const templateInput = useMemo(() => {
+    if (inputMode !== 'template') return undefined;
+    const tplConfig = templates.find((t2) => t2.id === selectedTemplate)?.config;
+    return tplConfig && (tplConfig.inputMode === 'record' || tplConfig.inputMode === 'soql')
+      ? tplConfig
+      : undefined;
+  }, [inputMode, templates, selectedTemplate]);
+
+  /** Whether the run reads its root from a SOQL query, typed or saved in a template. */
+  const runsSoql = inputMode === 'soql' || templateInput?.inputMode === 'soql';
+
+  /**
    * Numeric limit applied to executor (undefined = no cap). When the
    * dropdown is on `smart`, scales with `preview.estimatedRecordCount`;
    * before the preview lands, defaults to 100 as a safe-large-org fallback.
@@ -245,14 +264,14 @@ export function useForgeForm(): ForgeFormState {
       base = Number.isFinite(n) && n > 0 ? n : undefined;
     }
 
-    // SOQL mode discards the WHERE clause (only the FROM object survives
-    // parsing) and never enters the record-scoped path, so "all" would clone
-    // whole tables for every object in the graph. Bound it.
-    if (inputMode === 'soql') {
+    // SOQL mode filters only the object after FROM and never enters the
+    // record-scoped path: every related object is read from its whole table,
+    // so "all" would clone whole tables across the graph. Bound it.
+    if (runsSoql) {
       return Math.min(base ?? SOQL_UNSCOPED_RECORD_CAP, SOQL_UNSCOPED_RECORD_CAP);
     }
     return base;
-  }, [recordLimit, preview, inputMode]);
+  }, [recordLimit, preview, runsSoql]);
 
   /** Whether the current input has enough data to proceed. */
   const hasInput = useCallback((): boolean => {
@@ -264,13 +283,62 @@ export function useForgeForm(): ForgeFormState {
       case 'template':
         return selectedTemplate.length > 0;
       case 'ai':
-        return aiPrompt.trim().length > 0;
+        // Nothing turns a prompt into a seed plan: discovery refuses the mode.
+        return false;
     }
-  }, [inputMode, recordId, soqlQuery, selectedTemplate, aiPrompt]);
+  }, [inputMode, recordId, soqlQuery, selectedTemplate]);
+
+  /*
+   * The WHERE clause travels as an object filter, which the extension checks
+   * before running anything. A clause it refuses would fail the whole
+   * discovery, so Discover stays off until the query is fixed. A saved
+   * template's query counts too: a run sends it the same way.
+   */
+  const whereClauseRefused = useMemo((): boolean => {
+    if (inputMode === 'soql') return soqlFilterRefused(soqlQuery);
+    return templateInput?.inputMode === 'soql' && soqlFilterRefused(templateInput.soqlQuery ?? '');
+  }, [inputMode, soqlQuery, templateInput]);
+
+  /**
+   * The root input fields of an outgoing config, shared by Discover and by
+   * Reuse last graph so both send the same run. A saved template's root input
+   * is expanded in place of its id; the form's depth, toggles and orgs still
+   * win. Builtin templates take the quick-start path (synthetic graph) and
+   * never reach here with a resolvable root input.
+   */
+  const runInput = useMemo((): Pick<
+    ForgeConfig,
+    'inputMode' | 'recordId' | 'soqlQuery' | 'objectSoqlFilters' | 'templateId'
+  > => {
+    const runSoql =
+      inputMode === 'soql'
+        ? soqlQuery.trim()
+        : templateInput?.inputMode === 'soql'
+          ? templateInput.soqlQuery
+          : undefined;
+    return {
+      inputMode: templateInput ? templateInput.inputMode : inputMode,
+      recordId:
+        inputMode === 'record'
+          ? (extractRecordId(recordId) ?? undefined)
+          : templateInput?.inputMode === 'record'
+            ? templateInput.recordId
+            : undefined,
+      soqlQuery: runSoql,
+      // The query's WHERE clause reaches the executor as the root object's
+      // filter; without it the root was cloned from its whole table.
+      objectSoqlFilters: runSoql ? soqlObjectFilters(runSoql) : undefined,
+      templateId: inputMode === 'template' && !templateInput ? selectedTemplate : undefined,
+    };
+  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput]);
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
   const canDiscover =
-    hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0 && !sameOrgSelected;
+    hasInput() &&
+    sourceOrgId.length > 0 &&
+    targetOrgId.length > 0 &&
+    !sameOrgSelected &&
+    !whereClauseRefused;
 
   /** Refs to the depth chips so arrow-key nav can move DOM focus. */
   const depthRefs = useRef<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>({});
@@ -326,40 +394,9 @@ export function useForgeForm(): ForgeFormState {
   const handleDiscover = useCallback(() => {
     if (!canDiscover) return;
 
-    /*
-     * Template mode: templates live in this webview's store, so the extension
-     * cannot resolve a bare templateId — `resolveRootObject` rejects it.
-     * Expand the selected template's saved root input (record/soql) into the
-     * outgoing config; the form's current depth, toggles and orgs still win.
-     * Builtin templates take the quick-start path (synthetic graph) and never
-     * reach this handler with a resolvable root input.
-     */
-    const tpl =
-      inputMode === 'template'
-        ? useForgeStore.getState().templates.find((t2) => t2.id === selectedTemplate)
-        : undefined;
-    const tplInput =
-      tpl && (tpl.config.inputMode === 'record' || tpl.config.inputMode === 'soql')
-        ? tpl.config
-        : undefined;
-
     const config: ForgeConfig = {
-      inputMode: tplInput ? tplInput.inputMode : inputMode,
+      ...runInput,
       depth,
-      recordId:
-        inputMode === 'record'
-          ? (extractRecordId(recordId) ?? undefined)
-          : tplInput?.inputMode === 'record'
-            ? tplInput.recordId
-            : undefined,
-      soqlQuery:
-        inputMode === 'soql'
-          ? soqlQuery.trim()
-          : tplInput?.inputMode === 'soql'
-            ? tplInput.soqlQuery
-            : undefined,
-      templateId: inputMode === 'template' && !tplInput ? selectedTemplate : undefined,
-      aiPrompt: inputMode === 'ai' ? aiPrompt.trim() : undefined,
       customDepth: depth === 'custom' ? customDepth : undefined,
       anonymizePII: anonymize,
       skipEmpty,
@@ -375,12 +412,8 @@ export function useForgeForm(): ForgeFormState {
     setPhase('discovery');
   }, [
     canDiscover,
-    inputMode,
+    runInput,
     depth,
-    recordId,
-    soqlQuery,
-    selectedTemplate,
-    aiPrompt,
     customDepth,
     anonymize,
     skipEmpty,
@@ -444,16 +477,12 @@ export function useForgeForm(): ForgeFormState {
 
   /** Reuse the most recent execution's graph to skip discovery. */
   const lastGraph = history[0]?.graph;
-  const canReuseLastGraph = !!lastGraph && !!sourceOrgId && !!targetOrgId;
+  const canReuseLastGraph = !!lastGraph && !!sourceOrgId && !!targetOrgId && !whereClauseRefused;
   const handleReuseLastGraph = useCallback(() => {
     if (!canReuseLastGraph || !lastGraph) return;
     const config: ForgeConfig = {
-      inputMode,
+      ...runInput,
       depth,
-      recordId: inputMode === 'record' ? (extractRecordId(recordId) ?? undefined) : undefined,
-      soqlQuery: inputMode === 'soql' ? soqlQuery.trim() : undefined,
-      templateId: inputMode === 'template' ? selectedTemplate : undefined,
-      aiPrompt: inputMode === 'ai' ? aiPrompt.trim() : undefined,
       customDepth: depth === 'custom' ? customDepth : undefined,
       anonymizePII: anonymize,
       skipEmpty,
@@ -478,12 +507,8 @@ export function useForgeForm(): ForgeFormState {
   }, [
     canReuseLastGraph,
     lastGraph,
-    inputMode,
+    runInput,
     depth,
-    recordId,
-    soqlQuery,
-    selectedTemplate,
-    aiPrompt,
     customDepth,
     anonymize,
     skipEmpty,
@@ -512,17 +537,20 @@ export function useForgeForm(): ForgeFormState {
    * Fields belonging to the other input modes are cleared, so the form shows
    * the run it claims to show rather than a mix of it and what was typed.
    *
+   * A stored AI run opens on the record tab: the AI tab cannot be opened, and a
+   * form left on it could neither show the prompt nor discover.
+   *
    * `fieldExclusions`, `ownerMappings`, `objectSoqlFilters` and `fieldMappings`
-   * are not restored: the form has no control for them, and no Forge screen
-   * sets them, so a stored config never carries them.
+   * are not restored: the form has no control for them. A SOQL run's filter is
+   * rebuilt from its query when the replay is discovered.
    */
   const applyHistoryConfig = useCallback(
     (config: ForgeRunConfig): void => {
-      setInputMode(config.inputMode);
-      setRecordId(config.inputMode === 'record' ? (config.recordId ?? '') : '');
-      setSoqlQuery(config.inputMode === 'soql' ? (config.soqlQuery ?? '') : '');
-      setSelectedTemplate(config.inputMode === 'template' ? (config.templateId ?? '') : '');
-      setAiPrompt(config.inputMode === 'ai' ? (config.aiPrompt ?? '') : '');
+      const mode: ForgeInputMode = config.inputMode === 'ai' ? 'record' : config.inputMode;
+      setInputMode(mode);
+      setRecordId(mode === 'record' ? (config.recordId ?? '') : '');
+      setSoqlQuery(mode === 'soql' ? (config.soqlQuery ?? '') : '');
+      setSelectedTemplate(mode === 'template' ? (config.templateId ?? '') : '');
       setDepth(config.depth);
       if (config.depth === 'custom' && config.customDepth != null) {
         setCustomDepth(config.customDepth);
@@ -553,7 +581,6 @@ export function useForgeForm(): ForgeFormState {
         ? { recordId: extractRecordId(recordId) ?? undefined }
         : {}),
       ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
-      ...(inputMode === 'ai' && aiPrompt ? { aiPrompt } : {}),
     };
   }, [
     inputMode,
@@ -565,7 +592,6 @@ export function useForgeForm(): ForgeFormState {
     recordLimitValue,
     recordId,
     soqlQuery,
-    aiPrompt,
   ]);
 
   return {
@@ -576,8 +602,6 @@ export function useForgeForm(): ForgeFormState {
     setSoqlQuery,
     selectedTemplate,
     setSelectedTemplate,
-    aiPrompt,
-    setAiPrompt,
     depth,
     setDepth,
     customDepth,
@@ -610,6 +634,7 @@ export function useForgeForm(): ForgeFormState {
     resetPreview,
     closePreview,
     canDiscover,
+    whereClauseRefused,
     handleDiscover,
     canQuickStartTemplate,
     builtinTplCandidate,

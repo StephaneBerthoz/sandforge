@@ -6,6 +6,7 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { ConfigProfilePanel } from './ConfigProfilePanel';
@@ -61,8 +62,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onReset,
   onClearCache,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('general');
+  /** Why the last language change did not apply, until the next change. */
+  const [languageError, setLanguageError] = useState<string | null>(null);
   /**
    * "Reset to Defaults" wipes the whole page state (today: the UI language)
    * in one click, so it asks first — the confirmation is dropped whenever
@@ -92,6 +95,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   } = useSettingsPageData(initialSettings, onSave, onReset);
 
   const telemetryEnabled = telemetryStatus?.enabled ?? false;
+
+  /**
+   * Apply a language for real. When its bundle cannot be loaded the UI keeps
+   * its current language, so the select is put back to that language and the
+   * failure is shown: left alone, the select named a language the page was
+   * not rendering, and nothing said why.
+   */
+  const applyLanguage = async (language: SupportedLanguage): Promise<void> => {
+    setLanguageError(null);
+    if (await changeLanguageLazy(language)) {
+      return;
+    }
+    updateSetting('language', i18n.language as SupportedLanguage);
+    const label = LANGUAGE_OPTIONS.find((o) => o.value === language)?.label ?? language;
+    setLanguageError(t('settings.languageLoadFailed', { language: label }));
+  };
 
   const tabs = [
     { id: 'general', label: t('settings.general') },
@@ -139,9 +158,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       // Apply immediately — loads the locale bundle over
                       // the bridge when needed; the i18n module persists
                       // the choice to the webview state on every change.
-                      void changeLanguageLazy(language);
+                      void applyLanguage(language);
                     }}
                   />
+                  {languageError && (
+                    <ErrorBanner
+                      data-testid="language-error"
+                      message={languageError}
+                      onDismiss={() => setLanguageError(null)}
+                    />
+                  )}
                 </div>
               </CardBody>
             </Card>
@@ -262,7 +288,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                              * Apply the default for real — the select and the
                              * rendered UI must agree.
                              */
-                            void changeLanguageLazy(defaultSettings.language);
+                            void applyLanguage(defaultSettings.language);
                           }}
                         >
                           {t('common.confirm')}
@@ -346,14 +372,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </span>
                     <span className="text-xs text-text-secondary" data-testid="telemetry-events">
                       {telemetryStatus ? telemetryStatus.eventCount : '—'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-primary">
-                      {t('settings.telemetryBufferSize')}
-                    </span>
-                    <span className="text-xs text-text-secondary">
-                      {telemetryStatus ? telemetryStatus.bufferSize : '—'}
                     </span>
                   </div>
                   {telemetryToggleError && (

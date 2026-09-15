@@ -254,6 +254,48 @@ describe('NL2SOQL', () => {
       expect(result.unverifiedReason).toBeUndefined();
     });
 
+    it('accepts a parent-child subquery and checks the fields around it', () => {
+      const result = converter.validateSOQL(
+        'SELECT Id, Name, (SELECT LastName FROM Contacts) FROM Account',
+        MOCK_SCHEMA,
+      );
+
+      expect(result.errors).toEqual([]);
+      expect(result.valid).toBe(true);
+      expect(result.verified).toBe(true);
+    });
+
+    it('still rejects an unknown plain field next to a subquery', () => {
+      const result = converter.validateSOQL(
+        'SELECT Id, Bogus__c, (SELECT LastName FROM Contacts) FROM Account',
+        MOCK_SCHEMA,
+      );
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual(['Field "Bogus__c" not found on object "Account"']);
+    });
+
+    it('does not call a draft checked when its only item is a subquery', () => {
+      const result = converter.validateSOQL(
+        "SELECT (SELECT LastName FROM Contacts WHERE Title = 'a (b)') FROM Account",
+        MOCK_SCHEMA,
+      );
+
+      expect(result.valid).toBe(true);
+      expect(result.verified).toBe(false);
+      expect(result.unverifiedReason).toBe('nothing-to-check');
+    });
+
+    it('reads the outer object of a query filtered by a subquery', () => {
+      const result = converter.validateSOQL(
+        'SELECT Id, Name FROM Account WHERE Id IN (SELECT AccountId FROM Contact)',
+        MOCK_SCHEMA,
+      );
+
+      expect(result.valid).toBe(true);
+      expect(result.verified).toBe(true);
+    });
+
     it('still reports an object absent from the catalog', () => {
       const result = converter.validateSOQL('SELECT Id FROM Ghost__c', NAME_ONLY_SCHEMA);
 

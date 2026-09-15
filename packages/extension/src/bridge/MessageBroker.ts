@@ -24,6 +24,14 @@ const DEFAULT_RATE_LIMIT_WINDOW_MS = 1000;
 /** Number of consecutive protocol mismatches before we show the reload banner. */
 const MISMATCH_BANNER_THRESHOLD = 3;
 
+/** A suggested fix for a failed operation, and where it came from. */
+export interface FixSuggestion {
+  /** `knowledge-base`: the table of known Salesforce error codes; `model`: the AI model. */
+  source: 'knowledge-base' | 'model';
+  /** The suggestion itself, as the table or the model wrote it. */
+  text: string;
+}
+
 /** Options for configuring the MessageBroker */
 export interface MessageBrokerOptions {
   /** Maximum number of inbound messages per window (default: 100) */
@@ -32,6 +40,12 @@ export interface MessageBrokerOptions {
   rateLimitWindowMs?: number;
   /** Telemetry adapter for breadcrumb / log emission on invalid payloads. */
   telemetry?: BrokerTelemetry;
+  /**
+   * Shows a fix suggestion outside the webviews (a VS Code notification in
+   * extension.ts). Absent in tests: {@link MessageBroker.showFixSuggestion}
+   * is then a no-op.
+   */
+  showFixSuggestion?: (suggestion: FixSuggestion) => void;
 }
 
 /**
@@ -109,10 +123,11 @@ export class MessageBroker {
   private panels = new Set<vscode.WebviewPanel | vscode.WebviewView>();
   private readonly rateLimiter: RateLimiter;
   private readonly telemetry: BrokerTelemetry | undefined;
+  private readonly fixSuggestionNotifier: ((suggestion: FixSuggestion) => void) | undefined;
   private mismatchCount = 0;
 
   /**
-   * @param options - Optional configuration for rate limiting and telemetry.
+   * @param options - Optional configuration for rate limiting, telemetry and the host notifier.
    */
   constructor(options?: MessageBrokerOptions) {
     this.rateLimiter = new RateLimiter(
@@ -120,6 +135,7 @@ export class MessageBroker {
       options?.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS,
     );
     this.telemetry = options?.telemetry;
+    this.fixSuggestionNotifier = options?.showFixSuggestion;
   }
 
   /**
@@ -180,6 +196,16 @@ export class MessageBroker {
   /** Get the number of currently registered panels. */
   get panelCount(): number {
     return this.panels.size;
+  }
+
+  /**
+   * Show a fix suggestion once, through the host.
+   *
+   * Not a broadcast: every open panel mounts its own listener, so a suggestion
+   * posted to the webviews was shown once per open panel.
+   */
+  showFixSuggestion(suggestion: FixSuggestion): void {
+    this.fixSuggestionNotifier?.(suggestion);
   }
 
   /** Remove all handlers and panel registrations. */
@@ -273,14 +299,18 @@ export class MessageBroker {
    * validation. Extracted from {@link dispatch} to keep it readable.
    */
   private continueDispatch(message: BaseMessage): void {
+    // Both drops below answer the sender, correlated to its message: a drop
+    // with no reply leaves the hook that sent it waiting out its timeout.
     if (!this.rateLimiter.tryAcquire()) {
       this.logFn?.(`[MessageBroker] Rate limited: dropping message of type "${message.type}"`);
+      this.postBridgeError('rate-limited', `"${message.type}" was dropped`, message.id);
       return;
     }
 
     const handlerSet = this.handlers.get(message.type);
     if (!handlerSet) {
       this.logFn?.(`[MessageBroker] Unhandled message type: "${message.type}"`);
+      this.postBridgeError('unhandled-type', `no handler for "${message.type}"`, message.id);
       return;
     }
     for (const handler of handlerSet) {

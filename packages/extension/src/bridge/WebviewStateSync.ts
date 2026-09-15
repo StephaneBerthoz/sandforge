@@ -22,16 +22,18 @@ export class WebviewStateSync {
 
   private idCounter = 0;
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
 
   constructor(private broker: MessageBroker) {}
 
   /**
    * Merge a partial update into the current state and push to webviews.
    * Multiple rapid calls are batched via a microtask debounce (~16ms).
+   * After {@link dispose} the state is still merged but no push is scheduled.
    */
   updateState(partial: Partial<WebviewState>): void {
     this.state = { ...this.state, ...partial };
-    if (!this.pushTimer) {
+    if (!this.pushTimer && !this.disposed) {
       this.pushTimer = setTimeout(() => {
         this.pushTimer = undefined;
         this.pushState();
@@ -63,6 +65,20 @@ export class WebviewStateSync {
       payload: { ...this.state },
     };
     this.broker.postToWebview(message);
+  }
+
+  /**
+   * Cancel any pending push and stop scheduling new ones. Registered with the
+   * extension's subscriptions: background operations and org changes keep
+   * calling updateState while the extension is torn down, and a debounced push
+   * firing then posted to a broker that was already disposed.
+   */
+  dispose(): void {
+    this.disposed = true;
+    if (this.pushTimer) {
+      clearTimeout(this.pushTimer);
+      this.pushTimer = undefined;
+    }
   }
 
   /** Reset state to initial defaults and cancel any pending push. */

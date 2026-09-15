@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 
 import { useSendMessage } from './useMessageBus';
 import { useMessageResponse } from './useMessageResponse';
@@ -19,6 +19,13 @@ export interface BridgeMutationState<T> {
   error: string | null;
   /** Reset the mutation state back to idle. */
   reset: () => void;
+  /**
+   * Id of the request the last `mutate` sent, or null before the first one and
+   * after `reset`. Handlers that run in the background use it as the
+   * operationId of the run they start, so a page matches `operation:*` events
+   * to its own run instead of whichever run reported last.
+   */
+  requestId: string | null;
 }
 
 /**
@@ -66,6 +73,14 @@ export function useBridgeMutation<T>(
     errorType,
   });
 
+  const [requestId, setRequestId] = useState<string | null>(null);
+
+  // Held in a ref so `mutate` keeps its identity when the VS Code API wrapper
+  // does not (same reason as in useBridgeQuery); otherwise the memoised result
+  // below would still change on every render.
+  const sendRef = useRef(sendMessage);
+  sendRef.current = sendMessage;
+
   // Store cleanup function for the current listener
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -96,19 +111,27 @@ export function useBridgeMutation<T>(
           ? buildMessage<Record<string, unknown>>(requestType, payload)
           : buildMessage(requestType);
 
-      sendMessage(msg);
+      setRequestId(msg.id);
+      sendRef.current(msg);
 
       const cleanup = listen(msg.id);
       cleanupRef.current = cleanup;
     },
-    [requestType, sendMessage, listen, setLoading, setError, resetResponse],
+    [requestType, listen, setLoading, setError, resetResponse],
   );
 
   const reset = useCallback(() => {
     cleanupRef.current?.();
     cleanupRef.current = null;
+    setRequestId(null);
     resetResponse();
   }, [resetResponse]);
 
-  return { mutate, data, loading, error, reset };
+  // One object per state change, not per render: pages pass the mutation to
+  // memoised components as a prop, and a fresh object each render re-rendered
+  // them every time.
+  return useMemo(
+    () => ({ mutate, data, loading, error, reset, requestId }),
+    [mutate, data, loading, error, reset, requestId],
+  );
 }

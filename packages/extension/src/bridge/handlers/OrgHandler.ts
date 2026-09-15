@@ -7,19 +7,26 @@ import {
   orgConnectPayloadSchema,
   orgDisconnectPayloadSchema,
   orgSelectPayloadSchema,
+  orgUpdatePayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
 
 /** Message types handled by OrgHandler. */
-const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect', 'org:select']);
+const ORG_TYPES = new Set([
+  'org:list',
+  'org:connect',
+  'org:disconnect',
+  'org:select',
+  'org:update',
+]);
 
 /**
  * Domain handler for org-related webview-to-extension messages.
  *
  * Routes org:* message types to org listing, connection (sfdx import,
- * username/password, OAuth web), and disconnection operations.
+ * username/password, OAuth web), metadata edits and disconnection operations.
  */
 export class OrgHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
@@ -46,6 +53,9 @@ export class OrgHandler implements DomainHandler {
         return true;
       case 'org:select':
         this.handleOrgSelect(msg);
+        return true;
+      case 'org:update':
+        this.handleOrgUpdate(msg);
         return true;
       default:
         return false;
@@ -410,6 +420,57 @@ export class OrgHandler implements DomainHandler {
     const selectedMsg = buildResponse(this.deps, msg, 'org:selected', { orgId });
     this.deps.broker.postToWebview(selectedMsg);
     this.deps.log(`[TX] ${selectedMsg.type} id=${selectedMsg.id}`);
+  }
+
+  /**
+   * Save the alias, colour and tags typed in the org edit dialog.
+   *
+   * The dialog used to change only the panel's own copy of the org: the next
+   * org list from the host put the old values back, and a reload lost them.
+   * Everything else on the org — its type, safety tier and credentials — stays
+   * as the host last saved it. The reply is the saved list, correlated to the
+   * request, so the page shows what the registry now holds.
+   */
+  private handleOrgUpdate(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(orgUpdatePayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+
+    const org = this.deps.orgManager.getOrg(parsed.orgId as UUID);
+    if (!org) {
+      sendHandlerError(
+        this.deps,
+        'org:update',
+        'org:error',
+        msg,
+        new Error(`Unknown org: ${parsed.orgId}`),
+        { code: 'ORG_NOT_FOUND', retryable: false },
+      );
+      return;
+    }
+
+    try {
+      this.deps.orgRegistry.updateOrgMetadata({
+        ...org,
+        alias: parsed.alias,
+        appearance: { ...org.appearance, color: parsed.color },
+        tags: parsed.tags,
+      });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'org:update', 'org:error', msg, err, {
+        code: 'ORG_UPDATE_FAILED',
+        retryable: true,
+      });
+      return;
+    }
+
+    const response = buildResponse(this.deps, msg, 'org:list:response', {
+      orgs: this.deps.orgManager.getAllOrgs() as unknown as Record<string, unknown>[],
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+
+    this.syncOrgState();
   }
 
   private syncOrgState(): void {

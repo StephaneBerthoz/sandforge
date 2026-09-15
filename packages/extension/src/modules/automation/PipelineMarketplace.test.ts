@@ -237,4 +237,30 @@ describe('PipelineMarketplace', () => {
       expect(results.length).toBeGreaterThan(0);
     });
   });
+
+  describe('what the templates claim', () => {
+    it('no template claims a dry run, an incremental sync or a delta the steps do not perform', () => {
+      // The sync step is a pass-through that reports success without writing
+      // or comparing anything, so a template promising a dry run or a
+      // changed-records-only sync told the user something no step does.
+      const claims: string[] = [];
+      for (const template of marketplace.getTemplates()) {
+        for (const tag of template.tags) {
+          if (/dry.?run|incremental|delta/i.test(tag)) claims.push(`${template.id} tag ${tag}`);
+        }
+        const text = `${template.name} ${template.description}`;
+        if (/dry.?run|incremental|only changed/i.test(text)) claims.push(`${template.id} text`);
+        for (const step of template.steps) {
+          if ('dryRun' in step.config) claims.push(`${template.id} step ${step.name} dryRun`);
+          if (step.config.mode === 'incremental') {
+            claims.push(`${template.id} step ${step.name} incremental`);
+          }
+          if (/dry.?run|incremental/i.test(`${step.name} ${step.description}`)) {
+            claims.push(`${template.id} step ${step.name} text`);
+          }
+        }
+      }
+      expect(claims).toEqual([]);
+    });
+  });
 });

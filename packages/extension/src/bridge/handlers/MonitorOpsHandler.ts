@@ -403,10 +403,8 @@ function computeJobInsights(
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
   'monitor:refresh',
-  'monitor:start',
   'monitor:open-apex-jobs',
   'monitor:live-operations',
-  'monitor:health-score',
   'monitor:storage',
   'monitor:deployments',
   'monitor:api-usage',
@@ -517,7 +515,6 @@ export class MonitorOpsHandler implements DomainHandler {
 
     switch (msg.type) {
       case 'monitor:refresh':
-      case 'monitor:start':
         await this.handleRefresh(msg);
         return true;
       case 'monitor:open-apex-jobs':
@@ -525,9 +522,6 @@ export class MonitorOpsHandler implements DomainHandler {
         return true;
       case 'monitor:live-operations':
         this.handleLiveOperations(msg);
-        return true;
-      case 'monitor:health-score':
-        await this.handleHealthScore(msg);
         return true;
       case 'monitor:storage':
         await this.handleStorage(msg);
@@ -846,58 +840,6 @@ export class MonitorOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
-  }
-
-  /**
-   * Handle monitor:health-score -- compute full org health score breakdown.
-   * @param msg - The incoming health-score request message.
-   */
-  private async handleHealthScore(msg: InboundRequest): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
-
-    try {
-      const conn = await getJsforceConnection(
-        payload.orgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-      const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
-      const limits = transformLimitsResponse(limitsRaw);
-      // The org info monitor:data scores with. Without it the metadata
-      // dimension drops out, and this score is weighed over other factors
-      // than the one the dashboard shows for the same org.
-      const orgInfo = await this.fetchOrgInfo(payload.orgId, conn);
-      const healthReport = this.healthCalculator.calculate({
-        limits,
-        orgId: payload.orgId,
-        trendStorage: this.trendStorage,
-        orgInfo,
-      });
-
-      const dimensions = healthReport.factors.map((f) => ({
-        name: f.name,
-        score: f.score,
-        label: f.category,
-        detail: f.detail,
-        recommendation: f.recommendation,
-      }));
-
-      const response = buildResponse(this.deps, msg, 'monitor:health-score:response', {
-        success: true,
-        overallScore: healthReport.overallScore,
-        dimensions,
-        recommendations: healthReport.factors
-          .filter((f) => f.status !== 'healthy')
-          .map((f) => f.recommendation),
-      });
-      this.deps.broker.postToWebview(response);
-      this.deps.log(`[TX] ${response.type} id=${response.id}`);
-    } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:health-score', 'monitor:error', msg, err);
-    }
   }
 
   /**

@@ -75,7 +75,6 @@
     "status_expired": "Sitzung abgelaufen",
     "status_error": "Verbindungsfehler",
     "status_refreshing": "Aktualisierung...",
-    "safetyTier": "Sicherheitsstufe",
     "alias": "Alias",
     "username": "Benutzername",
     "instanceUrl": "Instanz-URL",
@@ -88,10 +87,6 @@
     "tier_high": "Hoch",
     "tier_medium": "Mittel",
     "tier_low": "Niedrig",
-    "tier_critical_desc": "Kritisch (Produktion)",
-    "tier_high_desc": "Hoch (UAT / Staging)",
-    "tier_medium_desc": "Mittel (QA / Integration)",
-    "tier_low_desc": "Niedrig (Dev / Scratch)",
     "color": "Farbe",
     "color_red": "Rot",
     "color_amber": "Bernstein",
@@ -825,7 +820,7 @@
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Importieren Sie eine vorhandene Migrationsdefinition und konvertieren Sie sie in eine SandForge-Synchronisationskonfiguration. Die Datei wird nur gelesen — es wird nichts geschrieben oder ausgeführt.",
+    "subtitle": "Importieren Sie eine vorhandene Migrationsdefinition und konvertieren Sie sie in eine SandForge-Synchronisationskonfiguration. Der Import liest die Datei und ändert nichts; das Ausführen der konvertierten Konfiguration schreibt Datensätze in den Ziel-Org.",
     "sourceTitle": "Quelldatei",
     "type": {
       "sfdmu": {
@@ -939,6 +934,7 @@
     "triggersCount": "Aktive Auslöser",
     "historyRuns": "Verlaufsausführungen",
     "triggers": "Ausloeser",
+    "triggerManualOnlyNote": "Nur ein manueller Lauf startet eine Pipeline. Die anderen Auslösertypen lassen sich hier konfigurieren, aber noch löst nichts sie aus.",
     "addTrigger": "Ausloeser hinzufuegen",
     "run": "Pipeline ausfuehren",
     "running": "Pipeline wird ausgefuehrt...",
@@ -1082,26 +1078,6 @@
     "generateReport": "Bericht erstellen",
     "exportReport": "Bericht exportieren",
     "reportType": "Berichtstyp",
-    "reportTypes": {
-      "seed_execution": "Seed-Ausfuehrung",
-      "sync_execution": "Sync-Ausfuehrung",
-      "compare_result": "Vergleichsergebnis",
-      "backup_result": "Sicherungsergebnis",
-      "anonymization_result": "Anonymisierungsergebnis",
-      "pipeline_run": "Pipeline-Ausfuehrung",
-      "data_quality": "Datenqualitaet",
-      "org_health": "Org-Gesundheit",
-      "audit_trail": "Audit-Protokoll",
-      "custom": "Benutzerdefiniert"
-    },
-    "exportFormats": {
-      "json": "JSON",
-      "csv": "CSV",
-      "html": "HTML",
-      "pdf": "PDF",
-      "xlsx": "Excel",
-      "sarif": "SARIF"
-    },
     "summary": "Zusammenfassung",
     "sections": "Abschnitte",
     "metadata": "Metadaten",
@@ -1155,14 +1131,14 @@
     "advanced": "Erweitert",
     "profiles": "Profile",
     "language": "Sprache",
+    "languageLoadFailed": "{{language}} konnte nicht geladen werden; die Oberfläche bleibt in der aktuellen Sprache.",
     "clearCache": "Cache leeren",
     "resetSettings": "Auf Standard zuruecksetzen",
     "telemetry": "Telemetrie",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Aktiviert",
     "telemetryDisabled": "Deaktiviert",
-    "telemetryEventCount": "Gesendete Ereignisse",
-    "telemetryBufferSize": "Puffergröße",
+    "telemetryEventCount": "Aufgezeichnete Diagnoseereignisse",
     "telemetryEnable": "Telemetrie aktivieren",
     "telemetryDisable": "Telemetrie deaktivieren",
     "telemetryUnavailable": "Nicht verfuegbar",
@@ -1262,7 +1238,7 @@
     "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Nur Verzögerung und Bedingung bewirken bisher etwas: Die übrigen 13 melden Erfolg, ohne eine Org zu berühren\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Bedingungsschritte mit 11 Operatoren\n- Ausführungsverlauf: Status, Gesamtdauer, Anzahl der Schritte und Fehler je Ausführung\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Jeder eingefügte Datensatz erhält neu zugeordnete IDs\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
-    "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
+    "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
     "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat sowie NL2SOQL, eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Solange die KI aktiv ist, sendet ein fehlgeschlagener Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung zur Korrekturempfehlung an das Modell, sofern nicht eine eingebaute Tabelle seinen Fehlercode bereits beantwortet\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit deaktivierter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
     "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nEnter/Leertaste — Schaltflächen und Links aktivieren",
     "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Pruefen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Nein. Ein Sync-Lauf lässt sich nicht umkehren. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst Account und Contact und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: Produktions-Orgs werden automatisch erkannt und als kritische Sicherheitsstufe markiert. Alle destruktiven Operationen erfordern eine Bestaetigung.",
@@ -1380,7 +1356,6 @@
     "aiTab": "KI",
     "recordIdPlaceholder": "Datensatz-ID oder Salesforce-URL",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
-    "aiPlaceholder": "Beschreiben Sie, welche Daten Sie klonen möchten...",
     "depth": "Tiefe",
     "depthDirect": "Nur direkt",
     "depthFull": "Vollständiger Baum",
@@ -1472,8 +1447,9 @@
     "sameOrgWarning": "Quelle und Ziel müssen unterschiedliche Orgs sein",
     "hintNoSource": "Wählen Sie eine Quell-Org",
     "hintNoTarget": "Wählen Sie eine Ziel-Org",
-    "hintNoInput": "Geben Sie eine Datensatz-ID, Abfrage oder Eingabeaufforderung ein",
+    "hintNoInput": "Geben Sie eine Datensatz-ID oder eine Abfrage ein, oder wählen Sie eine Vorlage",
     "hintSameOrg": "Quelle und Ziel müssen unterschiedlich sein",
+    "hintSoqlFilterRefused": "Kürzen oder überarbeiten Sie die WHERE-Klausel, um den Graph zu ermitteln",
     "depthDirectTooltip": "Nur direkt verknüpfte untergeordnete Objekte (1 Ebene)",
     "depthFullTooltip": "Gesamter Abhängigkeitsbaum — alle Ebenen tief",
     "depthCustomTooltip": "Geben Sie die maximale Beziehungstiefe an",
@@ -1540,8 +1516,9 @@
       "step4": "Tiefe, Datensatzlimit und Anonymisierung anpassen",
       "step5": "In Ihre Sandbox ausführen — IDs werden neu vergeben"
     },
-    "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel wird nicht angewendet.",
-    "soqlUnscopedWarnBody": "SandForge liest nur den Objektnamen nach FROM. Datensätze stammen aus der gesamten Tabelle, und jedes verknüpfte Objekt im Graphen wird genauso geklont — begrenzt auf {{cap}} Datensätze pro Objekt für diesen Lauf.",
+    "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel filtert nur {{object}}.",
+    "soqlUnscopedWarnBody": "Verknüpfte Objekte werden nicht auf die Datensätze eingeschränkt, die sie trifft: Jedes wird aus seiner gesamten Tabelle gelesen. Jedes Objekt ist für diesen Lauf auf {{cap}} Datensätze begrenzt.",
+    "soqlFilterRefused": "Diese WHERE-Klausel kann nicht angewendet werden. Sie darf höchstens 512 Zeichen lang sein, weder --, /* noch */ enthalten (auch nicht in einem Wert in Anführungszeichen) und nicht mit einem Semikolon enden.",
     "idMapping": {
       "title": "Datensatz-Id-Zuordnung",
       "subtitle": "{{count}} Datensätze erstellt. Quell-Id links, neue Id in der Ziel-Org rechts.",
@@ -1595,6 +1572,68 @@
       "statusSuccess": "Erfolgreich",
       "statusPartial": "Teilweise",
       "statusFailure": "Fehlgeschlagen"
+    },
+    "error": {
+      "duplicateValue": {
+        "explanation": "Im Ziel-Org existiert bereits ein Datensatz mit demselben eindeutigen Wert, oft aus einem früheren Lauf geklont.",
+        "action": "Löschen Sie die Datensätze des früheren Laufs, oder starten Sie das Klonen über die Befehlszeile mit --upsert, das bei Objekten mit externer ID aktualisiert."
+      },
+      "invalidCrossReferenceKey": {
+        "explanation": "Eine Nachschlagebeziehung verweist auf einen Datensatz, der im Ziel-Org nicht existiert, oft einen Benutzer wie den Inhaber.",
+        "action": "Legen Sie den referenzierten Datensatz im Ziel-Org an oder ordnen Sie ihn zu, oder lassen Sie das Feld leer und füllen Sie es nach dem Klonen."
+      },
+      "requiredFieldMissing": {
+        "explanation": "Ein Pflichtfeld hat keinen Wert: {{detail}}.",
+        "action": "Aktivieren Sie „Übergeordnete automatisch abrufen“, oder erhöhen Sie die Tiefe, damit das erforderliche übergeordnete Objekt mitgeklont wird."
+      },
+      "invalidPicklist": {
+        "explanation": "Ein Auswahllistenwert aus der Quelle existiert in der Auswahlliste des Ziel-Orgs nicht.",
+        "action": "Fügen Sie den Wert im Setup des Ziel-Orgs zur Auswahlliste hinzu, oder ändern Sie den Wert im Quelldatensatz."
+      },
+      "invalidFieldForInsert": {
+        "explanation": "Ein Feld kann beim Anlegen nicht gesetzt werden: Es wird berechnet, durch Feldsicherheit verborgen oder fehlt im Ziel-Org.",
+        "action": "Prüfen Sie die Feldsicherheit Ihres Benutzers im Ziel-Org und vergleichen Sie das Feld zwischen beiden Orgs."
+      },
+      "fieldIntegrity": {
+        "explanation": "Salesforce hat den Datensatz wegen einer Integritätsregel abgelehnt: {{detail}}.",
+        "action": "Lesen Sie das Detail: Salesforce nennt meist das betroffene Feld oder die Regel."
+      },
+      "cannotInsertEntity": {
+        "explanation": "Salesforce nimmt für dieses Objekt keine neuen Datensätze an (Verlaufs-, Audit- oder Systemobjekt).",
+        "action": "Nehmen Sie dieses Objekt vom Klonen aus."
+      },
+      "insufficientAccess": {
+        "explanation": "Ihrem Benutzer im Ziel-Org fehlen die für diesen Schreibvorgang nötigen Rechte.",
+        "action": "Bitten Sie einen Administrator um die fehlende Berechtigung, oder verbinden Sie den Ziel-Org mit einem Benutzer, der sie hat."
+      },
+      "storageLimit": {
+        "explanation": "Im Ziel-Org ist kein Datenspeicher mehr frei.",
+        "action": "Löschen Sie nicht mehr benötigte Datensätze im Ziel-Org und starten Sie dann erneut."
+      },
+      "invalidType": {
+        "explanation": "Dieses Objekt existiert im Ziel-Org nicht, oder Ihr Benutzer kann es nicht sehen.",
+        "action": "Vergleichen Sie die Schemas beider Orgs, oder nehmen Sie dieses Objekt vom Klonen aus."
+      },
+      "notFound": {
+        "explanation": "Salesforce hat den angeforderten Datensatz oder die Ressource nicht gefunden.",
+        "action": "Prüfen Sie die Datensatz-ID und ob sie zum Quell-Org gehört."
+      },
+      "stringTooLong": {
+        "explanation": "Ein Wert ist länger, als das Feld erlaubt: {{detail}}.",
+        "action": "Kürzen Sie den Quellwert, oder geben Sie dem Feld in beiden Orgs dieselbe Länge."
+      },
+      "cycleFkUnresolved": {
+        "explanation": "Das Feld '{{fieldName}}' verweist auf ein übergeordnetes Objekt, das nicht geklont wurde (Quell-ID {{sourceRefId}}); der Datensatz wurde ohne diese Verknüpfung angelegt.",
+        "action": "Erhöhen Sie die Tiefe, damit das übergeordnete Objekt mitgeklont wird, oder setzen Sie das Feld danach von Hand."
+      },
+      "outOfScope": {
+        "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
+        "action": "Erhöhen Sie die Tiefe, wenn Datensätze dieses Objekts mitgeklont werden sollen."
+      },
+      "unknown": {
+        "explanation": "{{detail}}",
+        "action": "Schlagen Sie diesen Fehlercode in der Salesforce-Dokumentation nach."
+      }
     }
   },
   "autopilot": {
@@ -1880,7 +1919,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe benötigt sandforge.grappe.enabled. Ein Seed-Lauf oberhalb der Datensatzschwelle meldet dann jede Partition nach Abschluss, eine Sync meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende.",
+    "emptyDesc": "Grappe benötigt sandforge.grappe.enabled. Ein Seed-Lauf oberhalb der Datensatzschwelle meldet dann jede Partition nach Abschluss, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende.",
     "active": "Grappe",
     "completed": "Abgeschlossen",
     "partitions": "Partitionen",
@@ -1930,9 +1969,6 @@
       "validProfile": "Gültiges Profil",
       "invalidProfile": "Ungültiges Profil"
     }
-  },
-  "scheduler": {
-    "comingSoon": "Ab v1.2 verfügbar"
   },
   "governance": {
     "title": "Org-Governance",

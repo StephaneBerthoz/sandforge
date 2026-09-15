@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { InfoTooltip, isDismissed, resetAllTooltips } from './InfoTooltip';
+import { InfoTooltip, isDismissed } from './InfoTooltip';
 
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 
@@ -86,16 +86,6 @@ describe('InfoTooltip', () => {
     mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['some.id']);
     expect(isDismissed('some.id')).toBe(true);
     expect(isDismissed('other.id')).toBe(false);
-  });
-
-  it('should clear all dismissed IDs with resetAllTooltips', () => {
-    mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['a', 'b', 'c']);
-    expect(isDismissed('a')).toBe(true);
-
-    resetAllTooltips();
-
-    expect(isDismissed('a')).toBe(false);
-    expect(mockPersistedState.store[STORAGE_KEY]).toBeUndefined();
   });
 
   it('should handle corrupted persisted state gracefully', () => {

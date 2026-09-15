@@ -8,7 +8,8 @@
  * that lag the code, plus manifest entries that ship broken to the user:
  *
  *   - `sandforge.openOrgInBrowser` was in the Command Palette with a 100%
- *     failure rate: it needs an org id the palette cannot supply.
+ *     failure rate: it needed an org id the palette cannot supply. It now
+ *     asks for the org itself, and the palette entry is back.
  *   - `capabilities.untrustedWorkspaces` had no `description`, so VS Code
  *     disabled the extension in a restricted workspace without saying why.
  *   - the three `sandforge.grappe.*` descriptions were raw English inside a
@@ -44,27 +45,28 @@ const readJson = (...p) => JSON.parse(read(...p));
 const EXT = ['packages', 'extension'];
 const manifest = () => readJson(...EXT, 'package.json');
 
-// ── a palette command that cannot succeed ─────────────────────────────────
+// ── a palette command that could not succeed ──────────────────────────────
 
-test('anchor: openOrgInBrowser still needs an org id the palette cannot give', () => {
+test('anchor: openOrgInBrowser asks for the org when none is passed', () => {
   const src = read(...EXT, 'src', 'extension.ts');
+  const start = src.indexOf("'sandforge.openOrgInBrowser',");
+  assert.notEqual(start, -1, 'the command registration moved — re-read this gate');
+  const handler = src.slice(start, src.indexOf('\n  );', start));
   assert.match(
-    src,
-    /'sandforge\.openOrgInBrowser',\s*\(orgId\?: string\) => \{/,
-    'the command signature changed — if it can now pick an org itself, it may go back into the ' +
-      'Command Palette and this guard should be re-read, not deleted blindly',
+    handler,
+    /showQuickPick\(/,
+    'without an org id the command no longer asks for one: from the palette it is a dead end ' +
+      'again, so either restore the picker or hide the palette entry',
   );
 });
 
-test('openOrgInBrowser is hidden from the Command Palette', () => {
+test('openOrgInBrowser is offered in the Command Palette', () => {
   const entries = manifest().contributes?.menus?.commandPalette ?? [];
   const entry = entries.find((e) => e.command === 'sandforge.openOrgInBrowser');
   assert.ok(
-    entry,
-    'sandforge.openOrgInBrowser is listed in the palette, where its org id is undefined and the ' +
-      'only possible outcome is "pick an org in the launcher dropdown first"',
+    !entry || entry.when !== 'false',
+    'the command picks the org itself; hiding it leaves the launcher dropdown as the only way in',
   );
-  assert.equal(entry.when, 'false', 'the palette entry must be suppressed unconditionally');
 });
 
 // ── Restricted Mode with no explanation ───────────────────────────────────

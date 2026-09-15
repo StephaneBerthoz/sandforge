@@ -161,6 +161,36 @@ describe('AIPage', () => {
       expect(screen.queryByTestId('ai-error-banner')).toBeNull();
     });
 
+    it('clears the error when the user sends a message', () => {
+      render(<AIPage />);
+      emit('ai:conversation:created', {
+        conversation: { id: 'conv-1', title: 'T', createdAt: '2025-01-01T00:00:00Z' },
+      });
+      emit('ai:error', { message: 'AI provider unreachable' }, lastSentId());
+      expect(screen.getByTestId('ai-error-banner')).toBeDefined();
+
+      fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'again' } });
+      fireEvent.click(screen.getByTestId('send-btn'));
+
+      expect(screen.queryByTestId('ai-error-banner')).toBeNull();
+    });
+
+    it('clears the error when the user opens another conversation', () => {
+      render(<AIPage />);
+      emit('ai:conversation:list:response', {
+        conversations: [
+          { id: 'conv-1', title: 'First', createdAt: '2025-01-01T00:00:00Z', messageCount: 2 },
+          { id: 'conv-2', title: 'Second', createdAt: '2025-01-02T00:00:00Z', messageCount: 0 },
+        ],
+      });
+      emit('ai:error', { message: 'Conversation conv-old not found' }, lastSentId());
+      expect(screen.getByTestId('ai-error-banner')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('conversation-item-conv-2'));
+
+      expect(screen.queryByTestId('ai-error-banner')).toBeNull();
+    });
+
     /**
      * `ai:error` answers every AI channel and the host sends it to every open
      * panel: a schema advice that failed in Compare must not surface here.
@@ -184,7 +214,7 @@ describe('AIPage', () => {
     it('should stop the loading indicator', () => {
       render(<AIPage />);
       emit('ai:conversation:created', {
-        conversation: { id: 'conv-1', title: 'T', updatedAt: '2025-01-01', messageCount: 0 },
+        conversation: { id: 'conv-1', title: 'T', createdAt: '2025-01-01T00:00:00Z' },
       });
       fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'hello' } });
       fireEvent.click(screen.getByTestId('send-btn'));

@@ -185,11 +185,6 @@ const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
     reason:
       'TokenBudgetState, which SessionBudget imports, is z.infer of TokenBudgetStateSchema; the schema is unreachable as a value but cannot be deleted without the type',
   },
-  {
-    path: 'packages/shared/src/schemas/ai/index.ts',
-    reason:
-      'barrel that carries the two AI type contracts above into @sandforge/shared; it holds no code of its own',
-  },
 ];
 
 /** True for a spec/test/story file — never part of the production graph. */

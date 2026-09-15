@@ -162,7 +162,6 @@ describe('i18n', () => {
       'org.status_expired',
       'org.status_error',
       'org.status_refreshing',
-      'org.safetyTier',
       'org.alias',
       'org.username',
       'org.instanceUrl',
@@ -207,6 +206,43 @@ describe('i18n editor-locale detection at boot', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete (window as { __SANDFORGE_EDITOR_LANGUAGE__?: string }).__SANDFORGE_EDITOR_LANGUAGE__;
+  });
+
+  it('prefers the VS Code display language the host announced over the OS locale', async () => {
+    (window as { __SANDFORGE_EDITOR_LANGUAGE__?: string }).__SANDFORGE_EDITOR_LANGUAGE__ = 'de';
+    vi.stubGlobal('navigator', { language: 'fr-FR', languages: ['fr-FR'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('de');
+  });
+
+  it('maps a regional display language onto the shipped locale (pt-br → pt-BR)', async () => {
+    (window as { __SANDFORGE_EDITOR_LANGUAGE__?: string }).__SANDFORGE_EDITOR_LANGUAGE__ = 'pt-br';
+    vi.stubGlobal('navigator', { language: 'en-US', languages: ['en-US'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('pt-BR');
+  });
+
+  it('falls back to the OS locale when the display language has no shipped bundle', async () => {
+    (window as { __SANDFORGE_EDITOR_LANGUAGE__?: string }).__SANDFORGE_EDITOR_LANGUAGE__ = 'zh-cn';
+    vi.stubGlobal('navigator', { language: 'ja-JP', languages: ['ja-JP'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('ja');
+  });
+
+  it('keeps English when the display language is English, whatever the OS locale', async () => {
+    (window as { __SANDFORGE_EDITOR_LANGUAGE__?: string }).__SANDFORGE_EDITOR_LANGUAGE__ = 'en';
+    vi.stubGlobal('navigator', { language: 'fr-FR', languages: ['fr-FR'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('en');
   });
 
   /**

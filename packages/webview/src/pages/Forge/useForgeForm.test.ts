@@ -268,7 +268,6 @@ describe('useForgeForm run history', () => {
 
     act(() => {
       result.current.handleRecordIdChange('0019999999999999AAA');
-      result.current.setAiPrompt('clone the pipeline');
     });
     act(() => {
       result.current.applyHistoryConfig(SOQL_RUN.config!);
@@ -277,7 +276,43 @@ describe('useForgeForm run history', () => {
     expect(result.current.inputMode).toBe('soql');
     expect(result.current.soqlQuery).toBe('SELECT Id, Name FROM Account');
     expect(result.current.recordId).toBe('');
-    expect(result.current.aiPrompt).toBe('');
+  });
+
+  it('opens a stored AI run on the record tab, which cannot discover without an id', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+    });
+    act(() => {
+      result.current.applyHistoryConfig({
+        ...SOQL_RUN.config!,
+        inputMode: 'ai',
+        soqlQuery: undefined,
+        aiPrompt: 'clone the pipeline',
+      });
+    });
+
+    // The AI tab cannot be opened, so the form must not land on it.
+    expect(result.current.inputMode).toBe('record');
+    expect(result.current.soqlQuery).toBe('');
+    expect(result.current.canDiscover).toBe(false);
+  });
+
+  it('never lets the AI mode discover, whatever else is filled in', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setSoqlQuery('SELECT Id FROM Account');
+    });
+    act(() => {
+      result.current.setInputMode('ai');
+    });
+
+    expect(result.current.canDiscover).toBe(false);
   });
 
   it('leaves the org pair alone — a replay re-picks its orgs', () => {
@@ -339,8 +374,157 @@ describe('useForgeForm run history', () => {
     });
 
     expect(result.current.recordLimit).toBe('500');
-    // SOQL mode discards the WHERE clause, so recordLimitValue clamps back to
-    // the 200 the stored run actually used.
+    // SOQL mode reads related objects from their whole tables, so
+    // recordLimitValue clamps back to the 200 the stored run actually used.
     expect(result.current.recordLimitValue).toBe(200);
+  });
+});
+
+describe('useForgeForm WHERE clause the extension refuses', () => {
+  const refusedQuery = "SELECT Id FROM Account WHERE Name LIKE '%--%'";
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.setState({
+      config: null,
+      history: [],
+      templates: [
+        {
+          id: 'tpl-soql',
+          name: 'Accounts with dashes',
+          description: '',
+          config: { ...SOQL_RUN.config!, soqlQuery: refusedQuery },
+          objectCount: 1,
+          recordCount: 0,
+          createdAt: '2026-02-14T17:02:00.000Z',
+          lastUsedAt: '2026-02-14T17:02:00.000Z',
+        },
+      ],
+    });
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  it('keeps Discover off for a saved template whose query it would refuse', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('tpl-soql');
+    });
+
+    expect(result.current.whereClauseRefused).toBe(true);
+    expect(result.current.canDiscover).toBe(false);
+    act(() => result.current.handleDiscover());
+    expect(useForgeStore.getState().config).toBeNull();
+  });
+
+  it('lets the same template discover once its query is one the extension accepts', () => {
+    useForgeStore.setState({
+      templates: useForgeStore.getState().templates.map((tpl) => ({
+        ...tpl,
+        config: { ...tpl.config, soqlQuery: "SELECT Id FROM Account WHERE Name LIKE 'A%'" },
+      })),
+    });
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('tpl-soql');
+    });
+
+    expect(result.current.whereClauseRefused).toBe(false);
+    expect(result.current.canDiscover).toBe(true);
+  });
+});
+
+describe('useForgeForm reusing the last graph', () => {
+  const filteredQuery = "SELECT Id FROM Account WHERE Industry = 'X'";
+
+  /** A saved template holding `soqlQuery`, as the template manager stores it. */
+  const soqlTemplate = (soqlQuery: string) => ({
+    id: 'tpl-soql',
+    name: 'Energy accounts',
+    description: '',
+    config: { ...SOQL_RUN.config!, soqlQuery },
+    objectCount: 1,
+    recordCount: 0,
+    createdAt: '2026-02-14T17:02:00.000Z',
+    lastUsedAt: '2026-02-14T17:02:00.000Z',
+  });
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.setState({ config: null, graph: null, history: [RECORD_RUN], templates: [] });
+    useOrgStore.setState({ selectedOrgId: null });
+  });
+
+  it("sends a SOQL query's WHERE clause as the root object's filter", () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('soql');
+      result.current.setSoqlQuery(filteredQuery);
+    });
+    expect(result.current.canReuseLastGraph).toBe(true);
+    act(() => result.current.handleReuseLastGraph());
+
+    expect(useForgeStore.getState().config?.objectSoqlFilters).toEqual({
+      Account: "Industry = 'X'",
+    });
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:plan:request');
+    expect(config).toMatchObject({
+      inputMode: 'soql',
+      soqlQuery: filteredQuery,
+      objectSoqlFilters: { Account: "Industry = 'X'" },
+    });
+  });
+
+  it("sends a saved template's query and its filter, capped like a SOQL run", () => {
+    useForgeStore.setState({ templates: [soqlTemplate(filteredQuery)] });
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('tpl-soql');
+      result.current.setRecordLimit('all');
+    });
+    // Related objects are read from their whole tables, as in SOQL mode.
+    expect(result.current.recordLimitValue).toBe(200);
+    act(() => result.current.handleReuseLastGraph());
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:plan:request');
+    expect(config).toMatchObject({
+      inputMode: 'soql',
+      soqlQuery: filteredQuery,
+      objectSoqlFilters: { Account: "Industry = 'X'" },
+      maxRecordsPerObject: 200,
+    });
+    expect(config.templateId).toBeUndefined();
+  });
+
+  it('offers no reuse for a saved template whose query the extension would refuse', () => {
+    useForgeStore.setState({
+      templates: [soqlTemplate("SELECT Id FROM Account WHERE Name LIKE '%--%'")],
+    });
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('tpl-soql');
+    });
+
+    expect(result.current.canReuseLastGraph).toBe(false);
+    act(() => result.current.handleReuseLastGraph());
+    expect(sentTypes()).not.toContain('forge:plan:request');
   });
 });

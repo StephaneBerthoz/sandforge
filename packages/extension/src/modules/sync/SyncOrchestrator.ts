@@ -19,6 +19,12 @@ export type OrchestratorQueryFn = (
   objectConfig: SyncObjectConfig,
 ) => Promise<Record<string, unknown>[]>;
 
+/** Function counting the records a query of an object would return */
+export type OrchestratorCountFn = (
+  orgId: string,
+  objectConfig: SyncObjectConfig,
+) => Promise<number>;
+
 /** Grappe event emitted during partitioned sync execution */
 export interface SyncGrappeEvent {
   type: 'grappe:started' | 'grappe:partitionProgress' | 'grappe:completed';
@@ -37,6 +43,14 @@ export interface SyncOrchestratorDeps {
   queryTarget: OrchestratorQueryFn;
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: SyncGrappeEvent) => void;
+  /**
+   * Counts the source records of an object before anything is read, so a run
+   * is held to `grappeConfig.autoActivateThreshold` like Seed and Autopilot.
+   * Only called while grappe is enabled. Without it, or when a count fails,
+   * the run stays sequential and reports nothing to the Grappe view: the
+   * threshold cannot be checked, and grappe mode must never turn itself on.
+   */
+  countSource?: OrchestratorCountFn;
   /**
    * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -67,7 +81,8 @@ export class SyncOrchestrator {
   /**
    * Execute a full sync based on the provided configuration.
    * Coordinates all services in sequence for each object, sorted by insertOrder.
-   * Activates grappe mode when total source records exceed the configured threshold.
+   * Activates grappe mode when the source records counted before the run reach
+   * the configured threshold.
    */
   async execute(config: SyncConfig): Promise<SyncExecutionResult> {
     const startTime = Date.now();
@@ -76,11 +91,12 @@ export class SyncOrchestrator {
 
     const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
 
-    const grappeActive = this.isGrappeActive();
+    const totalRecords = await this.countForGrappe(config.sourceOrgId, sortedObjects);
+    const grappeActive = this.isGrappeActive(totalRecords);
     if (grappeActive) {
       this.deps.onGrappeEvent?.({
         type: 'grappe:started',
-        payload: { operationId, totalPartitions: sortedObjects.length, totalRecords: 0 },
+        payload: { operationId, totalPartitions: sortedObjects.length, totalRecords },
       });
     }
 
@@ -125,10 +141,37 @@ export class SyncOrchestrator {
     return buildResult(config.id, operationId, objectResults, startTime, status);
   }
 
-  /** Check whether grappe mode is active based on config. */
-  private isGrappeActive(): boolean {
+  /**
+   * The source records the run will read, counted before the first write, or
+   * `undefined` when grappe is off or the count is unavailable.
+   */
+  private async countForGrappe(
+    sourceOrgId: string,
+    objects: readonly SyncObjectConfig[],
+  ): Promise<number | undefined> {
+    const count = this.deps.countSource;
+    if (!this.deps.grappeConfig?.enabled || !count) return undefined;
+    let total = 0;
+    try {
+      for (const objectConfig of objects) {
+        total += await count(sourceOrgId, objectConfig);
+      }
+    } catch {
+      // Grappe only changes what the Grappe view is told; a count the org
+      // refuses must not stop a sync that would otherwise run.
+      return undefined;
+    }
+    return total;
+  }
+
+  /** Check whether grappe mode should activate based on the counted records and config. */
+  private isGrappeActive(totalRecords: number | undefined): boolean {
     const config = this.deps.grappeConfig;
-    return !!config?.enabled;
+    return !!(
+      config?.enabled &&
+      totalRecords !== undefined &&
+      totalRecords >= config.autoActivateThreshold
+    );
   }
 
   private async syncObject(

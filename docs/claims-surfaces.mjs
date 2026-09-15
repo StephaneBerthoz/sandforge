@@ -136,6 +136,56 @@ export function parallelAssertions(text) {
   return [...new Set(assertions)];
 }
 
+/**
+ * Concurrency said without a word for it, in the six languages: "at once", "at
+ * the same time", "à la fois", "en même temps", "auf einmal", "zur gleichen
+ * Zeit", "zugleich", "de una vez", "a la vez", "al mismo tiempo", "ao mesmo
+ * tempo", "de uma vez", 一度に, 一斉に. {@link PARALLEL_WORD} could not see any of
+ * them, and each is the cheapest way to sell Grappe as concurrent.
+ *
+ * Unlike the word, these phrases are ordinary prose: "prefer it over deploying
+ * everything at once" is a true sentence about Compare. So they only count in
+ * a sentence about Grappe — see {@link ordinaryConcurrencyAssertions}.
+ *
+ * Written with letter lookarounds rather than `\b`, which in a JavaScript
+ * pattern is ASCII-only and never sits in front of `à`.
+ */
+export const ORDINARY_CONCURRENCY = new RegExp(
+  String.raw`(?<!\p{L})(?:${[
+    String.raw`(?:all\s+)?at\s+once`,
+    String.raw`at\s+the\s+same\s+time`,
+    String.raw`à\s+la\s+fois`,
+    String.raw`en\s+même\s+temps`,
+    String.raw`auf\s+einmal`,
+    String.raw`zur\s+gleichen\s+zeit`,
+    String.raw`zugleich`,
+    String.raw`de\s+una\s+vez`,
+    String.raw`a\s+la\s+vez`,
+    String.raw`al\s+mismo\s+tiempo`,
+    String.raw`ao\s+mesmo\s+tempo`,
+    String.raw`de\s+uma\s+(?:só\s+)?vez`,
+  ].join('|')})(?!\p{L})|一度に|一斉に`,
+  'iu',
+);
+
+/**
+ * The sentences of a text that assert concurrency in ordinary words, about
+ * Grappe: the phrase, in a sentence that names Grappe — or in any sentence of
+ * a string whose key is about Grappe (`grappe.step2Desc`), since that string
+ * need not name it — and that denies nothing. The negation limit of
+ * {@link parallelAssertions} holds here too.
+ */
+export function ordinaryConcurrencyAssertions(text, { aboutGrappe = false } = {}) {
+  const assertions = [];
+  for (const sentence of String(text).split(SENTENCE)) {
+    if (!ORDINARY_CONCURRENCY.test(sentence)) continue;
+    if (!aboutGrappe && !/grappe/i.test(sentence)) continue;
+    if (NEGATOR.test(sentence)) continue;
+    assertions.push(sentence.trim());
+  }
+  return [...new Set(assertions)];
+}
+
 /** Whether a manifest string is a localization placeholder rather than prose. */
 export const isNlsPlaceholder = (value) => typeof value === 'string' && /^%[\w.-]+%$/.test(value);
 

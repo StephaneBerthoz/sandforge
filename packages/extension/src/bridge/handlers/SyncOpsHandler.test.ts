@@ -1494,6 +1494,75 @@ describe('SyncOpsHandler', () => {
       expect(conn.query).not.toHaveBeenCalled();
     });
 
+    /** The count closure the handler hands the orchestrator for the Grappe threshold. */
+    async function captureCountSource(
+      orgType: string,
+    ): Promise<(orgId: string, objectConfig: ReturnType<typeof accountConfig>) => Promise<number>> {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
+      let captured:
+        | { countSource?: (orgId: string, o: ReturnType<typeof accountConfig>) => Promise<number> }
+        | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn((d: unknown) => {
+          captured = d as typeof captured;
+          return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: `sync-count-${orgType}`,
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      if (!captured?.countSource) throw new Error('the orchestrator was handed no countSource');
+      return captured.countSource;
+    }
+
+    it('counts the source with the read filter, for the Grappe threshold', async () => {
+      const conn = createOrgConnection(6_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const countSource = await captureCountSource('Sandbox');
+      const total = await countSource('src-org', {
+        ...accountConfig(),
+        where: "Industry = 'Tech'",
+      });
+
+      expect(total).toBe(6_000);
+      expect(conn.query.mock.calls[0][0]).toBe(
+        "SELECT COUNT() FROM Account WHERE Industry = 'Tech'",
+      );
+      expect(conn.queryMore).not.toHaveBeenCalled();
+    });
+
+    it('counts a production source no further than its read cap', async () => {
+      const conn = createOrgConnection(100_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const countSource = await captureCountSource('Production');
+      const querySource = await captureQuerySource('Production');
+      const read = await querySource('src-org', accountConfig());
+
+      expect(await countSource('src-org', accountConfig())).toBe(read.length);
+    });
+
+    it('counts a sandbox source no further than its read bound', async () => {
+      const conn = createOrgConnection(60_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const countSource = await captureCountSource('Sandbox');
+      const querySource = await captureQuerySource('Sandbox');
+      const read = await querySource('src-org', accountConfig());
+
+      expect(read.length).toBeLessThan(60_000);
+      expect(await countSource('src-org', accountConfig())).toBe(read.length);
+    });
+
     it('says so when a read bound cuts the object short', async () => {
       // A cursor that never ends. Small pages so the 500-page bound is the one
       // reached: 500 pages of 2 000 rows would materialise a million records

@@ -28,6 +28,12 @@ export interface SeedExecutionState {
   executionError: string | undefined;
   /** Step to navigate to when execution completes (3), or null. */
   executionCompletedStep: number | null;
+  /**
+   * Id of the running seed once the extension has reported progress for it,
+   * which is when it can be stopped; null otherwise. It is the id of the
+   * seed:execute request this hook sent.
+   */
+  operationId: string | null;
 }
 
 /**
@@ -117,10 +123,11 @@ export function useSeedExecution(
     });
   }, [selectedOrgId, selectedObjects, volumes, fieldConfigs, executeSeedMutation]);
 
-  // Live figures from the extension, which has been emitting operation:progress
-  // from SeedOpsHandler all along with nothing listening.
-  const { latest } = useOperationProgress();
-  const progress = isRunning ? latest : null;
+  // Live figures from the extension, for this run only: SeedOpsHandler uses the
+  // request id as the operationId, and every panel receives every run's events.
+  const { getProgress } = useOperationProgress();
+  const runId = executeSeedMutation.requestId;
+  const progress = (isRunning && runId !== null ? getProgress(runId) : undefined) ?? null;
   const elapsedMs = useElapsedSince(isRunning ? startedAt : null);
 
   const objectProgress: ObjectProgress[] = useMemo(() => {
@@ -165,5 +172,6 @@ export function useSeedExecution(
     progressLabel: progress?.currentStep ?? null,
     executionError: executeSeedMutation.error ?? undefined,
     executionCompletedStep,
+    operationId: progress ? runId : null,
   };
 }

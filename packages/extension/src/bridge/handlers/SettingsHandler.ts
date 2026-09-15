@@ -140,7 +140,6 @@ export class SettingsHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'telemetry:status:response', {
       enabled,
       eventCount,
-      bufferSize: 0,
     });
     this.deps.broker.postToWebview(response);
   }

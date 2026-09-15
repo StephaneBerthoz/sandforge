@@ -162,9 +162,16 @@ const NARRATION = [
     why: 'Numbered delivery phase. Shipped phases are named or lettered, never numbered.',
   },
   {
-    pattern: /\bplan[ _]\d+\b|\bplan[ _-]\d{2}-\d{2}\b/gi,
+    pattern: /\bplan[ _]\d+\b|\bplans?[ _-]?\d{2}-\d{2}\b/gi,
     example: ['Plan', '04-04'].join(' '),
-    why: 'Plan-document numbering. A plan RECORD id is hyphenated with one digit and stays legal.',
+    why: 'Plan-document numbering, singular or plural. A plan RECORD id is hyphenated with one digit and stays legal.',
+  },
+  {
+    pattern: /(?:\bin |\(|\/ ?)0\d-\d{2}\b/g,
+    example: ['(', ['05', '02'].join('-'), ')'].join(''),
+    why:
+      'A bare plan number (zero-padded group, two-digit item) cited after "in", an opening ' +
+      'parenthesis or a slash. Numeric ranges and dates in this repo are not zero-padded that way.',
   },
   {
     pattern: /\btask[ _-]\d+\b/gi,
@@ -327,6 +334,20 @@ test('detects the families the purge had to remove', () => {
   }
 });
 
+test('detects plan numbers written as a plural or as a bare number', () => {
+  const planNo = (a, b) => [a, b].join('-');
+  const lines = [
+    `* ${['Plans', planNo('01', '03')].join(' ')} wire these into the root.`,
+    `// kept for later (DI wiring in ${planNo('01', '03')}).`,
+    `* per-provider state (CircuitBreaker in ${planNo('04', '02')}, in-flight registry)`,
+    `// ── Dashboard Refresh UX (${planNo('05', '02')}) ──`,
+    `* see the root / ${planNo('01', '04')} for the rest`,
+  ];
+  for (const line of lines) {
+    assert.equal(findTraces(line).length, 1, `missed: ${line}`);
+  }
+});
+
 test('leaves standards, provider names and delivered vocabulary alone', () => {
   const clean = [
     'Optional BCP-47 locale string; defaults to the runtime locale.',
@@ -351,6 +372,10 @@ test('leaves standards, provider names and delivered vocabulary alone', () => {
     'WCAG 2.1 AA contrast on the skipped badge; PCI-DSS scope; API v60.0',
     'const RE = /^[A-Z0-9]{3}-[a-z]+$/;',
     'N-1 revisions are kept; see ADR-0003 for the salt model.',
+    '* Color zones: green (>80), amber (40-80), red (<40).',
+    '// 65% usage: 70 - (65-50)*1.4 = 70 - 21 = 49 -> warning',
+    'Released on 2026-09-15 in 2026-09 builds (see /2026-09-15/notes).',
+    'pricing plans in 2 tiers',
   ];
   for (const line of clean) {
     assert.deepEqual(findTraces(line), [], `false positive on: ${line}`);

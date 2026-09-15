@@ -72,7 +72,7 @@ The **Extract** tab edits `rootObject`, the budget, the axes and the edge cases 
 - The **sas** (`~/.sandforge-sas` by default) is **outside the repository by construction**: `SasPathGuard` refuses any output path located inside the repo. The selection (source IDs), `rt-map.json`, the `{{TOKEN}}` values (`tokens.json`) and the `referenceId -> Id` mapping never leave it.
 - The **salt** comes from `SANDFORGE_FROZEN_SALT` and nowhere else; only its **fingerprint** (12 hex) is recorded. Never regenerate a second salt silently -- determinism across dataset versions would be lost.
 - The bridge **redacts**: the selection sent to the UI carries no source ID, and the details of `clear-empty` violations (which may embed a residual value) are redacted on the extension side.
-- All DML goes through the existing **Production Guard** (tier check + audit trail).
+- All DML goes through the existing **Production Guard** (tier check; with `sandforge.safety.auditLogging` on, its decisions are kept in memory for the session only).
 
 ## Limits
 

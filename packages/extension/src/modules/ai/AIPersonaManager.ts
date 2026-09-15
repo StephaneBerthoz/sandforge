@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
+  PersonaReplySchema,
   SUPPORTED_FAKER_METHODS,
   acceptsGeneratedSentence,
+  parseModelJson,
   resolveFakerMethod,
 } from '@sandforge/shared';
 
@@ -709,45 +711,25 @@ function normalisePattern(raw: Record<string, unknown>): PersonaFieldPattern | n
  * Handles responses wrapped in markdown code blocks.
  */
 function parsePersonaResponse(response: string): Omit<AIPersona, 'id'> {
-  const trimmed = response.trim();
-  const jsonContent = extractJsonFromMarkdown(trimmed);
-  const parsed: unknown = JSON.parse(jsonContent);
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  let reply: z.output<typeof PersonaReplySchema>;
+  try {
+    reply = parseModelJson(PersonaReplySchema, response);
+  } catch {
     throw new Error(
       'AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.',
     );
   }
 
-  const obj = parsed as Record<string, unknown>;
-  const name = typeof obj['name'] === 'string' ? obj['name'] : 'Custom Persona';
-  const description = typeof obj['description'] === 'string' ? obj['description'] : '';
-  const industry = typeof obj['industry'] === 'string' ? obj['industry'] : 'General';
-  const locale = typeof obj['locale'] === 'string' ? obj['locale'] : 'en-US';
-
   const dataPatterns: Record<string, PersonaFieldPattern> = {};
-  if (typeof obj['dataPatterns'] === 'object' && obj['dataPatterns'] !== null) {
-    const rawPatterns = obj['dataPatterns'] as Record<string, unknown>;
-    for (const [key, value] of Object.entries(rawPatterns)) {
-      if (typeof value === 'object' && value !== null) {
-        const pattern = normalisePattern(value as Record<string, unknown>);
-        if (pattern) {
-          dataPatterns[key] = pattern;
-        }
+  for (const [key, value] of Object.entries(reply.dataPatterns)) {
+    if (typeof value === 'object' && value !== null) {
+      const pattern = normalisePattern(value as Record<string, unknown>);
+      if (pattern) {
+        dataPatterns[key] = pattern;
       }
     }
   }
 
+  const { name, description, industry, locale } = reply;
   return { name, description, industry, locale, dataPatterns };
-}
-
-/**
- * Extract JSON content from a string that may be wrapped in markdown code blocks.
- */
-function extractJsonFromMarkdown(text: string): string {
-  const codeBlockMatch = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/.exec(text);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
-  }
-  return text;
 }

@@ -75,7 +75,6 @@
     "status_expired": "Session Expired",
     "status_error": "Connection Error",
     "status_refreshing": "Refreshing...",
-    "safetyTier": "Safety Tier",
     "alias": "Alias",
     "username": "Username",
     "instanceUrl": "Instance URL",
@@ -88,10 +87,6 @@
     "tier_high": "High",
     "tier_medium": "Medium",
     "tier_low": "Low",
-    "tier_critical_desc": "Critical (Production)",
-    "tier_high_desc": "High (UAT / Staging)",
-    "tier_medium_desc": "Medium (QA / Integration)",
-    "tier_low_desc": "Low (Dev / Scratch)",
     "color": "Color",
     "color_red": "Red",
     "color_amber": "Amber",
@@ -825,7 +820,7 @@
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Import an existing migration definition and convert it into a SandForge sync configuration. The file is only read — nothing is written or executed.",
+    "subtitle": "Import an existing migration definition and convert it into a SandForge sync configuration. Importing reads the file and changes nothing; running the converted configuration writes records to the target org.",
     "sourceTitle": "Source file",
     "type": {
       "sfdmu": {
@@ -939,6 +934,7 @@
     "triggersCount": "Active Triggers",
     "historyRuns": "History Runs",
     "triggers": "Triggers",
+    "triggerManualOnlyNote": "Only a manual run starts a pipeline. The other trigger types can be configured here, but nothing fires them yet.",
     "addTrigger": "Add Trigger",
     "run": "Run Pipeline",
     "running": "Running pipeline...",
@@ -1082,26 +1078,6 @@
     "generateReport": "Generate Report",
     "exportReport": "Export Report",
     "reportType": "Report Type",
-    "reportTypes": {
-      "seed_execution": "Seed Execution",
-      "sync_execution": "Sync Execution",
-      "compare_result": "Compare Result",
-      "backup_result": "Backup Result",
-      "anonymization_result": "Anonymization Result",
-      "pipeline_run": "Pipeline Run",
-      "data_quality": "Data Quality",
-      "org_health": "Org Health",
-      "audit_trail": "Audit Trail",
-      "custom": "Custom"
-    },
-    "exportFormats": {
-      "json": "JSON",
-      "csv": "CSV",
-      "html": "HTML",
-      "pdf": "PDF",
-      "xlsx": "Excel",
-      "sarif": "SARIF"
-    },
     "summary": "Summary",
     "sections": "Sections",
     "metadata": "Metadata",
@@ -1155,14 +1131,14 @@
     "advanced": "Advanced",
     "profiles": "Profiles",
     "language": "Language",
+    "languageLoadFailed": "{{language}} could not be loaded, so the interface stays in its current language.",
     "clearCache": "Clear Cache",
     "resetSettings": "Reset to Defaults",
     "telemetry": "Telemetry",
     "telemetryStatus": "Status",
     "telemetryEnabled": "Enabled",
     "telemetryDisabled": "Disabled",
-    "telemetryEventCount": "Events sent",
-    "telemetryBufferSize": "Buffer size",
+    "telemetryEventCount": "Diagnostic events recorded",
     "telemetryEnable": "Enable Telemetry",
     "telemetryDisable": "Disable Telemetry",
     "telemetryUnavailable": "Unavailable",
@@ -1262,7 +1238,7 @@
     "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Only Delay and Condition do anything yet: the other 13 report success without touching an org\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Condition steps with 11 operators\n- Execution history: status, total duration, step count and errors for each run\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: every inserted record gets its IDs remapped\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
-    "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
+    "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
     "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat, and NL2SOQL, custom personas and AI field rules in Seed\n- Pipeline drafts in Automation\n- While AI is on, a failed Seed, Sync, DataOps or Automation run sends its error message to the model for a fix suggestion, unless a built-in table already answers its error code\n- Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key\n- Configure your API key in Settings > AI",
     "shortcutsContent": "G + letter — Jump to a module (e.g. G then F for Forge, G then Y for Sync, G then L for Help)\nCtrl+K — Command palette\nEscape — Close modals and dialogs\nTab — Navigate between elements\nEnter/Space — Activate buttons and links",
     "faqContent": "Q: Why is my Health Score low?\nA: Check API limit usage, failed jobs, and storage consumption. The score weighs multiple factors.\n\nQ: How to fix timeout errors?\nA: SandForge has no timeout setting for Salesforce calls. Lower the batch size (sandforge.seed.defaultBatchSize and sandforge.sync.defaultBatchSize in VS Code Settings) and split a large run into smaller ones. Grappe does not make a run faster: it reports progress per partition.\n\nQ: Can I undo a sync operation?\nA: No. A sync run cannot be reversed. Before a risky run, take a DataOps backup of the target org: it covers Account and Contact, and restores only into that org.\n\nQ: How do I connect a production org safely?\nA: Production orgs are auto-detected and marked as Critical safety tier. All destructive operations require confirmation.",
@@ -1380,7 +1356,6 @@
     "aiTab": "AI",
     "recordIdPlaceholder": "Record ID or Salesforce URL",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
-    "aiPlaceholder": "Describe what data you want to clone...",
     "depth": "Depth",
     "depthDirect": "Direct only",
     "depthFull": "Full tree",
@@ -1472,8 +1447,9 @@
     "sameOrgWarning": "Source and target must be different orgs",
     "hintNoSource": "Select a source org",
     "hintNoTarget": "Select a target org",
-    "hintNoInput": "Enter a record ID, query, or prompt",
+    "hintNoInput": "Enter a record ID or a query, or pick a template",
     "hintSameOrg": "Source and target must be different",
+    "hintSoqlFilterRefused": "Shorten or rewrite the WHERE clause to discover the graph",
     "depthDirectTooltip": "Only directly related child objects (1 level)",
     "depthFullTooltip": "Entire dependency tree — all levels deep",
     "depthCustomTooltip": "Specify the maximum relationship depth",
@@ -1540,8 +1516,9 @@
       "step4": "Tune depth, record limit and anonymization",
       "step5": "Execute toward your sandbox — IDs are remapped"
     },
-    "soqlUnscopedWarnTitle": "Your WHERE clause is not applied.",
-    "soqlUnscopedWarnBody": "SandForge reads only the object name after FROM. Records are taken from the whole table, and every related object in the graph is cloned the same way — capped at {{cap}} records per object for this run.",
+    "soqlUnscopedWarnTitle": "Your WHERE clause filters {{object}} only.",
+    "soqlUnscopedWarnBody": "Related objects are not narrowed to the records it matches: each one is read from its whole table. Every object is capped at {{cap}} records for this run.",
+    "soqlFilterRefused": "This WHERE clause cannot be applied. It must be 512 characters or fewer, contain no --, /* or */ (not even inside a quoted value), and not end with a semicolon.",
     "idMapping": {
       "title": "Record Id mapping",
       "subtitle": "{{count}} records created. Source Id on the left, the new Id in the target org on the right.",
@@ -1595,6 +1572,68 @@
       "statusSuccess": "Success",
       "statusPartial": "Partial",
       "statusFailure": "Failed"
+    },
+    "error": {
+      "duplicateValue": {
+        "explanation": "A record with the same unique value already exists in the target org, often one cloned by an earlier run.",
+        "action": "Delete the records the earlier run created, or run the clone from the command line with --upsert, which updates by external ID where the object has one."
+      },
+      "invalidCrossReferenceKey": {
+        "explanation": "A lookup points to a record that does not exist in the target org, often a user such as the owner.",
+        "action": "Create or map the referenced record in the target org, or leave the lookup empty and set it after the clone."
+      },
+      "requiredFieldMissing": {
+        "explanation": "A required field has no value: {{detail}}.",
+        "action": "Turn on \"Auto-fetch parents\", or raise the depth so the required parent is part of the clone."
+      },
+      "invalidPicklist": {
+        "explanation": "A picklist value from the source does not exist in the target org's picklist.",
+        "action": "Add the value to the picklist in the target org's Setup, or change the value on the source record."
+      },
+      "invalidFieldForInsert": {
+        "explanation": "A field cannot be set on create: it is calculated, hidden by field-level security, or missing from the target org.",
+        "action": "Check field-level security for your user in the target org, and compare the field between the two orgs."
+      },
+      "fieldIntegrity": {
+        "explanation": "Salesforce rejected the record on an integrity rule: {{detail}}.",
+        "action": "Read the detail: Salesforce usually names the field or the rule involved."
+      },
+      "cannotInsertEntity": {
+        "explanation": "Salesforce does not accept new records of this object (a history, audit or system object).",
+        "action": "Leave this object out of the clone."
+      },
+      "insufficientAccess": {
+        "explanation": "Your user in the target org lacks the access this write needs.",
+        "action": "Ask an administrator for the missing permission, or connect the target org with a user that has it."
+      },
+      "storageLimit": {
+        "explanation": "The target org has no data storage left.",
+        "action": "Delete records you no longer need from the target org, then run again."
+      },
+      "invalidType": {
+        "explanation": "This object does not exist in the target org, or your user cannot see it.",
+        "action": "Compare the two orgs' schemas, or leave this object out of the clone."
+      },
+      "notFound": {
+        "explanation": "Salesforce could not find the requested record or resource.",
+        "action": "Check the record ID and that it belongs to the source org."
+      },
+      "stringTooLong": {
+        "explanation": "A value is longer than the field allows: {{detail}}.",
+        "action": "Shorten the source value, or give the field the same length in both orgs."
+      },
+      "cycleFkUnresolved": {
+        "explanation": "Field '{{fieldName}}' points to a parent that was not cloned (source ID {{sourceRefId}}), so the record was created without that link.",
+        "action": "Raise the depth so the parent is part of the clone, or set the field by hand afterwards."
+      },
+      "outOfScope": {
+        "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",
+        "action": "Raise the depth if you need records of this object in the clone."
+      },
+      "unknown": {
+        "explanation": "{{detail}}",
+        "action": "Look up this error code in the Salesforce documentation."
+      }
     }
   },
   "autopilot": {
@@ -1880,7 +1919,7 @@
     }
   },
   "grappe": {
-    "emptyDesc": "Grappe needs sandforge.grappe.enabled. A Seed run past the record threshold then reports each partition as it completes, a Sync reports one partition per object, and an Autopilot run reports only its start and its end.",
+    "emptyDesc": "Grappe needs sandforge.grappe.enabled. A Seed run past the record threshold then reports each partition as it completes, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end.",
     "active": "Grappe",
     "completed": "Completed",
     "partitions": "Partitions",
@@ -1930,9 +1969,6 @@
       "validProfile": "Valid profile",
       "invalidProfile": "Invalid profile"
     }
-  },
-  "scheduler": {
-    "comingSoon": "Coming in v1.2"
   },
   "governance": {
     "title": "Org Governance",

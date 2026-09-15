@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { createRef } from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { WelcomePage } from './WelcomePage';
+import type { WelcomePageHandle } from './WelcomePage';
 
 const mockChangeLanguage = vi.fn();
 
@@ -28,9 +30,14 @@ vi.mock('../../bridge/sendBridgeMessage', () => ({
 }));
 
 const mockNavigate = vi.fn();
+const mockSetShowWelcome = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
-  useAppStore: (selector: (s: { navigate: typeof mockNavigate }) => unknown) =>
-    selector({ navigate: mockNavigate }),
+  useAppStore: (
+    selector: (s: {
+      navigate: typeof mockNavigate;
+      setShowWelcome: typeof mockSetShowWelcome;
+    }) => unknown,
+  ) => selector({ navigate: mockNavigate, setShowWelcome: mockSetShowWelcome }),
 }));
 
 /* In-memory mock of the webview state persistence layer. */
@@ -62,6 +69,7 @@ describe('WelcomePage', () => {
   beforeEach(() => {
     onComplete = vi.fn();
     mockNavigate.mockClear();
+    mockSetShowWelcome.mockClear();
     mockChangeLanguage.mockClear();
     mockChangeLanguageLazy.mockClear();
     /* changeLanguageLazy resolves `true` when the language was applied. */
@@ -88,6 +96,12 @@ describe('WelcomePage', () => {
   it('should render the progress bar', () => {
     render(<WelcomePage onComplete={onComplete} />);
     expect(screen.getByTestId('progress-bar')).toBeDefined();
+  });
+
+  it('gives the step progress bar an accessible name', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    // The mocked t() returns the key, so the name is the key itself.
+    expect(screen.getByRole('progressbar', { name: 'a11y.stepProgress' })).toBeDefined();
   });
 
   it('should render 5 step indicators', () => {
@@ -131,6 +145,18 @@ describe('WelcomePage', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next'));
     expect(screen.getByTestId('welcome-step-1')).toBeDefined();
+  });
+
+  it('opens the org manager from step 1 without marking onboarding complete', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
+    fireEvent.click(screen.getByText('onboarding.connectOrg'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
+    // The wizard steps aside so the org manager is reachable, but four steps
+    // were never seen: completing here would stop it for good.
+    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
   it('should navigate from step 1 to step 2', () => {
@@ -206,6 +232,23 @@ describe('WelcomePage', () => {
     // Click finish
     fireEvent.click(screen.getByText('onboarding.openMonitor'));
     expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
+  });
+
+  it('saves dont-show-again when the overlay skips the wizard through its handle', () => {
+    const handle = createRef<WelcomePageHandle>();
+    render(<WelcomePage ref={handle} onComplete={onComplete} orgType="production" />);
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByTestId('dont-show-again'));
+
+    act(() => handle.current?.skip());
+
+    expect(handle.current).not.toBeNull();
+    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('should not persist when dont-show-again is unchecked', () => {

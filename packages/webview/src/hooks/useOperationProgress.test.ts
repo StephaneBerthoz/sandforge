@@ -34,7 +34,7 @@ function emit(payload: {
 describe('useOperationProgress', () => {
   it('starts empty', () => {
     const { result } = renderHook(() => useOperationProgress());
-    expect(result.current.latest).toBeNull();
+    expect(result.current.getProgress('op-1')).toBeUndefined();
   });
 
   it('surfaces the live figures the extension emits', () => {
@@ -50,14 +50,13 @@ describe('useOperationProgress', () => {
       currentStep: 'Bulk insert Contact',
     });
 
-    expect(result.current.latest).toMatchObject({
+    expect(result.current.getProgress('op-1')).toMatchObject({
       operationId: 'op-1',
       percentage: 42,
       processedRecords: 1200,
       totalRecords: 5000,
       currentStep: 'Bulk insert Contact',
     });
-    expect(result.current.getProgress('op-1')?.percentage).toBe(42);
   });
 
   it('keeps the most recent value per operation', () => {
@@ -67,7 +66,6 @@ describe('useOperationProgress', () => {
     emit({ operationId: 'op-1', percentage: 90 });
 
     expect(result.current.getProgress('op-1')?.percentage).toBe(90);
-    expect(result.current.latest?.percentage).toBe(90);
   });
 
   it('tracks operations independently', () => {
@@ -78,7 +76,6 @@ describe('useOperationProgress', () => {
 
     expect(result.current.getProgress('op-1')?.percentage).toBe(10);
     expect(result.current.getProgress('op-2')?.percentage).toBe(70);
-    expect(result.current.latest?.operationId).toBe('op-2');
   });
 
   it('evicts the oldest entry past the cap', () => {
@@ -106,6 +103,6 @@ describe('useOperationProgress', () => {
       );
     });
 
-    expect(result.current.latest).toBeNull();
+    expect(result.current.getProgress('undefined')).toBeUndefined();
   });
 });

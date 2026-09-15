@@ -41,7 +41,7 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
 describe('useSmartAction', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
-    useAppStore.setState({ currentRoute: 'home' });
+    useAppStore.setState({ currentRoute: 'home', navigationIntent: null });
     mockQueryState = {
       data: null,
       loading: false,
@@ -132,9 +132,54 @@ describe('useSmartAction', () => {
 
     expect(result.current.showConfirmation).toBe(false);
     expect(useAppStore.getState().currentRoute).toBe('seed');
+    expect(useAppStore.getState().navigationIntent).toMatchObject({
+      route: 'seed',
+      seedMode: 'quick-seed',
+    });
   });
 
-  it('should navigate to grappe on confirm for sync action', () => {
+  it('opens the clone wizard on the recommended orgs on confirm, and starts nothing', () => {
+    useOrgStore.setState({
+      orgs: [
+        createMockOrg({ id: 'target-1' }),
+        createMockOrg({ id: 'source-1', alias: 'SourceOrg' }),
+      ],
+      selectedOrgId: null,
+    });
+    mockQueryState.data = {
+      recommendation: {
+        action: 'clone',
+        confidence: 0.8,
+        reason: 'Source org has data',
+        reasonKey: 'home.smartAction.reasonClone',
+        details: {
+          targetOrgId: 'target-1',
+          sourceOrgId: 'source-1',
+          recordCounts: { Account: 0 },
+        },
+      },
+    };
+
+    const { result } = renderHook(() => useSmartAction());
+    act(() => {
+      result.current.requestConfirm();
+    });
+    act(() => {
+      result.current.confirm();
+    });
+
+    expect(useAppStore.getState().currentRoute).toBe('seed');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'seed',
+      seedMode: 'clone',
+      sourceOrgId: 'source-1',
+      targetOrgId: 'target-1',
+    });
+    // The wizard targets the org the confirmation named.
+    expect(useOrgStore.getState().selectedOrgId).toBe('target-1');
+  });
+
+  it('opens Sync on the recommended orgs on confirm for sync action', () => {
     useOrgStore.setState({
       orgs: [
         createMockOrg({ id: 'target-1' }),
@@ -164,6 +209,13 @@ describe('useSmartAction', () => {
       result.current.confirm();
     });
 
-    expect(useAppStore.getState().currentRoute).toBe('grappe');
+    // Grappe only displays the partitions of a run already going; Sync is
+    // where a sync between these two orgs is set up.
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'sync',
+      sourceOrgId: 'source-1',
+      targetOrgId: 'target-1',
+    });
   });
 });

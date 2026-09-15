@@ -1,11 +1,12 @@
-import { useState, useCallback } from 'react';
-import type { TFunction } from 'i18next';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
+  BaseMessage,
   CloneObjectConfig,
   ClonePreviewResult,
   CloneExecutionResult,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { useMessageListener } from '../../../hooks/useMessageBus';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -20,6 +21,11 @@ export interface SourceObjectInfo {
 
 /** Execution status for the clone pipeline. */
 export type CloneExecutionStatus = 'idle' | 'previewing' | 'executing' | 'complete' | 'error';
+
+/** `operation:failed` as the extension posts it; read defensively. */
+type OperationFailedMessage = BaseMessage & {
+  payload?: { operationId?: unknown; error?: unknown };
+};
 
 /** Return type for the useClone hook. */
 export interface UseCloneReturn {
@@ -66,10 +72,11 @@ export interface UseCloneReturn {
  * object selection with optional WHERE filters, preview, execution,
  * and step navigation.
  *
- * @param _t - i18next translation function for error messages (reserved for future use).
  * @param targetOrgId - The current target org ID from the org store.
+ * @param initialSourceOrgId - Source org to select on open (Home's clone
+ *   recommendation). It is described, never previewed or run.
  */
-export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
+export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseCloneReturn {
   const [sourceOrgId, setSourceOrgId] = useState('');
   const [sourceObjects, setSourceObjects] = useState<SourceObjectInfo[]>([]);
   const [selectedObjects, setSelectedObjects] = useState<CloneObjectConfig[]>([]);
@@ -88,7 +95,9 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
   });
 
   const executeMutation = useBridgeMutation<CloneExecutionResult>('seed:clone:execute', {
-    // SeedCloneHandler reports failures here, correlated to the request.
+    // Only a refused payload comes back here. Every later failure, the
+    // production guard blocking or its confirmation being declined included,
+    // is reported on operation:failed alone: see the listener below.
     errorType: 'seed:clone:error',
     // Bulk write: can exceed the 30 s default on real volumes; operation:progress
     // events keep flowing while the response is pending.
@@ -132,6 +141,24 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
     if (error === null) setError(executeMutation.error);
   }
 
+  // SeedCloneHandler uses the execute request id as the operationId and reports
+  // an execution failure on operation:failed only. Nothing listened here, so a
+  // failed clone, or a declined production confirmation, left the wizard on
+  // "executing" for 120 s and then showed the raw timeout.
+  const executeRequestId = executeMutation.requestId;
+  useMessageListener<OperationFailedMessage>('operation:failed', (message) => {
+    if (executionStatus !== 'executing' || executeRequestId === null) return;
+    const failed = message.payload;
+    if (failed?.operationId !== executeRequestId) return;
+    executeMutation.reset();
+    setExecutionStatus('error');
+    setError(
+      typeof failed.error === 'string' && failed.error
+        ? failed.error
+        : "Bridge mutation 'seed:clone:execute' failed",
+    );
+  });
+
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */
   /* ------------------------------------------------------------------ */
@@ -153,6 +180,16 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
     },
     [describeMutation, previewMutation, executeMutation],
   );
+
+  // Opened on a recommended source: select it once, which describes its
+  // objects. The user still picks objects, previews, and passes the production
+  // guard before anything is written.
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || !initialSourceOrgId) return;
+    preselected.current = true;
+    handleSourceOrgSelected(initialSourceOrgId);
+  }, [initialSourceOrgId, handleSourceOrgSelected]);
 
   /** Toggle an object in/out of the selection. */
   const handleObjectToggle = useCallback((objectApiName: string) => {

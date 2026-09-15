@@ -45,16 +45,19 @@ export class AnonymizationEngine {
    * @param personaRegistry - Shared persona source. Pass the same registry as the
    *   autopilot run to keep a record's fake identity consistent across modules.
    * @param fallbackKey - HMAC key for `shuffle` and `fake` when the rule carries
-   *   no `config.hashSalt`. When omitted a random per-instance key is generated:
-   *   outputs stay consistent within a run but differ between runs. There is
+   *   no `config.hashSalt`, and the key a registry built here picks personas
+   *   with. Persona-mapped `fake` fields (names, emails, phones) follow this key
+   *   only, never the rule's `hashSalt`. When omitted a random per-instance key
+   *   is generated: outputs stay consistent within a run but differ between
+   *   runs. There is
    *   deliberately no fixed default — a hardcoded key would make every
    *   installation's permutations identical and therefore invertible by anyone.
    *   `hash` is excluded: it throws instead, because a digest that silently
    *   changes between runs breaks the foreign keys it is meant to preserve.
    */
   constructor(personaRegistry?: PersonaRegistry, fallbackKey?: string) {
-    this.personaRegistry = personaRegistry ?? new PersonaRegistry();
     this.fallbackKey = fallbackKey ?? randomBytes(32).toString('hex');
+    this.personaRegistry = personaRegistry ?? new PersonaRegistry(this.fallbackKey);
   }
 
   /**

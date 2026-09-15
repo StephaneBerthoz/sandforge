@@ -72,6 +72,18 @@ describe('OrgEditDialog', () => {
     );
   });
 
+  it('should offer no safety tier, which the production guard never reads', () => {
+    const onSave = vi.fn();
+    render(<OrgEditDialog {...defaultProps} onSave={onSave} />);
+    expect(screen.queryByText('Safety Tier')).toBeNull();
+    fireEvent.click(screen.getByText('Save'));
+    expect(onSave).toHaveBeenCalledWith('org-1', {
+      alias: 'Dev Sandbox',
+      color: '#10B981',
+      tags: ['dev'],
+    });
+  });
+
   it('should call onClose when Cancel is clicked', () => {
     const onClose = vi.fn();
     render(<OrgEditDialog {...defaultProps} onClose={onClose} />);

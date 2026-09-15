@@ -9,6 +9,9 @@ const ERROR_CODE_PATTERN = /^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z][a-z0-9]*(?:_
 /** Maximum number of aggregated Salesforce errors rendered before summarizing. */
 const MAX_AGGREGATED_ERRORS = 3;
 
+/** Joins the lines of an aggregated `MULTIPLE_API_ERRORS` message. */
+const AGGREGATED_ERROR_SEPARATOR = ' | ';
+
 /**
  * Read the Salesforce error code jsforce hides on the error object.
  *
@@ -37,16 +40,30 @@ function readErrorCode(err: unknown): string | undefined {
  * `operation:failed` carries a plain string. Anything keyed on the code (the
  * error knowledge base) therefore has to recover it from that string, and the
  * only shape worth trusting is the one this module produces: the code, alone
- * or followed by `": "` and the API's text. A message that does not start that
+ * or followed by `": "` and the API's text. A segment that does not start that
  * way is treated as having no code rather than guessed at.
  *
+ * An aggregated `MULTIPLE_API_ERRORS` line joins several such segments with
+ * `" | "`, and each one is read: the first code is not always one the caller
+ * can answer, and a message-only error renders with no code at all.
+ *
  * @param message - A message produced by {@link extractErrorMessage}.
- * @returns The leading error code, or `undefined` when the message has none.
+ * @param prefer - Picks, among the codes found, the first one it accepts.
+ * @returns The preferred code, else the first code found, else `undefined`.
  */
-export function extractErrorCode(message: string): string | undefined {
-  const separator = message.indexOf(':');
-  const candidate = (separator === -1 ? message : message.slice(0, separator)).trim();
-  return ERROR_CODE_PATTERN.test(candidate) ? candidate : undefined;
+export function extractErrorCode(
+  message: string,
+  prefer?: (code: string) => boolean,
+): string | undefined {
+  let first: string | undefined;
+  for (const segment of message.split(AGGREGATED_ERROR_SEPARATOR)) {
+    const separator = segment.indexOf(':');
+    const candidate = (separator === -1 ? segment : segment.slice(0, separator)).trim();
+    if (!ERROR_CODE_PATTERN.test(candidate)) continue;
+    if (prefer?.(candidate)) return candidate;
+    first ??= candidate;
+  }
+  return first;
 }
 
 /**
@@ -76,8 +93,8 @@ function readAggregatedApiErrors(err: unknown): string | undefined {
   }
 
   if (lines.length === 0) return undefined;
-  if (lines.length <= MAX_AGGREGATED_ERRORS) return lines.join(' | ');
-  return `${lines.slice(0, MAX_AGGREGATED_ERRORS).join(' | ')} (+${lines.length - MAX_AGGREGATED_ERRORS} more)`;
+  if (lines.length <= MAX_AGGREGATED_ERRORS) return lines.join(AGGREGATED_ERROR_SEPARATOR);
+  return `${lines.slice(0, MAX_AGGREGATED_ERRORS).join(AGGREGATED_ERROR_SEPARATOR)} (+${lines.length - MAX_AGGREGATED_ERRORS} more)`;
 }
 
 /**

@@ -5,7 +5,6 @@ import type { HintTracker } from '../core/onboarding/HintTracker';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
-import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
 
 /**
@@ -47,8 +46,6 @@ export interface LateServices {
   pipelineMarketplace: PipelineMarketplace;
   /** Live operation tracker serving monitor:live-operations polls. */
   liveOperationTracker: LiveOperationTracker;
-  /** Masking template catalog serving dataops:masking-templates-by-object. */
-  maskingTemplateService: MaskingTemplateService;
   /**
    * File-backed store for backup record payloads, keeping megabytes of SOQL
    * results out of globalState — VSCode re-serializes that memento in full on
@@ -66,11 +63,10 @@ export function applyLateServices(handlers: ExtensionHandlers, late: LateService
   handlers.setOnboardingServices(late.onboardingService, late.hintTracker);
   handlers.setInfraServices(late.infraServices);
   // Must precede registerAll: creates the ExecutionHandler that registerAll
-  // conditionally routes (execution:abort/status/list/manual-retry).
+  // conditionally routes (execution:abort).
   handlers.setBackgroundRegistry(late.backgroundRegistry);
   handlers.setMigrationServices(late.migrationFileReader);
   handlers.setPipelineMarketplace(late.pipelineMarketplace);
   handlers.setLiveOperationTracker(late.liveOperationTracker);
-  handlers.setMaskingTemplateService(late.maskingTemplateService);
   handlers.setBackupRecordStore(late.backupRecordStore);
 }

@@ -4,6 +4,7 @@ import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { SeedPage } from './SeedPage';
 
 const mockOrgs: SalesforceOrg[] = [
@@ -47,6 +48,8 @@ const mockDescribeFieldsMutate = vi.fn();
 const mockDescribeFieldsReset = vi.fn();
 const mockExecuteSeedMutate = vi.fn();
 const mockExecuteSeedReset = vi.fn();
+const mockCloneDescribeMutate = vi.fn();
+const mockCloneExecuteMutate = vi.fn();
 
 /** Mutable query state for describe-global. */
 let mockDescribeGlobalState = {
@@ -93,6 +96,26 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'seed:execute') {
       return mockExecuteSeedState;
     }
+    if (type === 'seed:clone:describe-source') {
+      return {
+        mutate: mockCloneDescribeMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
+    if (type === 'seed:clone:execute') {
+      return {
+        mutate: mockCloneExecuteMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -130,6 +153,9 @@ vi.mock('../../components/ui/InfoTooltip', () => ({
 describe('SeedPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useAppStore.setState({ navigationIntent: null });
+    mockCloneDescribeMutate.mockClear();
+    mockCloneExecuteMutate.mockClear();
     mockDescribeGlobalRefetch.mockClear();
     mockDescribeFieldsMutate.mockClear();
     mockExecuteSeedMutate.mockClear();
@@ -286,5 +312,40 @@ describe('SeedPage', () => {
     fireEvent.click(screen.getByTestId('mock-persona-select'));
     // After persona selection, should switch to ai-scratch mode (wizard)
     expect(screen.getByTestId('seed-wizard')).toBeDefined();
+  });
+
+  it('opens the clone wizard with the recommended source org selected when Home sends it here', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({
+      navigationIntent: { route: 'seed', seedMode: 'clone', sourceOrgId: 'org-2' },
+    });
+
+    render(<SeedPage />);
+
+    expect(screen.getByTestId('clone-wizard-container')).toBeDefined();
+    expect((screen.getByTestId('clone-source-select') as HTMLSelectElement).value).toBe('org-2');
+    expect(mockCloneDescribeMutate).toHaveBeenCalledWith({ sourceOrgId: 'org-2' });
+    // Nothing runs: the preview and the production guard still come first.
+    expect(mockCloneExecuteMutate).not.toHaveBeenCalled();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  it('opens the template gallery when Home recommends a quick seed', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({ navigationIntent: { route: 'seed', seedMode: 'quick-seed' } });
+
+    render(<SeedPage />);
+
+    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+    expect(screen.queryByTestId('clone-wizard-container')).toBeNull();
+    expect(screen.getByTestId('back-to-modes')).toBeDefined();
+  });
+
+  it('opens on the mode selector when it was reached without a recommendation', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+
+    render(<SeedPage />);
+
+    expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
   });
 });

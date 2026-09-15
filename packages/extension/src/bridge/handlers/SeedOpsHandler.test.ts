@@ -215,16 +215,11 @@ describe('SeedOpsHandler', () => {
   });
 
   describe('seed:execute dryRun', () => {
-    it('returns synthetic result when dryRun is true without performing inserts', async () => {
-      mockGetConn.mockResolvedValue({} as never);
-
-      const msg: InboundRequest & {
-        payload: {
-          orgId: string;
-          template: Record<string, unknown>;
-          dryRun: boolean;
-        };
-      } = inboundRequest({
+    it('refuses a dry run with an explicit error before touching the org', async () => {
+      // A dry run used to answer `{ dryRun: true, insertedCount: 0, results: [] }`
+      // before generating anything: it wrote nothing, but it previewed nothing
+      // either, and a caller reading that answer was told a preview had passed.
+      const msg = inboundRequest({
         id: 'req-dry-1',
         type: 'seed:execute',
         timestamp: Date.now(),
@@ -238,23 +233,18 @@ describe('SeedOpsHandler', () => {
       const result = await handler.handle(msg);
       expect(result).toBe(true);
 
-      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      expect(postToWebview).toHaveBeenCalledTimes(1);
-
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-        correlationId?: string;
-        payload: {
-          success: boolean;
-          dryRun: boolean;
-          insertedCount: number;
-          results: unknown[];
-        };
-      };
-      expect(response.type).toBe('seed:execute:response');
-      expect(response.correlationId).toBe('req-dry-1');
-      expect(response.payload.dryRun).toBe(true);
-      expect(response.payload.insertedCount).toBe(0);
-      expect(response.payload.results).toEqual([]);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      const posted = vi.mocked(deps.broker.postToWebview).mock.calls.map(
+        (c) =>
+          c[0] as BaseMessage & {
+            correlationId?: string;
+            payload?: { message?: string; code?: string };
+          },
+      );
+      expect(posted.map((m) => m.type)).toEqual(['seed:error']);
+      expect(posted[0].correlationId).toBe('req-dry-1');
+      expect(posted[0].payload?.code).toBe('DRY_RUN_UNSUPPORTED');
+      expect(posted[0].payload?.message).toMatch(/no dry run/i);
     });
 
     it('does not short-circuit when dryRun is false', async () => {
@@ -703,41 +693,51 @@ describe('SeedOpsHandler', () => {
       expect(seedOps.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('dry-run does NOT register in BackgroundOperationRegistry', async () => {
+    it('uses the request id as the operation id, so the page can stop the run it started', async () => {
+      // The id used to be a random UUID the page never saw: Stop sent
+      // execution:abort for whichever run had reported progress last.
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wv-seed-own-run',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate() },
+        }),
+      );
+
+      const started = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((c) => c[0] as BaseMessage & { payload?: { operationId?: string } })
+        .find((m) => m.type === 'operation:started');
+      expect(started?.payload?.operationId).toBe('wv-seed-own-run');
+      expect(registry.has('wv-seed-own-run')).toBe(true);
+      registry.dispose();
+    });
+
+    it('registers nothing for a refused dry run', async () => {
       const registry = new BackgroundOperationRegistry();
       handler.setRegistry(registry);
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: InboundRequest & {
-        payload: {
-          orgId: string;
-          template: Record<string, unknown>;
-          dryRun: boolean;
-        };
-      } = inboundRequest({
-        id: 'bg-seed-dry',
-        type: 'seed:execute',
-        timestamp: Date.now(),
-        payload: {
-          orgId: 'org-1',
-          template: validSeedTemplate(),
-          dryRun: true,
-        },
-      });
+      await handler.handle(
+        inboundRequest({
+          id: 'bg-seed-dry',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
+        }),
+      );
 
-      await handler.handle(msg);
-
-      // No operation should be registered for dry-run
-      const ops = registry.getActiveOperations();
-      expect(ops).toHaveLength(0);
-
-      // But a dry-run response should have been sent
-      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const dryRunMsgs = postToWebview.mock.calls
-        .map((c) => c[0] as BaseMessage & { payload?: { dryRun?: boolean } })
-        .filter((m) => m.type === 'seed:execute:response' && m.payload?.dryRun === true);
-      expect(dryRunMsgs).toHaveLength(1);
+      expect(registry.getActiveOperations()).toHaveLength(0);
+      const responses = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.filter((c) => (c[0] as BaseMessage).type === 'seed:execute:response');
+      expect(responses).toHaveLength(0);
     });
   });
 
@@ -1009,7 +1009,7 @@ describe('SeedOpsHandler', () => {
       tracker.dispose();
     });
 
-    it('does NOT register dry-run executions', async () => {
+    it('does NOT register a refused dry run', async () => {
       const tracker = new LiveOperationTracker();
       handler.setLiveOperationTracker(tracker);
 
@@ -1282,8 +1282,8 @@ describe('SeedOpsHandler', () => {
 
       await handler.handle(msg);
 
-      // The seed operationId is a random UUID (unlike sync, which reuses
-      // msg.id) — fish it out of the operation:started lifecycle message.
+      // The seed operationId is the request id, as for sync — read it from the
+      // operation:started lifecycle message all the same.
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const started = postToWebview.mock.calls
         .map((c) => c[0] as BaseMessage & { payload?: { operationId?: string } })

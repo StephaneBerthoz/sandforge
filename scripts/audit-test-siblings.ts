@@ -50,12 +50,6 @@ const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
     path: 'packages/extension/src/bridge/templates/anonymizationTemplates.ts',
     reason: 'constant table — one exported array literal, no branches to assert',
   },
-  {
-    path: 'packages/extension/src/composition/forgeComposition.ts',
-    reason:
-      'composition root — one function of dynamic imports and late setters, ' +
-      'asserted end-to-end by the Forge handler tests rather than in isolation',
-  },
 ];
 
 /** True for a test file — never a subject of this gate. */

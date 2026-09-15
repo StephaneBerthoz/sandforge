@@ -143,7 +143,7 @@ In-app, press `Ctrl+K` for the command palette and `G` + a letter to jump betwee
 
 | Setting                                    | Description                                                                                      | Default                      |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `sandforge.telemetry`                      | Enable anonymous usage telemetry                                                                 | `false`                      |
+| `sandforge.telemetry`                      | Record extension errors locally for diagnosis. Nothing is sent over the network.                 | `false`                      |
 | `sandforge.orgs.validateOnStartup`         | Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI             | `true`                       |
 | `sandforge.seed.defaultBatchSize`          | Default batch size for Seed data operations                                                      | `200`                        |
 | `sandforge.sync.defaultBatchSize`          | Default batch size for Sync data operations                                                      | `200`                        |

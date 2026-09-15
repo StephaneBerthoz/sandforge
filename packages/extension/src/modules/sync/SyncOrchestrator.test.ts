@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
-import type { SyncOrchestratorDeps } from './SyncOrchestrator';
+import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
+import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
 
 function createObjectConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
@@ -222,6 +223,82 @@ describe('SyncOrchestrator', () => {
       await orchestrator.execute(createConfig());
 
       expect(deps.dataSync.sync).toHaveBeenCalled();
+    });
+  });
+
+  describe('grappe activation', () => {
+    const twoObjects = (): SyncConfig =>
+      createConfig({
+        objects: [
+          createObjectConfig({ objectApiName: 'Account', insertOrder: 1 }),
+          createObjectConfig({ objectApiName: 'Contact', insertOrder: 2 }),
+        ],
+      });
+
+    function withGrappe(countPerObject: () => Promise<number>): SyncGrappeEvent[] {
+      const events: SyncGrappeEvent[] = [];
+      deps.grappeConfig = {
+        ...DEFAULT_GRAPPE_CONFIG,
+        enabled: true,
+        autoActivateThreshold: 10_000,
+      };
+      deps.onGrappeEvent = (event) => events.push(event);
+      deps.countSource = vi.fn(countPerObject);
+      orchestrator = new SyncOrchestrator(deps);
+      return events;
+    }
+
+    it('stays sequential and silent below autoActivateThreshold', async () => {
+      const events = withGrappe(async () => 50);
+
+      const result = await orchestrator.execute(twoObjects());
+
+      expect(deps.countSource).toHaveBeenCalledTimes(2);
+      expect(events).toEqual([]);
+      expect(deps.dataSync.sync).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe('success');
+    });
+
+    it('reports one partition per object at the threshold, under the run operationId', async () => {
+      const events = withGrappe(async () => 5_000);
+
+      const result = await orchestrator.execute(twoObjects());
+
+      expect(events.map((event) => event.type)).toEqual([
+        'grappe:started',
+        'grappe:partitionProgress',
+        'grappe:partitionProgress',
+        'grappe:completed',
+      ]);
+      expect(events[0].payload).toMatchObject({
+        operationId: result.operationId,
+        totalPartitions: 2,
+        totalRecords: 10_000,
+      });
+      expect(events[3].payload).toMatchObject({ operationId: result.operationId });
+    });
+
+    it('stays silent when the source counts cannot be read, and still writes', async () => {
+      const events = withGrappe(async () => {
+        throw new Error('INVALID_TYPE');
+      });
+
+      const result = await orchestrator.execute(twoObjects());
+
+      expect(events).toEqual([]);
+      expect(deps.dataSync.sync).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe('success');
+    });
+
+    it('counts nothing while grappe is off', async () => {
+      deps.countSource = vi.fn(async () => 1_000_000);
+      deps.onGrappeEvent = vi.fn();
+      orchestrator = new SyncOrchestrator(deps);
+
+      await orchestrator.execute(twoObjects());
+
+      expect(deps.countSource).not.toHaveBeenCalled();
+      expect(deps.onGrappeEvent).not.toHaveBeenCalled();
     });
   });
 });

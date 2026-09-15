@@ -65,10 +65,11 @@ export interface ForgeConfig {
    */
   ownerMappings?: Record<string, string>;
   /**
-   * Per-object SOQL WHERE filter appended to scoped queries.
+   * Per-object SOQL WHERE filter, wrapped in parens.
    * Example: `{ Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30" }`.
-   * Only applied in record-scoped mode. The fragment is wrapped in parens
-   * before being AND-joined to the scope clause.
+   * In record-scoped mode it is AND-joined to the scope clause; in the other
+   * modes it is the object's whole WHERE clause. SOQL mode fills it with the
+   * query's WHERE clause, under the object after FROM.
    */
   objectSoqlFilters?: Record<string, string>;
   /**

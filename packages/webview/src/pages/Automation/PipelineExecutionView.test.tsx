@@ -52,6 +52,11 @@ describe('PipelineExecutionView', () => {
     expect(screen.getByTestId('execution-progress')).toBeDefined();
   });
 
+  it('gives the run progress bar an accessible name', () => {
+    render(<PipelineExecutionView execution={execution} />);
+    expect(screen.getByRole('progressbar', { name: 'Progress' })).toBeDefined();
+  });
+
   it('should show step count and elapsed', () => {
     render(<PipelineExecutionView execution={execution} />);
     const stats = screen.getByTestId('execution-stats');

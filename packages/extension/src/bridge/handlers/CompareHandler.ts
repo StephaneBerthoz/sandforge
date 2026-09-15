@@ -11,13 +11,9 @@ import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHe
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 
-/**
- * Message types handled by CompareHandler.
- * `compare:execute` is the canonical type; `compare:start` is kept as a legacy alias.
- */
+/** Message types handled by CompareHandler. */
 const COMPARE_TYPES = new Set([
   'compare:execute',
-  'compare:start',
   'compare:permissions',
   'compare:snapshots',
   'compare:drift',
@@ -44,7 +40,6 @@ export class CompareHandler implements DomainHandler {
 
     switch (msg.type) {
       case 'compare:execute':
-      case 'compare:start':
         await this.handleCompareStart(msg);
         return true;
       case 'compare:permissions':

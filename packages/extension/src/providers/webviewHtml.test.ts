@@ -79,6 +79,28 @@ describe('buildWebviewHtml', () => {
     expect(build({ lang: 'en"><script>alert(1)</script>' })).not.toContain('alert(1)');
   });
 
+  it('announces the VS Code display language before the bundle script', () => {
+    const html = build({ editorLanguage: 'fr' });
+    expect(html).toContain('window.__SANDFORGE_EDITOR_LANGUAGE__="fr"');
+    const injectIdx = html.indexOf('__SANDFORGE_EDITOR_LANGUAGE__');
+    const bundleIdx = html.indexOf('src="vscode-webview://test/index.js"');
+    expect(bundleIdx).toBeGreaterThan(injectIdx);
+    // Region tags are passed as VS Code reports them; the webview matches them.
+    expect(build({ editorLanguage: 'pt-br' })).toContain(
+      'window.__SANDFORGE_EDITOR_LANGUAGE__="pt-br"',
+    );
+  });
+
+  it('announces no display language when the value is missing or not a language tag', () => {
+    expect(build()).not.toContain('__SANDFORGE_EDITOR_LANGUAGE__');
+    const hostile = build({ editorLanguage: 'fr";alert(1);"' });
+    expect(hostile).not.toContain('__SANDFORGE_EDITOR_LANGUAGE__');
+    expect(hostile).not.toContain('alert(1)');
+    expect(build({ editorLanguage: 'x'.repeat(40) })).not.toContain(
+      '__SANDFORGE_EDITOR_LANGUAGE__',
+    );
+  });
+
   it('renders title, stylesheet link and root container', () => {
     const html = build({ title: 'SandForge Sidebar', moduleId: 'sidepanel' });
     expect(html).toContain('<title>SandForge Sidebar</title>');

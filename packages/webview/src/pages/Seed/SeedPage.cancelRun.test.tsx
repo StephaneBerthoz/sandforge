@@ -45,6 +45,8 @@ vi.mock('./useQuickSeed', () => ({
 
 /** Wizard facade pinned on the Execute step with a run in flight. */
 let mockIsRunning = true;
+/** Id of the seed this page started (the seed:execute request id). */
+let mockOperationId: string | null = 'op-own';
 vi.mock('./useSeedWizardState', () => ({
   useSeedWizardState: () => ({
     currentStep: 2,
@@ -55,6 +57,7 @@ vi.mock('./useSeedWizardState', () => ({
     error: null,
     setError: vi.fn(),
     isRunning: mockIsRunning,
+    operationId: mockOperationId,
     executionResult: undefined,
     handleExecute: vi.fn(),
     objectProgress: [],
@@ -114,10 +117,12 @@ describe('SeedPage — cancelling a running seed', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
     mockIsRunning = true;
+    mockOperationId = 'op-own';
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
   });
 
-  it('offers no cancel control until a run reports an operation id', () => {
+  it('offers no cancel control until the run reports an operation id', () => {
+    mockOperationId = null;
     openWizard();
     expect(screen.getByTestId('seed-step-execute-content')).toBeDefined();
     expect(screen.queryByTestId('seed-wizard-cancel')).toBeNull();
@@ -125,14 +130,18 @@ describe('SeedPage — cancelling a running seed', () => {
 
   it('offers no cancel control when nothing is running', () => {
     mockIsRunning = false;
+    mockOperationId = null;
     openWizard();
-    emitProgress('op-123');
+    emitProgress('op-own');
     expect(screen.queryByTestId('seed-wizard-cancel')).toBeNull();
   });
 
-  it('sends execution:abort for the streamed operation id once confirmed', () => {
+  it('stops its own run when another run reported progress after it', () => {
+    // Every panel receives every operation:progress. Stop used to abort the
+    // run that reported last, which with two runs going was not this one.
     openWizard();
-    emitProgress('op-123');
+    emitProgress('op-own');
+    emitProgress('op-other');
 
     fireEvent.click(screen.getByTestId('seed-wizard-cancel'));
     fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Cancel' } });
@@ -143,12 +152,12 @@ describe('SeedPage — cancelling a running seed', () => {
       payload: { type: string; payload: { operationId: string } };
     };
     expect(envelope.payload.type).toBe('execution:abort');
-    expect(envelope.payload.payload.operationId).toBe('op-123');
+    expect(envelope.payload.payload.operationId).toBe('op-own');
   });
 
   it('sends nothing when the confirmation is dismissed', () => {
     openWizard();
-    emitProgress('op-123');
+    emitProgress('op-own');
 
     fireEvent.click(screen.getByTestId('seed-wizard-cancel'));
     expect(screen.getByTestId('danger-title')).toBeDefined();

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import i18n from '../../i18n';
 import { SettingsPage, defaultSettings } from './SettingsPage';
-import { stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
+import { dispatchLocaleResponse, stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
 
 /* The i18n module posts `i18n:locale` through this api for lazy locales. */
 const mockPostMessage = vi.fn();
@@ -30,7 +30,7 @@ const mockTelemetryRefetch = vi.fn();
 
 /** Mutable telemetry status state returned by the useBridgeQuery mock. */
 const mockTelemetryStatus: {
-  data: { enabled: boolean; eventCount: number; bufferSize: number } | null;
+  data: { enabled: boolean; eventCount: number } | null;
   error: string | null;
 } = { data: null, error: null };
 
@@ -214,6 +214,27 @@ describe('SettingsPage', () => {
     expect(onClearCache).toHaveBeenCalled();
   });
 
+  it('puts the select back and says so when a language fails to load', async () => {
+    // Answer every locale request with an error, as the extension does when
+    // the bundle cannot be read.
+    mockPostMessage.mockImplementation((message: unknown) => {
+      const request = (message as { payload?: { id?: unknown; type?: unknown } }).payload;
+      if (request?.type === 'i18n:locale' && typeof request.id === 'string') {
+        const id = request.id;
+        setTimeout(() => dispatchLocaleResponse(id, 'unshipped'), 0);
+      }
+    });
+    render(<SettingsPage />);
+    const select = screen.getByTestId('language-select') as HTMLSelectElement;
+
+    fireEvent.change(select, { target: { value: 'de' } });
+
+    // The select used to keep showing Deutsch over an English UI, silently.
+    await waitFor(() => expect(screen.getByTestId('language-error')).toBeDefined());
+    expect(i18n.language).toBe('en');
+    expect(select.value).toBe('en');
+  });
+
   it('should update language', async () => {
     const onSave = vi.fn();
     render(<SettingsPage onSave={onSave} />);
@@ -275,8 +296,19 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('telemetry-toggle-btn')).toBeDefined();
   });
 
+  it('describes the telemetry counter as local logging, with no buffer row', () => {
+    mockTelemetryStatus.data = { enabled: true, eventCount: 3 };
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Telemetry'));
+    const panel = screen.getByTestId('telemetry-settings').textContent ?? '';
+    // The adapter writes to a local log and has no transport: nothing is
+    // sent, and no buffer exists for the extension to measure (it sent 0).
+    expect(panel).not.toMatch(/sent|buffer/i);
+    expect(panel).toMatch(/recorded/i);
+  });
+
   it('should display the mocked telemetry status and real event count', () => {
-    mockTelemetryStatus.data = { enabled: true, eventCount: 42, bufferSize: 0 };
+    mockTelemetryStatus.data = { enabled: true, eventCount: 42 };
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Telemetry'));
     expect(screen.getByText('Enabled')).toBeDefined();
@@ -291,7 +323,7 @@ describe('SettingsPage', () => {
   });
 
   it('should dispatch enabled:false when telemetry is currently on', () => {
-    mockTelemetryStatus.data = { enabled: true, eventCount: 7, bufferSize: 0 };
+    mockTelemetryStatus.data = { enabled: true, eventCount: 7 };
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Telemetry'));
     fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));

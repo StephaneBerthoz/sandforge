@@ -28,7 +28,12 @@ interface Rule {
   build: (raw: string, captures: RegExpMatchArray) => TranslatedError;
 }
 
-const KEY = (code: string, leaf: 'explanation' | 'action'): string => `forge.error.${code}.${leaf}`;
+/**
+ * The explanation and action keys of one hint. Both are written out whole:
+ * ForgeResults resolves them through a variable, so a key assembled from a
+ * slug is one no source file names, and the i18n sweep reports it unused.
+ */
+type HintKeys = readonly [explanationKey: string, actionKey: string];
 
 const RULES: Rule[] = [
   {
@@ -38,30 +43,90 @@ const RULES: Rule[] = [
       const detail = m[2];
       switch (code) {
         case 'DUPLICATE_VALUE':
-          return mapping('duplicateValue', code, 'warning');
+          return mapping(
+            ['forge.error.duplicateValue.explanation', 'forge.error.duplicateValue.action'],
+            code,
+            'warning',
+          );
         case 'INVALID_CROSS_REFERENCE_KEY':
-          return mapping('invalidCrossReferenceKey', code, 'info');
+          return mapping(
+            [
+              'forge.error.invalidCrossReferenceKey.explanation',
+              'forge.error.invalidCrossReferenceKey.action',
+            ],
+            code,
+            'info',
+          );
         case 'REQUIRED_FIELD_MISSING':
-          return mapping('requiredFieldMissing', code, 'error', { detail });
+          return mapping(
+            [
+              'forge.error.requiredFieldMissing.explanation',
+              'forge.error.requiredFieldMissing.action',
+            ],
+            code,
+            'error',
+            { detail },
+          );
         case 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST':
-          return mapping('invalidPicklist', code, 'warning');
+          return mapping(
+            ['forge.error.invalidPicklist.explanation', 'forge.error.invalidPicklist.action'],
+            code,
+            'warning',
+          );
         case 'INVALID_FIELD_FOR_INSERT_UPDATE':
-          return mapping('invalidFieldForInsert', code, 'error');
+          return mapping(
+            [
+              'forge.error.invalidFieldForInsert.explanation',
+              'forge.error.invalidFieldForInsert.action',
+            ],
+            code,
+            'error',
+          );
         case 'FIELD_INTEGRITY_EXCEPTION':
-          return mapping('fieldIntegrity', code, 'error', { detail });
+          return mapping(
+            ['forge.error.fieldIntegrity.explanation', 'forge.error.fieldIntegrity.action'],
+            code,
+            'error',
+            { detail },
+          );
         case 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY':
-          return mapping('cannotInsertEntity', code, 'info');
+          return mapping(
+            ['forge.error.cannotInsertEntity.explanation', 'forge.error.cannotInsertEntity.action'],
+            code,
+            'info',
+          );
         case 'INSUFFICIENT_ACCESS_OR_READONLY':
         case 'INSUFFICIENT_ACCESS':
-          return mapping('insufficientAccess', code, 'error');
+          return mapping(
+            ['forge.error.insufficientAccess.explanation', 'forge.error.insufficientAccess.action'],
+            code,
+            'error',
+          );
         case 'STORAGE_LIMIT_EXCEEDED':
-          return mapping('storageLimit', code, 'error');
+          return mapping(
+            ['forge.error.storageLimit.explanation', 'forge.error.storageLimit.action'],
+            code,
+            'error',
+          );
         case 'INVALID_TYPE':
-          return mapping('invalidType', code, 'error');
+          return mapping(
+            ['forge.error.invalidType.explanation', 'forge.error.invalidType.action'],
+            code,
+            'error',
+          );
         case 'NOT_FOUND':
-          return mapping('notFound', code, 'warning');
+          return mapping(
+            ['forge.error.notFound.explanation', 'forge.error.notFound.action'],
+            code,
+            'warning',
+          );
         case 'STRING_TOO_LONG':
-          return mapping('stringTooLong', code, 'warning', { detail });
+          return mapping(
+            ['forge.error.stringTooLong.explanation', 'forge.error.stringTooLong.action'],
+            code,
+            'warning',
+            { detail },
+          );
         default:
           return {
             code,
@@ -105,15 +170,15 @@ const RULES: Rule[] = [
 ];
 
 function mapping(
-  slug: string,
+  [explanationKey, actionKey]: HintKeys,
   code: string,
   severity: 'info' | 'warning' | 'error',
   vars?: Record<string, string | number>,
 ): TranslatedError {
   return {
     code,
-    explanationKey: KEY(slug, 'explanation'),
-    actionKey: KEY(slug, 'action'),
+    explanationKey,
+    actionKey,
     vars,
     severity,
   };

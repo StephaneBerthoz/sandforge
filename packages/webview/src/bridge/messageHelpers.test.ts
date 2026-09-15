@@ -1,26 +1,34 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { buildMessage, resetMessageCounter } from './messageHelpers';
+import { describe, it, expect, vi } from 'vitest';
+import { buildMessage } from './messageHelpers';
+
+const RANDOM_ID = /^wv-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 describe('messageHelpers', () => {
-  beforeEach(() => {
-    resetMessageCounter();
-  });
-
   describe('buildMessage', () => {
-    it('should create a message with auto-generated id', () => {
+    it('should create a message with a random id', () => {
       const msg = buildMessage('org:list');
 
-      expect(msg.id).toMatch(/^wv-\d+-1$/);
+      expect(msg.id).toMatch(RANDOM_ID);
       expect(msg.type).toBe('org:list');
       expect(msg.timestamp).toBeGreaterThan(0);
     });
 
-    it('should increment the id counter', () => {
-      const msg1 = buildMessage('org:list');
-      const msg2 = buildMessage('settings:get');
+    it('gives two panels sending at the same instant different ids', async () => {
+      // The id used to be the time plus a module counter. Every panel loads its
+      // own copy of this module and every reply reaches every panel, so two
+      // panels sending their first message in the same millisecond minted the
+      // same id — and a sync whose id repeats is refused as a duplicate.
+      const spy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+      vi.resetModules();
+      const panelA = await import('./messageHelpers');
+      vi.resetModules();
+      const panelB = await import('./messageHelpers');
 
-      expect(msg1.id).toMatch(/^wv-\d+-1$/);
-      expect(msg2.id).toMatch(/^wv-\d+-2$/);
+      const a = panelA.buildMessage('sync:execute');
+      const b = panelB.buildMessage('sync:execute');
+      spy.mockRestore();
+
+      expect(a.id).not.toBe(b.id);
     });
 
     it('should attach payload when provided', () => {
@@ -34,15 +42,6 @@ describe('messageHelpers', () => {
       const msg = buildMessage('org:list');
 
       expect('payload' in msg).toBe(false);
-    });
-
-    it('should reset counter correctly', () => {
-      buildMessage('test');
-      buildMessage('test');
-      resetMessageCounter();
-      const msg = buildMessage('test');
-
-      expect(msg.id).toMatch(/^wv-\d+-1$/);
     });
   });
 });

@@ -1,4 +1,12 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import { translateForgeError } from './forgeErrorTranslator';
 
 describe('translateForgeError', () => {
@@ -85,5 +93,101 @@ describe('translateForgeError', () => {
 
   it('returns null when message has no recognizable format', () => {
     expect(translateForgeError('not a salesforce error')).toBeNull();
+  });
+});
+
+/*
+ * ForgeResults renders `t(explanationKey)` and `t(actionKey)` with no default,
+ * so a key missing from a locale shows up in the Errors panel as the raw
+ * `forge.error.…` path instead of a hint.
+ */
+describe('forge.error hint keys', () => {
+  const LOCALES: Record<string, unknown> = { en, fr, de, es, ja, 'pt-BR': ptBR };
+
+  /** One raw Salesforce or executor message per translator branch. */
+  const SAMPLES: readonly string[] = [
+    'DUPLICATE_VALUE: duplicate value found: ExternalId__c',
+    'INVALID_CROSS_REFERENCE_KEY: Owner ID: cannot be blank',
+    'REQUIRED_FIELD_MISSING: Required fields are missing: [AccountId]',
+    'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: X',
+    'INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name',
+    'FIELD_INTEGRITY_EXCEPTION: Every asset needs an account, a contact, or both.',
+    'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY: entity type cannot be inserted: Case History',
+    'INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id',
+    'INSUFFICIENT_ACCESS: insufficient access rights',
+    'STORAGE_LIMIT_EXCEEDED: storage limit exceeded',
+    'INVALID_TYPE: sObject type is not supported',
+    'NOT_FOUND: The requested resource does not exist',
+    'STRING_TOO_LONG: Name: data value too large',
+    'SOMETHING_NEW: details about the new error',
+    "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
+    "Cycle FK 'ParentId' could not be resolved",
+    'no parent in cache and not the root',
+  ];
+
+  /** Walk a dotted key through a locale object. */
+  const lookup = (bundle: unknown, key: string): unknown =>
+    key
+      .split('.')
+      .reduce<unknown>(
+        (node, part) =>
+          node !== null && typeof node === 'object'
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        bundle,
+      );
+
+  /** The `{{name}}` placeholders a value interpolates, sorted. */
+  const placeholders = (value: unknown): string[] =>
+    typeof value === 'string' ? [...value.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]) : [];
+
+  const translated = SAMPLES.map((raw) => {
+    const result = translateForgeError(raw);
+    if (!result) throw new Error(`no translation for sample: ${raw}`);
+    return result;
+  });
+  const keys = [...new Set(translated.flatMap((r) => [r.explanationKey, r.actionKey]))].sort();
+
+  it('samples every key the translator can produce', () => {
+    // Vitest runs from the package or from the repository root.
+    const path = ['src/pages/Forge', 'packages/webview/src/pages/Forge']
+      .map((dir) => resolve(process.cwd(), dir, 'forgeErrorTranslator.ts'))
+      .find((candidate) => existsSync(candidate));
+    if (!path) throw new Error('forgeErrorTranslator.ts not found from ' + process.cwd());
+    const written = new Set(
+      [
+        ...readFileSync(path, 'utf8').matchAll(/'(forge\.error\.\w+\.(?:explanation|action))'/g),
+      ].map((m) => m[1]),
+    );
+    expect(keys).toEqual([...written].sort());
+  });
+
+  for (const [locale, bundle] of Object.entries(LOCALES)) {
+    it(`resolves every generated key to text in ${locale}`, () => {
+      const missing = keys.filter((key) => {
+        const value = lookup(bundle, key);
+        return typeof value !== 'string' || value.trim() === '';
+      });
+      expect(missing).toEqual([]);
+    });
+  }
+
+  it('interpolates, in every locale, exactly the variables the translator passes', () => {
+    for (const result of translated) {
+      const expected = Object.keys(result.vars ?? {}).sort();
+      for (const [locale, bundle] of Object.entries(LOCALES)) {
+        const used = [
+          ...new Set([
+            ...placeholders(lookup(bundle, result.explanationKey)),
+            ...placeholders(lookup(bundle, result.actionKey)),
+          ]),
+        ].sort();
+        expect({ locale, key: result.explanationKey, used }).toEqual({
+          locale,
+          key: result.explanationKey,
+          used: expected,
+        });
+      }
+    }
   });
 });

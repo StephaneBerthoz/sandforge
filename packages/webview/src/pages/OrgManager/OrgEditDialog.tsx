@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SalesforceOrg, OrgSafetyTier } from '@sandforge/shared';
+import type { SalesforceOrg } from '@sandforge/shared';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 
-/** OrgEditPayload — fields that can be edited. */
+/**
+ * OrgEditPayload — fields that can be edited. The safety tier is not one of
+ * them: the production guard decides from the org type, so a tier picked here
+ * would change nothing it checks.
+ */
 export interface OrgEditPayload {
   alias: string;
-  safetyTier: OrgSafetyTier;
   color: string;
   tags: string[];
 }
@@ -26,13 +29,6 @@ export interface OrgEditDialogProps {
 export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose, onSave }) => {
   const { t } = useTranslation();
 
-  const tierOptions = [
-    { value: 'critical', label: t('org.tier_critical_desc') },
-    { value: 'high', label: t('org.tier_high_desc') },
-    { value: 'medium', label: t('org.tier_medium_desc') },
-    { value: 'low', label: t('org.tier_low_desc') },
-  ];
-
   const colorOptions = [
     { value: '#EF4444', label: t('org.color_red') },
     { value: '#F59E0B', label: t('org.color_amber') },
@@ -42,14 +38,12 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
     { value: '#F97316', label: t('org.color_orange') },
   ];
   const [alias, setAlias] = useState('');
-  const [safetyTier, setSafetyTier] = useState<OrgSafetyTier>('low' as OrgSafetyTier);
   const [color, setColor] = useState('#3B82F6');
   const [tagsStr, setTagsStr] = useState('');
 
   useEffect(() => {
     if (org) {
       setAlias(org.alias);
-      setSafetyTier(org.safetyTier);
       setColor(org.appearance.color);
       setTagsStr(org.tags.join(', '));
     }
@@ -61,8 +55,8 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    onSave(org.id, { alias: alias.trim(), safetyTier, color, tags });
-  }, [org, alias, safetyTier, color, tagsStr, onSave]);
+    onSave(org.id, { alias: alias.trim(), color, tags });
+  }, [org, alias, color, tagsStr, onSave]);
 
   return (
     <Dialog
@@ -91,12 +85,6 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
           <span className="text-xs text-[var(--sf-text-primary)]">{t('org.username')}:</span>
           <span className="text-xs text-[var(--sf-text-secondary)]">{org?.username}</span>
         </div>
-        <Select
-          label={t('org.safetyTier')}
-          options={tierOptions}
-          value={safetyTier}
-          onChange={(e) => setSafetyTier(e.target.value as OrgSafetyTier)}
-        />
         <Select
           label={t('org.color')}
           options={colorOptions}

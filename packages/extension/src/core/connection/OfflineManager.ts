@@ -60,6 +60,8 @@ export class OfflineManager {
   private status: ConnectivityStatus = 'online';
   private queue: QueuedOperation[] = [];
   private probeTimer: ReturnType<typeof setInterval> | undefined;
+  private probeIntervalMs: number = OfflineManager.PROBE_INTERVAL;
+  private probingEnabled = false;
   private drainTimer: ReturnType<typeof setTimeout> | undefined;
   private probeExecutor: (() => Promise<boolean>) | undefined;
   private operationExecutor: OperationExecutor | undefined;
@@ -88,20 +90,28 @@ export class OfflineManager {
     }
   }
 
-  /** Start periodic connectivity probing */
+  /**
+   * Enable periodic connectivity probing.
+   *
+   * The probe timer only runs while there is something to wait for: an
+   * operation in the queue, or a last known status other than online. An
+   * unconditional timer sent a request to Salesforce every 30 s from every
+   * open window, for a queue that is empty nearly all the time. Because the
+   * status is not refreshed while idle, an operation queued while it reads
+   * online triggers one immediate check before any replay (see
+   * {@link drainIfReachable}).
+   */
   startProbing(intervalMs: number = OfflineManager.PROBE_INTERVAL): void {
-    this.stopProbing();
-    this.probeTimer = setInterval(() => {
-      void this.checkConnectivity();
-    }, intervalMs);
+    this.clearProbeTimer();
+    this.probeIntervalMs = intervalMs;
+    this.probingEnabled = true;
+    this.syncProbeTimer();
   }
 
   /** Stop periodic connectivity probing */
   stopProbing(): void {
-    if (this.probeTimer) {
-      clearInterval(this.probeTimer);
-      this.probeTimer = undefined;
-    }
+    this.probingEnabled = false;
+    this.clearProbeTimer();
   }
 
   /** Manually check connectivity */
@@ -120,6 +130,7 @@ export class OfflineManager {
     }
 
     if (this.status !== previousStatus) {
+      this.syncProbeTimer();
       this.emit({ type: 'statusChanged', status: this.status, previousStatus });
 
       // Auto-drain queue when coming back online
@@ -147,6 +158,7 @@ export class OfflineManager {
     this.status = status;
 
     if (status !== previousStatus) {
+      this.syncProbeTimer();
       this.emit({ type: 'statusChanged', status, previousStatus });
 
       if (status === 'online' && previousStatus === 'offline') {
@@ -169,15 +181,16 @@ export class OfflineManager {
 
     this.queue.push(queued);
     this.persistQueue();
+    this.syncProbeTimer();
     this.emit({ type: 'operationQueued', operation: queued });
 
-    // An operation queued while the probe still reports 'online' (e.g. a
+    // An operation queued while the status still reads 'online' (e.g. a
     // manual sync whose org is unreachable) would otherwise sit parked until
     // the next offline→online transition that may never come. Failed replays
     // are NOT re-queued (see the `triggeredBy` guard in SyncOpsHandler), so
     // this drain cannot hot-loop.
     if (this.status === 'online') {
-      this.scheduleDrain();
+      this.drainIfReachable();
     }
     return true;
   }
@@ -196,6 +209,7 @@ export class OfflineManager {
   clearQueue(): void {
     this.queue = [];
     this.persistQueue();
+    this.syncProbeTimer();
   }
 
   /** Remove a specific operation from the queue */
@@ -206,6 +220,7 @@ export class OfflineManager {
     }
     this.queue.splice(index, 1);
     this.persistQueue();
+    this.syncProbeTimer();
     return true;
   }
 
@@ -255,6 +270,7 @@ export class OfflineManager {
       }
     } finally {
       this.draining = false;
+      this.syncProbeTimer();
     }
 
     this.emit({ type: 'queueDrained' });
@@ -323,8 +339,52 @@ export class OfflineManager {
     return true;
   }
 
+  /**
+   * Run the probe timer exactly while probing is enabled and there is
+   * something to wait for (see {@link startProbing}). Called after every
+   * change to the queue or the status.
+   */
+  private syncProbeTimer(): void {
+    const needed = this.probingEnabled && (this.queue.length > 0 || this.status !== 'online');
+    if (needed && !this.probeTimer) {
+      this.probeTimer = setInterval(() => {
+        void this.checkConnectivity();
+      }, this.probeIntervalMs);
+    } else if (!needed) {
+      this.clearProbeTimer();
+    }
+  }
+
+  private clearProbeTimer(): void {
+    if (this.probeTimer) {
+      clearInterval(this.probeTimer);
+      this.probeTimer = undefined;
+    }
+  }
+
   private persistQueue(): void {
     this.store.set('offline:queue', this.queue, OfflineManager.CATEGORY);
+  }
+
+  /**
+   * Drain after an enqueue that happened while the status reads 'online'.
+   * With the probe idle, that status can be stale: the network may have been
+   * down for minutes without anyone noticing. Replaying straight away would
+   * fail again, and a failed replay is dropped, not re-queued. So when a probe
+   * is available, check first: an offline answer flips the status, the probe
+   * timer keeps running for the queued operation, and the replay happens on
+   * the offline→online transition instead.
+   */
+  private drainIfReachable(): void {
+    if (!this.probingEnabled || !this.probeExecutor) {
+      this.scheduleDrain();
+      return;
+    }
+    void this.checkConnectivity().then((status) => {
+      if (status === 'online') {
+        this.scheduleDrain();
+      }
+    });
   }
 
   /**

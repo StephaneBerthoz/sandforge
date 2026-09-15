@@ -1,7 +1,12 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
-import type { NL2SOQLUnverifiedReason } from '@sandforge/shared';
+import type { z } from 'zod';
+import {
+  NL2SOQLReplySchema,
+  parseModelJson,
+  type NL2SOQLUnverifiedReason,
+} from '@sandforge/shared';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
@@ -100,6 +105,9 @@ export class NL2SOQL {
    * those leaves the check with nothing compared, and it comes back
    * `verified: false` too: the flag counts work done, not work available.
    *
+   * A subquery is not checked either, in the SELECT list or in WHERE: the
+   * query around it is. Its object and fields are left to the org.
+   *
    * @param soql - The SOQL query to validate
    * @param schema - The Salesforce schema context
    * @returns Validation result with any errors found
@@ -111,7 +119,13 @@ export class NL2SOQL {
       return { valid: false, errors: ['SOQL query is empty'], verified: true };
     }
 
-    const objectMatch = /FROM\s+(\w+)/i.exec(soql);
+    // A parent-child subquery sits in the SELECT list, before the outer FROM,
+    // so read as written its child relationship (`Contacts`) is taken for the
+    // queried object and a valid query is rejected. Each subquery becomes `()`
+    // first: the field check steps over bracketed items like any function.
+    const outer = maskSubqueries(soql);
+
+    const objectMatch = /FROM\s+(\w+)/i.exec(outer);
     if (!objectMatch) {
       errors.push('No FROM clause found in SOQL query');
       return { valid: false, errors, verified: true };
@@ -127,7 +141,7 @@ export class NL2SOQL {
       return { valid: false, errors, verified: true };
     }
 
-    const selectMatch = /SELECT\s+(.+?)\s+FROM/i.exec(soql);
+    const selectMatch = /SELECT\s+(.+?)\s+FROM/i.exec(outer);
     if (!selectMatch) {
       errors.push('No SELECT clause found in SOQL query');
       return { valid: false, errors, verified: true };
@@ -260,39 +274,84 @@ function buildPrompt(naturalLanguage: string, schema: SchemaContext): string {
  * Handles responses wrapped in markdown code blocks.
  */
 function parseAIResponse(response: string): NL2SOQLResult {
-  const trimmed = response.trim();
-  const jsonContent = extractJsonFromMarkdown(trimmed);
-  const parsed: unknown = JSON.parse(jsonContent);
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  let reply: z.output<typeof NL2SOQLReplySchema>;
+  try {
+    reply = parseModelJson(NL2SOQLReplySchema, response);
+  } catch {
     throw new Error(
       'AI response is not a valid JSON object. The AI model returned an unexpected format — try rephrasing your query or check the AI provider configuration.',
     );
   }
 
-  const obj = parsed as Record<string, unknown>;
-  const soql = typeof obj['soql'] === 'string' ? obj['soql'] : '';
-  const explanation = typeof obj['explanation'] === 'string' ? obj['explanation'] : '';
-  const confidence = typeof obj['confidence'] === 'number' ? obj['confidence'] : 0;
+  const result: NL2SOQLResult = {
+    soql: reply.soql,
+    explanation: reply.explanation,
+    confidence: reply.confidence,
+  };
 
-  const result: NL2SOQLResult = { soql, explanation, confidence };
-
-  if (confidence < 0.8 && Array.isArray(obj['alternatives'])) {
-    result.alternatives = (obj['alternatives'] as unknown[]).filter(
-      (a): a is string => typeof a === 'string',
-    );
+  if (reply.confidence < 0.8 && reply.alternatives) {
+    result.alternatives = reply.alternatives;
   }
 
   return result;
 }
 
 /**
- * Extract JSON content from a string that may be wrapped in markdown code blocks.
+ * `soql` with every parenthesised subquery replaced by `()`, a nested one
+ * going with the one around it. A bracket inside a string literal is text, not
+ * nesting; a subquery left unclosed runs to the end of the query.
  */
-function extractJsonFromMarkdown(text: string): string {
-  const codeBlockMatch = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/.exec(text);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
+function maskSubqueries(soql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < soql.length) {
+    if (soql[i] === "'") {
+      const end = endOfLiteral(soql, i);
+      out += soql.slice(i, end);
+      i = end;
+    } else if (soql[i] === '(' && /^\(\s*SELECT\b/i.test(soql.slice(i))) {
+      out += '()';
+      i = endOfGroup(soql, i);
+    } else {
+      out += soql[i];
+      i++;
+    }
   }
-  return text;
+  return out;
+}
+
+/** Index just past the string literal that opens at `start`; `\'` does not close it. */
+function endOfLiteral(soql: string, start: number): number {
+  let i = start + 1;
+  while (i < soql.length) {
+    if (soql[i] === '\\') {
+      i += 2;
+    } else if (soql[i] === "'") {
+      return i + 1;
+    } else {
+      i++;
+    }
+  }
+  return soql.length;
+}
+
+/** Index just past the bracket that closes the one at `start`. */
+function endOfGroup(soql: string, start: number): number {
+  let depth = 0;
+  let i = start;
+  while (i < soql.length) {
+    const ch = soql[i];
+    if (ch === "'") {
+      i = endOfLiteral(soql, i);
+      continue;
+    }
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+    i++;
+  }
+  return soql.length;
 }

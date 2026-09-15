@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -36,45 +37,8 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  /** Close on Escape key. */
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key === 'Tab' && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    /** Focus the close button on mount for keyboard accessibility. */
-    const closeBtn = dialogRef.current?.querySelector<HTMLElement>(
-      '[data-testid="close-diff-modal"]',
-    );
-    closeBtn?.focus();
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  /** Escape closes; Tab stays inside; the close button takes focus on open. */
+  useFocusTrap(dialogRef, onClose, { initialFocus: '[data-testid="close-diff-modal"]' });
 
   return (
     <div

@@ -10,9 +10,16 @@ import {
   type SyntheticRequestKind,
   type UncorrelatedReason,
 } from './HandlerTypes.js';
+import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
-import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import { ErrorResolver, type AIProvider } from '../../modules/ai/ErrorResolver.js';
+import { MessageBroker, type FixSuggestion } from '../MessageBroker.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { CrudFlsGuard, type DescribeFetchFn } from '../../core/metadata/CrudFlsGuard.js';
 import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import type { OrgRegistry } from '../../core/connection/OrgRegistry.js';
+import type { OrgManager } from '../../core/connection/OrgManager.js';
 
 /**
  * Creates a minimal mock of the handler deps required by sendHandlerError.
@@ -286,19 +293,25 @@ describe('sendNotification', () => {
 });
 
 /**
- * Curated resolution of a failed operation.
+ * The fix suggestion for a failed operation.
  *
  * `sendOperationFailed` is the only emitter of `operation:failed`, and the
- * broker fans that message out to every open panel. Resolving the failure on
- * the receiving side multiplies the work by the number of panels, and a panel
- * has no error code to look up with — it only sees the rendered message. Both
- * properties are checked here: the resolution happens once, and it reaches the
- * built-in knowledge base whenever the code is in the text.
+ * broker fans that message out to every open panel. The suggestion is decided
+ * once, here, and shown once by the host: a curated answer from the table of
+ * known Salesforce error codes whether AI is on or off, and a model answer
+ * only while AI is on, for a Salesforce message, with a SandForge view open.
  */
-describe('sendOperationFailed — curated error resolution', () => {
-  /** Deps carrying a real ErrorResolver whose model provider is a spy. */
-  function createResolvingDeps() {
-    const provider = vi.fn(() =>
+describe('sendOperationFailed — fix suggestion', () => {
+  /** A broker with real panel bookkeeping, `panels` mock views and a spied host notifier. */
+  function createResolvingDeps({ panels = 1, ai = true }: { panels?: number; ai?: boolean } = {}) {
+    const showFixSuggestion = vi.fn<(suggestion: FixSuggestion) => void>();
+    const broker = new MessageBroker({ showFixSuggestion });
+    const webviews = Array.from({ length: panels }, () => {
+      const panel = { webview: { onDidReceiveMessage: vi.fn(), postMessage: vi.fn() } };
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel, { inbound: false });
+      return panel.webview;
+    });
+    const provider = vi.fn<AIProvider>(() =>
       Promise.resolve(
         JSON.stringify({
           explanation: 'model answer',
@@ -307,17 +320,22 @@ describe('sendOperationFailed — curated error resolution', () => {
         }),
       ),
     );
-    return { ...createMockDeps(), errorResolver: new ErrorResolver(provider), provider };
+    let idCounter = 0;
+    return {
+      log: vi.fn(),
+      broker,
+      nextId: () => String(++idCounter),
+      ...(ai ? { errorResolver: new ErrorResolver(provider) } : {}),
+      provider,
+      showFixSuggestion,
+      webviews,
+    };
   }
 
-  /** The `ai:resolve-error:response` messages posted to the webview. */
-  function resolutions(deps: ReturnType<typeof createResolvingDeps>) {
-    return deps.broker.postToWebview.mock.calls
-      .map((c) => c[0] as BaseMessage & { payload: { resolution?: { explanation: string } } })
-      .filter((m) => m.type === 'ai:resolve-error:response');
-  }
+  /** Let every pending resolution settle. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('answers a known error code from the knowledge base, without calling the model', async () => {
+  it('answers a known error code from the table, without calling the model', () => {
     const deps = createResolvingDeps();
 
     sendOperationFailed(
@@ -326,42 +344,176 @@ describe('sendOperationFailed — curated error resolution', () => {
       'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record',
       true,
     );
-    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
 
     expect(deps.provider).not.toHaveBeenCalled();
-    expect(resolutions(deps)[0].payload.resolution?.explanation).toContain(
-      'Another transaction is currently locking the record(s)',
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith({
+      source: 'knowledge-base',
+      text: 'Wait a moment and retry. Row locks are usually transient.',
+    });
+  });
+
+  it('answers a known error code with AI off', () => {
+    // The table is on disk and needs no key: gating it behind one left every
+    // user without an Anthropic key with no hint at all.
+    const deps = createResolvingDeps({ ai: false });
+
+    sendOperationFailed(
+      deps,
+      'op-1',
+      'REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
+      true,
+    );
+
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith({
+      source: 'knowledge-base',
+      text: 'API limits reset on a rolling 24-hour basis. Wait before retrying.',
+    });
+  });
+
+  it('finds a known code in a later segment of an aggregated message', () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(
+      deps,
+      'op-1',
+      'SOMETHING_EXOTIC: odd | DUPLICATE_VALUE: duplicate value found (+1 more)',
+      false,
+    );
+
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'knowledge-base' }),
     );
   });
 
-  it('resolves a failure once, whatever the number of open panels', async () => {
-    const deps = createResolvingDeps();
+  it('shows the suggestion once, with two panels open', async () => {
+    const deps = createResolvingDeps({ panels: 2 });
 
     sendOperationFailed(deps, 'op-2', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', false);
-    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
+    await vi.waitFor(() => expect(deps.showFixSuggestion).toHaveBeenCalled());
+    await settle();
 
-    // One call for the whole failure. Fanning the answer out to N panels is
-    // the broker's job and costs nothing extra.
+    // The lifecycle message reaches both panels; the suggestion is one model
+    // call and one notification for the whole failure.
+    for (const webview of deps.webviews) {
+      expect(webview.postMessage).toHaveBeenCalledTimes(1);
+      expect(webview.postMessage.mock.calls[0][0]).toMatchObject({ type: 'operation:failed' });
+    }
     expect(deps.provider).toHaveBeenCalledTimes(1);
+    expect(deps.showFixSuggestion).toHaveBeenCalledTimes(1);
+    expect(deps.showFixSuggestion).toHaveBeenCalledWith({ source: 'model', text: 'model fix' });
   });
 
-  it('still asks the model when the message carries no known code', async () => {
+  it('sends the model no context line it does not know', async () => {
     const deps = createResolvingDeps();
 
     sendOperationFailed(deps, 'op-3', 'Network request failed after 3 attempts', true);
-    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
+    await vi.waitFor(() => expect(deps.provider).toHaveBeenCalledTimes(1));
 
-    expect(deps.provider).toHaveBeenCalledTimes(1);
-    expect(resolutions(deps)[0].payload.resolution?.explanation).toBe('model answer');
+    const [prompt] = deps.provider.mock.calls[0];
+    expect(prompt).toContain('Error code: UNKNOWN');
+    expect(prompt).not.toContain('Module:');
+    expect(prompt).not.toContain('Operation:');
   });
 
-  it('stays silent when the AI stack is not wired', async () => {
-    const deps = createMockDeps();
+  it('never sends a message SandForge wrote itself to the model', async () => {
+    const deps = createResolvingDeps();
+    const productionBlock = new ProductionGuard().check({
+      orgId: '00D000000000001AAA',
+      orgTier: 'production',
+      operation: 'delete',
+      objectName: 'Account',
+      recordCount: 1,
+      module: 'dataops',
+    });
+    const noDescribe = await new CrudFlsGuard(() => Promise.resolve(undefined)).checkCrudPermission(
+      'Account',
+      'upsert',
+    );
+    const noUpsert = await new CrudFlsGuard(() =>
+      Promise.resolve({ createable: false, updateable: false, fields: [] } as unknown as Awaited<
+        ReturnType<DescribeFetchFn>
+      >),
+    ).checkCrudPermission('Account', 'upsert');
+    const connectionFailure = async (org: unknown, credentials: unknown): Promise<string> => {
+      const orgManager = { getOrg: () => org } as unknown as OrgManager;
+      const orgRegistry = {
+        getCredentials: () => Promise.resolve(credentials),
+      } as unknown as OrgRegistry;
+      return getJsforceConnection('00D000000000001AAA', orgRegistry, orgManager).then(
+        () => '',
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+    };
+    const orgNotFound = await connectionFailure(undefined, undefined);
+    const noCredentials = await connectionFailure({ alias: 'dev', metadata: {} }, undefined);
+    const selfAuthored = [
+      orgNotFound,
+      noCredentials,
+      'Invalid username format: "not a username"',
+      'Operation cancelled by user (production confirmation declined).',
+      'Duplicate operation: req-9',
+      'A backup or rollback operation is already running for org 00D000000000001AAA. Please wait for it to complete.',
+      noDescribe.reason,
+      noUpsert.reason,
+      "FLS violation on 'Account': fields [Secret__c] are not updateable.",
+      'No backup found for operation req-3. Cannot rollback.',
+      'Backup req-3 was taken from org 00D000000000001AAA and cannot be restored into org 00D000000000002AAA.',
+      `Operation blocked by Production Guard: ${productionBlock.blockedReason ?? ''}`,
+      'Pipeline failed',
+    ];
+    // The samples are the producers' own text, not a paraphrase of it.
+    expect(noDescribe.reason).toMatch(/^Object describe not available for 'Account'/);
+    expect(noUpsert.reason).toBe("User lacks 'upsert' permission on 'Account'.");
+    expect(productionBlock.blockedReason).toContain('00D000000000001AAA');
+    expect(orgNotFound).toBe('Org not found: 00D000000000001AAA');
+    expect(noCredentials).toBe(
+      'No credentials for org "dev" (00D000000000001AAA). Reconnect the org.',
+    );
 
-    sendOperationFailed(deps, 'op-4', 'UNABLE_TO_LOCK_ROW: locked', true);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const message of selfAuthored) {
+      sendOperationFailed(deps, 'op-self', message, false);
+    }
+    await settle();
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
 
-    const posted = deps.broker.postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
-    expect(posted).toEqual(['operation:failed']);
+    // Positive control: a Salesforce message on the same deps still reaches it.
+    sendOperationFailed(deps, 'op-sf', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', false);
+    await vi.waitFor(() => expect(deps.provider).toHaveBeenCalledTimes(1));
+  });
+
+  it('asks nothing and shows nothing when no SandForge view is open', async () => {
+    // A scheduled sync fails with every panel closed: nobody sees the failure,
+    // so a model call about it is paid for and thrown away.
+    const deps = createResolvingDeps({ panels: 0 });
+
+    sendOperationFailed(deps, 'op-5', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true);
+    sendOperationFailed(deps, 'op-6', 'UNABLE_TO_LOCK_ROW: locked', true);
+    await settle();
+
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+  });
+
+  it('stays silent about an unknown code when the AI stack is not wired', async () => {
+    const deps = createResolvingDeps({ ai: false });
+
+    sendOperationFailed(deps, 'op-4', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true);
+    await settle();
+
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+  });
+
+  it('logs a model call that fails, and shows nothing', async () => {
+    const deps = createResolvingDeps();
+    deps.provider.mockRejectedValueOnce(new Error('AI offline'));
+
+    sendOperationFailed(deps, 'op-7', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true);
+    await vi.waitFor(() =>
+      expect(deps.log).toHaveBeenCalledWith('[ERR] operation:failed resolution: AI offline'),
+    );
+
+    expect(deps.showFixSuggestion).not.toHaveBeenCalled();
   });
 });

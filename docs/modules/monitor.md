@@ -47,6 +47,10 @@ Seed and Sync runs cannot be paused, so the panel offers no pause or resume.
 The list is read when the dashboard opens, again on each dashboard refresh and
 after a Cancel. Between readings it shows each run as it last was, not live.
 
+Background operations do not survive a reload. The extension keeps the list in
+memory only, so after a window reload or an extension host restart the panel
+no longer shows a run that was in progress and cannot cancel it.
+
 ### Storage Breakdown
 
 Record counts per object, not megabytes:

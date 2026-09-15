@@ -46,7 +46,7 @@ Clone records from one Salesforce org to another with a 4-step wizard:
 - **Step 1 -- Source Org:** Select the source org (all connected orgs except the current target). A visual indicator shows the source-to-target direction.
 - **Step 2 -- Select Objects:** Browse objects from the source org with a searchable list. Check objects to clone and optionally add a SOQL WHERE clause per object to filter records (e.g., `Industry = 'Technology'`).
 - **Step 3 -- Preview:** View the insertion order (topological sort of dependencies), record counts per object, and sample records. A warning appears for clones exceeding 10,000 records.
-- **Step 4 -- Execute:** Records are fetched from the source org (cursor-based pagination, 2000/batch), relationships are remapped, and records are inserted in dependency order. Per-object progress is shown during execution. Results include an ID mapping table (source ID to target ID) with CSV export.
+- **Step 4 -- Execute:** Records are fetched from the source org (cursor-based pagination, 2000/batch), relationships are remapped, and records are inserted in dependency order. Per-object progress is shown during execution. Results include an ID mapping table (source ID to target ID) with CSV export. A clone that fails, including one the production guard blocks or whose confirmation you decline, shows its error as soon as the extension reports it.
 
 **Self-referential objects** (e.g., Account.ParentId) are handled with a two-pass insert: first pass inserts records without self-references, second pass updates self-referential fields with remapped IDs.
 
@@ -54,15 +54,25 @@ Clone records from one Salesforce org to another with a 4-step wizard:
 
 ### Forge (Graph-Based Discovery)
 
-The Forge page provides a richer workflow with four input modes:
+The Forge page provides a richer workflow with three input modes, and a fourth shown as coming soon:
 
 - **Record** -- Paste a Record ID or Salesforce URL, preview the record live, then discover its full dependency graph
-- **SOQL** -- Write a SOQL query to define the seed scope
-- **Template** -- Select a saved template for repeatable operations
-- **AI** _(not available)_ -- The tab accepts a prompt, but nothing turns it into
-  a seed plan. Discovery resolves a root object from a record ID or a SOQL query
-  only; any other mode stops with `Cannot resolve root object`. Use **Record** or
-  **SOQL** instead.
+- **SOQL** -- Write a query to pick the root object. Its WHERE clause filters the
+  object after FROM, and discovery counts the rows it matches. Only that object is
+  filtered: related objects in the graph are not narrowed to the matching rows, and
+  each one is read from its whole table. Every object is capped at 200 records or
+  fewer per run. ORDER BY, LIMIT and the other clauses after WHERE are not applied.
+  A WHERE clause longer than 512 characters, containing `--`, `/*` or `*/` (even
+  inside a quoted value), or ending with a semicolon cannot be sent: the page says
+  so under the query and Discover stays disabled until it is rewritten.
+- **Template** -- Select a saved template for repeatable operations. A template
+  saved from a SOQL query runs as that query, on Discover and on Reuse last graph
+  alike: its WHERE clause filters the object after FROM, every object is capped at
+  200 records or fewer, and a clause that cannot be sent keeps Discover disabled and
+  Reuse last graph hidden.
+- **AI** _(coming soon)_ -- The tab is shown but cannot be opened: nothing turns a
+  prompt into a seed plan yet. A past AI run reopened from the history opens on
+  **Record**.
 
 After input, the Discovery phase renders an interactive dependency graph in a split view. Click any node to inspect fields, toggle inclusion, and configure anonymization per field.
 

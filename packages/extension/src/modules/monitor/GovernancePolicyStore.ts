@@ -11,7 +11,7 @@ const POLICY_CATEGORY = 'governance';
 /**
  * Persists governance policies to the ConfigStore.
  *
- * Provides CRUD operations, default templates, and export/import.
+ * Provides CRUD operations and default templates.
  */
 export class GovernancePolicyStore {
   /** @param configStore - The configuration store backend. */
@@ -69,39 +69,6 @@ export class GovernancePolicyStore {
    */
   delete(policyId: string): boolean {
     return this.configStore.delete(`${POLICY_PREFIX}${policyId}`);
-  }
-
-  /**
-   * Export all policies as a JSON string.
-   *
-   * @returns Serialized policies array.
-   */
-  exportPolicies(): string {
-    return JSON.stringify(this.getAll());
-  }
-
-  /**
-   * Import policies from a JSON string, replacing existing ones with same ID.
-   *
-   * @param json - JSON string containing an array of policies.
-   * @returns Number of policies imported.
-   * @throws If the JSON is invalid or policies fail validation.
-   */
-  importPolicies(json: string): number {
-    const raw: unknown = JSON.parse(json);
-    if (!Array.isArray(raw)) {
-      throw new Error('Expected an array of policies');
-    }
-
-    let count = 0;
-    for (const item of raw) {
-      const parsed = GovernancePolicySchema.safeParse(item);
-      if (parsed.success) {
-        this.save(parsed.data);
-        count++;
-      }
-    }
-    return count;
   }
 
   /**

@@ -1,11 +1,17 @@
 /**
- * AutopilotGrappeAdapter — Adapts autopilot execution for Grappe parallel processing.
- * Splits large objects into partitions when record count exceeds a configurable threshold.
+ * AutopilotGrappeAdapter — Splits an object's records into OFFSET/LIMIT
+ * partitions.
+ *
+ * Nothing on the autopilot path calls {@link AutopilotGrappeAdapter.partition}:
+ * `AutopilotOrchestrator.executePlan` runs the plan unchanged and only brackets
+ * it with `grappe:started` and `grappe:completed`. The partitioning here is
+ * kept for the day a run walks its partitions, one after another, and reports
+ * each one.
  */
 
 import type { ApiName } from '@sandforge/shared';
 
-/** A partition of autopilot work for parallel processing. */
+/** A partition of autopilot work. */
 export interface AutopilotPartition {
   /** Unique identifier for this partition. */
   readonly id: string;
@@ -19,10 +25,7 @@ export interface AutopilotPartition {
   readonly recordCount: number;
 }
 
-/**
- * Adapts autopilot execution for Grappe parallel processing.
- * Splits large objects into partitions when record count exceeds threshold.
- */
+/** Splits large objects into partitions when the record count exceeds a threshold. */
 export class AutopilotGrappeAdapter {
   private readonly threshold: number;
   private readonly partitionSize: number;
@@ -46,7 +49,7 @@ export class AutopilotGrappeAdapter {
   }
 
   /**
-   * Partition an object into chunks for parallel processing.
+   * Partition an object into consecutive chunks.
    * @param objectApiName - The Salesforce object API name.
    * @param recordCount - Total number of records for the object.
    * @returns Array of partitions covering all records with no gaps or overlaps.

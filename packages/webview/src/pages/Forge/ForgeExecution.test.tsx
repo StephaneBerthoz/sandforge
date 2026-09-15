@@ -121,6 +121,8 @@ const makeMockGraph = () => ({
 });
 
 let mockGraph = makeMockGraph();
+/** Id of the forge:execute request that started the run on screen. */
+let mockExecutionRequestId: string | null = null;
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -128,6 +130,9 @@ vi.mock('../../stores/useForgeStore', () => {
       selector({
         get graph() {
           return mockGraph;
+        },
+        get executionRequestId() {
+          return mockExecutionRequestId;
         },
         updateNodeStatus: mockUpdateNodeStatus,
         setPhase: mockSetPhase,
@@ -175,6 +180,7 @@ describe('ForgeExecution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
+    mockExecutionRequestId = null;
     mockStoreLogs.length = 0;
   });
 
@@ -392,5 +398,51 @@ describe('ForgeExecution', () => {
     });
     // Verify the store's addLog was called
     expect(mockAddLog).toHaveBeenCalled();
+  });
+
+  describe('messages answering another run', () => {
+    /** Deliver a forge message correlated to `correlationId`. */
+    function deliver(type: string, correlationId: string, payload: Record<string, unknown>): void {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { id: 'host-forge', type, timestamp: Date.now(), correlationId, payload },
+          }),
+        );
+      });
+    }
+
+    beforeEach(() => {
+      mockExecutionRequestId = 'wv-forge-own';
+    });
+
+    it('does not mark its run aborted on an error answering another request', () => {
+      // Every panel receives every forge:execute:error; one from another
+      // panel's run used to end this one.
+      render(<ForgeExecution />);
+
+      deliver('forge:execute:error', 'wv-forge-other', { message: 'Other run failed' });
+
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
+    });
+
+    it('ignores progress and a result belonging to another run', () => {
+      render(<ForgeExecution />);
+
+      deliver('forge:progress', 'wv-forge-other', { objectName: 'Opportunity', status: 'done' });
+      deliver('forge:execute:response', 'wv-forge-other', {});
+
+      expect(mockUpdateNodeStatus).not.toHaveBeenCalled();
+      expect(mockSetPhase).not.toHaveBeenCalledWith('results');
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
+    });
+
+    it('still ends its run on an error answering its own request', () => {
+      render(<ForgeExecution />);
+
+      deliver('forge:execute:error', 'wv-forge-own', { message: 'Insert failed' });
+
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
+    });
   });
 });

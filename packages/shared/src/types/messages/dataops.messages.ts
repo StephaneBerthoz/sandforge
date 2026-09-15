@@ -67,28 +67,6 @@ export interface AnonymizationTemplatesResponse extends BaseMessage {
   };
 }
 
-// ─── Data Masking Template Messages ──────────────────────────────────────────
-
-/** Request to get masking templates for a specific object. */
-export interface MaskingTemplatesByObjectRequest extends BaseMessage {
-  type: 'dataops:masking-templates-by-object';
-  payload: { objectName: string };
-}
-
-/** Response containing masking templates for a specific object. */
-export interface MaskingTemplatesByObjectResponse extends BaseMessage {
-  type: 'dataops:masking-templates-by-object:response';
-  payload: {
-    objectName: string;
-    templates: Array<{
-      fieldApiName: string;
-      ruleType: string;
-      description: string;
-      recommended: boolean;
-    }>;
-  };
-}
-
 /** PII detection pre-check */
 export interface PIIScanRequest extends BaseMessage {
   type: 'precheck:pii-scan';
@@ -109,12 +87,6 @@ export interface PIIScanResponse extends BaseMessage {
 }
 
 // ─── DataOps operation messages ──────────────────────────────────────────────
-
-/** Request to back up selected objects from an org (validated by dataOpsBackupPayloadSchema). */
-export interface DataOpsBackupRequest extends BaseMessage {
-  type: 'dataops:backup';
-  payload: { orgId: string; objects: string[] };
-}
 
 /** Request to roll back a previous data operation (validated by dataOpsRollbackPayloadSchema). */
 export interface DataOpsRollbackRequest extends BaseMessage {
@@ -180,12 +152,6 @@ export interface GovernancePoliciesListResult extends BaseMessage {
   payload: { policies: GovernancePolicySummary[] };
 }
 
-/** Request to get a single governance policy by ID. */
-export interface GovernancePolicyGetRequest extends BaseMessage {
-  type: 'governance:policy:get';
-  payload: { policyId: string };
-}
-
 /**
  * Request to save (create or update) a governance policy. The policy object is
  * validated server-side by `GovernancePolicySchema` (extension GovernanceEngine
@@ -202,17 +168,6 @@ export interface GovernancePolicyDeleteRequest extends BaseMessage {
   payload: { policyId: string };
 }
 
-/** Request to export all governance policies as a JSON string. */
-export interface GovernancePoliciesExportRequest extends BaseMessage {
-  type: 'governance:policies:export';
-}
-
-/** Request to import governance policies from a JSON string. */
-export interface GovernancePoliciesImportRequest extends BaseMessage {
-  type: 'governance:policies:import';
-  payload: { json: string };
-}
-
 /** Request to evaluate a governance policy against live org limits. */
 export interface GovernanceEvaluateRequest extends BaseMessage {
   type: 'governance:evaluate';
@@ -222,17 +177,6 @@ export interface GovernanceEvaluateRequest extends BaseMessage {
 /** Request to list the default governance policy templates. */
 export interface GovernanceTemplatesRequest extends BaseMessage {
   type: 'governance:templates';
-}
-
-/**
- * Result of `governance:policy:get` (`:result` channel, same convention as
- * `governance:policies:result`). The policy object is the extension-side
- * GovernancePolicy (validated by GovernancePolicySchema); no shared TS mirror
- * of that schema exists yet — see {@link GovernancePolicySaveRequest}.
- */
-export interface GovernancePolicyResult extends BaseMessage {
-  type: 'governance:policy:result';
-  payload: { policy: Record<string, unknown> | null };
 }
 
 /**
@@ -250,28 +194,6 @@ export interface GovernancePolicySaveResponse extends BaseMessage {
 export interface GovernancePolicyDeleteResponse extends BaseMessage {
   type: 'governance:policy:delete:response';
   payload: { success: boolean };
-}
-
-/** Response containing all governance policies as a JSON string. */
-export interface GovernancePoliciesExportResponse extends BaseMessage {
-  type: 'governance:policies:export:response';
-  payload: { json: string };
-}
-
-/**
- * Response for `governance:policies:import`. Dual-use channel (same convention
- * as {@link GovernancePolicySaveResponse}): success via buildResponse,
- * failure via sendHandlerError on the same channel.
- */
-export interface GovernancePoliciesImportResponse extends BaseMessage {
-  type: 'governance:policies:import:response';
-  payload: {
-    success?: boolean;
-    count?: number;
-    message?: string;
-    code?: string;
-    retryable?: boolean;
-  };
 }
 
 /**

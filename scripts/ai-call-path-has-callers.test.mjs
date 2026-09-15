@@ -356,7 +356,8 @@ test('every AIAssistant method that reaches the provider has a caller', () => {
 
 test('every shared AI schema export is named by shipped code or derives a type', () => {
   const files = readdirSync(SHARED_AI_SCHEMAS)
-    .filter((name) => name.endsWith('.ts') && name !== 'index.ts')
+    // A schema's test sits next to it and ships nothing.
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts') && name !== 'index.ts')
     .map((name) => toTsPath(join(SHARED_AI_SCHEMAS, name)));
   assert.ok(files.length > 0, 'no shared AI schema module found — this gate reads nothing');
 

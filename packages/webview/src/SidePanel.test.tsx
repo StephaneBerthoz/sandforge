@@ -326,6 +326,13 @@ describe('SidePanel', () => {
     expect(starBtn.className).not.toContain('opacity-0');
   });
 
+  it('draws an unstarred favorite star without dimming it below the muted text color', () => {
+    render(<SidePanel />);
+    const starBtn = screen.getByTestId('sidepanel-star-monitor');
+    expect(starBtn.className).toContain('text-text-muted');
+    expect(starBtn.className).not.toMatch(/(^|\s)opacity-(0|[1-9]0)(\s|$)/);
+  });
+
   // No version badge in header
   it('does not render version badge in branding header', () => {
     render(<SidePanel />);

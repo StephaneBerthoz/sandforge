@@ -6,6 +6,19 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import i18n from '../../i18n';
 import { defaultSettings } from './SettingsPage';
 import type { SettingsValues } from './SettingsPage';
+import type { BaseMessage } from '@sandforge/shared';
+
+/** Captures what the real bridge hooks post, when a test delegates to them. */
+const vscode = vi.hoisted(() => ({ postMessage: vi.fn() }));
+
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (message: unknown) => vscode.postMessage(message),
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api };
+});
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: vi.fn(() => ({
@@ -173,6 +186,60 @@ describe('useSettingsPageData', () => {
         restoreBridgeMocks();
       }
     });
+  });
+
+  it('waits for the reply to its own AI status check when an unprompted status update lands first', async () => {
+    // The extension pushes ai:status:response whenever the AI wiring changes.
+    // Taken as the answer, that push closed the check and the real reply was
+    // dropped.
+    const actual = await vi.importActual<{ useBridgeQuery: typeof useBridgeQuery }>(
+      '../../hooks/useBridgeQuery',
+    );
+    const mockedQuery = vi.mocked(useBridgeQuery);
+    const previous = mockedQuery.getMockImplementation();
+    mockedQuery.mockImplementation(actual.useBridgeQuery);
+    vscode.postMessage.mockClear();
+    const deliver = (payload: unknown, correlationId?: string): void => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: `ext-${Math.random()}`,
+            type: 'ai:status:response',
+            timestamp: Date.now(),
+            ...(correlationId ? { correlationId } : {}),
+            payload,
+          },
+        }),
+      );
+    };
+    try {
+      const { result } = renderHook(() => useSettingsPageData());
+      const statusRequest = vscode.postMessage.mock.calls
+        .map((call) => (call[0] as { payload: BaseMessage }).payload)
+        .find((message) => message.type === 'ai:status');
+      expect(statusRequest).toBeDefined();
+      expect(result.current.aiStatusLoading).toBe(true);
+
+      act(() => {
+        deliver({ enabled: false, provider: '', model: '' });
+      });
+
+      expect(result.current.aiStatusLoading).toBe(true);
+      expect(result.current.aiStatus).toBeUndefined();
+
+      act(() => {
+        deliver({ enabled: true, provider: 'anthropic', model: 'model-a' }, statusRequest?.id);
+      });
+
+      expect(result.current.aiStatusLoading).toBe(false);
+      expect(result.current.aiStatus).toEqual({
+        enabled: true,
+        provider: 'anthropic',
+        model: 'model-a',
+      });
+    } finally {
+      if (previous) mockedQuery.mockImplementation(previous);
+    }
   });
 
   it('should persist the LIVE i18n language on save, not the local snapshot', async () => {

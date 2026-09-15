@@ -11,6 +11,16 @@ describe('ProgressBar', () => {
     expect(bar.getAttribute('aria-valuemax')).toBe('100');
   });
 
+  it('names the progressbar after its visible label', () => {
+    render(<ProgressBar value={50} label="Uploading" />);
+    expect(screen.getByRole('progressbar', { name: 'Uploading' })).toBeDefined();
+  });
+
+  it('names the progressbar from ariaLabel when it has no visible label', () => {
+    render(<ProgressBar value={50} ariaLabel="Pipeline progress" />);
+    expect(screen.getByRole('progressbar', { name: 'Pipeline progress' })).toBeDefined();
+  });
+
   it('should render label when provided', () => {
     render(<ProgressBar value={25} label="Loading..." />);
     expect(screen.getByText('Loading...')).toBeDefined();

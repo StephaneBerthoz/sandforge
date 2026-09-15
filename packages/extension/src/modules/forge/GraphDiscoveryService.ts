@@ -40,22 +40,45 @@ export interface ChildRelationship {
   isCascadeDelete: boolean;
 }
 
-/** Dependencies for GraphDiscoveryService, injected at construction time. */
+/**
+ * Dependencies for GraphDiscoveryService, injected at construction time.
+ *
+ * Every org call receives the discovery's abort signal. The service stops
+ * waiting on a call as soon as the signal fires, whatever the dependency does
+ * with it; a dependency uses it to avoid starting a request nobody will read.
+ */
 export interface GraphDiscoveryDeps {
   /** Describe a Salesforce object by API name. */
-  describeObject: (orgId: string, objectApiName: string) => Promise<ObjectDescribe>;
+  describeObject: (
+    orgId: string,
+    objectApiName: string,
+    signal?: AbortSignal,
+  ) => Promise<ObjectDescribe>;
   /** Count records matching a SOQL query. */
-  queryCount: (orgId: string, soql: string) => Promise<number>;
+  queryCount: (orgId: string, soql: string, signal?: AbortSignal) => Promise<number>;
   /** Detect PII fields from a list of field describes. */
   detectPII: (fields: FieldDescribe[]) => string[];
   /** Describe all objects in the org (used for record ID prefix resolution). */
-  describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix: string | null }>>;
+  describeGlobal: (
+    orgId: string,
+    signal?: AbortSignal,
+  ) => Promise<Array<{ name: string; keyPrefix: string | null }>>;
 }
+
+/**
+ * What a progress event reports:
+ * - `resolving-root`: the root object is being looked up, nothing discovered yet;
+ * - `object`: one more object was added to the graph;
+ * - `cached`: a graph discovered earlier is served whole.
+ */
+export type DiscoveryPhase = 'resolving-root' | 'object' | 'cached';
 
 /** Progress event emitted during graph discovery. */
 export interface DiscoveryProgressEvent {
-  /** API name of the object just discovered. */
-  objectApiName: string;
+  /** What the event reports. */
+  phase: DiscoveryPhase;
+  /** API name of the object just discovered. Set on `object` events only. */
+  objectApiName?: string;
   /** Total count of nodes discovered so far. */
   discoveredCount: number;
   /** Number of objects remaining in the BFS queue. */
@@ -90,6 +113,54 @@ const yieldToEventLoop: () => Promise<void> =
     ? () => new Promise<void>((resolve) => setImmediate(resolve))
     : () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** Raised inside the walk when the signal fires while an org call is pending. */
+class DiscoveryCancelled extends Error {
+  constructor() {
+    super('Discovery cancelled');
+    this.name = 'DiscoveryCancelled';
+  }
+}
+
+/**
+ * Run one org call and settle as soon as either it answers or `signal` fires.
+ *
+ * jsforce gives no way to tear down a request it has sent, so a call that hangs
+ * on a rate-limited org would otherwise hold the whole wave until its timeout.
+ * The listener is attached before the call starts, so a cancel that lands while
+ * the call is being issued is not missed. A call that answers after the cancel
+ * is ignored; its rejection is still observed here, never left unhandled.
+ */
+function untilCancelled<T>(call: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return call();
+  if (signal.aborted) return Promise.reject(new DiscoveryCancelled());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new DiscoveryCancelled());
+    signal.addEventListener('abort', onAbort, { once: true });
+    call().then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/** The graph a discovery cancelled before its root was resolved hands back. */
+function emptyGraph(): ForgeGraph {
+  return {
+    nodes: [],
+    edges: [],
+    totalRecords: 0,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+    truncated: false,
+  };
+}
+
 /**
  * Service that discovers the Salesforce dependency graph for a Forge operation.
  *
@@ -112,11 +183,13 @@ export class GraphDiscoveryService {
    * @returns The complete ForgeGraph with nodes, edges, and estimates.
    */
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
-    // Emit a synthetic "resolving" event so the wizard never sits silent
+    const signal = options?.signal;
+    if (signal?.aborted) return emptyGraph();
+    // Emit a "resolving" event so the wizard never sits silent
     // during the initial describeGlobal round-trip (5-50 MB on big orgs,
     // can take 30-90s on a large org).
     options?.onProgress?.({
-      objectApiName: '__resolving_root__',
+      phase: 'resolving-root',
       discoveredCount: 0,
       queueRemaining: 1,
     });
@@ -126,7 +199,13 @@ export class GraphDiscoveryService {
     // us measure empirically whether the cache + timeout fix is effective
     // for the next user session.
     const t0 = Date.now();
-    const rootObject = await this.resolveRootObject(config);
+    let rootObject: string;
+    try {
+      rootObject = await this.resolveRootObject(config, signal);
+    } catch (e) {
+      if (e instanceof DiscoveryCancelled) return emptyGraph();
+      throw e;
+    }
     const t1 = Date.now();
     if (t1 - t0 > 2_000) {
       logger.warn(
@@ -163,10 +242,9 @@ export class GraphDiscoveryService {
     // describe+queryCount calls we stay under jsforce's default 5-conn pool
     // + Salesforce per-IP cap while shaving ~6× off the wall-clock time.
     const WAVE_SIZE = 6;
-    let aborted = false;
 
-    while (queue.length > 0 && !aborted) {
-      if (options?.signal?.aborted) {
+    while (queue.length > 0) {
+      if (signal?.aborted) {
         break;
       }
 
@@ -194,6 +272,8 @@ export class GraphDiscoveryService {
       // an object we could not describe at all, and one we described but
       // could not count. Both still become nodes below — a graph that
       // silently omits them looks complete when it is not.
+      // `cancelled` marks an object whose calls were still pending when the
+      // signal fired: nothing is known about it, so it is left out.
       type WaveResult = {
         objectName: string;
         depth: number;
@@ -201,32 +281,42 @@ export class GraphDiscoveryService {
         recordCount: number;
         countError?: string;
         describeError?: string;
+        cancelled?: true;
       };
-      // The wave is processed cooperatively — Promise.all gathers
-      // all describes/queryCounts (bounded by per-call timeouts in the
-      // adapter layer) and the abort latch in the result-processing loop
-      // below halts the BFS at the next wave boundary. The previous attempt
-      // at racing the wave against signal abortion broke partial-graph
-      // semantics (callers expect already-completed describes to be
-      // surfaced even when abort fires mid-wave).
+      // Each call settles on its own answer or on the signal, whichever comes
+      // first, so a cancel does not wait for the slowest call of the wave.
+      // Objects whose calls had both answered before the cancel keep their
+      // results and are added below: the partial graph holds everything that
+      // was actually learned.
       const waveResults: WaveResult[] = await Promise.all(
         wave.map(async ([objectName, depth]): Promise<WaveResult> => {
           let countError: string | undefined = undefined;
+          // An object with a filter is cloned through it (in SOQL mode, the
+          // object after FROM), so its count is the rows the filter matches.
+          const filter = config.objectSoqlFilters?.[objectName];
+          const countSoql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}${
+            filter ? ` WHERE (${filter})` : ''
+          }`;
           try {
             const [describe, recordCount] = await Promise.all([
-              this.deps.describeObject(config.sourceOrgId, objectName),
-              this.deps
-                .queryCount(
-                  config.sourceOrgId,
-                  `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}`,
-                )
-                .catch((e: unknown) => {
-                  countError = extractErrorMessage(e);
-                  return -1;
-                }),
+              untilCancelled(
+                () => this.deps.describeObject(config.sourceOrgId, objectName, signal),
+                signal,
+              ),
+              untilCancelled(
+                () => this.deps.queryCount(config.sourceOrgId, countSoql, signal),
+                signal,
+              ).catch((e: unknown) => {
+                if (e instanceof DiscoveryCancelled) throw e;
+                countError = extractErrorMessage(e);
+                return -1;
+              }),
             ]);
             return { objectName, depth, describe, recordCount, countError };
           } catch (e) {
+            if (e instanceof DiscoveryCancelled || signal?.aborted) {
+              return { objectName, depth, describe: null, recordCount: -1, cancelled: true };
+            }
             // Describe failed hard (timeout, FLS-blocked, non-queryable).
             // We know nothing about the object's shape, so it carries no
             // fields and no relations to walk — but it stays in the graph
@@ -243,11 +333,11 @@ export class GraphDiscoveryService {
       );
 
       // Sequentially process the results: build the node, walk relations,
-      // enqueue children. The abort check happens AFTER each result is
-      // processed so the in-flight describe that triggered the abort is
-      // still added (consistent with sequential semantics).
+      // enqueue children. A cancel stops the walk at the next wave boundary
+      // (the check at the top of the loop); the objects of this wave that had
+      // answered are still added.
       for (const r of waveResults) {
-        if (aborted) break;
+        if (r.cancelled) continue;
         const { objectName, depth, describe, recordCount, countError, describeError } = r;
 
         if (!describe) {
@@ -270,13 +360,11 @@ export class GraphDiscoveryService {
             batchStrategy: 'auto' as const,
           });
           options?.onProgress?.({
+            phase: 'object',
             objectApiName: objectName,
             discoveredCount: nodes.length,
             queueRemaining: queue.length,
           });
-          if (options?.signal?.aborted) {
-            aborted = true;
-          }
           continue;
         }
 
@@ -349,16 +437,11 @@ export class GraphDiscoveryService {
         }
 
         options?.onProgress?.({
+          phase: 'object',
           objectApiName: objectName,
           discoveredCount: nodes.length,
           queueRemaining: queue.length,
         });
-
-        // Latch abort AFTER processing the in-flight result. Any other
-        // already-completed results in the wave are dropped on next iter.
-        if (options?.signal?.aborted) {
-          aborted = true;
-        }
       }
     }
 
@@ -380,10 +463,16 @@ export class GraphDiscoveryService {
    * For record mode, uses describeGlobal to resolve object type from the record ID prefix.
    * For SOQL mode, parses the FROM clause.
    */
-  private async resolveRootObject(config: ForgeConfig): Promise<string> {
+  private async resolveRootObject(
+    config: ForgeConfig,
+    signal: AbortSignal | undefined,
+  ): Promise<string> {
     if (config.inputMode === 'record' && config.recordId) {
       const prefix = config.recordId.substring(0, 3);
-      const globalDesc = await this.deps.describeGlobal(config.sourceOrgId);
+      const globalDesc = await untilCancelled(
+        () => this.deps.describeGlobal(config.sourceOrgId, signal),
+        signal,
+      );
       const match = globalDesc.find((s) => s.keyPrefix === prefix);
       if (!match) {
         throw new Error(

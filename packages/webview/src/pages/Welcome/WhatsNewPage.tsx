@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../stores/useAppStore';
@@ -68,36 +68,46 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
   ),
 };
 
-const FEATURES: Feature[] = [
-  {
-    category: 'feature',
-    titleKey: 'onboarding.whatsNew.i18n',
-    descKey: 'onboarding.whatsNew.i18nDesc',
-    navigateTo: 'settings',
-  },
-  {
-    category: 'feature',
-    titleKey: 'onboarding.whatsNew.help',
-    descKey: 'onboarding.whatsNew.helpDesc',
-    navigateTo: 'help',
-  },
-  {
-    category: 'feature',
-    titleKey: 'onboarding.whatsNew.onboarding',
-    descKey: 'onboarding.whatsNew.onboardingDesc',
-    navigateTo: 'welcome',
-  },
-  {
-    category: 'improvement',
-    titleKey: 'onboarding.whatsNew.a11y',
-    descKey: 'onboarding.whatsNew.a11yDesc',
-  },
-  {
-    category: 'improvement',
-    titleKey: 'onboarding.whatsNew.branding',
-    descKey: 'onboarding.whatsNew.brandingDesc',
-  },
-];
+/**
+ * Highlights per release, keyed by the exact extension version they describe.
+ *
+ * The extension sends `whats-new:show` on every version change. A single
+ * unkeyed list was therefore shown to every upgrader, under the new version
+ * number, long after it stopped describing anything recent. A release that
+ * adds no entry here shows no panel at all.
+ */
+export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.0.0': [
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.i18n',
+      descKey: 'onboarding.whatsNew.i18nDesc',
+      navigateTo: 'settings',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.help',
+      descKey: 'onboarding.whatsNew.helpDesc',
+      navigateTo: 'help',
+    },
+    {
+      category: 'feature',
+      titleKey: 'onboarding.whatsNew.onboarding',
+      descKey: 'onboarding.whatsNew.onboardingDesc',
+      navigateTo: 'welcome',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.a11y',
+      descKey: 'onboarding.whatsNew.a11yDesc',
+    },
+    {
+      category: 'improvement',
+      titleKey: 'onboarding.whatsNew.branding',
+      descKey: 'onboarding.whatsNew.brandingDesc',
+    },
+  ],
+};
 
 /** Props for WhatsNewPage component. */
 export interface WhatsNewPageProps {
@@ -109,12 +119,25 @@ export interface WhatsNewPageProps {
 
 /**
  * What's New page shown after an extension update.
- * Displays a list of new features with category icons,
+ * Displays the highlights listed for `version` with category icons,
  * "Try it now" buttons, and a link to the full changelog.
  */
 export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }) => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
+  const features = WHATS_NEW[version];
+
+  // No highlights for this release: close before the first paint, so the
+  // overlay's backdrop never flashes over the panel.
+  useLayoutEffect(() => {
+    if (!features) {
+      onDismiss();
+    }
+  }, [features, onDismiss]);
+
+  if (!features) {
+    return null;
+  }
 
   const handleTryItNow = (route: ModuleRoute): void => {
     onDismiss();
@@ -135,7 +158,7 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
       </p>
 
       <div className="w-full max-w-md space-y-3">
-        {FEATURES.map((feature) => (
+        {features.map((feature) => (
           <div
             key={feature.titleKey}
             className="flex items-start gap-3 p-3 rounded-lg"

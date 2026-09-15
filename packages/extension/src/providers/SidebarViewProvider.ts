@@ -55,6 +55,8 @@ export class SidebarViewProvider {
      * the settings-request path would tie two unrelated read cadences.
      */
     private languageGetter?: () => string | undefined,
+    /** Editor display language (`vscode.env.language`) for the `auto` setting. */
+    private editorLanguageGetter?: () => string | undefined,
   ) {}
 
   /**
@@ -75,7 +77,9 @@ export class SidebarViewProvider {
     const webview = webviewView.webview;
     webview.options = {
       enableScripts: true,
-      localResourceRoots: [this.extensionUri],
+      // Only the bundle folder: the sidebar shell loads nothing else, and the
+      // locales are read from disk by the host (answerLocaleRequest).
+      localResourceRoots: [this.uriJoinPath(this.extensionUri, 'webview-dist')],
     };
 
     webview.html = this.buildHtml(webview);
@@ -243,6 +247,7 @@ export class SidebarViewProvider {
       // Stamped on the first paint, before the bundle has restored its own
       // language — the i18n `languageChanged` listener keeps it in step after.
       lang: this.languageGetter?.(),
+      editorLanguage: this.editorLanguageGetter?.(),
     });
   }
 }

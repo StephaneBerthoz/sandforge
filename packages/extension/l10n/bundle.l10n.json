@@ -10,10 +10,13 @@
   "SandForge: {0} failed": "SandForge: {0} failed",
   "SandForge: {0} failed — {1}": "SandForge: {0} failed — {1}",
   "Show Details": "Show Details",
-  "SandForge: pick an org in the launcher dropdown first.": "SandForge: pick an org in the launcher dropdown first.",
+  "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: no org is registered yet — connect one from the Organizations page first.",
+  "Select the org to open in the browser": "Select the org to open in the browser",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: cannot open \"{0}\" — invalid instance URL: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".",
   "Open Settings": "Open Settings",
   "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.": "SandForge: {0}% of the AI token budget for this window is used ({1} tokens). AI requests are refused at 100%.",
-  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue."
+  "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.": "SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.",
+  "SandForge: fix suggested by the AI model — {0}": "SandForge: fix suggested by the AI model — {0}",
+  "SandForge: suggested fix for a known Salesforce error — {0}": "SandForge: suggested fix for a known Salesforce error — {0}"
 }
