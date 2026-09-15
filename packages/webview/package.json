@@ -19,7 +19,7 @@
     "e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^2.0.4",
+    "@dagrejs/dagre": "^3.1.1",
     "@radix-ui/react-dialog": "^1",
     "@radix-ui/react-tabs": "^1",
     "@sandforge/shared": "workspace:*",
