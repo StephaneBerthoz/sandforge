@@ -33,7 +33,9 @@ export interface StartupValidationDeps {
  * Sequential by design: each check may spawn an `sf org display` CLI call and
  * orgs are few — parallelism would only contend on the CLI's auth store. Each
  * org gets at most ORG_VALIDATION_DEADLINE_MS, after which it is marked
- * `error` and the sweep moves on; a late answer from it is ignored. The
+ * `error` and the sweep moves on. A check that succeeds after its deadline
+ * marks the org `connected`, unless its status is no longer `error` by then; a
+ * late failure leaves `error` in place. The
  * deadline only stops waiting: the abandoned check may still be running its
  * CLI calls (and saving a refreshed token) while the next org is checked, so
  * past a deadline two checks can reach the auth store at once.
@@ -54,12 +56,10 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
     // Flipping every org to 'refreshing' first made connected-counts tick
     // down one by one during the sweep — the panel looked like orgs were
     // dying in slow motion.
+    const deadlineMessage = `validation did not finish within ${ORG_VALIDATION_DEADLINE_MS / 1000} s`;
+    const connecting = getJsforceConnection(org.id, orgRegistry, orgManager);
     try {
-      await withDeadline(
-        getJsforceConnection(org.id, orgRegistry, orgManager),
-        ORG_VALIDATION_DEADLINE_MS,
-        `validation did not finish within ${ORG_VALIDATION_DEADLINE_MS / 1000} s`,
-      );
+      await withDeadline(connecting, ORG_VALIDATION_DEADLINE_MS, deadlineMessage);
       orgManager.updateStatus(orgId, 'connected');
       log(`[startup] Org "${org.alias}" connected.`);
     } catch (err: unknown) {
@@ -69,6 +69,20 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
       const authRelated = /Authentication expired|No credentials/.test(message);
       orgManager.updateStatus(orgId, authRelated ? 'expired' : 'error');
       log(`[startup] Org "${org.alias}" validation failed: ${message}`);
+
+      // A slow org that does answer would otherwise keep the 'error' set
+      // above until something else happened to update it. Only an 'error'
+      // is corrected: any other status was set since, by someone who knows
+      // more than this sweep.
+      if (err instanceof Error && err.message === deadlineMessage) {
+        void connecting
+          .then(() => {
+            if (orgManager.getOrg(orgId)?.status !== 'error') return;
+            orgManager.updateStatus(orgId, 'connected');
+            log(`[startup] Org "${org.alias}" answered after the deadline: connected.`);
+          })
+          .catch(() => undefined);
+      }
     }
   }
 }

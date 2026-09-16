@@ -103,12 +103,26 @@ export function useSeedExecution(
           batchSize: vol.batchSize,
           insertOrder: index,
           excludedFields: [],
-          fieldRules: (objConfig?.fields ?? []).map((f) => ({
-            fieldApiName: f.fieldApiName,
-            fieldType: f.type,
-            ruleType: f.ruleType,
-            config: f.config as import('@sandforge/shared').FieldRuleConfig,
-          })),
+          fieldRules: (objConfig?.fields ?? [])
+            // A lookup points at records this run inserts: an optional one to
+            // an object the run does not seed, such as OwnerId to User, made
+            // the run refuse the whole template. It is left for the org to
+            // default. A required one is still sent, so the run is refused
+            // before it writes anything rather than failing every record of
+            // the object on REQUIRED_FIELD_MISSING.
+            .filter(
+              (f) =>
+                f.ruleType !== 'reference' ||
+                f.required ||
+                typeof f.config['referenceObject'] !== 'string' ||
+                selectedObjects.includes(f.config['referenceObject']),
+            )
+            .map((f) => ({
+              fieldApiName: f.fieldApiName,
+              fieldType: f.type,
+              ruleType: f.ruleType,
+              config: f.config as import('@sandforge/shared').FieldRuleConfig,
+            })),
         };
       }),
       tags: [],

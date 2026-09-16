@@ -795,7 +795,6 @@ export const pipelineSavePayloadSchema = z.object({
   id: z.string().max(200),
   config: z.record(z.unknown()),
 });
-export const operationIdPayloadSchema = z.object({ operationId: opaqueIdSchema });
 export const marketplaceListPayloadSchema = z
   .object({
     category: z.string().max(100).optional(),

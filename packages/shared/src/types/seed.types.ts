@@ -95,6 +95,20 @@ export interface SeedObjectResult {
    * only their first entries. recordsCreated and recordsFailed stay whole.
    */
   truncated?: boolean;
+  /**
+   * AI fields of this object that received a generated sentence instead of
+   * an AI value for at least one record. Absent when every AI field got one.
+   */
+  aiFallback?: SeedAiFallback;
+}
+
+/**
+ * Why AI fields received generated sentences: the AI call answered nothing
+ * (AI is off or the call was refused), or its answer left values out.
+ */
+export interface SeedAiFallback {
+  fields: string[];
+  reason: 'no-answer' | 'short-answer';
 }
 
 /** Seed data plan — preview of what will be created */

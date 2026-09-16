@@ -1,4 +1,4 @@
-import type { SeedObjectConfig, FieldRule } from '@sandforge/shared';
+import type { SeedObjectConfig, FieldRule, SeedAiFallback } from '@sandforge/shared';
 import type { AIDataGenerator } from './AIDataGenerator';
 import type { FakerFallback } from './FakerFallback';
 import { fillDigitMask } from './LocaleData';
@@ -28,6 +28,7 @@ export class FieldMapper {
   async mapFields(
     objectConfig: SeedObjectConfig,
     existingIds: Map<string, string[]>,
+    onAiFallback?: (fallback: SeedAiFallback) => void,
   ): Promise<Record<string, unknown>[]> {
     const { recordCount, fieldRules } = objectConfig;
 
@@ -55,6 +56,14 @@ export class FieldMapper {
     const aiFallbackRecords = aiGaps
       ? this.deps.fakerFallback.generate(aiRules.map(toSentenceRule), recordCount)
       : [];
+    // The log line alone left the run result claiming AI-written values.
+    if (aiGaps) {
+      onAiFallback?.({
+        fields: aiRulesMissingValues(aiRules, aiRecords, recordCount),
+        reason: aiRecords.length === 0 ? 'no-answer' : 'short-answer',
+      });
+    }
+    const textRules = [...aiRules, ...fakerRules];
 
     const records: Record<string, unknown>[] = [];
 
@@ -79,11 +88,45 @@ export class FieldMapper {
         Object.assign(record, fakerRecords[i]);
       }
 
+      for (const rule of textRules) {
+        record[rule.fieldApiName] = fitToLength(record[rule.fieldApiName], rule.config.maxLength);
+      }
+
       records.push(record);
     }
 
     return records;
   }
+}
+
+/**
+ * A text value cut to the field's length: at the last word boundary within
+ * the limit when there is one, otherwise hard. A sentence longer than a short
+ * text field failed the insert with STRING_TOO_LONG. Non-text values, and
+ * values of rules that set no length, come back unchanged.
+ */
+function fitToLength(value: unknown, maxLength: number | undefined): unknown {
+  if (typeof value !== 'string' || maxLength === undefined || maxLength <= 0) return value;
+  if (value.length <= maxLength) return value;
+  const cut = value.slice(0, maxLength);
+  if (/\s/.test(value.charAt(maxLength))) return cut.trimEnd();
+  const boundary = cut.search(/\s\S*$/);
+  return boundary > 0 ? cut.slice(0, boundary).trimEnd() : cut;
+}
+
+/** The AI rules at least one record got no value for, in rule order. */
+function aiRulesMissingValues(
+  aiRules: FieldRule[],
+  aiRecords: Record<string, unknown>[],
+  recordCount: number,
+): string[] {
+  return aiRules
+    .filter((rule) =>
+      Array.from({ length: recordCount }, (_, i) => aiRecords[i]?.[rule.fieldApiName]).some(
+        (value) => value === undefined || value === null,
+      ),
+    )
+    .map((rule) => rule.fieldApiName);
 }
 
 /** Whether any record lacks a value for one of the AI rules. */

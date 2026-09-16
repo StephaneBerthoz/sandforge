@@ -29,22 +29,26 @@ ForgeOrchestrator.execute(graph, config)
        ├─ if rootRecordId provided → scope-aware mode
        │    RecordScopeCache + ScopedSoqlBuilder
        │
+       ├─ before the node loop: isObjectCreatable for every included object
+       │    (target), six describes in flight at a time. An object the target
+       │    refuses is skipped and reported; a check that failed is reported
+       │    for that object, which is still attempted.
+       │
        ├─ for each node (root-first, then topo):
-       │    1. isObjectCreatable check (target)
-       │    2. describeFields (source + target → intersect createable)
-       │    3. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
+       │    1. describeFields (source + target → intersect createable)
+       │    2. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
        │       statements when the ID lists outgrow one query URI)
-       │    4. queryRecords(source) per statement, rows merged by Id
-       │    5. (if reference-data object) ReferenceDataMapper.resolve(target by Name)
-       │    6. seed cache (own IDs + FK values from results)
-       │    7. clean records:
+       │    3. queryRecords(source) per statement, rows merged by Id
+       │    4. (if reference-data object) ReferenceDataMapper.resolve(target by Name)
+       │    5. seed cache (own IDs + FK values from results)
+       │    6. clean records:
        │         - strip non-createable
        │         - strip Person Account __pc on Business Accounts
        │         - strip Name on Person Accounts (auto-computed)
        │         - strip picklist values not in target whitelist
        │         - omit nullified orphan FKs (don't send `null`)
        │         - apply RecordType mapping (DeveloperName)
-       │    8. batch insert into target
+       │    7. batch insert into target
        │
        └─ summary { successCount, failedCount, skippedCount, errors[] }
 ```

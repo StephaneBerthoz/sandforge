@@ -545,3 +545,36 @@ test('the concurrency check rejects a group that master pushes share', () => {
   assert.match(concurrencyProblem(planted(perRun, 'true')), /pull requests/);
   assert.match(concurrencyProblem('on:\n  push:\njobs:\n'), /no top-level/);
 });
+
+test('Dependabot proposes no npm update while a manifest takes its version from the catalog', () => {
+  // Dependabot's npm updater does not read pnpm's catalog. Its grouped update
+  // bumped typescript-eslint, left pnpm-workspace.yaml at `^8` and wrote 8.70.0
+  // into the lockfile beside a manifest that still says `catalog:`, so
+  // `pnpm install --frozen-lockfile` refused the branch on all three runners
+  // ("lockfile: 8.70.0, manifest: catalog:"). Action pins carry no catalog, and
+  // keeping them moving is what this config is for.
+  const manifests = ['package.json'].concat(
+    readdirSync(join(root, 'packages')).map((name) => join('packages', name, 'package.json')),
+  );
+  const managed = manifests.filter((file) => {
+    try {
+      return /:\s*"catalog:"/.test(readFileSync(join(root, file), 'utf8'));
+    } catch {
+      return false;
+    }
+  });
+  const ecosystems = [
+    ...withoutComments(readFileSync(join(root, '.github', 'dependabot.yml'), 'utf8')).matchAll(
+      /package-ecosystem:\s*['"]?([\w-]+)/g,
+    ),
+  ].map(([, name]) => name);
+  assert.ok(managed.length > 0, 'no manifest reads the catalog, so this gate reads nothing');
+  assert.ok(
+    !ecosystems.includes('npm'),
+    `dependabot.yml updates npm while ${managed.join(', ')} read the catalog`,
+  );
+  assert.ok(
+    ecosystems.includes('github-actions'),
+    'dependabot.yml no longer moves the action pins',
+  );
+});

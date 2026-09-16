@@ -3,6 +3,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isForgeExcludedObject } from './excludedObjects.js';
+import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 
 /** Describe result for an object returned by the org connection. */
 export interface ObjectDescribe {
@@ -236,12 +237,10 @@ export class GraphDiscoveryService {
     const queue: Array<[string, number]> = [[rootObject, 0]];
     visitedObjects.add(rootObject);
 
-    // Drain the queue in waves of WAVE_SIZE entries fetched in parallel.
-    // Sequential await per node was the root cause of the 2:30 freeze on
-    // a large org (50 nodes × ~1.5s/node ≈ 75s). With 6 concurrent
-    // describe+queryCount calls we stay under jsforce's default 5-conn pool
-    // + Salesforce per-IP cap while shaving ~6× off the wall-clock time.
-    const WAVE_SIZE = 6;
+    // Drain the queue in waves fetched in parallel. Sequential await per node
+    // was the root cause of the 2:30 freeze on a large org (50 nodes ×
+    // ~1.5s/node ≈ 75s); a wave of CONCURRENT_DESCRIBE_LIMIT describe+queryCount
+    // calls shaves ~6× off the wall-clock time.
 
     while (queue.length > 0) {
       if (signal?.aborted) {
@@ -257,12 +256,12 @@ export class GraphDiscoveryService {
       // setTimeout(0) so the suite stays portable.
       await yieldToEventLoop();
 
-      // Cap wave at the smaller of WAVE_SIZE, remaining headroom under
-      // maxNodes, and queue length. Without this, we over-process and
-      // overshoot the user-supplied node cap.
+      // Cap wave at the smaller of the concurrent-describe limit, remaining
+      // headroom under maxNodes, and queue length. Without this, we
+      // over-process and overshoot the user-supplied node cap.
       const remaining = maxNodes - nodes.length;
       if (remaining <= 0) break;
-      const waveLimit = Math.min(WAVE_SIZE, remaining, queue.length);
+      const waveLimit = Math.min(CONCURRENT_DESCRIBE_LIMIT, remaining, queue.length);
       const wave = queue.splice(0, waveLimit);
 
       // Fetch describe + record count in parallel for every entry in the

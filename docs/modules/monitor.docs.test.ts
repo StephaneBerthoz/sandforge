@@ -68,6 +68,18 @@ describe('docs/modules/monitor.md', () => {
     expect(section(heading)?.trim()).toBeTruthy();
   });
 
+  it('says which built-in governance rules are not measured, instead of claiming they pass', () => {
+    const governance = section('Governance') ?? '';
+    expect(governance).not.toContain('API and storage rules pass');
+    expect(governance).toContain('not measured');
+  });
+
+  it('gives the Org Health Check job and error-log figures as counts', () => {
+    const health = section('Org Health Check') ?? '';
+    expect(health).not.toMatch(/points\b[^.]*\blost/);
+    expect(health).toContain('number of failed jobs');
+  });
+
   it.each(PANELS)(
     'says the $component panel reads $reads, which the extension still reads',
     ({ heading, reads }) => {

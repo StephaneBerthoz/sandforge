@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCsvHandler } from './SeedCsvHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -398,6 +400,30 @@ describe('SeedCsvHandler', () => {
         error: 'Operation cancelled by user (production confirmation declined).',
         retryable: false,
       });
+    });
+
+    it('tells the model the object and batch size a failed import was writing to', async () => {
+      // The prompt is all the model sees: without the run behind it, an org
+      // error arrives as a bare sentence and the answer fits any import.
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+      writer.insert.mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: seed');
+      expect(prompt).toContain('Operation: seed:csv:execute');
+      expect(prompt).toContain('Target object: Account');
+      expect(prompt).toContain('Batch size: 200');
     });
   });
 });

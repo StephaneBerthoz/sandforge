@@ -38,11 +38,6 @@ export class ErrorLogMonitor {
     return this.errorCache.get(orgId) ?? [];
   }
 
-  /** Return the count of cached errors for an org */
-  getErrorCount(orgId: string): number {
-    return this.getRecentErrors(orgId).length;
-  }
-
   /** Group cached errors by their error type and count occurrences */
   getErrorsByType(orgId: string): Map<string, number> {
     const errors = this.getRecentErrors(orgId);

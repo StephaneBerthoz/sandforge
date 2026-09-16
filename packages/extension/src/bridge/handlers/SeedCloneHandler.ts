@@ -5,7 +5,12 @@ import type {
   RobustnessConfig,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  InboundRequest,
+  OperationFailureContext,
+} from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
@@ -14,6 +19,7 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  objectsFailureContext,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -235,6 +241,11 @@ export class SeedCloneHandler implements DomainHandler {
     if (!parsed) return;
     const operationId = msg.id;
     const startedAt = Date.now();
+    const failure: OperationFailureContext = {
+      module: 'seed',
+      operation: msg.type,
+      ...objectsFailureContext(parsed.objects.map((o) => ({ objectApiName: o.objectApiName }))),
+    };
 
     // The signal handed to BulkDataWriter used to come from a throwaway
     // `new AbortController()` that nothing kept a reference to, so it could
@@ -283,6 +294,7 @@ export class SeedCloneHandler implements DomainHandler {
             operationId,
             'Operation cancelled by user (production confirmation declined).',
             false,
+            { context: failure },
           );
           return;
         }
@@ -309,6 +321,7 @@ export class SeedCloneHandler implements DomainHandler {
       const robustnessConfig = this.getRobustnessConfig();
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
+      failure.batchSize = defaultBatchSize;
       const writer = new BulkDataWriter({
         connection: targetConn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
@@ -462,7 +475,9 @@ export class SeedCloneHandler implements DomainHandler {
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       this.deps.log(`[ERR] seed:clone:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
       settle(err);
     }
   }

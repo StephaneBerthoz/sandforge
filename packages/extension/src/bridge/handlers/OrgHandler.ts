@@ -307,7 +307,7 @@ export class OrgHandler implements DomainHandler {
       parsed.reason === 'not-https'
         ? 'Login URL must use HTTPS.'
         : parsed.reason === 'not-salesforce'
-          ? `Login URL must be a Salesforce login host (login.salesforce.com, test.salesforce.com or a My Domain): "${loginUrl}".`
+          ? `Login URL must be a Salesforce login host (login.salesforce.com, test.salesforce.com or a My Domain): "${loginUrl}". For an org on another Salesforce cloud, log in with "sf org login web --instance-url <url>", then add it with SFDX Import.`
           : parsed.reason === 'not-origin'
             ? `Login URL must name a host only, with no path, query or credentials: "${loginUrl}".`
             : `Invalid login URL: "${loginUrl}".`;

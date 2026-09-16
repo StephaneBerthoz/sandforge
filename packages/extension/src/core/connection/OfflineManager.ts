@@ -54,6 +54,11 @@ export class OfflineManager {
    * enqueues into a single drain.
    */
   private static readonly DRAIN_DEBOUNCE_MS = 1_000;
+  /**
+   * How long a connectivity check is shared with later callers. The probe used
+   * in production aborts after 5 s; this bounds a probe executor that does not.
+   */
+  private static readonly CHECK_TIMEOUT_MS = 10_000;
 
   private readonly store: ConfigStore;
   private readonly maxQueueSize: number;
@@ -67,6 +72,11 @@ export class OfflineManager {
   private operationExecutor: OperationExecutor | undefined;
   private readonly listeners: Set<OfflineEventListener> = new Set();
   private draining = false;
+  /**
+   * The connectivity check in flight, shared by every caller until it answers
+   * or until {@link CHECK_TIMEOUT_MS} passes, whichever comes first.
+   */
+  private pendingCheck: Promise<ConnectivityStatus> | undefined;
 
   constructor(store: ConfigStore, maxQueueSize: number = OfflineManager.MAX_QUEUE_SIZE) {
     this.store = store;
@@ -85,8 +95,11 @@ export class OfflineManager {
     // Boot recovery: operations reloaded from storage by the constructor
     // (loadQueue) after a crash would otherwise stay parked until an
     // offline→online transition that never comes when the network stays up.
+    // 'online' here is only the status the window opened with, so the replay
+    // waits for a check (see drainIfReachable): a replay into a network that
+    // is down fails, and a failed replay is dropped, not kept.
     if (this.queue.length > 0 && this.status === 'online') {
-      this.scheduleDrain();
+      this.drainIfReachable();
     }
   }
 
@@ -106,6 +119,22 @@ export class OfflineManager {
     this.probeIntervalMs = intervalMs;
     this.probingEnabled = true;
     this.syncProbeTimer();
+
+    // When the replay executor was wired before probing was enabled, the
+    // recovered queue got a drain with no check in front of it. Replace it
+    // with a checked one now that a check is possible.
+    if (
+      this.queue.length > 0 &&
+      this.operationExecutor &&
+      this.status === 'online' &&
+      !this.draining
+    ) {
+      if (this.drainTimer) {
+        clearTimeout(this.drainTimer);
+        this.drainTimer = undefined;
+      }
+      this.drainIfReachable();
+    }
   }
 
   /** Stop periodic connectivity probing */
@@ -114,16 +143,48 @@ export class OfflineManager {
     this.clearProbeTimer();
   }
 
-  /** Manually check connectivity */
-  async checkConnectivity(): Promise<ConnectivityStatus> {
+  /**
+   * Manually check connectivity.
+   *
+   * A check already in flight is shared: a burst of operations queued in the
+   * same tick used to send one probe request each.
+   */
+  checkConnectivity(): Promise<ConnectivityStatus> {
     if (!this.probeExecutor) {
-      return this.status;
+      return Promise.resolve(this.status);
+    }
+    if (this.pendingCheck) {
+      return this.pendingCheck;
     }
 
+    // Sharing is bounded: a probe executor that never settles would otherwise
+    // hand the same unsettled promise to every later caller — the probe
+    // timer's tick and every drainIfReachable — for the rest of the session.
+    // Past the deadline the caller gets the status as it stands and the next
+    // call starts a fresh probe; a late answer still updates the status.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const shared: Promise<ConnectivityStatus> = Promise.race([
+      this.runConnectivityCheck(this.probeExecutor),
+      new Promise<ConnectivityStatus>((resolve) => {
+        deadline = setTimeout(() => resolve(this.status), OfflineManager.CHECK_TIMEOUT_MS);
+      }),
+    ]).finally(() => {
+      clearTimeout(deadline);
+      if (this.pendingCheck === shared) {
+        this.pendingCheck = undefined;
+      }
+    });
+    this.pendingCheck = shared;
+    return shared;
+  }
+
+  private async runConnectivityCheck(
+    probeExecutor: () => Promise<boolean>,
+  ): Promise<ConnectivityStatus> {
     const previousStatus = this.status;
 
     try {
-      const isOnline = await this.probeExecutor();
+      const isOnline = await probeExecutor();
       this.status = isOnline ? 'online' : 'offline';
     } catch {
       this.status = 'offline';

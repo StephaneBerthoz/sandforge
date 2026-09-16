@@ -24,7 +24,11 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
-    files: ['packages/*/src/**/*.{ts,tsx}'],
+    files: [
+      'packages/*/src/**/*.{ts,tsx}',
+      'packages/extension/cli/**/*.ts',
+      'packages/extension/tools/**/*.ts',
+    ],
     rules: {
       'no-console': 'warn',
       '@typescript-eslint/no-explicit-any': 'error',
@@ -35,11 +39,19 @@ export default tseslint.config(
   {
     // Typed linting for the extension host: catches floating promises (the
     // 1.3.0 panel-leak class of bugs). Every file under packages/extension/src
-    // is covered by tsconfig.test.json (include: src/**/*).
-    files: ['packages/extension/src/**/*.ts'],
+    // is covered by tsconfig.test.json (include: src/**/*), and the command-line
+    // scripts beside it by tsconfig.scripts.json (cli/**, tools/**).
+    files: [
+      'packages/extension/src/**/*.ts',
+      'packages/extension/cli/**/*.ts',
+      'packages/extension/tools/**/*.ts',
+    ],
     languageOptions: {
       parserOptions: {
-        project: './packages/extension/tsconfig.test.json',
+        project: [
+          './packages/extension/tsconfig.test.json',
+          './packages/extension/tsconfig.scripts.json',
+        ],
         tsconfigRootDir: import.meta.dirname,
       },
     },

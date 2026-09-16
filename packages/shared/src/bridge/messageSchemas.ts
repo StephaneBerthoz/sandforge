@@ -307,9 +307,6 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMe
 
 // ─── Domain: Execution + Operation lifecycle + grappe ────────────────────────
 const ExecutionMessages = [
-  msg('operation:cancel'),
-  msg('operation:pause'),
-  msg('operation:resume'),
   msg('operation:started'),
   msg('operation:progress'),
   msg('operation:completed'),

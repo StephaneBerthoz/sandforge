@@ -3,6 +3,7 @@ import { GovernanceOpsHandler } from './GovernanceOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
+import { GovernancePolicyStore } from '../../modules/monitor/GovernancePolicyStore.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
@@ -337,6 +338,60 @@ describe('GovernanceOpsHandler', () => {
     const alertEvaluate = mockAlertEngine.evaluate as ReturnType<typeof vi.fn>;
     expect(alertEvaluate).toHaveBeenCalledTimes(1);
     expect(alertEvaluate).toHaveBeenCalledWith('governance:rule-fail', expect.any(Number), 'org-1');
+  });
+
+  it('measures the built-in API and storage rules from /limits and reads the MFA rule as not measured', async () => {
+    const [securityPolicy, performancePolicy] = GovernancePolicyStore.getDefaultTemplates();
+    for (const policy of [securityPolicy, performancePolicy]) {
+      await handler.handle(
+        inboundRequest({
+          id: `req-save-${policy.id}`,
+          type: 'governance:policy:save',
+          timestamp: Date.now(),
+          payload: { policy },
+        } as BaseMessage & { payload: { policy: unknown } }),
+      );
+    }
+    mockGetJsforceConnection.mockResolvedValue({
+      request: vi.fn().mockResolvedValue({
+        DailyApiRequests: { Max: 1000, Remaining: 50 },
+        DataStorageMB: { Max: 100, Remaining: 80 },
+      }),
+    });
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+
+    const evaluate = async (policyId: string) => {
+      postToWebview.mockClear();
+      await handler.handle(
+        inboundRequest({
+          id: `req-eval-${policyId}`,
+          type: 'governance:evaluate',
+          timestamp: Date.now(),
+          payload: { policyId, orgId: 'org-1' },
+        } as BaseMessage & { payload: { policyId: string; orgId: string } }),
+      );
+      return (
+        postToWebview.mock.calls[0][0] as BaseMessage & {
+          payload: {
+            result: {
+              complianceScore: number | null;
+              ruleResults: Array<{ ruleId: string; status: string }>;
+            };
+          };
+        }
+      ).payload.result;
+    };
+
+    const performance = await evaluate(performancePolicy.id);
+    expect(performance.ruleResults).toEqual([
+      expect.objectContaining({ ruleId: 'perf-api', status: 'fail' }),
+      expect.objectContaining({ ruleId: 'perf-storage', status: 'pass' }),
+    ]);
+    expect(performance.complianceScore).toBe(50);
+
+    const security = await evaluate(securityPolicy.id);
+    expect(security.ruleResults.map((r) => r.status)).toEqual(['unknown', 'unknown']);
+    expect(security.complianceScore).toBeNull();
   });
 
   it('handles governance:evaluate returns error for unknown policy', async () => {

@@ -15,27 +15,16 @@ updates:
     commit-message:
       prefix: ci
 
-  # One grouped pull request per week rather than one per package. The waiting
-  # period keeps a release published minutes ago, the usual window for a
-  # compromised version, out of the proposal.
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    groups:
-      development:
-        dependency-type: development
-        update-types: [minor, patch]
-      production:
-        dependency-type: production
-        update-types: [minor, patch]
-    ignore:
-      # vsce refuses to package when @types/vscode is newer than
-      # engines.vscode: this one moves with the supported VS Code version,
-      # never on its own.
-      - dependency-name: '@types/vscode'
-    commit-message:
-      prefix: build
+  # No npm entry: the manifests take their shared versions from the catalog in
+  # pnpm-workspace.yaml, which Dependabot's npm updater does not read. Its
+  # grouped update bumped typescript-eslint, left the catalog at `^8` and wrote
+  # 8.70.0 into the lockfile next to a manifest that still says `catalog:`, so
+  # `pnpm install --frozen-lockfile` refused the branch on all three runners.
+  # Security updates come from the repository setting rather than from this
+  # file and keep arriving; one that lands on a catalogued dependency fails the
+  # same way, and the fix is to move the version in pnpm-workspace.yaml by hand.
+  # Two reasons that entry carried, kept here because nothing else records
+  # them: `@types/vscode` moves with `engines.vscode` and never on its own,
+  # since vsce refuses to package when the types are newer than the supported
+  # VS Code version; and a proposal was held for seven days, the usual window
+  # in which a compromised release is caught.

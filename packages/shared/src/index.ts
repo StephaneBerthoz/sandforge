@@ -72,6 +72,7 @@ export * from './constants/ai-config.js';
 export * from './constants/monitor.js';
 export * from './constants/seed-templates.js';
 export * from './constants/faker-methods.js';
+export * from './constants/faker-field-defaults.js';
 export * from './constants/sync-templates.js';
 
 // Barrel exports — Utils

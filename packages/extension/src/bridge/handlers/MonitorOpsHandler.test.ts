@@ -1335,15 +1335,15 @@ describe('MonitorOpsHandler', () => {
         .map(
           (c: unknown[]) =>
             c[0] as BaseMessage & {
-              payload: { orgHealthStatus?: { activeJobs: number } };
+              payload: { orgHealthStatus?: { failedJobs: number } };
             },
         )
         .find((m) => m.type === 'monitor:data');
       expect(data).toBeDefined();
-      // jobsProvider: score 100 - failed * 10 = 90, surfaced as activeJobs 10.
-      // A cache miss would have re-queried and scored the same, so this only
-      // guards against the reuse handing the provider an empty result set.
-      expect(data?.payload.orgHealthStatus?.activeJobs).toBe(10);
+      // One failed row reaches the jobs signal. A cache miss would have
+      // re-queried and counted the same, so this only guards against the
+      // reuse handing the provider an empty result set.
+      expect(data?.payload.orgHealthStatus?.failedJobs).toBe(1);
     });
   });
 

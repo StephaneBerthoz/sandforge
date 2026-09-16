@@ -15,6 +15,7 @@ import type {
   DomainHandler,
   GrappeEventEnvelope,
   InboundRequest,
+  OperationFailureContext,
 } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -23,6 +24,7 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  objectsFailureContext,
   postGrappeEvent,
   readGrappeConfig,
 } from './HandlerTypes.js';
@@ -543,21 +545,21 @@ export class SeedOpsHandler implements DomainHandler {
     // the request it sent, so it can match operation:* events and aim
     // execution:abort at its own run rather than whichever run reported last.
     const operationId = msg.id;
+    const failure: OperationFailureContext = { module: 'seed', operation: msg.type };
 
     try {
       // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
       // setting when the webview omitted them.
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
+      const objects = parsed.template.objects.map((o) => ({
+        ...o,
+        batchSize: o.batchSize ?? defaultBatchSize,
+      }));
+      Object.assign(failure, objectsFailureContext(objects));
       const payload: { orgId: string; template: Record<string, unknown> } = {
         orgId: parsed.orgId,
-        template: {
-          ...parsed.template,
-          objects: parsed.template.objects.map((o) => ({
-            ...o,
-            batchSize: o.batchSize ?? defaultBatchSize,
-          })),
-        } as unknown as Record<string, unknown>,
+        template: { ...parsed.template, objects } as unknown as Record<string, unknown>,
       };
 
       const conn = await getJsforceConnection(
@@ -605,7 +607,7 @@ export class SeedOpsHandler implements DomainHandler {
             code: 'PROD_CONFIRMATION_DECLINED',
             retryable: false,
           });
-          sendOperationFailed(this.deps, operationId, message, false);
+          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
           return;
         }
       }
@@ -622,7 +624,14 @@ export class SeedOpsHandler implements DomainHandler {
       const abortController = new AbortController();
 
       // Build the execution promise (runs detached in the background)
-      const executionPromise = this.executeSeed(msg, conn, payload, operationId, abortController);
+      const executionPromise = this.executeSeed(
+        msg,
+        conn,
+        payload,
+        operationId,
+        abortController,
+        failure,
+      );
 
       // Register with BackgroundOperationRegistry if available
       if (this.registry) {
@@ -648,7 +657,10 @@ export class SeedOpsHandler implements DomainHandler {
         retryable: true,
         extraPayload: offlineHint,
       });
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        extraPayload: offlineHint,
+        context: failure,
+      });
     }
   }
 
@@ -670,6 +682,7 @@ export class SeedOpsHandler implements DomainHandler {
     payload: { orgId: string; template: Record<string, unknown> },
     operationId: string,
     abortController: AbortController,
+    failure: OperationFailureContext,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = this.getRobustnessConfig();
 
@@ -866,7 +879,10 @@ export class SeedOpsHandler implements DomainHandler {
         retryable: true,
         extraPayload: offlineHint,
       });
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        extraPayload: offlineHint,
+        context: failure,
+      });
       // Failure-status result (not a rejection, not a bare resolve) so the
       // BackgroundOperationRegistry marks the operation 'failed' — see the
       // method docstring for the contract.

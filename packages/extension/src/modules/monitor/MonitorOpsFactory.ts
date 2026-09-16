@@ -24,6 +24,9 @@ import type { RawLimitsResponse } from './transformLimitsResponse.js';
 /** TTL of the per-org /limits cache shared across a refresh cycle. */
 const LIMITS_CACHE_TTL_MS = 30_000;
 
+/** Window of error logs the health signal counts, in milliseconds. */
+const ERROR_LOG_HEALTH_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /** Dependencies required by {@link createMonitorOps}. */
 export interface MonitorOpsFactoryDeps {
   /** Persistence facade for trend snapshots and alert state. */
@@ -101,32 +104,34 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
   const persistedAlerts = alertStateStore.loadAlerts();
   alertEngine.restoreAlerts(persistedAlerts);
 
-  const errorLogMonitor = new ErrorLogMonitor(
-    async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
-      const conn = await deps.getConnection(orgId);
-      const records = await queryAll<{
-        Id: string;
-        Operation: string;
-        Status: string;
-        DurationMilliseconds: number;
-        LogLength: number;
-        StartTime: string;
-        LogUser: { Username: string } | null;
-      }>(
-        conn,
-        `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
-      );
-      checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
-      return records.map((r) => ({
-        id: r.Id,
-        errorType: r.Status,
-        message: `${r.Operation} - ${r.Status}`,
-        timestamp: r.StartTime,
-        user: r.LogUser?.Username ?? undefined,
-        context: r.Operation,
-      }));
-    },
-  );
+  // Named so that the health check can read the error logs itself instead of
+  // the reading the Error Logs panel happens to hold.
+  const queryErrorLogs = async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
+    const conn = await deps.getConnection(orgId);
+    const records = await queryAll<{
+      Id: string;
+      Operation: string;
+      Status: string;
+      DurationMilliseconds: number;
+      LogLength: number;
+      StartTime: string;
+      LogUser: { Username: string } | null;
+    }>(
+      conn,
+      `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
+    );
+    checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
+    return records.map((r) => ({
+      id: r.Id,
+      errorType: r.Status,
+      message: `${r.Operation} - ${r.Status}`,
+      timestamp: r.StartTime,
+      user: r.LogUser?.Username ?? undefined,
+      context: r.Operation,
+    }));
+  };
+
+  const errorLogMonitor = new ErrorLogMonitor(queryErrorLogs);
 
   const userSessionMonitor = new UserSessionMonitor(
     async (orgId: string): Promise<UserSessionInfo[]> => {
@@ -283,8 +288,23 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     }
   };
 
+  // Reads the error logs of the last 24 hours itself. It used to count the
+  // reading the Error Logs panel happened to hold, which a refresh leaves
+  // untouched, so the signal stood still while the panel was closed and
+  // counted nothing at all until the panel had been opened once.
   const errorsProvider: HealthSignalProvider = async (orgId: string) => {
-    const errorCount = errorLogMonitor.getErrorCount(orgId);
+    let errorCount: number;
+    try {
+      const since = new Date(Date.now() - ERROR_LOG_HEALTH_WINDOW_MS).toISOString();
+      errorCount = (await queryErrorLogs(orgId, since)).length;
+    } catch {
+      return {
+        name: 'recentErrors',
+        status: 'ok' as const,
+        score: 100,
+        message: 'Unable to fetch error logs',
+      };
+    }
     const score = Math.max(0, 100 - errorCount * 5);
     const status =
       errorCount > 10
@@ -292,7 +312,13 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         : errorCount > 3
           ? ('warning' as const)
           : ('ok' as const);
-    return { name: 'recentErrors', status, score, message: `${errorCount} recent errors` };
+    return {
+      name: 'recentErrors',
+      status,
+      score,
+      count: errorCount,
+      message: `${errorCount} recent errors`,
+    };
   };
 
   // Jobs health from real AsyncApexJob data: each failed job in the recent
@@ -338,6 +364,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         name: 'activeJobs',
         status,
         score,
+        count: stats.failed,
         message: `${stats.active} active, ${stats.failed} failed of ${stats.total} recent jobs`,
       };
     } catch {

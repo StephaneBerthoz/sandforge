@@ -36,6 +36,28 @@ const mockExec = vi.mocked(exec);
 const mockExecFile = vi.mocked(execFile);
 
 /**
+ * Stands in for one `sf` run on Windows. There the helper calls `exec` in its
+ * callback form, to keep the child it may have to kill, so `exec` is routed
+ * through this promise-shaped mock and tests queue results the same way on
+ * every platform.
+ */
+const mockShellCall = vi.fn();
+
+function routeExecThroughShellCall(): void {
+  mockExec.mockImplementation(((
+    command: string,
+    options: unknown,
+    callback: (err: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    void Promise.resolve()
+      .then(() => mockShellCall(command, options) as Promise<{ stdout: string; stderr: string }>)
+      .then((result) => callback(null, result.stdout, result.stderr))
+      .catch((err: unknown) => callback(err as Error, '', ''));
+    return { pid: 4242 };
+  }) as never);
+}
+
+/**
  * `refreshTokenViaCli` branches on `process.platform`:
  * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
  * - POSIX uses `execFile` with argv-as-array (no shell — no interpolation)
@@ -43,7 +65,7 @@ const mockExecFile = vi.mocked(execFile);
  * Tests must mock the right one for the current platform; this helper
  * returns the active mock so individual tests stay platform-agnostic.
  */
-const mockCliInvoker = process.platform === 'win32' ? mockExec : mockExecFile;
+const mockCliInvoker = process.platform === 'win32' ? mockShellCall : mockExecFile;
 
 function makeOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
   return {
@@ -105,6 +127,8 @@ describe('ConnectionHelper', () => {
     vi.clearAllMocks();
     mockIdentity.mockReset();
     mockExec.mockReset();
+    mockShellCall.mockReset();
+    routeExecThroughShellCall();
     // Reset singleton pool and per-org circuit breakers between tests
     getConnectionPool().dispose();
     resetCircuitBreakers();
@@ -240,11 +264,11 @@ describe('ConnectionHelper', () => {
 
       if (process.platform === 'win32') {
         // Windows: shell-based exec with double-quoted username (regex-validated upstream)
-        expect(mockExec).toHaveBeenCalledWith(
+        expect(mockShellCall).toHaveBeenCalledWith(
           expect.stringContaining('sf org display -u "admin@test.com" --json'),
           expect.objectContaining({ maxBuffer: expect.any(Number) }),
         );
-        expect(mockExec).toHaveBeenCalledWith(
+        expect(mockShellCall).toHaveBeenCalledWith(
           expect.stringContaining('sf org auth show-access-token -o "admin@test.com" --json'),
           expect.objectContaining({ maxBuffer: expect.any(Number) }),
         );
@@ -564,6 +588,53 @@ describe('ConnectionHelper', () => {
         const opts = call[call.length - 1] as { timeout?: unknown };
         expect(typeof opts.timeout).toBe('number');
         expect(opts.timeout as number).toBeGreaterThan(0);
+      }
+    });
+
+    it('stops waiting on a Windows sf call that never answers and kills its process tree', async () => {
+      vi.useFakeTimers();
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        const org = makeOrg();
+        const orgManager = createMockOrgManager(org);
+        const orgRegistry = createMockOrgRegistry(makeCreds());
+        mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+        // The shell exits but sf's own child keeps the pipe open: exec never
+        // calls back, and a promise over it never settles either.
+        mockExec.mockImplementation((() =>
+          Object.assign(new Promise<never>(() => undefined), { pid: 4242 })) as never);
+
+        let outcome: unknown = 'pending';
+        void getJsforceConnection('org-1', orgRegistry, orgManager).then(
+          () => {
+            outcome = 'resolved';
+          },
+          (err: unknown) => {
+            outcome = err;
+          },
+        );
+        await vi.waitFor(() => expect(mockExec).toHaveBeenCalledTimes(1));
+
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(outcome).toBe('pending');
+        expect(mockExecFile).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(outcome).toBeInstanceOf(Error);
+        expect((outcome as Error).message).toMatch(
+          /Authentication expired for org "test-org".*sf did not answer within 30 s — check the Salesforce CLI/,
+        );
+        // A hung sf is not run again for the two remaining reads.
+        expect(mockExec).toHaveBeenCalledTimes(1);
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'taskkill',
+          ['/pid', '4242', '/T', '/F'],
+          expect.anything(),
+          expect.any(Function),
+        );
+      } finally {
+        if (platform) Object.defineProperty(process, 'platform', platform);
       }
     });
   });

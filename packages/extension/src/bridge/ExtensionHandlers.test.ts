@@ -788,35 +788,6 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('operation control handlers', () => {
-    it('should send warning when cancelling with no active operation', () => {
-      broker['dispatch'](msg('operation:cancel', { operationId: 'none' }));
-
-      expect(posted).toHaveLength(1);
-      expect(posted[0].type).toBe('notification');
-      const payload = (posted[0] as BaseMessage & { payload: { message: string } }).payload;
-      expect(payload.message).toContain('No active operation found');
-    });
-
-    it('should send warning when pausing with no active operation', () => {
-      broker['dispatch'](msg('operation:pause', { operationId: 'none' }));
-
-      expect(posted).toHaveLength(1);
-      expect(posted[0].type).toBe('notification');
-      const payload = (posted[0] as BaseMessage & { payload: { message: string } }).payload;
-      expect(payload.message).toContain('No active operation found');
-    });
-
-    it('should send warning when resuming with no active operation', () => {
-      broker['dispatch'](msg('operation:resume', { operationId: 'none' }));
-
-      expect(posted).toHaveLength(1);
-      expect(posted[0].type).toBe('notification');
-      const payload = (posted[0] as BaseMessage & { payload: { message: string } }).payload;
-      expect(payload.message).toContain('No active operation found');
-    });
-  });
-
   describe('backup:execute handler', () => {
     it('should send error when no org connection available', async () => {
       broker['dispatch'](msg('backup:execute', { orgId: 'nonexistent', objects: ['Account'] }));

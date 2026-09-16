@@ -1,6 +1,11 @@
 import type { BackupSummary } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  InboundRequest,
+  OperationFailureContext,
+} from './HandlerTypes.js';
 import {
   buildResponse,
   sendNotification,
@@ -226,6 +231,9 @@ export class DataOpsHandler implements DomainHandler {
     // Deterministic ID from the message ID — enables genuine duplicate detection
     // (a fresh UUID per call made `isDuplicate` dead code).
     const operationId = msg.id;
+    // Names the object in progress as the loop below advances, so the fix
+    // suggestion for a failure says which object it came from.
+    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
@@ -234,7 +242,11 @@ export class DataOpsHandler implements DomainHandler {
       // Settle the in-flight useBridgeMutation listener on dataops:error
       // (same dual-channel contract as the catch below).
       sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, new Error(message));
-      sendOperationFailed(this.deps, operationId, message, false);
+      // This message is one SandForge writes itself, so it is never asked
+      // about and the context is never read — it is passed here, and at the
+      // guard and precondition refusals below, so every failure of the run
+      // carries the same thing.
+      sendOperationFailed(this.deps, operationId, message, false, { context: failure });
       return;
     }
     this.activeOrgOperations.add(lockKey);
@@ -249,7 +261,9 @@ export class DataOpsHandler implements DomainHandler {
           msg,
           new Error(`Duplicate operation: ${operationId}`),
         );
-        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
+        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false, {
+          context: failure,
+        });
         return;
       }
       this.dmlTracker.register(operationId, 'backup', 'insert', payload.objects.length);
@@ -281,6 +295,7 @@ export class DataOpsHandler implements DomainHandler {
       let processedObjects = 0;
       for (const objectApiName of payload.objects) {
         const safeObj = sanitizeSoqlObjectName(objectApiName);
+        failure.objectName = safeObj;
         const records = await queryAll<Record<string, unknown>>(
           conn,
           `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
@@ -357,7 +372,9 @@ export class DataOpsHandler implements DomainHandler {
       // the in-flight mutation with the real message. The webview surfaces the
       // error from dataops:error only, so the user sees it exactly once.
       sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
     } finally {
       this.activeOrgOperations.delete(lockKey);
     }
@@ -517,13 +534,15 @@ export class DataOpsHandler implements DomainHandler {
     const payload = parsed;
     // Deterministic ID from the message ID (see handleBackup).
     const rollbackOpId = msg.id;
+    // Follows the object in progress (see handleBackup).
+    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
       sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
-      sendOperationFailed(this.deps, rollbackOpId, message, false);
+      sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
       return;
     }
     this.activeOrgOperations.add(lockKey);
@@ -538,7 +557,13 @@ export class DataOpsHandler implements DomainHandler {
           msg,
           new Error(`Duplicate operation: ${rollbackOpId}`),
         );
-        sendOperationFailed(this.deps, rollbackOpId, `Duplicate operation: ${rollbackOpId}`, false);
+        sendOperationFailed(
+          this.deps,
+          rollbackOpId,
+          `Duplicate operation: ${rollbackOpId}`,
+          false,
+          { context: failure },
+        );
         return;
       }
       this.dmlTracker.register(rollbackOpId, 'rollback', 'upsert', 0);
@@ -602,7 +627,7 @@ export class DataOpsHandler implements DomainHandler {
         if (!confirmed) {
           const message = 'Operation cancelled by user (production confirmation declined).';
           sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
-          sendOperationFailed(this.deps, rollbackOpId, message, false);
+          sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
           return;
         }
       }
@@ -620,6 +645,7 @@ export class DataOpsHandler implements DomainHandler {
       for (let i = 0; i < backupMeta.objects.length; i++) {
         const obj = backupMeta.objects[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
+        failure.objectName = safeObj;
         const fromFile = (await this.backupRecords?.read(
           payload.operationId,
           obj.objectApiName,
@@ -646,7 +672,9 @@ export class DataOpsHandler implements DomainHandler {
             msg,
             new Error(crudCheck.reason),
           );
-          sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false);
+          sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false, {
+            context: failure,
+          });
           return;
         }
 
@@ -666,7 +694,7 @@ export class DataOpsHandler implements DomainHandler {
           const reason = `FLS violation on '${safeObj}': fields [${denied.join(', ')}] are not updateable.`;
           this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
           sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason));
-          sendOperationFailed(this.deps, rollbackOpId, reason, false);
+          sendOperationFailed(this.deps, rollbackOpId, reason, false, { context: failure });
           return;
         }
         // `Id` is the upsert match key, not a field being written.
@@ -684,6 +712,7 @@ export class DataOpsHandler implements DomainHandler {
 
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
+        failure.batchSize = batchSize;
         let successCount = 0;
         let failureCount = 0;
         for (let j = 0; j < records.length; j += batchSize) {
@@ -766,7 +795,9 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markFailed(rollbackOpId);
       // Dual channel, single display (see handleBackup).
       sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err);
-      sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true, {
+        context: failure,
+      });
     } finally {
       this.activeOrgOperations.delete(lockKey);
     }
@@ -778,6 +809,8 @@ export class DataOpsHandler implements DomainHandler {
     if (!parsed) return;
     const payload = parsed;
     const operationId = crypto.randomUUID();
+    // Follows the object in progress (see handleBackup).
+    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
     try {
       if (this.deps.infraServices?.productionGuard) {
@@ -810,7 +843,7 @@ export class DataOpsHandler implements DomainHandler {
             msg,
             new Error(message),
           );
-          sendOperationFailed(this.deps, operationId, message, false);
+          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
           return;
         }
       }
@@ -861,6 +894,7 @@ export class DataOpsHandler implements DomainHandler {
       for (let oi = 0; oi < objects.length; oi++) {
         const objectName = objects[oi];
         const safeObj = sanitizeSoqlObjectName(objectName);
+        failure.objectName = safeObj;
         const objectRules = template.rules.filter(
           (r) => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*',
         );
@@ -894,7 +928,7 @@ export class DataOpsHandler implements DomainHandler {
             msg,
             new Error(flsCheck.reason),
           );
-          sendOperationFailed(this.deps, operationId, flsCheck.reason, false);
+          sendOperationFailed(this.deps, operationId, flsCheck.reason, false, { context: failure });
           return;
         }
 
@@ -919,6 +953,7 @@ export class DataOpsHandler implements DomainHandler {
 
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
+        failure.batchSize = batchSize;
         let successCount = 0;
         let failureCount = 0;
         for (let bi = 0; bi < anonymized.length; bi += batchSize) {
@@ -982,7 +1017,9 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       // Dual channel, single display (see handleBackup).
       sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
     }
   }
 

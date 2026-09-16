@@ -21,6 +21,15 @@ import type {
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
 
+/**
+ * Metrics the built-in policies name, and the /limits key each one is read
+ * from. The raw keys are kept alongside for rules written against them.
+ */
+const DERIVED_LIMIT_METRICS: Readonly<Record<string, string>> = {
+  apiUsagePercent: 'DailyApiRequests',
+  storageUsagePercent: 'DataStorageMB',
+};
+
 /** Message types handled by GovernanceOpsHandler. */
 const GOVERNANCE_TYPES = new Set([
   'governance:policies:list',
@@ -215,12 +224,17 @@ export class GovernanceOpsHandler implements DomainHandler {
       for (const [key, { Max, Remaining }] of Object.entries(limitsRaw)) {
         metrics[key] = Max > 0 ? Math.round(((Max - Remaining) / Max) * 100) : 0;
       }
+      // The built-in policies name these metrics rather than the limit names;
+      // without them their API and storage rules read nothing and never failed.
+      for (const [metric, limit] of Object.entries(DERIVED_LIMIT_METRICS)) {
+        if (limit in metrics) metrics[metric] = metrics[limit];
+      }
 
       const result: GovernanceEvaluationResult = this.engine.evaluatePolicy(policy, metrics);
 
       if (this.alertEngine) {
         for (const ruleResult of result.ruleResults) {
-          if (ruleResult.status === 'fail') {
+          if (ruleResult.status === 'fail' && ruleResult.actualValue !== null) {
             this.alertEngine.evaluate(
               `governance:${ruleResult.ruleId}`,
               ruleResult.actualValue,

@@ -17,6 +17,7 @@ import type {
   DomainHandler,
   GrappeEventEnvelope,
   InboundRequest,
+  OperationFailureContext,
 } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -26,6 +27,7 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  objectsFailureContext,
   postGrappeEvent,
   readGrappeConfig,
   syntheticRequest,
@@ -644,6 +646,7 @@ export class SyncOpsHandler implements DomainHandler {
   ): Promise<void> {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
+    const failure: OperationFailureContext = { module: 'sync', operation: msg.type };
 
     try {
       // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
@@ -658,6 +661,7 @@ export class SyncOpsHandler implements DomainHandler {
           batchSize: o.batchSize ?? defaultBatchSize,
         })),
       } as unknown as import('@sandforge/shared').SyncConfig;
+      Object.assign(failure, objectsFailureContext(config.objects));
 
       // Production guard check on target org
       if (this.deps.infraServices?.productionGuard) {
@@ -682,7 +686,7 @@ export class SyncOpsHandler implements DomainHandler {
           sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
             code: 'PROD_CONFIRMATION_DECLINED',
           });
-          sendOperationFailed(this.deps, operationId, message, false);
+          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
           return;
         }
       }
@@ -697,7 +701,9 @@ export class SyncOpsHandler implements DomainHandler {
           msg,
           new Error(`Duplicate operation: ${operationId}`),
         );
-        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
+        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false, {
+          context: failure,
+        });
         return;
       }
       this.dmlTracker.register(operationId, 'sync', 'upsert', config.objects?.length ?? 0);
@@ -740,7 +746,9 @@ export class SyncOpsHandler implements DomainHandler {
       // in-flight mutation with the real message. The webview surfaces the
       // error from sync:error only, so the user sees it exactly once.
       sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
     }
   }
 
@@ -1070,7 +1078,9 @@ export class SyncOpsHandler implements DomainHandler {
       // the real message. Scheduled runs have no listener — the extra message
       // is simply ignored.
       sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: { module: 'sync', operation: msg.type, ...objectsFailureContext(config.objects) },
+      });
       // Failure-status result (instead of a rejection) so scheduled executions
       // can persist lastResult='failure' without an unhandled rejection in the
       // BackgroundOperationRegistry's monitored promise.

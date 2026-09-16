@@ -114,11 +114,11 @@ describe('GovernanceEngine', () => {
       expect(result.status).toBe('fail');
     });
 
-    it('should default to 0 when metric is missing', () => {
+    it('reads a metric of 0 as measured, not as missing', () => {
       const rule = createRule({
-        condition: { metric: 'unknown', operator: 'gt', threshold: -1 },
+        condition: { metric: 'apiUsagePercent', operator: 'gt', threshold: -1 },
       });
-      const result = engine.evaluateRule(rule, {});
+      const result = engine.evaluateRule(rule, { apiUsagePercent: 0 });
       expect(result.status).toBe('fail');
       expect(result.actualValue).toBe(0);
     });
@@ -172,9 +172,45 @@ describe('GovernanceEngine', () => {
     });
   });
 
+  describe('a rule whose metric has no reading', () => {
+    const mfaRule = createRule({
+      id: 'sec-mfa',
+      name: 'MFA Enabled',
+      condition: { metric: 'mfaEnabledPercent', operator: 'lt', threshold: 100 },
+      remediation: 'Enable MFA',
+    });
+
+    it('reads as not measured instead of failing on 0', () => {
+      const result = engine.evaluateRule(mfaRule, { apiUsagePercent: 50 });
+
+      expect(result.status).toBe('unknown');
+      expect(result.actualValue).toBeNull();
+      expect(result.remediation).toBe('');
+    });
+
+    it('leaves the compliance score and the remediation checklist unchanged', () => {
+      const measuredOnly = engine.evaluatePolicy(createPolicy({ rules: [createRule()] }), {
+        apiUsagePercent: 95,
+      });
+      const withMfa = engine.evaluatePolicy(createPolicy({ rules: [createRule(), mfaRule] }), {
+        apiUsagePercent: 95,
+      });
+
+      expect(withMfa.complianceScore).toBe(measuredOnly.complianceScore);
+      expect(withMfa.remediations).toEqual(measuredOnly.remediations);
+      expect(withMfa.remediations).not.toContain('Enable MFA');
+    });
+
+    it('gives no compliance score when no rule was measured', () => {
+      const result = engine.evaluatePolicy(createPolicy({ rules: [mfaRule] }), {});
+
+      expect(result.complianceScore).toBeNull();
+    });
+  });
+
   describe('computeComplianceScore', () => {
-    it('should return 100 for empty results', () => {
-      expect(GovernanceEngine.computeComplianceScore([])).toBe(100);
+    it('gives no score when there is no measured result', () => {
+      expect(GovernanceEngine.computeComplianceScore([])).toBeNull();
     });
 
     it('should return 100 when all pass', () => {

@@ -322,9 +322,6 @@ import type {
   EasterEggShowMessage,
 } from './settings.messages.js';
 import type {
-  CancelOperationRequest,
-  PauseOperationRequest,
-  ResumeOperationRequest,
   OperationStarted,
   OperationProgress,
   OperationCompleted,
@@ -542,9 +539,6 @@ export type WebViewToExtensionMessage =
   // i18n (lazy locale loading)
   | I18nLocaleRequest
   // Operation lifecycle
-  | CancelOperationRequest
-  | PauseOperationRequest
-  | ResumeOperationRequest
   | ExecutionAbortRequest
   // Bridge control
   | WorkbenchReloadRequest

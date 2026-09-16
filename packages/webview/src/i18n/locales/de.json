@@ -243,8 +243,8 @@
       "empty": "Zustandsdaten werden mit der Dashboard-Aktualisierung geladen",
       "apiLimits": "API-Limits",
       "storage": "Speicher",
-      "jobs": "Aktive Jobs",
-      "errors": "Aktuelle Fehler",
+      "failedJobs": "Fehlgeschlagene Jobs",
+      "recentErrorLogs": "Aktuelle Fehlerprotokolle",
       "lastChecked": "Zuletzt geprüft"
     },
     "fileStorage": "Dateispeicher",
@@ -561,6 +561,10 @@
     "nl2soqlNothingToCheck": "Dieser Entwurf fragt nur Werte aus verknüpften Datensätzen oder Summen ab, also hatte SandForge keinen eigenen Feldnamen zum Prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
     "graph": {
       "title": "Abhängigkeitsgraph"
+    },
+    "results": {
+      "aiFallback": "Die KI hat keine Werte geliefert, daher erhielten diese Felder generierte Sätze: {{fields}}. Die KI ist ausgeschaltet, oder der Aufruf wurde abgelehnt (das SandForge-Protokoll nennt den Grund).",
+      "aiFallbackShort": "In der Antwort der KI fehlten Werte, daher erhielten diese Felder generierte Sätze: {{fields}}."
     }
   },
   "sync": {
@@ -1975,6 +1979,7 @@
     "addPolicy": "Richtlinie hinzufügen",
     "evaluate": "Auswerten",
     "complianceScore": "Compliance-Wert",
+    "notMeasured": "Nicht gemessen",
     "policies": "Richtlinien",
     "noPolicies": "Keine Governance-Richtlinien konfiguriert. Fügen Sie eine Richtlinie hinzu, um zu beginnen.",
     "rules": "Regeln",

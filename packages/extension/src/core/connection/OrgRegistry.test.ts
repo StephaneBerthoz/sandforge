@@ -80,6 +80,64 @@ describe('OrgRegistry', () => {
       const stored = await registry.getCredentials('002');
       expect(stored).toEqual(creds);
     });
+
+    it('keeps the alias, colour, icon and tags the user edited when the same org is saved again', async () => {
+      const org = createTestOrg('003');
+      await registry.saveOrg(org);
+      registry.updateOrgMetadata({
+        ...org,
+        alias: 'Mine',
+        appearance: { color: '#123456', icon: 'star', position: 0 },
+        tags: ['qa'],
+      });
+
+      // What a CLI re-import or a reconnect builds: defaults for everything
+      // the user can edit, current values for everything Salesforce owns.
+      const reimported: SalesforceOrg = {
+        ...createTestOrg('003'),
+        instanceUrl: 'https://moved.my.salesforce.com',
+        status: 'expired',
+        orgType: 'Production',
+        safetyTier: OrgSafetyTier.CRITICAL,
+        metadata: { apiVersion: '62.0', edition: 'Enterprise', features: [] },
+        appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+      };
+      await registry.saveOrg(reimported, {
+        loginUrl: 'https://moved.my.salesforce.com',
+        accessToken: 'fresh',
+      });
+
+      for (const saved of [orgManager.getOrg('003'), configStore.get<SalesforceOrg>('org.003')]) {
+        expect(saved?.alias).toBe('Mine');
+        expect(saved?.appearance.color).toBe('#123456');
+        expect(saved?.appearance.icon).toBe('star');
+        expect(saved?.tags).toEqual(['qa']);
+        expect(saved?.instanceUrl).toBe('https://moved.my.salesforce.com');
+        expect(saved?.status).toBe('expired');
+        expect(saved?.orgType).toBe('Production');
+        expect(saved?.safetyTier).toBe(OrgSafetyTier.CRITICAL);
+        expect(saved?.metadata.edition).toBe('Enterprise');
+      }
+      expect((await registry.getCredentials('003'))?.accessToken).toBe('fresh');
+    });
+
+    it('takes the colour and tags from the incoming org when the stored entry has none', async () => {
+      // Entries written by older builds carry neither `appearance` nor `tags`,
+      // and nothing validates the shape on the way out of storage.
+      const legacy: Record<string, unknown> = { ...createTestOrg('004'), alias: 'Older' };
+      delete legacy.appearance;
+      delete legacy.tags;
+      configStore.set('org.004', legacy, 'orgs');
+
+      const incoming = createTestOrg('004');
+      await registry.saveOrg(incoming);
+
+      for (const saved of [orgManager.getOrg('004'), configStore.get<SalesforceOrg>('org.004')]) {
+        expect(saved?.alias).toBe('Older');
+        expect(saved?.appearance).toEqual(incoming.appearance);
+        expect(saved?.tags).toEqual([]);
+      }
+    });
   });
 
   describe('loadAll', () => {

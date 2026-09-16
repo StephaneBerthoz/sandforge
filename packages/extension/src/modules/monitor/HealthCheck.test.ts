@@ -80,6 +80,37 @@ describe('HealthCheck', () => {
       expect(result.storageStatus).toBe('critical');
     });
 
+    it('reports the failed jobs and error logs the signals counted, not the points they lost', async () => {
+      const providers: HealthSignalProvider[] = [
+        vi
+          .fn()
+          .mockResolvedValue(
+            createSignal({ name: 'activeJobs', score: 70, status: 'warning', count: 3 }),
+          ),
+        vi
+          .fn()
+          .mockResolvedValue(
+            createSignal({ name: 'recentErrors', score: 80, status: 'warning', count: 4 }),
+          ),
+      ];
+
+      const result = await new HealthCheck(providers).computeHealth('org-1');
+
+      expect(result.failedJobs).toBe(3);
+      expect(result.recentErrorLogs).toBe(4);
+    });
+
+    it('reports no count for a signal whose data could not be read', async () => {
+      const providers: HealthSignalProvider[] = [
+        vi.fn().mockResolvedValue(createSignal({ name: 'activeJobs', score: 100 })),
+      ];
+
+      const result = await new HealthCheck(providers).computeHealth('org-1');
+
+      expect(result.failedJobs).toBe(0);
+      expect(result.recentErrorLogs).toBe(0);
+    });
+
     it('should default to ok when signal is not provided', async () => {
       const providers: HealthSignalProvider[] = [
         vi.fn().mockResolvedValue(createSignal({ name: 'other', score: 100 })),

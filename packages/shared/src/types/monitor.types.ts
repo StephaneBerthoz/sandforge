@@ -145,8 +145,10 @@ export interface OrgHealthStatus {
   overall: 'healthy' | 'degraded' | 'critical';
   apiLimitsStatus: 'ok' | 'warning' | 'critical';
   storageStatus: 'ok' | 'warning' | 'critical';
-  activeJobs: number;
-  recentErrors: number;
+  /** Failed AsyncApexJob rows among those this refresh read; 0 when they could not be read. */
+  failedJobs: number;
+  /** Error ApexLog rows of the last 24 hours this refresh read; 0 when they could not be read. */
+  recentErrorLogs: number;
   lastChecked: ISODateString;
 }
 

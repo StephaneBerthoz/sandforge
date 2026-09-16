@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { PersonaMsg } from '@sandforge/shared';
+import { resolveFakerMethod } from '@sandforge/shared';
 
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useSeedFieldRules } from './useSeedFieldRules';
@@ -124,7 +125,10 @@ describe('useSeedFieldRules', () => {
       ruleType: 'faker',
       config: { fakerMethod: 'firstName', fakerLocale: 'fr' },
     });
-    expect(contact?.fields[1]).toMatchObject({ ruleType: 'faker', config: {} });
+    expect(contact?.fields[1]).toMatchObject({
+      ruleType: 'faker',
+      config: { fakerMethod: 'email' },
+    });
   });
 
   it('leaves the default rule on a field whose type a persona AI pattern cannot fill', () => {
@@ -155,8 +159,89 @@ describe('useSeedFieldRules', () => {
 
     expect(count).toBe(1);
     const [premium, , notes] = result.current.fieldConfigs[0].fields;
-    expect(premium).toMatchObject({ ruleType: 'faker', config: {} });
+    expect(premium).toMatchObject({ ruleType: 'faker', config: { fakerMethod: 'integer' } });
     expect(notes).toMatchObject({ ruleType: 'ai_generate', config: { aiPrompt: 'Claim notes' } });
+  });
+
+  it('gives each described field a rule the run accepts, with a faker method it generates', () => {
+    bridge.data = {
+      objectApiName: 'Contact',
+      objectLabel: 'Contact',
+      fields: [
+        { ...describedField('Title', 'string'), length: 80 },
+        describedField('Email', 'email'),
+        describedField('Phone', 'phone'),
+        describedField('Birthdate', 'date'),
+        describedField('Score__c', 'double'),
+        describedField('Active__c', 'boolean'),
+      ],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contact'], 1));
+
+    const [title, email, phone, birthdate, score, active] = result.current.fieldConfigs[0].fields;
+    for (const f of [title, email, phone, birthdate, score]) {
+      expect(f.ruleType).toBe('faker');
+      expect(resolveFakerMethod(String(f.config['fakerMethod']))).toBeDefined();
+    }
+    expect(title.config['maxLength']).toBe(80);
+    expect(active.ruleType).not.toBe('faker');
+  });
+
+  it('keeps the field length when a persona or a rule change replaces the config', () => {
+    bridge.data = {
+      objectApiName: 'Case',
+      objectLabel: 'Case',
+      fields: [{ ...describedField('Subject', 'string'), length: 80 }],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Case'], 1));
+
+    act(() => {
+      result.current.applyPersona({
+        ...ASSUREUR_FR,
+        dataPatterns: {
+          Subject: {
+            fieldType: 'string',
+            generator: 'ai_generate',
+            params: { prompt: 'Claim subject' },
+            examples: [],
+          },
+        },
+      });
+    });
+    expect(result.current.fieldConfigs[0].fields[0].config).toEqual({
+      aiPrompt: 'Claim subject',
+      maxLength: 80,
+    });
+
+    act(() => {
+      result.current.handleChangeFieldRule('Case', 'Subject', 'faker');
+    });
+    expect(result.current.fieldConfigs[0].fields[0].config).toEqual({
+      fakerMethod: 'sentence',
+      maxLength: 80,
+    });
+  });
+
+  it('restores the described picklist values when the rule comes back to a random pick', () => {
+    bridge.data = {
+      objectApiName: 'Contract__c',
+      objectLabel: 'Contract',
+      fields: [
+        { ...describedField('Contract_Type__c', 'picklist'), picklistValues: ['Auto', 'Sante'] },
+      ],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contract__c'], 1));
+
+    act(() => {
+      result.current.handleChangeFieldRule('Contract__c', 'Contract_Type__c', 'static');
+    });
+    act(() => {
+      result.current.handleChangeFieldRule('Contract__c', 'Contract_Type__c', 'picklist_random');
+    });
+
+    expect(result.current.fieldConfigs[0].fields[0].config).toEqual({
+      picklistValues: ['Auto', 'Sante'],
+    });
   });
 
   it('should initialize with empty field configs', () => {

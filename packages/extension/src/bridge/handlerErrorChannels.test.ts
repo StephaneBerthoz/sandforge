@@ -832,7 +832,7 @@ const unique = (xs: string[]): string[] => [...new Set(xs)].sort();
 // ── Probes ─────────────────────────────────────────────────────────────────
 
 const HEADER = `import type { BaseMessage } from '@sandforge/shared';
-import { validatePayload, operationIdPayloadSchema } from '../validatePayload.js';
+import { validatePayload, monitorOrgPayloadSchema } from '../validatePayload.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -924,7 +924,7 @@ export async function legitimate(deps: D, msg: InboundRequest & { payload?: unkn
   sendHandlerError(deps, 'c', 'sync:error', withPayload, err);
   sendHandlerError(deps, 'c', 'sync:error', msg, err, { code: 'X', retryable: true });
   deps.broker.postToWebview(buildResponse(deps, msg, 'ai:error', { message: 'not configured' }));
-  validatePayload(operationIdPayloadSchema, msg, 'org:error', deps);
+  validatePayload(monitorOrgPayloadSchema, msg, 'org:error', deps);
   const queue: InboundRequest[] = [msg];
   sendHandlerError(deps, 'c', 'sync:error', queue[0], err);
   sendHandlerError(deps, 'c', 'sync:error', structuredClone(msg), err);

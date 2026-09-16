@@ -65,6 +65,26 @@ describe('docs/getting-started.md', () => {
     expect(GETTING_STARTED).toContain('pnpm exec tsx');
     expect(GETTING_STARTED).toContain('pnpm build:shared');
   });
+
+  it('names SFDX Import as the way to add an org on another Salesforce cloud', () => {
+    // OAuth Web and Username/Password refuse any host outside the Salesforce
+    // login hosts, so an org on another cloud has exactly one way in.
+    const section = GETTING_STARTED.split('## Connect Your Org')[1]?.split('\n## ')[0] ?? '';
+    const paragraph = section.split('\n\n').find((p) => /another Salesforce cloud/.test(p));
+
+    expect(paragraph).toBeDefined();
+    expect(paragraph).toContain('sf org login web --instance-url');
+    expect(paragraph).toContain('SFDX Import');
+    for (const host of [
+      'login.salesforce.com',
+      'test.salesforce.com',
+      'force.com',
+      'cloudforce.com',
+    ]) {
+      expect(section).toContain(host);
+    }
+    expect(section).toMatch(/My Domain/);
+  });
 });
 
 describe('CONTRIBUTING.md', () => {

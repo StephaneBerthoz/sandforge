@@ -6,6 +6,8 @@ export interface HealthSignal {
   status: 'ok' | 'warning' | 'critical';
   score: number;
   message: string;
+  /** Rows the signal counted (failed jobs, error logs); absent when it read none. */
+  count?: number;
 }
 
 /** Function that produces a health signal for an org */
@@ -44,8 +46,10 @@ export class HealthCheck {
       overall,
       apiLimitsStatus: apiSignal?.status ?? 'ok',
       storageStatus: storageSignal?.status ?? 'ok',
-      activeJobs: jobsSignal ? Math.round(100 - jobsSignal.score) : 0,
-      recentErrors: errorsSignal ? Math.round(100 - errorsSignal.score) : 0,
+      // The counts the signals read, not the points they cost: the panel
+      // labels them as jobs and logs, and showed a score gap instead.
+      failedJobs: jobsSignal?.count ?? 0,
+      recentErrorLogs: errorsSignal?.count ?? 0,
       lastChecked: new Date().toISOString(),
     };
   }

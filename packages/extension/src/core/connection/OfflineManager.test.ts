@@ -124,10 +124,9 @@ describe('OfflineManager', () => {
       manager.enqueue(createOperation('op-pending'));
       manager.startProbing(10_000);
 
-      vi.advanceTimersByTime(30_000);
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      // Each tick's check answers before the next tick: a check still in
+      // flight is shared, not repeated.
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(probeCount).toBeGreaterThanOrEqual(3);
     });
@@ -300,6 +299,100 @@ describe('OfflineManager', () => {
 
       expect(probes).toBe(1);
       reloaded.dispose();
+    });
+
+    it('runs one connectivity check for a burst of operations queued in the same tick', async () => {
+      const probe = countingProbe(() => true);
+      const executor = vi.fn<OperationExecutor>().mockResolvedValue(undefined);
+      let drains = 0;
+      manager.onEvent((event) => {
+        if (event.type === 'queueDrained') drains++;
+      });
+      manager.setOperationExecutor(executor);
+      manager.startProbing(30_000);
+
+      for (let i = 0; i < 5; i++) {
+        manager.enqueue(createOperation(`op-burst-${i}`));
+      }
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(probe.count()).toBe(1);
+      expect(drains).toBe(1);
+      expect(executor).toHaveBeenCalledTimes(5);
+
+      // The shared check is released once it answers: the next one probes again.
+      await manager.checkConnectivity();
+      expect(probe.count()).toBe(2);
+    });
+
+    it('stops sharing a check whose probe never answers, and probes again afterwards', async () => {
+      let probes = 0;
+      manager.setProbeExecutor(() => {
+        probes++;
+        return new Promise<boolean>(() => undefined);
+      });
+
+      const firstCheck = manager.checkConnectivity();
+      await vi.advanceTimersByTimeAsync(9_000);
+      void manager.checkConnectivity();
+      expect(probes).toBe(1);
+
+      // Past the sharing deadline the caller gets the status as it stands.
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(firstCheck).resolves.toBe('online');
+
+      void manager.checkConnectivity();
+      expect(probes).toBe(2);
+    });
+  });
+
+  describe('replaying a queue recovered from an earlier session', () => {
+    /** A manager built over a store that still holds one queued operation. */
+    function bootWithQueuedOperation(): OfflineManager {
+      store.set(
+        'offline:queue',
+        [
+          {
+            id: 'op-recovered',
+            type: 'sync',
+            orgId: 'org-1',
+            payload: {},
+            queuedAt: new Date().toISOString(),
+            retryCount: 0,
+          },
+        ],
+        'offline-queue',
+      );
+      return new OfflineManager(store);
+    }
+
+    it.each([
+      ['the executor is wired before probing starts', ['executor', 'probing']],
+      ['probing starts before the executor is wired', ['probing', 'executor']],
+    ] as const)('waits for a check that finds the network up when %s', async (_label, order) => {
+      const booted = bootWithQueuedOperation();
+      let online = false;
+      booted.setProbeExecutor(async () => online);
+      // A replay into a network that is down fails, and a failed replay is
+      // dropped from the queue rather than kept.
+      const executor = vi.fn<OperationExecutor>(async () => {
+        if (!online) throw new Error('network down');
+      });
+      for (const step of order) {
+        if (step === 'executor') booted.setOperationExecutor(executor);
+        else booted.startProbing(30_000);
+      }
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(executor).not.toHaveBeenCalled();
+      expect(booted.getStatus()).toBe('offline');
+      expect(booted.getQueueSize()).toBe(1);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(booted.getQueueSize()).toBe(0);
+      booted.dispose();
     });
   });
 

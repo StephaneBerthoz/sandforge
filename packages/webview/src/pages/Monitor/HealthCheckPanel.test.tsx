@@ -11,8 +11,8 @@ function createHealthStatus(overrides: Partial<OrgHealthStatus> = {}): OrgHealth
     overall: 'healthy',
     apiLimitsStatus: 'ok',
     storageStatus: 'ok',
-    activeJobs: 0,
-    recentErrors: 0,
+    failedJobs: 0,
+    recentErrorLogs: 0,
     lastChecked: '2026-03-20T10:00:00Z',
     ...overrides,
   };
@@ -37,16 +37,18 @@ describe('HealthCheckPanel', () => {
     expect(screen.getByText('Degraded')).toBeDefined();
   });
 
-  it('shows error count and active jobs', () => {
+  it('shows the failed jobs and error logs the refresh counted, under count labels', () => {
     render(
       <HealthCheckPanel
         orgHealthStatus={createHealthStatus({
-          recentErrors: 5,
-          activeJobs: 3,
+          recentErrorLogs: 5,
+          failedJobs: 3,
         })}
       />,
     );
     expect(screen.getByTestId('health-check-panel')).toBeDefined();
+    expect(screen.getByText('Failed Jobs')).toBeDefined();
+    expect(screen.getByText('Recent Error Logs')).toBeDefined();
     expect(screen.getByText('5')).toBeDefined();
     expect(screen.getByText('3')).toBeDefined();
   });

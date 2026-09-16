@@ -15,15 +15,21 @@
  *      with an optional LIMIT cap.
  *   3. Bulk-delete the matched IDs via `conn.sobject(...).destroy(ids)`.
  *
+ * Runs from a checkout of the repository, at its root, after `pnpm install`
+ * and `pnpm build:shared`.
+ *
  * Usage:
- *   sandforge-cleanup --target <alias> [--since today|yesterday|N]
- *                     [--objects A,B,C] [--max <n>] [--dry-run]
+ *   pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+ *     --target <alias> [--since today|yesterday|last_n_days:N]
+ *     [--objects A,B,C] [--max <n>] [--dry-run]
  *
  * Example:
- *   sandforge-cleanup --target TARGET-DEV --since today --dry-run
+ *   pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+ *     --target TARGET-DEV --since today --dry-run
  */
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
 
 /** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
@@ -60,6 +66,8 @@ const DEFAULT_OBJECTS = [
 interface CliArgs {
   target: string;
   since: string;
+  /** `since` as the SOQL date literal it was validated into. */
+  sinceSoql: string;
   objects: string[];
   max: number;
   dryRun: boolean;
@@ -70,7 +78,10 @@ const HELP = `sandforge-cleanup — Bulk delete records you created on a sandbox
 narrow with --objects before deleting.
 
 Usage:
-  sandforge-cleanup --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --target <alias> [options]
+
+  Run from the repository root of a checkout, after pnpm install and
+  pnpm build:shared.
 
 Required:
   --target <alias>      sf CLI alias of the target sandbox
@@ -86,6 +97,17 @@ Options:
   -h, --help            Show this help.
 `;
 
+/** Refuse a bad flag: exit 2, the code both CLIs use for a command line they will not run. */
+function refuse(message: string): never {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+}
+
+/**
+ * Read and check every flag before anything leaves the machine. `--since` and
+ * `--max` used to be checked only after `sf org display` had handed over a
+ * session, and a bad alias or object name exited 1 like a failed delete.
+ */
 function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) {
@@ -99,9 +121,10 @@ function parseArgs(argv: string[]): CliArgs {
   const has = (flag: string): boolean => args.includes(flag);
 
   const target = get('--target');
-  if (!target) {
-    process.stderr.write('Missing --target. Run with --help.\n');
-    process.exit(2);
+  if (!target) refuse('Missing --target. Run with --help.');
+  // The alias reaches the sf command line, and everything below reaches SOQL.
+  if (!SF_ALIAS_RE.test(target)) {
+    refuse(`Invalid --target alias: ${target}. Letters/digits/_/-/. only.`);
   }
 
   const objectsCsv = get('--objects');
@@ -111,12 +134,34 @@ function parseArgs(argv: string[]): CliArgs {
         .map((s) => s.trim())
         .filter(Boolean)
     : DEFAULT_OBJECTS;
+  for (const obj of objects) {
+    try {
+      assertSoqlIdentifier(obj);
+    } catch {
+      refuse(`Invalid object name in --objects: ${obj}`);
+    }
+  }
+
+  const since = get('--since', 'today') ?? 'today';
+  let sinceSoql = '';
+  try {
+    sinceSoql = sinceClause(since);
+  } catch (err: unknown) {
+    refuse(err instanceof Error ? err.message : `Invalid --since: ${since}`);
+  }
+
+  const maxRaw = get('--max', '200') ?? '200';
+  const max = Number(maxRaw);
+  if (!Number.isInteger(max) || max <= 0) {
+    refuse(`Invalid --max: ${maxRaw}. Expected a whole number above 0.`);
+  }
 
   return {
     target,
-    since: get('--since', 'today') ?? 'today',
+    since,
+    sinceSoql,
     objects,
-    max: Number(get('--max', '200')),
+    max,
     dryRun: has('--dry-run'),
   };
 }
@@ -156,7 +201,7 @@ function loadOrg(alias: string): SfOrg {
   };
 }
 
-function makeConn(org: SfOrg): jsforce.Connection {
+function makeConn(org: SfOrg): Connection {
   return new jsforce.Connection({
     instanceUrl: org.instanceUrl,
     accessToken: org.accessToken,
@@ -184,26 +229,14 @@ function sinceClause(since: string): string {
   return since;
 }
 
-async function main(): Promise<void> {
+/** Run one cleanup from the given command line; exported so its flag checks can be tested. */
+export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
-  const args = parseArgs(process.argv);
+  const args = parseArgs(argv);
   console.log(
     `sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`,
   );
 
-  // Validate ALL CLI inputs that flow into SOQL or shell execution.
-  if (!SF_ALIAS_RE.test(args.target)) {
-    console.error(`Invalid --target alias: ${args.target}. Letters/digits/_/-/. only.`);
-    process.exit(1);
-  }
-  for (const obj of args.objects) {
-    try {
-      assertSoqlIdentifier(obj);
-    } catch {
-      console.error(`Invalid object name in --objects: ${obj}`);
-      process.exit(1);
-    }
-  }
   const org = loadOrg(args.target);
   const conn = makeConn(org);
   // sf CLI doesn't surface User.Id directly — query it via SOQL using the
@@ -225,12 +258,8 @@ async function main(): Promise<void> {
   }
   console.log(`user: ${org.username} (${userId})\n`);
 
-  const since = sinceClause(args.since);
-  const cap = Math.floor(args.max);
-  if (!Number.isFinite(cap) || cap <= 0) {
-    console.error(`Invalid --max: ${args.max}`);
-    process.exit(1);
-  }
+  const since = args.sinceSoql;
+  const cap = args.max;
   let totalDeleted = 0;
   let totalSkipped = 0;
 
@@ -271,7 +300,10 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((err) => {
-  console.error('FATAL:', err instanceof Error ? err.stack : err);
-  process.exit(1);
-});
+// Only when run as a script: importing the module must not start a cleanup.
+if (/sandforge-cleanup\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  main().catch((err) => {
+    console.error('FATAL:', err instanceof Error ? err.stack : err);
+    process.exit(1);
+  });
+}

@@ -1,19 +1,17 @@
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
-  sendNotification,
   sendOperationStarted,
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  type OperationFailureContext,
 } from './HandlerTypes.js';
-import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
 import type { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
 import {
   validatePayload,
   pipelineRunPayloadSchema,
   pipelineSavePayloadSchema,
-  operationIdPayloadSchema,
   marketplaceListPayloadSchema,
   marketplaceInstallPayloadSchema,
 } from '../validatePayload.js';
@@ -29,9 +27,6 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:list',
   'pipeline:history',
   'pipeline:save',
-  'operation:cancel',
-  'operation:pause',
-  'operation:resume',
   'marketplace:list',
   'marketplace:install',
 ]);
@@ -39,12 +34,9 @@ const AUTOMATION_TYPES = new Set([
 /**
  * Domain handler for automation and pipeline-related webview-to-extension messages.
  *
- * Manages pipeline execution (run/cancel/pause/resume), predefined templates,
- * and the pipeline marketplace.
+ * Manages pipeline execution, predefined templates, and the pipeline marketplace.
  */
 export class AutomationHandler implements DomainHandler {
-  private activeOrchestrators: Map<string, PipelineOrchestrator> = new Map();
-  private activeOperationIds: Map<string, string> = new Map();
   private pipelineMarketplace?: PipelineMarketplace;
 
   /** @param deps - Injected handler dependencies. */
@@ -80,15 +72,6 @@ export class AutomationHandler implements DomainHandler {
       case 'pipeline:save':
         this.handlePipelineSave(msg);
         return true;
-      case 'operation:cancel':
-        this.handleOperationCancel(msg);
-        return true;
-      case 'operation:pause':
-        this.handleOperationPause(msg);
-        return true;
-      case 'operation:resume':
-        this.handleOperationResume(msg);
-        return true;
       case 'marketplace:list':
         this.handleMarketplaceList(msg);
         return true;
@@ -106,6 +89,7 @@ export class AutomationHandler implements DomainHandler {
     if (!parsed) return;
     const payload = parsed;
     const operationId = crypto.randomUUID();
+    const failure: OperationFailureContext = { module: 'automation', operation: msg.type };
 
     try {
       const { PipelineBuilder } = await import('../../modules/automation/PipelineBuilder.js');
@@ -144,7 +128,6 @@ export class AutomationHandler implements DomainHandler {
         payload.pipeline as unknown as import('@sandforge/shared').PipelineDefinition;
       const variables = payload.variables ?? {};
 
-      this.activeOrchestrators.set(operationId, orchestrator);
       this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
       sendOperationStarted(this.deps, operationId, 'automation', `Pipeline: ${pipeline.name}`);
 
@@ -182,13 +165,12 @@ export class AutomationHandler implements DomainHandler {
         orchestrator.off?.('stepCompleted', stepCompletedListener);
       }
 
-      this.activeOperationIds.set(operationId, result.id);
-      this.activeOrchestrators.delete(operationId);
-      this.activeOperationIds.delete(operationId);
       this.deps.infraServices?.performanceTracker?.complete(operationId);
 
       if (result.status === 'failed') {
-        sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', false);
+        sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', false, {
+          context: failure,
+        });
       } else {
         sendOperationCompleted(this.deps, operationId, {
           status: result.status,
@@ -205,12 +187,12 @@ export class AutomationHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      this.activeOrchestrators.delete(operationId);
-      this.activeOperationIds.delete(operationId);
       // Single failure emission: `operation:failed` only (webview consumes it).
       const isTimeout = err instanceof TimeoutError;
       this.deps.log(`[ERR] pipeline:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout, {
+        context: failure,
+      });
     }
   }
 
@@ -221,75 +203,6 @@ export class AutomationHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] pipeline:templates:response`);
-  }
-
-  private handleOperationCancel(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
-
-    const orchestrator = this.activeOrchestrators.get(payload.operationId);
-    if (orchestrator) {
-      const runId = this.activeOperationIds.get(payload.operationId);
-      if (runId) {
-        orchestrator.cancel(runId);
-        sendNotification(this.deps, 'info', 'Operation', 'Operation cancelled.');
-      } else {
-        for (const run of orchestrator.getActiveRuns()) {
-          orchestrator.cancel(run.id);
-        }
-        sendNotification(this.deps, 'info', 'Operation', 'Operation cancelled.');
-      }
-    } else {
-      sendNotification(this.deps, 'warning', 'Operation', 'No active operation found to cancel.');
-    }
-  }
-
-  private handleOperationPause(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
-
-    const orchestrator = this.activeOrchestrators.get(payload.operationId);
-    if (orchestrator) {
-      const runId = this.activeOperationIds.get(payload.operationId);
-      if (runId) {
-        orchestrator.pause(runId);
-        sendNotification(this.deps, 'info', 'Operation', 'Operation paused.');
-      } else {
-        for (const run of orchestrator.getActiveRuns()) {
-          orchestrator.pause(run.id);
-        }
-        sendNotification(this.deps, 'info', 'Operation', 'Operation paused.');
-      }
-    } else {
-      sendNotification(this.deps, 'warning', 'Operation', 'No active operation found to pause.');
-    }
-  }
-
-  private handleOperationResume(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
-
-    const orchestrator = this.activeOrchestrators.get(payload.operationId);
-    if (orchestrator) {
-      const runId = this.activeOperationIds.get(payload.operationId);
-      if (runId) {
-        orchestrator.resume(runId);
-        sendNotification(this.deps, 'info', 'Operation', 'Operation resumed.');
-      } else {
-        for (const run of orchestrator.getActiveRuns()) {
-          orchestrator.resume(run.id);
-        }
-        sendNotification(this.deps, 'info', 'Operation', 'Operation resumed.');
-      }
-    } else {
-      sendNotification(this.deps, 'warning', 'Operation', 'No active operation found to resume.');
-    }
   }
 
   /**

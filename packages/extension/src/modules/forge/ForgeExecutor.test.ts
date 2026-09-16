@@ -1612,4 +1612,153 @@ describe('ForgeExecutor', () => {
       expect(historyCall![1]).toContain(`CaseId IN ('${ROOT_ID}')`);
     });
   });
+
+  describe('target createable check', () => {
+    type CreatableCheck = NonNullable<ForgeExecutorDeps['isObjectCreatable']>;
+
+    it('asks the target about every included object before the first insert', async () => {
+      const events: string[] = [];
+      let release: (creatable: boolean) => void = () => undefined;
+      const answer = new Promise<boolean>((resolve) => {
+        release = resolve;
+      });
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, objectName) => {
+        events.push(`check:${objectName}`);
+        return answer;
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName, records) => {
+        events.push(`insert:${objectName}`);
+        return records.map((_r, i) => ({
+          id: `001NEW${objectName}${i}`,
+          success: true,
+          errors: [],
+        }));
+      });
+      executor = new ForgeExecutor(deps);
+      const graph = makeGraph([makeNode('Account'), makeNode('Contact'), makeNode('Case')]);
+
+      const run = executor.execute(graph, 'src', 'tgt', onProgress);
+      // Every check is in flight while the first answer is still pending;
+      // awaited inside the node loop, only one would have been made.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(deps.isObjectCreatable).toHaveBeenCalledTimes(3);
+
+      release(true);
+      const summary = await run;
+
+      const firstInsert = events.findIndex((e) => e.startsWith('insert:'));
+      expect(firstInsert).toBeGreaterThan(-1);
+      expect(events.slice(0, firstInsert).sort()).toEqual([
+        'check:Account',
+        'check:Case',
+        'check:Contact',
+      ]);
+      expect(summary.successCount).toBe(6);
+    });
+
+    it('reports a check that failed and skips an object the target refuses', async () => {
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, objectName) => {
+        if (objectName === 'Contact') throw new Error('describe blocked');
+        return objectName !== 'Case';
+      });
+      executor = new ForgeExecutor(deps);
+      const graph = makeGraph([makeNode('Account'), makeNode('Contact'), makeNode('Case')]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Contact',
+          samples: [
+            {
+              recordSummary: '(target describe failed)',
+              messages: ['isObjectCreatable check failed: describe blocked'],
+            },
+          ],
+        }),
+      );
+      expect(summary.errors).toContainEqual(
+        expect.objectContaining({
+          objectApiName: 'Case',
+          samples: [
+            {
+              recordSummary: '(node-level skip)',
+              messages: ['Object is not createable on target org'],
+            },
+          ],
+        }),
+      );
+      // A failed check does not decide for the object: it is still attempted.
+      const inserted = vi.mocked(deps.insertRecords).mock.calls.map((c) => c[1]);
+      expect(inserted.sort()).toEqual(['Account', 'Contact']);
+      expect(summary.skippedCount).toBe(1);
+    });
+
+    it('keeps the describes it starts under the connection-pool cap', async () => {
+      const names = ['Account', 'Contact', 'Case', 'Lead', 'Opportunity', 'Task', 'Event', 'Asset'];
+      const asked: string[] = [];
+      let inFlight = 0;
+      let peak = 0;
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, objectName) => {
+        asked.push(objectName);
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        inFlight--;
+        return true;
+      });
+      executor = new ForgeExecutor(deps);
+
+      await executor.execute(
+        makeGraph(names.map((name) => makeNode(name))),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect([...asked].sort()).toEqual([...names].sort());
+      // All eight start before the loop, but never all at once: jsforce's
+      // connection pool and the org's per-IP cap would drop the surplus.
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(6);
+    });
+
+    it('stops asking once the run is aborted', async () => {
+      const names = ['Account', 'Contact', 'Case', 'Lead', 'Opportunity', 'Task', 'Event', 'Asset'];
+      deps.isObjectCreatable = vi.fn<CreatableCheck>(async (_orgId, _objectName) => {
+        executor.abort();
+        return true;
+      });
+      executor = new ForgeExecutor(deps);
+
+      await expect(
+        executor.execute(makeGraph(names.map((name) => makeNode(name))), 'src', 'tgt', onProgress),
+      ).rejects.toThrow(ForgeAbortedError);
+
+      // The wave in flight finishes, the next one is never started: without
+      // the guard the user waited for every describe of a graph that will not
+      // be executed.
+      expect(vi.mocked(deps.isObjectCreatable).mock.calls.length).toBeLessThan(names.length);
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+    });
+
+    it('asks nothing on a dry run or about an excluded object', async () => {
+      const check = vi.fn<CreatableCheck>().mockResolvedValue(true);
+      deps.isObjectCreatable = check;
+      executor = new ForgeExecutor(deps);
+
+      await executor.execute(makeGraph([makeNode('Account')]), 'src', 'tgt', onProgress, {
+        dryRun: true,
+      });
+      expect(check).not.toHaveBeenCalled();
+
+      await executor.execute(
+        makeGraph([makeNode('Account'), makeNode('Contact', { included: false })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+      expect(check.mock.calls).toEqual([['tgt', 'Account']]);
+    });
+  });
 });

@@ -240,8 +240,8 @@
       "empty": "ヘルスデータはダッシュボードの更新時に読み込まれます",
       "apiLimits": "API 制限",
       "storage": "ストレージ",
-      "jobs": "実行中のジョブ",
-      "errors": "最近のエラー",
+      "failedJobs": "失敗したジョブ",
+      "recentErrorLogs": "最近のエラーログ",
       "lastChecked": "最終確認"
     },
     "fileStorage": "ファイルストレージ",
@@ -558,6 +558,10 @@
     "nl2soqlNothingToCheck": "この下書きは関連レコードの値または合計のみを求めているため、SandForge に照合できる項目名がありませんでした。実行して動作するかご確認ください。",
     "graph": {
       "title": "依存関係グラフ"
+    },
+    "results": {
+      "aiFallback": "AI が値を返さなかったため、次のフィールドには生成された文が入りました: {{fields}}。AI がオフになっているか、呼び出しが拒否されました（理由は SandForge のログに記録されます）。",
+      "aiFallbackShort": "AI の応答に値が欠けていたため、次のフィールドには生成された文が入りました: {{fields}}。"
     }
   },
   "sync": {
@@ -1971,6 +1975,7 @@
     "addPolicy": "ポリシーを追加",
     "evaluate": "評価",
     "complianceScore": "コンプライアンススコア",
+    "notMeasured": "未測定",
     "policies": "ポリシー",
     "noPolicies": "ガバナンスポリシーが設定されていません。ポリシーを追加して始めましょう。",
     "rules": "ルール",

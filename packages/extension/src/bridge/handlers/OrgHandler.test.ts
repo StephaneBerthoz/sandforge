@@ -201,6 +201,29 @@ describe('OrgHandler', () => {
       expect(connectError()?.code).toBe('INVALID_LOGIN_URL');
     });
 
+    it('points a login host on another Salesforce cloud to SFDX Import', async () => {
+      const authenticate = vi.fn();
+      deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];
+
+      await handler.handle(
+        createMsg('org:connect', {
+          orgId: '',
+          authMethod: 'usernamePassword',
+          username: 'u@example.com',
+          password: 'secret',
+          loginUrl: 'https://x.my.salesforce.mil',
+        }),
+      );
+
+      expect(authenticate).not.toHaveBeenCalled();
+      const reply = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as { type: string; payload: { code?: string; message?: string } })
+        .find((m) => m.type === 'org:error');
+      expect(reply?.payload.code).toBe('INVALID_LOGIN_URL');
+      expect(reply?.payload.message).toMatch(/SFDX Import/);
+      expect(reply?.payload.message).toMatch(/sf org login web --instance-url/);
+    });
+
     it('sends username/password credentials to the origin of the login URL', async () => {
       const authenticate = vi.fn().mockResolvedValue({ success: false, error: 'bad password' });
       deps.authProvider = { authenticate } as unknown as HandlerDeps['authProvider'];
@@ -290,7 +313,9 @@ describe('OrgHandler', () => {
         delete: (key: string) => store.delete(key),
         getByCategory: () => Object.fromEntries(store),
       } as unknown as HandlerDeps['configStore'];
-      const secretVault = {} as HandlerDeps['secretVault'];
+      const secretVault = {
+        storeObject: vi.fn().mockResolvedValue(undefined),
+      } as unknown as HandlerDeps['secretVault'];
       const orgManager = new OrgManager();
       const orgRegistry = new OrgRegistry(configStore, secretVault, orgManager);
       configStore.set('org.org-1', SAVED, 'orgs');
@@ -355,6 +380,45 @@ describe('OrgHandler', () => {
       new OrgRegistry(deps.configStore, {} as HandlerDeps['secretVault'], reloaded).loadAll();
       expect(reloaded.getOrg('org-1' as UUID)?.alias).toBe('QA sandbox');
       expect(store.size).toBe(1);
+    });
+
+    it('keeps the edit when the org is imported again from the CLI', async () => {
+      registryHarness();
+      await handler.handle(
+        createMsg('org:update', {
+          orgId: 'org-1',
+          alias: 'QA sandbox',
+          color: '#F59E0B',
+          tags: ['qa'],
+        }),
+      );
+      // The CLI knows nothing of the edit: its org carries the defaults.
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        listOrgs: vi.fn().mockResolvedValue([
+          {
+            org: {
+              ...SAVED,
+              alias: 'dev@example.com',
+              instanceUrl: 'https://dev2.my.salesforce.com',
+              appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+              tags: [],
+            },
+            credentials: { loginUrl: 'https://dev2.my.salesforce.com', accessToken: 'tok' },
+          },
+        ]),
+      } as unknown as HandlerDeps['sfdxBridge'];
+
+      await handler.handle(createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
+
+      const list = posted()
+        .filter((m) => m.type === 'org:list:response')
+        .at(-1);
+      const [org] = list?.payload.orgs as SalesforceOrg[];
+      expect(org.alias).toBe('QA sandbox');
+      expect(org.appearance.color).toBe('#F59E0B');
+      expect(org.tags).toEqual(['qa']);
+      expect(org.instanceUrl).toBe('https://dev2.my.salesforce.com');
     });
 
     it('does not change the safety tier even when the payload names one', async () => {

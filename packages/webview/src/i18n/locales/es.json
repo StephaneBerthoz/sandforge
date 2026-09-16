@@ -243,8 +243,8 @@
       "empty": "Los datos de salud se cargan al actualizar el panel",
       "apiLimits": "Límites de API",
       "storage": "Almacenamiento",
-      "jobs": "Trabajos activos",
-      "errors": "Errores recientes",
+      "failedJobs": "Jobs fallidos",
+      "recentErrorLogs": "Registros de error recientes",
       "lastChecked": "Última comprobación"
     },
     "fileStorage": "Almacenamiento de archivos",
@@ -561,6 +561,10 @@
     "nl2soqlNothingToCheck": "Este borrador solo pide valores de registros relacionados o totales, así que SandForge no tenía ningún nombre de campo propio que comprobar. Ejecute la consulta para ver si funciona.",
     "graph": {
       "title": "Grafo de dependencias"
+    },
+    "results": {
+      "aiFallback": "La IA no devolvió ningún valor, así que estos campos recibieron frases generadas: {{fields}}. La IA está desactivada, o la llamada fue rechazada (el registro de SandForge indica el motivo).",
+      "aiFallbackShort": "A la respuesta de la IA le faltaban valores, así que estos campos recibieron frases generadas: {{fields}}."
     }
   },
   "sync": {
@@ -1975,6 +1979,7 @@
     "addPolicy": "Agregar política",
     "evaluate": "Evaluar",
     "complianceScore": "Puntaje de cumplimiento",
+    "notMeasured": "Sin medir",
     "policies": "Políticas",
     "noPolicies": "No hay políticas de gobernanza configuradas. Agregue una política para comenzar.",
     "rules": "reglas",

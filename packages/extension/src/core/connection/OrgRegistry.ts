@@ -93,10 +93,37 @@ export class OrgRegistry {
     }
   }
 
-  /** Persist org metadata and optional credentials. */
+  /**
+   * Persist org metadata and optional credentials.
+   *
+   * A CLI re-import and a reconnect build the org afresh, with a default
+   * alias, colour, icon and no tags. Saving that over a stored org used to
+   * wipe what the user set in the edit dialog. When the org is already
+   * stored, those four keep their stored values; everything Salesforce owns
+   * (status, instance URL, type, safety tier, metadata) is taken from the
+   * incoming org.
+   */
   async saveOrg(org: SalesforceOrg, credentials?: ConnectionConfig): Promise<void> {
-    this.configStore.set(`${ORG_KEY_PREFIX}${org.id}`, org, ORG_CATEGORY);
-    this.orgManager.addOrg(org);
+    const key = `${ORG_KEY_PREFIX}${org.id}`;
+    const stored = this.configStore.get<SalesforceOrg>(key);
+    // The stored entry is JSON parsed without a shape check, and entries
+    // written by older builds can be missing `appearance` or `tags`. Each
+    // borrowed field falls back to the incoming org so such an entry is
+    // overwritten rather than turning the save into a failure.
+    const merged: SalesforceOrg = stored
+      ? {
+          ...org,
+          alias: stored.alias ?? org.alias,
+          appearance: {
+            ...org.appearance,
+            color: stored.appearance?.color ?? org.appearance.color,
+            icon: stored.appearance?.icon ?? org.appearance.icon,
+          },
+          tags: stored.tags ?? org.tags,
+        }
+      : org;
+    this.configStore.set(key, merged, ORG_CATEGORY);
+    this.orgManager.addOrg(merged);
 
     if (credentials) {
       await this.secretVault.storeObject(`${CRED_KEY_PREFIX}${org.id}`, credentials);

@@ -104,7 +104,7 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
 
 The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`.
 
-CLI exit code is `1` when the run produced **only** failures and `0` otherwise; wire it as a CI gate. `sandforge-clone` exits `2` on a missing or invalid flag — a malformed record ID, an unknown `--depth`, a name that is not an API name — before either org is contacted.
+The clone's exit code is `1` when the run produced **only** failures and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, or a name that is not an API name. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
 
 ## Common errors and what they mean
 

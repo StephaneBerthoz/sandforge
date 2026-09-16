@@ -59,13 +59,28 @@ export class ExecutionHandler implements DomainHandler {
       // retry surface used. Both stay accepted by the schema.
       const operationId = parsed.operationId ?? parsed.executionId ?? '';
 
-      if (!this.registry.has(operationId)) {
+      const operation = this.registry.get(operationId);
+      if (!operation) {
         const response = buildResponse(this.deps, msg, 'execution:abort:response', {
           success: false,
           error: `Operation not found: ${operationId}`,
         });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id} (not found)`);
+        return;
+      }
+
+      // The registry keeps finished runs for the Live Ops list, so a Cancel
+      // clicked as a run ends still finds it. Answering success there told the
+      // user a run that had already completed was stopped.
+      if (operation.status !== 'running') {
+        const response = buildResponse(this.deps, msg, 'execution:abort:response', {
+          success: false,
+          error: 'Operation already finished',
+          status: operation.status,
+        });
+        this.deps.broker.postToWebview(response);
+        this.deps.log(`[TX] ${response.type} id=${response.id} (already ${operation.status})`);
         return;
       }
 

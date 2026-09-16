@@ -163,4 +163,84 @@ describe('useSeedExecution', () => {
       },
     ]);
   });
+
+  it('sends no lookup rule to an object the run does not seed', () => {
+    const configs: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Contact',
+        objectLabel: 'Contact',
+        fields: [
+          {
+            fieldApiName: 'OwnerId',
+            label: 'Owner',
+            type: 'reference',
+            required: false,
+            ruleType: 'reference',
+            config: { referenceObject: 'User', referenceField: 'Id' },
+          },
+          {
+            fieldApiName: 'AccountId',
+            label: 'Account',
+            type: 'reference',
+            required: false,
+            ruleType: 'reference',
+            config: { referenceObject: 'Account', referenceField: 'Id' },
+          },
+        ],
+      },
+    ];
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Account', 'Contact'],
+        { Contact: { count: 5, batchSize: 200 } },
+        configs,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    const contact = payload.template.objects.find((o) => o.objectApiName === 'Contact');
+    expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['AccountId']);
+  });
+
+  it('keeps a required lookup to an object the run does not seed', () => {
+    const configs: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Invoice_Line__c',
+        objectLabel: 'Invoice Line',
+        fields: [
+          {
+            fieldApiName: 'Invoice__c',
+            label: 'Invoice',
+            type: 'reference',
+            required: true,
+            ruleType: 'reference',
+            config: { referenceObject: 'Invoice__c', referenceField: 'Id' },
+          },
+        ],
+      },
+    ];
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Invoice_Line__c'],
+        { Invoice_Line__c: { count: 5, batchSize: 200 } },
+        configs,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    const line = payload.template.objects.find((o) => o.objectApiName === 'Invoice_Line__c');
+    expect(line?.fieldRules.map((r) => r.fieldApiName)).toEqual(['Invoice__c']);
+  });
 });

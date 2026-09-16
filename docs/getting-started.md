@@ -74,6 +74,10 @@ Top to bottom, the launcher gives you:
 3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically
 4. Once connected, your org appears as a card with its alias, type badge (PROD/SBX), and status dot
 
+OAuth Web and Username/Password log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
+
+An org on another Salesforce cloud (for example Government Cloud Plus, on `salesforce.mil`) is added in two steps: authenticate it with `sf org login web --instance-url <url>`, then click **SFDX Import**.
+
 > **Tip:** SandForge has a Production Guard that requires double confirmation for any operation targeting a Production org. Sandboxes and scratch orgs work without extra prompts.
 
 ---

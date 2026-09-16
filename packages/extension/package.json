@@ -369,9 +369,9 @@
   },
   "scripts": {
     "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --format=cjs --platform=node --sourcemap=external --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",
-    "typecheck": "tsc -p tsconfig.test.json",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
+    "lint": "eslint src/ cli/ tools/",
+    "lint:fix": "eslint src/ cli/ tools/ --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --exclude src/bridge/handlerErrorChannels.test.ts",
     "test:watch": "vitest",

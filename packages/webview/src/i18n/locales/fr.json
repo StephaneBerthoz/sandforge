@@ -243,8 +243,8 @@
       "empty": "Les données de santé se chargent avec le rafraîchissement du tableau de bord",
       "apiLimits": "Limites d'API",
       "storage": "Stockage",
-      "jobs": "Jobs actifs",
-      "errors": "Erreurs récentes",
+      "failedJobs": "Jobs en échec",
+      "recentErrorLogs": "Journaux d'erreur récents",
       "lastChecked": "Dernière vérification"
     },
     "fileStorage": "Stockage de fichiers",
@@ -561,6 +561,10 @@
     "nl2soqlNothingToCheck": "Ce brouillon ne demande que des valeurs d'enregistrements liés ou des totaux : SandForge n'avait donc aucun nom de champ à vérifier. Lancez la requête pour savoir si elle fonctionne.",
     "graph": {
       "title": "Graphe de dépendances"
+    },
+    "results": {
+      "aiFallback": "L'IA n'a renvoyé aucune valeur, ces champs ont donc reçu des phrases générées : {{fields}}. L'IA est désactivée, ou l'appel a été refusé (le journal SandForge en donne la raison).",
+      "aiFallbackShort": "La réponse de l'IA omettait des valeurs, ces champs ont donc reçu des phrases générées : {{fields}}."
     }
   },
   "sync": {
@@ -1975,6 +1979,7 @@
     "addPolicy": "Ajouter une politique",
     "evaluate": "Évaluer",
     "complianceScore": "Score de conformité",
+    "notMeasured": "Non mesuré",
     "policies": "Politiques",
     "noPolicies": "Aucune politique de gouvernance configurée. Ajoutez une politique pour commencer.",
     "rules": "règles",

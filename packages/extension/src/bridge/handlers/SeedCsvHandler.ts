@@ -1,6 +1,11 @@
 import type { CsvValidationResult, RobustnessConfig } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  InboundRequest,
+  OperationFailureContext,
+} from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
@@ -127,6 +132,11 @@ export class SeedCsvHandler implements DomainHandler {
     const parsed = validatePayload(seedCsvPayloadSchema, msg, 'seed:csv:error', this.deps);
     if (!parsed) return;
     const operationId = msg.id;
+    const failure: OperationFailureContext = {
+      module: 'seed',
+      operation: msg.type,
+      objectName: parsed.objectApiName,
+    };
 
     // A throwaway `new AbortController()` was handed to BulkDataWriter, so its
     // signal could never fire and the import was never registered —
@@ -168,6 +178,7 @@ export class SeedCsvHandler implements DomainHandler {
             operationId,
             'Operation cancelled by user (production confirmation declined).',
             false,
+            { context: failure },
           );
           return;
         }
@@ -189,6 +200,7 @@ export class SeedCsvHandler implements DomainHandler {
       const robustnessConfig = this.getRobustnessConfig();
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
+      failure.batchSize = defaultBatchSize;
       const writer = new BulkDataWriter({
         connection: conn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
@@ -250,7 +262,9 @@ export class SeedCsvHandler implements DomainHandler {
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       this.deps.log(`[ERR] seed:csv:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+        context: failure,
+      });
       settle(err);
     }
   }

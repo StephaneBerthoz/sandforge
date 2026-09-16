@@ -1,11 +1,41 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { FieldRuleType, PersonaMsg, PersonaFieldPatternMsg } from '@sandforge/shared';
-import { acceptsGeneratedSentence, personaPatternToFieldRule } from '@sandforge/shared';
+import {
+  acceptsGeneratedSentence,
+  defaultFakerMethod,
+  describedFieldRule,
+  personaPatternToFieldRule,
+} from '@sandforge/shared';
 
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import type { ObjectFieldConfig, FieldConfig } from './Step3_ConfigureFields';
+
+/**
+ * The field length the described rule carries, kept when a persona or a rule
+ * change replaces the rest of the config: without it a generated value is not
+ * cut to the field and the insert fails with STRING_TOO_LONG.
+ */
+function lengthOf(field: FieldConfig): { maxLength?: number } {
+  const maxLength = field.config['maxLength'];
+  return typeof maxLength === 'number' ? { maxLength } : {};
+}
+
+/**
+ * The config a field starts with under a newly chosen rule type. A faker rule
+ * names its default method: SeedValidator refuses one that names none.
+ */
+function configForRuleType(field: FieldConfig, ruleType: FieldRuleType): Record<string, unknown> {
+  // A random pick names the values it picks from, as the described rule did:
+  // SeedValidator refuses one that names none.
+  if (ruleType === 'picklist_random' && (field.picklistValues?.length ?? 0) > 0) {
+    return { picklistValues: [...(field.picklistValues ?? [])], ...lengthOf(field) };
+  }
+  const fakerMethod =
+    ruleType === 'faker' ? defaultFakerMethod(field.type, field.fieldApiName) : undefined;
+  return fakerMethod ? { fakerMethod, ...lengthOf(field) } : { ...lengthOf(field) };
+}
 
 /**
  * Give every field a persona has a pattern for the rule that pattern
@@ -31,7 +61,7 @@ function applyPersonaToFields(
     if (rule.ruleType === 'ai_generate' && !acceptsGeneratedSentence(field.type)) return field;
 
     matched++;
-    return { ...field, ruleType: rule.ruleType, config: { ...rule.config } };
+    return { ...field, ruleType: rule.ruleType, config: { ...rule.config, ...lengthOf(field) } };
   });
   return { fields: next, matched };
 }
@@ -106,24 +136,18 @@ export function useSeedFieldRules(
   useEffect(() => {
     if (!describeFieldsMutation.data) return;
     const { objectApiName, objectLabel, fields } = describeFieldsMutation.data;
-    const describedFields = fields.map(
-      (f: DescribedField): FieldConfig => ({
+    const describedFields = fields.map((f: DescribedField): FieldConfig => {
+      const rule = describedFieldRule(f);
+      return {
         fieldApiName: f.fieldApiName,
         label: f.label,
         type: f.type,
         required: f.required,
-        ruleType:
-          f.referenceTo.length > 0
-            ? 'reference'
-            : f.type === 'picklist'
-              ? 'picklist_random'
-              : 'faker',
-        config:
-          f.referenceTo.length > 0
-            ? { referenceObject: f.referenceTo[0], referenceField: 'Id' }
-            : {},
-      }),
-    );
+        ruleType: rule.ruleType,
+        config: { ...rule.config },
+        ...(f.picklistValues.length > 0 ? { picklistValues: [...f.picklistValues] } : {}),
+      };
+    });
     // Objects are described one at a time, and the wizard applies a persona
     // once per persona: an object whose describe arrived after that got none
     // of its rules. The selected persona now shapes each object as it arrives.
@@ -169,7 +193,9 @@ export function useSeedFieldRules(
             ? {
                 ...obj,
                 fields: obj.fields.map((f) =>
-                  f.fieldApiName === fieldApiName ? { ...f, ruleType, config: {} } : f,
+                  f.fieldApiName === fieldApiName
+                    ? { ...f, ruleType, config: configForRuleType(f, ruleType) }
+                    : f,
                 ),
               }
             : obj,

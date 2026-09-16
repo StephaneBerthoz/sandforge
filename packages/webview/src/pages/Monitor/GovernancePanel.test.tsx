@@ -185,6 +185,24 @@ describe('GovernancePanel', () => {
     expect(screen.getByText('85%')).toBeTruthy();
   });
 
+  it('says the score is not measured when no rule of the policy was', () => {
+    render(<GovernancePanel complianceScore={null} />);
+    expect(screen.getByTestId('compliance-score').textContent).toContain('Not measured');
+  });
+
+  it('shows a rule with no reading as not measured, after the measured rules', () => {
+    const results = [
+      makeRuleResult({ ruleId: 'mfa', status: 'unknown', actualValue: null }),
+      makeRuleResult({ ruleId: 'api', status: 'pass', ruleName: 'API Usage' }),
+    ];
+    render(<GovernancePanel ruleResults={results} />);
+
+    const row = screen.getByTestId('rule-result-mfa');
+    expect(row.textContent).toContain('Not measured');
+    const ids = screen.getAllByTestId(/^rule-result-/).map((el) => el.getAttribute('data-testid'));
+    expect(ids).toEqual(['rule-result-api', 'rule-result-mfa']);
+  });
+
   it('renders rule results', () => {
     const results = [
       makeRuleResult({ ruleId: 'r1', status: 'pass' }),

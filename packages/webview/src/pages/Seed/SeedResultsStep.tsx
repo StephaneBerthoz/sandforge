@@ -68,9 +68,23 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                   </Badge>
                 }
               />
-              {obj.errors.length > 0 && (
+              {(obj.errors.length > 0 || obj.aiFallback) && (
                 <CardBody>
                   <div className="flex flex-col gap-1">
+                    {obj.aiFallback && (
+                      <p
+                        className="text-[10px] text-status-warning"
+                        data-testid="seed-result-ai-fallback"
+                      >
+                        {obj.aiFallback.reason === 'no-answer'
+                          ? t('seed.results.aiFallback', {
+                              fields: obj.aiFallback.fields.join(', '),
+                            })
+                          : t('seed.results.aiFallbackShort', {
+                              fields: obj.aiFallback.fields.join(', '),
+                            })}
+                      </p>
+                    )}
                     {obj.errors.map((err, i) => (
                       <p key={i} className="text-[10px] text-[var(--sf-error)]">
                         {err}

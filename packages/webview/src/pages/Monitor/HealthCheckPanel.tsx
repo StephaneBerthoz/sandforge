@@ -10,8 +10,8 @@ export interface OrgHealthStatus {
   overall: 'healthy' | 'degraded' | 'critical';
   apiLimitsStatus: 'ok' | 'warning' | 'critical';
   storageStatus: 'ok' | 'warning' | 'critical';
-  activeJobs: number;
-  recentErrors: number;
+  failedJobs: number;
+  recentErrorLogs: number;
   lastChecked: string;
 }
 
@@ -131,26 +131,26 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
             </Badge>
           </div>
 
-          {/* Active Jobs */}
+          {/* Failed Jobs */}
           <div className="flex flex-col gap-1">
             <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
-              {t('monitor.healthCheck.jobs', 'Active Jobs')}
+              {t('monitor.healthCheck.failedJobs', 'Failed Jobs')}
             </span>
             <span className="text-sm font-semibold tabular-nums text-text-primary">
-              {orgHealthStatus.activeJobs}
+              {orgHealthStatus.failedJobs}
             </span>
           </div>
 
-          {/* Recent Errors */}
+          {/* Recent Error Logs */}
           <div className="flex flex-col gap-1">
             <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
-              {t('monitor.healthCheck.errors', 'Recent Errors')}
+              {t('monitor.healthCheck.recentErrorLogs', 'Recent Error Logs')}
             </span>
-            {orgHealthStatus.recentErrors > 0 ? (
-              <Badge variant="error">{orgHealthStatus.recentErrors}</Badge>
+            {orgHealthStatus.recentErrorLogs > 0 ? (
+              <Badge variant="error">{orgHealthStatus.recentErrorLogs}</Badge>
             ) : (
               <span className="text-sm font-semibold tabular-nums text-text-primary">
-                {orgHealthStatus.recentErrors}
+                {orgHealthStatus.recentErrorLogs}
               </span>
             )}
           </div>

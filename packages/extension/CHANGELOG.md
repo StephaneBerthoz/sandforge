@@ -66,6 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the run goes ahead untranslated, and Abort while it waits refuses the run at
   once. The command-line clone and the recipe tool match within the object as
   well.
+- **The command-line clone reads master-detail relationships like the wizard.**
+  The clone script and the Grappe recipe tool dropped the cascade-on-delete flag
+  from the fields they read, so a master-detail an object declares on its own
+  field was recorded as a lookup: where the pair was not also seen from the
+  parent's side, the edge stayed a lookup and a cycle held together by such
+  fields was planned as a lookup to null out. Both now mark a field that
+  cascades on delete as master-detail, as the extension's own describe adapter
+  does: the master-detail edge wins for an object pair, and a cycle with no
+  lookup in it is planned as two passes.
 - **A Forge SOQL query's WHERE clause now filters the object after FROM.** Forge
   read only the object name and dropped the clause, so `SELECT Id FROM Account
 WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
@@ -123,6 +132,22 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   addresses, catch phrases, product descriptions and near-future dates are now
   generated, the validator refuses any other method and names the object and
   field, and the wizard offers a list of methods instead of a free-text box.
+- **A seed configured in the wizard reaches the org unless a field it cannot
+  fill needs you.** The wizard gave every described text, number and date field
+  a Faker rule with no method, and every picklist a random pick with no values,
+  so the run refused the template with "Faker rule requires a fakerMethod"
+  before writing anything. Each field now opens on a rule the run accepts: a
+  Faker method read from the field's type and name — an email address on an
+  email field, a person's name on a Name field, a sentence otherwise — a random
+  pick among the picklist's own values, an unchecked checkbox, and, on a type no
+  generator fits such as a multi-select picklist or a time field, a fixed value
+  left empty, which a required field still has to be given before the run.
+  Switching a picklist field to another rule type and back restores its values
+  instead of leaving the run to refuse an empty pick. An optional lookup
+  pointing at an object the run does not seed, such as an owner, is left out of
+  the run and defaulted by the org instead of failing the whole template; a
+  required one is still sent, so the run is refused before it writes anything
+  and names the object the lookup points at.
 - **A persona applies to every object you seed.** Objects are described one at
   a time, but a persona was applied once: every object whose description
   arrived afterwards kept its default rules, with no warning. Each object now
@@ -135,9 +160,17 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   the wizard offers AI generation only on text and long text fields, a wizard
   run that sets it on a number, currency, date, checkbox, email or picklist
   field is refused before the first insert, and personas no longer set it on
-  such fields. The sentence is not cut to the field's length, so a short text
-  field can still refuse it, and the results step does not say that the AI
-  values were replaced.
+  such fields. The results step now names, object by object, the fields that
+  received a sentence, and says whether the AI answered nothing — it is off, or
+  the call was refused — or answered with values missing; a partitioned run
+  reports it too.
+- **A generated value fits the field it is written to.** A sentence written by
+  the generator or by AI was inserted whole, so a 40-character text field met it
+  with STRING_TOO_LONG and the record failed. The wizard now carries each
+  described field's length into its rule, and keeps it when a persona or a
+  change of rule type rewrites the rest of that rule; a value longer than the
+  field is cut to it, at the last word boundary inside the limit when there is
+  one and hard otherwise. A rule that carries no length is left as it is.
 - **A persona written by AI keeps only what Seed can generate.** The model was
   shown `"params": { "...": "..." }` and had to guess, and whatever it wrote
   was stored: an unknown Faker method stopped the run later, and a minimum
@@ -228,7 +261,12 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   when any of its codes has an entry: only the first code was read, so an
   unknown first code sent the message to the model even when a later one had a
   curated answer. The prompt no longer tells the model "Module: unknown" and
-  "Operation: unknown": lines the extension cannot fill are left out.
+  "Operation: unknown": it now carries the module the failed run belongs to, the
+  request that started it, the object it was on — every object of the run when
+  the failure names none — and the batch size the records were written with,
+  while a line the handler cannot fill is left out. The answer is still
+  remembered by error code and message, so the same failure raised by two runs
+  is still asked about once.
 - **An AI pipeline draft wrapped in a markdown fence loads its steps, and a
   draft with no step is refused with a reason.** The pipeline reader parsed the
   model's raw reply, so JSON inside a `json` code fence read as no JSON and came
@@ -266,13 +304,43 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   time-to-limit still read the last day, since most of these limits reset
   daily, and the health score takes a trend penalty for the charted limits
   only.
+- **Governance rules are measured, or they say they are not.** Evaluation keyed
+  the org's `/limits` answer by limit name only, while the built-in policies
+  name metrics such as `apiUsagePercent` or `mfaEnabledPercent`: those read 0,
+  so on every org the MFA, password and code-coverage rules failed and the API
+  and storage rules passed, and none of it said anything about the org. API and
+  storage usage are now read from `DailyApiRequests` and `DataStorageMB`, and a
+  rule whose metric the org gives no reading for is shown as not measured, in
+  six languages, left out of the compliance score and of the remediation
+  checklist, and raising no alert. A policy where nothing could be measured
+  shows no score at all. Nothing is read yet about multi-factor authentication,
+  password policy strength or Apex code coverage, so those rules report as not
+  measured.
+- **Org Health Check shows counts under its count labels.** Active Jobs and
+  Recent Errors showed the points those two signals had lost — 30 for three
+  failed jobs — and the error figure was whatever the Error Logs panel had last
+  read, which a dashboard refresh never renewed. The two figures are now Failed
+  Jobs and Recent Error Logs: the failed `AsyncApexJob` rows and the error
+  `ApexLog` rows of the last 24 hours that this refresh read itself, up to 50,
+  each shown as 0 when its rows cannot be read. The formula behind the health
+  badge is unchanged, but its input is not: the error signal now scores the logs
+  the refresh read itself, so an org whose error logs had never been loaded
+  showed a healthy badge and can now show a degraded one. Reading them costs one
+  `ApexLog` query per refresh, on top of the one the Error Logs panel makes for
+  itself.
 - **Live Operations cancels what it lists, and offers pause nowhere.** The
   panel lists Seed and Sync runs, but Cancel, Pause and Resume went to a
   handler that only knows pipeline runs, so every click ended in "No active
   operation found". Cancel now stops the run, scheduled syncs included, a
   notification says when it could not, and the list is read again after a
   cancel and on every refresh. Neither run can be paused, so the panel no
-  longer offers to.
+  longer offers to. A Cancel clicked as a run ends is now refused rather than
+  claimed: the panel holds a snapshot of the list and the registry keeps
+  finished runs, so the click found one, answered that a run which had already
+  completed was stopped, and relabelled it aborted. A run that is no longer
+  running is left exactly as it ended — same outcome, same end time, no new
+  event — and the answer says it had already finished, which the panel shows as
+  a refused cancel.
 - **An acknowledged alert shows as acknowledged in the history too.** The
   alerts panel, the alert history and the alerts count each asked for the same
   list, and an acknowledge or dismiss refreshed only the panel that sent it.
@@ -293,15 +361,45 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   answers with the saved list; the card changes when that answer arrives, and a
   refused edit is shown in the page banner. The safety tier select is gone: the
   production guard decides from the org type and never read it, and the pick was
-  not saved either, so it looked like a safety control and did nothing.
+  not saved either, so it looked like a safety control and did nothing. Those
+  edits also survive a CLI re-import and a reconnect, which rebuild the org from
+  what Salesforce returns — default alias, default colour, no tags — and used to
+  replace the stored entry: an org renamed "QA sandbox" and coloured amber came
+  back as `dev@example.com` in blue. Saving an org that is already known now
+  keeps the alias, colour, icon and tags it was given, and takes everything
+  Salesforce owns — status, instance URL, org type, safety tier and metadata —
+  from the incoming org, so a sandbox that moved instance is still recorded at
+  its new URL. The alias set in SandForge wins over the one the Salesforce CLI
+  reports, so an alias changed with `sf alias set` no longer shows up here:
+  rename the org from the edit dialog.
 - **One org that never answers no longer holds up the others at startup.**
   Startup validation checked orgs one after another with no bound, so an
   identity call to an instance that accepted the connection and never replied
   kept the sweep waiting, and the orgs after it were never checked. Each
   identity check now gives up after 20 seconds and counts as a failure for that
-  org's circuit breaker, the two `sf` calls that refresh a session token are
-  stopped after 30 seconds (on Windows, the shell that runs them), and the sweep
-  moves on after 45 seconds per org and marks the silent one as an error.
+  org's circuit breaker, every `sf` call that refreshes a session token is
+  stopped after 30 seconds, and the sweep moves on after 45 seconds per org and
+  marks the silent one as an error. An org whose check succeeds after that
+  deadline is set back to connected, so a slow link no longer leaves it in error
+  for the rest of the session; a late failure, or a status something else has
+  changed in the meantime, is left alone.
+- **A Salesforce CLI that never answers no longer holds the caller forever.**
+  The 30-second timeout on an `sf` call kills the process the extension started.
+  On Windows that is the shell, and when `sf`'s own child keeps the output pipe
+  open the call never came back: a sync asking for a connection waited with no
+  end. Each `sf` run of the token refresh now has an outer deadline two seconds
+  past that timeout, after which the caller is told the CLI did not answer
+  within 30 seconds, and on Windows the whole process tree is killed. A run that
+  overran is not repeated for the reads that follow it.
+- **Operations recovered from a previous session are replayed only once the
+  network answers.** A queue reloaded at startup was drained against the status
+  the window opened with, which is simply online until something checks. With
+  the network actually down, each recovered operation was replayed, failed and
+  was dropped rather than kept. The replay now waits for a connectivity check:
+  while the check says offline the operations stay queued and the probe keeps
+  running, and they go out when it finds the network up. With no probe wired, or
+  probing turned off, there is nothing to check with and the queue is drained as
+  before.
 - **Open Org in Browser works from the Command Palette.** The command needed an
   org id the palette cannot pass, so it was hidden there and the launcher
   dropdown was the only way in. Run without one, it now lists the registered
@@ -315,12 +413,24 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   imports and frozen-dataset runs now receive their abort signal, and a state
   update scheduled during shutdown is cancelled instead of being posted to a
   bridge that is already gone.
-- **`sandforge-clone` refuses a bad flag before it contacts an org.**
-  `--depth deep` was cast straight into the depth type, and a malformed record
-  Id or API name was refused only after both orgs had been authenticated. The
-  flags now go through the schema the wizard uses, and a bad one exits with
-  code 2 before `sf org display` runs. `--owner-map` crashed on every use,
-  because the Id pattern it checked against was never defined; it now works.
+- **The Forge command-line scripts refuse a bad flag before they contact an
+  org.** In `sandforge-clone`, `--depth deep` was cast straight into the depth
+  type, and a malformed record Id or API name was refused only after both orgs
+  had been authenticated. The flags now go through the schema the wizard uses,
+  and a bad one exits with code 2 before `sf org display` runs. `--owner-map`
+  crashed on every use, because the Id pattern it checked against was never
+  defined; it now works. `sandforge-cleanup` read `--since` and `--max` only
+  after `sf org display` had handed over a session, so a `--since` carrying an
+  extra SOQL clause, a `last_n_days:0` or a `--max` that was not a number was
+  discovered with an authenticated connection already open, and a bad alias or
+  object name exited 1, the code the script keeps for a fatal error, rather than
+  the 2 that means a command line it will not run. Every flag is now read and
+  checked first — the alias, the object names, `--since` against the forms it
+  accepts and `--max` as a whole number above 0 — and a bad one writes the
+  reason to stderr and exits 2 with no org contacted. The cleanup script and the
+  Grappe recipe tool beside it no longer run when they are merely imported, as
+  the clone script already did not: each starts a run only when it is the script
+  that was invoked.
 - **The in-app Help stops teaching a sync rollback, an API-timeout setting
   and four other features that do not exist.** In all six languages it taught
   a sync rollback nothing reads, an API-timeout setting the manifest never
@@ -491,7 +601,16 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   the same object three times or more per org. They now share one describe per
   org and object, kept five minutes like discovery's, and a caller that arrives
   while it is under way waits for it instead of sending another. A field added
-  on the target within those five minutes is seen once they have passed.
+  on the target within those five minutes is seen once they have passed. The
+  check that the target accepts inserts on an object has also left the run loop,
+  where each answer was awaited before the next object was written: the checks
+  now go out ahead of the loop, six at a time — the ceiling graph discovery
+  already uses to stay inside the connection pool and the org's per-IP limit,
+  now one constant both read — and the run reads the answers as it goes. Abort
+  stops them at the end of the wave in flight. What happens with an answer is
+  unchanged: an object the target refuses is skipped and reported, and a check
+  that fails is surfaced as a per-object error while the object is still
+  attempted.
 - **The AI tab on the Forge page is marked coming soon and cannot be opened.**
   It took a prompt and enabled Discover, then discovery stopped with "Cannot
   resolve root object": nothing turns a prompt into a Forge run. The tab is now
@@ -524,7 +643,10 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   network down. An operation queued while the network was last seen up gets one
   check straight away: if the network turns out to be down, the operation stays
   queued and is replayed when the network comes back, instead of being retried
-  at once and failing.
+  at once and failing. A burst of operations queued in the same moment shares
+  that one check instead of sending a probe request each, and the sharing is
+  dropped after 10 seconds, so a probe that hangs costs one check rather than
+  every check for the rest of the session.
 - **Telemetry log records are readable in the SandForge output channel.** They
   reached the channel as raw JSON lines. They are now written as `[time] [LEVEL]
 message`, followed by their extra fields, in the same layout as the channel's
@@ -541,17 +663,23 @@ message`, followed by their extra fields, in the same layout as the channel's
   release two bumps old, and the Jenkins header asked for a Node 20 tool.
 - **The guides describe what ships.** The Seed guide no longer describes a
   relationship editor: a lookup receives records its target object created
-  earlier in the run, so that object has to be part of it. The Forge quickstart
-  and example recipes no longer offer an upsert mode the wizard does not have —
-  only the command line's `--upsert` — and say the command line is two scripts
-  run with `pnpm exec tsx` from a checkout, after `pnpm install` and `pnpm
-build:shared`, not an installed CLI. The record-scoped clone guide says its
+  earlier in the run, so that object has to be part of it, while an optional
+  lookup to an object outside the run is left out of the run and a required one
+  refuses it. The guide also gives the rule a described field opens on, and says
+  a generated value longer than the field is cut to it. The Forge quickstart and
+  example recipes no longer offer an upsert mode the wizard does not have — only
+  the command line's `--upsert` — and say the command line is two scripts run
+  with `pnpm exec tsx` from a checkout, after `pnpm install` and `pnpm
+build:shared`, not an installed CLI; the two scripts' own headers and `--help`
+  say the same, in place of the `sandforge-clone` and `sandforge-cleanup`
+  commands they used to name, which no install provides, and the quickstart
+  lists the flags each script exits 2 on. The record-scoped clone guide says its
   reduction figure came from one dry run on one dataset, and describes how large
   scopes are read. The Monitor guide gains a section for each of the nine panels
   it did not mention, and states their current limits: Apex insights estimates
-  from log size, the Username column shows a user Id, the health check's job and
-  error figures are points rather than counts, and the built-in governance rules
-  are checked against metrics the org does not report. It also says background
+  from log size, and the Username column shows a user Id. It says where the
+  health check's failed-job and error-log counts are read from, and which
+  built-in governance rules the org gives no reading for. It also says background
   operations do not survive a reload: after a window reload or an extension host
   restart, Live Operations no longer shows a run that was in progress and cannot
   cancel it. The Frozen Dataset guide no longer gives Production Guard an audit
@@ -575,7 +703,11 @@ build:shared`, not an installed CLI. The record-scoped clone guide says its
   used, the per-object masking template service, and the governance policy
   store's export and import. The message envelope now refuses them. Nothing in
   the product could send them, yet they read as live features to anyone reading
-  the protocol.
+  the protocol. `operation:cancel`, `operation:pause` and `operation:resume` go
+  the same way: once Live Operations' Cancel moved to `execution:abort`, nothing
+  sent them, and the runs they could reach — pipeline runs — were never the ones
+  it listed. Stopping a run still goes through Cancel in Live Operations and
+  Cancel run on the Seed page, which abort the run itself.
 
 ### Security
 
@@ -588,7 +720,10 @@ build:shared`, not an installed CLI. The record-scoped clone guide says its
   goes through the same check before the Salesforce CLI starts. Logging in
   through a host outside these domains — a legacy instance host such as
   `na1.salesforce.com`, or a government or regional cloud domain — is now
-  refused too, and no setting allows one yet.
+  refused too, and no setting allows one yet. The refusal names the way in —
+  authenticate with `sf org login web --instance-url <url>`, then add the org
+  with SFDX Import, which applies no host restriction — and Getting Started
+  documents both the accepted hosts and that two-step path.
 - **Only a host reaches the Windows shell during browser login.** On Windows,
   `sf org login web` runs as a shell command, and only the login URL's
   hostname was checked: its path went into the command line unescaped, so a
@@ -670,11 +805,10 @@ build:shared`, not an installed CLI. The record-scoped clone guide says its
   no test at all.
 - **CI runs on current action versions and stops runs nobody will read.** The
   actions ran on the retired Node 20 runtime; they now run on Node 24, and
-  Dependabot proposes new pins and dependency updates. CI, Knip, Format Check
-  and Stryker cancel a pull-request run that a newer push replaces, while
-  master pushes, the nightly and manual runs never share a group, so each
-  master commit keeps its own result. Format Check loses a PR comment step that
-  could never post.
+  Dependabot proposes new pins. CI, Knip, Format Check and Stryker cancel a
+  pull-request run that a newer push replaces, while master pushes, the nightly
+  and manual runs never share a group, so each master commit keeps its own
+  result. Format Check loses a PR comment step that could never post.
 - **The security policy names the release that is out.** SECURITY.md promised
   fixes for 1.21.x after 1.22.0 shipped, and listed a development script as a
   CLI in scope. Its supported-versions table is now written from package.json
@@ -736,6 +870,27 @@ build:shared`, not an installed CLI. The record-scoped clone guide says its
   request template listed six validate gates where there are fifteen. They now
   describe the ubuntu E2E leg, point to the validate script, and say it leaves
   out the Playwright suite and mutation testing.
+- **The command-line scripts are typechecked and linted with the rest of the
+  extension.** `cli/` and `tools/` live beside `src/`, so no tsconfig and no
+  `eslint src/` read them, and a type error or an undeclared constant in either
+  script only surfaced when someone ran it against a real org. A
+  `tsconfig.scripts.json` now covers both folders, the extension's `typecheck`
+  and `lint` scripts read them, the shared lint rules and the typed-linting
+  block apply to them, and a gate refuses a change that narrows the scope again
+  — it reads the configuration ESLint resolves for a script file, not just the
+  globs written in the config.
+- **Dependabot proposes only the updates it can resolve.** Its grouped proposal
+  for the production dependencies bumped typescript-eslint, left the shared
+  version in `pnpm-workspace.yaml` at `^8` and wrote the resolved 8.70.0 into
+  the lockfile beside a manifest that reads `catalog:`, so an install from the
+  lockfile refused the branch on Linux, macOS and Windows alike. The npm entry
+  is gone: the configuration moves action pins only, and it records the two
+  constraints that entry carried — `@types/vscode` moves with `engines.vscode`
+  and never on its own, and a proposal used to be held for seven days. Security
+  updates come from the repository setting rather than from that file and keep
+  arriving; one that lands on a dependency the catalog owns fails the same way
+  and needs the version moved in `pnpm-workspace.yaml` by hand. A check fails if
+  npm comes back while a manifest reads the catalog.
 
 ## [1.22.0] - 2026-09-15
 

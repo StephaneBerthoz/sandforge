@@ -3,6 +3,7 @@ import {
   sendHandlerError,
   sendNotification,
   sendOperationFailed,
+  objectsFailureContext,
   buildResponse,
   syntheticRequest,
   uncorrelated,
@@ -414,6 +415,60 @@ describe('sendOperationFailed — fix suggestion', () => {
     expect(prompt).toContain('Error code: UNKNOWN');
     expect(prompt).not.toContain('Module:');
     expect(prompt).not.toContain('Operation:');
+    expect(prompt).not.toContain('Target object:');
+    expect(prompt).not.toContain('Batch size:');
+  });
+
+  it('tells the model which module, operation, object and batch size failed', async () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-8', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true, {
+      context: { module: 'sync', operation: 'execute', objectName: 'Account', batchSize: 150 },
+    });
+    await vi.waitFor(() => expect(deps.provider).toHaveBeenCalledTimes(1));
+
+    const [prompt] = deps.provider.mock.calls[0];
+    expect(prompt).toContain('Module: sync');
+    expect(prompt).toContain('Operation: execute');
+    expect(prompt).toContain('Target object: Account');
+    expect(prompt).toContain('Batch size: 150');
+  });
+
+  it('asks once about one failure raised from two operations', async () => {
+    // The answer is remembered under the code and the message: what differs
+    // between the runs is context for the prompt, not a second question.
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-9', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true, {
+      context: { module: 'sync', objectName: 'Account' },
+    });
+    sendOperationFailed(deps, 'op-10', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', true, {
+      context: { module: 'seed', objectName: 'Contact', batchSize: 50 },
+    });
+    await vi.waitFor(() => expect(deps.showFixSuggestion).toHaveBeenCalledTimes(2));
+
+    expect(deps.provider).toHaveBeenCalledTimes(1);
+  });
+
+  it('still posts the extra payload next to the context', () => {
+    const deps = createResolvingDeps({ ai: false });
+
+    sendOperationFailed(deps, 'op-11', 'ECONNRESET', true, {
+      extraPayload: { retryHint: 'offline' },
+      context: { module: 'seed' },
+    });
+
+    for (const webview of deps.webviews) {
+      expect(webview.postMessage.mock.calls[0][0]).toMatchObject({
+        type: 'operation:failed',
+        payload: {
+          operationId: 'op-11',
+          error: 'ECONNRESET',
+          retryable: true,
+          retryHint: 'offline',
+        },
+      });
+    }
   });
 
   it('never sends a message SandForge wrote itself to the model', async () => {
@@ -515,5 +570,33 @@ describe('sendOperationFailed — fix suggestion', () => {
     );
 
     expect(deps.showFixSuggestion).not.toHaveBeenCalled();
+  });
+});
+
+describe('objectsFailureContext', () => {
+  it('names the one object of a run and its batch size', () => {
+    expect(objectsFailureContext([{ objectApiName: 'Account', batchSize: 200 }])).toEqual({
+      objectName: 'Account',
+      batchSize: 200,
+    });
+  });
+
+  it('names every object, and gives a batch size only when they share one', () => {
+    expect(
+      objectsFailureContext([
+        { objectApiName: 'Account', batchSize: 200 },
+        { objectApiName: 'Contact', batchSize: 200 },
+      ]),
+    ).toEqual({ objectName: 'Account, Contact', batchSize: 200 });
+    expect(
+      objectsFailureContext([
+        { objectApiName: 'Account', batchSize: 200 },
+        { objectApiName: 'Contact', batchSize: 50 },
+      ]),
+    ).toEqual({ objectName: 'Account, Contact' });
+  });
+
+  it('says nothing about a run with no objects', () => {
+    expect(objectsFailureContext([])).toEqual({});
   });
 });

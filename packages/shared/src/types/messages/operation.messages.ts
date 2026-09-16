@@ -1,24 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
-import type { RetryStatus } from '../execution.types.js';
-
-/** Operation control messages */
-/** Request to cancel a running operation */
-export interface CancelOperationRequest extends BaseMessage {
-  type: 'operation:cancel';
-  payload: { operationId: string };
-}
-
-/** Request to pause a running operation */
-export interface PauseOperationRequest extends BaseMessage {
-  type: 'operation:pause';
-  payload: { operationId: string };
-}
-
-/** Request to resume a paused operation */
-export interface ResumeOperationRequest extends BaseMessage {
-  type: 'operation:resume';
-  payload: { operationId: string };
-}
+import type { BackgroundOperationStatus, RetryStatus } from '../execution.types.js';
 
 /** Operation lifecycle messages */
 /** Notification that an operation has started executing */
@@ -90,10 +71,18 @@ export interface ExecutionAbortRequest extends BaseMessage {
   payload: { executionId: string; objectName?: string };
 }
 
-/** Response for `execution:abort` — `operationId` is set on success, `error` on failure. */
+/**
+ * Response for `execution:abort` — `operationId` is set on success, `error` on
+ * failure, and `status` when the run had already ended and was left as it ended.
+ */
 export interface ExecutionAbortResponse extends BaseMessage {
   type: 'execution:abort:response';
-  payload: { success: boolean; operationId?: string; error?: string };
+  payload: {
+    success: boolean;
+    operationId?: string;
+    error?: string;
+    status?: BackgroundOperationStatus;
+  };
 }
 
 /** Error response for execution operations (emitted via sendHandlerError). */

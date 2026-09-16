@@ -67,18 +67,21 @@ describe('createMonitorOps', () => {
 
       const health = await ops.healthCheck.computeHealth('org-1');
 
-      // No failed job -> score 100 -> activeJobs degradation metric is 0.
-      expect(health.activeJobs).toBe(0);
+      expect(health.failedJobs).toBe(0);
     });
 
-    it('degrades the jobs signal when jobs failed', async () => {
-      mockQueryAll.mockResolvedValue([makeJobRow('Failed', 'j1'), makeJobRow('Completed', 'j2')]);
+    it('counts the failed jobs, not the points they cost', async () => {
+      mockQueryAll.mockResolvedValue([
+        makeJobRow('Failed', 'j1'),
+        makeJobRow('Failed', 'j2'),
+        makeJobRow('Failed', 'j3'),
+        makeJobRow('Completed', 'j4'),
+      ]);
       const ops = createMonitorOps(createDeps());
 
       const health = await ops.healthCheck.computeHealth('org-1');
 
-      // 1 failed job -> score 100 - 10 = 90 -> degradation metric 10.
-      expect(health.activeJobs).toBe(10);
+      expect(health.failedJobs).toBe(3);
     });
 
     it('drags the overall status down when failed jobs dominate the window', async () => {
@@ -89,8 +92,7 @@ describe('createMonitorOps', () => {
 
       const health = await ops.healthCheck.computeHealth('org-1');
 
-      // 10 failed jobs -> score 0 -> degradation metric 100.
-      expect(health.activeJobs).toBe(100);
+      expect(health.failedJobs).toBe(10);
       // avg(100, 100, 100, 0) = 75 -> below the healthy threshold (80).
       expect(health.overall).toBe('degraded');
     });
@@ -102,7 +104,54 @@ describe('createMonitorOps', () => {
       const health = await ops.healthCheck.computeHealth('org-1');
 
       // Fetch failure -> neutral ok signal (score 100) instead of a fake score.
-      expect(health.activeJobs).toBe(0);
+      expect(health.failedJobs).toBe(0);
+      expect(health.overall).toBe('healthy');
+    });
+  });
+
+  describe('error logs health provider', () => {
+    /** An ApexLog row as the error-log SOQL query returns it. */
+    function makeLogRow(id: string): Record<string, unknown> {
+      return {
+        Id: id,
+        Operation: '/apex/Checkout',
+        Status: 'Assertion Failed',
+        DurationMilliseconds: 12,
+        LogLength: 400,
+        StartTime: '2026-03-20T10:00:00Z',
+        LogUser: { Username: 'admin@example.com' },
+      };
+    }
+
+    /** Answer the jobs query with no rows and the error-log query with `logs`. */
+    function answerQueries(logs: Record<string, unknown>[]): void {
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) =>
+        soql.includes('FROM ApexLog') ? logs : [],
+      );
+    }
+
+    it('counts the error logs this refresh reads, and a later refresh reads them again', async () => {
+      const ops = createMonitorOps(createDeps());
+
+      answerQueries([makeLogRow('l1'), makeLogRow('l2')]);
+      const first = await ops.healthCheck.computeHealth('org-1');
+      answerQueries([makeLogRow('l1'), makeLogRow('l2'), makeLogRow('l3'), makeLogRow('l4')]);
+      const second = await ops.healthCheck.computeHealth('org-1');
+
+      expect(first.recentErrorLogs).toBe(2);
+      expect(second.recentErrorLogs).toBe(4);
+    });
+
+    it('counts none and keeps a full score when the error logs cannot be read', async () => {
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) => {
+        if (soql.includes('FROM ApexLog')) throw new Error('INSUFFICIENT_ACCESS');
+        return [];
+      });
+      const ops = createMonitorOps(createDeps());
+
+      const health = await ops.healthCheck.computeHealth('org-1');
+
+      expect(health.recentErrorLogs).toBe(0);
       expect(health.overall).toBe('healthy');
     });
   });

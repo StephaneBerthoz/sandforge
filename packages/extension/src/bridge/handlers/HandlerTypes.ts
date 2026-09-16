@@ -2,7 +2,7 @@ import type { BaseMessage, NotificationMessage, GrappeConfig } from '@sandforge/
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
 import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
-import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { ErrorResolver, OperationContext } from '../../modules/ai/ErrorResolver.js';
 import type { MessageBroker } from '../MessageBroker.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
 import type { OrgRegistry } from '../../core/connection/OrgRegistry.js';
@@ -431,6 +431,52 @@ type OperationFailedDeps = Pick<HandlerDeps, 'broker' | 'nextId'> &
   Partial<Pick<HandlerDeps, 'errorResolver' | 'log'>>;
 
 /**
+ * What the handler knows about the operation that failed.
+ *
+ * It goes into the model's prompt only: the lifecycle message does not carry
+ * it, and the resolver remembers an answer under the code and the message, so
+ * one failure raised by two runs is still asked about once.
+ *
+ * A failure SandForge wrote itself (see {@link SANDFORGE_AUTHORED_FAILURES})
+ * is never asked about, so the context several call sites hand over with one
+ * is carried for uniformity and never read.
+ */
+export interface OperationFailureContext {
+  module: 'seed' | 'sync' | 'dataops' | 'automation';
+  /** The request that started the operation (e.g. `"dataops:rollback"`). */
+  operation?: string;
+  /** The object in progress, or every object of the run, comma-separated. */
+  objectName?: string;
+  /** The batch size the objects were written with. */
+  batchSize?: number;
+}
+
+/** Optional `operation:failed` metadata. Named, so no call site pads with `undefined`. */
+export interface OperationFailedOptions {
+  /** Extra fields merged into the lifecycle payload (e.g. the offline `retryHint`). */
+  extraPayload?: Record<string, unknown>;
+  /** What is known about the operation, for the fix suggestion. */
+  context?: OperationFailureContext;
+}
+
+/**
+ * The object and batch size of a failure's context, from a run's object list.
+ *
+ * A handler's `catch` does not see which object a multi-object run was on, so
+ * every name is given, and the batch size only when the objects share one.
+ */
+export function objectsFailureContext(
+  objects: ReadonlyArray<{ objectApiName: string; batchSize?: number }>,
+): Pick<OperationFailureContext, 'objectName' | 'batchSize'> {
+  const sizes = new Set(objects.map((o) => o.batchSize));
+  const [batchSize] = sizes;
+  return {
+    ...(objects.length > 0 ? { objectName: objects.map((o) => o.objectApiName).join(', ') } : {}),
+    ...(sizes.size === 1 && batchSize !== undefined ? { batchSize } : {}),
+  };
+}
+
+/**
  * Send the `operation:failed` lifecycle message and resolve the failure once.
  *
  * This is the only emitter of `operation:failed`, which is why the resolution
@@ -445,7 +491,7 @@ export function sendOperationFailed(
   operationId: string,
   error: string,
   retryable: boolean,
-  extraPayload?: Record<string, unknown>,
+  options: OperationFailedOptions = {},
 ): void {
   const msg: BaseMessage & {
     payload: { operationId: string; error: string; retryable: boolean } & Record<string, unknown>;
@@ -453,10 +499,10 @@ export function sendOperationFailed(
     id: deps.nextId(),
     type: 'operation:failed',
     timestamp: Date.now(),
-    payload: { operationId, error, retryable, ...extraPayload },
+    payload: { operationId, error, retryable, ...options.extraPayload },
   };
   deps.broker.postToWebview(msg);
-  resolveFailedOperation(deps, error);
+  resolveFailedOperation(deps, error, options.context);
 }
 
 /**
@@ -514,7 +560,11 @@ function isSandForgeAuthoredFailure(message: string): boolean {
  * resolution that fails is an extra the user never asked for — it is logged,
  * not surfaced.
  */
-function resolveFailedOperation(deps: OperationFailedDeps, error: string): void {
+function resolveFailedOperation(
+  deps: OperationFailedDeps,
+  error: string,
+  context: OperationContext = {},
+): void {
   const watched = deps.broker.panelCount > 0;
   if (!watched || isSandForgeAuthoredFailure(error)) return;
 
@@ -529,9 +579,8 @@ function resolveFailedOperation(deps: OperationFailedDeps, error: string): void 
   if (!resolver) return;
 
   resolver
-    // The lifecycle message names neither the module nor the operation, so the
-    // context is empty and the prompt leaves those lines out.
-    .resolveError({ errorCode, message: error }, {})
+    // A line the handler could not fill is left out of the prompt.
+    .resolveError({ errorCode, message: error }, context)
     .then((resolution) => {
       deps.broker.showFixSuggestion({ source: 'model', text: suggestedFix(resolution) });
     })

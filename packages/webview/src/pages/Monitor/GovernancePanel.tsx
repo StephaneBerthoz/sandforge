@@ -1,6 +1,15 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, CheckCircle, AlertTriangle, XCircle, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import {
+  Shield,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  HelpCircle,
+  RefreshCw,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
@@ -15,8 +24,9 @@ export interface GovernanceRuleDisplay {
   ruleId: string;
   ruleName: string;
   category: string;
-  status: 'pass' | 'warning' | 'fail';
-  actualValue: number;
+  /** `unknown`: the org gave no reading for the rule's metric. */
+  status: 'pass' | 'warning' | 'fail' | 'unknown';
+  actualValue: number | null;
   threshold: number;
   message: string;
   remediation: string;
@@ -28,8 +38,8 @@ export interface GovernancePanelProps {
   policies?: GovernancePolicySummary[];
   /** Current evaluation results. */
   ruleResults?: GovernanceRuleDisplay[];
-  /** Overall compliance score (0-100). */
-  complianceScore?: number;
+  /** Overall compliance score (0-100); null when no rule of the policy was measured. */
+  complianceScore?: number | null;
   /** Remediation recommendations. */
   remediations?: string[];
   /** Whether an evaluation is in progress. */
@@ -43,7 +53,7 @@ export interface GovernancePanelProps {
 }
 
 /** Map status to badge variant. */
-function statusBadgeVariant(status: 'pass' | 'warning' | 'fail'): BadgeVariant {
+function statusBadgeVariant(status: GovernanceRuleDisplay['status']): BadgeVariant {
   switch (status) {
     case 'pass':
       return 'success';
@@ -51,11 +61,13 @@ function statusBadgeVariant(status: 'pass' | 'warning' | 'fail'): BadgeVariant {
       return 'warning';
     case 'fail':
       return 'error';
+    case 'unknown':
+      return 'default';
   }
 }
 
 /** Map status to icon. */
-function statusIcon(status: 'pass' | 'warning' | 'fail'): React.ReactNode {
+function statusIcon(status: GovernanceRuleDisplay['status']): React.ReactNode {
   switch (status) {
     case 'pass':
       return <CheckCircle className="w-4 h-4 text-status-success" />;
@@ -63,11 +75,14 @@ function statusIcon(status: 'pass' | 'warning' | 'fail'): React.ReactNode {
       return <AlertTriangle className="w-4 h-4 text-status-warning" />;
     case 'fail':
       return <XCircle className="w-4 h-4 text-status-error" />;
+    case 'unknown':
+      return <HelpCircle className="w-4 h-4 text-text-muted" />;
   }
 }
 
 /**
- * Display rank for a rule result: what is broken is read first.
+ * Display rank for a rule result: what is broken is read first, and what
+ * SandForge could not measure last.
  *
  * The engine returns rules in policy order, so a single failure in a 20-rule
  * security policy used to sit wherever the template happened to declare it.
@@ -76,6 +91,7 @@ const STATUS_RANK: Record<GovernanceRuleDisplay['status'], number> = {
   fail: 0,
   warning: 1,
   pass: 2,
+  unknown: 3,
 };
 
 /** Score color based on compliance percentage. */
@@ -158,9 +174,15 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
               <span className="text-xs text-text-primary">
                 {t('governance.complianceScore', 'Compliance Score')}
               </span>
-              <span className={`text-2xl font-bold ${scoreColor(complianceScore)}`}>
-                {complianceScore}%
-              </span>
+              {complianceScore === null ? (
+                <span className="text-xs text-text-muted">
+                  {t('governance.notMeasured', 'Not measured')}
+                </span>
+              ) : (
+                <span className={`text-2xl font-bold ${scoreColor(complianceScore)}`}>
+                  {complianceScore}%
+                </span>
+              )}
             </div>
           </CardBody>
         </Card>
@@ -237,7 +259,11 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                       <span className="text-xs font-medium text-text-primary">
                         {result.ruleName}
                       </span>
-                      <Badge variant={statusBadgeVariant(result.status)}>{result.status}</Badge>
+                      <Badge variant={statusBadgeVariant(result.status)}>
+                        {result.status === 'unknown'
+                          ? t('governance.notMeasured', 'Not measured')
+                          : result.status}
+                      </Badge>
                     </div>
                     <p className="text-[10px] text-text-secondary mt-0.5">{result.message}</p>
                   </div>
@@ -295,7 +321,7 @@ interface GovernanceEvaluationResult {
   policyId: string;
   policyName: string;
   evaluatedAt: string;
-  complianceScore: number;
+  complianceScore: number | null;
   ruleResults: GovernanceRuleDisplay[];
   remediations: string[];
 }

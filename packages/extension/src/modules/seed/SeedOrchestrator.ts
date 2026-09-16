@@ -174,7 +174,10 @@ export class SeedOrchestrator {
 
     for (const obj of sortedObjects) {
       this.reportProgress(obj.objectApiName, objectResults, plannedRecords);
-      const records = await this.deps.fieldMapper.mapFields(obj, existingIds);
+      const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
+      const records = await this.deps.fieldMapper.mapFields(obj, existingIds, (aiFallback) => {
+        fallback.aiFallback = aiFallback;
+      });
       const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
 
       existingIds.set(obj.objectApiName, insertResult.successIds);
@@ -185,6 +188,7 @@ export class SeedOrchestrator {
         recordsFailed: insertResult.errors.length,
         createdIds: insertResult.successIds,
         errors: insertResult.errors,
+        ...fallback,
       });
     }
 
@@ -215,7 +219,10 @@ export class SeedOrchestrator {
 
     for (const obj of sortedObjects) {
       this.reportProgress(obj.objectApiName, objectResults, totalRecords);
-      const records = await this.deps.fieldMapper.mapFields(obj, existingIds);
+      const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
+      const records = await this.deps.fieldMapper.mapFields(obj, existingIds, (aiFallback) => {
+        fallback.aiFallback = aiFallback;
+      });
       const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
       const chunks = chunkArray(records, grappeSize);
 
@@ -274,6 +281,7 @@ export class SeedOrchestrator {
         recordsFailed: objFailed,
         createdIds: objCreatedIds,
         errors: objErrors,
+        ...fallback,
       });
     }
 

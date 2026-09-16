@@ -14,6 +14,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
@@ -79,7 +80,7 @@ function loadSfOrgs(aliases: string[]): Map<string, SfOrg> {
   return map;
 }
 
-function makeConnection(org: SfOrg): jsforce.Connection {
+function makeConnection(org: SfOrg): Connection {
   return new jsforce.Connection({
     instanceUrl: org.instanceUrl,
     accessToken: org.accessToken,
@@ -87,7 +88,7 @@ function makeConnection(org: SfOrg): jsforce.Connection {
   });
 }
 
-function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
+function adaptDescribe(raw: DescribeSObjectResult): ObjectDescribe {
   return {
     name: raw.name,
     fields: raw.fields.map((f) => ({
@@ -95,6 +96,11 @@ function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
       type: String(f.type),
       referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
       relationshipName: f.relationshipName ?? null,
+      // Reads cascadeDelete as the extension's own describe adapter does. The
+      // flag is not decoration: discovery keeps a master-detail edge over a
+      // lookup for the same object pair, and the plan breaks a cycle by
+      // nulling a lookup only when the cycle has one.
+      isMasterDetail: f.cascadeDelete === true,
     })),
     childRelationships: raw.childRelationships.map((c) => ({
       childSObject: c.childSObject,
@@ -106,7 +112,7 @@ function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
 }
 
 function buildDeps(
-  connections: Map<string, jsforce.Connection>,
+  connections: Map<string, Connection>,
   fullDescribes: Map<string, ObjectDescribe>,
 ): GraphDiscoveryDeps {
   const piiDetector = new PIIDetector();
@@ -289,7 +295,7 @@ async function main(): Promise<void> {
   console.log(`✓ Source: ${source.alias} (${source.username}) @ ${source.instanceUrl}`);
   console.log(`✓ Target: ${target.alias} (${target.username}) @ ${target.instanceUrl}`);
 
-  const connections = new Map<string, jsforce.Connection>();
+  const connections = new Map<string, Connection>();
   connections.set(source.alias, makeConnection(source));
   connections.set(target.alias, makeConnection(target));
 
@@ -321,7 +327,7 @@ async function main(): Promise<void> {
       const now = Date.now();
       if (now - lastProgressTime > 250 || e.queueRemaining === 0) {
         process.stdout.write(
-          `\r  discovered=${String(e.discoveredCount).padStart(3)} queue=${String(e.queueRemaining).padStart(3)} latest=${e.objectApiName.padEnd(40)}`,
+          `\r  discovered=${String(e.discoveredCount).padStart(3)} queue=${String(e.queueRemaining).padStart(3)} latest=${(e.objectApiName ?? '').padEnd(40)}`,
         );
         lastProgressTime = now;
       }
@@ -619,8 +625,8 @@ function truncate(s: string, max: number): string {
 }
 
 async function loadRecordTypeMappings(
-  sourceConn: jsforce.Connection,
-  targetConn: jsforce.Connection,
+  sourceConn: Connection,
+  targetConn: Connection,
 ): Promise<RecordTypeMapping[]> {
   // SobjectType is read so the match stays within one object: Account and
   // Opportunity can each have a "Business" record type.
@@ -684,7 +690,10 @@ function printPhaseB(
   }
 }
 
-main().catch((err) => {
-  console.error('\n✗ FATAL:', err instanceof Error ? err.stack : err);
-  process.exit(1);
-});
+// Only when run as a script: importing the module must not contact the orgs.
+if (/recipe-forge-grappe\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  main().catch((err) => {
+    console.error('\n✗ FATAL:', err instanceof Error ? err.stack : err);
+    process.exit(1);
+  });
+}

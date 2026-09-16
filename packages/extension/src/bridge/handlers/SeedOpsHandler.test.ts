@@ -15,6 +15,8 @@ import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -212,6 +214,75 @@ describe('SeedOpsHandler', () => {
     };
     expect(response.type).toBe('seed:error');
     expect(response.payload.message).toBe('connection failed');
+  });
+
+  it('tells the model which module and object a failed seed run was on', async () => {
+    // The prompt is all the model sees: an org error with no run behind it
+    // gets an answer that fits any seed.
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion: vi.fn(),
+    } as unknown as HandlerDeps['broker'];
+    mockGetConn.mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-seed-ctx',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate() },
+      }),
+    );
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+    const [prompt] = provider.mock.calls[0];
+    expect(prompt).toContain('Module: seed');
+    expect(prompt).toContain('Operation: seed:execute');
+    expect(prompt).toContain('Target object: Account');
+    expect(prompt).toContain('Batch size: 200');
+  });
+
+  it('tells the model which object a seed that failed while writing was on', async () => {
+    // A run that reaches the org and dies mid-write reports on the same
+    // channel as one that never connected, and needs the same context.
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion: vi.fn(),
+    } as unknown as HandlerDeps['broker'];
+    deps.services = {
+      isAIEnabled: () => false,
+      getSandforgeSetting: vi.fn(() => 200),
+      seedOrchestrator: vi.fn(() => ({
+        execute: vi.fn().mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd')),
+      })),
+    } as unknown as HandlerDeps['services'];
+    mockGetConn.mockResolvedValue({} as never);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-seed-ctx-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      }),
+    );
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+    const [prompt] = provider.mock.calls[0];
+    expect(prompt).toContain('Module: seed');
+    expect(prompt).toContain('Operation: seed:execute');
+    expect(prompt).toContain('Target object: Account');
+    expect(prompt).toContain('Batch size: 200');
   });
 
   describe('seed:execute dryRun', () => {

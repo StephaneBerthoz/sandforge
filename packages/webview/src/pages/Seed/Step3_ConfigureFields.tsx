@@ -21,6 +21,12 @@ export interface FieldConfig {
   required: boolean;
   ruleType: FieldRuleType;
   config: Record<string, unknown>;
+  /**
+   * The values the org declares for a picklist field, kept beside the rule so
+   * that coming back to a random pick after another rule type restores them:
+   * a random pick with no values is refused before the first insert.
+   */
+  picklistValues?: string[];
 }
 
 /** Per-object field configuration. */

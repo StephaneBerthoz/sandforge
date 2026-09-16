@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'child_process';
 import type { Connection } from 'jsforce';
 import type { UUID } from '@sandforge/shared';
 import { SF_LIMITS } from '@sandforge/shared';
@@ -17,6 +18,22 @@ const MAX_BUFFER = 10 * 1024 * 1024;
  * one stuck org held its caller (and the startup sweep behind it) forever.
  */
 const CLI_TIMEOUT_MS = 30_000;
+
+/**
+ * Outer bound on one `sf` run, just past CLI_TIMEOUT_MS. The exec timeout kills
+ * only the process exec started. On Windows that is the shell, and when sf's
+ * own node child keeps the output pipe open, exec never calls back: every
+ * caller outside the startup sweep waited forever. Past this deadline the
+ * caller stops waiting and, on Windows, the whole process tree is killed.
+ */
+const CLI_DEADLINE_MS = CLI_TIMEOUT_MS + 2_000;
+
+const CLI_DEADLINE_MESSAGE = `sf did not answer within ${CLI_TIMEOUT_MS / 1000} s — check the Salesforce CLI`;
+
+/** Whether `err` is an `sf` run that overran CLI_DEADLINE_MS. */
+function isCliDeadline(err: unknown): boolean {
+  return err instanceof Error && err.message === CLI_DEADLINE_MESSAGE;
+}
 
 /**
  * Longest an identity() round-trip may take. jsforce sets no request timeout
@@ -146,19 +163,50 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
   const opts = {
     maxBuffer: MAX_BUFFER,
     // Kills the child past the bound; the rejection lands in the same catch
-    // blocks as a CLI failure. On Windows it kills the shell exec spawns.
+    // blocks as a CLI failure. On Windows it kills only the shell exec
+    // spawns, which is why runInShell also has CLI_DEADLINE_MS.
     timeout: CLI_TIMEOUT_MS,
     windowsHide: true,
     env: { ...process.env, NO_COLOR: '1' },
   } as const;
 
   // POSIX: argv-as-array via execFile — no shell, no interpolation.
+  const runDirect = (argsArray: string[]): Promise<{ stdout: string }> =>
+    withDeadline(
+      promisify(execFile)('sf', argsArray, opts) as Promise<{ stdout: string }>,
+      CLI_DEADLINE_MS,
+      CLI_DEADLINE_MESSAGE,
+    );
+
   // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
   // resolution, so keep exec there; the regex above is the injection defense.
+  // The callback form keeps the child, so a run past the deadline can have its
+  // whole process tree killed rather than just the shell.
+  const runInShell = (command: string): Promise<{ stdout: string }> => {
+    let answered = false;
+    let child: ChildProcess | undefined;
+    const pending = new Promise<{ stdout: string }>((resolve, reject) => {
+      child = exec(command, opts, (err, stdout) => {
+        answered = true;
+        if (err) reject(err);
+        else resolve({ stdout });
+      });
+    });
+    return withDeadline(pending, CLI_DEADLINE_MS, CLI_DEADLINE_MESSAGE).catch((err: unknown) => {
+      if (!answered && child?.pid !== undefined) {
+        execFile(
+          'taskkill',
+          ['/pid', String(child.pid), '/T', '/F'],
+          { windowsHide: true },
+          () => undefined,
+        );
+      }
+      throw err;
+    });
+  };
+
   const run = (argsDisplay: string, argsArray: string[]): Promise<{ stdout: string }> =>
-    process.platform === 'win32'
-      ? (promisify(exec)(argsDisplay, opts) as Promise<{ stdout: string }>)
-      : (promisify(execFile)('sf', argsArray, opts) as Promise<{ stdout: string }>);
+    process.platform === 'win32' ? runInShell(argsDisplay) : runDirect(argsArray);
 
   const parseResult = (stdout: string, cmdLabel: string): Record<string, unknown> => {
     // eslint-disable-next-line no-control-regex -- Intentional ANSI escape stripping
@@ -185,7 +233,9 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
     ]);
     const result = parseResult(stdout, 'sf org display');
     instanceUrl = typeof result.instanceUrl === 'string' ? result.instanceUrl : undefined;
-  } catch {
+  } catch (err: unknown) {
+    // An sf that hung here would hang the same way on the two reads below.
+    if (isCliDeadline(err)) throw err;
     // Non-fatal: the stored URL stays as fallback.
     instanceUrl = undefined;
   }
@@ -206,7 +256,8 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
     if (typeof result.accessToken === 'string' && result.accessToken) {
       return { accessToken: result.accessToken, instanceUrl };
     }
-  } catch {
+  } catch (err: unknown) {
+    if (isCliDeadline(err)) throw err;
     // Older CLI without `org auth show-access-token` — fall through to legacy.
   }
 

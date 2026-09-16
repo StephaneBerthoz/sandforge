@@ -165,13 +165,14 @@ signals, each scored out of 100:
   above 85%
 - Jobs: failed jobs among the recent `AsyncApexJob` rows the refresh reads, ten
   points each -- a warning from one, critical above five
-- Recent errors: the logs the Error Logs panel last read, five points each -- a
+- Recent errors: the `ApexLog` rows of the last 24 hours whose status is not
+  Success, read by the refresh itself (at most 50), five points each -- a
   warning above three, critical above ten
 
 The badge is the average of the four scores: healthy from 80, degraded from
 50, critical below. A signal whose data cannot be read counts as a full 100.
-The Active Jobs and Recent Errors figures show the points those two signals
-lost, not a number of jobs or logs.
+Failed Jobs shows the number of failed jobs that refresh read, and Recent Error
+Logs the number of error logs; each shows 0 when its rows cannot be read.
 
 ### Alerts Panel
 
@@ -188,15 +189,19 @@ Policies of threshold rules, checked against the selected org when asked:
   Compliance (Apex code coverage). Policies are kept in the extension's global
   state on this machine, for every org, and each can be deleted from its row
 - **Evaluate** checks the enabled rules of the policy selected in the list
-  against a fresh read of the org's `/limits` endpoint, where each limit's
-  percentage used goes by its limit name, such as `DailyApiRequests`. It shows
-  a compliance score (100 per passing rule, 50 per warning, 0 per failure,
-  averaged), the rule results with failures first, and a remediation
+  against a fresh read of the org's `/limits` endpoint. Each limit's percentage
+  used goes by its limit name, such as `DailyApiRequests`, and the two metrics
+  the built-in Performance rules name, `apiUsagePercent` and
+  `storageUsagePercent`, are read from `DailyApiRequests` and `DataStorageMB`.
+  It shows a compliance score (100 per passing rule, 50 per warning, 0 per
+  failure, averaged), the rule results with failures first, and a remediation
   checklist for the rules that did not pass
-- A rule whose metric is not a limit name reads 0. The built-in rules name
-  metrics no limit carries, such as `apiUsagePercent` or `mfaEnabledPercent`,
-  so on every org their MFA, password and code coverage rules fail and their
-  API and storage rules pass: those results say nothing about the org
+- A rule whose metric the org gave no reading for is marked **not measured**: it
+  is left out of the compliance score and of the remediation checklist instead
+  of being counted as a failure. `/limits` carries nothing about multi-factor
+  authentication, password policy strength or Apex code coverage, so the
+  built-in Security and Compliance rules read as not measured, and a policy
+  where no rule was measured shows no score
 - Selecting another org drops the evaluation on screen
 
 ## Tips

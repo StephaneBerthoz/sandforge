@@ -180,6 +180,24 @@ describe('BackgroundOperationRegistry', () => {
     it('should do nothing for a non-existent operation', () => {
       expect(() => registry.abort('nonexistent')).not.toThrow();
     });
+
+    it('leaves a completed operation completed, with its end time, and emits nothing', async () => {
+      const listener = vi.fn();
+      registry.onEvent(listener);
+      const abortController = new AbortController();
+
+      registry.register('op-1', 'sync', 'Sync Lead', Promise.resolve(), abortController);
+      await vi.waitFor(() => expect(registry.get('op-1')?.status).toBe('completed'));
+      const completedAt = registry.get('op-1')?.completedAt;
+      listener.mockClear();
+
+      registry.abort('op-1');
+
+      expect(registry.get('op-1')?.status).toBe('completed');
+      expect(registry.get('op-1')?.completedAt).toBe(completedAt);
+      expect(abortController.signal.aborted).toBe(false);
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateProgress', () => {

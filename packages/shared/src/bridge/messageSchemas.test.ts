@@ -87,6 +87,16 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(ExecutionMessageSchema.safeParse(baseFields('execution:progress')).success).toBe(false);
   });
 
+  // No page sent them: Live Ops and the Seed page stop a run on execution:abort,
+  // and nothing pauses a run, so nothing resumes one.
+  it.each(['operation:cancel', 'operation:pause', 'operation:resume'])(
+    'refuses the retired run control channel %s',
+    (type) => {
+      expect(ExecutionMessageSchema.safeParse(baseFields(type)).success).toBe(false);
+      expect(BridgeMessageSchema.safeParse(baseFields(type)).success).toBe(false);
+    },
+  );
+
   it('AIMessageSchema accepts ai:chat and rejects missing type', () => {
     expect(AIMessageSchema.safeParse(baseFields('ai:chat')).success).toBe(true);
     expect(AIMessageSchema.safeParse({ id: 'x', timestamp: 1 }).success).toBe(false);

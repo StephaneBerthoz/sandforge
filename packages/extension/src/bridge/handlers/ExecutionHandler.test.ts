@@ -101,6 +101,34 @@ describe('ExecutionHandler', () => {
       expect(response.payload.success).toBe(false);
       expect(response.payload.error).toContain('not found');
     });
+
+    it('refuses to abort a run that already completed, and says how it ended', async () => {
+      registry.register('op-done', 'seed', 'Seed', Promise.resolve(), new AbortController());
+      await vi.waitFor(() => expect(registry.get('op-done')?.status).toBe('completed'));
+
+      const msg: InboundRequest & { payload: { operationId: string } } = inboundRequest({
+        id: 'req-abort-done',
+        type: 'execution:abort',
+        timestamp: Date.now(),
+        payload: { operationId: 'op-done' },
+      });
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; error?: string; status?: string };
+      };
+      expect(response.type).toBe('execution:abort:response');
+      expect(response.correlationId).toBe('req-abort-done');
+      expect(response.payload).toEqual({
+        success: false,
+        error: 'Operation already finished',
+        status: 'completed',
+      });
+      expect(registry.get('op-done')?.status).toBe('completed');
+    });
   });
 
   it('does not claim the status, list and manual-retry requests no page sends', async () => {

@@ -5,18 +5,16 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import type { LiveOperationSnapshot, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
-import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { MonitorPage } from './MonitorPage';
 
 /*
  * Live-operation controls.
  *
  * The operations listed are Seed and Sync runs. Cancel goes out on
- * `execution:abort`, which reaches the AbortController each run registers;
- * `operation:cancel` reached pipeline orchestrators only and answered "No
- * active operation found" for every row. Neither run can pause, so no pause or
- * resume is offered. The abort's reply is read: a run the extension no longer
- * knows is refused, the page says so, and the list is read again either way.
+ * `execution:abort`, which reaches the AbortController each run registers.
+ * Neither run can pause, so no pause or resume is offered. The abort's reply
+ * is read: a run the extension no longer knows is refused, the page says so,
+ * and the list is read again either way.
  */
 
 vi.mock('../../stores/useAppStore', () => ({
@@ -128,7 +126,6 @@ const mockOrg: SalesforceOrg = {
 
 describe('MonitorPage live-operation controls', () => {
   beforeEach(() => {
-    vi.mocked(sendBridgeMessage).mockClear();
     mockLiveOpsRefetch.mockClear();
     mockAbortMutate.mockClear();
     abortReply = null;
@@ -141,7 +138,6 @@ describe('MonitorPage live-operation controls', () => {
     render(<MonitorPage />);
     fireEvent.click(screen.getByTestId('cancel-op-1'));
     expect(mockAbortMutate).toHaveBeenCalledWith({ operationId: 'op-1' });
-    expect(sendBridgeMessage).not.toHaveBeenCalledWith('operation:cancel', expect.anything());
   });
 
   it('offers no pause on a running operation and no resume on a paused one', () => {

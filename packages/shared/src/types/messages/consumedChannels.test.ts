@@ -109,15 +109,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     channel: 'realtime:status',
     reason: 'NoOp CDC surface: the stores send start/stop/metrics and read status off them.',
   },
-  {
-    channel: 'operation:cancel',
-    reason: 'Live Ops lists Seed and Sync runs, which stop on execution:abort instead.',
-  },
-  {
-    channel: 'operation:pause',
-    reason: 'No page pauses a pipeline run; Seed and Sync cannot pause.',
-  },
-  { channel: 'operation:resume', reason: 'Same — nothing is paused, so nothing resumes.' },
 ];
 
 function repoPath(...parts: string[]): string {

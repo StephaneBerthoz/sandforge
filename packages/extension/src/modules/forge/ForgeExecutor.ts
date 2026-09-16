@@ -5,6 +5,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 import { ReferenceDataMapper } from './ReferenceDataMapper.js';
+import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 import { RecordTypeMapper, warnUnmappedRecordType } from '../sync/RecordTypeMapper.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
@@ -504,6 +505,32 @@ export class ForgeExecutor {
       config.isScoped ? config.rootObjectApiName : undefined,
     );
 
+    // Pre-flight: skip nodes the target org refuses to accept inserts on
+    // (read-only system entities like Case History or audit-log variants).
+    // The check is best-effort — when the dep is not provided we fall back
+    // to the legacy behaviour of letting the runtime reject batch-by-batch.
+    // The describes run in waves before the loop rather than one per node
+    // awaited inside it, which made a large graph wait for each answer in turn
+    // before the first record was written. Settled, so a describe that failed
+    // is read below instead of rejecting the whole run. Abort is checked
+    // between waves: nothing is written yet, but a user who hits Abort should
+    // not wait for the describes of a graph that will not be executed, and the
+    // node loop below turns the stop into ForgeAbortedError. A name left out of
+    // the map falls through exactly as when the dep is absent.
+    const creatableChecks = new Map<string, PromiseSettledResult<boolean>>();
+    const isObjectCreatable = this.deps.isObjectCreatable;
+    if (!config.dryRun && isObjectCreatable) {
+      const names = [...new Set(sortedNodes.filter((n) => n.included).map((n) => n.objectApiName))];
+      for (let i = 0; i < names.length; i += CONCURRENT_DESCRIBE_LIMIT) {
+        if (this.isAborted) break;
+        const wave = names.slice(i, i + CONCURRENT_DESCRIBE_LIMIT);
+        const settled = await Promise.allSettled(
+          wave.map(async (name) => isObjectCreatable(targetOrgId, name)),
+        );
+        wave.forEach((name, j) => creatableChecks.set(name, settled[j]));
+      }
+    }
+
     for (const node of sortedNodes) {
       // Abort is checked per node, not only per batch: waitIfPaused() runs
       // between batches, so a node small enough to fit one batch never reached
@@ -546,14 +573,10 @@ export class ForgeExecutor {
         continue;
       }
 
-      // Pre-flight: skip nodes the target org refuses to accept inserts on
-      // (read-only system entities like Case History or audit-log variants).
-      // The check is best-effort — when the dep is not provided we fall back
-      // to the legacy behaviour of letting the runtime reject batch-by-batch.
-      if (!config.dryRun && this.deps.isObjectCreatable) {
-        try {
-          const creatable = await this.deps.isObjectCreatable(targetOrgId, node.objectApiName);
-          if (!creatable) {
+      const creatableCheck = creatableChecks.get(node.objectApiName);
+      if (creatableCheck) {
+        if (creatableCheck.status === 'fulfilled') {
+          if (!creatableCheck.value) {
             state.skippedCount++;
             state.errors.push({
               objectApiName: node.objectApiName,
@@ -575,7 +598,8 @@ export class ForgeExecutor {
             });
             continue;
           }
-        } catch (err: unknown) {
+        } else {
+          const err: unknown = creatableCheck.reason;
           // Surface as a per-object error instead of silently dropping —
           // the user gets a clear hint when auth dropped or describe blocked.
           state.errors.push({

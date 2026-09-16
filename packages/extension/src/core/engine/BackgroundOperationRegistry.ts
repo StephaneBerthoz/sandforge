@@ -128,13 +128,15 @@ export class BackgroundOperationRegistry {
   /**
    * Abort a running operation.
    *
-   * Triggers the AbortController and sets the status to 'aborted'.
+   * Triggers the AbortController and sets the status to 'aborted'. A finished
+   * operation is kept until evicted, so it can still be named here: it is left
+   * as it ended, with no event, rather than relabelled aborted after the fact.
    *
    * @param operationId - Operation to abort
    */
   abort(operationId: string): void {
     const operation = this.operations.get(operationId);
-    if (!operation) {
+    if (!operation || operation.status !== 'running') {
       return;
     }
     operation.abortController.abort();

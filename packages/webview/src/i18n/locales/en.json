@@ -243,8 +243,8 @@
       "empty": "Health data loads with dashboard refresh",
       "apiLimits": "API Limits",
       "storage": "Storage",
-      "jobs": "Active Jobs",
-      "errors": "Recent Errors",
+      "failedJobs": "Failed Jobs",
+      "recentErrorLogs": "Recent Error Logs",
       "lastChecked": "Last checked"
     },
     "fileStorage": "File Storage",
@@ -561,6 +561,10 @@
     "nl2soqlNothingToCheck": "This draft asks only for values from related records or for totals, so SandForge had no field name of its own to check. Run the query to find out whether it works.",
     "graph": {
       "title": "Dependency Graph"
+    },
+    "results": {
+      "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
+      "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}."
     }
   },
   "sync": {
@@ -1975,6 +1979,7 @@
     "addPolicy": "Add Policy",
     "evaluate": "Evaluate",
     "complianceScore": "Compliance Score",
+    "notMeasured": "Not measured",
     "policies": "Policies",
     "noPolicies": "No governance policies configured. Add a policy to get started.",
     "rules": "rules",

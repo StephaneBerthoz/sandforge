@@ -5,6 +5,8 @@ import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -417,6 +419,87 @@ describe('SyncOpsHandler', () => {
       const posted = postedMessages();
       expect(posted.filter((m) => m.type === 'sync:error')).toHaveLength(1);
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('tells the model which module and object a failed sync was on', async () => {
+      // The prompt is all the model sees: an org error with no run behind it
+      // gets an answer that fits any sync.
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+      mockGetConn.mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
+
+      await handler.handle(
+        inboundRequest({
+          id: '1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        }),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: sync');
+      expect(prompt).toContain('Operation: sync:execute');
+      expect(prompt).toContain('Target object: Account');
+      expect(prompt).toContain('Batch size: 200');
+    });
+
+    it('names the objects of a run that failed before it reached the org', async () => {
+      // The pre-flight failure happens before any connection, so the context
+      // can only come from the configuration the run was started with.
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            requiresConfirmation: true,
+            warnings: [],
+            impactSummary: 'upsert 1 object',
+          }),
+          logOperation: vi.fn(),
+          // The confirmation is a host dialog: when it fails the run ends
+          // before a connection is ever opened.
+          confirmIfNeeded: vi
+            .fn()
+            .mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd')),
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-sync-preflight',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        }),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: sync');
+      expect(prompt).toContain('Operation: sync:execute');
+      expect(prompt).toContain('Target object: Account');
+      expect(prompt).toContain('Batch size: 200');
     });
   });
 

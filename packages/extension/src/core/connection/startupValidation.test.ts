@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { SalesforceOrg, UUID } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
@@ -136,5 +136,90 @@ describe('validateOrgsOnStartup', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('an answer that arrives after the deadline', () => {
+    /** Deps whose OrgManager remembers the statuses the sweep sets. */
+    function makeTrackingDeps(orgs: SalesforceOrg[]) {
+      const statuses = new Map<string, SalesforceOrg['status']>();
+      const orgManager = {
+        getAllOrgs: vi.fn().mockReturnValue(orgs),
+        getOrg: vi.fn((id: string) => {
+          const org = orgs.find((o) => o.id === id);
+          return org ? { ...org, status: statuses.get(id) ?? org.status } : undefined;
+        }),
+        updateStatus: vi.fn((id: string, status: SalesforceOrg['status']) => {
+          statuses.set(id, status);
+        }),
+      } as unknown as OrgManager;
+      return {
+        deps: { orgManager, orgRegistry: {} as unknown as OrgRegistry, log: vi.fn() },
+        statusOf: (id: string) => statuses.get(id),
+      };
+    }
+
+    /** A connection attempt that settles `ms` after it starts. */
+    function settlesAfter(ms: number, outcome: 'resolve' | 'reject'): Promise<unknown> {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (outcome === 'resolve') resolve({});
+          else reject(new Error('Connection failed for "slow": NETWORK_ERROR'));
+        }, ms);
+      });
+    }
+
+    it('marks the org connected once a late validation succeeds', async () => {
+      vi.useFakeTimers();
+      try {
+        const { deps, statusOf } = makeTrackingDeps([makeOrg('org-1', 'slow')]);
+        mockGetJsforceConnection.mockReturnValueOnce(settlesAfter(50_000, 'resolve'));
+
+        const done = validateOrgsOnStartup(deps);
+        await vi.advanceTimersByTimeAsync(45_000);
+        await done;
+        expect(statusOf('org-1')).toBe('error');
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(statusOf('org-1')).toBe('connected');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('leaves the org in error when the late answer is a failure', async () => {
+      vi.useFakeTimers();
+      try {
+        const { deps, statusOf } = makeTrackingDeps([makeOrg('org-1', 'slow')]);
+        mockGetJsforceConnection.mockReturnValueOnce(settlesAfter(50_000, 'reject'));
+
+        const done = validateOrgsOnStartup(deps);
+        await vi.advanceTimersByTimeAsync(45_000);
+        await done;
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(statusOf('org-1')).toBe('error');
+        expect(deps.orgManager.updateStatus).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not overwrite a status something else set in the meantime', async () => {
+      vi.useFakeTimers();
+      try {
+        const { deps, statusOf } = makeTrackingDeps([makeOrg('org-1', 'slow')]);
+        mockGetJsforceConnection.mockReturnValueOnce(settlesAfter(50_000, 'resolve'));
+
+        const done = validateOrgsOnStartup(deps);
+        await vi.advanceTimersByTimeAsync(45_000);
+        await done;
+        deps.orgManager.updateStatus('org-1' as UUID, 'refreshing');
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(statusOf('org-1')).toBe('refreshing');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

@@ -8,18 +8,24 @@
  * delegates org auth to the `sf` CLI (`sf org display`) and reuses the
  * exact same orchestrator/executor as the wizard.
  *
+ * Runs from a checkout of the repository, at its root, after `pnpm install`
+ * and `pnpm build:shared`.
+ *
  * Usage:
- *   sandforge-clone --record <recordId> --source <alias> --target <alias>
- *                   [--depth direct|full|custom] [--custom-depth <n>]
- *                   [--max <n>] [--anonymize] [--dry-run]
+ *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+ *     --record <recordId> --source <alias> --target <alias>
+ *     [--depth direct|full|custom] [--custom-depth <n>]
+ *     [--max <n>] [--anonymize] [--dry-run]
  *
  * Example:
- *   sandforge-clone --record 500XX00000000001AAA \
- *                   --source SOURCE-UAT --target TARGET-DEV \
- *                   --depth custom --custom-depth 5 --max 50 --dry-run
+ *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+ *     --record 500XX00000000001AAA \
+ *     --source SOURCE-UAT --target TARGET-DEV \
+ *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 import type { ForgeConfig } from '@sandforge/shared';
 import { forgeConfigSchemaStrict } from '@sandforge/shared';
@@ -75,7 +81,11 @@ interface SfOrg {
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox.
 
 Usage:
-  sandforge-clone --record <id> --source <alias> --target <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+    --record <id> --source <alias> --target <alias> [options]
+
+  Run from the repository root of a checkout, after pnpm install and
+  pnpm build:shared.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically)
@@ -332,7 +342,7 @@ function loadOrg(alias: string): SfOrg {
   };
 }
 
-function makeConn(org: SfOrg): jsforce.Connection {
+function makeConn(org: SfOrg): Connection {
   return new jsforce.Connection({
     instanceUrl: org.instanceUrl,
     accessToken: org.accessToken,
@@ -340,7 +350,8 @@ function makeConn(org: SfOrg): jsforce.Connection {
   });
 }
 
-function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
+/** Shape a raw describe for the discovery service; exported so the field reading can be tested. */
+export function adaptDescribe(raw: DescribeSObjectResult): ObjectDescribe {
   return {
     name: raw.name,
     fields: raw.fields.map((f) => ({
@@ -348,6 +359,11 @@ function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
       type: String(f.type),
       referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
       relationshipName: f.relationshipName ?? null,
+      // Reads cascadeDelete as the extension's own describe adapter does. The
+      // flag is not decoration: discovery keeps a master-detail edge over a
+      // lookup for the same object pair, and the plan breaks a cycle by
+      // nulling a lookup only when the cycle has one.
+      isMasterDetail: f.cascadeDelete === true,
     })),
     childRelationships: raw.childRelationships.map((c) => ({
       childSObject: c.childSObject,
@@ -358,9 +374,10 @@ function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
   };
 }
 
-async function loadRecordTypes(
-  sourceConn: jsforce.Connection,
-  targetConn: jsforce.Connection,
+/** Match the active record types of both orgs; exported so the match can be tested. */
+export async function loadRecordTypes(
+  sourceConn: Connection,
+  targetConn: Connection,
 ): Promise<RecordTypeMapping[]> {
   // SobjectType is read so the match stays within one object: Account and
   // Opportunity can each have a "Business" record type.
@@ -387,7 +404,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const sourceOrg = loadOrg(args.source);
   const targetOrg = loadOrg(args.target);
-  const conns = new Map<string, jsforce.Connection>();
+  const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
 

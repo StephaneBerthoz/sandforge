@@ -3,6 +3,8 @@ import { AutomationHandler } from './AutomationHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 
 /**
  * Creates minimal mock deps for AutomationHandler tests.
@@ -279,6 +281,76 @@ describe('AutomationHandler', () => {
     expect(response.payload.message).toBe('store failed');
   });
 
+  it('tells the model which module and request a failed pipeline run came from', async () => {
+    // The prompt is all the model sees: a failure with no run behind it gets
+    // an answer that fits any operation.
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion: vi.fn(),
+    } as unknown as HandlerDeps['broker'];
+
+    await handler.handle(
+      inboundRequest({
+        id: 'run-1',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: { name: 'Nightly refresh', steps: [] } },
+      } as unknown as BaseMessage),
+    );
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+    const [prompt] = provider.mock.calls[0];
+    expect(prompt).toContain('Module: automation');
+    expect(prompt).toContain('Operation: pipeline:execute');
+  });
+
+  it('tells the model where a pipeline that ran and reported a failure came from', async () => {
+    // A run that reaches the org and comes back failed reports on the same
+    // channel as one that never started, and needs the same context.
+    const provider = vi.fn<AIProvider>(() =>
+      Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+    );
+    deps.errorResolver = new ErrorResolver(provider);
+    deps.broker = {
+      postToWebview: vi.fn(),
+      panelCount: 1,
+      showFixSuggestion: vi.fn(),
+    } as unknown as HandlerDeps['broker'];
+    deps.services = {
+      getSandforgeSetting: vi.fn(() => 300_000),
+      automationOrchestrator: vi.fn(() => ({
+        on: vi.fn(),
+        off: vi.fn(),
+        getActiveRuns: vi.fn(() => []),
+        execute: vi.fn().mockResolvedValue({
+          id: 'run-abc',
+          status: 'failed',
+          error: 'SOMETHING_WE_HAVE_NEVER_SEEN: odd',
+          stepResults: [],
+        }),
+      })),
+    } as unknown as HandlerDeps['services'];
+
+    await handler.handle(
+      inboundRequest({
+        id: 'run-2',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: { name: 'Nightly refresh', steps: [] } },
+      } as unknown as BaseMessage),
+    );
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+    const [prompt] = provider.mock.calls[0];
+    expect(prompt).toContain('Module: automation');
+    expect(prompt).toContain('Operation: pipeline:execute');
+  });
+
   describe('payload validation', () => {
     it('rejects pipeline:save without config (INVALID_PAYLOAD)', async () => {
       const msg = inboundRequest({
@@ -286,25 +358,6 @@ describe('AutomationHandler', () => {
         type: 'pipeline:save',
         timestamp: Date.now(),
         payload: { id: 'p-1' },
-      } as unknown as BaseMessage);
-
-      const result = await handler.handle(msg);
-      expect(result).toBe(true);
-
-      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
-        payload: { code: string };
-      };
-      expect(errMsg.type).toBe('pipeline:error');
-      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
-    });
-
-    it('rejects operation:cancel with a non-string operationId (INVALID_PAYLOAD)', async () => {
-      const msg = inboundRequest({
-        id: 'bad-cancel',
-        type: 'operation:cancel',
-        timestamp: Date.now(),
-        payload: { operationId: 42 },
       } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);

@@ -91,23 +91,6 @@ describe('ErrorLogMonitor', () => {
     });
   });
 
-  describe('getErrorCount', () => {
-    it('should return 0 for unknown org', () => {
-      expect(monitor.getErrorCount('unknown')).toBe(0);
-    });
-
-    it('should return the count of cached errors', async () => {
-      await monitor.fetch('org-1');
-      expect(monitor.getErrorCount('org-1')).toBe(4);
-    });
-
-    it('should return 0 when no errors exist', async () => {
-      vi.mocked(queryErrors).mockResolvedValue([]);
-      await monitor.fetch('org-1');
-      expect(monitor.getErrorCount('org-1')).toBe(0);
-    });
-  });
-
   describe('getErrorsByType', () => {
     it('should group errors by their error type', async () => {
       await monitor.fetch('org-1');

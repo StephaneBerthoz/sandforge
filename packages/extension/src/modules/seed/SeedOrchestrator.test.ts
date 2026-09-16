@@ -3,6 +3,9 @@ import { SeedOrchestrator } from './SeedOrchestrator';
 import type { SeedOrchestratorDependencies, InsertFn } from './SeedOrchestrator';
 import { SeedValidator } from './SeedValidator';
 import { SeedGrappeAdapter } from './SeedGrappeAdapter';
+import { FieldMapper } from './FieldMapper';
+import type { FieldMapperDependencies } from './FieldMapper';
+import { FakerFallback } from './FakerFallback';
 import type { SeedTemplate } from '@sandforge/shared';
 
 function createMockDeps(): SeedOrchestratorDependencies {
@@ -84,6 +87,65 @@ describe('SeedOrchestrator', () => {
 
       expect(result.status).toBe('failure');
       expect(result.objectResults[0].errors).toContain('Name is required');
+    });
+
+    it('names the AI fields that received generated sentences in the object result', async () => {
+      const refusingAi = {
+        generate: vi.fn().mockResolvedValue([]),
+      } as unknown as FieldMapperDependencies['aiGenerator'];
+      deps.fieldMapper = new FieldMapper({
+        aiGenerator: refusingAi,
+        fakerFallback: new FakerFallback(),
+      });
+      const template = createTemplate();
+      template.objects[0].fieldRules = [
+        { fieldApiName: 'Description', ruleType: 'ai_generate', config: { aiPrompt: 'About' } },
+        { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
+      ];
+
+      const result = await new SeedOrchestrator(deps).execute(template, 'org-1');
+
+      expect(result.objectResults[0].aiFallback).toEqual({
+        fields: ['Description'],
+        reason: 'no-answer',
+      });
+    });
+
+    it('adds no AI fallback to an object whose rules name no AI field', async () => {
+      const result = await orchestrator.execute(createTemplate(), 'org-1');
+
+      expect(result.objectResults[0].aiFallback).toBeUndefined();
+    });
+
+    it('names the AI fields that received generated sentences on the partitioned path too', async () => {
+      const refusingAi = {
+        generate: vi.fn().mockResolvedValue([]),
+      } as unknown as FieldMapperDependencies['aiGenerator'];
+      const template = createTemplate();
+      template.objects[0].fieldRules = [
+        { fieldApiName: 'Description', ruleType: 'ai_generate', config: { aiPrompt: 'About' } },
+        { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
+      ];
+      const partitioned = new SeedOrchestrator({
+        ...deps,
+        fieldMapper: new FieldMapper({
+          aiGenerator: refusingAi,
+          fakerFallback: new FakerFallback(),
+        }),
+        grappeAdapter: new SeedGrappeAdapter(() => 'gid'),
+        grappeConfig: {
+          enabled: true,
+          autoActivateThreshold: 1,
+          grappeSize: 2000,
+        } as SeedOrchestratorDependencies['grappeConfig'],
+      });
+
+      const result = await partitioned.execute(template, 'org-1');
+
+      expect(result.objectResults[0].aiFallback).toEqual({
+        fields: ['Description'],
+        reason: 'no-answer',
+      });
     });
 
     it('should resolve insert order via referenceLinker', async () => {

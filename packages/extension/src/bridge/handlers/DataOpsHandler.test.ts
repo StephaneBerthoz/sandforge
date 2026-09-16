@@ -3,6 +3,8 @@ import { DataOpsHandler } from './DataOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
+import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 
 /**
  * Creates minimal mock deps for DataOpsHandler tests.
@@ -219,6 +221,85 @@ describe('DataOpsHandler', () => {
       const opFailed = posted.filter((m) => m.type === 'operation:failed');
       expect(opFailed).toHaveLength(1);
       expect(opFailed[0].payload.error).toBe('connection failed');
+
+      vi.restoreAllMocks();
+    });
+
+    it('tells the model which module and request a failed backup came from', async () => {
+      // The prompt is all the model sees: an org error with no run behind it
+      // gets an answer that fits any operation.
+      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+        getJsforceConnection: vi.fn(),
+      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockRejectedValue(
+        new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'),
+      );
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-b2',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-123', objects: ['Account'] },
+        }),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: dataops');
+      expect(prompt).toContain('Operation: backup:execute');
+
+      vi.restoreAllMocks();
+    });
+
+    it('names the object a backup was reading when it failed, not the whole request', async () => {
+      // A backup walks its objects one at a time, so a failure has one object
+      // behind it — the run's list would point the answer at the wrong one.
+      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+        getJsforceConnection: vi.fn(),
+      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query: vi.fn((soql: string) =>
+          soql.includes('FROM Contact')
+            ? Promise.reject(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'))
+            : Promise.resolve({ records: [], done: true }),
+        ),
+      } as never);
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-b3',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-123', objects: ['Account', 'Contact'] },
+        }),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Target object: Contact');
+      expect(prompt).not.toContain('Target object: Account');
 
       vi.restoreAllMocks();
     });
@@ -631,6 +712,32 @@ describe('DataOpsHandler', () => {
       expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
 
+    it('tells the model the object and batch size a restore was writing with', async () => {
+      // The write loop is where a restore meets the org: the answer is only
+      // useful if it knows which object, and how many records went per call.
+      const { upsert } = await mockConnection();
+      upsert.mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
+      deps.configStore = configStoreWithBackup('org-1');
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+
+      await handler.handle(rollbackMsg('org-1'));
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: dataops');
+      expect(prompt).toContain('Operation: dataops:rollback');
+      expect(prompt).toContain('Target object: Account');
+      expect(prompt).toContain('Batch size: 200');
+    });
+
     it('strips system fields from the payload instead of failing the FLS check', async () => {
       const { upsert } = await mockConnection();
       deps.configStore = configStoreWithBackup('org-1');
@@ -970,6 +1077,47 @@ describe('DataOpsHandler', () => {
 
       expect(anonymizePayload()?.status).toBe('partial');
       expect(anonymizePayload()?.message).not.toBe('Anonymization completed: 1 records processed.');
+    });
+
+    it('tells the model the object and batch size a refused masking used', async () => {
+      // Masking fails inside the same write loop as the restore, and needs the
+      // same two lines to be answered usefully.
+      const update = vi.fn().mockRejectedValue(new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query: vi.fn(async () => ({
+          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
+          done: true,
+        })),
+        describe: vi.fn().mockResolvedValue(contactDescribe),
+        sobject: vi.fn(() => ({ update })),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'an-failed',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+
+      const [prompt] = provider.mock.calls[0];
+      expect(prompt).toContain('Module: dataops');
+      expect(prompt).toContain('Operation: dataops:anonymize');
+      expect(prompt).toContain('Target object: Contact');
+      expect(prompt).toContain('Batch size: 200');
     });
 
     it('tells the user what the org said', async () => {
