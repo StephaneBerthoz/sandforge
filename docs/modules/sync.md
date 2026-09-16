@@ -22,7 +22,7 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
   configuration asking for _target to source_ is refused before it runs.
 - **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs
 - **No real-time sync or conflict review** -- The Sync page offers Sync, History and Schedules. Real-time (CDC) replication and the conflict list it would feed are not implemented, so their tabs are not shown
-- **5 Conflict Strategies** -- Source wins, target wins, newest wins, manual merge, or auto-merge
+- **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered: the conflict list it would feed is not shown, and the strategy of that name resolves to the source values without ever showing a conflict
 
 ### Object Set Editor
 
@@ -45,8 +45,15 @@ The Transform Builder lets you add data transformation rules that run during syn
 
 - String transforms (uppercase, lowercase, trim, regex replace)
 - Date and number formatting
-- Conditional logic and formula expressions
-- Configurable per-field or per-object
+- A formula rule substitutes the field value into the token `VALUE` and
+  evaluates the arithmetic; a field that is not a number, or a formula without
+  `VALUE`, is left as it is. There is no conditional rule
+- Every rule you add applies to all fields of all objects in the run, except
+  `Id` and the external ID the run matches on, which are left as they are so a
+  prefix or a truncate cannot send the write to a record that does not exist.
+  Per-mapping rules exist in the configuration format, but no screen sets them
+- Value mapping takes a table of replacements the builder has no box for, so a
+  rule of that type leaves every value as it is
 
 ### Review and Sankey Flow
 
@@ -65,6 +72,10 @@ Before execution, the Review step shows:
   counted before the run, at or above `sandforge.grappe.autoActivateThreshold`,
   the run reports progress one partition per object over that same sequential
   loop -- nothing is split and nothing runs concurrently.
+- That count costs API calls. With `sandforge.grappe.enabled` on, Sync sends one
+  `SELECT COUNT()` per object of the run before anything is written, and each of
+  those queries counts against the org's daily API request limit, production
+  included. With the setting off, no count is sent.
 - Per-object result breakdown: processed, succeeded, and failed counts
 - Detailed error messages per object for troubleshooting
 

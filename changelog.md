@@ -44,6 +44,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run that included one failed past the bulk threshold, after the REST path
   had already written records. They are no longer offered, and a
   configuration naming one is refused before it starts.
+- **A transform rule carries the settings you type into it, and leaves the
+  field the write matches on alone.** The truncate length, the prefix, the
+  suffix, the search and its replacement, the regular expression, the default
+  value, the date and number formats and the formula all cleared themselves on
+  every keystroke, so every value-based rule reached the run with an empty
+  configuration: it did nothing the box asked for, and a truncate, prefix or
+  suffix rule still rewrote every field as text — a number became its digits,
+  an empty field an empty string — while a date or number format rule applied
+  its built-in default. The run reported success either way. The boxes now hold
+  what you type and the rule carries it to the run. Such a rule applies to
+  every field of every record of the run, so `Id` and the external ID the run
+  matches on are now left exactly as they are by every rule the builder adds: a
+  prefix or a truncate over the match field would upsert new records under a
+  key the target has never seen and report every one of them as written. A
+  truncate length is sent as the whole number the configuration requires, and
+  text that is not one is not kept — the box empties and the rule goes out with
+  no length, rather than truncating at a length you did not ask for. Value
+  mapping is the one rule the builder still has no box for, so a rule of that
+  type added on the page goes out empty and leaves every value as it is.
+- **Sync no longer offers a conflict strategy that only pretends to be one.**
+  _Manual_ resolves every conflict to the source values and writes them — the
+  same result as _Source wins_ — while its name promises a review, and there is
+  no screen in the product on which a conflict can be reviewed. The list now
+  holds the four strategies a bidirectional run acts on: source wins, target
+  wins, newest wins and a field-level merge. A saved configuration still naming
+  the withdrawn strategy reopens on _Source wins_.
 - **A record-scoped clone with more than 600 children runs to the end.** A
   scoped query travels in the request URI, and the list of Ids that scopes it
   stopped fitting there at around 600, past which the clone refused to start.
@@ -220,12 +246,17 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   extension now answers it with a bridge error correlated to it. Every open
   SandForge panel shows that error as a Bridge error notice, not only the page
   that sent the message.
-- **Sync history loads, and an export says where it went.** Nothing passed the
-  extension's answers to the history panel's store: the request went out, the
-  table never filled, and an export never reached the Save dialog. The panel now
-  feeds the store those answers, and a history export says where the file was
-  saved or why it was not; a dismissed dialog stays silent, as other exports
-  already did.
+- **Sync history loads, and an export says where it went, whichever Sync tab
+  you are on.** Nothing passed the extension's answers to the history store: the
+  request went out, the table never filled, and an export never reached the Save
+  dialog. The Sync page now feeds the store the five answers it waits for — the
+  list, one entry's detail, the exported content, a history error and the save
+  dialog's reply — and it stays mounted for as long as Sync is open, where the
+  History tab does not: an export you started and then left the tab on lost its
+  answer, so no dialog opened and no file was written, and a path saved on the
+  way out was announced nowhere. The dialog now opens and the file's path — or
+  the reason it was not written — reaches you wherever you are. A dismissed
+  dialog stays silent, as other exports already did.
 - **The AI token budget holds for the whole window.** Every change to a
   `sandforge.ai.*` setting rebuilt the AI stack with a fresh, empty counter, so
   toggling any AI setting was a way past the limit, and until the rebuild
@@ -472,7 +503,9 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   the sync goes on and reports nothing to the Grappe view. The Grappe help, the
   empty Grappe page and both Grappe setting descriptions now say that Sync waits
   for the threshold too, in all six languages, and the Sync guide says when the
-  reporting starts.
+  reporting starts and what the counting costs: one API request per object of
+  the run, charged to the org's daily limit, production included, and none at
+  all with the setting off.
 - **An Autopilot run opens and closes in the Grappe view under one id.** The
   start and completion events each minted their own `autopilot-<timestamp>`, one
   before the run's work started and one after it ended, so the closing event
@@ -661,6 +694,24 @@ message`, followed by their extra fields, in the same layout as the channel's
   pin.** Every example pipeline hardcoded pnpm 11 while the repository's own
   workflows read `packageManager`; CONTRIBUTING.md and the pnpm ADR cited a
   release two bumps old, and the Jenkins header asked for a Node 20 tool.
+- **The Sync help and guide describe the rules and strategies that run.** The
+  help panel promised "13 transform types" and "conflict resolution
+  strategies" in six languages, and the module page sold five conflict
+  strategies including a manual merge and called transforms "configurable
+  per-field or per-object". Both now say that a transform rule applies to every
+  field of every record of the run, `Id` and the external ID it matches on
+  excepted, and that a value mapping rule added on the page has no table to
+  fill, so it leaves every value as it is. A value mapping rule imported from
+  an SFDMU `export.json` carries its own table and does replace values. The
+  help panel also says which rules take no setting, which takes a length and
+  which take text. The guide gives what a formula rule really does — it
+  substitutes the field value into the token `VALUE` and evaluates the
+  arithmetic — in place of a conditional rule that does not exist, notes that
+  per-mapping rules exist in the configuration format but no screen sets them,
+  and names the four strategies a bidirectional run reads with what each does
+  to a conflicting record, including that newest wins keeps the target record
+  only when both sides carry a readable last-modified date and the target's is
+  the later one.
 - **The guides describe what ships.** The Seed guide no longer describes a
   relationship editor: a lookup receives records its target object created
   earlier in the run, so that object has to be part of it, while an optional
@@ -708,6 +759,14 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   sent them, and the runs they could reach — pipeline runs — were never the ones
   it listed. Stopping a run still goes through Cancel in Live Operations and
   Cancel run on the Seed page, which abort the run itself.
+- **A sync validation path nothing could reach.** The sync writer accepted an
+  optional list of target field descriptors and, when given one, refused a
+  whole batch before any write — but nothing ever passed one, and a single
+  descriptor list held against every object of a run would have refused valid
+  updates, and partial mappings over required fields and picklists. It is gone.
+  The field-type comparison both orgs go through before a run catches the type
+  mismatch it was added for, and Salesforce still reports a value too long for
+  its field or a required field left empty.
 
 ### Security
 
@@ -838,6 +897,11 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   `vscode.lm` taken whole or bound, and the attacks recorded against the AI
   Assistant rules are replayed in memory on every run, except the
   import-coverage ones, which the coverage control reads on the real tree.
+- **The Sync module page is held to the code it describes.** A check beside the
+  page fails when it sells a conflict review, a conditional rule, a transform
+  reach or a Grappe count the code no longer matches. Every claim that rests on
+  a source line is pinned to that line first, so an assertion about a page the
+  code has moved on from cannot pass quietly.
 - **Hand-built bridge messages are checked.** In a webview file that posts a
   message, every hand-built `type: '<channel>'` must be a channel the protocol
   declares, the raw `sidebar:*` channels excepted; an undeclared one used to

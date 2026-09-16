@@ -35,8 +35,15 @@ export class TransformPipeline {
   ): Record<string, unknown> {
     const result: Record<string, unknown> = { ...record };
 
+    // An object-level rule runs over every field of the record. The field a
+    // write matches on is not one of them: a prefix or a truncate on it would
+    // upsert new records under a key the target has never seen, and the run
+    // would report every one of them as written.
+    const matchField = objectConfig.externalIdField ?? 'Id';
+
     for (const rule of objectConfig.transformRules) {
       for (const key of Object.keys(result)) {
+        if (key === matchField || key === 'Id') continue;
         result[key] = applyRule(result[key], rule.type, rule.config);
       }
     }

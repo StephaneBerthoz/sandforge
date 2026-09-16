@@ -23,12 +23,19 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   }),
 }));
 
-/** State of the sync:execute mutation, set by the tests that need a run going. */
-const execution = vi.hoisted(() => ({ loading: false, requestId: null as string | null }));
+/**
+ * State of the sync:execute mutation, set by the tests that need a run going.
+ * `mutate` is kept so a test can read the configuration that went out.
+ */
+const execution = vi.hoisted(() => ({
+  loading: false,
+  requestId: null as string | null,
+  mutate: vi.fn(),
+}));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => ({
-    mutate: vi.fn(),
+    mutate: requestType === 'sync:execute' ? execution.mutate : vi.fn(),
     data: null,
     loading: requestType === 'sync:execute' ? execution.loading : false,
     error: null,
@@ -37,9 +44,12 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   }),
 }));
 
+/** The stored draft the page reopens on; a test that needs one sets it. */
+const draft = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+
 vi.mock('../../hooks/useWebviewPersistedState', () => ({
   useWebviewPersistedState: (_key: string, defaultValue: unknown) => {
-    const state = { current: defaultValue };
+    const state = { current: draft.value ?? defaultValue };
     return [state.current, vi.fn()];
   },
 }));
@@ -51,8 +61,10 @@ vi.mock('../../hooks/useWebviewPersistedState', () => ({
 describe('useSyncPageData', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    draft.value = null;
     execution.loading = false;
     execution.requestId = null;
+    execution.mutate.mockClear();
   });
 
   it('shows the progress of the sync it started, not of another run reporting at the same time', () => {
@@ -87,6 +99,101 @@ describe('useSyncPageData', () => {
     });
 
     expect(result.current.overallPercent).toBe(25);
+  });
+
+  it('sends the transform rule with the settings typed for it', () => {
+    // TransformBuilder's inputs were handed a no-op, so a prefix, a replacement
+    // or a truncate length never left the page: every value-based rule reached
+    // the run with an empty config and changed nothing.
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => {
+      result.current.handleSourceOrgChange('org-1');
+      result.current.handleTargetOrgChange('org-2');
+      result.current.handleAddObject('Account');
+      result.current.handleAddTransform('prefix');
+    });
+    act(() => {
+      result.current.handleChangeTransformConfig(0, 'prefix', 'X-');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const sent = execution.mutate.mock.calls[0][0] as {
+      config: { objects: { transformRules: { type: string; config: { prefix?: string } }[] }[] };
+    };
+    expect(sent.config.objects[0].transformRules[0].type).toBe('prefix');
+    expect(sent.config.objects[0].transformRules[0].config.prefix).toBe('X-');
+  });
+
+  it('sends a truncate length as the number the schema expects', () => {
+    // The length box is text, and `length` is a number at the boundary: sent as
+    // '5' the whole configuration would be refused before the run.
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => {
+      result.current.handleSourceOrgChange('org-1');
+      result.current.handleTargetOrgChange('org-2');
+      result.current.handleAddObject('Account');
+      result.current.handleAddTransform('truncate');
+    });
+    act(() => {
+      result.current.handleChangeTransformConfig(0, 'length', '5');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const sent = execution.mutate.mock.calls[0][0] as {
+      config: { objects: { transformRules: { config: { length?: number } }[] }[] };
+    };
+    expect(sent.config.objects[0].transformRules[0].config.length).toBe(5);
+  });
+
+  it('leaves out a truncate length whose text is not a whole number', () => {
+    // The box is text and `length` is a positive integer at the boundary:
+    // '5.7' must not silently become 5 characters.
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => {
+      result.current.handleSourceOrgChange('org-1');
+      result.current.handleTargetOrgChange('org-2');
+      result.current.handleAddObject('Account');
+      result.current.handleAddTransform('truncate');
+    });
+    act(() => {
+      result.current.handleChangeTransformConfig(0, 'length', '5.7');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const sent = execution.mutate.mock.calls[0][0] as {
+      config: { objects: { transformRules: { config: { length?: number } }[] }[] };
+    };
+    expect(sent.config.objects[0].transformRules[0].config.length).toBeUndefined();
+  });
+
+  it('reopens a draft naming a conflict strategy the page no longer offers on source wins', () => {
+    // A draft saved while 'manual' was still offered would otherwise put the
+    // select on a value with no option and print its raw label key on the
+    // review step.
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'manual',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+
+    const { result } = renderHook(() => useSyncPageData());
+
+    expect(result.current.conflictStrategy).toBe('source_wins');
   });
 
   it('should start at step 0', () => {

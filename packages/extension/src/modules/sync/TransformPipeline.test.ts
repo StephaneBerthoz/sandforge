@@ -171,4 +171,32 @@ describe('TransformPipeline', () => {
       expect(result).toEqual(record);
     });
   });
+  describe('the field a write matches on', () => {
+    it('is left alone by an object-level rule', () => {
+      const config = createObjectConfig({
+        externalIdField: 'Ext_Id__c',
+        transformRules: [{ type: 'prefix', config: { prefix: 'X-' } }],
+      });
+
+      const result = pipeline.transformRecord(
+        { Id: '001abc', Ext_Id__c: 'KEY-1', Name: 'Acme' },
+        config,
+      );
+
+      expect(result.Id).toBe('001abc');
+      expect(result.Ext_Id__c).toBe('KEY-1');
+      expect(result.Name).toBe('X-Acme');
+    });
+
+    it('is Id when the object upserts on no external id', () => {
+      const config = createObjectConfig({
+        transformRules: [{ type: 'uppercase', config: {} }],
+      });
+
+      const result = pipeline.transformRecord({ Id: '001abc', Name: 'Acme' }, config);
+
+      expect(result.Id).toBe('001abc');
+      expect(result.Name).toBe('ACME');
+    });
+  });
 });

@@ -25,12 +25,13 @@ import type { FieldMapping as FieldMapperMapping } from '../../components/graph/
 import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import type { BadgeVariant } from '../../components/ui/Badge';
-import { useSyncPageData } from './useSyncPageData';
+import { useSyncPageData, OFFERED_CONFLICT_STRATEGIES } from './useSyncPageData';
 import type { ObjectSetEntry } from './ObjectSetEditor';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
+import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import { SyncSchedulePanel } from './SyncSchedulePanel';
 import { RealTimeSyncPanel } from './RealTimeSyncPanel';
 import { ConflictListPanel } from './ConflictListPanel';
@@ -175,6 +176,11 @@ export const SyncPage: React.FC = () => {
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
 
+  // Subscribed here rather than in SyncHistoryPanel: an export's save answer
+  // arrives after the dialog closes, which the user may well do from another
+  // tab, and the page outlives every tab of it.
+  useSyncHistoryMessages();
+
   const {
     availableObjects,
     sourceFields,
@@ -208,6 +214,7 @@ export const SyncPage: React.FC = () => {
     handleMappingTypeChange,
     handleAddTransform,
     handleRemoveTransform,
+    handleChangeTransformConfig,
     handleExecute,
     handleApplyTemplate,
     canGoNext,
@@ -250,13 +257,11 @@ export const SyncPage: React.FC = () => {
     { value: 'source_to_target', label: t('sync.directions.source_to_target') },
     { value: 'bidirectional', label: t('sync.directions.bidirectional') },
   ];
-  const conflictOptions: { value: ConflictStrategy; label: string }[] = [
-    { value: 'source_wins', label: t('sync.conflicts.source_wins') },
-    { value: 'target_wins', label: t('sync.conflicts.target_wins') },
-    { value: 'newest_wins', label: t('sync.conflicts.newest_wins') },
-    { value: 'manual', label: t('sync.conflicts.manual') },
-    { value: 'merge', label: t('sync.conflicts.merge') },
-  ];
+  const conflictOptions: { value: ConflictStrategy; label: string }[] =
+    OFFERED_CONFLICT_STRATEGIES.map((value) => ({
+      value,
+      label: t(`sync.conflicts.${value}`),
+    }));
 
   return (
     <div
@@ -506,7 +511,7 @@ export const SyncPage: React.FC = () => {
               rules={transforms}
               onAddRule={handleAddTransform}
               onRemoveRule={handleRemoveTransform}
-              onChangeConfig={() => undefined}
+              onChangeConfig={handleChangeTransformConfig}
             />
           )}
 

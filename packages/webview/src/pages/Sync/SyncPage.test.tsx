@@ -1,12 +1,14 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useConflictStore } from '../../stores/useConflictStore';
+import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { SyncPage } from './SyncPage';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg, UIConflict } from '@sandforge/shared';
+import type { SalesforceOrg, SyncHistoryEntry, UIConflict } from '@sandforge/shared';
 
 const mockOrgs: SalesforceOrg[] = [
   {
@@ -40,6 +42,47 @@ const mockOrgs: SalesforceOrg[] = [
     tags: [],
   },
 ];
+
+/** One history row, so the panel renders its export buttons. */
+const historyEntry: SyncHistoryEntry = {
+  id: 'h-1',
+  configSnapshot: {
+    id: 'cfg-1',
+    name: 'Test Config',
+    description: 'Test sync config',
+    sourceOrgId: 'org-1',
+    targetOrgId: 'org-2',
+    direction: 'source_to_target',
+    mode: 'full',
+    conflictStrategy: 'source_wins',
+    objects: [],
+    enableRollback: false,
+    createdAt: '2024-01-01T00:00:00Z',
+    updatedAt: '2024-01-01T00:00:00Z',
+  },
+  result: {
+    configId: 'cfg-1',
+    operationId: 'op-1',
+    status: 'success',
+    objectResults: [],
+    totalProcessed: 1,
+    totalSuccess: 1,
+    totalFailed: 0,
+    totalSkipped: 0,
+    duration: 1000,
+    timestamp: '2024-01-01T00:05:00Z',
+  },
+  startTime: '2024-01-01T00:00:00Z',
+  endTime: '2024-01-01T00:05:00Z',
+  triggeredBy: 'manual',
+};
+
+/** Deliver a message from the extension host to the page's window. */
+function fromHost(data: Record<string, unknown>): void {
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: { timestamp: Date.now(), ...data } }));
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -123,6 +166,16 @@ vi.mock('../../components/ui/VirtualList', () => ({
   },
 }));
 
+/** The draft the page reopens on; a test that needs a wizard step sets it. */
+const draft = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+
+vi.mock('../../hooks/useWebviewPersistedState', () => ({
+  useWebviewPersistedState: (_key: string, defaultValue: unknown) => [
+    draft.value ?? defaultValue,
+    vi.fn(),
+  ],
+}));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'sync:describe-fields') {
@@ -144,6 +197,7 @@ describe('SyncPage', () => {
       filterObject: null,
       filterType: null,
     });
+    draft.value = null;
     mockObjectsRefetch.mockClear();
     mockFieldsMutate.mockClear();
     mockFieldsReset.mockClear();
@@ -298,6 +352,111 @@ describe('SyncPage', () => {
     render(<SyncPage />);
 
     expect(screen.queryByTestId('conflict-count-badge')).toBeNull();
+  });
+
+  it('announces a history export whose save is answered after the History tab is left', () => {
+    // The export's content and the save dialog's answer both come back as host
+    // messages. Subscribed from the History panel, they were lost as soon as
+    // the user switched tab and the panel unmounted: the file was written and
+    // nothing said so.
+    useOrgStore.setState({ orgs: mockOrgs });
+    useSyncHistoryStore.setState({ entries: [historyEntry], loading: false, pendingSaveId: null });
+    useNotificationStore.setState({ notifications: [] });
+    render(<SyncPage />);
+
+    fireEvent.click(screen.getByTestId('tab-history'));
+    fireEvent.click(screen.getByTestId('export-csv-btn'));
+    fireEvent.click(screen.getByTestId('tab-sync'));
+    expect(screen.queryByTestId('sync-history-panel')).toBeNull();
+    mockVSCodeApi.postMessage.mockClear();
+
+    fromHost({
+      id: 'host-export',
+      type: 'sync:history:export:response',
+      payload: { data: 'id\n1', format: 'csv' },
+    });
+
+    const save = mockVSCodeApi.postMessage.mock.calls
+      .map((call) => (call[0] as { payload: { id: string; type: string } }).payload)
+      .find((message) => message.type === 'file:save');
+    expect(save).toBeDefined();
+
+    fromHost({
+      id: 'host-save',
+      type: 'file:save:response',
+      correlationId: save?.id,
+      payload: { status: 'saved', path: '/home/user/sync-history.csv' },
+    });
+
+    const [notification] = useNotificationStore.getState().notifications;
+    expect(notification?.level).toBe('success');
+    expect(notification?.message).toContain('/home/user/sync-history.csv');
+  });
+
+  it('keeps the length typed into a truncate rule', () => {
+    // TransformBuilder's settings were wired to a no-op, so the boxes cleared
+    // themselves on every keystroke and the rule went out with no length.
+    draft.value = {
+      currentStep: 2,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [{ type: 'truncate', config: {} }],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const length = within(screen.getByTestId('transform-0')).getByPlaceholderText(
+      'length',
+    ) as HTMLInputElement;
+    fireEvent.change(length, { target: { value: '5' } });
+
+    expect(length.value).toBe('5');
+  });
+
+  it('empties the truncate box as soon as its text stops being a whole number', () => {
+    // The box reads back the length held in the rule, and only digits make a
+    // length: a '.' keystroke drops the setting, and the box goes with it.
+    draft.value = {
+      currentStep: 2,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [{ type: 'truncate', config: {} }],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const length = within(screen.getByTestId('transform-0')).getByPlaceholderText(
+      'length',
+    ) as HTMLInputElement;
+    fireEvent.change(length, { target: { value: '5' } });
+    fireEvent.change(length, { target: { value: '5.' } });
+
+    expect(length.value).toBe('');
+  });
+
+  it('offers only the conflict strategies the resolver acts on, never manual', () => {
+    // 'manual' resolved to the source values and wrote them, exactly like
+    // source wins: the option named a review the page never showed.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const strategy = screen.getByLabelText('Conflict Strategy') as HTMLSelectElement;
+    expect(Array.from(strategy.options).map((o) => o.value)).toEqual([
+      'source_wins',
+      'target_wins',
+      'newest_wins',
+      'merge',
+    ]);
   });
 
   it('offers the two directions a sync performs, never target to source', () => {

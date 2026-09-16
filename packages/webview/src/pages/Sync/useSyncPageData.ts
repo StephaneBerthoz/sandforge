@@ -12,6 +12,7 @@ import type {
   ConflictStrategy,
   MappingType,
   TransformRuleType,
+  TransformRuleConfig,
   SyncTemplateConfig,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
@@ -114,6 +115,8 @@ export interface SyncPageData {
   handleAddTransform: (type: TransformRuleType) => void;
   /** Remove a transform rule by index. */
   handleRemoveTransform: (index: number) => void;
+  /** Set one setting of a transform rule, as typed in its input. */
+  handleChangeTransformConfig: (index: number, key: string, value: string) => void;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
   /** Apply a pre-built sync template to populate wizard state. */
@@ -126,6 +129,43 @@ export interface SyncPageData {
   overallPercent: number;
   /** Elapsed time in milliseconds. */
   elapsedMs: number;
+}
+
+/**
+ * The conflict strategies a bidirectional run acts on. `manual` is not one of
+ * them: the resolver answered it with the source values and wrote them, like
+ * source wins, and there is no screen on which a conflict could be reviewed.
+ * A draft saved while it was offered reopens on the default rather than on a
+ * strategy with no option and no label.
+ */
+export const OFFERED_CONFLICT_STRATEGIES: readonly ConflictStrategy[] = [
+  'source_wins',
+  'target_wins',
+  'newest_wins',
+  'merge',
+];
+
+/**
+ * The transform settings TransformBuilder types into, all of them text. They
+ * are listed so a key from the outside cannot reach the rule's config, and
+ * `length` is left out: it is the only numeric setting and is read apart.
+ */
+const TEXT_TRANSFORM_CONFIG_KEYS = [
+  'prefix',
+  'suffix',
+  'search',
+  'replace',
+  'regex',
+  'defaultValue',
+  'dateFormat',
+  'numberFormat',
+  'formula',
+] as const;
+
+type TextTransformConfigKey = (typeof TEXT_TRANSFORM_CONFIG_KEYS)[number];
+
+function isTextTransformConfigKey(key: string): key is TextTransformConfigKey {
+  return (TEXT_TRANSFORM_CONFIG_KEYS as readonly string[]).includes(key);
 }
 
 /**
@@ -182,7 +222,9 @@ export function useSyncPageData(): SyncPageData {
   const [direction, setDirection] = useState<SyncDirection>(initialDraft.current.direction);
   const [mode, setMode] = useState<SyncMode>(initialDraft.current.mode);
   const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(
-    initialDraft.current.conflictStrategy,
+    OFFERED_CONFLICT_STRATEGIES.includes(initialDraft.current.conflictStrategy)
+      ? initialDraft.current.conflictStrategy
+      : 'source_wins',
   );
   const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
     initialDraft.current.objectEntries,
@@ -367,6 +409,28 @@ export function useSyncPageData(): SyncPageData {
   const handleRemoveTransform = (index: number) => {
     setTransforms((prev) => prev.filter((_, i) => i !== index));
   };
+  const handleChangeTransformConfig = (index: number, key: string, value: string) => {
+    setTransforms((prev) =>
+      prev.map((rule, i) => {
+        if (i !== index) return rule;
+        // The boundary types `length` as a positive integer. Only digits are
+        // taken: '5.7' or '5px' would otherwise truncate at 5 without saying
+        // so, and an empty box leaves the setting out rather than refusing the
+        // run. The box reads back what is held here, so text that makes no
+        // length is not kept on screen either.
+        if (key === 'length') {
+          const digits = value.trim();
+          const config: TransformRuleConfig = { ...rule.config };
+          const length = /^\d+$/.test(digits) ? Number.parseInt(digits, 10) : 0;
+          if (length > 0) config.length = length;
+          else delete config.length;
+          return { ...rule, config };
+        }
+        if (!isTextTransformConfigKey(key)) return rule;
+        return { ...rule, config: { ...rule.config, [key]: value } };
+      }),
+    );
+  };
 
   const handleApplyTemplate = useCallback((template: SyncTemplateConfig) => {
     setDirection(template.direction);
@@ -472,6 +536,7 @@ export function useSyncPageData(): SyncPageData {
     handleMappingTypeChange,
     handleAddTransform,
     handleRemoveTransform,
+    handleChangeTransformConfig,
     handleExecute,
     handleApplyTemplate,
     canGoNext,

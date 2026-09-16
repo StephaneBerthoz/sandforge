@@ -1,7 +1,9 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import '../../i18n';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
+import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
@@ -23,6 +25,15 @@ function fromHost(data: Record<string, unknown>): void {
     window.dispatchEvent(new MessageEvent('message', { data: { timestamp: Date.now(), ...data } }));
   });
 }
+
+/**
+ * The panel as SyncPage mounts it: the page owns the subscriptions, so a test
+ * about what an incoming answer does has to mount them too.
+ */
+const PanelInPage: React.FC = () => {
+  useSyncHistoryMessages();
+  return <SyncHistoryPanel />;
+};
 
 const makeMockEntry = (
   id: string,
@@ -144,7 +155,7 @@ describe('SyncHistoryPanel', () => {
   it('fills the table when the extension answers the history request', () => {
     // The store's message handler had no caller: the request went out, the
     // answer arrived, and the panel stayed on its loading state.
-    render(<SyncHistoryPanel />);
+    render(<PanelInPage />);
 
     act(() => {
       window.dispatchEvent(
@@ -169,7 +180,7 @@ describe('SyncHistoryPanel', () => {
     // the dialog and its outcome was never announced.
     useSyncHistoryStore.setState({ pendingSaveId: null });
     useNotificationStore.setState({ notifications: [] });
-    render(<SyncHistoryPanel />);
+    render(<PanelInPage />);
     mockPostMessage.mockClear();
 
     fromHost({
