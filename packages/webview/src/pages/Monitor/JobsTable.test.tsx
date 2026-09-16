@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { createInstance, type i18n as I18n } from 'i18next';
+import { I18nextProvider, initReactI18next } from 'react-i18next';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
 import { JobsTable } from './JobsTable';
 import type { JobDisplayInfo } from './MonitorPage';
 
@@ -188,5 +192,129 @@ describe('JobsTable', () => {
       el.getAttribute('data-testid'),
     );
     expect(order).toEqual(['job-group-ZuluBatch', 'job-group-AlphaBatch']);
+  });
+
+  it('should reverse the rows and flip aria-sort when the created column is toggled', () => {
+    const jobs = [
+      createJob({ id: 'older', jobType: 'BatchApex', createdDate: '2026-02-20T10:00:00Z' }),
+      createJob({ id: 'newer', jobType: 'BatchApex', createdDate: '2026-02-24T10:00:00Z' }),
+    ];
+    render(<JobsTable jobs={jobs} />);
+    fireEvent.click(screen.getByTestId('group-toggle-BatchApex'));
+
+    const rowIds = (): Array<string | null> =>
+      Array.from(
+        screen.getByTestId('group-jobs-BatchApex').querySelectorAll('[data-testid^="job-row-"]'),
+      ).map((el) => el.getAttribute('data-testid'));
+
+    expect(rowIds()).toEqual(['job-row-newer', 'job-row-older']);
+    expect(screen.getByTestId('jobs-created-header-BatchApex').getAttribute('aria-sort')).toBe(
+      'descending',
+    );
+
+    fireEvent.click(screen.getByTestId('jobs-created-sort-BatchApex'));
+
+    expect(rowIds()).toEqual(['job-row-older', 'job-row-newer']);
+    expect(screen.getByTestId('jobs-created-header-BatchApex').getAttribute('aria-sort')).toBe(
+      'ascending',
+    );
+  });
+
+  it('should give every cell of a job row a named column header, with the sorted Created header over the date', () => {
+    render(<JobsTable jobs={[createJob({ id: 'j1', jobType: 'BatchApex' })]} />);
+    fireEvent.click(screen.getByTestId('group-toggle-BatchApex'));
+
+    const table = screen.getByTestId('group-jobs-BatchApex');
+    const headers = Array.from(table.querySelectorAll('[role="columnheader"]'));
+    const cells = Array.from(screen.getByTestId('job-row-j1').querySelectorAll('[role="cell"]'));
+
+    expect(headers).toHaveLength(cells.length);
+    for (const header of headers) {
+      expect(header.textContent?.trim()).not.toBe('');
+    }
+    expect(headers[headers.length - 1]).toBe(screen.getByTestId('jobs-created-header-BatchApex'));
+    expect(cells[cells.length - 1]).toBe(screen.getByTestId('job-created-j1'));
+    expect(headers.filter((h) => h.hasAttribute('aria-sort'))).toHaveLength(1);
+  });
+
+  it('should show placeholder rows carrying aria-busy instead of the empty state while loading', () => {
+    render(<JobsTable jobs={[]} isLoading />);
+
+    const placeholder = screen.getByTestId('jobs-loading');
+    expect(placeholder.getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByText(/No recent jobs/i)).toBeNull();
+  });
+
+  it('should keep the empty state during a re-read when the jobs exist but the filter hides them all', () => {
+    const jobs = [createJob({ status: 'Completed' })];
+    const { rerender } = render(<JobsTable jobs={jobs} />);
+    fireEvent.click(screen.getByTestId('filter-failed'));
+
+    rerender(<JobsTable jobs={jobs} isLoading />);
+
+    expect(screen.queryByTestId('jobs-loading')).toBeNull();
+    expect(screen.getByText(/No recent jobs/i)).toBeDefined();
+  });
+});
+
+describe('JobsTable — job times', () => {
+  let instance: I18n;
+
+  beforeAll(async () => {
+    instance = createInstance();
+    await instance.use(initReactI18next).init({
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      lng: 'en',
+      fallbackLng: 'en',
+      interpolation: { escapeValue: false },
+    });
+  });
+
+  function renderIn(lng: string, createdDate: string): void {
+    instance.changeLanguage(lng);
+    render(
+      <I18nextProvider i18n={instance}>
+        <JobsTable jobs={[createJob({ id: 'j1', jobType: 'BatchApex', createdDate })]} />
+      </I18nextProvider>,
+    );
+    fireEvent.click(screen.getByTestId('group-toggle-BatchApex'));
+  }
+
+  it('should render the elapsed time in English and keep the exact date as a tooltip', () => {
+    const createdDate = new Date(Date.now() - 5 * 60_000).toISOString();
+    renderIn('en', createdDate);
+
+    const cell = screen.getByTestId('job-created-j1');
+    expect(cell.textContent).toBe('5m ago');
+    expect(cell.getAttribute('title')).toBe(
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
+        new Date(createdDate),
+      ),
+    );
+  });
+
+  it('should render the exact date once a job is more than a day old, where hours stop reading well', () => {
+    const createdDate = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+    renderIn('en', createdDate);
+
+    const exact = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(createdDate));
+    const cell = screen.getByTestId('job-created-j1');
+    expect(cell.textContent).toBe(exact);
+    expect(cell.getAttribute('title')).toBe(exact);
+  });
+
+  it('should still render the elapsed time for a job created a few hours ago', () => {
+    renderIn('en', new Date(Date.now() - 3 * 3_600_000 - 60_000).toISOString());
+
+    expect(screen.getByTestId('job-created-j1').textContent).toBe('3h ago');
+  });
+
+  it('should render the elapsed time in French when the interface is French', () => {
+    renderIn('fr', new Date(Date.now() - 5 * 60_000).toISOString());
+
+    expect(screen.getByTestId('job-created-j1').textContent).toBe('il y a 5min');
   });
 });

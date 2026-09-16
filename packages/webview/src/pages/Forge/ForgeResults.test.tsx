@@ -113,6 +113,7 @@ const makeMockResult = () => ({
   graph: makeMockGraph(),
   idRemapCount: 42,
   idRemapTable: {} as Record<string, string>,
+  truncatedObjects: [] as string[],
   duration: 10000,
   timestamp: '2026-03-20T10:00:00.000Z',
 });
@@ -399,5 +400,21 @@ describe('ForgeResults', () => {
     expect(screen.getByTestId('forge-id-mapping-table')).toBeDefined();
     expect(screen.queryByTestId('forge-id-mapping-virtual')).toBeNull();
     expect(screen.getAllByTestId('forge-id-mapping-row')).toHaveLength(count);
+  });
+
+  it('warns about an object whose source read was cut short', () => {
+    // Everything past the 50 000-record / 500-page bound was never read, and
+    // the run reports success either way.
+    mockResult = { ...makeMockResult(), truncatedObjects: ['Contact'] };
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-truncated').textContent).toContain('Contact');
+  });
+
+  it('shows no truncation warning for a run that read everything', () => {
+    mockResult = { ...makeMockResult(), truncatedObjects: [] };
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-truncated')).toBeNull();
   });
 });

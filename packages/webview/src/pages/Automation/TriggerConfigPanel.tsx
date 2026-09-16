@@ -56,10 +56,16 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
           <Select
             value={newTriggerType}
             onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
+            // Only 'manual' ever starts a run, so the list says which choice is
+            // an empty one before it is made, not after the trigger is added.
             options={TRIGGER_TYPES.map((type) => ({
               value: type,
-              label: t(`automation.triggerTypes.${type}`),
+              label:
+                type === 'manual'
+                  ? t('automation.triggerTypes.manual')
+                  : `${t(`automation.triggerTypes.${type}`)} (${t('common.comingSoon')})`,
             }))}
+            aria-label={t('a11y.triggerType')}
             data-testid="trigger-type-select"
           />
           <Button
@@ -131,6 +137,9 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                     value={trigger.config.cron ?? ''}
                     onChange={(e) => onUpdateCron?.(trigger.id, e.target.value)}
                     placeholder="0 0 * * *"
+                    // The placeholder is an example, not a name: without this
+                    // the field is announced as "0 0 * * *".
+                    aria-label={t('automation.cronExpression')}
                     className="w-40"
                     data-testid={`cron-input-${trigger.id}`}
                   />

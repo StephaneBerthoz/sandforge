@@ -76,6 +76,21 @@ describe('TemplateCustomizeModal', () => {
     expect(contactInput.value).toBe('100');
   });
 
+  it('names each record count after its object', () => {
+    render(
+      <TemplateCustomizeModal
+        template={mockTemplate}
+        isOpen={true}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Record count for Contact')).toBe(
+      screen.getByTestId('customize-count-Contact'),
+    );
+  });
+
   it('allows changing record count for an object', () => {
     render(
       <TemplateCustomizeModal

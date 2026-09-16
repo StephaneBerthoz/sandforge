@@ -171,23 +171,6 @@ export interface AINL2SOQLResponse extends BaseMessage {
   };
 }
 
-/**
- * Resolution of a failed operation, with a suggested fix.
- *
- * Pushed, not answered: the extension resolves a failure where it raises it
- * (`sendOperationFailed`), because `operation:failed` reaches every open panel
- * and a panel holds only the rendered message, not the error code the
- * knowledge base is keyed on. There is no request counterpart.
- */
-export interface AIResolveErrorResponse extends BaseMessage {
-  type: 'ai:resolve-error:response';
-  payload: {
-    success: boolean;
-    resolution?: { explanation: string; suggestedFix: string; confidence: number };
-    error?: string;
-  };
-}
-
 /** AI anomaly detection */
 export interface AIAnomalyScanRequest extends BaseMessage {
   type: 'ai:anomaly-scan';

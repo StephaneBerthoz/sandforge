@@ -26,7 +26,7 @@ The classic 4-step wizard for AI-powered data generation:
 - **Step 3 -- Execute:** Progress is reported as each object starts, with the records written so far and a live progress bar.
 - **Step 4 -- Results:** Summary badge (success/partial/failure), records created vs. failed, per-object breakdown. Save as template, export CSV, or seed again.
 
-**Quick Seed** lets you skip configuration entirely: select a template from the gallery, pick your org, and seed in 1 click.
+**Quick Seed** lets you skip configuration entirely: select a template from the gallery, pick your org, and seed in 1 click. Opened from the Home recommendation, the org the confirmation named is already selected, as long as it is still connected; the selection step still shows it and nothing is written until you start the run.
 
 ### CSV Upload
 
@@ -92,7 +92,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 
 ### Templates and Export
 
-- Save any seed configuration as a reusable template
+- **Save as template** on the results step stores the configuration the run just used -- its objects, record counts and field rules -- under the objects and the date. It is added to the gallery, next to the pre-built templates, and never overwrites one already there. A save the host refuses shows its reason next to the button
 - Export results to CSV for external reporting
 - Template Engine supports JSON/CSV with variable interpolation
 

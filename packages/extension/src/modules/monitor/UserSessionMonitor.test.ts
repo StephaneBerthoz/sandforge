@@ -5,6 +5,7 @@ import type { UserSessionInfo, QuerySessionsFn } from './UserSessionMonitor';
 function createMockSessions(): UserSessionInfo[] {
   return [
     {
+      sessionId: 'session-1',
       userId: 'user-1',
       username: 'admin@sandbox.com',
       sessionType: 'UI',
@@ -12,6 +13,7 @@ function createMockSessions(): UserSessionInfo[] {
       sourceIp: '192.168.1.1',
     },
     {
+      sessionId: 'session-2',
       userId: 'user-2',
       username: 'dev@sandbox.com',
       sessionType: 'API',
@@ -19,6 +21,7 @@ function createMockSessions(): UserSessionInfo[] {
       sourceIp: '10.0.0.1',
     },
     {
+      sessionId: 'session-3',
       userId: 'user-1',
       username: 'admin@sandbox.com',
       sessionType: 'API',
@@ -26,6 +29,7 @@ function createMockSessions(): UserSessionInfo[] {
       sourceIp: '192.168.1.1',
     },
     {
+      sessionId: 'session-4',
       userId: 'user-3',
       username: 'test@sandbox.com',
       sessionType: 'UI',

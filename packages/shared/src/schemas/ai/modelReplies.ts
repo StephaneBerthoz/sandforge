@@ -96,6 +96,28 @@ export const PersonaReplySchema = z.object({
   dataPatterns: JsonObjectSchema.catch({}),
 });
 
+/** One way out of a failure: what to try, and how likely it is to be the cause. */
+const ErrorSuggestionSchema = z.object({
+  title: z.string().catch('Unknown'),
+  description: z.string().catch(''),
+  probability: z.number().catch(0.5),
+  action: z.string().optional().catch(undefined),
+});
+
+/**
+ * A model's reading of a Salesforce error. Every field carries the default the
+ * resolver used to apply field by field, so a reply that names none of them
+ * still produces a resolution the notification can show.
+ */
+export const ErrorResolutionReplySchema = z.object({
+  explanation: z.string().catch('Unable to determine root cause.'),
+  suggestions: keepFitting(ErrorSuggestionSchema).catch([]),
+  autoFixable: z.boolean().catch(false),
+  autoFixAction: z.string().optional().catch(undefined),
+  confidence: z.number().catch(0.5),
+  relatedDocs: keepFitting(z.string()).catch([]),
+});
+
 /**
  * Generated records. An array keeps its objects, a single object is one
  * record, and any other JSON value carries no record.

@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from 'lucide-react';
 import type { SalesforceOrg, AuthMethod } from '@sandforge/shared';
+import { SF_CLI_INSTALL_URL, SF_CLI_MISSING_MESSAGE } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -48,7 +49,8 @@ interface AuthMethodCard {
   method: AuthMethod;
   icon: React.ReactNode;
   labelKey: string;
-  descKey: string;
+  /** Absent on a `comingSoon` card: the tooltip says so instead. */
+  descKey?: string;
   needsForm: boolean;
   /**
    * The host answers these with UNSUPPORTED_AUTH. Their cards looked like the
@@ -87,7 +89,6 @@ const AUTH_METHODS: AuthMethodCard[] = [
     method: 'jwt',
     icon: <Key className="w-4 h-4" />,
     labelKey: 'auth.jwt',
-    descKey: 'auth.jwtDesc',
     needsForm: false,
     comingSoon: true,
   },
@@ -95,7 +96,6 @@ const AUTH_METHODS: AuthMethodCard[] = [
     method: 'oauth_device',
     icon: <Smartphone className="w-4 h-4" />,
     labelKey: 'auth.oauthDevice',
-    descKey: 'auth.oauthDeviceDesc',
     needsForm: false,
     comingSoon: true,
   },
@@ -399,7 +399,7 @@ export const OrgManagerPage: React.FC = () => {
                 onClick={() => handleMethodClick(card)}
                 disabled={isConnecting}
                 aria-disabled={card.comingSoon || undefined}
-                title={card.comingSoon ? t('common.comingSoon') : t(card.descKey)}
+                title={card.descKey ? t(card.descKey) : t('common.comingSoon')}
                 data-testid={`org-auth-${card.method}`}
               >
                 {card.method === 'sfdx_import' && isConnecting ? (
@@ -437,6 +437,23 @@ export const OrgManagerPage: React.FC = () => {
             data-testid="org-connect-error"
           >
             <span className="font-semibold">{t('org.status_error')}</span> — {connectError}
+            {/* The banner is the only place this failure survives once the
+                toast is gone, and the CLI is what two of the three working
+                auth methods run on. VS Code opens the link in the browser. */}
+            {connectError.includes(SF_CLI_MISSING_MESSAGE) && (
+              <>
+                {' '}
+                <a
+                  href={SF_CLI_INSTALL_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline text-[var(--sf-text-link)]"
+                  data-testid="org-connect-error-cli-install"
+                >
+                  {t('org.installCli')}
+                </a>
+              </>
+            )}
           </div>
         )}
 

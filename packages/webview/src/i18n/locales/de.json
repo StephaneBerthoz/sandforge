@@ -99,7 +99,8 @@
     "tagsPlaceholder": "dev, team-a",
     "aliasPlaceholder": "meine-sandbox",
     "bannerConnected": "{{count}} von {{total}} Org(s) verbunden",
-    "bannerEmpty": "Importieren Sie Ihre Orgs aus der Salesforce CLI oder verbinden Sie sie manuell"
+    "bannerEmpty": "Importieren Sie Ihre Orgs aus der Salesforce CLI oder verbinden Sie sie manuell",
+    "installCli": "Salesforce CLI installieren"
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -252,7 +253,8 @@
     "sandboxRefresh": {
       "title": "Sandbox-Aktualisierungen",
       "empty": "Keine Sandbox-Aktualisierungsereignisse",
-      "inProgress": "Aktualisierung läuft"
+      "inProgress": "Aktualisierung läuft",
+      "unsupported": "Nur eine Org, die Sandboxes verwaltet, führt eine Refresh-Historie. Diese hier hat keine zu lesen."
     },
     "resetIn": "Zurücksetzen in",
     "sessions": {
@@ -275,9 +277,9 @@
     "run": "Vergleich starten",
     "running": "Vergleich laeuft...",
     "diff": "Diff-Ansicht",
-    "permissions": "Berechtigungsmatrix",
+    "permissions": "Vorhandene Berechtigungen",
     "snapshots": "Snapshots",
-    "drift": "Drift-Dashboard",
+    "drift": "Abweichung der Org-Einstellungen",
     "deploy": "Aus Diff bereitstellen",
     "noResults": "Noch keine Vergleichsergebnisse",
     "added": "Hinzugefuegt",
@@ -349,6 +351,7 @@
     "dependencies": "Abhaengigkeiten",
     "sampleRecords": "Beispieldatensaetze",
     "saveAsTemplate": "Als Vorlage speichern",
+    "templateSaved": "Vorlage gespeichert. Wählen Sie sie beim nächsten Mal in der Galerie aus.",
     "recordsCreated": "Erstellte Datensaetze",
     "recordsFailed": "Fehlgeschlagene Datensaetze",
     "executionTime": "Ausfuehrungszeit",
@@ -396,7 +399,8 @@
       "useThis": "Diese verwenden",
       "customize": "Datensatzanzahlen anpassen",
       "startSeeding": "Seed starten",
-      "orCustomize": "oder erstellen Sie eine eigene"
+      "orCustomize": "oder erstellen Sie eine eigene",
+      "templateMissing": "Diese gespeicherte Vorlage existiert nicht mehr."
     },
     "quickSeed": {
       "title": "Schnell-Seed",
@@ -576,6 +580,7 @@
     "transforms": "Transformationen",
     "review": "Ueberpruefen",
     "reviewDesc": "Sync-Konfiguration vor Ausfuehrung ueberpruefen",
+    "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
     "execute": "Ausfuehren",
     "executeDesc": "Synchronisierungsoperation starten",
     "results": "Ergebnisse",
@@ -766,6 +771,7 @@
       "name": "Name",
       "namePlaceholder": "z. B. Nächtliche Account-Sync",
       "syncConfig": "Sync-Konfiguration",
+      "configGone": "Die Konfiguration dieses Zeitplans existiert nicht mehr: bitte eine auswählen",
       "simpleMode": "Einfach",
       "advancedMode": "Erweitert (Cron)",
       "frequency": "Häufigkeit",
@@ -786,7 +792,7 @@
       "notifyOnComplete": "Bei Abschluss benachrichtigen",
       "notifyOnFailure": "Bei Fehler benachrichtigen",
       "preview": "Vorschau",
-      "defaultConfig": "Standardkonfiguration",
+      "noSavedConfig": "Speichern Sie zuerst eine Konfiguration im Tab Sync: Ein Zeitplan führt eine gespeicherte Konfiguration aus.",
       "emptyTitle": "Noch keine Zeitpläne",
       "emptyDesc": "Führen Sie eine Sync automatisch nach einem wiederkehrenden Zeitplan aus, statt sie manuell zu starten.",
       "createFirst": "Zeitplan erstellen",
@@ -984,7 +990,6 @@
       "queued": "In Warteschlange",
       "running": "Laufend",
       "paused": "Pausiert",
-      "waiting_approval": "Warten auf Genehmigung",
       "completed": "Abgeschlossen",
       "completed_with_warnings": "Abgeschlossen mit Warnungen",
       "failed": "Fehlgeschlagen",
@@ -1006,7 +1011,6 @@
     "stepConfig": "Schrittkonfiguration",
     "stepName": "Schrittname",
     "typeConfig": "Typspezifische Konfiguration",
-    "stepConfigChannel": "Kanal",
     "stepConfigMessage": "Nachricht",
     "stepConfigDelay": "Verzögerung (Sekunden)",
     "stepConfigScript": "Skript",
@@ -1057,7 +1061,8 @@
     "error": {
       "overloaded": "KI-Anbieter vorübergehend überlastet. Neuer Versuch in {{countdown}}.",
       "rateLimit": "KI-Ratenlimit erreicht. Neuer Versuch in {{countdown}}.",
-      "auth": "KI-Schlüssel ungültig oder fehlt. Befehlspalette öffnen → SandForge: Configure AI Key.",
+      "auth": "KI-Schlüssel ungültig oder fehlt. Tragen Sie ihn unter SandForge Einstellungen > KI > API-Schlüssel ein.",
+      "invalidRequest": "Der KI-Anbieter hat die Anfrage als ungültig abgelehnt. Es gab keinen neuen Versuch.",
       "cancelled": "KI-Anfrage abgebrochen.",
       "transient": "Vorübergehender KI-Fehler. Wiederholung möglich.",
       "unknown": "Unerwarteter KI-Fehler."
@@ -1234,15 +1239,15 @@
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
     "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org ueber die Organisationsseite.\n2. Oeffnen Sie den Monitor, um die Gesundheit Ihrer Org zu pruefen.\n3. Verwenden Sie Seed, um Testdaten in Ihrer Sandbox zu generieren.\n4. Richten Sie Sync ein, um Umgebungen synchron zu halten.\n5. Entdecken Sie Compare, DataOps und Automation fuer erweiterte Workflows.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen fuer kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung fuer kontinuierliche Ueberwachung.",
-    "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Waehlen Sie Ihre Ziel-Org\n2. Waehlen Sie die zu befuellenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Definieren Sie Beziehungen und Volumen\n5. Ueberpruefen und ausfuehren\n\nTipp: Verwenden Sie die KI-Generierung fuer die realistischsten Daten.",
+    "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Demnächst, aus einem Diff wird noch nichts bereitgestellt",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Compliance, Bereinigung und Qualität: Demnächst, hinter diesen Tabs läuft noch nichts",
     "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Nur Verzögerung und Bedingung bewirken bisher etwas: Die übrigen 13 melden Erfolg, ohne eine Org zu berühren\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Bedingungsschritte mit 11 Operatoren\n- Ausführungsverlauf: Status, Gesamtdauer, Anzahl der Schritte und Fehler je Ausführung\n- Pipeline-Vorlagen aus dem Marketplace",
-    "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Jeder eingefügte Datensatz erhält neu zugeordnete IDs\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
+    "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
-    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat sowie NL2SOQL, eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Solange die KI aktiv ist, sendet ein fehlgeschlagener Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung zur Korrekturempfehlung an das Modell, sofern nicht eine eingebaute Tabelle seinen Fehlercode bereits beantwortet\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit deaktivierter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
+    "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat sowie NL2SOQL, eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in Automation\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automation-Lauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen von Compare und der Anomalie-Scan von Monitor sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
     "shortcutsContent": "G + Taste — Zu einem Modul springen (z. B. G dann F für Forge, G dann Y für Sync, G dann L für Hilfe)\nStrg+K — Befehlspalette\nEscape — Modale und Dialoge schließen\nTab — Zwischen Elementen navigieren\nEnter/Leertaste — Schaltflächen und Links aktivieren",
     "faqContent": "F: Warum ist mein Gesundheitswert niedrig?\nA: Pruefen Sie die API-Limit-Nutzung, fehlgeschlagene Jobs und den Speicherverbrauch. Der Wert gewichtet mehrere Faktoren.\n\nF: Wie behebe ich Timeout-Fehler?\nA: SandForge hat keine Timeout-Einstellung für Salesforce-Aufrufe. Verringern Sie die Stapelgröße (sandforge.seed.defaultBatchSize und sandforge.sync.defaultBatchSize in den VS Code-Einstellungen) und teilen Sie einen großen Lauf in kleinere auf. Grappe macht einen Lauf nicht schneller: Es meldet den Fortschritt je Partition.\n\nF: Kann ich eine Sync-Operation rückgängig machen?\nA: Nein. Ein Sync-Lauf lässt sich nicht umkehren. Erstellen Sie vor einem riskanten Lauf eine DataOps-Sicherung der Ziel-Org: Sie umfasst Account und Contact und lässt sich nur in diese Org zurückspielen.\n\nF: Wie verbinde ich eine Produktions-Org sicher?\nA: Produktions-Orgs werden automatisch erkannt und als kritische Sicherheitsstufe markiert. Alle destruktiven Operationen erfordern eine Bestaetigung.",
     "faq": "FAQ",
@@ -1305,10 +1310,10 @@
     "sandboxHealth": "Sandbox-Gesundheit",
     "smartAction": {
       "title": "Empfohlene Aktion",
-      "execute": "Direkt ausführen",
-      "confirm": "Ausführen",
+      "execute": "Einrichten",
+      "confirm": "Öffnen",
       "cancel": "Abbrechen",
-      "confirmMsg": "Auf {{org}} wird jetzt {{action}} ausgeführt. Fortfahren?",
+      "confirmMsg": "{{action}} für {{org}} öffnen?",
       "reasonEmpty": "Ihre Sandbox ist leer — füllen Sie sie mit Demodaten",
       "reasonClone": "Die Quell-Org enthält Daten — klonen Sie sie in Ihr Ziel",
       "reasonSync": "Beide Orgs enthalten Daten — synchronisieren Sie, um sie abzugleichen",
@@ -1344,8 +1349,6 @@
     "sfdxImport": "Aus SF CLI importieren",
     "sfdxImportDesc": "Alle über Salesforce CLI authentifizierten Orgs automatisch erkennen",
     "oauthWebDesc": "Über den Browser mit OAuth 2.0 authentifizieren",
-    "oauthDeviceDesc": "Aus einer Headless-Umgebung authentifizieren",
-    "jwtDesc": "Mit einem JWT-Bearer-Token und Zertifikat authentifizieren",
     "usernamePasswordDesc": "Mit Benutzername, Passwort und Sicherheitstoken authentifizieren",
     "loginProduction": "Produktion / Entwickler",
     "loginSandbox": "Sandbox",
@@ -1512,7 +1515,7 @@
     "quickStartTemplateHint": "Ermittlung überspringen und den bekannten Objektsatz der Starter-Vorlage verwenden. Datensatzanzahlen werden während der Ausführung abgefragt.",
     "emptyState": {
       "title": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
-      "description": "Forge klont einen Stammdatensatz und seinen gesamten Beziehungsgraphen — Accounts, Contacts, Opportunities, Cases — in Ihre Sandbox und vergibt dabei jede ID neu.",
+      "description": "Forge klont einen Stammdatensatz und seinen gesamten Beziehungsgraphen — Accounts, Contacts, Opportunities, Cases — in Ihre Sandbox und ordnet die IDs beim Schreiben neu zu. Ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.",
       "step1Select": "Quell-Org auswählen",
       "step2": "ID eines Stammdatensatzes einfügen (z. B. ein Account aus UAT)",
       "step3": "Beziehungsgraphen ermitteln",
@@ -1637,7 +1640,10 @@
         "explanation": "{{detail}}",
         "action": "Schlagen Sie diesen Fehlercode in der Salesforce-Dokumentation nach."
       }
-    }
+    },
+    "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
+    "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
+    "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen."
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1817,7 +1823,8 @@
       "noDataset": "Noch kein Datensatz eingefroren",
       "selection": "Auswahl",
       "noSelection": "Noch keine Auswahl",
-      "lastVerify": "Letzte Prüfung"
+      "lastVerify": "Letzte Prüfung",
+      "saltMismatch": "Das Salt dieser Umgebung ({{current}}) ist nicht das, mit dem dieser Datensatz erstellt wurde ({{manifest}}). Eine neue Extraktion damit gäbe denselben Datensätzen andere Pseudonyme als in diesem Datensatz. Setzen Sie SANDFORGE_FROZEN_SALT zuerst wieder auf dieses Salt."
     },
     "tabs": {
       "extract": "Extrahieren",
@@ -2039,6 +2046,11 @@
     "timeline": "Zeitleiste",
     "easterEgg": "Easter Egg",
     "csvImportSteps": "Schritte des CSV-Imports",
-    "mapped": "Zugeordnet"
+    "mapped": "Zugeordnet",
+    "triggerType": "Triggertyp",
+    "anonymizationMethodFor": "Anonymisierungsmethode für {{category}}",
+    "includeObject": "{{object}} in den Klon aufnehmen",
+    "recordCountFor": "Datensatzanzahl für {{object}}",
+    "batchSizeFor": "Batchgröße für {{object}}"
   }
 }

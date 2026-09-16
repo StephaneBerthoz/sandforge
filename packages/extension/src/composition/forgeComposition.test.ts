@@ -167,6 +167,36 @@ describe('initForgeComposition', () => {
     }
   });
 
+  it('names an object whose source read a bound stopped in the run result', async () => {
+    // The source keeps a Contact cursor open forever: the page bound is what
+    // ends the read, and only the composition sees that it did.
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      if (orgId !== 'src') return connection as unknown as Connection;
+      const answer = connection.query;
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          const page = await answer(soql);
+          if (!/\bFROM\s+Contact\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+          return { ...page, done: false, nextRecordsUrl: '/next' };
+        }),
+        queryMore: vi.fn(async () => ({
+          totalSize: 0,
+          done: false,
+          nextRecordsUrl: '/next',
+          records: [],
+        })),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const result = await orchestrator.execute(graph, SOQL_CONFIG);
+
+    expect(result.truncatedObjects).toEqual(['Contact']);
+  });
+
   it('joins a describe already under way instead of sending a second one', async () => {
     const { services } = await compose();
 

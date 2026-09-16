@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionBudget } from '../adapters/ai/tokenBudget/SessionBudget.js';
 import type { BaseMessage } from '@sandforge/shared';
 
+// The display language the error resolver asks the model to answer in; a test
+// changes it to see the composition hand it on.
+const hostEnv = vi.hoisted(() => ({ language: 'en' }));
+
 vi.mock('vscode', () => ({
+  env: hostEnv,
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     getConfiguration: vi.fn(() => ({ get: vi.fn((_k: string, d: unknown) => d) })),
@@ -68,6 +73,7 @@ describe('initAIComposition — turning AI off mid-session', () => {
 
   let aiHandler: AIHandler;
   let aiEnabled = true;
+  let errorResolution = true;
 
   function handlerDeps(): HandlerDeps {
     return {
@@ -89,7 +95,8 @@ describe('initAIComposition — turning AI off mid-session', () => {
     return {
       services: {
         isAIEnabled: () => aiEnabled,
-        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          key === 'ai.errorResolution' ? (errorResolution as unknown as T) : fallback,
         aiClient: aiClientFactory,
         telemetry: { getLogger: () => ({}) },
         sessionBudget: new SessionBudget({ sessionId: 'ai-window', budget: 50_000 }),
@@ -138,6 +145,8 @@ describe('initAIComposition — turning AI off mid-session', () => {
     posted.length = 0;
     toWebview.length = 0;
     aiEnabled = true;
+    errorResolution = true;
+    hostEnv.language = 'en';
     aiHandler = new AIHandler(handlerDeps());
     mockGetConn.mockResolvedValue({
       describe: vi.fn().mockResolvedValue({
@@ -196,6 +205,46 @@ describe('initAIComposition — turning AI off mid-session', () => {
     await initAIComposition(makeDeps());
 
     expect(lastModules).toBeUndefined();
+  });
+
+  /**
+   * The failure a run reports is the one thing the model is asked about with
+   * nobody pressing anything, so it has a switch of its own: off, the table of
+   * known codes still answers, and the rest of the assistant keeps working.
+   */
+  it('injects no error resolver while sandforge.ai.errorResolution is off', async () => {
+    errorResolution = false;
+    await initAIComposition(makeDeps());
+
+    expect(lastModules?.errorResolver).toBeUndefined();
+    expect(lastModules?.nl2soql).toBeDefined();
+    expect(lastModules?.pipelineGenerator).toBeDefined();
+  });
+
+  it('injects the error resolver again when that setting goes back on', async () => {
+    errorResolution = false;
+    await initAIComposition(makeDeps());
+    expect(lastModules?.errorResolver).toBeUndefined();
+
+    errorResolution = true;
+    await initAIComposition(makeDeps());
+
+    expect(lastModules?.errorResolver).toBeDefined();
+  });
+
+  it("asks the model for a fix suggestion in the editor's display language", async () => {
+    hostEnv.language = 'fr';
+    await initAIComposition(makeDeps());
+    const resolver = lastModules?.errorResolver;
+    expect(resolver).toBeDefined();
+
+    chat.mockClear();
+    await resolver
+      ?.resolveError({ errorCode: 'NOT_IN_THE_TABLE', message: 'Boom' }, {})
+      .catch(() => undefined);
+
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(chat.mock.calls[0])).toContain('Answer in fr');
   });
 
   it('answers ai:status with enabled:false once AI is turned off', async () => {

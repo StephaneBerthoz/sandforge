@@ -104,6 +104,10 @@ export const ForgeInput: React.FC = () => {
   const soqlRoot = soqlRootFilter(form.soqlQuery);
   /** The WHERE clause breaks the filter rules the extension checks before a run. */
   const soqlWhereRefused = soqlFilterRefused(form.soqlQuery);
+  /** The same two checks over the query a selected SOQL template saved. */
+  const templateRoot = form.templateSoqlQuery ? soqlRootFilter(form.templateSoqlQuery) : null;
+  const templateWhereRefused =
+    form.templateSoqlQuery !== null && soqlFilterRefused(form.templateSoqlQuery);
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -301,7 +305,19 @@ export const ForgeInput: React.FC = () => {
                       {t('forge.soqlFilterRefused')}
                     </div>
                   )}
-                  {soqlRoot?.where && !soqlWhereRefused && (
+                  {/* The clause travels under the object's own name, which has
+                      its own rule: a name the schema refuses made the extension
+                      refuse Discover with nothing said here. */}
+                  {form.objectNameRefused && soqlRoot && (
+                    <div
+                      data-testid="forge-soql-object-invalid"
+                      role="alert"
+                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      {t('forge.soqlObjectNameInvalid', { object: soqlRoot.objectApiName })}
+                    </div>
+                  )}
+                  {soqlRoot?.where && !soqlWhereRefused && !form.objectNameRefused && (
                     <div
                       data-testid="forge-soql-where-warning"
                       role="status"
@@ -327,6 +343,39 @@ export const ForgeInput: React.FC = () => {
                     onSelectTemplate={form.setSelectedTemplate}
                     buildTemplateConfig={form.buildTemplateConfig}
                   />
+                  {/* A template that saved a SOQL query runs it exactly as the
+                      SOQL tab would, so it carries the same two verdicts —
+                      which the picker used to show neither of. */}
+                  {templateWhereRefused && (
+                    <div
+                      data-testid="forge-soql-filter-refused"
+                      role="alert"
+                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      {t('forge.soqlFilterRefused')}
+                    </div>
+                  )}
+                  {form.objectNameRefused && templateRoot && (
+                    <div
+                      data-testid="forge-soql-object-invalid"
+                      role="alert"
+                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      {t('forge.soqlObjectNameInvalid', { object: templateRoot.objectApiName })}
+                    </div>
+                  )}
+                  {templateRoot?.where && !templateWhereRefused && !form.objectNameRefused && (
+                    <div
+                      data-testid="forge-soql-where-warning"
+                      role="status"
+                      className="mt-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      <strong className="font-semibold">
+                        {t('forge.soqlUnscopedWarnTitle', { object: templateRoot.objectApiName })}
+                      </strong>{' '}
+                      {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
+                    </div>
+                  )}
                 </Tabs.Content>
               </div>
             </Tabs.Root>
@@ -437,7 +486,9 @@ export const ForgeInput: React.FC = () => {
                     ? t('forge.hintSameOrg')
                     : form.whereClauseRefused
                       ? t('forge.hintSoqlFilterRefused')
-                      : t('forge.hintNoInput')}
+                      : form.objectNameRefused
+                        ? t('forge.hintSoqlObjectNameInvalid')
+                        : t('forge.hintNoInput')}
             </p>
           )}
 

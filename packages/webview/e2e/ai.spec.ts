@@ -374,8 +374,8 @@ test.describe('AI Module — Conversation management', () => {
  * into the chat box, which posts `ai:chat` like any other sentence — it never
  * touched the resolver. The real surface is a failed operation: the extension
  * resolves it where it raises it and shows the suggestion once, as a VS Code
- * notification. The page asks nothing and toasts nothing, because
- * `operation:failed` reaches every open panel.
+ * notification. The page asks nothing, because `operation:failed` reaches
+ * every open panel.
  */
 test.describe('AI Module — Error resolver', () => {
   test.beforeEach(async ({ page }) => {
@@ -396,37 +396,5 @@ test.describe('AI Module — Error resolver', () => {
     // Give the listener the same window a real request would have needed.
     await page.waitForTimeout(500);
     expect(await outgoing(page, 'ai:resolve-error')).toHaveLength(0);
-  });
-
-  test('leaves the suggested fix to the host instead of toasting it', async ({ page }) => {
-    await sendExtensionMessage(page, {
-      type: 'operation:failed',
-      id: 'evt-op-failed-2',
-      payload: { operationId: 'op-43', error: 'INSUFFICIENT_ACCESS', retryable: true },
-    });
-
-    await sendExtensionMessage(page, {
-      type: 'ai:resolve-error:response',
-      id: 'evt-resolve-1',
-      payload: {
-        success: true,
-        resolution: {
-          explanation: 'The running user lacks CRUD permission on the target object.',
-          suggestedFix: 'Grant Edit on Account to the integration profile, then retry.',
-          confidence: 0.82,
-        },
-      },
-    });
-
-    // Positive control: a message posted after the suggestion does toast, so
-    // the page has dispatched everything before it by the time it shows.
-    await sendExtensionMessage(page, {
-      type: 'bridge:error',
-      id: 'evt-bridge-error-1',
-      payload: { reason: 'unhandled-type', details: 'no handler for "control:after-fix"' },
-    });
-    await expect(page.getByText('no handler for "control:after-fix"')).toBeVisible();
-
-    await expect(page.getByText('Grant Edit on Account to the integration profile')).toHaveCount(0);
   });
 });

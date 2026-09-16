@@ -63,8 +63,28 @@ vi.mock('../../stores/useNotificationStore', () => ({
     selector(notificationStoreSlice),
 }));
 
+/**
+ * One refetch spy per query type, kept across re-renders so a test can count
+ * how often the hook asked a given channel again.
+ */
+const queryRefetches = new Map<string, ReturnType<typeof vi.fn>>();
+
+/** The refetch spy for `type`, created on first use. */
+function refetchFor(type: string): ReturnType<typeof vi.fn> {
+  const existing = queryRefetches.get(type);
+  if (existing) return existing;
+  const created = vi.fn();
+  queryRefetches.set(type, created);
+  return created;
+}
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({ data: null, loading: false, error: null, refetch: vi.fn() }),
+  useBridgeQuery: (type: string) => ({
+    data: null,
+    loading: false,
+    error: null,
+    refetch: refetchFor(type),
+  }),
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
@@ -99,6 +119,7 @@ function manifestPipelineTimeoutDefault(): number {
 beforeEach(() => {
   mutationOptions.clear();
   mutationDoubles.clear();
+  queryRefetches.clear();
   notifications.length = 0;
 });
 
@@ -312,5 +333,28 @@ describe('useAutomationPageData — marketplace install', () => {
     expect(result.current.pipeline).toBeUndefined();
     expect(result.current.error).toBe('Template "tpl-nightly" not found.');
     expect(notifications.some((n) => n.level === 'success')).toBe(false);
+  });
+});
+
+describe('useAutomationPageData — the History tab follows the runs', () => {
+  it('should ask for the history again once a run answers', () => {
+    // The host writes the run when it ends but only answers pipeline:history
+    // on request; fetched once on mount, the tab stayed empty after a run.
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleRunPipeline());
+    expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
+
+    mutationFor('pipeline:execute').data = { runId: 'run-1', status: 'failed' };
+    rerender();
+
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not ask again while no run has answered', () => {
+    const { rerender } = renderHook(() => useAutomationPageData());
+    rerender();
+
+    expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
   });
 });

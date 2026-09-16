@@ -4,12 +4,12 @@ Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, r
 
 > **Coming soon: the steps do not do the work their names promise.** A pipeline
 > runs, the canvas reports each step's status and timing, and the run is written
-> to the history -- but every step type except **Delay** and
-> **Condition** to a pass-through handler that returns success without opening a
-> connection. No Seed, Sync, Backup, Restore, Anonymize or Delete step has ever
-> moved a record. Until step handlers ship, Automation is a design surface: use
-> it to compose and store pipelines, not to run work. Each section below says
-> which part is real.
+> to the history -- but every step type except **Delay** and **Condition** goes
+> to a pass-through handler that returns success without opening a connection.
+> No Seed, Sync, Backup, Restore, Anonymize or Delete step has ever moved a
+> record. Until step handlers ship, Automation is a design surface: use it to
+> compose and store pipelines, not to run work. Each section below says which
+> part is real.
 
 ## Quick Start
 
@@ -44,7 +44,9 @@ Two of them do something today. **Delay** waits for its configured duration, and
 **Condition** evaluates its field/operator/value against the run's variables. The
 other thirteen are accepted, configured, drawn, and reported as succeeded, and
 execute nothing -- including **Parallel**, which runs no branch in parallel
-because it runs no branch at all.
+because it runs no branch at all, **Approval**, which holds nothing back and is
+walked through like any other step, and **Notification**, which sends no message:
+the extension talks to no chat, mail or incident tool.
 
 ### Triggers
 
@@ -73,13 +75,21 @@ A calendar view showing scheduled pipeline runs:
 
 ### Execution History
 
-A log of every pipeline run, kept in extension storage:
+Every run that completes or fails is written to extension storage when it
+ends, and the tab, which asks for the history again each time a run answers,
+lists them newest first. A run cut off by the pipeline timeout, or stopped by an
+error before it returns, leaves no entry. The tab shows for each run:
 
-- Per-step timing and status
-- Error details for failed steps
+- Its status, trigger, start time and duration
+- How many steps ran, and how many of them failed
 
-Entries are read-only: there is no re-run channel, so a past run can be inspected
-but not replayed.
+Storage also keeps the pipeline definition as it stood when the run started,
+since saving a pipeline overwrites it under its own id. The tab does not show
+that snapshot and does not send it to the page.
+
+The log holds the 50 most recent runs; older entries are dropped as new ones
+arrive. Entries are read-only: there is no re-run channel, so a past run can be
+inspected but not replayed.
 
 ### Pipeline Marketplace
 
@@ -88,6 +98,10 @@ Browse and install pre-configured pipeline templates:
 - Templates organized by category
 - Author attribution and descriptions
 - One-click install to add a template to your workspace
+
+A template is a composition, not a capability: its steps are the same step types
+listed above, so an installed template runs green without moving a record. The
+tab says so above the list.
 
 ### Saved Pipelines
 

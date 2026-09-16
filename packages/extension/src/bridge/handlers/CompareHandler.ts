@@ -371,8 +371,10 @@ export class CompareHandler implements DomainHandler {
   }
 
   /**
-   * Handle compare:drift -- detect configuration drift between two orgs by comparing
-   * key org settings (CompanyInfo, SecuritySettings, OrgPreference).
+   * Handle compare:drift -- compare the five Organization fields below on both
+   * orgs, on request. No metadata is read: the one query is
+   * `SELECT Name, LanguageLocaleKey, DefaultLocaleSidKey, TimeZoneSidKey,
+   * FiscalYearStartMonth FROM Organization`.
    */
   private async handleDrift(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);

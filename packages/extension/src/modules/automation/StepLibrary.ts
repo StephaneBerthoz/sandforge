@@ -122,7 +122,7 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'approval',
     label: 'Approval',
-    description: 'Pause and wait for manual approval to continue',
+    description: 'Marks an approval point; a run goes through it unattended',
     category: 'control',
     icon: 'user-check',
     configSchema: { approvers: { type: 'array' }, message: { type: 'string' } },
@@ -138,14 +138,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'notification',
     label: 'Notification',
-    description: 'Send a notification via email, Slack, or other channels',
+    description: 'Marks a notification point; a run sends no message yet',
     category: 'notification',
     icon: 'bell',
-    configSchema: {
-      channel: { type: 'string' },
-      message: { type: 'string' },
-      recipients: { type: 'array' },
-    },
+    // No channel and no recipients: nothing delivers the message yet.
+    configSchema: { message: { type: 'string' } },
   },
 ];
 

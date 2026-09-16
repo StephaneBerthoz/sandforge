@@ -63,6 +63,40 @@ Before execution, the Review step shows:
 - Object count, field mapping count, and transform count
 - PII warnings if sensitive fields are detected in the sync scope
 - A **Sankey Flow Diagram** visualizing data flow from source objects through mappings to target objects
+- A **Save** button, which stores the reviewed configuration under the two orgs it
+  runs between. The configuration is checked as a run started by hand is, so one
+  asking for _target to source_, for a mode other than full, or for manual
+  conflict review is refused and nothing is stored. While the Sync page stays
+  open, saving the same configuration again updates its entry. Once the orgs,
+  objects, mappings, transforms or strategy change, or after the page is
+  reopened, saving creates a new entry, so a schedule built on the first keeps
+  running what it was built on. The saved confirmation disappears as soon as the configuration on screen
+  differs from the one saved.
+
+### Schedules
+
+- A schedule runs a **saved** configuration, chosen from the ones the Save button
+  stored. Each is listed by its name and the time it was saved, since a changed
+  configuration is saved under the same name as the one before it. Until one exists, the Schedules tab says so, and a schedule can be
+  neither created nor edited: there is no default configuration behind one.
+- Editing a schedule whose configuration has since been deleted opens with no
+  configuration picked, says the previous one no longer exists, and cannot be
+  saved until one is chosen. A schedule naming a configuration that was never
+  saved is refused.
+- The check runs every 60 seconds and fires each schedule whose cron time has
+  passed, once, however long the editor was closed.
+- When the configuration a schedule names has since been deleted, the run is
+  recorded as a failure at each of its run times, the next run time moves on, and
+  -- if the schedule asks to be told about failures -- a notification says which
+  configuration is missing. It is not retried every minute in silence.
+- The two notification switches on a schedule raise a notification in each
+  SandForge panel open at the time: with _Notify on completion_ on, one says the
+  run started and another that it completed -- or, when some records failed, a
+  warning that it completed with errors, with the first one; with _Notify on
+  failure_ on, one says it failed, with the first error the run reported or, when
+  it reported none, a pointer to its entry in the sync history. A run that fails
+  in the sync engine is reported as failed, not completed. With no panel open, the
+  outcome is in the SandForge output channel and in the schedule's last result.
 
 ### Execution and Results
 

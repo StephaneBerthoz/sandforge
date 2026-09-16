@@ -243,4 +243,25 @@ describe('useSeedExecution', () => {
     const line = payload.template.objects.find((o) => o.objectApiName === 'Invoice_Line__c');
     expect(line?.fieldRules.map((r) => r.fieldApiName)).toEqual(['Invoice__c']);
   });
+
+  it('keeps the template the run was sent, for Save as template to store', () => {
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Case'],
+        { Case: { count: 5, batchSize: 200 } },
+        FIELD_CONFIGS,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    expect(result.current.lastTemplate).toBeNull();
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    expect(result.current.lastTemplate).toEqual(payload.template);
+  });
 });

@@ -91,7 +91,34 @@ describe('ForgeExecutor', () => {
       await executor.execute(graph, 'src', 'tgt', onProgress);
 
       expect(deps.describeFields).toHaveBeenCalledWith('src', 'Account');
-      expect(deps.queryRecords).toHaveBeenCalledWith('src', 'SELECT Id, Name FROM Account');
+      expect(deps.queryRecords).toHaveBeenCalledWith(
+        'src',
+        'SELECT Id, Name FROM Account',
+        expect.any(Function),
+      );
+    });
+
+    it('reports an object whose source read stopped on a bound', async () => {
+      // The read is capped at 50 000 records / 500 pages. A clone cut short
+      // there used to finish as a plain success, with the shortfall written
+      // only to the output channel.
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, _soql, onTruncated) => {
+        onTruncated?.();
+        return [{ Id: '001OLD1', Name: 'Record 1' }];
+      });
+      const graph = makeGraph([makeNode('Account'), makeNode('Contact')]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.truncatedObjects).toEqual(['Account', 'Contact']);
+    });
+
+    it('reports no truncation when every read reached the end of its cursor', async () => {
+      const graph = makeGraph([makeNode('Account')]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.truncatedObjects).toEqual([]);
     });
 
     it('should insert only createable fields into target org', async () => {
@@ -560,6 +587,7 @@ describe('ForgeExecutor', () => {
       expect(deps.queryRecords).toHaveBeenCalledWith(
         'src',
         `SELECT Id, Subject, AccountId FROM Case WHERE Id = '${ROOT_ID}'`,
+        expect.any(Function),
       );
     });
 

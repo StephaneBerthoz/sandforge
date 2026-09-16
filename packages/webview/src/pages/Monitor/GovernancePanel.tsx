@@ -281,9 +281,14 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
           <CardBody>
             <ul className="flex flex-col gap-1" data-testid="remediations">
               {remediations.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-2 text-xs text-text-primary">
-                  <input type="checkbox" className="mt-0.5" />
-                  <span>{item}</span>
+                <li key={idx} className="text-xs text-text-primary">
+                  {/* Wrapped rather than given an aria-label: the remediation
+                      text beside the box is what names it, and a label ties
+                      the two together for a screen reader and the pointer. */}
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-0.5" />
+                    <span>{item}</span>
+                  </label>
                 </li>
               ))}
             </ul>

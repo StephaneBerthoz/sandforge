@@ -180,31 +180,4 @@ describe('AIAssistant', () => {
     const passedConfig = mockCallFn.mock.calls[0][1];
     expect(passedConfig).toEqual(mockConfig);
   });
-
-  // --- Usage stats ---
-
-  it('should track usage statistics', async () => {
-    const conv = assistant.createConversation('Stats Test');
-    await assistant.chat(conv.id, 'Q1');
-    await assistant.chat(conv.id, 'Q2');
-
-    const stats = assistant.getUsageStats();
-    expect(stats.totalCalls).toBe(2);
-    expect(stats.totalOutputTokens).toBe(84);
-    expect(stats.averageLatencyMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it('should return initial empty stats', () => {
-    const stats = assistant.getUsageStats();
-    expect(stats.totalCalls).toBe(0);
-    expect(stats.totalOutputTokens).toBe(0);
-    expect(stats.totalInputTokens).toBe(0);
-    expect(stats.averageLatencyMs).toBe(0);
-  });
-
-  it('should return a copy of stats', () => {
-    const stats = assistant.getUsageStats();
-    stats.totalCalls = 999;
-    expect(assistant.getUsageStats().totalCalls).toBe(0);
-  });
 });

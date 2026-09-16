@@ -288,6 +288,54 @@ describe('ProductionGuard', () => {
       expect(result.impactSummary).toContain('org-prod-42');
       expect(result.impactSummary).toContain('seed');
     });
+
+    it('reads an uncounted request as unknown, in the summary and in the warning', () => {
+      const request = createRequest({
+        orgTier: 'production',
+        operation: 'insert',
+        objectName: 'Account, Contact',
+        recordCount: 'unknown',
+      });
+
+      const result = guard.check(request);
+
+      expect(result.impactSummary).toContain('unknown number of Account, Contact record(s)');
+      expect(result.impactSummary).not.toContain('INSERT 0');
+      expect(result.warnings[0]).toContain('an unknown number of records');
+      expect(result.warnings[0]).not.toContain('(0 records)');
+    });
+
+    it('spells out a measured count of zero as zero', () => {
+      const request = createRequest({
+        orgTier: 'production',
+        operation: 'insert',
+        objectName: 'Account',
+        recordCount: 0,
+      });
+
+      const result = guard.check(request);
+
+      expect(result.impactSummary).toContain('INSERT 0 Account record(s)');
+      expect(result.impactSummary).not.toContain('unknown');
+      expect(result.warnings[0]).toContain('(0 records)');
+    });
+
+    it('keeps an uncounted request below the production approval threshold', () => {
+      const result = guard.check(
+        createRequest({ orgTier: 'production', operation: 'insert', recordCount: 'unknown' }),
+      );
+
+      expect(result.requiresApproval).toBe(false);
+    });
+
+    it('does not warn about volume on staging or development when the count is unknown', () => {
+      const staging = guard.check(createRequest({ orgTier: 'staging', recordCount: 'unknown' }));
+      const dev = guard.check(createRequest({ orgTier: 'development', recordCount: 'unknown' }));
+
+      expect(staging.requiresConfirmation).toBe(false);
+      expect(staging.warnings).toEqual([]);
+      expect(dev.warnings).toEqual([]);
+    });
   });
 
   describe('setProductionOverride / isProductionOverridden', () => {

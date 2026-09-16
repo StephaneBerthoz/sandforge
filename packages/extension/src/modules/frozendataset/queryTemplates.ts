@@ -4,7 +4,7 @@
  * (ID lists, date bounds) are injected at execution time from the sas.
  */
 
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { SasPathGuard } from './SasPathGuard.js';
 
@@ -63,14 +63,14 @@ export function renderQueryTemplate(
  * token values carry source-org IDs and must never be read from (nor
  * written to) versioned files.
  */
-export function loadTokensFromSas(
+export async function loadTokensFromSas(
   sasDir: string,
   fileName: string,
   guard?: SasPathGuard,
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const effectiveGuard = guard ?? new SasPathGuard();
   const filePath = effectiveGuard.assertOutsideRepo(path.join(sasDir, fileName));
-  const payload: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const payload: unknown = JSON.parse(await fs.readFile(filePath, 'utf8'));
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new QueryTemplateError(`Token file ${filePath} must contain a JSON object`);
   }

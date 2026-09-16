@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, SF_CLI_INSTALL_URL, SF_CLI_MISSING_MESSAGE } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { OrgManagerPage } from './OrgManagerPage';
@@ -296,6 +296,25 @@ describe('OrgManagerPage', () => {
     const banner = screen.getByTestId('org-connect-error');
     expect(banner.textContent).toContain('sf CLI not found on PATH');
     expect(banner.textContent).toContain('Connection Error');
+  });
+
+  it('links to the CLI install page when the connect failed on a missing CLI', () => {
+    // The toast with the install link dismisses; the banner is what stays on
+    // screen, and it named the problem without saying where to fix it.
+    mockConnectState = { ...mockConnectState, loading: false, error: SF_CLI_MISSING_MESSAGE };
+    render(<OrgManagerPage />);
+
+    const link = screen.getByTestId('org-connect-error-cli-install') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe(SF_CLI_INSTALL_URL);
+    expect(link.textContent).toBe('Install the Salesforce CLI');
+  });
+
+  it('offers no install link for a connect failure that is not about the CLI', () => {
+    mockConnectState = { ...mockConnectState, loading: false, error: 'INVALID_LOGIN' };
+    render(<OrgManagerPage />);
+
+    expect(screen.getByTestId('org-connect-error')).toBeDefined();
+    expect(screen.queryByTestId('org-connect-error-cli-install')).toBeNull();
   });
 
   it('should collapse the inline form when the connect succeeds', () => {

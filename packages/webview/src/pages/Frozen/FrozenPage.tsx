@@ -62,9 +62,34 @@ export const FrozenPage: React.FC = () => {
       ? Object.values(status.manifest.volumetry.measured).reduce((sum, n) => sum + n, 0)
       : 0;
 
+  /*
+   * The salt keys every pseudonym an extraction writes. A load replays the
+   * dataset files as they are and never reads it, but an extraction run with a
+   * different salt gives the same records other pseudonyms than this dataset
+   * holds — silently, since nothing fails.
+   */
+  const saltMismatch =
+    status?.salt.present === true &&
+    status.salt.fingerprint != null &&
+    status.manifest != null &&
+    status.salt.fingerprint !== status.manifest.saltFingerprint;
+
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="frozen-page">
       <PageHeader title={t('nav.frozen')} subtitle={t('frozen.subtitle')} icon="snowflake" />
+
+      {saltMismatch && status?.manifest && (
+        <div
+          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-[var(--sf-warning)]"
+          role="alert"
+          data-testid="frozen-salt-mismatch"
+        >
+          {t('frozen.status.saltMismatch', {
+            current: status.salt.fingerprint,
+            manifest: status.manifest.saltFingerprint,
+          })}
+        </div>
+      )}
 
       {/* Status strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="frozen-status-strip">

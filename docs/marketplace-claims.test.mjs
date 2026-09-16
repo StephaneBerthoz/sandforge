@@ -45,6 +45,327 @@ const readJson = (...p) => JSON.parse(read(...p));
 const EXT = ['packages', 'extension'];
 const manifest = () => readJson(...EXT, 'package.json');
 
+// ── the listing sold an automation that does not run ──────────────────────
+
+/**
+ * What the Marketplace description may not promise, language by language.
+ *
+ * The listing's one paragraph sold "automate pipelines, with streaming
+ * execution for large datasets" while no pipeline step touches an org —
+ * `delay` waits and `condition` reads the run's variables, and the other
+ * thirteen report success without running — and Seed and Sync write their
+ * batches one after the other. An English denylist would have passed on all
+ * five translations, which said the same thing in their own words, so each
+ * locale carries its own.
+ */
+const DESCRIPTION_OVERCLAIM = {
+  en: /automate pipelines|streaming execution/i,
+  fr: /automatis|exécution streaming/i,
+  de: /automatisier|Streaming-Ausführung/i,
+  es: /automatiza|ejecución en streaming|streaming/i,
+  ja: /自動化|ストリーミング/,
+  'pt-br': /automatiza|execução em streaming|streaming/i,
+};
+
+test('anchor: a pipeline step still reports success without touching the org', () => {
+  const executor = read(...EXT, 'src', 'modules', 'automation', 'StepExecutor.ts');
+  assert.match(
+    executor,
+    /passThrough/,
+    'StepExecutor no longer passes steps through — if every step type acts now, the description ' +
+      'may promise automation again, and this rule has to go with it',
+  );
+});
+
+test('the Marketplace description promises no automation and no streaming, in six languages', () => {
+  const offenders = [];
+  for (const [locale, text] of Object.entries(resolveNls(manifest().description))) {
+    const hit = DESCRIPTION_OVERCLAIM[locale]?.exec(text);
+    assert.ok(DESCRIPTION_OVERCLAIM[locale], `${locale}: no rule written for this locale`);
+    if (hit) offenders.push(`${locale}: "${hit[0]}" in the listing's one paragraph`);
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'the listing sells a pipeline runner and a streaming engine the extension does not have:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+/**
+ * Neither `delay` nor `condition` is handed anything that reaches an org, so
+ * the listing says no step acts on it yet, and may not credit those two with
+ * doing so, in any language.
+ */
+const STEPS_CREDITED_WITH_THE_ORG = {
+  en: /\b(?:delay|condition)\b[^.]*\bacts? on your org/i,
+  fr: /(?:délai|condition)[^.]*\bagiss\w* sur votre org/i,
+  de: /(?:\bwirk\w*[^.]*(?:Verzögerung|Bedingung)|(?:Verzögerung|Bedingung)[^.]*\bwirk\w*)[^.]*auf Ihre Org/i,
+  es: /(?:espera|condición)[^.]*\bactúa\w* sobre tu org/i,
+  ja: /(?:待機|条件)[^。]*Org に作用|Org に作用[^。]*(?:待機|条件)/,
+  'pt-br': /(?:espera|condição)[^.]*\bagem na sua org/i,
+};
+
+const NO_STEP_ACTS_ON_THE_ORG = {
+  en: /no pipeline step acts on your org/i,
+  fr: /aucune étape de pipeline n'agit sur votre org/i,
+  de: /kein Pipeline-Schritt auf Ihre Org/i,
+  es: /ningún paso de pipeline actúa sobre tu org/i,
+  ja: /Org に作用するパイプラインのステップはありません/,
+  'pt-br': /nenhum passo de pipeline age na sua org/i,
+};
+
+test('anchor: the delay and condition steps are handed nothing that reaches an org', () => {
+  const executor = read(...EXT, 'src', 'modules', 'automation', 'StepExecutor.ts');
+  const context = /export interface StepContext \{([^}]*)\}/.exec(executor);
+  assert.ok(context, 'StepContext moved — re-point this anchor');
+  assert.doesNotMatch(
+    context[1],
+    /conn|org|client|adapter/i,
+    'a step is handed something that reaches an org now — re-read what the listing says steps do',
+  );
+  for (const factory of ['createDelayHandler', 'createConditionHandler']) {
+    const body = new RegExp(`private ${factory}\\(\\)[\\s\\S]*?\\n  \\}\\n`).exec(executor);
+    assert.ok(body, `${factory} is gone — re-point this anchor`);
+    assert.doesNotMatch(
+      body[0],
+      /conn|jsforce|orgId|adapter|this\.(?!evaluateSimpleCondition)\w+/i,
+      `${factory} reaches past its step and variables now — the listing may say it acts`,
+    );
+  }
+});
+
+test('the Marketplace description credits no pipeline step with acting on the org, in six languages', () => {
+  const offenders = [];
+  for (const [locale, text] of Object.entries(resolveNls(manifest().description))) {
+    assert.ok(STEPS_CREDITED_WITH_THE_ORG[locale], `${locale}: no rule written for this locale`);
+    const hit = STEPS_CREDITED_WITH_THE_ORG[locale].exec(text);
+    if (hit) offenders.push(`${locale}: "${hit[0]}"`);
+    if (!NO_STEP_ACTS_ON_THE_ORG[locale].test(text)) {
+      offenders.push(`${locale}: does not say that no pipeline step acts on the org yet`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'delay waits and condition reads variables; neither touches an org:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+// ── ID remapping, sold without its one exception ──────────────────────────
+
+/** The six walkthrough languages, as their file suffixes spell them. */
+const WALKTHROUGH_LOCALES = ['en', 'fr', 'de', 'es', 'ja', 'pt-br'];
+
+/**
+ * Every surface outside the webview that tells a reader what Forge does to
+ * Ids, as `[label, locale, text]`: the quick start in both READMEs and both
+ * getting started guides, and the Forge walkthrough body in six languages.
+ */
+const REMAP_SURFACES = () => [
+  ['README.md', 'en', read('README.md')],
+  ['packages/extension/README.md', 'en', read(...EXT, 'README.md')],
+  ['docs/getting-started.md', 'en', read('docs', 'getting-started.md')],
+  ['docs/forge-quickstart.md', 'en', read('docs', 'forge-quickstart.md')],
+  ...WALKTHROUGH_LOCALES.map((locale) => [
+    `walkthrough/forge-clone${locale === 'en' ? '' : `.nls.${locale}`}.md`,
+    locale,
+    read(...EXT, 'walkthrough', `forge-clone${locale === 'en' ? '' : `.nls.${locale}`}.md`),
+  ]),
+];
+
+/**
+ * "Every ID is remapped", in the shapes the six languages published it: the
+ * Id first ("every ID is remapped", "every inserted record gets its IDs
+ * remapped"), the verb first ("remapping every ID"), German's separable verb
+ * ("vergibt jede ID neu") and the two Japanese orders. A span may cross a line
+ * break, since a code block wraps the sentence. A record type Id is a lookup
+ * too, so "every lookup is remapped" makes the same promise.
+ */
+const UNQUALIFIED_REMAP = [
+  /(?:every|chaque|jede[rnms]?|cada|todos?)\s[^.。;]{0,60}?\bIDs?\b[^.。;]{0,40}?(?:remap|neu zugeordnet|reasign|réattribu)/iu,
+  /(?:remapp?ing|réattribuant|reasignando|remapeando)\s+(?:every|chaque|cada)\s+IDs?\b/iu,
+  /\bremaps?\s+(?:every|all)\s+IDs?\b/iu,
+  /\b(?:every|all)\s+lookups?\s+(?:is|are|gets?)\s+remapped\b/iu,
+  /jede[rnms]?\s[^.;]{0,60}?(?:neu zugeordnete\s+IDs|ID\s+neu)/iu,
+  /(?:すべての\s*ID|ID\s*はすべて)[^。\n]*(?:再マッピング|マッピングし直|付け替え)/u,
+];
+
+/**
+ * What the exception has to carry in each language: that it is about a record
+ * type, that the match is on the API name, and that the log says so — the log
+ * line is what explains the refusal that follows.
+ */
+const REMAP_EXCEPTION = {
+  en: { recordType: /record type/i, apiName: /API name/i, log: /\blog\b/i },
+  fr: { recordType: /type d'enregistrement/i, apiName: /nom d'API/i, log: /journal/i },
+  de: { recordType: /Datensatztyp/i, apiName: /API-Namen/i, log: /Protokoll/i },
+  es: { recordType: /tipo de registro/i, apiName: /nombre de API/i, log: /\blog de SandForge/i },
+  ja: { recordType: /レコードタイプ/, apiName: /API 参照名/, log: /ログ/ },
+  'pt-br': { recordType: /tipo de registro/i, apiName: /nome de API/i, log: /\blog\b/i },
+};
+
+test('anchor: a record type with no counterpart on the target keeps its source Id', () => {
+  const mapper = read(...EXT, 'src', 'modules', 'sync', 'RecordTypeMapper.ts');
+  assert.match(
+    mapper,
+    /export function warnUnmappedRecordType/,
+    'the unmapped-record-type warning is gone — either every Id really is remapped now, or the ' +
+      'exception below is no longer reported anywhere',
+  );
+  assert.match(
+    mapper,
+    /Records keep the source Id/,
+    'the warning no longer says the record keeps its source Id — re-read the quick start below',
+  );
+  assert.match(
+    mapper,
+    /record type with the same API name/,
+    'the warning no longer matches on the API name — re-read what the surfaces below say',
+  );
+  const executor = read(...EXT, 'src', 'modules', 'forge', 'ForgeExecutor.ts');
+  assert.match(
+    executor,
+    /warnUnmappedRecordType\(/,
+    'Forge no longer reports an unmapped record type, so nothing tells the user why the insert ' +
+      'was refused',
+  );
+});
+
+test('the unqualified remap rule refuses what shipped and leaves the qualified sentence alone', () => {
+  const refuses = (text) => UNQUALIFIED_REMAP.some((rule) => rule.test(text));
+  for (const shipped of [
+    'Every ID is remapped automatically.',
+    'Review the plan, then run it: every inserted record gets its IDs remapped',
+    'into your sandbox, remapping every ID.',
+    'SandForge discovers the relationship graph and remaps every ID on write.',
+    'BFS discovery walks the relationship graph for you and every lookup is remapped on write.',
+    'records are inserted into your target sandbox with every ID\n       remapped',
+    'Jeder eingefügte Datensatz erhält neu zugeordnete IDs',
+    'in Ihre Sandbox und vergibt dabei jede ID neu.',
+    'vers votre sandbox, en réattribuant chaque ID.',
+    'cada registro insertado recibe sus ID reasignados',
+    'hacia su sandbox, reasignando cada ID.',
+    'para sua sandbox, remapeando cada ID.',
+    '挿入されるレコードの ID はすべて再マッピングされます',
+    'サンドボックスへ複製し、すべてのIDを自動で付け替えます。',
+  ]) {
+    assert.ok(refuses(shipped), `the rule lets through: ${shipped}`);
+  }
+  assert.ok(
+    !refuses(
+      'IDs are remapped as the records are written; a record type with no active record type ' +
+        'of the same API name on the target keeps its source Id, and the SandForge log names it.',
+    ),
+    'the rule refuses the qualified sentence',
+  );
+});
+
+test('no surface promises that every ID is remapped, in six languages', () => {
+  const offenders = [];
+  for (const [label, , text] of REMAP_SURFACES()) {
+    for (const rule of UNQUALIFIED_REMAP) {
+      const hit = rule.exec(text);
+      if (hit) offenders.push(`${label}: "${hit[0].replace(/\s+/g, ' ').trim()}"`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a record type with no active record type of the same API name on the target keeps its ' +
+      'source Id, and these surfaces promise otherwise:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('every surface that remaps IDs says what happens to a record type the target does not have', () => {
+  const missing = [];
+  for (const [label, locale, text] of REMAP_SURFACES()) {
+    const rules = REMAP_EXCEPTION[locale];
+    assert.ok(rules, `${label}: no rule written for ${locale}`);
+    for (const [part, rule] of Object.entries(rules)) {
+      if (!rule.test(text)) missing.push(`${label}: the exception does not carry its ${part}`);
+    }
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    'the exception has to travel with the claim:\n  ' + missing.join('\n  '),
+  );
+});
+
+// ── what the store search and the palette show ────────────────────────────
+
+/**
+ * The Marketplace sorts by category and matches the first keywords hardest,
+ * and the Command Palette shows every command that is not hidden. All three
+ * were left as they were written: the listing sat under "Visualization", which
+ * it is not, and the palette offered "SandForge: Cheers!" — an easter egg that
+ * shows a mojito — beside "SandForge: Open Grappe", a word a Salesforce
+ * consultant has no reason to know.
+ */
+test('the listing is filed under what it does', () => {
+  const categories = manifest().categories ?? [];
+  assert.ok(categories.length > 0, 'the categories are gone — re-read this gate');
+  assert.ok(
+    !categories.includes('Visualization'),
+    "Monitor's charts and Compare's diff serve the data work; the listing is not a " +
+      'visualization tool, and the category brings browsers it disappoints',
+  );
+  assert.deepEqual(categories, ['Other', 'Testing'], 'the filed categories changed');
+});
+
+test('the keywords a searcher matches first are the ones this is about', () => {
+  assert.deepEqual(
+    (manifest().keywords ?? []).slice(0, 5),
+    ['salesforce', 'sandbox', 'test data', 'seed data', 'data masking'],
+    'the first keywords weigh most in Marketplace search; moving one is a positioning decision, ' +
+      'not a tidy-up',
+  );
+});
+
+/** Words a palette entry may not be named after, with what would redeem them. */
+const PALETTE_JARGON = {
+  // The module's own name, which says nothing about what the view shows.
+  grappe: /progress|progression|fortschritt|progreso|progresso|進捗/iu,
+  // The easter egg. Nothing redeems it in the palette: it is not a feature.
+  cheers: null,
+  prost: null,
+  salud: null,
+  saúde: null,
+  乾杯: null,
+};
+
+test('every command the palette shows is named after what it does, in six languages', () => {
+  const m = manifest();
+  const hidden = new Set(
+    (m.contributes?.menus?.commandPalette ?? [])
+      .filter((entry) => entry.when === 'false')
+      .map((entry) => entry.command),
+  );
+  const visible = (m.contributes?.commands ?? []).filter((c) => !hidden.has(c.command));
+  // Positive control: the palette really is being read, not an empty list.
+  assert.ok(visible.length > 10, `only ${visible.length} commands read — re-point this gate`);
+
+  const offenders = [];
+  for (const command of visible) {
+    for (const [locale, title] of Object.entries(resolveNls(command.title))) {
+      for (const [word, redeemed] of Object.entries(PALETTE_JARGON)) {
+        if (!new RegExp(`(?<!\\p{L})${word}(?!\\p{L})`, 'iu').test(title)) continue;
+        if (redeemed && redeemed.test(title)) continue;
+        offenders.push(`${locale} ${command.command}: "${title}"`);
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'these palette entries are named after something only this codebase knows:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
 // ── a palette command that could not succeed ──────────────────────────────
 
 test('anchor: openOrgInBrowser asks for the org when none is passed', () => {
@@ -170,6 +491,69 @@ test('every Get Started step offers a command button, in six languages', () => {
     offenders,
     [],
     'walkthrough steps without a working button:\n  ' + offenders.join('\n  '),
+  );
+});
+
+// ── onboarding that fails on the machine it is read on ────────────────────
+
+/**
+ * The first step of the walkthrough offered "OAuth (Web)" as the path for a
+ * reader with no CLI. It is not one: the browser login is `sf org login web`,
+ * so a reader without the CLI followed the step, clicked the alternative, and
+ * got "Salesforce CLI (sf) not found on PATH" — on the one screen written to
+ * get them started.
+ */
+test('anchor: the browser login refuses without the CLI, like the import does', () => {
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'OrgHandler.ts');
+  const refusals = handler.match(/failConnect\(\s*msg,\s*SF_CLI_MISSING_MESSAGE/g) ?? [];
+  assert.ok(
+    refusals.length >= 2,
+    'only one path refuses for want of the CLI now — if OAuth no longer needs it, the ' +
+      'prerequisite below applies to the import alone and has to be rewritten',
+  );
+  assert.match(
+    read('packages', 'shared', 'src', 'constants', 'defaults.ts'),
+    /SF_CLI_MISSING_MESSAGE = 'Salesforce CLI \(sf\) not found on PATH\.'/,
+    'the refusal both paths share no longer says the CLI is missing — re-read this anchor',
+  );
+  assert.match(
+    handler,
+    /OAuth web login runs through it/,
+    'the OAuth path no longer says it needs the CLI — re-read this anchor',
+  );
+});
+
+test('the first walkthrough step states the Salesforce CLI prerequisite, in six languages', () => {
+  const missing = [];
+  const bodies = ['', '.nls.de', '.nls.es', '.nls.fr', '.nls.ja', '.nls.pt-br'].map((suffix) => [
+    `walkthrough/connect-org${suffix}.md`,
+    read(...EXT, 'walkthrough', `connect-org${suffix}.md`),
+  ]);
+  const step = (manifest().contributes?.walkthroughs ?? [])
+    .flatMap((w) => w.steps ?? [])
+    .find((s) => s.id === 'sandforge.connectOrg');
+  assert.ok(step, 'the connect-org step is gone — re-read this gate');
+  const descriptions = Object.entries(resolveNls(step.description)).map(([locale, text]) => [
+    `walkthrough.step.connectOrg.description (${locale})`,
+    text,
+  ]);
+
+  for (const [label, text] of [...bodies, ...descriptions]) {
+    // The CLI names itself `sf`; PATH is where the reader has to have put it.
+    if (!/\bsf\b/.test(text) || !/PATH/.test(text)) {
+      missing.push(`${label}: does not say the sf CLI has to be on PATH`);
+    }
+  }
+  for (const [label, text] of bodies) {
+    if (!text.includes('https://developer.salesforce.com/tools/salesforcecli')) {
+      missing.push(`${label}: no link to install the CLI`);
+    }
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    'both connection paths run the CLI, and these surfaces let a reader start without it:\n  ' +
+      missing.join('\n  '),
   );
 });
 
@@ -322,6 +706,69 @@ test('no surface still calls DataOps Restore unbuilt', () => {
     offenders,
     [],
     'Restore has worked since v1.18.0; these lines still sell it as unbuilt:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+// ── a Compare row that described a different module ───────────────────────
+
+/**
+ * Both READMEs sold Compare as a "permission matrix" and "drift detection".
+ * The Permissions tab reads permission set and profile names, with no object
+ * or field permission behind them, and the Drift tab reads five fields of the
+ * Organization record when it is opened. The module page says so; the two
+ * Compare rows of each README have to say the same.
+ */
+const COMPARE_OVERCLAIM = /permission matrix|drift detection/i;
+
+test('anchor: Compare reads permission names and five Organization fields, nothing more', () => {
+  const handler = read(...EXT, 'src', 'bridge', 'handlers', 'CompareHandler.ts');
+  // Positive control: this is the file that runs the Organization query.
+  assert.match(handler, /FROM Organization/, 'CompareHandler moved — re-point this anchor');
+  assert.doesNotMatch(
+    handler,
+    /ObjectPermissions|FieldPermissions/,
+    'Compare reads object or field permissions now — the READMEs may describe a matrix again',
+  );
+  const drift = /private async handleDrift\([\s\S]*?(?=\n  (?:private|public) |\n\}\n)/.exec(
+    handler,
+  );
+  assert.ok(drift, 'handleDrift is gone — re-point this anchor');
+  assert.deepEqual(
+    drift[0].match(/\bFROM \w+/g),
+    ['FROM Organization'],
+    'the Drift tab reads more than the Organization record now — re-read the Compare rows',
+  );
+  assert.doesNotMatch(
+    drift[0],
+    /\.metadata\.|\.tooling\./,
+    'the Drift tab reads metadata now — re-read the Compare rows',
+  );
+});
+
+test('the Compare rows of both READMEs describe what Compare reads', () => {
+  const offenders = [];
+  for (const relPath of READMES) {
+    const rows = read(...relPath.split('/'))
+      .split('\n')
+      .filter((line) => /^\|\s*(?:\*\*Compare\*\*|\[Compare\])/.test(line));
+    // Positive control: the feature table row and the module index row.
+    assert.equal(rows.length, 2, `${relPath}: expected two Compare rows, found ${rows.length}`);
+    for (const row of rows) {
+      const hit = COMPARE_OVERCLAIM.exec(row);
+      if (hit) offenders.push(`${relPath}: "${hit[0]}"`);
+      if (!/five Organization settings/.test(row)) {
+        offenders.push(
+          `${relPath}: a Compare row does not say the drift is five Organization settings`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'Compare shows which permission sets and profiles exist on each side and five Organization ' +
+      'settings, and these rows promise more:\n  ' +
       offenders.join('\n  '),
   );
 });

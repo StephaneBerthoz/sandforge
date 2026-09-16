@@ -88,19 +88,21 @@ const CHANNEL_SHAPE_RE = /^[a-z][a-z0-9-]*(?::[a-z0-9-]+)+$/;
  * the Zod ↔ TS halves honest); never grow it to silence a new dead route.
  */
 export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = [
-  { channel: 'onboarding:reset', reason: 'Host command with no Settings control to trigger it.' },
-  { channel: 'hint:dismiss', reason: 'HintTracker persists dismissals the UI never reports.' },
-  { channel: 'seed:template:save', reason: 'Seed template UI reads (list/load) but never writes.' },
-  { channel: 'seed:template:delete', reason: 'Same unwired half of the seed template CRUD.' },
-  { channel: 'sync:config:save', reason: 'Sync config persistence UI was never built.' },
-  { channel: 'sync:config:load', reason: 'Same quartet — no page loads a saved sync config.' },
-  { channel: 'sync:config:list', reason: 'Same quartet — no saved-config picker exists.' },
-  { channel: 'sync:config:delete', reason: 'Same quartet — nothing can delete a saved config.' },
+  {
+    channel: 'seed:template:delete',
+    reason: 'The gallery lists, loads and saves templates; nothing deletes one yet.',
+  },
+  {
+    channel: 'sync:config:load',
+    reason: 'The executor loads a saved config host-side; no page reopens one in the wizard.',
+  },
+  {
+    channel: 'sync:config:delete',
+    reason: 'Nothing deletes a saved sync configuration yet.',
+  },
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
-  { channel: 'cache:get-stats', reason: 'The Settings cache section was removed; nothing reads.' },
-  { channel: 'cache:invalidate-all', reason: 'Same removed section — nothing clears the cache.' },
   { channel: 'scheduler:list', reason: 'SchedulerPanel was removed; no UI enumerates schedules.' },
   { channel: 'scheduler:upsert', reason: 'Same panel — nothing creates or edits a schedule.' },
   { channel: 'scheduler:delete', reason: 'Same panel — nothing deletes a schedule.' },

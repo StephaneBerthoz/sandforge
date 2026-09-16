@@ -48,6 +48,25 @@ describe('Input', () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it('falls back to the placeholder for its accessible name', () => {
+    // Without a label an input had no name at all: a screen reader announced
+    // "edit text" and nothing else, while a sighted user read the placeholder.
+    render(<Input placeholder="Record ID or Salesforce URL" />);
+    expect(screen.getByRole('textbox').getAttribute('aria-label')).toBe(
+      'Record ID or Salesforce URL',
+    );
+  });
+
+  it('prefers an explicit aria-label over the placeholder', () => {
+    render(<Input placeholder="100" aria-label="Record count for Account" />);
+    expect(screen.getByRole('textbox').getAttribute('aria-label')).toBe('Record count for Account');
+  });
+
+  it('leaves a labelled input unnamed by its placeholder', () => {
+    render(<Input label="Alias" placeholder="my-sandbox" />);
+    expect(screen.getByRole('textbox').getAttribute('aria-label')).toBeNull();
+  });
+
   it('should forward ref', () => {
     let inputEl: HTMLInputElement | null = null;
     render(

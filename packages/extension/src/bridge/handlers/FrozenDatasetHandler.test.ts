@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { writeSelectionToSas } from '../../modules/frozendataset/index.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
@@ -87,6 +89,7 @@ function posted(
 describe('FrozenDatasetHandler', () => {
   let deps: HandlerDeps;
   let handler: FrozenDatasetHandler;
+  const tmpDirs: string[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -97,6 +100,9 @@ describe('FrozenDatasetHandler', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    for (const dir of tmpDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   describe('message routing', () => {
@@ -239,6 +245,37 @@ describe('FrozenDatasetHandler', () => {
       expect(status.selection).toBeNull();
       expect(status.manifest).toBeNull();
       expect(status.lastLoad).toBeNull();
+    });
+
+    it('reports the selection lying in the sas', async () => {
+      const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-status-'));
+      tmpDirs.push(sasDir);
+      await writeSelectionToSas(sasDir, {
+        roots: [
+          {
+            rootRecordId: '500SOURCEID000001',
+            combinationKey: 'type=Problem',
+            axisValues: { type: 'Problem' },
+          },
+        ],
+        uncovered: [],
+        volumetry: { measured: { Case: 1 }, total: 1, budgetMax: 2500 },
+        selectedAt: '2026-09-01T08:00:00.000Z',
+      });
+      deps = createMockDeps({ ...createMockConfig(), sasDir });
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:status'));
+
+      const responses = posted(deps, 'frozen:status:response');
+      expect(responses).toHaveLength(1);
+      const status = responses[0].payload.status as Record<string, unknown>;
+      expect(status.selection).toEqual({
+        selectedAt: '2026-09-01T08:00:00.000Z',
+        rootCount: 1,
+        total: 1,
+        budgetMax: 2500,
+      });
     });
 
     it('reports the salt fingerprint (12 hex) when the env var is set', async () => {

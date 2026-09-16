@@ -228,24 +228,40 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   already in progress. Clone now opens the clone wizard writing to the target
   org the recommendation named, with its source org selected and that org's
   objects loading; Quick Seed opens Seed on its templates, and Sync opens Sync
-  with both orgs set. Nothing runs from Home: the clone preview and the
-  production guard still come first.
+  with both orgs set. Quick Seed also stops asking twice for an org the
+  recommendation has already named: the step after the first template you pick
+  opens with that org selected, unless it is no longer connected, in which case
+  it asks as before. Nothing runs from Home: the clone preview and the
+  production guard still come first, and a quick seed still waits for the click
+  that starts it.
 - **An answer reaches only the request that asked for it.** Each panel built
   message ids from the time and its own counter, so two panels sending in the
   same millisecond could mint the same id and take each other's answers, and a
   sync sent under a repeated id was refused as a duplicate; ids are now random.
   A Frozen Dataset request took any error of its type, so another panel's failed
-  load cancelled yours, and Forge mission control took any Forge error, progress
-  event or result, so another run's error marked yours aborted; each now takes
-  only what answers its own request. Settings mistook the AI status update that
-  the extension pushes whenever the AI wiring changes for the answer to its own
-  status check, and dropped the real reply; it now waits for that reply.
+  load cancelled yours, and the Frozen page took every load progress event,
+  every 4-point control result and every post-load verdict that arrived,
+  whichever run had asked for it: a run started from another panel moved your
+  progress bar and left its verdict on your page. Forge mission control took any
+  Forge error, progress event or result, so another run's error marked yours
+  aborted; each now takes only what answers its own request. A Frozen run is
+  followed from the request that starts it to its verdict, so the verification
+  chained after a load still reports; starting the same kind of run again drops
+  the one it replaces, including after a switch between the Extract and Load
+  tabs, and leaving the page clears the progress it was showing. Settings
+  mistook the AI status update that the extension pushes whenever the AI wiring
+  changes for the answer to its own status check, and dropped the real reply; it
+  now waits for that reply.
 - **A message the extension drops is answered.** A message refused by the rate
   limiter, or of a type no handler takes, was only logged, and the page that
   sent it waited out its whole timeout before showing a generic failure. The
-  extension now answers it with a bridge error correlated to it. Every open
-  SandForge panel shows that error as a Bridge error notice, not only the page
-  that sent the message.
+  extension now answers it with a bridge error correlated to it. The panel that
+  sent the message shows that error as a Bridge error notice, and the other
+  open panels leave it alone: one refusal used to appear once per open
+  SandForge panel, each of them reporting a request it had not made. The
+  Schedules tab follows the same rule for the refusals it shows. A drop that
+  answers no message at all is still shown in every open panel, since none of
+  them owns it.
 - **Sync history loads, and an export says where it went, whichever Sync tab
   you are on.** Nothing passed the extension's answers to the history store: the
   request went out, the table never filled, and an export never reached the Save
@@ -475,14 +491,25 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   listened to and is no longer handled or taught. The Help no longer teaches
   Ctrl+1..9, which VS Code mostly keeps for itself, and teaches the G+letter
   chords instead.
-- **Automation says which steps run before you press Run.** Only Delay and
-  Condition have handlers; every other step type reports success without
-  opening a connection, so a pipeline of Seed and Backup steps ran green and
-  moved no record. The canvas now carries a notice, the palette marks the
-  thirteen inert step types as coming soon, and the header and welcome no
-  longer promise automated seed and sync. The Home quick action and the
-  command palette entry "Run Last Pipeline" only ever opened the page, and now
-  say so: "Open Pipelines".
+- **Automation says which steps run before you press Run, on the canvas and in
+  the Marketplace.** Only Delay and Condition have handlers; every other step
+  type reports success without opening a connection, so a pipeline of Seed and
+  Backup steps ran green and moved no record. The canvas carries a notice, the
+  palette marks the thirteen inert step types as coming soon, and the header and
+  welcome no longer promise automated seed and sync. The Home quick action and
+  SandForge's own command palette offered "Run Last Pipeline", which only ever
+  opened the page, and now say so: "Open Pipelines". That notice now also
+  stands above the Marketplace list, since a template card is read on its own
+  and an installed template is built from those same step types, and it takes a
+  single row instead of a panel, so it no longer pushes what it warns about
+  down the screen. Approval no longer claims to pause and wait for someone,
+  because a run walks straight through it; Notification no longer offers
+  delivery by email, Slack or another channel, and its configuration asks for
+  the message alone rather than a Channel box nothing read. The starter
+  template named "Data Migration Dry Run" is now "Migration Pre-flight Check"
+  and no longer offers to validate without committing, no Marketplace template
+  promises to notify or alert anyone, and the run views drop a "Waiting
+  Approval" status no run was ever given.
 - **The DataOps welcome and guide stop promising what is not built.** The
   welcome offered to schedule cleanups and track data quality, and the guide
   described a request form, cleanup recommendations, a quality dashboard,
@@ -580,6 +607,244 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   record Id is configured, and the Jenkins header says that Id is a build
   parameter.
 
+- **A sync configuration can be saved, and a schedule runs a saved one.** A
+  schedule runs a stored configuration by id, and nothing in the product could
+  store one: the builder offered a single made-up entry named _Default
+  configuration_, so every schedule built on it named a configuration no run
+  could load. The Sync review step now has a **Save** button, which keeps the
+  configuration you have just read through under the two orgs it runs between.
+  It is checked as a run started by hand is, so one asking to write target to
+  source, for a mode other than full, or for manual conflict review is refused
+  and nothing is stored. Saving again without leaving the page updates the
+  entry it was saved under, while a changed configuration — other orgs,
+  objects, mappings, transforms or strategy — is stored as a new entry, so a
+  schedule keeps running what it was built on; the saved confirmation
+  disappears as soon as what is on screen differs from what was saved. The
+  schedule builder offers those saved configurations, each with the time it was
+  saved, since two saves of the same pair of orgs carry the same name. Until
+  one exists, New schedule and Edit are disabled and the tab says to save one
+  first; editing a schedule whose configuration has since been deleted opens
+  with none picked and cannot be saved until one is chosen, rather than moving
+  the schedule onto another pair of orgs. A schedule naming a configuration
+  that was never saved is refused. The tab itself listened to none of the
+  answers it asked for: the list stayed empty behind its loading skeleton, a
+  schedule created, paused or deleted did not change on screen, and a refused
+  request looked like nothing at all. Those answers now reach it, and a
+  refusal — including a list of saved configurations that could not be read,
+  which is not the same as nothing having been saved — is shown at the top of
+  the tab.
+- **A scheduled sync says how its run ended.** Notify on completion and notify
+  on failure only wrote a line to the SandForge output channel, so a schedule
+  that fired while you were working said nothing on screen. Each now raises a
+  notification in the SandForge panels open at the time; with none open, the
+  output channel line and the schedule's last result remain. A run the sync
+  engine reported as failed — a lost connection, a Bulk API failure, a run that
+  was aborted — was announced as completed, because only an error thrown
+  outright counted as a failure; it is now announced as a failure, with the
+  first error the run reported. A run in which some records were refused is
+  announced as completed with errors, with the first of them, instead of as a
+  clean success. And a schedule whose configuration has since been deleted no
+  longer falls due every 60 seconds in silence: it is recorded as a failure at
+  each of its run times, its next run time moves on, and, with notify on
+  failure on, the notification names the configuration that is missing.
+- **Save as template keeps the seed you just ran, and a saved template opens
+  again.** The button on the results step did nothing: nothing sent the
+  configuration anywhere, so a set of objects, record counts and field rules
+  worth keeping had to be rebuilt by hand next time. It now stores exactly what
+  the run was given, under the objects it seeded and the day, as a new entry
+  rather than over one already there; it stays disabled until a run has
+  produced something and while a save is under way, confirms the save, and
+  gives the reason when one is refused. In the gallery, Use this on a saved
+  template asked for it under a key the extension does not read, so every saved
+  template was refused and the click did nothing, with nothing opened and
+  nothing said — and the answer, had it arrived, was passed on whole to the
+  dialog that opens a template, which would have found no objects in it. A
+  saved template now opens, one that has since been deleted says so, and a load
+  the extension refuses gives its reason.
+- **A missing Salesforce CLI now says where to get it, and the message stays up
+  long enough to act on.** Two of the three working ways to connect an org run
+  through the `sf` command line — importing the orgs it already holds, and
+  OAuth web login — so a machine without it is left with username and password
+  alone. The failure arrived as a toast that dismissed itself after five
+  seconds and carried the install address as plain text nobody could click.
+  That toast now stays until you dismiss it and carries an Install the CLI
+  button that opens the Salesforce install page, and the connection error
+  banner on the Organizations page, which is the only place the failure
+  survives once the toast is gone, offers the same link. Buttons on a message
+  the extension sends now arrive at all: the page dropped them on the way in,
+  so any action such a message offered was rendered as nothing.
+- **The AI key is added in Settings, and no message sends you to a command that
+  does not exist.** A key that was missing or refused was answered with "Open
+  Command Palette → SandForge: Configure AI Key", in all six languages, and the
+  error raised when a custom Seed persona was asked for with AI off named the
+  same command. No such command is contributed — the Settings page is the only
+  place that stores a key — so the one instruction shown at the moment of
+  failure led to an empty palette search. Both now point at Settings > AI > API
+  key, and every sentence that sends a reader to the Command Palette is held to
+  the commands the extension contributes. A request the provider refuses as
+  invalid now says so and says it was not retried, where the banner used to
+  show a generic AI error. The Help's AI section now states what a failed run
+  sends: the built-in table of Salesforce error codes answers the codes it
+  knows first and sends nothing, with AI on or off; SandForge's own refusals
+  and any failure while no SandForge view is open send nothing; anything else
+  goes with its Salesforce Ids replaced, comes back as a VS Code notification,
+  and stops entirely with `sandforge.ai.errorResolution`.
+- **A clone that could not read an object to the end says which objects were
+  cut short.** Forge reads each source object page by page and stops at 50 000
+  records or 500 pages. A run that reached either bound finished as an
+  unqualified success: the counts on the results screen were the rows it had
+  written, and the only trace of the rows it never read was a line in the
+  SandForge output channel. The run result now carries the objects whose read
+  stopped on a bound, and the results screen names them and says to split the
+  run into filtered runs that each stay under it. A run that read every object
+  whole shows nothing extra.
+- **A frozen dataset says when the salt in the environment is not the one it
+  was built with.** Pseudonyms are keyed by the salt in
+  `SANDFORGE_FROZEN_SALT`, and the page showed that salt's fingerprint beside
+  the dataset without ever comparing the two. Extracting again under a
+  different salt gives the same records different pseudonyms from the ones the
+  stored dataset holds, and nothing fails while it happens. The page now
+  compares the two fingerprints and, when they differ, shows both, says a new
+  extraction would not match the dataset it sits next to, and asks for the
+  original salt to be set back first. A load is unaffected — it replays the
+  files as they are and never reads the salt — and the warning speaks of the
+  next extraction only.
+- **Active Sessions name the user, and an org with no refresh history to read
+  says so.** The column headed Username showed the user's 18-character record
+  id, because the query read no name; it now shows the login name and falls
+  back to the id only when a session carries none. Rows were also identified by
+  the user rather than by the session, so two sessions held by one user shared
+  a single row identity; every session now has its own row. Sandbox Refreshes
+  answered "No sandbox refresh events" on an org that cannot be asked the
+  question at all — only an org that manages sandboxes keeps that history, so
+  on a sandbox the empty state read as an answer about the org. It now says the
+  org keeps no refresh history to read, and the Monitor guide says the same.
+- **Compare's permission and drift tabs are named for what they read.** The tab
+  called Permission Matrix promised a grid of CRUD and field-level permissions
+  across profiles and permission sets; what it reads is permission set and
+  profile names, split into source only, target only and both, and no object or
+  field permission is read anywhere behind it. It is now called Permission
+  Presence, and the guide answers "which permission sets and profiles is this
+  org missing?" instead of "who can see what". The tab called Drift Dashboard
+  promised automated detection with drift metrics and categories; what it reads
+  is five fields of the Organization record from each org when you open it —
+  name, language, default locale, time zone and the month the fiscal year
+  starts — one query per org, with nothing running on a schedule and nothing
+  kept between runs, and it lists the settings that match as well as those that
+  differ. It is now called Org Settings Drift, and the Compare guide is held to
+  what the two tabs read.
+- **The Marketplace listing and the Command Palette say what SandForge does.**
+  The store description, in all six languages, sold "automate pipelines, with
+  streaming execution for large datasets". No pipeline step touches an org —
+  Delay waits, Condition reads the run's variables, and the other thirteen
+  report success without running — and Seed and Sync write their batches one
+  after another. Each language now says that pipelines are drafted and started
+  by hand, and that no pipeline step acts on your org yet. The listing was also
+  filed under Visualization, which brought browsers it disappoints; it is filed
+  under Other and Testing. In the Command Palette, "SandForge: Open Grappe"
+  named a view without saying what it shows and now reads "Open Grappe
+  (partition progress)", and "SandForge: Cheers!" — an easter egg that shows a
+  mojito, not a feature — is no longer listed there.
+- **Forge's ID remapping is described with the one case it does not cover.**
+  "Every ID is remapped automatically" was on the Marketplace page, in both
+  READMEs, in the getting started guide and the Forge quick start, in the Forge
+  walkthrough and — in six languages — on the in-app Help page and the Forge
+  page's empty state. A record type is the exception: one with no active record
+  type of the same API name on the target keeps its source Id, and the SandForge
+  log names it. All of those surfaces now carry the exception beside the claim,
+  each in the language it is read in.
+- **Both ways to connect your first org say they need the Salesforce CLI.** The
+  first step of the Get Started walkthrough offered Import from SF CLI or OAuth
+  (Web), so a reader with no CLI took the second — and the browser login is run
+  by the CLI too, so it refused for want of `sf` on PATH, on the one screen
+  written to get them started. The step and the page behind it now state, in six
+  languages, that both paths need the Salesforce CLI installed and on your PATH,
+  and link to where to get it.
+- **The README tables and the FAQ describe the extension that ships.** The
+  Compare row of both READMEs sold a "permission matrix" and "drift detection":
+  the Permissions tab lists which permission sets and profiles exist on each
+  side, with no object or field permission behind them, and Drift reads five
+  Organization settings — name, language, locale, time zone and fiscal year
+  start. Both rows say that now. The two Settings tables had drifted from each
+  other and from the extension: startup org validation was listed in one README
+  only and the three Grappe settings in neither, so a reader who opened the
+  Settings editor met rows nothing had told them about. Each table now lists
+  exactly the settings SandForge declares, with the default it ships, and the
+  two agree. The AI Assistant row still said a saved chat could be reread but
+  not continued once VS Code restarts; it can be continued, the page shows it
+  whole and the model is given its last 20 messages, and the row now also says
+  that a failed run's message travels with its Ids replaced, that the suggestion
+  arrives as a VS Code notification, and which setting stops the sending. The
+  FAQ promised "30+" locale-aware Faker generators where Seed has 30, and
+  described OpenAI and custom providers "listed in settings" that the settings
+  do not offer; its answer on what leaves your machine now names that setting
+  too, and adds the bare "Pipeline failed" a pipeline ends on to the failures
+  that are never sent.
+- **A pipeline run reaches the History tab.** Nothing ever wrote a finished run
+  to the store that tab reads, so History said "No execution history" in every
+  install and the History Runs count stayed at zero, however many pipelines had
+  been run. A run that completes or fails is now recorded when it ends, with its
+  status, what triggered it, its start time, its duration, how many steps ran
+  and how many of them failed, and the tab asks for the history again as soon as
+  a run answers, so a run started since the page was opened shows up without
+  reopening it. The log keeps the 50 most recent runs and drops the oldest as
+  new ones arrive; a run cut off by the pipeline timeout still leaves nothing
+  behind. The pipeline as it stood when the run started is kept beside the entry
+  in extension storage, where a later replay could read it, and is not sent to
+  the page, since a pipeline variable can carry a secret default value.
+- **The production confirmation names every object a run writes to, and stops
+  giving a record count nobody has measured.** Before any write to a production
+  org, SandForge shows a dialog summing the operation up, and that same summary
+  is the reason a blocked run reports. A clone named only the first of its
+  objects, and a masking run named no object at all but "AnonymizeData"; both
+  announced exactly 1 record, and a sync announced 0, when the records are only
+  read once the run has started and nothing had counted them. The summary now
+  lists every object of a clone, and every object a masking run addresses —
+  those its template covers when the request names none — and says the number of
+  records is not known yet rather than inventing one. A count that has been
+  measured, zero included, is still shown as the number it is, and which runs
+  ask for a confirmation or an approval is unchanged.
+- **Frozen Dataset no longer blocks the extension while it reads and writes its
+  files.** Its selection, query tokens, pseudonymization rules, manifest,
+  per-object record files and reference mapping were each read and written in
+  one blocking call, so a selection, an extraction, a load, a verification, and
+  even the status the page asks for when it opens, left SandForge unable to
+  answer anything else until the disk had finished: progress stopped moving and
+  every other request queued behind it, the longer the bigger the dataset.
+  Those reads and writes no longer hold the extension, apart from the two small
+  records stamped at the end of a run — the counting contract a load leaves
+  behind, and the verdict a verification writes onto the manifest — which are
+  still written in one call. The record files are also written one line each,
+  as only the loader ever reads them back, so they are smaller and quicker to
+  write; the manifest, which is meant to be read, keeps its indentation.
+- **A frozen dataset reload no longer counts a mapping it cannot look at as a
+  first load.** Each load writes down which record of the dataset became which
+  Id in the target org, and a reload reads that file back to clear what the
+  previous run wrote before writing again. Whether the file was there at all
+  was settled by a check that answers "not there" for anything it cannot look
+  at — a folder on the way to it that cannot be opened, for instance — and "not
+  there" was read as nothing having been loaded yet: the reload cleared nothing
+  and wrote a second copy of records that were already in the target org. The
+  file is now read directly, so only a file that is genuinely absent counts as
+  a first load, and any other failure stops the run and reports what happened.
+- **The jobs list shows how long ago a job started, and can be sorted on it.**
+  Monitor's jobs table dated every job with a short date and time and always
+  listed the newest first, so seeing whether a job had just started meant
+  reading timestamps, and the oldest could not be brought to the top. A job
+  created within the last day now shows how long ago it started, in the
+  interface language, with the exact date and time on hover; an older job keeps
+  the exact date and time, which reads better than a count of hours. The
+  _Created_ heading is a button, reachable from the keyboard, that flips every
+  expanded class group between newest and oldest first. Those rows also name
+  their columns now, so a screen reader reads each value with its heading and
+  hears which way the list is sorted.
+- **A jobs list still being read no longer says the org has none.** While the
+  dashboard re-read an org whose last read had found no jobs, the jobs table
+  showed "No recent jobs" — a statement about the org, made before the org had
+  answered. It now shows placeholder rows, marked as busy for screen readers,
+  until the answer arrives; a list that already holds jobs keeps showing them
+  while it is read again.
+
 ### Changed
 
 - **Only Anthropic can be picked as the AI provider.** The provider setting
@@ -662,13 +927,14 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   incremental or delta tags, and their sync step says pipelines do not transfer
   records yet.
 - **Every AI draft reads the model's reply the same way.** NL2SOQL drafts,
-  pipeline drafts and suggestions, custom Seed personas and AI-generated Seed
-  records each handled a fenced reply their own way, or not at all, and cast its
-  fields one by one. They now share one schema-checked reader, so pipeline
-  suggestions are read from inside a fence too, and a NL2SOQL or custom-persona
-  reply that is not JSON shows the same message as a reply of the wrong shape
-  instead of a raw JSON syntax error. Error resolution still reads its replies
-  the old way.
+  pipeline drafts and suggestions, custom Seed personas, AI-generated Seed
+  records and a failed run's fix suggestion each handled a fenced reply their
+  own way, or not at all, and cast its fields one by one. They now share one
+  schema-checked reader, so pipeline suggestions are read from inside a fence
+  too, and a NL2SOQL or custom-persona reply that is not JSON shows the same
+  message as a reply of the wrong shape instead of a raw JSON syntax error. A
+  fix suggestion the model writes as prose rather than JSON is recorded the same
+  way, in place of the parser's own error.
 - **An idle window no longer calls Salesforce every 30 seconds.** The
   connectivity probe sent a request to login.salesforce.com every 30 seconds
   from every open window, whether or not anything waited in the offline queue.
@@ -759,6 +1025,18 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   sent them, and the runs they could reach — pipeline runs — were never the ones
   it listed. Stopping a run still goes through Cancel in Live Operations and
   Cancel run on the Seed page, which abort the run itself.
+  `cache:invalidate-all` and `cache:get-stats` go too, with the cache manager
+  behind them and its 60-second sweep, which ran for the life of the window
+  over caches that were never registered with it; the Settings section that
+  spoke to them was removed long ago. So do `hint:dismiss` and
+  `onboarding:reset`, with the record of dismissed hints, since no screen
+  dismisses a hint or restarts the welcome flow, and
+  `ai:resolve-error:response`, a reply the extension never posted: the
+  suggestion for a failed run is shown once, where the failure is raised, as a
+  VS Code notification. `connectivity:status` is the one of these that was
+  sent — every panel asked for it on opening and displayed nothing, the
+  online/offline banner it fed being gone — so opening a SandForge panel now
+  makes one round trip fewer.
 - **A sync validation path nothing could reach.** The sync writer accepted an
   optional list of target field descriptors and, when given one, refused a
   whole batch before any write — but nothing ever passed one, and a single
@@ -844,6 +1122,33 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   containing a quote ran as shell code. It now reaches the script as a quoted
   variable, and a check fails when any workflow interpolates a free-text input
   into a `run:` step or a github-script `script:`.
+
+- **A failed run's error message loses its Salesforce Ids before it reaches the
+  model, and that sending can be turned off on its own.** A failed Seed, Sync,
+  DataOps or Automation run asks the model for a fix suggestion with nobody
+  pressing anything, and Salesforce quotes record and org Ids back in the
+  messages it writes. Only the failures SandForge writes itself were held back:
+  any other message went out as written, Ids and all, so `Secret storage did not
+answer within 10000 ms for org "00D…"` reached the model with the org in it.
+  Every 15- or 18-character Id in a message is now replaced by `<id>` first,
+  including one joined to a name by an underscore, while a custom field API name
+  that happens to hold a run of that length is left as it is. The sending also
+  has a setting of its own, `sandforge.ai.errorResolution`, on by default: off,
+  no failure is sent at all, the built-in table of common Salesforce error codes
+  still answers on your machine while a SandForge view is open, and chat,
+  NL2SOQL, pipeline drafts and Seed's AI field rules keep working. The
+  suggestion is now asked for in the editor's display language, so the
+  notification arrives in the language VS Code is running in.
+- **Every change is scanned for credentials left in the history.** The source
+  and its history are public, so a key committed by mistake and removed an hour
+  later is still a key anyone can read back out of it, and nothing had ever
+  looked for one. All the commits on a branch are now scanned, not just the
+  files as they stand, by a scanner pinned to a fixed version and checked
+  against the digest written down with it. A finding names the file and the
+  line while keeping the value itself out of the build log, and it fails the
+  run — which in turn refuses a release, since a release requires a green run.
+  Build output, installed packages, generated reports and the lockfile are the
+  only places the scan skips.
 
 ### Build
 
@@ -955,6 +1260,72 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   arriving; one that lands on a dependency the catalog owns fails the same way
   and needs the version moved in `pnpm-workspace.yaml` by hand. A check fails if
   npm comes back while a manifest reads the catalog.
+
+- **A request whose contents are not what its channel expects is refused.**
+  Such a request is answered with an error naming the field at fault, instead
+  of being acted on as it arrived. About ninety routes did that already and
+  nothing held them to it: a route that stopped checking went on answering, on
+  whatever the message happened to carry, and nothing said so. A check now
+  reads every route as it is written, following the steps it hands the request
+  to, and fails when one reaches into a request it has not checked first. Two
+  routes are listed as exceptions, each with the reason it is one — one checks
+  its request against a schema of its own instead of through the shared helper,
+  the other reads a single optional number and falls back unless it is a usable
+  count — and the check fails when an entry stops applying, so neither can
+  outlive what it excuses.
+- **A release becomes public only once the Marketplace serves the version.** The
+  GitHub release was created after the Marketplace publish, so a publish that
+  errored left the new tag pushed with nothing beside it, and one that errored
+  after the upload had landed left an installable version with no release page
+  and no notes. Three runs in a row ended there — the gallery call returned an
+  error after about three minutes each time, and a version the Marketplace has
+  already accepted cannot be uploaded again, so no retry could tell whether the
+  first attempt had landed. The release is now drafted, with the VSIX attached,
+  before the publish; the publish is attempted up to three times with a limit of
+  five minutes on each; and the Marketplace is then asked, up to thirty times,
+  whether it serves that exact version. Only then does the release stop being a
+  draft. If the version never appears the run fails with the draft, the notes
+  and the tag already in place for whoever finishes it by hand, and the run's
+  own time limit now covers that whole worst case instead of being killed
+  part-way through a release without a word.
+- **A release is cut only from a commit that passed CI, and carries only the
+  version bump.** Nothing in the release run looked at what CI had concluded
+  about the commit being released; its own validation runs on one operating
+  system and no end-to-end suite, so a commit whose CI run had failed could
+  still be bumped, tagged, pushed and published. That conclusion is now read
+  first, and a run stops before it writes anything unless the commit passed —
+  a commit with no completed run is refused too. The release commit itself was
+  built by staging whatever the working tree happened to hold, so a stray build
+  output or an unfinished edit could go out under a message reading "release".
+  It now stages the files the version bump writes and the lockfile, and stops if
+  anything else in the tree has changed.
+- **The checks that catch a broken package run on every change, and now cover
+  the translations.** SandForge reads three things off disk only when they are
+  first needed: the Salesforce connection code, the AI provider code, and every
+  language other than English. A package that lost one of them installs and
+  starts normally, and then fails at the moment you connect an org, ask the
+  model for something, or use the extension in French, German, Spanish,
+  Japanese or Brazilian Portuguese — where the interface stays English with an
+  error where each translation should be. The gates that look for those files,
+  and the size limit on the code loaded at startup, ran on the day a release was
+  cut and never before it. A package is now built and put through them on every
+  change, the translation bundles are checked against the list of languages the
+  extension itself offers, so a language added there is covered without anyone
+  remembering to come back, and the bundle-size gate no longer reports its
+  result as an activation time it never measured.
+- **The checks test what they say they test.** They all ran on Node 22, the
+  oldest release SandForge supports, and none ran on Node 24, the one the
+  extension and its command-line scripts are written on, so a difference
+  between the two surfaced only on someone's own machine or after a release:
+  the typecheck, the tests and the build now run on both, with Node 22 still
+  the version every gate decides on. Two copies of the project running the
+  end-to-end suite at the same time also shared one development server, so one
+  copy's sources answered the other one's assertions; a run can now be given a
+  port of its own, and one that has been starts its own server instead of
+  borrowing a busy one, and refuses a value that is not a port rather than
+  failing further on with nothing to point at. And a test that failed and then
+  passed on retry used to leave a green run and no trace anywhere; the number
+  of those is now reported on the run itself.
 
 ## [1.22.0] - 2026-09-15
 

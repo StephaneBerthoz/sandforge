@@ -519,6 +519,23 @@ describe('MonitorPage', () => {
     expect(screen.getByTestId('job-filters')).toBeDefined();
   });
 
+  it('should show placeholder rows rather than "No recent jobs" while an empty jobs list is re-read', () => {
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, jobs: [] },
+      loading: true,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('jobs-loading').getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByText(/No recent jobs/i)).toBeNull();
+  });
+
   it('should show job details when group is expanded', () => {
     mockMonitorQueryState = {
       data: standardMonitorPayload,

@@ -129,6 +129,20 @@ function collectDmlError(
 }
 
 /**
+ * Objects a masking run addresses: the ones the request names, otherwise
+ * the ones the template's rules address. Empty for an unknown template id —
+ * such a request stops at the template lookup, before any write.
+ */
+function plannedAnonymizeObjects(payload: { templateId: string; objects?: string[] }): string[] {
+  if (payload.objects) return payload.objects;
+  const template = ANONYMIZATION_TEMPLATES.find((t) => t.id === payload.templateId);
+  if (!template) return [];
+  return template.rules
+    .map((r) => r.fieldPattern.split('.')[0])
+    .filter((v, i, a) => a.indexOf(v) === i);
+}
+
+/**
  * Domain handler for DataOps-related webview-to-extension messages.
  *
  * Manages backup, rollback, anonymization, anonymization templates,
@@ -812,6 +826,8 @@ export class DataOpsHandler implements DomainHandler {
     // Follows the object in progress (see handleBackup).
     const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
+    const plannedObjects = plannedAnonymizeObjects(payload);
+
     try {
       if (this.deps.infraServices?.productionGuard) {
         const guard = this.deps.infraServices.productionGuard;
@@ -820,8 +836,12 @@ export class DataOpsHandler implements DomainHandler {
           orgId: payload.orgId,
           orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
           operation: 'update' as const,
-          objectName: 'AnonymizeData',
-          recordCount: 1,
+          // The objects the run addresses, so a production confirmation
+          // names them instead of an opaque 'AnonymizeData'.
+          objectName: plannedObjects.join(', ') || 'AnonymizeData',
+          // Each object is queried below, under the tier's row limit, so the
+          // rows cannot be counted here.
+          recordCount: 'unknown' as const,
           module: 'dataops',
         };
         const check = guard.check(guardRequest);
@@ -882,17 +902,12 @@ export class DataOpsHandler implements DomainHandler {
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       const engine = new AnonymizationEngine();
 
-      const objects =
-        payload.objects ??
-        template.rules
-          .map((r) => r.fieldPattern.split('.')[0])
-          .filter((v, i, a) => a.indexOf(v) === i);
       let totalProcessed = 0;
       let totalFailed = 0;
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
 
-      for (let oi = 0; oi < objects.length; oi++) {
-        const objectName = objects[oi];
+      for (let oi = 0; oi < plannedObjects.length; oi++) {
+        const objectName = plannedObjects[oi];
         const safeObj = sanitizeSoqlObjectName(objectName);
         failure.objectName = safeObj;
         const objectRules = template.rules.filter(
@@ -981,9 +996,9 @@ export class DataOpsHandler implements DomainHandler {
         sendOperationProgress(
           this.deps,
           operationId,
-          Math.round(((oi + 1) / objects.length) * 100),
+          Math.round(((oi + 1) / plannedObjects.length) * 100),
           oi + 1,
-          objects.length,
+          plannedObjects.length,
           `Anonymized ${objectName} (${successCount}/${records.length})`,
         );
       }

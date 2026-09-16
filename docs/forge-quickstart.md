@@ -41,8 +41,10 @@ The main Forge journey, end to end — from a real record to a populated sandbox
      • (Optional) pick an anonymization preset on the Review screen:
        GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal
 5. Click "Review & Execute", check the plan, then "Execute Forge"
-     → records are inserted into your target sandbox with every ID
-       remapped (see the "ID Remaps" tab in the results)
+     → records are inserted into your target sandbox with their IDs
+       remapped (see the "ID Remaps" tab in the results); a record type
+       with no active record type of the same API name on the target
+       keeps its source Id, and the SandForge log names it
 ```
 
 The results screen groups any failures by object/stage with

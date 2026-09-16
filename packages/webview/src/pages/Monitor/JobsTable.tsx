@@ -1,21 +1,29 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
-import { Download } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import type { JobDisplayInfo } from './MonitorPage';
-import { formatNumber } from '../../utils/formatters';
+import { formatNumber, formatRelativeTimeI18n } from '../../utils/formatters';
 
 /** Filter for job status */
 export type JobFilter = 'all' | 'running' | 'failed' | 'completed';
+
+/** Beyond this age a job's time is shown as a date rather than as elapsed hours. */
+const DAY_MS = 24 * 3_600_000;
+
+/** Order of the job rows inside a class group, by creation date. */
+type JobOrder = 'newest' | 'oldest';
 
 /** Props for JobsTable component */
 export interface JobsTableProps {
   jobs: JobDisplayInfo[];
   className?: string;
+  /** True while the jobs query has not answered yet: placeholders, not "no jobs". */
+  isLoading?: boolean;
 }
 
 /** Group of jobs by Apex class */
@@ -40,8 +48,8 @@ function statusVariant(status: string): BadgeVariant {
   return map[status] ?? 'default';
 }
 
-/** Group jobs by their jobType/class */
-function groupJobs(jobs: JobDisplayInfo[]): JobGroup[] {
+/** Group jobs by their jobType/class, ordering each group's rows by `order` */
+function groupJobs(jobs: JobDisplayInfo[], order: JobOrder): JobGroup[] {
   const groups = new Map<string, JobDisplayInfo[]>();
   for (const job of jobs) {
     const key = job.jobType || 'Other';
@@ -58,9 +66,10 @@ function groupJobs(jobs: JobDisplayInfo[]): JobGroup[] {
 
     return {
       className,
-      jobs: classJobs.sort(
-        (a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime(),
-      ),
+      jobs: classJobs.sort((a, b) => {
+        const delta = new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime();
+        return order === 'newest' ? delta : -delta;
+      }),
       totalRuns: classJobs.length,
       successRate,
       avgDuration: '-',
@@ -144,14 +153,15 @@ function buildJobsCsv(jobs: JobDisplayInfo[]): string {
   return csv;
 }
 
-export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className }) => {
+export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className, isLoading }) => {
   const { save } = useFileSave();
   const { t } = useTranslation();
   const [filter, setFilter] = useState<JobFilter>('all');
+  const [order, setOrder] = useState<JobOrder>('newest');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const filteredJobs = useMemo(() => filterJobs(jobs, filter), [jobs, filter]);
-  const groups = useMemo(() => groupJobs(filteredJobs), [filteredJobs]);
+  const groups = useMemo(() => groupJobs(filteredJobs, order), [filteredJobs, order]);
 
   /** How many jobs each filter keeps — shown on the buttons so a failure is
       visible without clicking, and so an empty list is explained rather than
@@ -172,6 +182,10 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
     const date = new Date().toISOString().slice(0, 10);
     save(`sandforge-jobs-${date}.csv`, buildJobsCsv(filteredJobs), ['csv']);
   }, [filteredJobs, save]);
+
+  const toggleOrder = (): void => {
+    setOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'));
+  };
 
   const toggleGroup = (className: string): void => {
     setExpandedGroups((prev) => {
@@ -262,7 +276,29 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
         </div>
 
         {/* Grouped jobs */}
-        {groups.length === 0 ? (
+        {jobs.length === 0 && isLoading ? (
+          /* An empty list and a list not read yet look the same; saying "no
+             recent jobs" before the org has answered is a claim, not a fact. */
+          <div
+            data-testid="jobs-loading"
+            aria-busy="true"
+            style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sf-space-2)' }}
+          >
+            {[0, 1, 2].map((row) => (
+              <div
+                key={row}
+                aria-hidden="true"
+                style={{
+                  height: '32px',
+                  borderRadius: 'var(--sf-radius-md)',
+                  border: '1px solid var(--sf-border)',
+                  backgroundColor: 'var(--sf-bg-input)',
+                  opacity: 0.6,
+                }}
+              />
+            ))}
+          </div>
+        ) : groups.length === 0 ? (
           <p
             style={{
               fontSize: 'var(--sf-font-size-xs)',
@@ -345,64 +381,160 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
 
                   {/* Expanded job rows */}
                   {isExpanded && (
-                    <div data-testid={`group-jobs-${group.className}`}>
-                      {group.jobs.map((job) => (
+                    /* The rows are laid out with flex rather than a <table>, so the
+                       table roles are what carries the column header and its sort
+                       state to a screen reader. */
+                    <div
+                      data-testid={`group-jobs-${group.className}`}
+                      role="table"
+                      aria-label={group.className}
+                    >
+                      <div
+                        role="row"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--sf-space-3)',
+                          padding: 'var(--sf-space-1) var(--sf-space-4)',
+                          borderTop: '1px solid var(--sf-border)',
+                          fontSize: 'var(--sf-font-size-xs)',
+                        }}
+                      >
+                        {/* One header per cell, or a screen reader counts a
+                            one-column header over five-column rows and hangs the
+                            sort state on the status column. Only the sortable one
+                            is drawn: the others name columns the content already
+                            makes plain to the eye. */}
+                        <span role="columnheader" className="sr-only">
+                          {t('common.status', 'Status')}
+                        </span>
+                        <span role="columnheader" className="sr-only">
+                          {t('common.object', 'Object')}
+                        </span>
+                        <span role="columnheader" className="sr-only">
+                          {t('sync.history.records', 'Records')}
+                        </span>
+                        <span role="columnheader" className="sr-only">
+                          {t('monitor.errorLogs.user', 'User')}
+                        </span>
                         <div
-                          key={job.id}
-                          data-testid={`job-row-${job.id}`}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 'var(--sf-space-3)',
-                            padding: 'var(--sf-space-2) var(--sf-space-4)',
-                            borderTop: '1px solid var(--sf-border)',
-                            backgroundColor:
-                              job.status === 'Failed'
-                                ? 'color-mix(in srgb, var(--sf-error) 5%, transparent)'
-                                : 'transparent',
-                            fontSize: 'var(--sf-font-size-xs)',
-                          }}
+                          role="columnheader"
+                          data-testid={`jobs-created-header-${group.className}`}
+                          aria-sort={order === 'newest' ? 'descending' : 'ascending'}
+                          style={{ marginLeft: 'auto', minWidth: '120px', textAlign: 'right' }}
                         >
-                          <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
-                          <span style={{ color: 'var(--sf-text-secondary)', minWidth: '80px' }}>
-                            {job.objectType ?? '-'}
-                          </span>
-                          <span
+                          {/* The trigger is a real button: a click handler on the
+                              header alone is unreachable by keyboard. */}
+                          <button
+                            type="button"
+                            data-testid={`jobs-created-sort-${group.className}`}
+                            onClick={toggleOrder}
                             style={{
-                              flex: 1,
-                              color: 'var(--sf-text-primary)',
-                              fontFamily: 'monospace',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '2px',
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              cursor: 'pointer',
+                              color: 'var(--sf-text-secondary)',
+                              font: 'inherit',
                             }}
                           >
-                            {job.totalRecords !== undefined
-                              ? `${formatNumber(job.processedRecords ?? 0)} / ${formatNumber(job.totalRecords)}`
-                              : '-'}
-                            {(job.failedRecords ?? 0) > 0 && (
-                              <span
-                                style={{
-                                  color: 'var(--sf-error)',
-                                  marginLeft: 'var(--sf-space-1)',
-                                }}
-                              >
-                                ({job.failedRecords} err)
-                              </span>
+                            {t('monitor.orgCreated', 'Created')}
+                            {order === 'newest' ? (
+                              <ChevronDown size={12} aria-hidden="true" />
+                            ) : (
+                              <ChevronUp size={12} aria-hidden="true" />
                             )}
-                          </span>
-                          <span style={{ color: 'var(--sf-text-muted)' }}>{job.createdBy}</span>
-                          <span
+                          </button>
+                        </div>
+                      </div>
+                      {group.jobs.map((job) => {
+                        const created = new Date(job.createdDate);
+                        const exactCreated = new Intl.DateTimeFormat(undefined, {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        }).format(created);
+                        const isRecent = Date.now() - created.getTime() < DAY_MS;
+                        return (
+                          <div
+                            key={job.id}
+                            role="row"
+                            data-testid={`job-row-${job.id}`}
                             style={{
-                              color: 'var(--sf-text-muted)',
-                              minWidth: '120px',
-                              textAlign: 'right',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 'var(--sf-space-3)',
+                              padding: 'var(--sf-space-2) var(--sf-space-4)',
+                              borderTop: '1px solid var(--sf-border)',
+                              backgroundColor:
+                                job.status === 'Failed'
+                                  ? 'color-mix(in srgb, var(--sf-error) 5%, transparent)'
+                                  : 'transparent',
+                              fontSize: 'var(--sf-font-size-xs)',
                             }}
                           >
-                            {new Intl.DateTimeFormat(undefined, {
-                              dateStyle: 'short',
-                              timeStyle: 'short',
-                            }).format(new Date(job.createdDate))}
-                          </span>
-                        </div>
-                      ))}
+                            <span role="cell">
+                              <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
+                            </span>
+                            <span
+                              role="cell"
+                              style={{ color: 'var(--sf-text-secondary)', minWidth: '80px' }}
+                            >
+                              {job.objectType ?? '-'}
+                            </span>
+                            <span
+                              role="cell"
+                              style={{
+                                flex: 1,
+                                color: 'var(--sf-text-primary)',
+                                fontFamily: 'monospace',
+                              }}
+                            >
+                              {job.totalRecords !== undefined
+                                ? `${formatNumber(job.processedRecords ?? 0)} / ${formatNumber(job.totalRecords)}`
+                                : '-'}
+                              {(job.failedRecords ?? 0) > 0 && (
+                                <span
+                                  style={{
+                                    color: 'var(--sf-error)',
+                                    marginLeft: 'var(--sf-space-1)',
+                                  }}
+                                >
+                                  ({job.failedRecords} err)
+                                </span>
+                              )}
+                            </span>
+                            <span role="cell" style={{ color: 'var(--sf-text-muted)' }}>
+                              {job.createdBy}
+                            </span>
+                            {/* How long ago answers "is this still moving?" at a
+                              glance; the exact stamp stays one hover away. Past a
+                              day the elapsed time only counts hours ("720h ago"),
+                              and the job list has no time window, so an old job
+                              shows its date instead. */}
+                            <span
+                              role="cell"
+                              data-testid={`job-created-${job.id}`}
+                              title={exactCreated}
+                              style={{
+                                color: 'var(--sf-text-muted)',
+                                minWidth: '120px',
+                                textAlign: 'right',
+                              }}
+                            >
+                              {isRecent
+                                ? formatRelativeTimeI18n(
+                                    created.getTime(),
+                                    t,
+                                    'sidePanel.relativeTime',
+                                  )
+                                : exactCreated}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

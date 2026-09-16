@@ -59,6 +59,13 @@ export interface FrozenState {
   verdict: FrozenVerifyVerdict | null;
   /** Latest `frozen:*:error` channel error. */
   lastError: FrozenChannelError | null;
+  /** Ids of the frozen requests this panel sent and is still reading. */
+  activeRequestIds: Set<string>;
+  /**
+   * Last id sent for each request type. It lives here rather than in the tab
+   * because switching between the Extract and Load tabs remounts the tab.
+   */
+  lastRequestIdByType: Record<string, string>;
 
   setTab: (tab: FrozenTab) => void;
   setConfig: (config: FrozenProjectConfig | null) => void;
@@ -72,10 +79,17 @@ export interface FrozenState {
   setLoadReport: (report: FrozenLoadReportInfo | null) => void;
   setVerdict: (verdict: FrozenVerifyVerdict | null) => void;
   setLastError: (error: FrozenChannelError | null) => void;
+  /** Register `requestId` and drop the id sent earlier for `requestType`. */
+  replaceActiveRequestId: (requestType: string, requestId: string) => void;
+  removeActiveRequestId: (requestId: string) => void;
+  clearActiveRequestIds: () => void;
 }
 
 /** Cap on retained progress events (load storms emit one per phase/object). */
 const MAX_PROGRESS_EVENTS = 200;
+
+/** Cap on remembered request ids: a tab that is never reset must not grow one. */
+const MAX_ACTIVE_REQUESTS = 20;
 
 /** Zustand store for the Frozen Reference Dataset page. */
 export const useFrozenStore = create<FrozenState>((set) => ({
@@ -90,6 +104,8 @@ export const useFrozenStore = create<FrozenState>((set) => ({
   loadReport: null,
   verdict: null,
   lastError: null,
+  activeRequestIds: new Set<string>(),
+  lastRequestIdByType: {},
 
   setTab(tab: FrozenTab): void {
     set({ tab });
@@ -126,5 +142,29 @@ export const useFrozenStore = create<FrozenState>((set) => ({
   },
   setLastError(lastError: FrozenChannelError | null): void {
     set({ lastError });
+  },
+  replaceActiveRequestId(requestType: string, requestId: string): void {
+    set((state) => {
+      const earlier = state.lastRequestIdByType[requestType];
+      if (earlier === requestId) return state;
+      const ids = [...state.activeRequestIds].filter((id) => id !== earlier);
+      // Insertion order is what "last twenty" means here.
+      const kept = [...ids.filter((id) => id !== requestId), requestId].slice(-MAX_ACTIVE_REQUESTS);
+      return {
+        activeRequestIds: new Set(kept),
+        lastRequestIdByType: { ...state.lastRequestIdByType, [requestType]: requestId },
+      };
+    });
+  },
+  removeActiveRequestId(requestId: string): void {
+    set((state) => {
+      if (!state.activeRequestIds.has(requestId)) return state;
+      const next = new Set(state.activeRequestIds);
+      next.delete(requestId);
+      return { activeRequestIds: next };
+    });
+  },
+  clearActiveRequestIds(): void {
+    set({ activeRequestIds: new Set<string>(), lastRequestIdByType: {} });
   },
 }));

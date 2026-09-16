@@ -42,14 +42,6 @@ export interface AICallResult {
   durationMs: number;
 }
 
-/** Token usage stats. */
-export interface TokenUsageStats {
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCalls: number;
-  averageLatencyMs: number;
-}
-
 /** AI provider call function abstraction. */
 export type AICallFn = (
   messages: Array<{ role: ChatRole; content: string }>,
@@ -79,12 +71,6 @@ export class AIAssistant {
   private readonly callFn: AICallFn;
   private readonly config: AIModelConfig;
   private conversationCounter = 0;
-  private readonly stats: TokenUsageStats = {
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCalls: 0,
-    averageLatencyMs: 0,
-  };
 
   constructor(callFn: AICallFn, config: AIModelConfig) {
     this.callFn = callFn;
@@ -166,9 +152,7 @@ export class AIAssistant {
     }
 
     // Call AI provider
-    const start = Date.now();
     const result = await this.callFn(apiMessages, this.config);
-    const durationMs = Date.now() - start;
 
     // Create assistant message
     const assistantMsg: ChatMessage = {
@@ -182,13 +166,6 @@ export class AIAssistant {
     conversation.messages.push(assistantMsg);
     conversation.totalTokens += result.tokenCount;
     conversation.updatedAt = new Date().toISOString();
-
-    // Update stats
-    this.stats.totalOutputTokens += result.tokenCount;
-    this.stats.totalCalls += 1;
-    this.stats.averageLatencyMs =
-      (this.stats.averageLatencyMs * (this.stats.totalCalls - 1) + durationMs) /
-      this.stats.totalCalls;
 
     return assistantMsg;
   }
@@ -217,14 +194,6 @@ export class AIAssistant {
    */
   deleteConversation(conversationId: string): boolean {
     return this.conversations.delete(conversationId);
-  }
-
-  /**
-   * Get token usage statistics.
-   * @returns Usage stats
-   */
-  getUsageStats(): TokenUsageStats {
-    return { ...this.stats };
   }
 
   /**

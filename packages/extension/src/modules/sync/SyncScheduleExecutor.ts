@@ -10,9 +10,13 @@ export interface SyncScheduleExecutorDeps {
   configStore: { load(id: string): SyncConfig | undefined };
   /** Callback invoked to execute a sync config. */
   onExecute: (config: SyncConfig) => Promise<SyncExecutionResult>;
-  /** Notification center for schedule lifecycle events. */
+  /**
+   * Notification center for schedule lifecycle events. A schedule runs with
+   * nobody watching, so the level is the one the panels render rather than a
+   * free string that only ever reached a log line.
+   */
   notificationCenter: {
-    notify(level: string, title: string, message: string): void;
+    notify(level: 'info' | 'success' | 'warning' | 'error', title: string, message: string): void;
   };
   /** Logger function. */
   log: (msg: string) => void;
@@ -99,9 +103,27 @@ export class SyncScheduleExecutor {
 
       const config = this.deps.configStore.load(schedule.configId);
       if (!config) {
+        // Treated as a run that failed rather than a tick to skip: leaving
+        // nextRunAt in the past made the same schedule due again 60 s later,
+        // forever, while it still read as active with no last result and only
+        // the log said anything.
         this.deps.log(
           `[SyncScheduleExecutor] config not found for schedule ${schedule.id} (configId=${schedule.configId})`,
         );
+        schedule.lastRunAt = new Date(currentTime).toISOString();
+        schedule.lastResult = 'failure';
+        schedule.nextRunAt = this.computeNextRunAt(schedule.cron, schedule.timezone);
+        schedule.updatedAt = new Date(currentTime).toISOString();
+        this.deps.scheduleStore.save(schedule);
+
+        if (schedule.notifyOnFailure) {
+          this.deps.notificationCenter.notify(
+            'error',
+            'Sync schedule failed',
+            `${schedule.name}: sync configuration "${schedule.configId}" no longer exists. ` +
+              `Save the configuration again, or delete the schedule.`,
+          );
+        }
         continue;
       }
 
@@ -117,7 +139,27 @@ export class SyncScheduleExecutor {
         schedule.updatedAt = new Date(currentTime).toISOString();
         this.deps.scheduleStore.save(schedule);
 
-        if (schedule.notifyOnComplete) {
+        // The engine answers a run that failed (connection, Bulk API, abort)
+        // with a failure-status result instead of rejecting, so it is reported
+        // here as a failure, never as completed.
+        if (result.status === 'failure') {
+          if (schedule.notifyOnFailure) {
+            const firstError = result.objectResults.flatMap((o) => o.errors)[0];
+            this.deps.notificationCenter.notify(
+              'error',
+              'Sync schedule failed',
+              `${schedule.name}: ${firstError ?? 'the run failed; its entry in the sync history has the details.'}`,
+            );
+          }
+        } else if (result.status === 'partial' && schedule.notifyOnComplete) {
+          // Some records were refused: announcing that as a success hid them.
+          const firstError = result.objectResults.flatMap((o) => o.errors)[0];
+          this.deps.notificationCenter.notify(
+            'warning',
+            'Sync schedule completed with errors',
+            `${schedule.name}: ${firstError ?? 'some records failed; its entry in the sync history has the details.'}`,
+          );
+        } else if (schedule.notifyOnComplete) {
           this.deps.notificationCenter.notify('success', 'Sync schedule completed', schedule.name);
         }
       } catch (err: unknown) {

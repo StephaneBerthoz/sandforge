@@ -101,6 +101,33 @@ describe('FloatingToasts', () => {
     expect(toastContainer?.getAttribute('aria-atomic')).toBe('true');
   });
 
+  it('renders an action that carries a URL as a link to that page', () => {
+    // A host notification cannot hand the webview a callback, so its action
+    // button used to dismiss the toast and do nothing else.
+    render(<FloatingToasts />);
+
+    act(() => {
+      useNotificationStore.getState().addNotification({
+        level: 'error',
+        title: 'Salesforce CLI',
+        message: 'Salesforce CLI (sf) not found on PATH.',
+        actions: [
+          {
+            label: 'Install the CLI',
+            command: 'sf-cli-install',
+            url: 'https://developer.salesforce.com/tools/salesforcecli',
+          },
+        ],
+      });
+    });
+
+    const action = screen.getByTestId('toast-action-sf-cli-install');
+    expect(action.tagName).toBe('A');
+    expect(action.getAttribute('href')).toBe(
+      'https://developer.salesforce.com/tools/salesforcecli',
+    );
+  });
+
   it('should have role="status" on individual toast items', () => {
     render(<FloatingToasts />);
 

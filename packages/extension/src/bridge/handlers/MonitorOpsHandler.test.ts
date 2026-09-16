@@ -592,6 +592,34 @@ describe('MonitorOpsHandler', () => {
       expect(response.payload.success).toBe(true);
       expect(response.payload.refreshes).toHaveLength(2);
       expect(response.payload.inProgress).toBe(true);
+      expect((response.payload as { supported?: boolean }).supported).toBe(true);
+    });
+
+    it('tells the panel an org that cannot query SandboxProcess is unsupported', async () => {
+      mockGetJsforceConnection.mockResolvedValue({
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      });
+      mockQueryAll.mockRejectedValue(new Error("sObject type 'SandboxProcess' is not supported."));
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-sbx-2',
+          type: 'monitor:sandbox-refresh',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-sandbox-only' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; supported?: boolean; refreshes: unknown[] };
+      };
+      expect(response.type).toBe('monitor:sandbox-refresh:response');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.supported).toBe(false);
+      expect(response.payload.refreshes).toEqual([]);
     });
   });
 

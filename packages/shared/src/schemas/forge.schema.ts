@@ -243,6 +243,7 @@ export const forgeExecutionResultSchema = z.object({
   timestamp: z.string().min(1),
   idRemapCount: z.number().int().nonnegative(),
   errors: z.array(forgeExecutionErrorSchema).optional(),
+  truncatedObjects: z.array(z.string()).optional(),
 });
 
 // ─── Template Schema ────────────────────────────────────────────────────────

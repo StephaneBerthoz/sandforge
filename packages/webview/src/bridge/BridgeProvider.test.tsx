@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, act, waitFor } from '@testing-library/react';
+import { render, renderHook, act, waitFor } from '@testing-library/react';
 import { BridgeProvider } from './BridgeProvider';
+import { sendBridgeMessage } from './sendBridgeMessage';
+import { useBridgeMutation } from '../hooks/useBridgeMutation';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
@@ -68,7 +70,7 @@ describe('BridgeProvider', () => {
       </BridgeProvider>,
     );
 
-    expect(mockPostMessage).toHaveBeenCalledTimes(4);
+    expect(mockPostMessage).toHaveBeenCalledTimes(3);
     // Outbound messages are enveloped — inspect envelope.payload.type.
     const calls = mockPostMessage.mock.calls.map(
       (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
@@ -76,7 +78,6 @@ describe('BridgeProvider', () => {
     expect(calls).toContain('org:list');
     expect(calls).toContain('settings:get');
     expect(calls).toContain('ai:status');
-    expect(calls).toContain('connectivity:status');
   });
 
   it('should update orgStore on org:list:response', () => {
@@ -141,6 +142,24 @@ describe('BridgeProvider', () => {
     expect(useNotificationStore.getState().notifications[0].title).toBe('Test');
   });
 
+  it('keeps the actions a host notification carries', () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    const actions = [{ label: 'Install', command: 'install', url: 'https://example.com' }];
+    fireMessage({
+      id: 'ext-actions',
+      type: 'notification',
+      timestamp: Date.now(),
+      payload: { level: 'error', title: 'CLI', message: 'Missing', actions },
+    });
+
+    expect(useNotificationStore.getState().notifications[0].actions).toEqual(actions);
+  });
+
   it('should surface a bridge:error as an error notification', () => {
     // The broker drops the offending message, so nothing else will ever
     // report it — without this listener the sender just waits out a timeout.
@@ -162,6 +181,95 @@ describe('BridgeProvider', () => {
     expect(notifications[0].level).toBe('error');
     expect(notifications[0].message).toContain('invalid-payload');
     expect(notifications[0].message).toContain('payload.orgId: Required');
+  });
+
+  it('leaves a bridge:error that answers a request to the panel that made it', () => {
+    // bridge:error reaches every open panel. A refusal carrying a
+    // correlationId the panel never sent belongs to another panel, so it
+    // raises nothing here; the panel that sent it raises it once.
+    render(
+      <>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+      </>,
+    );
+
+    fireMessage({
+      id: 'bridge-err-correlated',
+      type: 'bridge:error',
+      timestamp: Date.now(),
+      correlationId: 'req-1',
+      payload: { reason: 'invalid-payload', details: 'payload.config.mode: Required' },
+    });
+
+    expect(useNotificationStore.getState().notifications).toHaveLength(0);
+
+    // An uncorrelated one answers nobody, so it is still raised here — once
+    // per mounted panel, since no panel owns it.
+    fireMessage({
+      id: 'bridge-err-broadcast',
+      type: 'bridge:error',
+      timestamp: Date.now(),
+      payload: { reason: 'invalid-payload', details: 'payload: Expected object' },
+    });
+
+    expect(useNotificationStore.getState().notifications).toHaveLength(2);
+  });
+
+  it('raises a refusal of a request this panel sent from outside a request hook', () => {
+    // Stores and fire-and-forget senders have no hook to show a refusal in;
+    // leaving every correlated bridge:error to the hooks showed theirs nowhere.
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    const id = sendBridgeMessage('sync:schedule:list');
+
+    fireMessage({
+      id: 'bridge-err-unclaimed',
+      type: 'bridge:error',
+      timestamp: Date.now(),
+      correlationId: id,
+      payload: { reason: 'invalid-payload', details: 'payload: Expected object' },
+    });
+
+    const notifications = useNotificationStore.getState().notifications;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].message).toContain('payload: Expected object');
+  });
+
+  it('raises a refusal of a request made through a request hook once, and sets the hook error', () => {
+    // Many screens never render their hook's error, so the panel that sent
+    // the request still raises the refusal.
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    const { result } = renderHook(() =>
+      useBridgeMutation('sync:config:save', { responseType: 'sync:config:save:response' }),
+    );
+    mockPostMessage.mockClear();
+    act(() => {
+      result.current.mutate({ config: {} });
+    });
+    const sent = mockPostMessage.mock.calls[0][0] as { payload: { id: string } };
+
+    fireMessage({
+      id: 'bridge-err-claimed',
+      type: 'bridge:error',
+      timestamp: Date.now(),
+      correlationId: sent.payload.id,
+      payload: { reason: 'invalid-payload', details: 'payload.config.id: Required' },
+    });
+
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+    expect(result.current.error).toContain('sync:config:save');
   });
 
   it('should set loading on operation:started and clear on operation:completed', () => {
@@ -363,6 +471,10 @@ describe('BridgeProvider', () => {
       </>,
     );
 
+    // Only the mount-time requests have gone out so far; anything counted
+    // after this point was sent because of the failure.
+    mockPostMessage.mockClear();
+
     fireMessage({
       id: 'ext-op-failed',
       type: 'operation:failed',
@@ -374,46 +486,10 @@ describe('BridgeProvider', () => {
       },
     });
 
-    const asked = mockPostMessage.mock.calls.filter(
-      (call) =>
-        (call[0] as { payload?: { type?: string } } | undefined)?.payload?.type ===
-        'ai:resolve-error',
-    );
-    // The extension resolves the failure once, where it is raised.
-    expect(asked).toHaveLength(0);
+    // The extension resolves the failure once, where it is raised: a panel
+    // sends nothing at all on receiving one.
+    expect(mockPostMessage).not.toHaveBeenCalled();
     expect(useAppStore.getState().isLoading).toBe(false);
-  });
-
-  it('should leave the fix suggestion to the host, not toast it once per panel', () => {
-    // The host shows the suggestion as one VS Code notification. A panel that
-    // also toasted a pushed resolution put the same text on screen once per
-    // open panel.
-    render(
-      <>
-        <BridgeProvider>
-          <div />
-        </BridgeProvider>
-        <BridgeProvider>
-          <div />
-        </BridgeProvider>
-      </>,
-    );
-
-    fireMessage({
-      id: 'ext-resolution',
-      type: 'ai:resolve-error:response',
-      timestamp: Date.now(),
-      payload: {
-        success: true,
-        resolution: {
-          explanation: 'Another transaction is locking the record.',
-          suggestedFix: 'Wait a moment and retry.',
-          confidence: 0.95,
-        },
-      },
-    });
-
-    expect(useNotificationStore.getState().notifications).toHaveLength(0);
   });
 
   describe('AI availability', () => {

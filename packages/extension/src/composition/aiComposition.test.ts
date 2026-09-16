@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const sdk = vi.hoisted(() => ({ create: vi.fn(), constructed: vi.fn() }));
 
 vi.mock('vscode', () => ({
+  // The display language the error resolver asks the model to answer in.
+  env: { language: 'en' },
   workspace: {
     onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     getConfiguration: vi.fn(() => ({ get: vi.fn((_k: string, d: unknown) => d) })),

@@ -272,6 +272,8 @@ export interface MonitorSessionsResponse extends BaseMessage {
   payload: {
     success: boolean;
     sessions: Array<{
+      /** AuthSession row id — unique per session, unlike the user id. */
+      sessionId: string;
       userId: string;
       username: string;
       sessionType: string;
@@ -329,6 +331,13 @@ export interface MonitorSandboxRefreshResponse extends BaseMessage {
   type: 'monitor:sandbox-refresh:response';
   payload: {
     success: boolean;
+    /**
+     * False when the org cannot be asked at all: SandboxProcess exists only on
+     * an org that manages sandboxes, so a sandbox org answers nothing rather
+     * than "no refreshes". Optional: a response recorded before this field
+     * existed carries no verdict.
+     */
+    supported?: boolean;
     refreshes: Array<{
       orgId: string;
       sandboxName: string;

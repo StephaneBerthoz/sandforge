@@ -1,6 +1,11 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SeedExecutionResult } from '@sandforge/shared';
+import type {
+  SeedExecutionResult,
+  SeedTemplate,
+  SeedTemplateSaveResponse,
+} from '@sandforge/shared';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -16,6 +21,8 @@ const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
 export interface SeedResultsStepProps {
   /** Execution result returned by the backend, if any. */
   executionResult: SeedExecutionResult | undefined;
+  /** The template the run was built from, saved by "Save as template". */
+  template: SeedTemplate | null;
   /** Restart the wizard at the select step. */
   onSeedAgain: () => void;
 }
@@ -23,9 +30,35 @@ export interface SeedResultsStepProps {
 /** Step 4 (Results) of the Seed wizard: summary, per-object cards, actions. */
 export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,
+  template,
   onSeedAgain,
 }) => {
   const { t } = useTranslation();
+
+  const saveTemplate = useBridgeMutation<SeedTemplateSaveResponse['payload']>(
+    'seed:template:save',
+    {
+      responseType: 'seed:template:save:response',
+    },
+  );
+
+  /**
+   * Store the configuration this run used, so the next run can start from it.
+   * The id is left out: the host creates a new template rather than writing
+   * over one that happens to share the run's throwaway id. The name is the
+   * objects and the day, which is what the gallery lists it by.
+   */
+  const handleSaveTemplate = useCallback(() => {
+    if (!template) return;
+    const objects = template.objects.map((o) => o.objectApiName).join(', ');
+    const named = {
+      ...template,
+      id: undefined,
+      name: `${objects} — ${new Date().toISOString().slice(0, 10)}`,
+      description: template.description,
+    };
+    saveTemplate.mutate({ template: named as unknown as Record<string, unknown> });
+  }, [template, saveTemplate]);
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-results-content">
@@ -98,7 +131,15 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
 
           {/* Action buttons: Save, Export CSV, Seed Again */}
           <div className="flex gap-2 pt-2" data-testid="result-actions">
-            <Button variant="secondary" size="sm" data-testid="btn-save-template">
+            <Button
+              variant="secondary"
+              size="sm"
+              // Disabled while a save is in flight, so a double click does not
+              // store the run twice.
+              disabled={!template || saveTemplate.loading}
+              onClick={handleSaveTemplate}
+              data-testid="btn-save-template"
+            >
               {t('seed.saveAsTemplate')}
             </Button>
             <Button variant="secondary" size="sm" data-testid="btn-export-csv">
@@ -107,6 +148,22 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             <Button variant="primary" size="sm" onClick={onSeedAgain} data-testid="btn-seed-again">
               {t('seed.seedAgain')}
             </Button>
+            {saveTemplate.data?.success === true && (
+              <span
+                className="self-center text-[10px] text-[var(--sf-text-secondary)]"
+                data-testid="seed-template-saved"
+              >
+                {t('seed.templateSaved')}
+              </span>
+            )}
+            {saveTemplate.error && (
+              <span
+                className="self-center text-[10px] text-[var(--sf-error)]"
+                data-testid="seed-template-save-error"
+              >
+                {saveTemplate.error}
+              </span>
+            )}
           </div>
         </>
       )}

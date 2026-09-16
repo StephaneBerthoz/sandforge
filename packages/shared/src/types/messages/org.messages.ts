@@ -6,10 +6,17 @@ export interface OrgListRequest extends BaseMessage {
   type: 'org:list';
 }
 
-/** Response containing the list of registered Salesforce orgs */
+/**
+ * Response containing the list of registered Salesforce orgs.
+ *
+ * `selectedOrgId` carries the extension-side selection so a surface that lost
+ * its own state — the sidebar view, which VS Code recreates on hide/show —
+ * restores the org every other surface is on. It is absent when the sender has
+ * no selection to offer, and `null` when nothing is selected.
+ */
 export interface OrgListResponse extends BaseMessage {
   type: 'org:list:response';
-  payload: { orgs: SalesforceOrg[] };
+  payload: { orgs: SalesforceOrg[]; selectedOrgId?: string | null };
 }
 
 /** Request to connect (authenticate) a Salesforce org */

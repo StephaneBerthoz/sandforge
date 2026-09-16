@@ -78,19 +78,36 @@ export const FloatingToasts: React.FC = () => {
               <p className="text-xs opacity-80 mt-0.5 line-clamp-2">{n.message}</p>
               {n.actions && n.actions.length > 0 && (
                 <div className="flex gap-2 mt-1.5">
-                  {n.actions.map((action) => (
-                    <button
-                      key={action.command}
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:opacity-90 transition-opacity"
-                      onClick={() => {
-                        action.onAction?.();
-                        removeNotification(n.id);
-                      }}
-                      data-testid={`toast-action-${action.command}`}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
+                  {n.actions.map((action) =>
+                    // An action sent by the extension has a URL and no
+                    // callback: VS Code opens the link in the browser, which
+                    // is the only thing a webview can do with it. A button
+                    // would have dismissed the toast and done nothing else.
+                    action.url ? (
+                      <a
+                        key={action.command}
+                        href={action.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:opacity-90 transition-opacity"
+                        data-testid={`toast-action-${action.command}`}
+                      >
+                        {action.label}
+                      </a>
+                    ) : (
+                      <button
+                        key={action.command}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:opacity-90 transition-opacity"
+                        onClick={() => {
+                          action.onAction?.();
+                          removeNotification(n.id);
+                        }}
+                        data-testid={`toast-action-${action.command}`}
+                      >
+                        {action.label}
+                      </button>
+                    ),
+                  )}
                 </div>
               )}
             </div>

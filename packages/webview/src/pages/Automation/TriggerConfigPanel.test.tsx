@@ -32,6 +32,27 @@ describe('TriggerConfigPanel', () => {
     }
   });
 
+  it('says on every option of the add list which types do not fire', () => {
+    render(<TriggerConfigPanel />);
+    const options = [
+      ...screen.getByTestId('trigger-type-select').querySelectorAll('option'),
+    ] as HTMLOptionElement[];
+
+    // The list is what a user reads BEFORE adding a trigger; the badge on the
+    // card below only appears once the dead trigger has been added.
+    expect(options.find((option) => option.value === 'manual')?.textContent).toBe('Manual');
+    for (const option of options.filter((option) => option.value !== 'manual')) {
+      expect(option.textContent).toContain('Coming soon');
+    }
+  });
+
+  it('names the trigger type list for a screen reader', () => {
+    render(<TriggerConfigPanel />);
+    expect(screen.getByTestId('trigger-type-select').getAttribute('aria-label')).toBe(
+      'Trigger type',
+    );
+  });
+
   it('says in the panel that only manual runs start a pipeline', () => {
     render(<TriggerConfigPanel />);
     expect(screen.getByTestId('trigger-manual-only-note').textContent).toMatch(/manual/i);
@@ -68,6 +89,11 @@ describe('TriggerConfigPanel', () => {
   it('should show cron input for schedule trigger', () => {
     render(<TriggerConfigPanel triggers={triggers} />);
     expect(screen.getByTestId('cron-input-t1')).toBeDefined();
+  });
+
+  it('names the cron input after what it holds, not after its example', () => {
+    render(<TriggerConfigPanel triggers={triggers} />);
+    expect(screen.getByLabelText('Cron Expression')).toBe(screen.getByTestId('cron-input-t1'));
   });
 
   it('should call onAddTrigger', () => {

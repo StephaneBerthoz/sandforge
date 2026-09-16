@@ -147,25 +147,18 @@ describe('SettingsHandler', () => {
     expect(response.payload.error).toContain('not persisted');
   });
 
-  it('handles connectivity:status with correlationId', async () => {
-    const result = await handler.handle(createMsg('connectivity:status'));
-    expect(result).toBe(true);
-
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('connectivity:status:response');
-    expect(response.correlationId).toBe('req-42');
-    expect(response.payload.online).toBe(true);
-  });
-
   it('handles onboarding:complete without error', async () => {
     const result = await handler.handle(createMsg('onboarding:complete'));
     expect(result).toBe(true);
   });
 
-  it('handles onboarding:reset without error', async () => {
-    const result = await handler.handle(createMsg('onboarding:reset'));
-    expect(result).toBe(true);
-  });
+  it.each(['connectivity:status', 'onboarding:reset', 'hint:dismiss'])(
+    'leaves %s to no handler at all',
+    async (type) => {
+      expect(await handler.handle(createMsg(type))).toBe(false);
+      expect(deps.broker.postToWebview).not.toHaveBeenCalled();
+    },
+  );
 
   describe('payload validation', () => {
     it('rejects settings:update without key (INVALID_PAYLOAD)', async () => {

@@ -92,6 +92,9 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                         type="number"
                         min={1}
                         max={10000}
+                        // Same shape as the record counts: one field per
+                        // object, named only by the span beside it.
+                        aria-label={t('a11y.batchSizeFor', { object: obj })}
                         value={volumes[obj]?.batchSize ?? 200}
                         onChange={(e) =>
                           onChangeBatchSize(obj, parseInt(e.target.value, 10) || 200)

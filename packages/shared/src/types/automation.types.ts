@@ -6,7 +6,6 @@ export type PipelineRunStatus =
   | 'queued'
   | 'running'
   | 'paused'
-  | 'waiting_approval'
   | 'completed'
   | 'completed_with_warnings'
   | 'failed'

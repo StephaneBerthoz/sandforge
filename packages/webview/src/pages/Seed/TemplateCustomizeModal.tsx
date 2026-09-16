@@ -76,6 +76,7 @@ export const TemplateCustomizeModal: React.FC<TemplateCustomizeModalProps> = ({
                 handleCountChange(obj.objectApiName, parseInt(e.target.value, 10) || 1)
               }
               className="w-24"
+              aria-label={t('a11y.recordCountFor', { object: obj.objectApiName })}
               data-testid={`customize-count-${obj.objectApiName}`}
             />
           </div>

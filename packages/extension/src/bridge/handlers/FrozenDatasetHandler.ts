@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -170,6 +170,19 @@ function throttle<T extends (...args: never[]) => void>(
     if (pending) emit(pending);
   };
   return wrapped;
+}
+
+/**
+ * Whether a path exists. Asked before every optional read of the sas, and
+ * asked without holding the extension host while the disk answers.
+ */
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -351,7 +364,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.handleExtract(msg);
         return true;
       case 'frozen:manifest:get':
-        this.handleManifestGet(msg);
+        await this.handleManifestGet(msg);
         return true;
       case 'frozen:load':
         await this.handleLoad(msg);
@@ -360,7 +373,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.handleVerify(msg);
         return true;
       case 'frozen:status':
-        this.handleStatus(msg);
+        await this.handleStatus(msg);
         return true;
       default:
         return false;
@@ -412,8 +425,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   // ── Engine wiring ──────────────────────────────────────────────────────
 
   /** Read `{{TOKEN}}` values from the sas (absent file → no tokens). */
-  private loadTokens(sasDir: string, guard: SasPathGuard): Record<string, string> {
-    if (!fs.existsSync(path.join(sasDir, TOKENS_FILE_NAME))) {
+  private async loadTokens(sasDir: string, guard: SasPathGuard): Promise<Record<string, string>> {
+    if (!(await pathExists(path.join(sasDir, TOKENS_FILE_NAME)))) {
       return {};
     }
     return loadTokensFromSas(sasDir, TOKENS_FILE_NAME, guard);
@@ -574,41 +587,41 @@ export class FrozenDatasetHandler implements DomainHandler {
    * Read the frozen artifacts written by FrozenDatasetWriter back into an
    * engine FrozenDataset. Throws an actionable error when nothing was frozen.
    */
-  private readFrozenDataset(
+  private async readFrozenDataset(
     datasetDir: string,
     guard: SasPathGuard,
-  ): { dataset: FrozenDataset; manifest: FrozenManifest } {
+  ): Promise<{ dataset: FrozenDataset; manifest: FrozenManifest }> {
     const dir = guard.assertOutsideRepo(datasetDir);
     const manifestPath = guard.assertOutsideRepo(path.join(dir, 'manifest.json'));
-    if (!fs.existsSync(manifestPath)) {
+    if (!(await pathExists(manifestPath))) {
       throw new Error(
         `No frozen dataset found at ${dir} — run a selection (frozen:select) then an ` +
           'extraction (frozen:extract) first.',
       );
     }
-    const manifest = parseManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
+    const manifest = parseManifest(JSON.parse(await fs.readFile(manifestPath, 'utf8')));
 
     const objects: FrozenObjectData[] = [];
     const dataDir = guard.assertOutsideRepo(path.join(dir, 'data'));
-    if (fs.existsSync(dataDir)) {
-      for (const file of fs.readdirSync(dataDir).sort()) {
+    if (await pathExists(dataDir)) {
+      for (const file of (await fs.readdir(dataDir)).sort()) {
         if (!file.endsWith('.json')) continue;
         const filePath = guard.assertOutsideRepo(path.join(dataDir, file));
-        const payload = JSON.parse(fs.readFileSync(filePath, 'utf8')) as FrozenObjectData;
+        const payload = JSON.parse(await fs.readFile(filePath, 'utf8')) as FrozenObjectData;
         objects.push({ objectApiName: payload.objectApiName, records: payload.records });
       }
     }
 
-    const readOptional = <T>(name: string, fallback: T): T => {
+    const readOptional = async <T>(name: string, fallback: T): Promise<T> => {
       const filePath = guard.assertOutsideRepo(path.join(dir, name));
-      if (!fs.existsSync(filePath)) return fallback;
-      return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+      if (!(await pathExists(filePath))) return fallback;
+      return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
     };
-    const recordTypes = readOptional<Record<string, FrozenRecordTypeRef[]>>(
+    const recordTypes = await readOptional<Record<string, FrozenRecordTypeRef[]>>(
       'record-types.json',
       {},
     );
-    const personContactSidecar = readOptional<PersonContactLink[]>(
+    const personContactSidecar = await readOptional<PersonContactLink[]>(
       'personcontact-sidecar.json',
       [],
     );
@@ -680,7 +693,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const query = (soql: string) => queryAll(conn, soql);
-      const tokens = this.loadTokens(sasDir, guard);
+      const tokens = await this.loadTokens(sasDir, guard);
       const discovery = this.buildDiscoveryService();
       const checkHealth = new ForgeGraphHealthChecker(discovery, parsed.sourceOrgId, {
         rootObject: config.rootObject,
@@ -727,7 +740,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         }),
       );
 
-      const selectionPath = writeSelectionToSas(sasDir, result, guard);
+      const selectionPath = await writeSelectionToSas(sasDir, result, guard);
       const response = buildResponse(this.deps, msg, 'frozen:select:response', {
         selection: toSelectionSummary(result, selectionPath),
       });
@@ -768,7 +781,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       // actionable (never invent a second salt: determinism would be lost).
       const pseudonymizer = DeterministicPseudonymizer.fromEnv();
 
-      if (!fs.existsSync(path.join(sasDir, SELECTION_FILE_NAME))) {
+      if (!(await pathExists(path.join(sasDir, SELECTION_FILE_NAME)))) {
         sendHandlerError(
           this.deps,
           'frozen:extract',
@@ -782,17 +795,17 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return;
       }
-      const selection = readSelectionFromSas(sasDir, guard);
+      const selection = await readSelectionFromSas(sasDir, guard);
       const rootRecordIds = selection.roots.map((r) => r.rootRecordId);
-      const tokens = this.loadTokens(sasDir, guard);
+      const tokens = await this.loadTokens(sasDir, guard);
       const rulesPath = config.rulesFilePath ?? path.join(sasDir, DEFAULT_RULES_FILE_NAME);
-      if (!fs.existsSync(rulesPath)) {
+      if (!(await pathExists(rulesPath))) {
         throw new LoadConfigError(
           `Pseudonymization rules file not found at ${rulesPath} — it is the source of truth ` +
             '(object.field → generator). Create it, or set rulesFilePath in the configuration.',
         );
       }
-      const rules = parsePseudonymRules(JSON.parse(fs.readFileSync(rulesPath, 'utf8')));
+      const rules = parsePseudonymRules(JSON.parse(await fs.readFile(rulesPath, 'utf8')));
 
       const conn = await getJsforceConnection(
         parsed.sourceOrgId,
@@ -880,7 +893,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         author,
       });
 
-      const writeResult = new FrozenDatasetWriter(guard).write(
+      const writeResult = await new FrozenDatasetWriter(guard).write(
         datasetDir,
         frozen,
         manifest,
@@ -907,15 +920,17 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   // ── frozen:manifest:get ────────────────────────────────────────────────
 
-  private handleManifestGet(msg: InboundRequest): void {
+  private async handleManifestGet(msg: InboundRequest): Promise<void> {
     const config = this.loadConfig();
     const datasetDir = this.resolveDatasetDir(config);
     let manifest: FrozenManifestInfo | null = null;
     try {
       const guard = new SasPathGuard();
       const manifestPath = guard.assertOutsideRepo(path.join(datasetDir, 'manifest.json'));
-      if (fs.existsSync(manifestPath)) {
-        manifest = toManifestInfo(parseManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))));
+      if (await pathExists(manifestPath)) {
+        manifest = toManifestInfo(
+          parseManifest(JSON.parse(await fs.readFile(manifestPath, 'utf8'))),
+        );
       }
     } catch (err: unknown) {
       logger.warn(`frozen:manifest:get — unreadable manifest: ${String(err)}`);
@@ -974,7 +989,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
-      const { dataset, manifest } = this.readFrozenDataset(datasetDir, guard);
+      const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
 
       const orgAccess = this.buildTargetOrgAccess();
       const conn = await getJsforceConnection(
@@ -1100,7 +1115,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
-      const { dataset } = this.readFrozenDataset(lastRun.datasetDir, guard);
+      const { dataset } = await this.readFrozenDataset(lastRun.datasetDir, guard);
       const mappingStore = new SasReferenceIdMappingStore(sasDir, {
         orgId: parsed.targetOrgId,
         guard,
@@ -1169,7 +1184,7 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   // ── frozen:status ──────────────────────────────────────────────────────
 
-  private handleStatus(msg: InboundRequest): void {
+  private async handleStatus(msg: InboundRequest): Promise<void> {
     const config = this.loadConfig();
     const sasDir = this.resolveSasDir(config);
     const datasetDir = this.resolveDatasetDir(config);
@@ -1184,8 +1199,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     let selection: FrozenStatusInfo['selection'] = null;
     try {
       const guard = new SasPathGuard();
-      if (fs.existsSync(path.join(sasDir, SELECTION_FILE_NAME))) {
-        const persisted = readSelectionFromSas(sasDir, guard);
+      if (await pathExists(path.join(sasDir, SELECTION_FILE_NAME))) {
+        const persisted = await readSelectionFromSas(sasDir, guard);
         selection = {
           selectedAt: persisted.selectedAt,
           rootCount: persisted.roots.length,
@@ -1201,8 +1216,10 @@ export class FrozenDatasetHandler implements DomainHandler {
     try {
       const guard = new SasPathGuard();
       const manifestPath = guard.assertOutsideRepo(path.join(datasetDir, 'manifest.json'));
-      if (fs.existsSync(manifestPath)) {
-        manifest = toManifestInfo(parseManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))));
+      if (await pathExists(manifestPath)) {
+        manifest = toManifestInfo(
+          parseManifest(JSON.parse(await fs.readFile(manifestPath, 'utf8'))),
+        );
       }
     } catch {
       manifest = null;

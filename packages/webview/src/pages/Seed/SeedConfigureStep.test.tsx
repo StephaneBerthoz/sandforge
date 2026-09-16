@@ -49,6 +49,13 @@ describe('SeedConfigureStep', () => {
     expect(screen.getByTestId('batch-Account')).toBeDefined();
   });
 
+  it('names each batch-size field after its object', () => {
+    // One field per selected object under a single "Batch size" heading: the
+    // heading names the list, not the twelfth field in it.
+    renderStep();
+    expect(screen.getByTestId('batch-Account').getAttribute('aria-label')).toContain('Account');
+  });
+
   it('should not offer an "Add relation" button', () => {
     renderStep();
     // The button appended an empty row nobody could fill in: the relation

@@ -61,24 +61,20 @@ export interface NotificationAction {
   label: string;
   command: string;
   args?: Record<string, unknown>;
+  /**
+   * External page the button opens, rendered as a link.
+   *
+   * The webview has no channel that runs a `command` on the host, so a button
+   * that only carries one does nothing when clicked. A URL it can open itself
+   * is the one action an extension-sent notification can actually offer.
+   */
+  url?: string;
 }
 
 /** Onboarding messages (WebView → Extension) */
 export interface OnboardingCompleteRequest extends BaseMessage {
   type: 'onboarding:complete';
   payload: { skipped: boolean };
-}
-
-/** Request to reset the onboarding flow so it shows again */
-export interface OnboardingResetRequest extends BaseMessage {
-  type: 'onboarding:reset';
-  payload: Record<string, never>;
-}
-
-/** Request to dismiss a contextual hint so it is not shown again */
-export interface HintDismissRequest extends BaseMessage {
-  type: 'hint:dismiss';
-  payload: { hintId: string };
 }
 
 /** Onboarding messages (Extension → WebView) */
@@ -115,17 +111,6 @@ export interface TelemetryToggleRequest extends BaseMessage {
 export interface TelemetryToggleResponse extends BaseMessage {
   type: 'telemetry:toggle:response';
   payload: { success: boolean; enabled: boolean; error?: string };
-}
-
-/** Connectivity status */
-export interface ConnectivityStatusRequest extends BaseMessage {
-  type: 'connectivity:status';
-}
-
-/** Response containing online/offline status and queued operation count */
-export interface ConnectivityStatusResponse extends BaseMessage {
-  type: 'connectivity:status:response';
-  payload: { online: boolean; lastChecked: string; queueSize: number };
 }
 
 // ─── Config Profile Messages ─────────────────────────────────────────────────

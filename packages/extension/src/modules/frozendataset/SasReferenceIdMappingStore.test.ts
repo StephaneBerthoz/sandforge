@@ -73,6 +73,15 @@ describe('SasReferenceIdMappingStore', () => {
     await expect(store.load()).resolves.toEqual(new Map([['Contact-000001', '003NEW']]));
   });
 
+  it('refuses to read an unreadable mapping as empty', async () => {
+    const dir = makeTmpDir();
+    // A directory where the mapping file should be: it exists, yet cannot be
+    // read as a file, which is not the same as a first load.
+    fs.mkdirSync(path.join(dir, REFERENCEID_MAPPING_FILENAME));
+    const store = new SasReferenceIdMappingStore(dir, { guard: new SasPathGuard(repoRoot) });
+    await expect(store.load()).rejects.toThrow();
+  });
+
   it('refuses a sas directory inside the repository', async () => {
     const store = new SasReferenceIdMappingStore(path.join(repoRoot, 'exports'), {
       guard: new SasPathGuard(repoRoot),

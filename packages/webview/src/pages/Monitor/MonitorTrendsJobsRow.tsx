@@ -22,6 +22,9 @@ export interface MonitorTrendsJobsRowProps {
   trendSeries: TrendSeries[];
   /** Jobs from the monitor data. */
   jobs: JobDisplayInfo[];
+  /** Whether the monitor query is in flight: the jobs list says so rather than
+      claiming the org has none. */
+  jobsLoading: boolean;
   /** Whether a background refresh is in progress. */
   isRefreshing: boolean;
 }
@@ -31,7 +34,7 @@ export interface MonitorTrendsJobsRowProps {
  * Memoized — re-renders only when its own slices change.
  */
 export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.memo(
-  ({ sortedLimits, trends, trendChartData, trendSeries, jobs, isRefreshing }) => {
+  ({ sortedLimits, trends, trendChartData, trendSeries, jobs, jobsLoading, isRefreshing }) => {
     const { t } = useTranslation();
 
     return (
@@ -60,7 +63,7 @@ export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.m
               title={t('monitor.jobs', 'Jobs')}
               count={jobs.length > 0 ? jobs.length : undefined}
             />
-            <JobsTable jobs={jobs} />
+            <JobsTable jobs={jobs} isLoading={jobsLoading} />
           </div>
         </div>
       </PanelOverlay>

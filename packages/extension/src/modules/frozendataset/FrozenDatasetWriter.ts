@@ -6,7 +6,7 @@
  * can only land outside the repository.
  */
 
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { NonReidentificationReport } from './NonReidentificationControl.js';
 import { SasPathGuard } from './SasPathGuard.js';
@@ -48,41 +48,47 @@ export class FrozenDatasetWriter {
   }
 
   /**
-   * Write the frozen artifacts. Throws {@link ControlNotPassedError}
+   * Write the frozen artifacts. Rejects with {@link ControlNotPassedError}
    * BEFORE touching the filesystem when the gate report is not a PASS.
+   *
+   * Every write goes through `fs/promises`: a dataset is written from the
+   * extension host, and a synchronous write held the extension host for as
+   * long as the disk took.
    */
-  write(
+  async write(
     outputDir: string,
     dataset: FrozenDataset,
     manifest: FrozenManifest,
     control: NonReidentificationReport,
-  ): FrozenDatasetWriteResult {
+  ): Promise<FrozenDatasetWriteResult> {
     if (!control.passed) {
       throw new ControlNotPassedError(control);
     }
     const dir = this.guard.assertOutsideRepo(outputDir);
     const dataDir = this.guard.assertOutsideRepo(path.join(dir, 'data'));
-    fs.mkdirSync(dataDir, { recursive: true });
+    await fs.mkdir(dataDir, { recursive: true });
 
     const files: string[] = [];
-    const writeJson = (absPath: string, payload: unknown): void => {
+    // Data files are read back by the loader, never by hand: compact JSON,
+    // where the manifest keeps the indentation a reader needs.
+    const writeJson = async (absPath: string, payload: unknown): Promise<void> => {
       const validated = this.guard.assertOutsideRepo(absPath);
-      fs.writeFileSync(validated, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+      await fs.writeFile(validated, `${JSON.stringify(payload)}\n`, 'utf8');
       files.push(validated);
     };
 
     const manifestPath = this.guard.assertOutsideRepo(path.join(dir, 'manifest.json'));
-    fs.writeFileSync(manifestPath, serializeManifest(manifest), 'utf8');
+    await fs.writeFile(manifestPath, serializeManifest(manifest), 'utf8');
     files.push(manifestPath);
 
     for (const objectData of dataset.objects) {
-      writeJson(path.join(dataDir, `${objectData.objectApiName}.json`), {
+      await writeJson(path.join(dataDir, `${objectData.objectApiName}.json`), {
         objectApiName: objectData.objectApiName,
         records: objectData.records,
       });
     }
-    writeJson(path.join(dir, 'record-types.json'), dataset.recordTypes);
-    writeJson(path.join(dir, 'personcontact-sidecar.json'), dataset.personContactSidecar);
+    await writeJson(path.join(dir, 'record-types.json'), dataset.recordTypes);
+    await writeJson(path.join(dir, 'personcontact-sidecar.json'), dataset.personContactSidecar);
 
     return { dir, files };
   }

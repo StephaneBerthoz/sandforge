@@ -240,8 +240,19 @@ export interface ExecuteOptions {
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
 export interface ForgeExecutorDeps {
-  /** Query records from a Salesforce org. */
-  queryRecords: (orgId: string, soql: string) => Promise<Record<string, unknown>[]>;
+  /**
+   * Query records from a Salesforce org.
+   *
+   * @param onTruncated - Called before the rows return when a bound stopped
+   *   the paged read short of the end of the cursor. The reader is what knows
+   *   about the bounds; the executor is what has to put the shortfall in the
+   *   summary instead of reporting a full success.
+   */
+  queryRecords: (
+    orgId: string,
+    soql: string,
+    onTruncated?: () => void,
+  ) => Promise<Record<string, unknown>[]>;
   /** Insert records into a Salesforce org. */
   insertRecords: (
     orgId: string,
@@ -338,6 +349,12 @@ export interface ExecutionSummary {
   /** Per-object error reports — populated whenever any record or object fails. */
   errors: ExecutionObjectError[];
   /**
+   * Objects whose source read stopped on a bound rather than at the end of
+   * the cursor: everything past the bound was never cloned. Empty on a run
+   * that read every object whole.
+   */
+  truncatedObjects: string[];
+  /**
    * Full source→target ID mapping table produced during execution. Lets
    * the caller audit which source-org record became which target-org
    * record (BA need: post-clone reconciliation, CSV export, or a "where
@@ -373,6 +390,8 @@ interface ExecutionState {
   /** Objects whose downstream children must be skipped. */
   readonly failedObjects: Set<string>;
   readonly errors: ExecutionObjectError[];
+  /** Objects whose source read hit a bound, in the order they were read. */
+  readonly truncatedObjects: Set<string>;
   /** Nullified cycle FKs queued for the pass-2 UPDATE. */
   readonly pendingFkUpdates: PendingFkUpdate[];
   successCount: number;
@@ -490,6 +509,7 @@ export class ForgeExecutor {
       batchWriter: new BatchWriter(this.deps, this.deps.batchStrategy),
       failedObjects: new Set<string>(),
       errors: [],
+      truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
       successCount: 0,
       failedCount: 0,
@@ -646,6 +666,7 @@ export class ForgeExecutor {
       skippedCount: state.skippedCount,
       remapCount: state.remapper.count,
       errors: state.errors,
+      truncatedObjects: [...state.truncatedObjects],
       // BA reconciliation: dump the full source→target ID map so callers
       // can audit, export to CSV, or persist as part of a checkpoint.
       // toJSON returns a plain object (Record) so it serializes cleanly
@@ -719,7 +740,9 @@ export class ForgeExecutor {
         : null;
 
       const records = await queryNodeRecords(query, (soql) =>
-        this.deps.queryRecords(sourceOrgId, soql),
+        this.deps.queryRecords(sourceOrgId, soql, () =>
+          state.truncatedObjects.add(node.objectApiName),
+        ),
       );
 
       // Reference-data branch: resolve source IDs against target rows by

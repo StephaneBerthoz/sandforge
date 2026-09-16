@@ -275,7 +275,9 @@ export class AnthropicAdapter implements AIClient {
     const apiKey = await this.storage.getSecret(SECRET_KEY);
     if (!apiKey) {
       throw new Error(
-        'Anthropic API key not configured. Set it in Command Palette → SandForge: Configure AI Key.',
+        // No command sets the key: the only place that stores one is the
+        // Settings page of the webview.
+        'Anthropic API key not configured. Add it in SandForge Settings > AI > API key.',
       );
     }
     // Lazy SDK load: the require only happens on the first actual AI call,

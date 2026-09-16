@@ -110,6 +110,9 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                     <Input
                       type="number"
                       min={1}
+                      // "Record count" heads the whole list; each row's own
+                      // name is the object in the span beside the field.
+                      aria-label={t('a11y.recordCountFor', { object: obj })}
                       value={volumes[obj]?.count ?? 100}
                       onChange={(e) => onChangeVolume(obj, parseInt(e.target.value, 10) || 0)}
                       className="w-24"

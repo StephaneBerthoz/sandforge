@@ -135,6 +135,7 @@ describe('useSmartAction', () => {
     expect(useAppStore.getState().navigationIntent).toMatchObject({
       route: 'seed',
       seedMode: 'quick-seed',
+      targetOrgId: 'org-1',
     });
   });
 

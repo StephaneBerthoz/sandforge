@@ -249,6 +249,16 @@ describe('AutomationPage', () => {
     expect(notice.textContent).toContain('Condition');
   });
 
+  it('says on the Marketplace tab that the steps of a template do nothing yet', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByText('Marketplace'));
+    const notice = screen.getByTestId('automation-marketplace-steps-soon');
+    expect(notice.textContent).toContain('Coming soon');
+    expect(notice.textContent).toContain('Delay');
+    expect(notice.textContent).toContain('Condition');
+  });
+
   it('does not describe the empty state as automating seed or sync work', () => {
     useOrgStore.setState({ orgs: [] });
     render(<AutomationPage />);

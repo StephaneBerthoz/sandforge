@@ -1,6 +1,6 @@
 ## Conecte sua primeira org
 
-O SandForge trabalha sobre as suas orgs do Salesforce já autenticadas.
+O SandForge trabalha sobre as suas orgs do Salesforce já autenticadas. Os dois caminhos abaixo exigem a [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) (`sf`) instalada e no seu PATH: o login pelo navegador também é executado pela CLI.
 
 1. Clique em **Importar do SF CLI** para trazer todas as orgs já autenticadas na Salesforce CLI — o caminho mais rápido.
 2. Ou use **OAuth (Web)** para conectar uma org pelo navegador.

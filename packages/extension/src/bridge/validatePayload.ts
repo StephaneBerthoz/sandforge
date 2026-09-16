@@ -203,6 +203,19 @@ export const syncConfigPayloadSchema = syncConfigSchema
           `object set while you believed it was reading changes only.`,
       });
     }
+
+    // There is no screen on which a conflict could be reviewed, and the
+    // resolver answers `manual` with the source values — the same write as
+    // source wins, under a name that promises a decision.
+    if (config.conflictStrategy === 'manual') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['conflictStrategy'],
+        message:
+          `Manual conflict review is not available: pick source wins, target wins, ` +
+          `newest wins or merge. The sync was not started.`,
+      });
+    }
   });
 
 /**
@@ -756,7 +769,6 @@ export const settingsUpdatePayloadSchema = z.object({
   key: z.string().min(1).max(200),
   value: z.unknown(),
 });
-export const hintDismissPayloadSchema = z.object({ hintId: opaqueIdSchema });
 export const telemetryTogglePayloadSchema = z.object({ enabled: z.boolean() });
 
 // ── i18n:* payload schemas ────────────────────────────────────────────────

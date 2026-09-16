@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
 import { ForgeInput } from './ForgeInput';
 
 /* ---- Store mocks ---- */
@@ -212,6 +212,24 @@ describe('ForgeInput', () => {
     expect(warning).toContain('200');
   });
 
+  it('refuses to discover when the name after FROM is not an API name', () => {
+    // The clause is fine; the name it would travel under is not, and Discover
+    // was refused by the extension with nothing shown under the query.
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: 'SELECT Id FROM 1Account WHERE Name = null' },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    expect(screen.getByTestId('forge-soql-object-invalid').textContent).toContain('1Account');
+    expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+    expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(mockSetConfig).not.toHaveBeenCalled();
+  });
+
   it('should have record tab active by default', () => {
     render(<ForgeInput />);
     const recordTab = screen.getByTestId('forge-tab-record');
@@ -287,6 +305,75 @@ describe('ForgeInput', () => {
     expect(config.recordId).toBe('001XXXXXXXXXXXXXXX');
     expect(config.templateId).toBeUndefined();
     expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+  });
+
+  /**
+   * A SOQL template runs its saved query exactly as the SOQL tab would, so the
+   * picker has to carry the same two verdicts. It used to show neither: the
+   * warnings were derived from the typed query alone, which is empty here.
+   */
+  describe('a selected SOQL template carries the verdicts of its query', () => {
+    function pickTemplate(soqlQuery: string): void {
+      mockTemplates.list.push({
+        id: 'tpl-soql',
+        name: 'Filtered accounts',
+        description: '',
+        config: { inputMode: 'soql', soqlQuery, depth: 'full' },
+        objectCount: 0,
+        recordCount: 0,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      });
+      render(<ForgeInput />);
+      fireEvent.mouseDown(screen.getByTestId('forge-tab-template'));
+      fireEvent.click(screen.getByText('Filtered accounts'));
+    }
+
+    it('warns which object a valid WHERE clause narrows', () => {
+      pickTemplate("SELECT Id FROM Account WHERE Industry = 'X'");
+
+      const warning = screen.getByTestId('forge-soql-where-warning').textContent ?? '';
+      expect(warning).toContain('Account');
+      expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+    });
+
+    it('refuses a clause the run would reject, and shows no warning beside it', () => {
+      pickTemplate("SELECT Id FROM Account WHERE Name LIKE '%--%'");
+
+      expect(screen.getByTestId('forge-soql-filter-refused')).toBeDefined();
+      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    });
+
+    it('refuses a template whose query names no API name after FROM', () => {
+      pickTemplate('SELECT Id FROM 1Account WHERE Name = null');
+      selectOrg('forge-target-org', 'org-tgt');
+
+      expect(screen.getByTestId('forge-soql-object-invalid').textContent).toContain('1Account');
+      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+      expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+        i18n.t('forge.hintSoqlObjectNameInvalid'),
+      );
+    });
+
+    it('says nothing about a template that saved a record id', () => {
+      mockTemplates.list.push({
+        id: 'tpl-rec-2',
+        name: 'One account',
+        description: '',
+        config: { inputMode: 'record', recordId: '001XXXXXXXXXXXXXXX', depth: 'full' },
+        objectCount: 0,
+        recordCount: 0,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      });
+      render(<ForgeInput />);
+      fireEvent.mouseDown(screen.getByTestId('forge-tab-template'));
+      fireEvent.click(screen.getByText('One account'));
+
+      expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+      expect(screen.queryByTestId('forge-soql-filter-refused')).toBeNull();
+    });
   });
 
   it('should disable discover button when no input is provided', () => {

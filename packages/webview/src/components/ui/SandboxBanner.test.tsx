@@ -30,9 +30,6 @@ vi.mock('../../utils/webviewStorage', () => ({
   setPersistedItem: (key: string, value: string): void => {
     mockPersistedState.store[key] = value;
   },
-  removePersistedItem: (key: string): void => {
-    delete mockPersistedState.store[key];
-  },
 }));
 
 function createSandboxOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {

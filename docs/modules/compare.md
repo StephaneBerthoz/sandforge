@@ -1,6 +1,6 @@
 # Compare
 
-Compare metadata, permissions, and configuration between two Salesforce orgs. Identify differences and track drift from a single tabbed interface. Deploying those differences is not wired yet -- see [Deploy from Diff](#deploy-from-diff).
+Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface. Deploying those differences is not wired yet -- see [Deploy from Diff](#deploy-from-diff).
 
 ## Quick Start
 
@@ -21,13 +21,15 @@ The primary tab shows a side-by-side comparison of metadata between the two orgs
 - **Diff Group Accordion** -- Components grouped by type, expandable to see individual changes
 - **Diff Detail Modal** -- Click any diff entry to see the full before/after comparison
 
-### Permission Matrix
+### Permission Presence
 
-A visual grid comparing CRUD and FLS permissions across profiles and permission sets:
+Which permission sets and profiles exist on each side, by name:
 
-- Source vs. target labels for clear side-by-side comparison
-- Highlights differences between the two orgs
-- Useful for security audits and permission troubleshooting
+- Permission sets on the source only, on the target only, and on both
+- Profiles split the same three ways
+- Names and labels, nothing about what a permission set or profile grants —
+  object and field permissions are not read, so no record-level access is
+  compared here
 
 ### Snapshots
 
@@ -40,13 +42,17 @@ right now:
 - The objects that exist on only one side, listed per org, plus the shared count
 - The capture timestamp, which is the time of the run that produced it
 
-### Drift Detection
+### Org Settings Drift
 
-Automated detection of configuration drift between orgs:
+Five fields of the `Organization` record, read from both orgs when you open the
+tab, and listed side by side with whether each one matches:
 
-- Dashboard showing drift metrics and categories
-- Identifies when sandbox configuration has diverged from production
-- Useful for compliance and governance workflows
+- Name, language, default locale, time zone, and the month the fiscal year
+  starts
+- One query per org, on request — nothing runs on a schedule and nothing is
+  stored between runs
+- No metadata is read, so a difference in security settings, sharing rules or
+  any other configuration does not appear here
 
 ### Deploy from Diff
 
@@ -68,6 +74,6 @@ standard relationships. Each run returns a score out of 100.
 
 - Run a compare before any major deployment to understand the full scope of changes
 - Use the Risk Score Card to quickly assess whether changes are safe to deploy
-- The Permission Matrix is the fastest way to audit security differences between orgs
-- Re-run the Drift tab after each release to catch configuration divergence early
+- Permission Presence answers "which permission sets and profiles is this org missing?", not "who can see what"
+- Re-run the Drift tab after each release to see whether those five Organization settings still match
 - Once Deploy from Diff ships, prefer it over deploying everything at once

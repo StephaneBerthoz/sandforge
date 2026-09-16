@@ -1175,6 +1175,10 @@ export class MonitorOpsHandler implements DomainHandler {
 
       const response = buildResponse(this.deps, msg, 'monitor:sandbox-refresh:response', {
         success: true,
+        // A sandbox org cannot query SandboxProcess at all. Without this the
+        // panel showed its "no refresh events" empty state, which reads as an
+        // answer rather than as a question the org cannot be asked.
+        supported: this.sandboxRefreshTracker.isSupported(payload.orgId),
         refreshes,
         inProgress,
       });

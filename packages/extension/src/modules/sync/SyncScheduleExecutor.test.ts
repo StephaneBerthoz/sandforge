@@ -186,6 +186,50 @@ describe('SyncScheduleExecutor', () => {
       expect(new Date(saved.nextRunAt!).getTime()).toBeGreaterThan(FIXED_NOW);
     });
 
+    it('marks a schedule whose configuration is gone as failed, once, and says so', async () => {
+      // The configuration a schedule names can be deleted, or never saved at
+      // all. Skipping the tick left nextRunAt in the past, so the same
+      // schedule came up due every 60 s, wrote one more log line nobody reads
+      // and still showed as active with no last result.
+      const entry = createScheduleEntry({
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+        enabled: true,
+        notifyOnFailure: true,
+      });
+      const storeSave = vi.fn();
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: storeSave,
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        configStore: { load: vi.fn(() => undefined) },
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(deps.onExecute).not.toHaveBeenCalled();
+      const saved = executor.getSchedule('sched-1')!;
+      expect(saved.lastResult).toBe('failure');
+      expect(saved.lastRunAt).toBeDefined();
+      expect(new Date(saved.nextRunAt!).getTime()).toBeGreaterThan(FIXED_NOW);
+      expect(storeSave).toHaveBeenCalledTimes(1);
+      const notify = deps.notificationCenter.notify as ReturnType<typeof vi.fn>;
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify.mock.calls[0][0]).toBe('error');
+      expect(String(notify.mock.calls[0][2])).toContain('cfg-1');
+
+      // Next tick: the schedule is no longer due, so nothing is said twice.
+      notify.mockClear();
+      await executor.tick();
+      expect(notify).not.toHaveBeenCalled();
+    });
+
     it('should skip disabled schedules', async () => {
       const entry = createScheduleEntry({
         enabled: false,
@@ -361,6 +405,143 @@ describe('SyncScheduleExecutor', () => {
         'Sync schedule failed',
         'Daily Account Sync: Connection timeout',
       );
+    });
+  });
+
+  describe('a run that resolves as failed', () => {
+    it('says it failed rather than completed, with the first error it reports', async () => {
+      // The sync engine turns a failed run into a result with status
+      // 'failure' instead of rejecting, so a connection or Bulk API failure
+      // reaches the executor as a resolved run.
+      const entry = createScheduleEntry({
+        notifyOnComplete: true,
+        notifyOnFailure: true,
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+      });
+      const failedRun: SyncExecutionResult = {
+        ...createSuccessResult(),
+        status: 'failure',
+        totalSuccess: 0,
+        totalFailed: 100,
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            operation: 'upsert',
+            processed: 100,
+            success: 0,
+            failed: 100,
+            skipped: 0,
+            conflictCount: 0,
+            errors: ['INVALID_SESSION_ID'],
+          },
+        ],
+      };
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        onExecute: vi.fn(async () => failedRun),
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(deps.notificationCenter.notify).not.toHaveBeenCalledWith(
+        'success',
+        'Sync schedule completed',
+        expect.anything(),
+      );
+      expect(deps.notificationCenter.notify).toHaveBeenCalledWith(
+        'error',
+        'Sync schedule failed',
+        'Daily Account Sync: INVALID_SESSION_ID',
+      );
+      expect(entry.lastResult).toBe('failure');
+    });
+
+    it('stays quiet about a failed run when only completion was asked for', async () => {
+      const entry = createScheduleEntry({
+        notifyOnComplete: true,
+        notifyOnFailure: false,
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+      });
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        onExecute: vi.fn(async () => ({ ...createSuccessResult(), status: 'failure' as const })),
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      const levels = vi.mocked(deps.notificationCenter.notify).mock.calls.map((call) => call[0]);
+      expect(levels).toEqual(['info']);
+    });
+
+    it('announces a run in which some records failed as a warning, not a success', async () => {
+      const entry = createScheduleEntry({
+        notifyOnComplete: true,
+        notifyOnFailure: false,
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+      });
+      const partialRun: SyncExecutionResult = {
+        ...createSuccessResult(),
+        status: 'partial',
+        totalSuccess: 98,
+        totalFailed: 2,
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'upsert',
+            processed: 100,
+            success: 98,
+            failed: 2,
+            skipped: 0,
+            conflictCount: 0,
+            errors: ['REQUIRED_FIELD_MISSING: LastName'],
+          },
+        ],
+      };
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        onExecute: vi.fn(async () => partialRun),
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(deps.notificationCenter.notify).not.toHaveBeenCalledWith(
+        'success',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(deps.notificationCenter.notify).toHaveBeenCalledWith(
+        'warning',
+        'Sync schedule completed with errors',
+        'Daily Account Sync: REQUIRED_FIELD_MISSING: LastName',
+      );
+      expect(entry.lastResult).toBe('partial');
     });
   });
 

@@ -387,6 +387,14 @@ describe('forgeGraphSchema', () => {
 // ─── Execution Result Schema Tests ───────────────────────────────────────────
 
 describe('forgeExecutionResultSchema', () => {
+  it('keeps the objects whose source read was cut short', () => {
+    const result = forgeExecutionResultSchema.parse({
+      ...createValidForgeExecutionResult(),
+      truncatedObjects: ['Account'],
+    });
+    expect(result.truncatedObjects).toEqual(['Account']);
+  });
+
   it('should parse valid execution result', () => {
     const result = forgeExecutionResultSchema.parse(createValidForgeExecutionResult());
     expect(result.forgeId).toBe('forge-001');

@@ -31,7 +31,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
     id: 'tpl-sandbox-refresh',
     name: 'Sandbox Refresh Post-Processing',
     description:
-      'Automate post-refresh tasks: anonymize data, seed test records, and notify the team.',
+      'Automate post-refresh tasks: anonymize data and seed test records, then mark a notification point.',
     category: 'environment',
     rating: 4.8,
     steps: [
@@ -50,8 +50,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Notify Team',
         type: 'notification',
-        config: { channel: 'slack' },
-        description: 'Send completion notification',
+        config: {},
+        description: 'Notification step (a run sends no message yet)',
       },
     ],
     tags: ['sandbox', 'refresh', 'post-processing'],
@@ -106,8 +106,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Generate Report',
         type: 'notification',
-        config: { channel: 'email' },
-        description: 'Email the quality report',
+        config: {},
+        description: 'Report the quality scan (a run sends no message yet)',
       },
     ],
     tags: ['quality', 'weekly', 'scan'],
@@ -140,8 +140,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Compliance Report',
         type: 'notification',
-        config: { channel: 'email' },
-        description: 'Send compliance summary',
+        config: {},
+        description: 'Compliance summary (a run sends no message yet)',
       },
     ],
     tags: ['gdpr', 'compliance', 'privacy'],
@@ -174,8 +174,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Welcome Notification',
         type: 'notification',
-        config: { channel: 'slack' },
-        description: 'Notify the new developer',
+        config: {},
+        description: 'Welcome the new developer (a run sends no message yet)',
       },
     ],
     tags: ['onboarding', 'developer', 'environment'],
@@ -373,8 +373,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Alert on Drift',
         type: 'notification',
-        config: { channel: 'slack' },
-        description: 'Notify team of schema changes',
+        config: {},
+        description: 'Report schema changes (a run sends no message yet)',
       },
     ],
     tags: ['schema', 'drift', 'monitoring'],
@@ -382,7 +382,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
   {
     id: 'tpl-api-limit-monitoring',
     name: 'API Limit Monitoring',
-    description: 'Monitor API usage and alert when approaching governor limits.',
+    description:
+      'Check API usage against governor limits and mark the point where high usage would be reported.',
     category: 'monitoring',
     rating: 4.4,
     steps: [
@@ -401,8 +402,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Send Alert',
         type: 'notification',
-        config: { channel: 'email' },
-        description: 'Notify admins of high usage',
+        config: {},
+        description: 'Report high usage (a run sends no message yet)',
       },
     ],
     tags: ['api', 'limits', 'monitoring', 'governor'],
@@ -464,8 +465,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Post-Sync Report',
         type: 'notification',
-        config: { channel: 'email' },
-        description: 'Summary of synced records',
+        config: {},
+        description: 'Summary of synced records (a run sends no message yet)',
       },
     ],
     tags: ['sync', 'cross-org', 'migration'],
@@ -498,8 +499,8 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
       {
         name: 'Incident Notification',
         type: 'notification',
-        config: { channel: 'slack' },
-        description: 'Alert team of rollback completion',
+        config: {},
+        description: 'Report the rollback (a run sends no message yet)',
       },
     ],
     tags: ['rollback', 'emergency', 'restore'],

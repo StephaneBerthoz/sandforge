@@ -304,6 +304,75 @@ describe('DataOpsHandler', () => {
       vi.restoreAllMocks();
     });
 
+    it('names the objects a masking run addresses to the production guard', async () => {
+      const check = vi.fn().mockReturnValue({
+        allowed: true,
+        requiresConfirmation: false,
+        requiresApproval: false,
+        warnings: [],
+        impactSummary: '',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: { check, logOperation: vi.fn(), confirmIfNeeded: vi.fn() },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a2',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-123',
+            templateId: 'tmpl-1',
+            objects: ['Account', 'Contact'],
+          },
+        } as BaseMessage),
+      );
+
+      expect(check.mock.calls[0][0]).toMatchObject({
+        operation: 'update',
+        objectName: 'Account, Contact',
+        recordCount: 'unknown',
+        module: 'dataops',
+      });
+    });
+
+    it('names the objects of the template to the production guard when the request lists none', async () => {
+      const check = vi.fn().mockReturnValue({
+        allowed: true,
+        requiresConfirmation: false,
+        requiresApproval: false,
+        warnings: [],
+        impactSummary: '',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: { check, logOperation: vi.fn(), confirmIfNeeded: vi.fn() },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a3',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-123', templateId: 'tpl-gdpr-standard' },
+        } as BaseMessage),
+      );
+
+      // The GDPR template masks Contact, then Lead, then Account fields.
+      expect(check.mock.calls[0][0]).toMatchObject({
+        operation: 'update',
+        objectName: 'Contact, Lead, Account',
+        recordCount: 'unknown',
+        module: 'dataops',
+      });
+    });
+
     it('emits dataops:error once when anonymize is declined at the production guard', async () => {
       deps.infraServices = {
         performanceTracker: undefined,

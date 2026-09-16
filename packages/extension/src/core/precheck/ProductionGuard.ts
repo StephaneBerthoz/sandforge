@@ -7,7 +7,13 @@ export interface OperationRequest {
   orgTier: SafetyTier;
   operation: 'insert' | 'update' | 'upsert' | 'delete' | 'hardDelete';
   objectName: string;
-  recordCount: number;
+  /**
+   * Records the operation plans to write. Callers that cannot know it
+   * before the run (a clone queries its source afterwards, a masking run
+   * queries each object) send `'unknown'`, which is shown as such and
+   * counts as below every volume threshold. A measured 0 stays 0.
+   */
+  recordCount: number | 'unknown';
   module: string;
 }
 
@@ -152,7 +158,8 @@ export class ProductionGuard {
     const isOverridden = this.isProductionOverridden(request.orgId);
 
     warnings.push(
-      `Production operation: ${request.operation} on ${request.objectName} (${request.recordCount} records)`,
+      `Production operation: ${request.operation} on ${request.objectName} ` +
+        `(${describeCount(request.recordCount)} records)`,
     );
 
     if (isDestructive && !isOverridden) {
@@ -166,7 +173,7 @@ export class ProductionGuard {
       };
     }
 
-    const requiresApproval = request.recordCount > PRODUCTION_APPROVAL_THRESHOLD;
+    const requiresApproval = countForThreshold(request.recordCount) > PRODUCTION_APPROVAL_THRESHOLD;
 
     if (isDestructive && isOverridden) {
       warnings.push('Production override is active — destructive operation permitted');
@@ -186,7 +193,7 @@ export class ProductionGuard {
     const warnings: string[] = [];
     const isDestructive = DESTRUCTIVE_OPERATIONS.has(request.operation);
     const requiresConfirmation =
-      isDestructive || request.recordCount > STAGING_CONFIRMATION_THRESHOLD;
+      isDestructive || countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD;
 
     if (isDestructive) {
       warnings.push(
@@ -194,7 +201,7 @@ export class ProductionGuard {
       );
     }
 
-    if (request.recordCount > STAGING_CONFIRMATION_THRESHOLD) {
+    if (countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD) {
       warnings.push(`Large volume operation: ${request.recordCount} records on staging`);
     }
 
@@ -211,7 +218,7 @@ export class ProductionGuard {
   private checkDevelopment(request: OperationRequest): SafetyCheckResult {
     const warnings: string[] = [];
 
-    if (request.recordCount > DEV_WARNING_THRESHOLD) {
+    if (countForThreshold(request.recordCount) > DEV_WARNING_THRESHOLD) {
       warnings.push(
         `Large volume operation: ${request.recordCount} records on ${request.orgTier} org`,
       );
@@ -227,10 +234,24 @@ export class ProductionGuard {
   }
 }
 
+/** Spell out a record count, or say the caller could not count it yet. */
+function describeCount(recordCount: number | 'unknown'): string {
+  return recordCount === 'unknown' ? 'an unknown number of' : String(recordCount);
+}
+
+/**
+ * The count to compare against a volume threshold. An uncounted request has
+ * nothing to measure, so it stays below every threshold rather than tripping
+ * a gate on a volume nobody established.
+ */
+function countForThreshold(recordCount: number | 'unknown'): number {
+  return recordCount === 'unknown' ? 0 : recordCount;
+}
+
 /** Build a human-readable impact summary for an operation */
 function buildImpactSummary(request: OperationRequest): string {
   return (
-    `${request.operation.toUpperCase()} ${request.recordCount} ` +
+    `${request.operation.toUpperCase()} ${describeCount(request.recordCount)} ` +
     `${request.objectName} record(s) on ${request.orgTier} org ${request.orgId} ` +
     `[module: ${request.module}]`
   );

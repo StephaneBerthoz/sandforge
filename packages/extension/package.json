@@ -40,8 +40,7 @@
   },
   "categories": [
     "Other",
-    "Testing",
-    "Visualization"
+    "Testing"
   ],
   "keywords": [
     "salesforce",
@@ -211,6 +210,14 @@
         "when": "activeViewlet == 'workbench.view.extension.sandforge'"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sandforge.cheers",
+          "when": "false"
+        }
+      ]
+    },
     "walkthroughs": [
       {
         "id": "sandforge.gettingStarted",
@@ -315,6 +322,11 @@
           "type": "string",
           "default": "claude-sonnet-4-5-20250929",
           "description": "%config.ai.model.description%"
+        },
+        "sandforge.ai.errorResolution": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.ai.errorResolution.description%"
         },
         "sandforge.ai.tokenBudgetMaxPerSession": {
           "type": "number",

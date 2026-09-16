@@ -1,5 +1,7 @@
 /** Information about an active Salesforce user session */
 export interface UserSessionInfo {
+  /** AuthSession row id: one user can hold several sessions at once. */
+  sessionId: string;
   userId: string;
   username: string;
   sessionType: string;

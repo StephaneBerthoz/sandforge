@@ -30,10 +30,9 @@ const STEP_CONFIG_FIELDS: Partial<
     { key: 'backupName', labelKey: 'dataops.backupName', type: 'text' },
     { key: 'includeAttachments', labelKey: 'dataops.includeAttachments', type: 'boolean' },
   ],
-  notification: [
-    { key: 'channel', labelKey: 'automation.stepConfigChannel', type: 'text' },
-    { key: 'message', labelKey: 'automation.stepConfigMessage', type: 'text' },
-  ],
+  // A notification step returns success without sending anything, so it asks
+  // for the text it would carry and for no address to send it to.
+  notification: [{ key: 'message', labelKey: 'automation.stepConfigMessage', type: 'text' }],
   delay: [{ key: 'seconds', labelKey: 'automation.stepConfigDelay', type: 'number' }],
   script: [{ key: 'script', labelKey: 'automation.stepConfigScript', type: 'text' }],
   delete: [

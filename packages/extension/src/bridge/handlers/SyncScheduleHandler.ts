@@ -1,7 +1,7 @@
 import type { SyncScheduleEntry } from '@sandforge/shared';
 import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
-import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
   validatePayload,
   syncScheduleUpsertPayloadSchema,
@@ -91,8 +91,13 @@ export class SyncScheduleHandler implements DomainHandler {
         configStore: new SyncConfigStore(this.deps.configStore),
         onExecute: (config) => this.executeDue(config),
         notificationCenter: {
-          notify: (level: string, title: string, message: string) => {
+          // Writing the outcome only to the output channel meant a schedule
+          // that started, finished or failed said nothing on screen. It is
+          // also raised in whichever SandForge panels are open; with none
+          // open, the log line and the schedule's last result remain.
+          notify: (level, title, message) => {
             this.deps.log(`[SyncSchedule] ${level}: ${title} — ${message}`);
+            sendNotification(this.deps, level, title, message);
           },
         },
         log: this.deps.log,
@@ -181,6 +186,20 @@ export class SyncScheduleHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
+    // The picker offers saved configurations only, but it is not the only
+    // sender: a schedule stored on an id nothing holds could only ever fail.
+    const configId = parsed.schedule.configId;
+    if (!new SyncConfigStore(this.deps.configStore).load(configId)) {
+      sendHandlerError(
+        this.deps,
+        'sync:schedule:upsert',
+        'sync:schedule:error',
+        msg,
+        new Error(`Sync configuration not found: ${configId}. Save it from the Sync tab first.`),
+        { code: 'NOT_FOUND' },
+      );
+      return;
+    }
     try {
       const entry = this.getExecutor().upsert(
         parsed.schedule as Omit<SyncScheduleEntry, 'nextRunAt' | 'lastRunAt' | 'lastResult'>,

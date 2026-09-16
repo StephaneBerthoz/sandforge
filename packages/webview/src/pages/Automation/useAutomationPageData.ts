@@ -376,6 +376,17 @@ export function useAutomationPageData(): AutomationPageData {
     });
   }, [saveMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The host writes a run to its history when the run ends, but answers
+  // `pipeline:history` only on request, and the query fires once on mount:
+  // without asking again, the History tab and its count missed every run made
+  // since the page opened. A completed or failed run both answer on
+  // `pipeline:run:response`; a run that throws is not written, so there is
+  // nothing new to fetch.
+  useEffect(() => {
+    if (!executeMutation.data) return;
+    historyQuery.refetch();
+  }, [executeMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Consume the AI-generated pipeline.
   //
   // The response was dropped on the floor: the user described a pipeline,
@@ -465,24 +476,6 @@ export function useAutomationPageData(): AutomationPageData {
     setActiveTab('canvas');
   };
 
-  /*
-   * Install is not wired, and now says so.
-   *
-   * It used to build an EMPTY pipeline carrying only the template's name and
-   * description, drop the user on the canvas and toast "Template installed as
-   * new pipeline". The template's steps live in the host's PipelineMarketplace
-   * and never crossed the bridge — `marketplace:list:response` carries only
-   * id/name/description/category/author — so what the user got was a blank
-   * pipeline wearing the template's name.
-   *
-   * The host half exists: AutomationHandler routes `marketplace:install` and
-   * answers `marketplace:install:response` with the exported pipeline. Sending
-   * it is a one-line change here, but `marketplace:install` is listed in
-   * KNOWN_UNSENT (packages/shared/src/types/messages/consumedChannels.test.ts),
-   * whose "keeps the known-unsent allowlist honest" case fails the moment a
-   * sender appears — and that file is part of the shared contract. Until that
-   * entry is removed, saying "coming soon" is the honest reading of the button.
-   */
   const handleInstallTemplate = (tpl: { id: string; name: string; description: string }) => {
     installMutation.mutate({ templateId: tpl.id });
   };

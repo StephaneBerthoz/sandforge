@@ -90,7 +90,7 @@ The main SandForge use case: **populate a sandbox from a real record**. Let's wa
 2. Paste a root record ID in the **Record** tab (e.g. an Account from your UAT org) and pick the **Source Org** and **Target Org** (your dev sandbox)
 3. Click **Discover Graph** — Forge walks the record's relationship graph (Account → Contacts, Opportunities, Cases…)
 4. Tune the options: **Depth**, **Records per object**, **Anonymize PII**, excluded objects
-5. Click **Review & Execute**, then **Execute Forge** — records land in your sandbox with every ID remapped
+5. Click **Review & Execute**, then **Execute Forge** — records land in your sandbox with their IDs remapped as they are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it
 
 See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough. It also covers the command-line clone and cleanup: two TypeScript scripts, not an installed command, run with `pnpm exec tsx` from a checkout of this repository once `pnpm install` and `pnpm build:shared` have run.
 
@@ -115,7 +115,7 @@ Now that you are up and running, explore the full capabilities of each module:
 - [Seed](modules/seed.md) -- AI generation, CSV import, and org-to-org cloning with templates and dependency resolution
 - [Sync](modules/sync.md) -- Org-to-org data synchronization with field mapping and conflict resolution
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking
-- [Compare](modules/compare.md) -- Metadata diff, permission matrix, and drift detection
+- [Compare](modules/compare.md) -- Metadata diff, permission set and profile presence, and five Organization settings
 - [DataOps](modules/dataops.md) -- Backup, restore and anonymization (compliance and quality coming soon)
 - [Automation](modules/automation.md) -- Visual pipeline builder (step execution, scheduling and triggers coming soon)
 

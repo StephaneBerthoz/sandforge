@@ -324,4 +324,38 @@ describe('FrozenPage', () => {
     expect(screen.getByText('stability')).toBeDefined();
     expect(screen.getByText('counts')).toBeDefined();
   });
+
+  describe('salt fingerprint', () => {
+    it('warns when the salt in the environment is not the one the dataset was built with', () => {
+      // The page showed only the environment's fingerprint and never compared
+      // it with the dataset's. A load replays the files as they are and never
+      // reads the salt: the next extraction is what the other salt changes.
+      useFrozenStore.setState({
+        status: statusFixture({ salt: { present: true, fingerprint: '0123456789ab' } }),
+      });
+      render(<FrozenPage />);
+
+      const warning = screen.getByTestId('frozen-salt-mismatch').textContent ?? '';
+      expect(warning).toContain('0123456789ab');
+      expect(warning).toContain('abc123def456');
+      expect(warning).toMatch(/extraction/i);
+      expect(warning).not.toMatch(/\bload/i);
+    });
+
+    it('says nothing when the two fingerprints match', () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      render(<FrozenPage />);
+
+      expect(screen.queryByTestId('frozen-salt-mismatch')).toBeNull();
+    });
+
+    it('says nothing when there is no salt or no dataset to compare', () => {
+      useFrozenStore.setState({
+        status: statusFixture({ salt: { present: false }, manifest: null }),
+      });
+      render(<FrozenPage />);
+
+      expect(screen.queryByTestId('frozen-salt-mismatch')).toBeNull();
+    });
+  });
 });

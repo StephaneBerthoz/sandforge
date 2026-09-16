@@ -10,8 +10,26 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 /** Styled input component matching VSCode theme. */
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, className, id, ...props }, ref) => {
+  (
+    {
+      label,
+      error,
+      hint,
+      className,
+      id,
+      placeholder,
+      'aria-label': ariaLabel,
+      'aria-labelledby': ariaLabelledBy,
+      ...props
+    },
+    ref,
+  ) => {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+    // A placeholder is not an accessible name — it disappears as soon as the
+    // field is typed in — but an input with no label and no aria-label has no
+    // name at all, and the placeholder is what a sighted user reads there.
+    // Same fallback Select already applies.
+    const resolvedAriaLabel = ariaLabel ?? (!label && !ariaLabelledBy ? placeholder : undefined);
     return (
       <div className="flex flex-col gap-1">
         {label && (
@@ -25,6 +43,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           id={inputId}
+          placeholder={placeholder}
+          aria-label={resolvedAriaLabel}
+          aria-labelledby={ariaLabelledBy}
           className={cn(
             'w-full px-2 py-1.5 text-sm rounded',
             'bg-[var(--vscode-input-background,#3c3c3c)]',

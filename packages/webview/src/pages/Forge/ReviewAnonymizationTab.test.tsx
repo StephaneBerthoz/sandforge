@@ -122,6 +122,13 @@ describe('ReviewAnonymizationTab', () => {
     expect(mockSetAnonymizationRule).toHaveBeenCalledWith('email', 'hash');
   });
 
+  it('names each method select after the category of its row', () => {
+    // Seven identical selects in a table, each named only by the cell to its
+    // left, which a screen reader does not read as a label.
+    render(<ReviewAnonymizationTab />);
+    expect(screen.getByTestId('anon-select-email').getAttribute('aria-label')).toContain('Email');
+  });
+
   it('should display PII field count from graph', () => {
     render(<ReviewAnonymizationTab />);
     const tab = screen.getByTestId('review-anonymization-tab');

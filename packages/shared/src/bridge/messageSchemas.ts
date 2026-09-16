@@ -341,7 +341,6 @@ const AIMessages = [
   msg('ai:error'),
   msg('ai:nl2soql'),
   msg('ai:nl2soql:response'),
-  msg('ai:resolve-error:response'),
   msg('ai:anomaly-scan'),
   msg('ai:anomaly-scan:response'),
   msg('ai:generate-pipeline'),
@@ -367,9 +366,7 @@ const SettingsMessages = [
   // outside the broker envelope — see types/messages/settings.messages.ts).
   msg('easter-egg:show'),
   msg('onboarding:complete'),
-  msg('onboarding:reset'),
   msg('onboarding:show'),
-  msg('hint:dismiss'),
   msg('telemetry:status'),
   msg('telemetry:status:response'),
   msg('telemetry:toggle'),
@@ -377,8 +374,6 @@ const SettingsMessages = [
   msg('whats-new:show'),
   msg('notification'),
   msg('state:sync'),
-  msg('connectivity:status'),
-  msg('connectivity:status:response'),
   // Lazy locale loading (webview CSP forbids fetch/dynamic import — the
   // packaged locale JSONs cross the bridge on demand).
   msg('i18n:locale'),
@@ -434,15 +429,6 @@ const ConflictMessages = [
   msg('scheduler:toggle:response'),
 ] as const;
 export const ConflictMessageSchema = z.discriminatedUnion('type', ConflictMessages);
-
-// ─── Domain: Cache ───────────────────────────────────────────────────────────
-const CacheMessages = [
-  msg('cache:invalidate-all'),
-  msg('cache:invalidate-all:response'),
-  msg('cache:get-stats'),
-  msg('cache:stats-response'),
-] as const;
-export const CacheMessageSchema = z.discriminatedUnion('type', CacheMessages);
 
 // ─── Domain: SmartAction + QuickSync ─────────────────────────────────────────
 const SmartActionMessages = [
@@ -512,7 +498,6 @@ export const BridgeMessageSchema = z.discriminatedUnion('type', [
   ...SettingsMessages,
   ...RealtimeMessages,
   ...ConflictMessages,
-  ...CacheMessages,
   ...SmartActionMessages,
   ...FrozenMessages,
 ]);

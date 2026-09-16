@@ -71,7 +71,11 @@ export interface LoadMappingStore extends ReferenceIdMappingStore {
 export interface FrozenDatasetLoaderDeps {
   orgAccess: TargetOrgAccess;
   writer: FrozenDmlWriter;
-  /** Existing ProductionGuard — tier checks + audit trail on every DML batch. */
+  /**
+   * Existing ProductionGuard — tier check on every DML batch; with
+   * `sandforge.safety.auditLogging` on, its decisions are kept in memory
+   * for the session only.
+   */
   guard: ProductionGuard;
   mockDetector: CalloutMockDetector;
   /** Engine extension point — target RecordType resolution by DeveloperName. */
@@ -410,7 +414,11 @@ export class FrozenDatasetLoader {
     return report;
   }
 
-  /** Guard-check + audit-trail one DML batch through the existing ProductionGuard. */
+  /**
+   * Run one DML batch past the existing ProductionGuard: a tier check, and
+   * a decision kept in memory for the session when
+   * `sandforge.safety.auditLogging` is on.
+   */
   private async checkGuard(
     options: FrozenLoadOptions,
     operation: OperationRequest['operation'],

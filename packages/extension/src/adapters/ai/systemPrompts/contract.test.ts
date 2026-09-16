@@ -1,8 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { describe, it, expect } from 'vitest';
-import { NL2SOQLReplySchema } from '@sandforge/shared';
+import { ErrorResolutionReplySchema, NL2SOQLReplySchema } from '@sandforge/shared';
 
 import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from './index.js';
 
@@ -21,14 +18,6 @@ import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from './index.js';
  * These assertions are deliberately about field names rather than wording.
  * Wording is a prompt-engineering decision; the contract is not.
  */
-
-const MODULES = join(__dirname, '..', '..', '..', 'modules', 'ai');
-
-/** The keys a module's parser reads off the model's JSON reply. */
-function parsedKeys(file: string): string[] {
-  const src = readFileSync(join(MODULES, file), 'utf8');
-  return Array.from(src.matchAll(/obj\['([A-Za-z0-9_]+)'\]/g)).map((m) => m[1]);
-}
 
 describe('system prompt contracts', () => {
   it('every prompt carries the untrusted-data clause', () => {
@@ -53,7 +42,8 @@ describe('system prompt contracts', () => {
   });
 
   it('the ErrorResolver prompt asks for the fields ErrorResolver parses', () => {
-    const keys = new Set(parsedKeys('ErrorResolver.ts'));
+    // ErrorResolver reads its reply through this schema, so its keys are the parsed ones.
+    const keys = new Set(Object.keys(ErrorResolutionReplySchema.shape));
     expect(keys.size).toBeGreaterThan(0);
     for (const key of keys) {
       expect(

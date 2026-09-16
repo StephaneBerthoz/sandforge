@@ -113,13 +113,13 @@ function runPipeline() {
 }
 
 describe('FrozenDatasetWriter', () => {
-  it('writes manifest, per-object data, record-types and sidecar on PASS', () => {
+  it('writes manifest, per-object data, record-types and sidecar on PASS', async () => {
     const dir = makeTmpDir();
     const { frozen, control, manifest } = runPipeline();
     expect(control.passed).toBe(true);
 
     const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
-    const result = writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
+    const result = await writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
 
     expect(fs.existsSync(path.join(result.dir, 'manifest.json'))).toBe(true);
     expect(fs.existsSync(path.join(result.dir, 'data', 'Account.json'))).toBe(true);
@@ -139,7 +139,24 @@ describe('FrozenDatasetWriter', () => {
     ]);
   });
 
-  it('refuses to write anything on control FAIL', () => {
+  it('keeps data files compact, and the manifest readable', async () => {
+    const dir = makeTmpDir();
+    const { frozen, control, manifest } = runPipeline();
+
+    const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
+    const result = await writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
+
+    // Records are read back by the loader, never by hand: one line each,
+    // instead of an indented file that costs both bytes and time to write.
+    for (const name of ['Account.json', 'Contact.json']) {
+      const content = fs.readFileSync(path.join(result.dir, 'data', name), 'utf8');
+      expect(content.trimEnd()).not.toContain('\n');
+    }
+    // The manifest is the human-read artifact — it stays indented.
+    expect(fs.readFileSync(path.join(result.dir, 'manifest.json'), 'utf8')).toContain('\n  ');
+  });
+
+  it('refuses to write anything on control FAIL', async () => {
     const dir = makeTmpDir();
     const { frozen, manifest } = runPipeline();
     const failedControl = {
@@ -167,27 +184,29 @@ describe('FrozenDatasetWriter', () => {
     };
     const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
     const outDir = path.join(dir, 'dataset-fail');
-    expect(() => writer.write(outDir, frozen, manifest, failedControl)).toThrow(
+    await expect(writer.write(outDir, frozen, manifest, failedControl)).rejects.toThrow(
       ControlNotPassedError,
     );
     // Nothing was written — nothing can be versioned.
     expect(fs.existsSync(outDir)).toBe(false);
   });
 
-  it('refuses an output directory inside the repository even on PASS', () => {
+  it('refuses an output directory inside the repository even on PASS', async () => {
     const { frozen, control, manifest } = runPipeline();
     const guard = new SasPathGuard();
     const writer = new FrozenDatasetWriter(guard);
     const insideRepo = path.join(guard.repoRoot, 'frozen-dataset-out');
-    expect(() => writer.write(insideRepo, frozen, manifest, control)).toThrow(InsideRepoPathError);
+    await expect(writer.write(insideRepo, frozen, manifest, control)).rejects.toThrow(
+      InsideRepoPathError,
+    );
     expect(fs.existsSync(insideRepo)).toBe(false);
   });
 
-  it('non-leak: no original value and no source ID appears in any written artifact', () => {
+  it('non-leak: no original value and no source ID appears in any written artifact', async () => {
     const dir = makeTmpDir();
     const { extracted, frozen, control, manifest } = runPipeline();
     const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
-    const result = writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
+    const result = await writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
 
     const originalValues = [
       'Acme Assistance',

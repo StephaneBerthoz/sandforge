@@ -13,7 +13,7 @@ vi.mock('../hooks/useVSCodeApi', () => ({
   }),
 }));
 
-import { sendBridgeMessage, postEnvelopedMessage } from './sendBridgeMessage';
+import { sendBridgeMessage, postEnvelopedMessage, isRequestFromHere } from './sendBridgeMessage';
 
 /** Shape of the envelope as posted to the extension host. */
 interface PostedEnvelope {
@@ -100,5 +100,16 @@ describe('postEnvelopedMessage', () => {
     const id = sendBridgeMessage('forge:execute', { graph: {} });
 
     expect(id).toBe(lastEnvelope().payload.id);
+  });
+
+  it('remembers the last 200 requests it sent and forgets older ones', () => {
+    for (let i = 0; i <= 200; i++) {
+      postEnvelopedMessage({ id: `kept-${i}`, type: 'org:list', timestamp: i });
+    }
+
+    expect(isRequestFromHere('kept-0')).toBe(false);
+    expect(isRequestFromHere('kept-1')).toBe(true);
+    expect(isRequestFromHere('kept-200')).toBe(true);
+    expect(isRequestFromHere('never-sent')).toBe(false);
   });
 });

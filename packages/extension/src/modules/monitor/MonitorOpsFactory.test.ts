@@ -156,6 +156,69 @@ describe('createMonitorOps', () => {
     });
   });
 
+  describe('active sessions', () => {
+    it('reads the login name from the session row instead of repeating its user id', async () => {
+      mockQueryAll.mockResolvedValue([
+        {
+          Id: 'session-1',
+          UsersId: '005AAA',
+          Users: { Username: 'ana@example.com' },
+          LoginType: 'Application',
+          SessionType: 'UI',
+          CreatedDate: '2026-03-20T10:00:00Z',
+          SourceIp: '10.0.0.1',
+        },
+      ]);
+      const ops = createMonitorOps(createDeps());
+
+      const sessions = await ops.userSessionMonitor.fetch('org-1');
+
+      expect(mockQueryAll.mock.calls[0][1]).toContain('Users.Username');
+      expect(sessions[0].username).toBe('ana@example.com');
+      expect(sessions[0].sessionId).toBe('session-1');
+    });
+
+    it('falls back to the user id when the row carries no login name', async () => {
+      mockQueryAll.mockResolvedValue([
+        {
+          Id: 'session-2',
+          UsersId: '005BBB',
+          Users: null,
+          LoginType: 'Application',
+          SessionType: 'API',
+          CreatedDate: '2026-03-20T10:00:00Z',
+          SourceIp: '10.0.0.2',
+        },
+      ]);
+      const ops = createMonitorOps(createDeps());
+
+      const sessions = await ops.userSessionMonitor.fetch('org-1');
+
+      expect(sessions[0].username).toBe('005BBB');
+    });
+  });
+
+  describe('sandbox refreshes', () => {
+    it('reports an org that cannot be asked as unsupported, not as empty', async () => {
+      mockQueryAll.mockRejectedValue(new Error("sObject type 'SandboxProcess' is not supported."));
+      const ops = createMonitorOps(createDeps());
+
+      const events = await ops.sandboxRefreshTracker.fetch('org-sandbox');
+
+      expect(events).toEqual([]);
+      expect(ops.sandboxRefreshTracker.isSupported('org-sandbox')).toBe(false);
+    });
+
+    it('keeps an org that answered an empty list supported', async () => {
+      mockQueryAll.mockResolvedValue([]);
+      const ops = createMonitorOps(createDeps());
+
+      await ops.sandboxRefreshTracker.fetch('org-hub');
+
+      expect(ops.sandboxRefreshTracker.isSupported('org-hub')).toBe(true);
+    });
+  });
+
   describe('getOrFetchLimits', () => {
     it('shares one /limits call per org within the TTL window', async () => {
       const request = vi.fn().mockResolvedValue({ DailyApiRequests: { Max: 100, Remaining: 90 } });

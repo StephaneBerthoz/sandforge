@@ -92,6 +92,7 @@ const mockFieldsMutate = vi.fn();
 const mockFieldsReset = vi.fn();
 const mockExecuteMutate = vi.fn();
 const mockExecuteReset = vi.fn();
+const mockSaveConfigMutate = vi.fn();
 
 /** Mutable query state for sync:describe-global. */
 let mockObjectsQueryState = {
@@ -117,6 +118,15 @@ let mockExecuteMutationState = {
   loading: false,
   error: null as string | null,
   reset: mockExecuteReset,
+};
+
+/** Mutable mutation state for sync:config:save. */
+let mockSaveConfigMutationState = {
+  mutate: mockSaveConfigMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
 };
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
@@ -184,6 +194,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'sync:execute') {
       return mockExecuteMutationState;
     }
+    if (type === 'sync:config:save') {
+      return mockSaveConfigMutationState;
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -223,6 +236,14 @@ describe('SyncPage', () => {
       loading: false,
       error: null,
       reset: mockExecuteReset,
+    };
+    mockSaveConfigMutate.mockClear();
+    mockSaveConfigMutationState = {
+      mutate: mockSaveConfigMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
     };
   });
 
@@ -457,6 +478,143 @@ describe('SyncPage', () => {
       'newest_wins',
       'merge',
     ]);
+  });
+
+  it('saves the reviewed configuration under the two orgs it runs between', () => {
+    // A schedule runs a *saved* configuration by id. With nothing able to save
+    // one, the schedule builder had no configuration to offer and the
+    // persistence routes answered nobody.
+    draft.value = {
+      currentStep: 3,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'newest_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Id',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappings: [],
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+
+    expect(mockSaveConfigMutate).toHaveBeenCalledTimes(1);
+    const config = (mockSaveConfigMutate.mock.calls[0][0] as { config: Record<string, unknown> })
+      .config;
+    expect(config.name).toBe('dev1 → dev2');
+    expect(config.sourceOrgId).toBe('org-1');
+    expect(config.targetOrgId).toBe('org-2');
+    expect(config.conflictStrategy).toBe('newest_wins');
+    expect((config.objects as Array<{ objectApiName: string }>)[0].objectApiName).toBe('Account');
+  });
+
+  it('offers no save while the configuration has no target org', () => {
+    draft.value = {
+      currentStep: 3,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: '',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const save = screen.getByTestId('sync-save-config') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(mockSaveConfigMutate).not.toHaveBeenCalled();
+  });
+
+  it('says the configuration was saved once the host confirms it', () => {
+    draft.value = {
+      currentStep: 3,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    const { rerender } = render(<SyncPage />);
+    expect(screen.queryByTestId('sync-config-saved')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    const saved = (mockSaveConfigMutate.mock.calls[0][0] as { config: { id: string } }).config;
+    mockSaveConfigMutationState.data = { success: true, id: saved.id };
+    rerender(<SyncPage />);
+
+    expect(screen.getByTestId('sync-config-saved').textContent).toContain('saved');
+  });
+
+  it('saves a changed configuration under a new id, and no longer says it is saved', () => {
+    // A schedule runs whatever is stored under its configuration id. Saving a
+    // different pair or strategy under the id already saved would silently
+    // point that schedule at the new target.
+    draft.value = {
+      currentStep: 3,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          externalIdField: 'Id',
+          batchSize: 200,
+          where: '',
+        },
+      ],
+      mappings: [],
+      transforms: [],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    const { rerender } = render(<SyncPage />);
+
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    const first = (mockSaveConfigMutate.mock.calls[0][0] as { config: { id: string } }).config;
+    mockSaveConfigMutationState.data = { success: true, id: first.id };
+    rerender(<SyncPage />);
+    expect(screen.getByTestId('sync-config-saved')).toBeDefined();
+
+    // Saving the same configuration again keeps its id.
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    const again = (mockSaveConfigMutate.mock.calls[1][0] as { config: { id: string } }).config;
+    expect(again.id).toBe(first.id);
+
+    // Back to the first step, another strategy, forward to the review again.
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-back'));
+    fireEvent.change(screen.getByLabelText('Conflict Strategy'), {
+      target: { value: 'target_wins' },
+    });
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByTestId('sync-wizard-next'));
+    expect(screen.getByTestId('sync-save-config')).toBeDefined();
+    expect(screen.queryByTestId('sync-config-saved')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('sync-save-config'));
+    const changed = (
+      mockSaveConfigMutate.mock.calls[2][0] as { config: { id: string; conflictStrategy: string } }
+    ).config;
+    expect(changed.conflictStrategy).toBe('target_wins');
+    expect(changed.id).not.toBe(first.id);
   });
 
   it('offers the two directions a sync performs, never target to source', () => {

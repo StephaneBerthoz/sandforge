@@ -1,8 +1,10 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
+import type { QuickSeedOptions, QuickSeedState } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { SeedPage } from './SeedPage';
@@ -50,6 +52,7 @@ const mockExecuteSeedMutate = vi.fn();
 const mockExecuteSeedReset = vi.fn();
 const mockCloneDescribeMutate = vi.fn();
 const mockCloneExecuteMutate = vi.fn();
+const mockSaveTemplateMutate = vi.fn();
 
 /** Mutable query state for describe-global. */
 let mockDescribeGlobalState = {
@@ -106,6 +109,16 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
         requestId: null,
       };
     }
+    if (type === 'seed:template:save') {
+      return {
+        mutate: mockSaveTemplateMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
     if (type === 'seed:clone:execute') {
       return {
         mutate: mockCloneExecuteMutate,
@@ -143,6 +156,99 @@ vi.mock('./Persona/PersonaGallery', () => ({
   ),
 }));
 
+/* The quick seed flow reads the same seed:execute double as the wizard, so the
+   one test that drives that double to a finished run keeps quick seed idle;
+   every other test exercises the real hook. */
+const quickSeed = vi.hoisted(() => ({ forceIdle: false }));
+
+vi.mock('./useQuickSeed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./useQuickSeed')>();
+  return {
+    useQuickSeed: (options: QuickSeedOptions = {}): QuickSeedState =>
+      quickSeed.forceIdle
+        ? {
+            phase: 'idle',
+            selectedTemplate: null,
+            customizedCounts: {},
+            selectedOrgId: '',
+            isRunning: false,
+            executionResult: undefined,
+            objectProgress: [],
+            overallPercent: 0,
+            elapsedMs: 0,
+            error: null,
+            startQuickSeed: vi.fn(),
+            selectOrg: vi.fn(),
+            execute: vi.fn(),
+            reset: vi.fn(),
+            setError: vi.fn(),
+          }
+        : actual.useQuickSeed(options),
+  };
+});
+
+/* jsdom has no layout, so the real virtual list would render no object row. */
+vi.mock('../../components/ui/VirtualList', () => ({
+  VirtualList: <T,>({
+    items,
+    renderItem,
+    keyExtractor,
+  }: {
+    items: T[];
+    renderItem: (item: T, index: number) => React.ReactNode;
+    keyExtractor: (item: T, index: number) => string;
+  }) => (
+    <div data-testid="virtual-list">
+      {items.map((item, index) => (
+        <div key={keyExtractor(item, index)}>{renderItem(item, index)}</div>
+      ))}
+    </div>
+  ),
+}));
+
+/* Mock TemplateGallery: picking a template is the only part exercised here, and
+   the real gallery loads its catalogue over the bridge. */
+vi.mock('./TemplateGallery', () => ({
+  TemplateGallery: ({
+    onSelectTemplate,
+  }: {
+    onSelectTemplate: (template: unknown, counts: Record<string, number>) => void;
+  }) => (
+    <div data-testid="template-gallery">
+      <button
+        data-testid="mock-template-select"
+        onClick={() =>
+          onSelectTemplate(
+            {
+              id: 'prebuilt-minimal-demo',
+              name: 'Minimal Demo',
+              description: 'A minimal demo template',
+              version: 1,
+              strategy: 'faker',
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  recordCount: 10,
+                  fieldRules: [],
+                  excludedFields: [],
+                  insertOrder: 0,
+                  batchSize: 200,
+                },
+              ],
+              tags: [],
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+            {},
+          )
+        }
+      >
+        Use this template
+      </button>
+    </div>
+  ),
+}));
+
 /* Mock InfoTooltip to simplify DOM assertions */
 vi.mock('../../components/ui/InfoTooltip', () => ({
   InfoTooltip: ({ id }: { id: string; content: string }) => (
@@ -152,6 +258,7 @@ vi.mock('../../components/ui/InfoTooltip', () => ({
 
 describe('SeedPage', () => {
   beforeEach(() => {
+    quickSeed.forceIdle = false;
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useAppStore.setState({ navigationIntent: null });
     mockCloneDescribeMutate.mockClear();
@@ -159,6 +266,7 @@ describe('SeedPage', () => {
     mockDescribeGlobalRefetch.mockClear();
     mockDescribeFieldsMutate.mockClear();
     mockExecuteSeedMutate.mockClear();
+    mockSaveTemplateMutate.mockClear();
     // Reset to default idle state
     mockDescribeGlobalState = {
       data: null,
@@ -341,11 +449,83 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('back-to-modes')).toBeDefined();
   });
 
+  it('selects the recommended org once a template is picked', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({
+      navigationIntent: { route: 'seed', seedMode: 'quick-seed', targetOrgId: 'org-2' },
+    });
+
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mock-template-select'));
+
+    const selector = screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement;
+    expect(selector.value).toBe('org-2');
+  });
+
+  it('asks for the org when the recommendation named none', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({ navigationIntent: { route: 'seed', seedMode: 'quick-seed' } });
+
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mock-template-select'));
+
+    const selector = screen.getByTestId('quick-seed-org-selector') as HTMLSelectElement;
+    expect(selector.value).toBe('');
+  });
+
   it('opens on the mode selector when it was reached without a recommendation', () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
 
     render(<SeedPage />);
 
     expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+  });
+  it('saves the template the run was sent when Save as template is clicked on the results', () => {
+    quickSeed.forceIdle = true;
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    mockDescribeGlobalState = {
+      data: {
+        objects: [{ apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] }],
+      },
+      loading: false,
+      error: null,
+      refetch: mockDescribeGlobalRefetch,
+    };
+    const { rerender } = render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    fireEvent.change(screen.getByTestId('org-selector'), { target: { value: 'org-1' } });
+    fireEvent.click(screen.getByTestId('obj-Account'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    fireEvent.click(screen.getByTestId('seed-wizard-finish'));
+
+    expect(mockExecuteSeedMutate).toHaveBeenCalledOnce();
+    const sent = (mockExecuteSeedMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+
+    mockExecuteSeedState = {
+      ...mockExecuteSeedState,
+      data: {
+        templateId: sent.id,
+        operationId: 'op-1',
+        status: 'success',
+        objectResults: [],
+        totalRecordsCreated: 100,
+        totalRecordsFailed: 0,
+        duration: 10,
+        timestamp: '2026-01-01T00:00:00Z',
+      },
+    };
+    rerender(<SeedPage />);
+
+    const save = screen.getByTestId('btn-save-template') as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+
+    expect(mockSaveTemplateMutate).toHaveBeenCalledOnce();
+    const saved = (mockSaveTemplateMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+    expect(saved.id).toBeUndefined();
+    expect(saved.objects).toEqual(sent.objects);
+    expect(saved.objects.map((o) => o.objectApiName)).toEqual(['Account']);
   });
 });

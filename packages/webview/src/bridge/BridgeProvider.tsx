@@ -10,9 +10,11 @@ import { useRecentOpsFeed } from '../hooks/useRecentOpsFeed';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import type { NotificationAction } from '../stores/useNotificationStore';
 import { useGrappeStore } from '../stores/useGrappeStore';
 import { importLanguageFromSettings } from '../i18n';
 import { buildMessage } from './messageHelpers';
+import { isRequestFromHere } from './sendBridgeMessage';
 
 /** Props for BridgeProvider. */
 export interface BridgeProviderProps {
@@ -123,6 +125,7 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
         title: string;
         message: string;
         autoDismissMs?: number;
+        actions?: NotificationAction[];
       };
     }
   >('notification', (msg) => {
@@ -131,6 +134,9 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
       title: msg.payload.title,
       message: msg.payload.message,
       autoDismissMs: msg.payload.autoDismissMs,
+      // Dropped until now: a host notification could carry buttons and the
+      // toast rendered none of them.
+      actions: msg.payload.actions,
     });
     if (msg.payload.level === 'error' || msg.payload.level === 'success') {
       useOrgStore.getState().setConnecting(false);
@@ -143,7 +149,15 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   // error comes back, and the sender only learns about it 30 s later as a
   // generic timeout. A rejected message has to be visible while it is still
   // attached to the action that caused it.
+  //
+  // `bridge:error` is broadcast to every open panel. A refusal that carries a
+  // correlationId is raised here only when this panel sent that request:
+  // another panel's request is not this panel's to report. It is raised even
+  // when a request hook is waiting on it, since many screens never render
+  // their hook's error. An uncorrelated drop answers no request, so every
+  // panel raises it.
   useMessageListener<BridgeErrorMessage>('bridge:error', (msg) => {
+    if (msg.correlationId && !isRequestFromHere(msg.correlationId)) return;
     useNotificationStore.getState().addNotification({
       level: 'error',
       title: 'Bridge error',
@@ -178,11 +192,6 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   useMessageListener<AIStatusResponse>('ai:status:response', (msg) => {
     useAppStore.getState().setAiAvailable(msg.payload.enabled);
   });
-
-  // Request connectivity status on mount
-  useEffect(() => {
-    sendMessage(buildMessage('connectivity:status'));
-  }, [sendMessage]);
 
   // Listen for onboarding:show → display welcome overlay
   useMessageListener<BaseMessage>('onboarding:show', () => {

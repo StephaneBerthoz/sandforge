@@ -56,12 +56,15 @@ export const SeedPage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const navigate = useAppStore((s) => s.navigate);
   const state = useSeedWizardState(t);
-  const quickSeed = useQuickSeed();
   // Home's recommendation, read once on open: the page lands on the mode it
-  // names instead of the selector, and the clone wizard on its source org.
+  // names instead of the selector, the clone wizard on its source org and the
+  // template gallery on the org the confirmation named.
   const [intent] = useState<NavigationIntent | null>(() => {
     const pending = useAppStore.getState().navigationIntent;
     return pending?.route === 'seed' ? pending : null;
+  });
+  const quickSeed = useQuickSeed({
+    initialOrgId: intent?.seedMode === 'quick-seed' ? intent.targetOrgId : undefined,
   });
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
   useEffect(() => {
@@ -137,8 +140,7 @@ export const SeedPage: React.FC = () => {
 
   /**
    * Stop a running seed. `execution:abort` is the channel that reaches the
-   * AbortController SeedOpsHandler registers in the BackgroundOperationRegistry;
-   * `operation:cancel` only reaches the pipeline orchestrators.
+   * AbortController SeedOpsHandler registers in the BackgroundOperationRegistry.
    *
    * The target is this wizard's own run: its operationId is the id of the
    * seed:execute request it sent. Aiming at the latest `operation:progress`
@@ -414,6 +416,7 @@ export const SeedPage: React.FC = () => {
                 {state.currentStep === 3 && (
                   <SeedResultsStep
                     executionResult={state.executionResult}
+                    template={state.lastTemplate}
                     onSeedAgain={handleSeedAgain}
                   />
                 )}

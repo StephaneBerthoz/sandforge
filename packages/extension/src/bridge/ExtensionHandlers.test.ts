@@ -876,7 +876,7 @@ describe('ExtensionHandlers', () => {
       ).payload;
       expect(payload.templates.length).toBeGreaterThanOrEqual(3);
       expect(payload.templates[0].name).toBe('Sandbox Refresh');
-      expect(payload.templates[1].name).toBe('Data Migration Dry Run');
+      expect(payload.templates[1].name).toBe('Migration Pre-flight Check');
       expect(payload.templates[2].name).toBe('Nightly Cleanup');
     });
   });
@@ -1301,6 +1301,15 @@ describe('ExtensionHandlers', () => {
   });
 
   describe('sync schedule routing', () => {
+    beforeEach(() => {
+      // A schedule is accepted only on a configuration that was saved first.
+      configStore.set(
+        'sync:config:cfg-1',
+        { id: 'cfg-1', name: 'Nightly', objects: [] },
+        'syncConfigs',
+      );
+    });
+
     it('sync:schedule:upsert should persist the schedule and respond with computed nextRunAt', async () => {
       broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-1') }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));

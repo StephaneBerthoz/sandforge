@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import type {
   SalesforceOrg,
   SeedExecutionResult,
+  SeedTemplate,
   FieldRuleType,
   PersonaMsg,
 } from '@sandforge/shared';
@@ -94,6 +95,8 @@ export interface SeedWizardState {
   /* Execution */
   isRunning: boolean;
   executionResult: SeedExecutionResult | undefined;
+  /** The template the last run was built from, saved by "Save as template". */
+  lastTemplate: SeedTemplate | null;
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
   /** Overall completion 0-100, from the live operation:progress stream. */

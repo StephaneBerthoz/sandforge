@@ -11,6 +11,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 interface SessionsData {
   success: boolean;
   sessions: Array<{
+    sessionId: string;
     userId: string;
     username: string;
     sessionType: string;
@@ -115,9 +116,9 @@ export const SessionsPanel: React.FC = () => {
       <div className="flex flex-col gap-0.5">
         {sessions.map((session) => (
           <div
-            key={session.userId}
+            key={session.sessionId}
             className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
-            data-testid={`session-row-${session.userId}`}
+            data-testid={`session-row-${session.sessionId}`}
           >
             <span className="text-xs font-medium text-text-primary flex-1 truncate">
               {session.username}

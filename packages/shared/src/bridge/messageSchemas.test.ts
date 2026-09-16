@@ -14,7 +14,6 @@ import {
   SettingsMessageSchema,
   RealtimeMessageSchema,
   ConflictMessageSchema,
-  CacheMessageSchema,
   SmartActionMessageSchema,
   FrozenMessageSchema,
 } from './messageSchemas.js';
@@ -116,11 +115,6 @@ describe('Domain schemas — valid / invalid samples', () => {
   it('ConflictMessageSchema accepts scheduler:list and rejects unknown', () => {
     expect(ConflictMessageSchema.safeParse(baseFields('scheduler:list')).success).toBe(true);
     expect(ConflictMessageSchema.safeParse(baseFields('scheduler:bogus')).success).toBe(false);
-  });
-
-  it('CacheMessageSchema accepts cache:invalidate-all and rejects cache:bogus', () => {
-    expect(CacheMessageSchema.safeParse(baseFields('cache:invalidate-all')).success).toBe(true);
-    expect(CacheMessageSchema.safeParse(baseFields('cache:bogus')).success).toBe(false);
   });
 
   it('SmartActionMessageSchema accepts smart-action:analyze and rejects unknown', () => {
@@ -236,9 +230,10 @@ describe('retired AI channels', () => {
     'ai:suggestions:response',
     'ai:personas',
     'ai:personas:response',
-    // Error resolution runs where the failure is raised; only its reply, which
-    // the host posts, is still a channel.
     'ai:resolve-error',
+    // The resolution of a failed operation is shown as a VS Code notification
+    // where the failure is raised; it never crossed the bridge.
+    'ai:resolve-error:response',
   ];
 
   it.each(RETIRED)('refuses %s', (type) => {
@@ -292,6 +287,20 @@ describe('requests no screen sends', () => {
     'forge:target-preflight:request',
     'forge:target-preflight:response',
     'forge:target-preflight:error',
+    // The online/offline banner was removed; the status it asked for was read
+    // once on mount and never displayed.
+    'connectivity:status',
+    'connectivity:status:response',
+    // Hints are never dismissed from a screen, and no Settings control resets
+    // the welcome flow.
+    'onboarding:reset',
+    'hint:dismiss',
+    // The Settings cache section was removed, and the caches it spoke to were
+    // never registered with the manager answering these.
+    'cache:invalidate-all',
+    'cache:invalidate-all:response',
+    'cache:get-stats',
+    'cache:stats-response',
   ];
 
   it.each(REMOVED)('refuses %s', (type) => {

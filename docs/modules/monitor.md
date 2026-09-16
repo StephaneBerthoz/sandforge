@@ -75,6 +75,14 @@ Record counts per object, not megabytes:
 - Active Apex jobs, Bulk API jobs, and scheduled tasks
 - Status badges (running, completed, failed)
 - Job type, object type, record counts, and timing
+- A job created within the last day shows how long ago, in the interface
+  language, with the exact date and time in a tooltip on that time; an older job
+  shows its date and time
+- The Created column header sorts the rows of every class group, newest or
+  oldest first, and announces that order to screen readers
+- While the dashboard is re-reading an org whose previous read found no jobs,
+  the table shows placeholder rows rather than "No recent jobs", which would
+  claim the org has none
 - A stalled batch job links to the org's Setup › Apex Jobs page in Salesforce,
   where it can be aborted; SandForge does not abort jobs itself
 
@@ -129,9 +137,10 @@ counted above the table. Only debug logs the org holds are listed.
 ### Active Sessions
 
 The 100 most recent login sessions, read from the org's `AuthSession` records:
-session type, login time and source IP, with the number of distinct users in
-the header. The Username column shows the user's record ID, since the query
-reads no user name.
+username, session type, login time and source IP, with the number of distinct
+users in the header. One user holding several sessions gets one row per
+session; a session whose row carries no username falls back to the user's
+record ID.
 
 ### Apex Insights
 
@@ -150,8 +159,9 @@ The 20 most recent `SandboxProcess` records, one per sandbox creation or
 refresh: sandbox name, status, the date the process was created and its
 description. A "Refresh in progress" badge shows while one is pending or
 processing. `SandboxProcess` exists only on an org that manages sandboxes, such
-as production: on a sandbox the panel stays empty, and the org is not asked
-again in the same session.
+as production: on an org that cannot query it, such as a sandbox, the panel says
+the org keeps no refresh history to read, and the org is not asked again in the
+same session.
 
 ### Org Health Check
 

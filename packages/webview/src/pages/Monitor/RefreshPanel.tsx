@@ -11,6 +11,8 @@ import { Spinner } from '../../components/ui/Spinner';
 /** Response shape from monitor:sandbox-refresh. */
 interface SandboxRefreshData {
   success: boolean;
+  /** False when the org has no SandboxProcess to query at all. */
+  supported?: boolean;
   refreshes: Array<{
     orgId: string;
     sandboxName: string;
@@ -68,6 +70,27 @@ export const RefreshPanel: React.FC = () => {
         data-testid="refresh-panel-loading"
       >
         <Skeleton variant="rect" height="200px" />
+      </div>
+    );
+  }
+
+  // Not an empty history: the org itself has no refresh history to read, and
+  // the empty state answered a question that was never asked.
+  if (data?.supported === false) {
+    return (
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="refresh-panel-unsupported"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <RefreshCcw className="w-4 h-4 text-text-secondary" />
+          <h3 className="text-sm font-semibold text-text-primary">
+            {t('monitor.sandboxRefresh.title')}
+          </h3>
+        </div>
+        <p className="text-xs text-text-muted text-center py-6">
+          {t('monitor.sandboxRefresh.unsupported')}
+        </p>
       </div>
     );
   }

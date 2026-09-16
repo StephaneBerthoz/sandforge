@@ -1,5 +1,10 @@
 import type { SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
-import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
+import {
+  OrgSafetyTier,
+  SF_CLI_INSTALL_URL,
+  SF_CLI_MISSING_MESSAGE,
+  SF_LIMITS,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -118,6 +123,23 @@ export class OrgHandler implements DomainHandler {
     });
   }
 
+  /**
+   * Tell the user the CLI is missing, and where to get it.
+   *
+   * A missing `sf` is the first-run blocker: two of the three working auth
+   * methods go through it. The toast used to dismiss itself after five
+   * seconds with an install URL nobody could click, so it stays up until it
+   * is dismissed and carries the link as an action.
+   *
+   * @param why - What the CLI was needed for, appended to the message.
+   */
+  private notifyCliMissing(why: string): void {
+    sendNotification(this.deps, 'error', 'Salesforce CLI', `${SF_CLI_MISSING_MESSAGE} ${why}`, {
+      autoDismissMs: null,
+      actions: [{ label: 'Install the CLI', command: 'sf-cli-install', url: SF_CLI_INSTALL_URL }],
+    });
+  }
+
   /** Terminate an `org:connect` round trip on the success channel. */
   private ackConnect(request: InboundRequest, orgId: string): void {
     const statusMsg = buildResponse(this.deps, request, 'org:statusChanged', {
@@ -132,13 +154,8 @@ export class OrgHandler implements DomainHandler {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
-        sendNotification(
-          this.deps,
-          'error',
-          'SF CLI',
-          'Salesforce CLI (sf) not found on PATH. Install it from https://developer.salesforce.com/tools/salesforcecli',
-        );
-        this.failConnect(msg, 'Salesforce CLI (sf) not found on PATH.', 'SF_CLI_NOT_FOUND');
+        this.notifyCliMissing('Importing orgs from the CLI needs it.');
+        this.failConnect(msg, SF_CLI_MISSING_MESSAGE, 'SF_CLI_NOT_FOUND');
         return;
       }
 
@@ -328,13 +345,8 @@ export class OrgHandler implements DomainHandler {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
-        sendNotification(
-          this.deps,
-          'error',
-          'SF CLI',
-          'Salesforce CLI (sf) not found on PATH. Required for OAuth web login.',
-        );
-        this.failConnect(msg, 'Salesforce CLI (sf) not found on PATH.', 'SF_CLI_NOT_FOUND');
+        this.notifyCliMissing('OAuth web login runs through it.');
+        this.failConnect(msg, SF_CLI_MISSING_MESSAGE, 'SF_CLI_NOT_FOUND');
         return;
       }
 

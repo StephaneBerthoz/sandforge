@@ -43,6 +43,20 @@ function renderStep(nl2soql: SeedSelectStepProps['nl2soql']) {
   );
 }
 
+describe('SeedSelectStep record counts', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: [], selectedOrgId: 'org-1' });
+    useSeedWizardStore.setState({ selectedOrgId: 'org-1', selectedObjects: ['Account'] });
+  });
+
+  it('names each record-count field after its object', () => {
+    // One field per selected object under a single "Record count" heading:
+    // the heading names the list, not the twelfth field in it.
+    renderStep(nl2soqlStub(null));
+    expect(screen.getByTestId('volume-Account').getAttribute('aria-label')).toContain('Account');
+  });
+});
+
 describe('SeedSelectStep NL2SOQL draft', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: 'org-1' });

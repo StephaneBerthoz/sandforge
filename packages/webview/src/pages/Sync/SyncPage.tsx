@@ -216,6 +216,8 @@ export const SyncPage: React.FC = () => {
     handleRemoveTransform,
     handleChangeTransformConfig,
     handleExecute,
+    handleSaveConfig,
+    configSaved,
     handleApplyTemplate,
     canGoNext,
     isFinished,
@@ -257,6 +259,11 @@ export const SyncPage: React.FC = () => {
     { value: 'source_to_target', label: t('sync.directions.source_to_target') },
     { value: 'bidirectional', label: t('sync.directions.bidirectional') },
   ];
+  // The saved configuration is named after the pair it runs between, which is
+  // what the schedule picker shows; it is data, not a label to translate.
+  const configName = `${sourceOrg?.alias || sourceOrg?.username || sourceOrgId} → ${
+    targetOrg?.alias || targetOrg?.username || targetOrgId
+  }`;
   const conflictOptions: { value: ConflictStrategy; label: string }[] =
     OFFERED_CONFLICT_STRATEGIES.map((value) => ({
       value,
@@ -552,6 +559,26 @@ export const SyncPage: React.FC = () => {
                 nodes={buildSankeyNodes(objectEntries, mappings)}
                 links={buildSankeyLinks(objectEntries, mappings)}
               />
+
+              {/* A schedule runs a saved configuration by id, so this is where
+                  one is created: the review step holds the configuration the
+                  user has just read through. */}
+              <div className="flex items-center gap-[var(--sf-space-2)]">
+                <button
+                  type="button"
+                  className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)] disabled:opacity-50"
+                  onClick={() => handleSaveConfig(configName)}
+                  disabled={!sourceOrgId || !targetOrgId}
+                  data-testid="sync-save-config"
+                >
+                  {t('common.save')}
+                </button>
+                {configSaved && (
+                  <span className="text-[10px] text-text-secondary" data-testid="sync-config-saved">
+                    {t('sync.configSaved')}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

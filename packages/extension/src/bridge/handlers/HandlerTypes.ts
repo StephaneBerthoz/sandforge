@@ -1,4 +1,9 @@
-import type { BaseMessage, NotificationMessage, GrappeConfig } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  NotificationAction,
+  NotificationMessage,
+  GrappeConfig,
+} from '@sandforge/shared';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
 import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
@@ -67,7 +72,7 @@ export interface HandlerDeps {
   /**
    * Optional org-selection callback (status bar + `org:selected` broadcast).
    * Late-injected from extension.ts — the selection closure is defined after
-   * the handlers are constructed (same pattern as setOnboardingServices).
+   * the handlers are constructed (same pattern as setOnboardingService).
    */
   onOrgSelected?: (orgId: string) => void;
 }
@@ -171,6 +176,18 @@ export function buildResponse<P extends Record<string, unknown>>(
   };
 }
 
+/** What a caller may change about a notification it sends. */
+export interface NotificationOptions {
+  /**
+   * How long the toast stays up, in milliseconds. `null` keeps it until the
+   * user dismisses it: the five-second default is too short for a toast that
+   * asks the reader to go and install something.
+   */
+  autoDismissMs?: number | null;
+  /** Buttons rendered under the message. */
+  actions?: NotificationAction[];
+}
+
 /**
  * Send a notification message to the webview.
  *
@@ -178,18 +195,28 @@ export function buildResponse<P extends Record<string, unknown>>(
  * @param level - Notification severity level.
  * @param title - Short notification title.
  * @param message - Notification body text.
+ * @param options - Dismissal delay and action buttons; both default to the
+ *   five-second toast with no buttons.
  */
 export function sendNotification(
   deps: Pick<HandlerDeps, 'broker' | 'nextId' | 'log'>,
   level: 'info' | 'success' | 'warning' | 'error',
   title: string,
   message: string,
+  options: NotificationOptions = {},
 ): void {
+  const autoDismissMs = options.autoDismissMs === undefined ? 5000 : options.autoDismissMs;
   const notification: NotificationMessage = {
     id: deps.nextId(),
     type: 'notification',
     timestamp: Date.now(),
-    payload: { level, title, message, autoDismissMs: 5000 },
+    payload: {
+      level,
+      title,
+      message,
+      ...(autoDismissMs === null ? {} : { autoDismissMs }),
+      ...(options.actions ? { actions: options.actions } : {}),
+    },
   };
   deps.broker.postToWebview(notification);
   deps.log(`[TX] notification: ${title}`);

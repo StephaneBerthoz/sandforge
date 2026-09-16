@@ -28,6 +28,60 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
+/**
+ * A ConfigStore that keeps its entries in memory, so a test can run a pipeline
+ * and then read the history back the way the History tab reads it.
+ */
+function createMemoryConfigStore(): HandlerDeps['configStore'] {
+  const entries = new Map<string, { value: unknown; category: string }>();
+  return {
+    get: vi.fn((key: string) => entries.get(key)?.value),
+    set: vi.fn((key: string, value: unknown, category = 'general') => {
+      entries.set(key, { value, category });
+    }),
+    delete: vi.fn((key: string) => entries.delete(key)),
+    getByCategory: vi.fn((category: string) =>
+      Object.fromEntries(
+        [...entries]
+          .filter(([, entry]) => entry.category === category)
+          .map(([key, entry]) => [key, entry.value]),
+      ),
+    ),
+  } as unknown as HandlerDeps['configStore'];
+}
+
+/** Composition-root services whose orchestrator resolves with `run`. */
+function servicesReturning(run: Record<string, unknown>): HandlerDeps['services'] {
+  return {
+    getSandforgeSetting: vi.fn(() => 300_000),
+    automationOrchestrator: vi.fn(() => ({
+      on: vi.fn(),
+      off: vi.fn(),
+      getActiveRuns: vi.fn(() => []),
+      execute: vi.fn().mockResolvedValue(run),
+    })),
+  } as unknown as HandlerDeps['services'];
+}
+
+/** A finished run as PipelineOrchestrator.execute resolves it. */
+function completedRun(id: string, startTime: string): Record<string, unknown> {
+  return {
+    id,
+    pipelineId: 'pipe-1',
+    pipelineName: 'Nightly refresh',
+    status: 'completed',
+    triggeredBy: 'manual',
+    startTime,
+    endTime: startTime,
+    duration: 1_200,
+    stepResults: [
+      { stepId: 's1', stepName: 'Wait', stepType: 'delay', status: 'completed' },
+      { stepId: 's2', stepName: 'Check', stepType: 'condition', status: 'failed' },
+    ],
+    variables: {},
+  };
+}
+
 describe('AutomationHandler', () => {
   let handler: AutomationHandler;
   let deps: HandlerDeps;
@@ -216,6 +270,83 @@ describe('AutomationHandler', () => {
     // Sorted by timestamp descending (200 before 100)
     expect(response.payload.history[0].timestamp).toBe(200);
     expect(response.payload.history[1].timestamp).toBe(100);
+  });
+
+  it('keeps a finished run where pipeline:history reads it, and its pipeline only in storage', async () => {
+    // The History tab is fed by the 'pipeline-history' category of the config
+    // store; a run that is not written there leaves the tab empty for ever.
+    deps.configStore = createMemoryConfigStore();
+    deps.services = servicesReturning(completedRun('run-h1', '2026-09-01T10:00:00.000Z'));
+
+    await handler.handle(
+      inboundRequest({
+        id: 'run-hist-1',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: { id: 'pipe-1', name: 'Nightly refresh', steps: [] } },
+      } as unknown as BaseMessage),
+    );
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    postToWebview.mockClear();
+
+    await handler.handle(
+      inboundRequest({ id: 'hist-1', type: 'pipeline:history', timestamp: Date.now() }),
+    );
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: {
+        history: Array<Record<string, unknown>>;
+      };
+    };
+    expect(response.type).toBe('pipeline:history:response');
+    expect(response.payload.history).toHaveLength(1);
+    const [entry] = response.payload.history;
+    expect(entry['runId']).toBe('run-h1');
+    expect(entry['status']).toBe('completed');
+    expect(entry['stepCount']).toBe(2);
+    expect(entry['errorCount']).toBe(1);
+
+    // The definition is kept for a future replay, but nothing in the tab reads
+    // it, and a pipeline's variables can hold a secret default: it stays in
+    // extension storage and does not cross the bridge.
+    const stored = deps.configStore.get('pipeline:history:run-h1') as {
+      pipeline: { name: string };
+    };
+    expect(stored.pipeline.name).toBe('Nightly refresh');
+    expect(entry['pipeline']).toBeUndefined();
+    expect(entry['key']).toBeUndefined();
+  });
+
+  it('drops the oldest run once the history is full', async () => {
+    // Each entry carries a whole pipeline definition, so an unbounded log would
+    // grow the workspace state file on every click on Run.
+    deps.configStore = createMemoryConfigStore();
+    for (let i = 0; i < 50; i++) {
+      deps.configStore.set(
+        `pipeline:history:old-${i}`,
+        { runId: `old-${i}`, timestamp: 1_000 + i },
+        'pipeline-history',
+      );
+    }
+    deps.services = servicesReturning(completedRun('run-newest', '2026-09-02T10:00:00.000Z'));
+
+    await handler.handle(
+      inboundRequest({
+        id: 'run-hist-2',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: { id: 'pipe-1', name: 'Nightly refresh', steps: [] } },
+      } as unknown as BaseMessage),
+    );
+
+    const stored = deps.configStore.getByCategory('pipeline-history') as Record<
+      string,
+      { runId: string }
+    >;
+    expect(Object.keys(stored)).toHaveLength(50);
+    expect(stored['pipeline:history:old-0']).toBeUndefined();
+    expect(stored['pipeline:history:run-newest']).toBeDefined();
   });
 
   it('handles pipeline:save with correlationId and persists to ConfigStore', async () => {

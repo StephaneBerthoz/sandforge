@@ -267,7 +267,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         const anonymizer = new ForgeAnonymizer();
 
         const executor = new ForgeExecutor({
-          queryRecords: async (orgId, soql) => {
+          queryRecords: async (orgId, soql, onTruncated) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             // `conn.query` returns only the FIRST page (2 000 records
             // max), so a 50 000-row object silently cloned as 2 000 rows.
@@ -282,11 +282,14 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               soql,
             );
             if (truncated) {
+              // The output channel says how short the read was; the callback
+              // is what puts the object in the summary the wizard shows.
+              onTruncated?.();
               log(
                 `[forge] ${objectOfQuery(soql)}: query stopped at ${records.length} record(s) ` +
                   `after ${pages} page(s) (cap: ${FORGE_QUERY_MAX_RECORDS} records / ` +
                   `${FORGE_QUERY_MAX_PAGES} pages) — the source has more rows than were ` +
-                  `cloned. Narrow the selection with a filter or a row limit to clone the rest.`,
+                  `cloned. Split the run with filters that each stay under the bound to clone the rest.`,
               );
             }
             return records;

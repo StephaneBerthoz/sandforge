@@ -384,9 +384,9 @@ test.describe('Compare panel — results tabs', () => {
     await expect(page.getByTestId('page-tabs')).toBeVisible();
     await expect(page.getByTestId('page-tabs').getByRole('tab')).toHaveText([
       'Diff Viewer',
-      'Permission Matrix',
+      'Permission Presence',
       'Snapshots',
-      'Drift Dashboard',
+      'Org Settings Drift',
       'Deploy from Diff',
     ]);
     await expect(page.getByTestId('page-tab-diff')).toHaveAttribute('aria-selected', 'true');

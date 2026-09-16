@@ -54,8 +54,7 @@ export default defineConfig({
     // Exclude framer-motion from pre-bundling so our transform plugin can patch it
     exclude: ['framer-motion'],
   },
-  server: {
-    port: 5173,
-    strictPort: true,
-  },
+  // No `server.port` here: Playwright passes the port it is going to browse
+  // on `--port`, and a second value in this file is a source of truth that can
+  // drift from the one the tests browse.
 });

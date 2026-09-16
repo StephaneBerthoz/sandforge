@@ -1149,6 +1149,61 @@ test('no user-facing surface claims nothing activates Grappe', () => {
   );
 });
 
+/**
+ * A line that names Autopilot beside partitioned reporting has to say the
+ * autopilot path reports only its start and its end, in the words each
+ * language publishes. The Settings row for `sandforge.grappe.enabled` once
+ * listed "Seed, Sync and Autopilot runs partition by partition" two rows below
+ * a module row that said the opposite, and no rule read that cell.
+ */
+const AUTOPILOT_BRACKET_ONLY =
+  /only (?:its |the )?start and (?:its |the )?end|ne signale que (?:son|le) début|nur (?:seinen )?Beginn|開始と終了(?:の|だけ)|solo (?:informa )?(?:su |el )?inicio|apenas (?:seu |o )?início/iu;
+const NAMES_PARTITIONED_REPORTING = /partition|partici|partiç|パーティション/iu;
+
+const autopilotPartitionOverclaims = (units) =>
+  units.filter(
+    ({ text }) =>
+      /autopilot/i.test(text) &&
+      NAMES_PARTITIONED_REPORTING.test(text) &&
+      !AUTOPILOT_BRACKET_ONLY.test(text),
+  );
+
+test('the autopilot rule refuses the settings row that shipped and leaves the qualified one alone', () => {
+  assert.equal(
+    autopilotPartitionOverclaims([
+      {
+        text: '| `sandforge.grappe.enabled` | Report large Seed, Sync and Autopilot runs partition by partition; execution stays sequential | `false` |',
+      },
+    ]).length,
+    1,
+    'the rule lets through the row that published per-partition reporting for Autopilot',
+  );
+  assert.deepEqual(
+    autopilotPartitionOverclaims([
+      {
+        text: '| `sandforge.grappe.enabled` | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false` |',
+      },
+    ]),
+    [],
+    'the rule refuses the qualified row',
+  );
+});
+
+test('no user-facing surface says an autopilot run is reported partition by partition', () => {
+  assertAutopilotOnlyBracketsTheRun();
+
+  const offenders = autopilotPartitionOverclaims(grappeUnits()).map(
+    ({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`,
+  );
+  assert.deepEqual(
+    offenders,
+    [],
+    'an autopilot run reports only its start and its end, and these lines put it beside ' +
+      'per-partition reporting without saying so:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
 // ── CDC / real-time sync ──────────────────────────────────────────────────
 
 test('anchor: every realtime:* channel is still routed to the no-op handler', () => {
@@ -4390,5 +4445,438 @@ test('no user-facing surface gives the model setting to the assistant alone', ()
     [],
     'five features pick their model from this setting; these surfaces still give it to one:\n  ' +
       offenders.join('\n  '),
+  );
+});
+
+// ── a saved conversation that could not be continued ──────────────────────
+
+const AI_CHAT_HANDLER_FILE = 'packages/extension/src/bridge/handlers/ai/AIChatHandler.ts';
+const AI_ASSISTANT_FILE = 'packages/extension/src/modules/ai/AIAssistant.ts';
+
+/**
+ * A conversation reopened after a restart can be continued, and the model is
+ * given its last 20 messages.
+ *
+ * The assistant only knew the conversations opened in the current session, so
+ * the first message sent into an older one came back as "conversation not
+ * found". Chat now reloads it from the store before it answers. What the
+ * transcript shows and what the model is given are two different things: the
+ * page shows the conversation whole, the assistant sends the tail.
+ */
+function assertChatRestoresAConversationAndSendsItsTail() {
+  const handler = parseFile(AI_CHAT_HANDLER_FILE);
+  const chat = methodBody(handler, 'handleChat');
+  assert.ok(chat, `${AI_CHAT_HANDLER_FILE} no longer declares handleChat — re-point this anchor`);
+  const called = callsWithin(chat).map((call) => call.name);
+  // Positive control: the walk reads that body, and sees it chat.
+  assert.ok(
+    called.includes('chat'),
+    'the scan cannot see handleChat calling the assistant — it is reading an empty body, so the ' +
+      'restore below would prove nothing',
+  );
+  assert.ok(
+    called.includes('restoreConversationIfNeeded'),
+    'handleChat no longer reloads a persisted conversation: an older chat cannot be continued ' +
+      'again, and the wordings below became true',
+  );
+
+  const assistant = parseFile(AI_ASSISTANT_FILE);
+  const window = [];
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      memberName(node.expression) === 'slice' &&
+      node.arguments.length === 1
+    ) {
+      window.push(node.arguments[0].getText(assistant));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(assistant);
+  assert.ok(
+    window.includes('-20'),
+    'the assistant no longer gives the model the last 20 messages of a conversation — say what ' +
+      'it gives now wherever the number is written',
+  );
+}
+
+test('anchor: a reopened conversation is continued, and the model gets its last 20 messages', () => {
+  assertChatRestoresAConversationAndSendsItsTail();
+});
+
+/**
+ * What this product published about a saved chat, mined from the two surfaces
+ * that carried it: the feature table of both READMEs, and the release note
+ * that announced the fix while overstating what the model is given.
+ */
+const SAVED_CHAT_CLAIMS = [
+  {
+    text: 'A saved chat can be reread but not continued once VS Code restarts or an AI setting changes',
+    where: 'the AI Assistant row of the feature table, both READMEs, v1.22.0',
+  },
+  {
+    text: 'It now resumes with its full history, in order',
+    where: 'the conversation-restore note, the v1.22.0 changelogs',
+  },
+].map(mine);
+
+test('no user-facing surface says a saved chat cannot be continued', () => {
+  assertMinedWordingsCarryAClaim(SAVED_CHAT_CLAIMS);
+  assertChatRestoresAConversationAndSendsItsTail();
+
+  const offenders = [];
+  for (const { label, text } of userFacingProse()) {
+    for (const claim of republishedClaims(text, SAVED_CHAT_CLAIMS)) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a reopened conversation is continued, and the model is given its last 20 messages, so ' +
+      'these surfaces are wrong in one direction or the other:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('the saved-chat rule refuses what shipped and leaves the qualified sentence alone', () => {
+  const refused = (text) => republishedClaims(text, SAVED_CHAT_CLAIMS).length > 0;
+  for (const shipped of [
+    'A saved chat can be reread but not continued once VS Code restarts or an AI setting changes.',
+    'It now resumes with its full history, in order, and deleting it removes it from the list.',
+  ]) {
+    assert.equal(
+      refused(shipped),
+      true,
+      `the rule lets this published sentence through: ${shipped}`,
+    );
+  }
+  for (const honest of [
+    'A saved chat continues after a restart or an AI setting change; the model is given its last 20 messages.',
+    'The conversation is shown in full, and the model receives the last 20 messages of it.',
+  ]) {
+    assert.equal(refused(honest), false, `the rule refuses this true sentence: ${honest}`);
+  }
+});
+
+// ── the pilot load: optional, and one root folder ─────────────────────────
+
+const FROZEN_LOAD_TAB_FILE = 'packages/webview/src/pages/Frozen/FrozenLoadTab.tsx';
+const FROZEN_LOADER_FILE = 'packages/extension/src/modules/frozendataset/FrozenDatasetLoader.ts';
+
+/** The initial value of the `useState` held by a name, as written. */
+function useStateInitializer(source, name) {
+  let initializer;
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isArrayBindingPattern(node.name) &&
+      node.name.elements.some(
+        (element) =>
+          ts.isBindingElement(element) &&
+          ts.isIdentifier(element.name) &&
+          element.name.text === name,
+      ) &&
+      node.initializer &&
+      ts.isCallExpression(node.initializer) &&
+      invokedName(node.initializer.expression) === 'useState'
+    ) {
+      initializer = node.initializer.arguments[0]?.getText(source) ?? '';
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return initializer;
+}
+
+/**
+ * The pilot is a box the user ticks, and it loads one root folder.
+ *
+ * `FrozenLoadTab` starts with it off, and the loader's pilot path narrows the
+ * dataset to a single root reference. Help text that makes the pilot a step
+ * every load goes through, or one that covers several folders, describes a
+ * different feature.
+ */
+function assertPilotIsOptionalAndOneFolder() {
+  const tab = parseFile(FROZEN_LOAD_TAB_FILE);
+  // Positive control: the reader finds the state and can tell true from false.
+  const probe = ts.createSourceFile(
+    'probe.tsx',
+    'const [pilot, setPilot] = useState(true);',
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  assert.equal(
+    useStateInitializer(probe, 'pilot'),
+    'true',
+    'the reader no longer sees what the pilot toggle starts as — the check below proves nothing',
+  );
+  assert.equal(
+    useStateInitializer(tab, 'pilot'),
+    'false',
+    `${FROZEN_LOAD_TAB_FILE} no longer starts with the pilot off: it is a step every load goes ` +
+      'through now, and the help text has to say so',
+  );
+
+  const loader = parseFile(FROZEN_LOADER_FILE);
+  const scope = methodBody(loader, 'filterPilotScope');
+  assert.ok(
+    scope,
+    `${FROZEN_LOADER_FILE} no longer declares filterPilotScope — re-point this anchor`,
+  );
+  assert.match(
+    scope.getText(loader),
+    /rootReferenceId/,
+    'the pilot path no longer narrows the load to one root reference — it may cover several ' +
+      'folders now, and the help text has to say so',
+  );
+}
+
+test('anchor: the pilot load starts off and covers one root folder', () => {
+  assertPilotIsOptionalAndOneFolder();
+});
+
+/** "Pilot", in the six languages the webview ships. */
+const PILOT_WORD = /(?<!\p{L})pilot[aeo]?(?!\p{L})|パイロット/iu;
+
+/** A step nobody can skip. */
+const MANDATORY =
+  /(?<!\p{L})(?:must|required|mandatory|always|obligatoire|toujours|obligatorio|siempre|obrigatóri[ao]|sempre|erforderlich|verpflichtend|zwingend|immer)(?!\p{L})|必須|必ず/iu;
+
+/** More than one folder, in the words each language uses for the unit. */
+const MANY_FOLDERS =
+  /(?<!\p{L})(?:folders|dossiers|expedientes|pastas|Ordnern)(?!\p{L})|(?<!\p{L})(?:all|every|each|tous|toutes|todos|todas|alle|jede[rnms]?)\s+(?:the\s+|les\s+|los\s+|as\s+)?(?:root\s+|racines?\s+|raíz\s+|raiz\s+|Wurzel)?(?:folder|dossier|expediente|pasta|Ordner)|すべての(?:ルート|案件|フォルダ)|各(?:ルート|案件|フォルダ)/iu;
+
+/** The sentences of a text that sell the pilot as compulsory, or as many folders. */
+function pilotOverclaims(text) {
+  const offenders = [];
+  for (const sentence of String(text).split(/(?<=[.!?…])\s+|[。！？\n]+/u)) {
+    if (!PILOT_WORD.test(sentence)) continue;
+    if (MANDATORY.test(sentence) || MANY_FOLDERS.test(sentence)) offenders.push(sentence.trim());
+  }
+  return [...new Set(offenders)];
+}
+
+test('the in-app help keeps the pilot load optional and on one folder', () => {
+  assertPilotIsOptionalAndOneFolder();
+
+  const offenders = [];
+  let bundlesRead = 0;
+  for (const file of localeFiles()) {
+    const bundle = JSON.parse(readFileSync(join(LOCALES_DIR, file), 'utf8'));
+    const text = bundle.help?.frozenContent;
+    assert.equal(
+      typeof text,
+      'string',
+      `locales/${file} has no help.frozenContent — the rule below reads nothing`,
+    );
+    bundlesRead += 1;
+    for (const sentence of pilotOverclaims(text)) {
+      offenders.push(`locales/${file} help.frozenContent: ${sentence.slice(0, 140)}`);
+    }
+  }
+  assert.equal(bundlesRead, 6, `the walk read ${bundlesRead} bundles, the extension ships 6`);
+  assert.deepEqual(
+    offenders,
+    [],
+    'the pilot is a box the user ticks, on one root folder, and the help says otherwise:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('the pilot rule refuses a compulsory or multi-folder pilot and leaves the shipped text alone', () => {
+  for (const refused of [
+    '- Load: sandbox targets only, with a Pilot on every root folder before the full load',
+    '- Load: the Pilot pass is required before the full load',
+    '- Chargement : un Pilote obligatoire précède le chargement complet',
+    '- Carga: un Piloto sobre todos los expedientes raíz antes de la carga completa',
+    '- Laden: ein Pilot ist vor dem vollständigen Laden erforderlich',
+    '- Carga: um Piloto sobre todas as pastas raiz antes da carga completa',
+    '- ロード：本ロードの前にパイロットは必須です',
+  ]) {
+    assert.ok(pilotOverclaims(refused).length > 0, `the rule lets this through: ${refused}`);
+  }
+  for (const file of localeFiles()) {
+    const bundle = JSON.parse(readFileSync(join(LOCALES_DIR, file), 'utf8'));
+    assert.deepEqual(
+      pilotOverclaims(bundle.help.frozenContent),
+      [],
+      `the rule refuses the shipped sentence in locales/${file}`,
+    );
+  }
+});
+
+// ── the provider list, and the failure sent on its own ────────────────────
+
+/** Anthropic is the only provider the settings offer. */
+function assertAnthropicIsTheOnlyProviderOffered() {
+  const property = JSON.parse(read(...EXT, 'package.json')).contributes?.configuration
+    ?.properties?.['sandforge.ai.provider'];
+  assert.ok(property, 'sandforge.ai.provider is gone from the manifest — re-read this gate');
+  assert.deepEqual(
+    property.enum,
+    ['anthropic'],
+    'the provider setting offers more than Anthropic now: the surfaces below may name the ' +
+      'others again, and each one has to say what it sends',
+  );
+}
+
+/** The failure of a run is sent with nobody asking, so it has a switch of its own. */
+function assertErrorResolutionHasASwitch() {
+  const properties =
+    JSON.parse(read(...EXT, 'package.json')).contributes?.configuration?.properties ?? {};
+  assert.ok(
+    properties['sandforge.ai.errorResolution'],
+    'the failure a run reports is sent to the model with nobody asking, and the setting that ' +
+      'turns it off is gone from the manifest',
+  );
+  const composition = read(...EXT, 'src', 'composition', 'aiComposition.ts');
+  assert.match(
+    composition,
+    /ai\.errorResolution/,
+    'nothing reads sandforge.ai.errorResolution any more — the setting is a box that does ' +
+      'nothing, and the surfaces below promise it works',
+  );
+}
+
+test('anchor: Anthropic is the only provider, and error resolution has a switch', () => {
+  assertAnthropicIsTheOnlyProviderOffered();
+  assertErrorResolutionHasASwitch();
+});
+
+/**
+ * The built-in table answers only while a SandForge view is open, like the
+ * model does: the switch's own description says so, in each language.
+ */
+const WHILE_A_VIEW_IS_OPEN = {
+  en: /while a SandForge view is open/i,
+  fr: /tant qu'une vue SandForge est ouverte/i,
+  de: /solange eine SandForge-Ansicht geöffnet ist/i,
+  es: /mientras haya una vista de SandForge abierta/i,
+  ja: /SandForge のビューが開いている間/,
+  'pt-br': /enquanto uma visualização do SandForge estiver aberta/i,
+};
+
+test('the error resolution switch says the built-in table answers only while a view is open', () => {
+  const handlers = read(...EXT, 'src', 'bridge', 'handlers', 'HandlerTypes.ts');
+  assert.match(
+    handlers,
+    /const watched = deps\.broker\.panelCount > 0;\s*if \(!watched/,
+    'a failure is resolved with no SandForge view open now — the setting may drop its condition',
+  );
+  const properties =
+    JSON.parse(read(...EXT, 'package.json')).contributes?.configuration?.properties ?? {};
+  const missing = [];
+  for (const [locale, text] of Object.entries(
+    resolveNls(properties['sandforge.ai.errorResolution'].description),
+  )) {
+    assert.ok(WHILE_A_VIEW_IS_OPEN[locale], `${locale}: no rule written for this locale`);
+    if (!WHILE_A_VIEW_IS_OPEN[locale].test(text)) missing.push(locale);
+  }
+  assert.deepEqual(missing, [], 'the setting promises an answer with every SandForge view closed');
+});
+
+/** Providers sold as a choice the Settings editor offers. */
+const PROVIDERS_IN_SETTINGS =
+  /(?:providers?|fournisseurs?|Anbieter|proveedores?|provedores?|プロバイダー?)[^.\n]{0,40}(?:listed in settings|in settings|dans les param|in den Einstellungen|en (?:los )?ajustes|en la configuraci|nas configurações|設定)/iu;
+
+test('no user-facing surface offers a provider the settings do not', () => {
+  assertAnthropicIsTheOnlyProviderOffered();
+
+  const offenders = [];
+  for (const { label, text } of userFacingProse()) {
+    if (PROVIDERS_IN_SETTINGS.test(text)) offenders.push(`${label}: ${text.trim().slice(0, 160)}`);
+    // Naming one of the two that were taken out of the enum, beside the word
+    // settings, reads as a choice the editor offers.
+    if (
+      /\bOpenAI\b/i.test(text) &&
+      /settings|param|Einstellungen|ajustes|configuraç|設定/i.test(text)
+    ) {
+      offenders.push(`${label}: names OpenAI as a setting — ${text.trim().slice(0, 140)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'the setting offers one provider; these surfaces describe a list:\n  ' + offenders.join('\n  '),
+  );
+});
+
+test('both AI rows answer with AI off and name the switch that stops the sending', () => {
+  assertErrorResolutionHasASwitch();
+
+  const offenders = [];
+  for (const relPath of READMES) {
+    const row = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => /^\|\s*\*\*AI Assistant\*\*/.test(line));
+    assert.ok(row, `${relPath}: the AI Assistant row of the feature table is gone`);
+    if (!/AI off/i.test(row)) {
+      offenders.push(`${relPath}: the row does not say what still answers with AI off`);
+    }
+    if (!row.includes('sandforge.ai.errorResolution')) {
+      offenders.push(`${relPath}: the row does not name the setting that stops the sending`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'the row is where a buyer reads what leaves the machine:\n  ' + offenders.join('\n  '),
+  );
+});
+
+test('the privacy answer names the switch and the failures it never sends', () => {
+  assertErrorResolutionHasASwitch();
+
+  const answer = read('docs', 'faq.md')
+    .split('\n')
+    .find((line) => /Only to Anthropic/.test(line));
+  assert.ok(answer, 'docs/faq.md no longer answers where data goes — re-read this gate');
+  assert.ok(
+    answer.includes('sandforge.ai.errorResolution'),
+    'the privacy answer does not name the setting that stops a failure being sent',
+  );
+  // The pipeline runner's fallback carries no detail; it is one of the messages
+  // the handler refuses to send, and the answer enumerates them.
+  assert.match(
+    answer,
+    /Pipeline failed/,
+    'the answer lists the messages SandForge writes itself and leaves out the one a failed ' +
+      'pipeline ends on',
+  );
+});
+
+// ── how many generators Seed has without a model ──────────────────────────
+
+/** The methods the generator implements, read off the shared list. */
+function supportedFakerMethods() {
+  const source = read('packages', 'shared', 'src', 'constants', 'faker-methods.ts');
+  const list = /export const SUPPORTED_FAKER_METHODS = \[([\s\S]*?)\] as const;/.exec(source);
+  assert.ok(list, 'SUPPORTED_FAKER_METHODS moved — re-point this gate');
+  const methods = [...list[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(
+    methods.length > 10,
+    `the list reads as ${methods.length} methods — re-point this gate`,
+  );
+  return methods;
+}
+
+test('the FAQ counts the generators the code has', () => {
+  const expected = supportedFakerMethods().length;
+  const answer = read('docs', 'faq.md')
+    .split('\n')
+    .find((line) => /Faker generators/.test(line));
+  assert.ok(answer, 'docs/faq.md no longer says how many generators Seed has without a model');
+  const counted = /(\d+)(\+?)\s+(?:locale-aware\s+)?Faker generators/.exec(answer);
+  assert.ok(counted, `the count is not written as a number: ${answer.trim().slice(0, 140)}`);
+  assert.equal(
+    counted[2],
+    '',
+    'a "+" is a promise of more than the generator implements: write the number',
+  );
+  assert.equal(
+    Number(counted[1]),
+    expected,
+    `the FAQ says ${counted[1]} generators, the generator implements ${expected}`,
   );
 });

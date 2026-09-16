@@ -34,9 +34,10 @@ interface SchemaConnection {
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles NL2SOQL translation and pipeline generation. Error resolution has no
- * inbound channel: a failure is resolved once by `sendOperationFailed`, on the
- * side that raises it — see the note on `AIResolveErrorResponse`.
+ * Handles NL2SOQL translation and pipeline generation. Error resolution is not
+ * one of them and has no channel in either direction: a failure is resolved
+ * once by `sendOperationFailed`, on the side that raises it, and the
+ * suggestion is shown there as a VS Code notification.
  */
 export class AIToolsHandler implements DomainHandler {
   private aiModules?: AIModules;

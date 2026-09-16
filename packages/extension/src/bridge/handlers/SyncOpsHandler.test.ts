@@ -642,6 +642,46 @@ describe('SyncOpsHandler', () => {
       expect(response.payload.id).toBe('cfg-1');
     });
 
+    it.each([
+      ['direction', 'target_to_source'],
+      ['mode', 'incremental'],
+      ['conflictStrategy', 'manual'],
+    ])('refuses to save a configuration whose %s the sync cannot run', async (field, value) => {
+      // A saved configuration is what a schedule runs unattended, so it has to
+      // pass the same boundary as a run started by hand — otherwise the refusal
+      // only lands weeks later, on the first tick, with nobody watching.
+      const config = { ...validSyncConfig(), [field]: value };
+
+      const result = await handler.handle(
+        inboundRequest({
+          id: 'req-save-refused',
+          type: 'sync:config:save',
+          timestamp: Date.now(),
+          payload: { config },
+        } as BaseMessage & { payload: { config: Record<string, unknown> } }),
+      );
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(response.type).toBe('sync:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+      // Nothing reached the store, so the schedule builder, which offers only
+      // what sync:config:list returns, has nothing to build a schedule on.
+      expect(deps.configStore.set).not.toHaveBeenCalled();
+      postToWebview.mockClear();
+      await handler.handle(
+        inboundRequest({ id: 'req-list-after-refusal', type: 'sync:config:list', timestamp: 1 }),
+      );
+      const list = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { configs: unknown[] };
+      };
+      expect(list.type).toBe('sync:config:list:response');
+      expect(list.payload.configs).toEqual([]);
+    });
+
     it('handles sync:config:list and responds with summaries', async () => {
       // Save a config first
       const config = {
@@ -1217,7 +1257,7 @@ describe('SyncOpsHandler', () => {
         operation: 'delete',
         objectName: 'Account, Contact',
         // Row counts are unknown until the orchestrator queries the source.
-        recordCount: 0,
+        recordCount: 'unknown',
         module: 'sync',
       });
     });

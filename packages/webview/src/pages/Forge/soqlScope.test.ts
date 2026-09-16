@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   soqlFilterRefused,
   soqlObjectFilters,
+  soqlObjectNameRefused,
   soqlRootFilter,
   SOQL_UNSCOPED_RECORD_CAP,
 } from './forgeUtils';
@@ -127,6 +128,28 @@ describe('soqlFilterRefused', () => {
 
   it('judges the clause alone, not the name of the object it filters', () => {
     expect(soqlFilterRefused('SELECT Id FROM 1Account WHERE Name = null')).toBe(false);
+  });
+});
+
+describe('soqlObjectNameRefused', () => {
+  it('refuses a name the extension would reject at discovery, which the clause check lets through', () => {
+    // Same query as above: the clause is fine, the object name is not, and
+    // Discover was refused by the extension with nothing said in the form.
+    expect(soqlObjectNameRefused('SELECT Id FROM 1Account WHERE Name = null')).toBe(true);
+    expect(soqlFilterRefused('SELECT Id FROM 1Account WHERE Name = null')).toBe(false);
+  });
+
+  it('accepts a name the extension accepts as a filter key', () => {
+    expect(soqlObjectNameRefused("SELECT Id FROM Account WHERE Industry = 'X'")).toBe(false);
+    expect(soqlObjectNameRefused('SELECT Id FROM My_Object__c')).toBe(false);
+  });
+
+  it('says nothing about a query with no filter to send', () => {
+    // Without a WHERE clause nothing goes into objectSoqlFilters, so the key
+    // rule never applies and the form has no refusal to make.
+    expect(soqlObjectNameRefused('SELECT Id FROM 1Account')).toBe(false);
+    expect(soqlObjectNameRefused('not a query')).toBe(false);
+    expect(soqlObjectNameRefused('')).toBe(false);
   });
 });
 

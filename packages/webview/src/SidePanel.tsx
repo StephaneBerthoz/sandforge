@@ -36,7 +36,7 @@ import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import type { RecentOp } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { OrgListResponse } from '@sandforge/shared';
 
 /** Status icon component for a recent operation. */
 const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
@@ -214,13 +214,16 @@ export const SidePanel: React.FC = () => {
       }
       const msg = event.data as {
         type?: string;
-        payload?: { orgs?: SalesforceOrg[]; settings?: unknown; orgId?: string };
+        payload?: Partial<OrgListResponse['payload']> & {
+          settings?: unknown;
+          orgId?: string;
+        };
       };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
         useOrgStore.getState().setOrgs(msg.payload.orgs);
         // The payload also carries the extension-side selection — adopt it
         // when this document has none (the view is recreated on hide/show).
-        const selected = (msg.payload as { selectedOrgId?: string | null }).selectedOrgId;
+        const selected = msg.payload.selectedOrgId;
         if (selected != null && useOrgStore.getState().selectedOrgId === null) {
           useOrgStore.getState().selectOrg(selected);
         }

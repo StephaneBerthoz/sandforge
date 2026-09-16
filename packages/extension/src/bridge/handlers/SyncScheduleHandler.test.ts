@@ -174,6 +174,27 @@ describe('SyncScheduleHandler', () => {
     expect(deps.posted.some((m) => m.type === 'sync:schedule:error')).toBe(true);
   });
 
+  it('refuses a schedule on a configuration that was never saved, and stores nothing', async () => {
+    // The picker is not the only sender: a panel built before configurations
+    // could be saved still offers an id nothing ever stored, and a schedule on
+    // it could only ever fail.
+    expect(await handler.handle(upsertMessage('sched-1', { configId: 'cfg-default' }))).toBe(true);
+
+    const error = deps.posted.find((m) => m.type === 'sync:schedule:error');
+    expect(error).toBeDefined();
+    const payload = error!.payload as { code?: string; message?: string };
+    expect(payload.code).toBe('NOT_FOUND');
+    expect(payload.message).toContain('cfg-default');
+    expect(deps.posted.some((m) => m.type === 'sync:schedule:upsert:response')).toBe(false);
+
+    await handler.handle(
+      inboundRequest({ id: 'req-list', type: 'sync:schedule:list', timestamp: Date.now() }),
+    );
+    const listResp = deps.posted.find((m) => m.type === 'sync:schedule:list:response');
+    expect((listResp!.payload as { schedules: unknown[] }).schedules).toHaveLength(0);
+    expect(persistedSchedule(deps)).toBeUndefined();
+  });
+
   it('executes a due schedule on the 60s tick once startScheduler is wired', async () => {
     seedSyncConfig(deps);
     await handler.handle(upsertMessage());
@@ -207,6 +228,26 @@ describe('SyncScheduleHandler', () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(persistedSchedule(deps)?.lastResult).toBe('failure');
+  });
+
+  it('tells the panels a scheduled run failed, instead of only the output channel', async () => {
+    // Nobody is watching Sync when a schedule fires. A failure written only to
+    // the log left the schedule looking healthy until someone opened it.
+    seedSyncConfig(deps);
+    await handler.handle(upsertMessage('sched-1', { notifyOnFailure: true }));
+
+    handler.startScheduler(async (): Promise<SyncExecutionResult> => {
+      throw new Error('sync engine exploded');
+    });
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const notifications = deps.posted.filter((p) => p.type === 'notification');
+    expect(notifications).toHaveLength(1);
+    const payload = notifications[0].payload as { level: string; message: string };
+    expect(payload.level).toBe('error');
+    expect(payload.message).toContain('sync engine exploded');
   });
 
   it('does not fire after stopScheduler', async () => {

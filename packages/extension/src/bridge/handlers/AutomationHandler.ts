@@ -1,3 +1,4 @@
+import type { PipelineDefinition, PipelineRun } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -19,6 +20,12 @@ import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
+
+/**
+ * How many runs the history keeps. Each entry carries the definition that ran,
+ * so an unbounded log would grow the workspace state file on every run.
+ */
+const HISTORY_LIMIT = 50;
 
 /** Message types handled by AutomationHandler. */
 const AUTOMATION_TYPES = new Set([
@@ -124,8 +131,7 @@ export class AutomationHandler implements DomainHandler {
         services: this.deps.services,
       });
 
-      const pipeline =
-        payload.pipeline as unknown as import('@sandforge/shared').PipelineDefinition;
+      const pipeline = payload.pipeline as unknown as PipelineDefinition;
       const variables = payload.variables ?? {};
 
       this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
@@ -166,6 +172,7 @@ export class AutomationHandler implements DomainHandler {
       }
 
       this.deps.infraServices?.performanceTracker?.complete(operationId);
+      this.recordRun(result, pipeline);
 
       if (result.status === 'failed') {
         sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', false, {
@@ -193,6 +200,65 @@ export class AutomationHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout, {
         context: failure,
       });
+    }
+  }
+
+  /**
+   * Write a finished run to the 'pipeline-history' category `pipeline:history`
+   * reads, with the definition that ran: a save overwrites a pipeline under its
+   * own id, so the snapshot is the only record of what the run walked.
+   *
+   * A storage failure is logged rather than raised: the run is over, and its
+   * result is on its way to the webview.
+   *
+   * The `PipelineHistory` module the orchestrator records into is built per
+   * request and keeps its entries in memory, so it is gone with the handler
+   * call: this is the only place a run outlives the run itself.
+   *
+   * @param run - The run as the orchestrator resolved it.
+   * @param pipeline - The definition the run walked.
+   */
+  private recordRun(run: PipelineRun, pipeline: PipelineDefinition): void {
+    try {
+      const startedAt = new Date(run.startTime).getTime();
+      this.deps.configStore.set(
+        `pipeline:history:${run.id}`,
+        {
+          runId: run.id,
+          pipelineId: run.pipelineId,
+          pipelineName: run.pipelineName,
+          status: run.status,
+          triggeredBy: run.triggeredBy,
+          startTime: run.startTime,
+          duration: run.duration ?? 0,
+          stepCount: run.stepResults.length,
+          errorCount: run.stepResults.filter((step) => step.status === 'failed').length,
+          // `pipeline:history` sorts on this; `startTime` is an ISO string.
+          timestamp: Number.isNaN(startedAt) ? Date.now() : startedAt,
+          pipeline,
+        },
+        'pipeline-history',
+      );
+      this.trimHistory();
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] pipeline history write: ${extractErrorMessage(err)}`);
+    }
+  }
+
+  /** Delete the oldest entries above {@link HISTORY_LIMIT}. */
+  private trimHistory(): void {
+    const entries = Object.entries(this.deps.configStore.getByCategory('pipeline-history'));
+    if (entries.length <= HISTORY_LIMIT) return;
+
+    const oldestFirst = entries
+      .map(([key, value]) => {
+        const stamp = (value as Record<string, unknown>)['timestamp'];
+        return { key, timestamp: typeof stamp === 'number' ? stamp : 0 };
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    for (const { key } of oldestFirst.slice(0, entries.length - HISTORY_LIMIT)) {
+      this.deps.configStore.delete(key);
     }
   }
 
@@ -233,10 +299,15 @@ export class AutomationHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const historyEntries = this.deps.configStore.getByCategory('pipeline-history');
-      const rawHistory: Array<Record<string, unknown>> = Object.entries(historyEntries).map(
-        ([key, value]) => {
-          const entry = value as Record<string, unknown>;
-          return { key, ...entry };
+      // A stored entry also carries the definition the run walked. Nothing in
+      // the History tab reads it, and a pipeline variable can hold a secret
+      // default value, so the snapshot stays in extension storage rather than
+      // crossing the bridge on every visit to the tab.
+      const rawHistory: Array<Record<string, unknown>> = Object.values(historyEntries).map(
+        (value) => {
+          const entry = { ...(value as Record<string, unknown>) };
+          delete entry['pipeline'];
+          return entry;
         },
       );
       const history = rawHistory.sort((a, b) => {

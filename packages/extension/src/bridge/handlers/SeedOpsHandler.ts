@@ -365,8 +365,8 @@ export class SeedOpsHandler implements DomainHandler {
       const services = this.deps.services;
       if (!services?.isAIEnabled()) {
         throw new Error(
-          'AI is disabled. Enable sandforge.ai.enabled and configure your Anthropic API key ' +
-            '(SandForge: Configure AI Key) to create custom personas.',
+          'AI is disabled. Enable sandforge.ai.enabled and add your Anthropic API key in ' +
+            'SandForge Settings > AI > API key to create custom personas.',
         );
       }
       // Route through the unified AI client (breaker + budget + redaction).

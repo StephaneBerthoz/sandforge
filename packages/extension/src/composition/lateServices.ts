@@ -1,7 +1,6 @@
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { InfraServices, MigrationFileReader } from '../bridge/ExtensionHandlers';
 import type { OnboardingService } from '../core/onboarding/OnboardingService';
-import type { HintTracker } from '../core/onboarding/HintTracker';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
@@ -33,9 +32,8 @@ import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js'
  * handlers). This is what makes `registerAll`-before-injection safe.
  */
 export interface LateServices {
-  /** Onboarding + hints for the settings handler. */
+  /** Onboarding for the settings handler. */
   onboardingService: OnboardingService;
-  hintTracker: HintTracker;
   /** Infrastructure services shared via the mutable HandlerDeps. */
   infraServices: InfraServices;
   /** Background registry — also constructs the ExecutionHandler. */
@@ -60,7 +58,7 @@ export interface LateServices {
  * {@link LateServices}. Call order below is load-bearing.
  */
 export function applyLateServices(handlers: ExtensionHandlers, late: LateServices): void {
-  handlers.setOnboardingServices(late.onboardingService, late.hintTracker);
+  handlers.setOnboardingService(late.onboardingService);
   handlers.setInfraServices(late.infraServices);
   // Must precede registerAll: creates the ExecutionHandler that registerAll
   // conditionally routes (execution:abort).

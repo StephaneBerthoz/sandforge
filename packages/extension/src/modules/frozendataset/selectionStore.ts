@@ -4,7 +4,7 @@
  * versioned, it would form a real↔anonymized correspondence table.
  */
 
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { SasPathGuard } from './SasPathGuard.js';
 import type { CoverageSelectionResult } from './CoverageMatrixSelector.js';
@@ -20,21 +20,23 @@ export interface SelectionFile {
 }
 
 /**
- * Write the selection result to `<sasDir>/selection.json`.
+ * Write the selection result to `<sasDir>/selection.json`. The write is
+ * asynchronous: it runs on the extension host, where a synchronous one
+ * holds the extension host.
  *
  * @returns The absolute path written.
  */
-export function writeSelectionToSas(
+export async function writeSelectionToSas(
   sasDir: string,
   selection: CoverageSelectionResult,
   guard?: SasPathGuard,
-): string {
+): Promise<string> {
   const effectiveGuard = guard ?? new SasPathGuard();
   const dir = effectiveGuard.assertOutsideRepo(sasDir);
-  fs.mkdirSync(dir, { recursive: true });
+  await fs.mkdir(dir, { recursive: true });
   const filePath = effectiveGuard.assertOutsideRepo(path.join(dir, SELECTION_FILE_NAME));
   const envelope: SelectionFile = { fileVersion: 1, selection };
-  fs.writeFileSync(filePath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+  await fs.writeFile(filePath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
   return filePath;
 }
 
@@ -43,13 +45,13 @@ export function writeSelectionToSas(
  * these IDs into its queries at execution time: no hard-coded IDs in
  * templates — values come from the sas.
  */
-export function readSelectionFromSas(
+export async function readSelectionFromSas(
   sasDir: string,
   guard?: SasPathGuard,
-): CoverageSelectionResult {
+): Promise<CoverageSelectionResult> {
   const effectiveGuard = guard ?? new SasPathGuard();
   const filePath = effectiveGuard.assertOutsideRepo(path.join(sasDir, SELECTION_FILE_NAME));
-  const payload: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const payload: unknown = JSON.parse(await fs.readFile(filePath, 'utf8'));
   if (
     typeof payload !== 'object' ||
     payload === null ||

@@ -175,13 +175,16 @@ describe('SidebarViewProvider', () => {
 
   it('posts message to webview when visible', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
-    provider.postMessage({ type: 'test' });
-    expect(mockWebview.postMessage).toHaveBeenCalledWith({ type: 'test' });
+    const settings = { type: 'settings:response', payload: { settings: {} } } as const;
+    provider.postMessage(settings);
+    expect(mockWebview.postMessage).toHaveBeenCalledWith(settings);
   });
 
   it('does nothing when posting before resolve', () => {
     // No resolveWebviewView called
-    expect(() => provider.postMessage({ type: 'test' })).not.toThrow();
+    expect(() =>
+      provider.postMessage({ type: 'settings:response', payload: { settings: {} } }),
+    ).not.toThrow();
   });
 
   it('has correct static viewType', () => {
@@ -227,7 +230,7 @@ describe('SidebarViewProvider', () => {
 
       expect(broker.panelCount).toBe(0);
       // The dead view no longer receives direct posts either.
-      brokeredProvider.postMessage({ type: 'org:list:response' });
+      brokeredProvider.postMessage({ type: 'org:list:response', payload: { orgs: [] } });
       expect(mockWebview.postMessage).not.toHaveBeenCalled();
     });
 

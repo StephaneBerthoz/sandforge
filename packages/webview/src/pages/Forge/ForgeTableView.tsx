@@ -171,6 +171,9 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
                 <input
                   type="checkbox"
                   data-testid={`forge-table-include-${node.objectApiName}`}
+                  // The column header is the bare word "PII" two cells away:
+                  // the row's object is the only thing that names this box.
+                  aria-label={t('a11y.includeObject', { object: node.objectApiName })}
                   checked={node.included}
                   onChange={() => onToggleIncluded(node.objectApiName)}
                   className="accent-forge"

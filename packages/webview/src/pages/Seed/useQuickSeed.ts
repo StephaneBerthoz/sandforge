@@ -7,6 +7,7 @@ import type {
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
+import { useOrgStore } from '../../stores/useOrgStore';
 import type { ObjectProgress } from './Step7_Execute';
 
 /** Phase of the Quick Seed state machine. */
@@ -47,13 +48,19 @@ export interface QuickSeedState {
   setError: (e: string | null) => void;
 }
 
+/** Landing instructions for a Quick Seed opened from another page. */
+export interface QuickSeedOptions {
+  /** Org the caller already named, preselected on the selection step. */
+  initialOrgId?: string;
+}
+
 /**
  * Hook managing the Quick Seed state machine.
  *
  * Phases: idle -> selectOrg -> executing -> results.
  * Uses the template's field rules directly as Smart Suggest defaults.
  */
-export function useQuickSeed(): QuickSeedState {
+export function useQuickSeed(options: QuickSeedOptions = {}): QuickSeedState {
   const [phase, setPhase] = useState<QuickSeedPhase>('idle');
   const [selectedTemplate, setSelectedTemplate] = useState<SeedTemplate | null>(null);
   const [customizedCounts, setCustomizedCounts] = useState<Record<string, number>>({});
@@ -105,14 +112,37 @@ export function useQuickSeed(): QuickSeedState {
     }
   }, [executeMutation.error]);
 
-  const startQuickSeed = useCallback((template: SeedTemplate, counts: Record<string, number>) => {
-    setSelectedTemplate(template);
-    setCustomizedCounts(counts);
-    setPhase('selectOrg');
-    setError(null);
-    setExecutionResult(undefined);
-    setElapsedMs(0);
-  }, []);
+  const { initialOrgId } = options;
+  /* The org named by the caller answers the first template pick only. After
+     Back, the user has moved past that instruction, and reapplying it would
+     override the org they chose in the meantime. */
+  const initialOrgConsumedRef = useRef(false);
+
+  const startQuickSeed = useCallback(
+    (template: SeedTemplate, counts: Record<string, number>) => {
+      setSelectedTemplate(template);
+      setCustomizedCounts(counts);
+      /* Whoever opened this flow already named an org; preselecting it saves the
+         user from naming it twice. Read at this moment, and only while it is
+         still connected: a stale id would aim the write at an org the selection
+         step no longer offers. The step still shows, and the run still needs a
+         click on Start. */
+      if (initialOrgId && !initialOrgConsumedRef.current) {
+        initialOrgConsumedRef.current = true;
+        const stillConnected = useOrgStore
+          .getState()
+          .orgs.some((org) => org.id === initialOrgId && org.status === 'connected');
+        if (stillConnected) {
+          setSelectedOrgId(initialOrgId);
+        }
+      }
+      setPhase('selectOrg');
+      setError(null);
+      setExecutionResult(undefined);
+      setElapsedMs(0);
+    },
+    [initialOrgId],
+  );
 
   const selectOrg = useCallback((orgId: string) => {
     setSelectedOrgId(orgId);

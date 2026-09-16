@@ -11,8 +11,10 @@
  *    Records carry `referenceId`s, in-scope lookups hold `referenceId`s
  *    (not source IDs), RecordTypeId fields hold the RecordType *Name*.
  *
- * The load-phase contract is expressed here as extension-point
- * interfaces — intentionally not implemented by the core engine.
+ * The load-phase contract is expressed here as interfaces the engine calls
+ * but does not implement itself: `TargetRecordTypeIdResolver` resolves
+ * RecordTypes against the target org, `SasReferenceIdMappingStore` persists
+ * the referenceId mapping in the sas. FrozenDatasetHandler wires both.
  */
 
 /** A raw record as extracted from the source org, keyed by referenceId. */
@@ -108,10 +110,10 @@ export interface FrozenDataset {
 }
 
 /**
- * EXTENSION POINT for the load phase — NOT implemented by the core
- * engine. Resolves a RecordType reference to a target-org
- * RecordType ID by (SobjectType, DeveloperName); labels are never used
- * because they differ between orgs (mojibake included).
+ * Load-phase contract, implemented by {@link TargetRecordTypeIdResolver}.
+ * Resolves a RecordType reference to a target-org RecordType ID by
+ * (SobjectType, DeveloperName); labels are never used because they differ
+ * between orgs (mojibake included).
  */
 export interface RecordTypeIdResolver {
   resolveByDeveloperName(
@@ -122,10 +124,10 @@ export interface RecordTypeIdResolver {
 }
 
 /**
- * EXTENSION POINT for the load phase — NOT implemented by the core
- * engine. Persists the only reliable address of
- * a loaded record: the mapping `referenceId → real target Id` captured at
- * insert (target-org automations may rewrite business identifiers).
+ * Load-phase contract, implemented by {@link SasReferenceIdMappingStore}.
+ * Persists the only reliable address of a loaded record: the mapping
+ * `referenceId → real target Id` captured at insert (target-org
+ * automations may rewrite business identifiers).
  */
 export interface ReferenceIdMappingStore {
   persist(mapping: ReadonlyMap<string, string>): Promise<void>;

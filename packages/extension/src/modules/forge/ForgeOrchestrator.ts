@@ -243,6 +243,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         // count is what left a finished run unable to say where anything went.
         idRemapTable: summary.remapTable,
         errors: summary.errors,
+        // A read cut short by a bound is not an error and not a success: the
+        // clone is short by an unknown number of rows, and only the summary
+        // can say which objects.
+        truncatedObjects: summary.truncatedObjects,
       };
 
       this.emit('forge:complete', result);

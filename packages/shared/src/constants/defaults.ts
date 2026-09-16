@@ -168,6 +168,18 @@ export const DEFAULT_SOQL_LIMITS = {
   singleRecord: 1,
 } as const;
 
+/**
+ * What the host says when `sf` is not on PATH, and where to get it.
+ *
+ * Shared rather than written twice: the connect error the webview receives is
+ * a message string, not a code, and the OrgManager banner offers the install
+ * link only when it recognises this exact sentence.
+ */
+export const SF_CLI_MISSING_MESSAGE = 'Salesforce CLI (sf) not found on PATH.';
+
+/** Salesforce's own install page for the `sf` CLI. */
+export const SF_CLI_INSTALL_URL = 'https://developer.salesforce.com/tools/salesforcecli';
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

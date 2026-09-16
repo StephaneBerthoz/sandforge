@@ -33,9 +33,20 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The worst case, which is the one that has to fit: everything before the
+    # publish measured 6.2 minutes on a real release run (8 allowed), three
+    # publish attempts of at most 5 minutes and 15 s plus a 30 s pause each
+    # (17.25), and 30 gallery queries of at most 15 s plus a 20 s pause each
+    # (17.5) — 43 minutes. A runner kill mid-poll would leave the tag pushed
+    # and the release a draft without a word said, so the limit sits above the
+    # sum.
+    timeout-minutes: 45
     permissions:
       contents: write
+      # Reading the CI conclusion of the commit being released is an Actions
+      # API call; without this scope it answers 404 and the gate below could
+      # not tell a red commit from an unknown one.
+      actions: read
 
     # Every action below is pinned to a commit: this job can push to the
     # repository, and pnpm/action-setup provides the binary that runs the
@@ -78,6 +89,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # `pnpm validate` further down is not CI: it runs on one operating
+      # system and it runs no E2E suite. A dispatch from a commit CI had
+      # already rejected would bump, tag, push and publish it all the same, so
+      # the conclusion of the run that did test this commit is read before the
+      # first thing is written. Only ci.yml is read, not the format workflow.
+      # The release commit is pushed with GITHUB_TOKEN, which starts no CI run,
+      # so a later dispatch from that commit is refused with 'none': dispatch
+      # from a commit CI ran on.
+      - name: Require a green CI run for this commit
+        if: ${{ !inputs.publish_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUNS="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed"
+          CONCLUSION=$(gh api "$RUNS" --jq '.workflow_runs[0].conclusion // "none"')
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::CI concluded '$CONCLUSION' for $GITHUB_SHA — release only a commit CI has passed"
+            exit 1
+          fi
+          echo "CI check OK: $GITHUB_SHA passed CI"
+
       - name: Bump version
         if: ${{ !inputs.publish_only }}
         run: |
@@ -104,10 +136,21 @@ jobs:
         if: ${{ !inputs.publish_only }}
         run: pnpm install --no-frozen-lockfile
 
+      # Only what the bump wrote may enter the release commit. `git add -A`
+      # swept in whatever else the tree happened to hold — a build artifact, an
+      # unfinished edit — under a message that reads "release", and nothing
+      # ever looked at what went in. Anything else dirty stops the run instead.
       - name: Commit version bump
         if: ${{ !inputs.publish_only }}
         run: |
-          git add -A
+          git add package.json packages/shared/package.json packages/extension/package.json \
+            packages/webview/package.json README.md packages/extension/README.md pnpm-lock.yaml
+          UNEXPECTED=$(git status --porcelain | grep -v '^[MA] ' || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::the tree holds changes the version bump did not make — refusing to commit them"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
           git commit -m "chore: release v${{ env.NEW_VERSION }}"
           git tag "v${{ env.NEW_VERSION }}"
 
@@ -133,28 +176,99 @@ jobs:
           git push origin HEAD
           git push origin "v${{ env.NEW_VERSION }}"
 
-      # Use the lockfile-pinned vsce (devDependency of packages/extension)
-      # instead of `npx @vscode/vsce`, which would fetch the latest release.
-      - name: Publish to Marketplace
-        run: cd packages/extension && pnpm exec vsce publish --packagePath ../../sandforge.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
       # In publish_only mode nothing set NEW_VERSION, so read it from the
       # checkout — that is the version the VSIX was just built from.
       - name: Resolve version to publish
         if: ${{ inputs.publish_only }}
         run: echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
 
+      # Drafted before the publish, undrafted once the Marketplace serves the
+      # version. A publish that fails now leaves the tag on origin with the
+      # notes and the VSIX already attached, which is what the person finishing
+      # the release by hand needs — and nothing public appears in the meantime.
+      #
       # `gh` is already on the runner, so the release needs no third-party
       # action in a job that can push to the repository. --verify-tag refuses
       # to create a missing tag: the release belongs on the tag that was pushed
-      # with the version, not on whatever master points to by then.
-      - name: Create GitHub Release
+      # with the version, not on whatever master points to by then. A re-run
+      # with publish_only finds the draft its predecessor left and keeps it.
+      - name: Draft the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "v$NEW_VERSION" sandforge.vsix
-          --verify-tag
-          --title "SandForge v$NEW_VERSION"
-          --generate-notes
+        run: |
+          if gh release view "v$NEW_VERSION" > /dev/null 2>&1; then
+            echo "Release v$NEW_VERSION already exists — leaving it as it is"
+            exit 0
+          fi
+          gh release create "v$NEW_VERSION" sandforge.vsix \
+            --draft \
+            --verify-tag \
+            --title "SandForge v$NEW_VERSION" \
+            --generate-notes
+
+      # Use the lockfile-pinned vsce (devDependency of packages/extension)
+      # instead of `npx @vscode/vsce`, which would fetch the latest release.
+      #
+      # Three runs in a row failed here, a bump and two publish_only retries of
+      # the same version: the gallery call returned an error after about three
+      # minutes each time. The attempt is now made three times within one run.
+      # `timeout` bounds each one: none has hung yet, but this endpoint is known
+      # to stall from CI runners, and an unbounded hang would take the whole
+      # job with it. Its signal reaches pnpm, not necessarily the upload pnpm
+      # started, so --kill-after forces the attempt down 15 s later rather than
+      # letting it run on beside the next one. A failed third attempt does not
+      # fail the step: a publish that errored or stalled after uploading is
+      # indistinguishable from one that never uploaded, and only the gallery can
+      # say which happened — the next step asks it, and it is that answer which
+      # decides the run.
+      - name: Publish to Marketplace
+        working-directory: packages/extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15 300 pnpm exec vsce publish --packagePath ../../sandforge.vsix; then
+              echo "Published on attempt $attempt"
+              exit 0
+            fi
+            echo "::warning::publish attempt $attempt failed or timed out"
+            sleep 30
+          done
+          echo "::warning::three publish attempts failed — asking the Marketplace whether one of them landed"
+
+      # The gallery is the only authority on whether the version exists: it is
+      # immutable once served, and a republish of a version it already has is
+      # refused. Filter type 7 is an exact extension name; flag 16 is
+      # IncludeVersionProperties, and the response carries the version list
+      # with it. Each query is bounded like the publish is, so a stalled request
+      # counts as one more attempt instead of stopping the loop. A version that
+      # never appears fails the run with the release still a draft.
+      - name: Wait for the Marketplace to serve the version
+        run: |
+          EXTENSION=$(node -p "const p=require('./packages/extension/package.json'); p.publisher + '.' + p.name")
+          QUERY='{"filters":[{"criteria":[{"filterType":7,"value":"'"$EXTENSION"'"}]}],"flags":16}'
+          for attempt in $(seq 1 30); do
+            if curl --connect-timeout 10 --max-time 15 -sS -X POST https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery \
+              -H 'Accept: application/json;api-version=7.2-preview.1' \
+              -H 'Content-Type: application/json' \
+              -d "$QUERY" | node -e '
+                let raw = "";
+                process.stdin.on("data", (chunk) => { raw += chunk; });
+                process.stdin.on("end", () => {
+                  const versions = JSON.parse(raw).results?.[0]?.extensions?.[0]?.versions ?? [];
+                  process.exit(versions.some((v) => v.version === process.env.NEW_VERSION) ? 0 : 1);
+                });
+              '; then
+              echo "Marketplace is serving $EXTENSION v$NEW_VERSION"
+              exit 0
+            fi
+            echo "Attempt $attempt: the Marketplace does not serve v$NEW_VERSION yet"
+            sleep 20
+          done
+          echo "::error::the Marketplace never served v$NEW_VERSION — the GitHub Release stays a draft"
+          exit 1
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "v$NEW_VERSION" --draft=false

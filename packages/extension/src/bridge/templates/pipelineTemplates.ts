@@ -30,10 +30,14 @@ export const PIPELINE_TEMPLATES = [
     ],
   },
   {
+    // The id predates the rename. It is shown to no one, and renaming it would
+    // only change the `pipeline:templates` payload for no reader. The name
+    // differs from the Marketplace's "Data Migration Check", which is a
+    // different set of steps.
     id: 'tpl-data-migration-dry',
-    name: 'Data Migration Dry Run',
+    name: 'Migration Pre-flight Check',
     description:
-      'Validate a data migration without committing: detect deltas, check field mappings, preview conflicts.',
+      'Describe source objects, deltas, field mappings and conflicts for a migration (steps do not run yet).',
     category: 'migration',
     steps: [
       {
@@ -52,9 +56,9 @@ export const PIPELINE_TEMPLATES = [
         description: 'Verify field compatibility between orgs.',
       },
       {
-        name: 'Preview Conflicts',
+        name: 'List Conflicts',
         type: 'sync:preview',
-        description: 'Preview potential conflicts before sync.',
+        description: 'List conflicts between source and target records.',
       },
     ],
   },

@@ -6,6 +6,7 @@ import {
   NL2SOQLReplySchema,
   PersonaReplySchema,
   DataRowsReplySchema,
+  ErrorResolutionReplySchema,
 } from './modelReplies.js';
 
 describe('parseModelJson', () => {
@@ -92,6 +93,38 @@ describe('PersonaReplySchema', () => {
 
   it('reads patterns that are not an object as none', () => {
     expect(PersonaReplySchema.parse({ dataPatterns: ['x'] }).dataPatterns).toEqual({});
+  });
+});
+
+describe('ErrorResolutionReplySchema', () => {
+  it('fills the fields the model left out', () => {
+    expect(ErrorResolutionReplySchema.parse({})).toEqual({
+      explanation: 'Unable to determine root cause.',
+      suggestions: [],
+      autoFixable: false,
+      autoFixAction: undefined,
+      confidence: 0.5,
+      relatedDocs: [],
+    });
+  });
+
+  it('keeps the suggestions that are objects and the docs that are links', () => {
+    const resolution = ErrorResolutionReplySchema.parse({
+      explanation: 'The record is locked.',
+      suggestions: [{ title: 'Retry', description: 'Wait and retry', probability: 0.8 }, 'later'],
+      relatedDocs: ['https://developer.salesforce.com/docs', 7],
+      confidence: 0.9,
+    });
+
+    expect(resolution.suggestions).toEqual([
+      { title: 'Retry', description: 'Wait and retry', probability: 0.8, action: undefined },
+    ]);
+    expect(resolution.relatedDocs).toEqual(['https://developer.salesforce.com/docs']);
+    expect(resolution.confidence).toBe(0.9);
+  });
+
+  it('refuses a reply that is not an object', () => {
+    expect(ErrorResolutionReplySchema.safeParse(['explanation']).success).toBe(false);
   });
 });
 

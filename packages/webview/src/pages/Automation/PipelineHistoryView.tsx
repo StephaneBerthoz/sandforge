@@ -20,7 +20,6 @@ const STATUS_VARIANT: Record<
   queued: 'info',
   running: 'info',
   paused: 'warning',
-  waiting_approval: 'warning',
   completed: 'success',
   completed_with_warnings: 'warning',
   failed: 'error',

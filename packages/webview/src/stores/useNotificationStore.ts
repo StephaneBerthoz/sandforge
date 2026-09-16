@@ -12,6 +12,11 @@ export interface NotificationAction {
   command: string;
   /** Optional callback invoked when the action is triggered (for undo actions). */
   onAction?: () => void;
+  /**
+   * External page the action opens. An action sent by the extension carries
+   * no callback, so this is what makes its button do anything at all.
+   */
+  url?: string;
 }
 
 /** A single notification entry */

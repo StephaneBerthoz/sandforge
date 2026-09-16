@@ -7,7 +7,6 @@ import { OrgRegistry } from '../core/connection/OrgRegistry';
 import { AuthProvider } from '../core/connection/AuthProvider';
 import { SfdxBridge } from '../core/connection/SfdxBridge';
 import { OnboardingService } from '../core/onboarding/OnboardingService';
-import { HintTracker } from '../core/onboarding/HintTracker';
 import type { Services } from '../services.js';
 
 /** Inputs required to build the core service layer. */
@@ -28,7 +27,6 @@ export interface CoreComposition {
   authProvider: AuthProvider;
   sfdxBridge: SfdxBridge;
   onboardingService: OnboardingService;
-  hintTracker: HintTracker;
 }
 
 /**
@@ -63,9 +61,8 @@ export function createCoreComposition(deps: CoreCompositionDeps): CoreCompositio
   const authProvider = new AuthProvider();
   authProvider.setSfdxBridge(sfdxBridge);
 
-  // Onboarding + HintTracker
+  // Onboarding
   const onboardingService = new OnboardingService(context.globalState);
-  const hintTracker = new HintTracker(context.globalState);
 
   return {
     configStore,
@@ -75,6 +72,5 @@ export function createCoreComposition(deps: CoreCompositionDeps): CoreCompositio
     authProvider,
     sfdxBridge,
     onboardingService,
-    hintTracker,
   };
 }

@@ -133,13 +133,10 @@ describe('multi-provider isolation', () => {
 
 describe('CI gate — zero regex-extract callsites in migrated AI modules', () => {
   /**
-   * The legacy modules AIAssistant / ErrorResolver / NL2SOQL still ship
-   * their own pre-unified-client implementations, so this gate is
-   * informational only at this moment — it asserts the FILES exist and have
-   * NOT regressed beyond their current baseline.
-   *
-   * Once those three are migrated onto the unified client, swap the
-   * .toBeDefined() to .not.toMatch(/extractJsonFromMarkdown/).
+   * AIAssistant still ships its own pre-unified-client implementation, so it
+   * is asserted to exist and not to have regressed beyond that baseline.
+   * Every other module reads its reply through `parseModelJson`, and is held
+   * to it below.
    */
   it('AIAssistant.ts exists', async () => {
     const fs = await import('node:fs/promises');
@@ -148,19 +145,29 @@ describe('CI gate — zero regex-extract callsites in migrated AI modules', () =
     expect(src).toBeDefined();
   });
 
-  it('ErrorResolver.ts exists', async () => {
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const src = await fs.readFile(
-      path.join(__dirname, '../../modules/ai/ErrorResolver.ts'),
-      'utf8',
+  it('ErrorResolver reads a fenced reply through the shared parser', async () => {
+    const { ErrorResolver } = await import('../../modules/ai/ErrorResolver.js');
+    const reply = JSON.stringify({
+      explanation: 'The target org has no such field.',
+      suggestions: [{ title: 'Add the field', description: 'Create it', probability: 0.9 }],
+    });
+    const resolver = new ErrorResolver(() => Promise.resolve('```json\n' + reply + '\n```'));
+
+    const resolution = await resolver.resolveError(
+      { errorCode: 'SOME_EXOTIC_ERROR', message: 'no idea' },
+      {},
     );
-    expect(src).toBeDefined();
+
+    expect(resolution.explanation).toBe('The target org has no such field.');
+    expect(resolution.suggestions[0].title).toBe('Add the field');
+    // The defaults come from the schema, not from a branch per field.
+    expect(resolution.confidence).toBe(0.5);
   });
 
   // These read a model reply only through parseModelJson, so a fenced reply
   // and a reply of the wrong shape are handled the same way in each.
   it.each([
+    'modules/ai/ErrorResolver.ts',
     'modules/ai/NL2SOQL.ts',
     'modules/ai/PipelineGenerator.ts',
     'modules/ai/AIPersonaManager.ts',

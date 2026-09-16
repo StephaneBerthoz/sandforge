@@ -1,7 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useQuickSeed } from './useQuickSeed';
-import type { SeedTemplate } from '@sandforge/shared';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { OrgSafetyTier } from '@sandforge/shared';
+import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
+
+function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
+  return {
+    id: 'org-1',
+    alias: 'DevSandbox',
+    username: 'admin@dev.sandbox',
+    instanceUrl: 'https://dev-sandbox.salesforce.com',
+    orgId: '00D000000000001',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    status: 'connected',
+    lastConnected: '2024-01-01T00:00:00Z',
+    tags: [],
+    ...overrides,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Mocks                                                               */
@@ -87,6 +108,7 @@ describe('useQuickSeed', () => {
       requestId: null,
     };
     progressStream.byId.clear();
+    useOrgStore.setState({ orgs: [] });
   });
 
   it('shows the progress the extension reports while the seed runs, not a fixed figure', () => {
@@ -263,6 +285,82 @@ describe('useQuickSeed', () => {
     expect(result.current.customizedCounts).toEqual({});
     expect(result.current.error).toBeNull();
     expect(mockReset).toHaveBeenCalled();
+  });
+
+  it('preselects the org it was given, without starting the run', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-7' })] });
+    const { result } = renderHook(() => useQuickSeed({ initialOrgId: 'org-7' }));
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.selectedOrgId).toBe('org-7');
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it('preselects the given org only once: a template picked after going back keeps the selection empty', () => {
+    useOrgStore.setState({
+      orgs: [createMockOrg({ id: 'org-2' }), createMockOrg({ id: 'org-3' })],
+    });
+    const { result } = renderHook(() => useQuickSeed({ initialOrgId: 'org-2' }));
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+    expect(result.current.selectedOrgId).toBe('org-2');
+
+    act(() => {
+      result.current.selectOrg('org-3');
+    });
+    act(() => {
+      result.current.reset();
+    });
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.selectedOrgId).toBe('');
+  });
+
+  it('leaves the selection empty when the given org has lost its connection', () => {
+    useOrgStore.setState({
+      orgs: [createMockOrg({ id: 'org-7', status: 'expired' }), createMockOrg({ id: 'org-9' })],
+    });
+    const { result } = renderHook(() => useQuickSeed({ initialOrgId: 'org-7' }));
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.selectedOrgId).toBe('');
+  });
+
+  it('leaves the selection empty when the given org is not in the org list', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-9' })] });
+    const { result } = renderHook(() => useQuickSeed({ initialOrgId: 'org-404' }));
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    expect(result.current.phase).toBe('selectOrg');
+    expect(result.current.selectedOrgId).toBe('');
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the selection empty when no org was given', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ id: 'org-7' })] });
+    const { result } = renderHook(() => useQuickSeed());
+
+    act(() => {
+      result.current.startQuickSeed(mockTemplate, {});
+    });
+
+    expect(result.current.selectedOrgId).toBe('');
   });
 
   it('derives objectProgress from template objects', () => {

@@ -133,6 +133,11 @@ export const ReviewAnonymizationTab: React.FC = () => {
                 <td className="px-3 py-2">
                   <select
                     data-testid={`anon-select-${cat}`}
+                    // One select per row, and the only visible label is the
+                    // category in the cell beside it.
+                    aria-label={t('a11y.anonymizationMethodFor', {
+                      category: t(CATEGORY_LABEL_KEYS[cat]),
+                    })}
                     value={rules[cat]}
                     onChange={(e) => setRule(cat, e.target.value as AnonymizationMethod)}
                     className="bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"

@@ -30,10 +30,21 @@ describe('RefreshPanel', () => {
   });
 
   it('renders empty state when no refreshes', () => {
-    mockData = { success: true, refreshes: [], inProgress: false };
+    mockData = { success: true, supported: true, refreshes: [], inProgress: false };
     render(<RefreshPanel />);
     expect(screen.getByTestId('refresh-panel-empty')).toBeDefined();
     expect(screen.getByText('Sandbox Refreshes')).toBeDefined();
+  });
+
+  it('says the org cannot be asked instead of showing the empty state', () => {
+    // A sandbox org has no SandboxProcess to query: the same empty list used
+    // to read as "this org has had no refresh".
+    mockData = { success: true, supported: false, refreshes: [], inProgress: false };
+    render(<RefreshPanel />);
+    expect(screen.queryByTestId('refresh-panel-empty')).toBeNull();
+    expect(screen.getByTestId('refresh-panel-unsupported').textContent).toMatch(
+      /manages sandboxes/i,
+    );
   });
 
   it('renders refresh rows with status badges', () => {

@@ -10,7 +10,7 @@
  * referenceIds to real IDs.
  */
 
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { SasPathGuard } from './SasPathGuard.js';
 import type { ReferenceIdMappingStore } from './types.js';
@@ -64,10 +64,19 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
   /** Read the persisted mapping; empty when the file does not exist yet. */
   async load(): Promise<Map<string, string>> {
     const filePath = this.filePath;
-    if (!fs.existsSync(filePath)) {
-      return new Map();
+    let content: string;
+    try {
+      content = await fs.readFile(filePath, 'utf8');
+    } catch (err: unknown) {
+      // Only an absent file is a first load. A file that exists but cannot
+      // be read still raises: a mapping read as empty would re-insert
+      // records that are already in the target org.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return new Map();
+      }
+      throw err;
     }
-    const payload = JSON.parse(fs.readFileSync(filePath, 'utf8')) as MappingFilePayload;
+    const payload = JSON.parse(content) as MappingFilePayload;
     return new Map(Object.entries(payload.mapping ?? {}));
   }
 
@@ -78,13 +87,13 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
    */
   async persist(mapping: ReadonlyMap<string, string>): Promise<void> {
     const filePath = this.filePath;
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
     const payload: MappingFilePayload = {
       version: 1,
       orgId: this.orgId,
       updatedAt: this.now().toISOString(),
       mapping: Object.fromEntries([...mapping.entries()].sort(([a], [b]) => a.localeCompare(b))),
     };
-    fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   }
 }

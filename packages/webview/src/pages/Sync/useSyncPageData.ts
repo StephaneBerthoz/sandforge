@@ -14,6 +14,7 @@ import type {
   TransformRuleType,
   TransformRuleConfig,
   SyncTemplateConfig,
+  SyncConfigSaveResponse,
 } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -119,6 +120,10 @@ export interface SyncPageData {
   handleChangeTransformConfig: (index: number, key: string, value: string) => void;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
+  /** Save the current configuration under `name` so a schedule can run it. */
+  handleSaveConfig: (name: string) => void;
+  /** Whether the configuration on screen is the one the host last confirmed saving. */
+  configSaved: boolean;
   /** Apply a pre-built sync template to populate wizard state. */
   handleApplyTemplate: (template: SyncTemplateConfig) => void;
   /** Whether the wizard can advance to the next step. */
@@ -284,6 +289,31 @@ export function useSyncPageData(): SyncPageData {
     timeoutMs: 120_000,
   });
 
+  // Bridge mutation: persist the configuration a schedule runs by id
+  const saveConfigMutation = useBridgeMutation<SyncConfigSaveResponse['payload']>(
+    'sync:config:save',
+    { responseType: 'sync:config:save:response' },
+  );
+
+  /**
+   * The configuration last sent to be saved, and the id it was saved under. A
+   * schedule runs whatever is stored under its configuration id, so the id is
+   * reused only while the configuration is unchanged: saving the same thing
+   * twice updates one entry, and saving a different pair, strategy or object
+   * set creates another instead of repointing a schedule built on the first.
+   */
+  const [lastSaved, setLastSaved] = useState<{ id: string; fingerprint: string } | null>(null);
+  const configFingerprint = JSON.stringify({
+    sourceOrgId,
+    targetOrgId,
+    direction,
+    mode,
+    conflictStrategy,
+    objectEntries,
+    mappings,
+    transforms,
+  });
+
   // PII scan for selected objects before sync execution
   const piiScan = useBridgeMutation<PIIScanResponse['payload']>('precheck:pii-scan');
 
@@ -321,7 +351,11 @@ export function useSyncPageData(): SyncPageData {
 
   // Show error notifications from bridge hooks
   useEffect(() => {
-    const bridgeError = objectsQuery.error ?? fieldsMutation.error ?? executeMutation.error;
+    const bridgeError =
+      objectsQuery.error ??
+      fieldsMutation.error ??
+      executeMutation.error ??
+      saveConfigMutation.error;
     if (bridgeError) {
       setError(bridgeError);
       addNotification({
@@ -331,7 +365,14 @@ export function useSyncPageData(): SyncPageData {
         autoDismissMs: 5000,
       });
     }
-  }, [objectsQuery.error, fieldsMutation.error, executeMutation.error, addNotification, t]);
+  }, [
+    objectsQuery.error,
+    fieldsMutation.error,
+    executeMutation.error,
+    saveConfigMutation.error,
+    addNotification,
+    t,
+  ]);
 
   // Navigate to results step when execution completes
   useEffect(() => {
@@ -450,40 +491,58 @@ export function useSyncPageData(): SyncPageData {
     setTransforms([]);
   }, []);
 
+  /** The wizard's state as the one config shape both the run and the store take. */
+  const buildConfig = (id: string, name: string, description: string): SyncConfig => ({
+    id,
+    name,
+    description,
+    sourceOrgId,
+    targetOrgId,
+    direction,
+    mode,
+    objects: objectEntries.map(
+      (entry, index): SyncObjectConfig => ({
+        objectApiName: entry.objectApiName,
+        operation: entry.operation,
+        externalIdField: entry.externalIdField,
+        batchSize: entry.batchSize,
+        where: entry.where || undefined,
+        fieldMappings: mappings,
+        transformRules: transforms,
+        excludedFields: [],
+        addOnFields: [],
+        insertOrder: index,
+      }),
+    ),
+    conflictStrategy,
+    enableRollback: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
   const handleExecute = () => {
     if (!sourceOrgId || !targetOrgId) return;
     setError(null);
 
-    const config: SyncConfig = {
-      id: crypto.randomUUID(),
-      name: 'sync-from-ui',
-      description: 'Sync from SandForge UI',
-      sourceOrgId,
-      targetOrgId,
-      direction,
-      mode,
-      objects: objectEntries.map(
-        (entry, index): SyncObjectConfig => ({
-          objectApiName: entry.objectApiName,
-          operation: entry.operation,
-          externalIdField: entry.externalIdField,
-          batchSize: entry.batchSize,
-          where: entry.where || undefined,
-          fieldMappings: mappings,
-          transformRules: transforms,
-          excludedFields: [],
-          addOnFields: [],
-          insertOrder: index,
-        }),
-      ),
-      conflictStrategy,
-      enableRollback: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    const config = buildConfig(crypto.randomUUID(), 'sync-from-ui', 'Sync from SandForge UI');
 
     setSyncStartedAt(Date.now());
     executeMutation.mutate({ config: config as unknown as Record<string, unknown> });
+  };
+
+  /**
+   * Save the wizard's configuration so a schedule can run it later. The host
+   * applies the same refusals as a run started by hand, so a configuration
+   * that cannot run cannot be stored either.
+   */
+  const handleSaveConfig = (name: string) => {
+    if (!sourceOrgId || !targetOrgId) return;
+    setError(null);
+
+    const id = lastSaved?.fingerprint === configFingerprint ? lastSaved.id : crypto.randomUUID();
+    setLastSaved({ id, fingerprint: configFingerprint });
+    const config = buildConfig(id, name, 'Saved from the SandForge sync wizard');
+    saveConfigMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
 
   const canGoNext = (): boolean => {
@@ -538,6 +597,13 @@ export function useSyncPageData(): SyncPageData {
     handleRemoveTransform,
     handleChangeTransformConfig,
     handleExecute,
+    handleSaveConfig,
+    // Only while the configuration on screen is the one the host confirmed.
+    configSaved:
+      saveConfigMutation.data?.success === true &&
+      lastSaved !== null &&
+      saveConfigMutation.data.id === lastSaved.id &&
+      lastSaved.fingerprint === configFingerprint,
     handleApplyTemplate,
     canGoNext,
     isFinished,

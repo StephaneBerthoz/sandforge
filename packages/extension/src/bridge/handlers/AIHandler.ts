@@ -15,7 +15,12 @@ import { AIToolsHandler } from './ai/AIToolsHandler.js';
  */
 export interface AIModules {
   nl2soql: NL2SOQL;
-  errorResolver: ErrorResolver;
+  /**
+   * Absent while `sandforge.ai.errorResolution` is off: a failure a run
+   * reports is then answered from the built-in table of error codes or not at
+   * all, and the rest of the assistant is untouched.
+   */
+  errorResolver?: ErrorResolver;
   pipelineGenerator: PipelineGenerator;
 }
 

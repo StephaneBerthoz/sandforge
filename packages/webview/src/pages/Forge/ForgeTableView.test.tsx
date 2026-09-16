@@ -231,4 +231,25 @@ describe('ForgeTableView', () => {
     expect(rows[0].textContent).toContain('2');
     expect(rows[1].textContent).toContain('-');
   });
+
+  it('names each include checkbox after the object of its row', () => {
+    // The column has no header text, so an unnamed box in row seven is
+    // announced as one of N identical checkboxes.
+    const graph = makeGraph([
+      makeNode({ objectApiName: 'Account' }),
+      makeNode({ objectApiName: 'Contact' }),
+    ]);
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-table-include-Contact').getAttribute('aria-label')).toContain(
+      'Contact',
+    );
+  });
 });

@@ -229,7 +229,7 @@ describe('ComparePage', () => {
     render(<ComparePage />);
 
     expect(screen.getByText('Diff Viewer')).toBeDefined();
-    expect(screen.getByText('Permission Matrix')).toBeDefined();
+    expect(screen.getByText('Permission Presence')).toBeDefined();
     expect(screen.getByText('Deploy from Diff')).toBeDefined();
   });
 

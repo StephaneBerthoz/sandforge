@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # SandForge Pre-Publish Checks
 # Validates the extension is ready for Marketplace publication.
-# Usage: ./scripts/pre-publish-check.sh
+# Usage: bash scripts/pre-publish-check.sh
 #
 # Env flags:
 #   SKIP_BUILD_CHECKS=1 — skip the heavy build steps (6: pnpm validate +
-#   package, 10: clean install + validate). Used by .github/workflows/release.yml,
-#   which already runs validate + package as its own steps before calling this
-#   script. The VSIX/bundle size checks (7, 11) still run — they only need the
-#   artifacts those earlier steps produced.
+#   package, 10: clean install + validate). Used by .github/workflows/release.yml
+#   and the package job in .github/workflows/ci.yml, which build and package
+#   as their own steps before calling this script. The VSIX/bundle size checks
+#   (7, 11) still run — they only need the artifacts those earlier steps
+#   produced.
 set -euo pipefail
 
 SKIP_BUILD_CHECKS="${SKIP_BUILD_CHECKS:-0}"
@@ -124,6 +125,40 @@ if [[ -f "sandforge.vsix" ]]; then
     echo "FAIL: VSIX has no extension/dist/jsforceEntry.js (listing: $VSIX_LINES lines) — every org connection would break at runtime"
     ERRORS=$((ERRORS + 1))
   fi
+
+  # 6d. The same reasoning as 6b/6c, for the third thing read lazily off disk.
+  # The webview bundle carries English only; every other language is served
+  # over the bridge from extension/webview-dist/locales/, which arrives there
+  # by a copy step in the webview build and a second one into the extension. A
+  # VSIX that lost either copy installs, activates and shows a UI — in English,
+  # whatever the user picked, with an error where each translation should be.
+  #
+  # The list comes from the whitelist the extension reads by, so a language
+  # added there is gated here without anyone remembering to come back.
+  LOCALES=$(node -e "
+    const src = require('fs').readFileSync('packages/extension/src/core/i18n/localeBundles.ts', 'utf8');
+    const codes = /SUPPORTED_LOCALE_CODES = \[([^\]]+)\]/.exec(src);
+    if (!codes) { console.error('SUPPORTED_LOCALE_CODES not found in localeBundles.ts'); process.exit(1); }
+    console.log([...codes[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).join(' '));
+  " || true)
+  if [[ -z "$LOCALES" ]]; then
+    echo "FAIL: could not read the supported locale codes — the locale payload gate checked nothing"
+    ERRORS=$((ERRORS + 1))
+  else
+    MISSING_LOCALES=""
+    for LNG in $LOCALES; do
+      LOCALE_COUNT=$(unzip -l sandforge.vsix | grep -c -F "extension/webview-dist/locales/$LNG.json" || true)
+      if (( LOCALE_COUNT == 0 )); then
+        MISSING_LOCALES="$MISSING_LOCALES $LNG"
+      fi
+    done
+    if [[ -n "$MISSING_LOCALES" ]]; then
+      echo "FAIL: VSIX has no locale bundle for:$MISSING_LOCALES (listing: $VSIX_LINES lines) — those languages would fail to load at runtime"
+      ERRORS=$((ERRORS + 1))
+    else
+      echo "PASS: VSIX contains a locale bundle for each of: $LOCALES"
+    fi
+  fi
 else
   echo "SKIP: VSIX payload gates (sandforge.vsix not present)"
 fi
@@ -210,9 +245,13 @@ else
   echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
 fi
 
-# 11. Activation time check (target: < 2s)
-# Note: Precise activation time measurement requires running in VSCode via @vscode/test-electron.
-# This check verifies the extension bundle is small enough for fast activation.
+# 11. Activation-path bundle size.
+#
+# This measures one number: the bytes of the bundle VSCode loads to activate
+# the extension. It is not an activation time and it has never been one —
+# nothing here starts an extension host. What it catches is the regression that
+# would lengthen activation: a heavy dependency finding its way back out of a
+# lazy chunk and into the entry point.
 if [[ -f "packages/extension/dist/extension.js" ]]; then
   BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
   BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
@@ -220,7 +259,7 @@ if [[ -f "packages/extension/dist/extension.js" ]]; then
     echo "FAIL: Extension bundle ${BUNDLE_KB}KB > 1100KB — jsforce (or another heavy dep) is being bundled into the activation path again"
     ERRORS=$((ERRORS + 1))
   else
-    echo "PASS: Extension bundle ${BUNDLE_KB}KB — should activate in < 2s"
+    echo "PASS: Extension bundle ${BUNDLE_KB}KB (limit 1100KB)"
   fi
 else
   echo "FAIL: packages/extension/dist/extension.js not found — run the build first"
@@ -265,9 +304,10 @@ rm -f /tmp/sf-links.txt
 
 # 11e. The shipped screenshots were produced by the generator that exists.
 #
-# Needs real history (the release workflow checks out with fetch-depth: 0);
-# on a shallow clone every lookup returns nothing and the check skips rather
-# than lying, which is why it lives here and not in ci.yml.
+# It hashes the generator spec and compares that fingerprint with the one the
+# last screenshot run wrote to assets/screenshots/.generated-from, then checks
+# that every image a README shows is on disk and not empty. It reads files
+# only, so it needs no git history.
 if node scripts/check-screenshots.mjs > /tmp/sf-shots.txt 2>&1; then
   echo "PASS: $(tail -1 /tmp/sf-shots.txt)"
 else

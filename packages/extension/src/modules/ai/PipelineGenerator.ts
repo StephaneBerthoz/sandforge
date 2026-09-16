@@ -237,11 +237,13 @@ export class PipelineGenerator {
 
   private extractTriggers(description: string): string[] {
     const triggers: string[] = [];
+    // "on refresh" and "after refresh" used to produce a sandbox_refresh
+    // trigger. Nothing watches for a sandbox refresh — the tracker has no
+    // callback and TriggerEngine answers false for that type — so the draft
+    // came back carrying a trigger that can never fire. Dropped until it does.
     const triggerKeywords: Record<string, string> = {
       'on deploy': 'deployment_complete',
       'after deploy': 'deployment_complete',
-      'on refresh': 'sandbox_refresh',
-      'after refresh': 'sandbox_refresh',
       'on error': 'error_detected',
       'on change': 'metadata_change',
     };
@@ -280,7 +282,9 @@ export class PipelineGenerator {
         description: draft.description ?? description,
         steps: draft.steps,
         schedule: draft.schedule,
-        triggers: draft.triggers,
+        // The model can name a sandbox_refresh trigger too, and it would never
+        // fire for the same reason the keyword path drops it.
+        triggers: draft.triggers?.filter((trigger) => trigger !== 'sandbox_refresh'),
       };
     } catch {
       // A reply that is not a pipeline object leaves a draft with no step,

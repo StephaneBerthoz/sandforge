@@ -91,12 +91,6 @@ function createMockAssistant(
     getConversation: vi.fn().mockReturnValue(undefined),
     listConversations: vi.fn().mockReturnValue([]),
     deleteConversation: vi.fn().mockReturnValue(true),
-    getUsageStats: vi.fn().mockReturnValue({
-      totalCalls: 0,
-      totalOutputTokens: 0,
-      averageLatencyMs: 0,
-      totalInputTokens: 0,
-    }),
     ...overrides,
   } as unknown as NonNullable<Parameters<AIChatHandler['setAIAssistant']>[0]>;
 }

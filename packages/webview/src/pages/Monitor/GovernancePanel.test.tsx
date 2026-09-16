@@ -433,4 +433,12 @@ describe('GovernancePanelConnected', () => {
     fireEvent.click(screen.getByTestId('add-policy-btn'));
     expect(mockSaveMutate).not.toHaveBeenCalled();
   });
+
+  it('gives every remediation checkbox the remediation text as its name', () => {
+    // The box sat beside its text with nothing tying the two together, so it
+    // was announced as an anonymous checkbox and the text was not clickable.
+    render(<GovernancePanel remediations={['Enable MFA']} />);
+
+    expect(screen.getByLabelText('Enable MFA')).toBeInstanceOf(HTMLInputElement);
+  });
 });

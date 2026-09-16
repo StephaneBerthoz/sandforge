@@ -62,8 +62,14 @@ Bypass with `--no-verify` only if you really have to (don't).
   `feat/forge-cycle-cap`.
 - PRs require green CI: `.github/workflows/ci.yml` runs typecheck, test
   and build on ubuntu/macos/windows, then lint, the repository gates,
-  coverage and Playwright E2E on ubuntu; Format Check and Knip run from
-  their own workflows.
+  coverage and Playwright E2E on ubuntu; a second job packages the VSIX
+  and runs `scripts/pre-publish-check.sh` on it, and a third scans the
+  history for secrets. The branch ruleset decides which of these a merge
+  waits for; a red one also stops a release, which requires a green
+  `ci.yml` run. Format Check and Knip run from their own
+  workflows. A separate job validates on Node 24, the version
+  development runs on; it reports and does not block, since `engines`
+  promises Node 22.13 and up and every gate runs on 22.
 
 ## Tests
 
@@ -74,7 +80,12 @@ Bypass with `--no-verify` only if you really have to (don't).
   Targeted: `pnpm --filter @sandforge/extension exec vitest run <pattern>`.
 - Coverage: `pnpm test:coverage` (v8 provider, per package).
 - E2E tests live in `packages/webview/e2e/` (Playwright):
-  `pnpm --filter @sandforge/webview e2e`.
+  `pnpm --filter @sandforge/webview e2e`. Set `E2E_PORT` to a port of your
+  own if you keep more than one checkout: the suite boots a Vite dev
+  server, and two checkouts on the default 5173 end up sharing one server,
+  so one checkout's sources answer the other one's assertions. With
+  `E2E_PORT` set, the run always starts its own server and fails rather
+  than borrowing a busy port.
 - Mutation testing with Stryker: `pnpm stryker` mutates `packages/shared`
   (`stryker.conf.json`), `pnpm exec stryker run stryker.extension.conf.json`
   mutates the extension's execution engine. The Stryker workflow runs both
@@ -130,17 +141,32 @@ the PR description so reviewers focus there.
 
 ## Release flow
 
-Releases are cut from `master` after `pnpm validate` is green.
+Releases are cut from `master`, from a commit whose CI run is green —
+`.github/workflows/release.yml` reads that conclusion and stops before the
+bump if it is anything else. It reads `ci.yml` only, and the release commit
+the workflow pushes starts no CI run of its own, so dispatch from a commit
+CI ran on.
 
-1. `./scripts/bump-version.sh <patch|minor|major|x.y.z>`: syncs the
-   version across the workspace `package.json` files.
-2. Update `changelog.md` (root) and `packages/extension/CHANGELOG.md`.
-   Keep both in semver-descending order.
-3. `./scripts/pre-publish-check.sh`: marketplace readiness gate
-   (validate + package + VSIX/bundle size checks).
-4. `pnpm package` builds the VSIX with `@vscode/vsce`
-   (`--no-dependencies`, output `sandforge.vsix`).
-5. Tag `v*`: `.github/workflows/release.yml` takes over from the tag.
+1. Update `changelog.md` (root) and `packages/extension/CHANGELOG.md`.
+   Keep both in semver-descending order; the pre-publish gate refuses a
+   version with no entry in either.
+2. Run the workflow from the Actions tab (`workflow_dispatch`) with the
+   bump type. It runs `scripts/bump-version.sh`, commits exactly the files
+   that script writes plus the lockfile, tags, validates and packages.
+3. The GitHub Release is drafted with the VSIX attached before the
+   Marketplace publish, and undrafted once the Marketplace serves the new
+   version. A publish that fails leaves the draft and the tag in place:
+   re-run the workflow with `publish_only` to retry it without a bump.
+   Until GitHub Actions is a bypass actor on the `master` ruleset, a
+   dispatch cannot get this far: the ruleset requires status checks on
+   every commit pushed to `master`, the release commit is new and has
+   none, so the workflow's push of it is rejected before anything is
+   published.
+4. Locally, `pnpm package` builds the same VSIX with `@vscode/vsce`
+   (`--no-dependencies`, output `sandforge.vsix`) and
+   `SKIP_BUILD_CHECKS=1 bash scripts/pre-publish-check.sh` runs the
+   marketplace readiness gates against it — the same pair CI runs on
+   every pull request.
 
 Maintainers handle versioning (SemVer).
 

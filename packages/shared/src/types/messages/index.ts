@@ -30,7 +30,6 @@ export * from './settings.messages.js';
 export * from './operation.messages.js';
 export * from './scheduler.messages.js';
 export * from './realtime.messages.js';
-export * from './cache.messages.js';
 export * from './smart-action.messages.js';
 export * from './frozen.messages.js';
 
@@ -280,7 +279,6 @@ import type {
   AISaveKeyResponse,
   AINL2SOQLRequest,
   AINL2SOQLResponse,
-  AIResolveErrorResponse,
   AIAnomalyScanRequest,
   AIAnomalyScanResponse,
   AIGeneratePipelineRequest,
@@ -298,16 +296,12 @@ import type {
   I18nLocaleResponse,
   NotificationMessage,
   OnboardingCompleteRequest,
-  OnboardingResetRequest,
   OnboardingShowMessage,
-  HintDismissRequest,
   WhatsNewShowMessage,
   TelemetryStatusRequest,
   TelemetryStatusResponse,
   TelemetryToggleRequest,
   TelemetryToggleResponse,
-  ConnectivityStatusRequest,
-  ConnectivityStatusResponse,
   ConfigExportRequest,
   ConfigExportResponse,
   ConfigImportRequest,
@@ -359,12 +353,6 @@ import type {
   RealTimeConflictDetected,
   RealTimeConflictResolvedResponse,
 } from './realtime.messages.js';
-import type {
-  CacheInvalidateAllRequest,
-  CacheInvalidateAllResponse,
-  CacheGetStatsRequest,
-  CacheStatsResponse,
-} from './cache.messages.js';
 import type {
   SmartActionAnalyzeRequest,
   SmartActionAnalyzeResponse,
@@ -527,11 +515,8 @@ export type WebViewToExtensionMessage =
   | SettingsGetRequest
   | SettingsUpdateRequest
   | OnboardingCompleteRequest
-  | OnboardingResetRequest
-  | HintDismissRequest
   | TelemetryStatusRequest
   | TelemetryToggleRequest
-  | ConnectivityStatusRequest
   | ConfigExportRequest
   | ConfigImportRequest
   | ConfigCategoriesRequest
@@ -554,9 +539,6 @@ export type WebViewToExtensionMessage =
   | RealTimeStatusRequest
   | RealTimeMetricsRequest
   | RealTimeResolveConflictRequest
-  // Cache
-  | CacheInvalidateAllRequest
-  | CacheGetStatsRequest
   // Smart Action
   | SmartActionAnalyzeRequest
   // QuickSync
@@ -712,7 +694,6 @@ export type ExtensionToWebViewMessage =
   | AIStatusResponse
   | AISaveKeyResponse
   | AINL2SOQLResponse
-  | AIResolveErrorResponse
   | AIAnomalyScanResponse
   | AIGeneratePipelineResponse
   | AISchemaAdviceResponse
@@ -725,7 +706,6 @@ export type ExtensionToWebViewMessage =
   | WhatsNewShowMessage
   | TelemetryStatusResponse
   | TelemetryToggleResponse
-  | ConnectivityStatusResponse
   | ConfigExportResponse
   | ConfigImportResponse
   | ConfigCategoriesResponse
@@ -760,9 +740,6 @@ export type ExtensionToWebViewMessage =
   | RealTimeMetricsResponse
   | RealTimeConflictDetected
   | RealTimeConflictResolvedResponse
-  // Cache
-  | CacheInvalidateAllResponse
-  | CacheStatsResponse
   // Smart Action
   | SmartActionAnalyzeResponse
   | SmartActionErrorResponse

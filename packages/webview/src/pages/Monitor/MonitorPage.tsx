@@ -176,9 +176,7 @@ export const MonitorPage: React.FC = () => {
   /*
    * Cancel goes out on `execution:abort`, the channel that reaches the
    * AbortController Seed and Sync register for their runs; the Seed page's own
-   * Cancel uses it. `operation:cancel` reaches the pipeline orchestrators only,
-   * and none of their runs is listed here, so every click answered "No active
-   * operation found". The reply is read: a run the extension cannot find is
+   * Cancel uses it. The reply is read: a run the extension cannot find is
    * refused, and a click must not go unanswered. The list is read again either
    * way, so a stopped run does not stay listed as running.
    */
@@ -585,6 +583,7 @@ export const MonitorPage: React.FC = () => {
             trendChartData={trendChartData}
             trendSeries={trendSeries}
             jobs={jobs}
+            jobsLoading={loading}
             isRefreshing={isRefreshing}
           />
 

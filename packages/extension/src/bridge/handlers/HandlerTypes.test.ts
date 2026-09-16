@@ -291,6 +291,35 @@ describe('sendNotification', () => {
     expect(posted.payload.title).toBe('Test');
     expect(posted.payload.message).toBe('Something went wrong');
   });
+
+  it('dismisses after five seconds and carries no action unless told otherwise', () => {
+    const deps = { ...createMockDeps() };
+    sendNotification(deps, 'info', 'Test', 'Done');
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: Record<string, unknown>;
+    };
+    expect(posted.payload.autoDismissMs).toBe(5000);
+    expect(posted.payload).not.toHaveProperty('actions');
+  });
+
+  it('can stay up until dismissed and carry an action', () => {
+    // Every caller used to get the same five-second toast with no button, so
+    // a notification that asks the reader to go and do something could not
+    // be written at all.
+    const deps = { ...createMockDeps() };
+    const action = { label: 'Open', command: 'open-page', url: 'https://example.com' };
+    sendNotification(deps, 'error', 'Test', 'Needs a step', {
+      autoDismissMs: null,
+      actions: [action],
+    });
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: Record<string, unknown>;
+    };
+    expect(posted.payload).not.toHaveProperty('autoDismissMs');
+    expect(posted.payload.actions).toEqual([action]);
+  });
 });
 
 /**

@@ -80,6 +80,32 @@ describe('org:connect answers on every branch', () => {
     expect(replies[0].correlationId).toBe('req-connect');
   });
 
+  it.each([
+    ['sfdx_import', {}],
+    ['oauth_web', { loginUrl: 'https://login.salesforce.com' }],
+  ])('keeps the missing-CLI toast up with a link to install it (%s)', async (authMethod, extra) => {
+    // The toast dismissed itself after five seconds with an install URL
+    // nobody could click, on the first screen a new user sees.
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockResolvedValue(false),
+    } as unknown as HandlerDeps['sfdxBridge'];
+
+    await new OrgHandler(deps).handle(connectMsg({ authMethod, ...extra }));
+
+    const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as { type: string; payload: Record<string, unknown> },
+    );
+    const toast = posted.find((m) => m.type === 'notification');
+    expect(toast).toBeDefined();
+    expect(toast?.payload).not.toHaveProperty('autoDismissMs');
+    expect(toast?.payload.actions).toEqual([
+      expect.objectContaining({ url: 'https://developer.salesforce.com/tools/salesforcecli' }),
+    ]);
+    // The banner recognises the failure by this sentence.
+    const error = posted.find((m) => m.type === 'org:error');
+    expect(error?.payload.message).toBe('Salesforce CLI (sf) not found on PATH.');
+  });
+
   it('answers when the CLI reports no connected orgs', async () => {
     deps.sfdxBridge = {
       isCliAvailable: vi.fn().mockResolvedValue(true),

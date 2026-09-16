@@ -92,6 +92,22 @@ describe('StepConfigPanel', () => {
     expect(checkbox.checked).toBe(true);
   });
 
+  it('asks a notification step for its text and not for a channel', () => {
+    // Nothing delivers a notification: the step returns success without
+    // opening a connection, so a channel box would collect an address that
+    // no code reads.
+    const notificationStep: PipelineStep = {
+      id: 'step-n',
+      name: 'Notify',
+      type: 'notification',
+      config: { message: 'Refresh done' },
+      continueOnError: false,
+    };
+    render(<StepConfigPanel step={notificationStep} onUpdate={vi.fn()} />);
+    expect(screen.getByTestId('config-message')).toBeDefined();
+    expect(screen.queryByTestId('config-channel')).toBeNull();
+  });
+
   it('should show step type badge', () => {
     render(<StepConfigPanel step={step} />);
     expect(screen.getByTestId('step-config-panel').textContent).toContain('seed');

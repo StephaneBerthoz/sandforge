@@ -1,0 +1,31 @@
+# Rules for the secret scan in .github/workflows/ci.yml.
+#
+# The scan reads the history, not the working tree, which makes a false
+# positive expensive: a finding in a commit from last year cannot be edited
+# away, only allowlisted. So the allowlist below says once and for all which
+# paths never hold a credential, and everything else is a real finding.
+
+title = "SandForge"
+
+[extend]
+# Gitleaks' own rules, which are what know the shape of a Salesforce session
+# id, a GitHub token or an AI provider key. Entries here add to them and never
+# replace them.
+useDefault = true
+
+[allowlist]
+description = "Generated trees and resolved dependency metadata"
+paths = [
+  # Build output and installed packages: third-party bytes, none of them ours,
+  # and an npm package shipping an example key is not this repository leaking.
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)webview-dist/''',
+  # Test and mutation output, regenerated on every run.
+  '''(^|/)playwright-report/''',
+  '''(^|/)test-results/''',
+  '''(^|/)reports/''',
+  # Integrity digests, one per resolved package: high-entropy by construction
+  # and public by design.
+  '''(^|/)pnpm-lock\.yaml$''',
+]

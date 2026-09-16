@@ -14,6 +14,13 @@ export interface SeedExecutionState {
   isRunning: boolean;
   /** Execution result returned by the backend. */
   executionResult: SeedExecutionResult | undefined;
+  /**
+   * The template the last run was built from, or null before a run. It is not
+   * persisted by the run itself — it is what "Save as template" stores, so the
+   * saved template is exactly what was seeded rather than a second reading of
+   * the wizard.
+   */
+  lastTemplate: SeedTemplate | null;
   /** Trigger seed execution with the current configuration. */
   handleExecute: () => void;
   /** Per-object progress entries derived from selected objects and volumes. */
@@ -51,6 +58,7 @@ export function useSeedExecution(
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
+  const [lastTemplate, setLastTemplate] = useState<SeedTemplate | null>(null);
   const [executionCompletedStep, setExecutionCompletedStep] = useState<number | null>(null);
   /** Set when the run is fired, so elapsed time is real rather than hardcoded 0. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -131,6 +139,7 @@ export function useSeedExecution(
     };
 
     setStartedAt(Date.now());
+    setLastTemplate(template);
     executeSeedMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
@@ -179,6 +188,7 @@ export function useSeedExecution(
   return {
     isRunning,
     executionResult,
+    lastTemplate,
     handleExecute,
     objectProgress,
     overallPercent: progress?.percentage ?? 0,

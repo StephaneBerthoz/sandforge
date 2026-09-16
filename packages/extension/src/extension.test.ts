@@ -235,6 +235,53 @@ describe('extension', () => {
     expect(statusBarItem.show.mock.calls.length).toBe(showCallsBefore + 1);
   });
 
+  it('sends the selected org with the org list it pushes to the sidebar when the orgs change', async () => {
+    let orgListener: (() => void) | undefined;
+    const onOrgChange = vi
+      .spyOn(OrgManager.prototype, 'onOrgChange')
+      .mockImplementation((listener) => {
+        orgListener = listener as () => void;
+        return () => undefined;
+      });
+    try {
+      activate(createContext());
+
+      const vscode = await import('vscode');
+      const provider = vi.mocked(vscode.window.registerWebviewViewProvider).mock
+        .calls[0][1] as unknown as SidebarViewProvider;
+      let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
+      const postMessage = vi.fn();
+      const mockView = {
+        webview: {
+          options: undefined,
+          html: '',
+          cspSource: 'https://test.csp.source',
+          onDidReceiveMessage: vi.fn((handler: (message: Record<string, unknown>) => void) => {
+            messageHandler = handler;
+            return { dispose: vi.fn() };
+          }),
+          postMessage,
+          asWebviewUri: vi.fn((uri: { toString: () => string }) => ({
+            toString: () => String(uri),
+          })),
+        },
+        onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+      };
+      provider.resolveWebviewView(mockView as never, undefined, undefined);
+
+      messageHandler?.({ type: 'sidebar:selectOrg', payload: { orgId: 'org-x' } });
+      postMessage.mockClear();
+      orgListener?.();
+
+      expect(postMessage).toHaveBeenCalledWith({
+        type: 'org:list:response',
+        payload: expect.objectContaining({ selectedOrgId: 'org-x' }),
+      });
+    } finally {
+      onOrgChange.mockRestore();
+    }
+  });
+
   it('should register the openOrgInBrowser command (and no native orgs tree)', async () => {
     const context = createContext();
 
@@ -375,9 +422,9 @@ describe('extension', () => {
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
-    // + orgManager + offlineManager + liveOperationTracker + performanceTracker
-    // + cacheManager = 32
-    expect(context.subscriptions.length).toBe(32);
+    // + orgManager + offlineManager + liveOperationTracker
+    // + performanceTracker = 31
+    expect(context.subscriptions.length).toBe(31);
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {

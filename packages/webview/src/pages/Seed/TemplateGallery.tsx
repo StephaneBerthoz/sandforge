@@ -25,6 +25,8 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
   const handleUseThis = useCallback(
     async (item: TemplateGalleryItem) => {
       const template = await loadFullTemplate(item.id);
+      // A saved template that is gone or refused has its reason in the banner.
+      if (!template) return;
       setSelectedTemplate(template);
       setIsModalOpen(true);
     },

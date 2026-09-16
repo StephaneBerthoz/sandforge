@@ -13,7 +13,6 @@ import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerType
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { BackupRecordStore } from './modules/dataops/BackupRecordStore';
-import { CacheManager } from './core/cache/CacheManager';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
 import { logger } from './logger.js';
@@ -127,7 +126,6 @@ export function activate(context: vscode.ExtensionContext): void {
     authProvider,
     sfdxBridge,
     onboardingService,
-    hintTracker,
   } = createCoreComposition({ context, services });
   log('ConfigStore initialized.');
 
@@ -200,7 +198,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   applyLateServices(handlers, {
     onboardingService,
-    hintTracker,
     infraServices: { performanceTracker, productionGuard, offlineManager, piiDetector },
     backgroundRegistry,
     migrationFileReader: fsReader,
@@ -457,10 +454,11 @@ export function activate(context: vscode.ExtensionContext): void {
     // Recomputes alias (selection may have been removed/renamed) and tooltip
     // (connection status changes surface via statusChanged events).
     refreshStatusBar();
-    // Push updated org list to sidebar webview
+    // Push updated org list to an open sidebar, with the current selection, so
+    // a sidebar that has none yet picks it up from the same message.
     sidebarProvider.postMessage({
       type: 'org:list:response',
-      payload: { orgs: orgs as unknown as Record<string, unknown>[] },
+      payload: { orgs: orgs as unknown as Record<string, unknown>[], selectedOrgId },
     });
   });
 
@@ -481,9 +479,6 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => offlineManager.dispose() },
     { dispose: () => liveOperationTracker.dispose() },
     { dispose: () => performanceTracker.dispose() },
-    // Dispose the CacheManager singleton (clears its purge interval) if it was
-    // ever instantiated — resetInstance() is a no-op otherwise.
-    { dispose: () => CacheManager.resetInstance() },
   );
 }
 

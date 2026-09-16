@@ -258,8 +258,8 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contract.objects.Account).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(contract.objects.Contact).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(report.mappingPath).toContain('referenceid-mapping.json');
-    // ProductionGuard audit trail recorded every DML batch — exactly the two
-    // inserts of the fixture, no silent extra write.
+    // The ProductionGuard log holds every DML batch of the session —
+    // exactly the two inserts of the fixture, no silent extra write.
     expect(guard.getAuditLog()).toHaveLength(2);
     expect(guard.getAuditLog()[0].request.module).toBe('frozendataset');
     // Progress callbacks for the bridge.

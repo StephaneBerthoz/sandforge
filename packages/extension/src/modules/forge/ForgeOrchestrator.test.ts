@@ -55,6 +55,7 @@ function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSumm
     skippedCount: 0,
     remapCount: 5,
     errors: [],
+    truncatedObjects: [],
     remapTable: {},
     ...overrides,
   };

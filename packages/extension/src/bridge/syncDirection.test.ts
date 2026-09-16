@@ -74,6 +74,37 @@ describe('a sync config may only ask for what the sync does', () => {
     expect(issueFor(result, 'config.mode')).toContain('full');
   });
 
+  it('sync:config:save refuses a mode the sync cannot run', () => {
+    const config = { ...validSyncConfig(), mode: 'incremental' };
+
+    const result = syncConfigSavePayloadSchema.safeParse({ config });
+
+    expect(result.success).toBe(false);
+    expect(issueFor(result, 'config.mode')).toContain('incremental');
+  });
+
+  it.each([syncExecutePayloadSchema, syncConfigSavePayloadSchema])(
+    'refuses conflictStrategy "manual", naming the strategies that are acted on',
+    (schema) => {
+      const config = { ...validSyncConfig(), conflictStrategy: 'manual' };
+
+      const result = schema.safeParse({ config });
+
+      expect(result.success).toBe(false);
+      expect(issueFor(result, 'config.conflictStrategy')).toContain('Manual conflict review');
+      expect(issueFor(result, 'config.conflictStrategy')).toContain('newest wins');
+    },
+  );
+
+  it.each(['source_wins', 'target_wins', 'newest_wins', 'merge'])(
+    'accepts conflictStrategy %j',
+    (conflictStrategy) => {
+      const config = { ...validSyncConfig(), conflictStrategy };
+
+      expect(syncExecutePayloadSchema.safeParse({ config }).success).toBe(true);
+    },
+  );
+
   it.each(['source_to_target', 'bidirectional'])('accepts direction %j', (direction) => {
     const config = { ...validSyncConfig(), direction };
 

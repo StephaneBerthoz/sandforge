@@ -1,4 +1,5 @@
 import type * as vscode from 'vscode';
+import type { OrgListResponse } from '@sandforge/shared';
 import { join } from 'node:path';
 import { buildWebviewHtml } from './webviewHtml';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
@@ -8,6 +9,29 @@ import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
+
+/**
+ * A message the provider posts straight to the sidebar webview, outside the
+ * broker envelope. Each channel names the payload it carries: the org list
+ * used to travel with an undeclared `selectedOrgId` that the sidebar read back
+ * through a cast, and nothing checked the two ends agreed.
+ */
+export type SidebarOutboundMessage =
+  | {
+      type: 'org:list:response';
+      payload: {
+        orgs: Record<string, unknown>[];
+        selectedOrgId?: OrgListResponse['payload']['selectedOrgId'];
+      };
+    }
+  | { type: 'settings:response'; payload: { settings: Record<string, unknown> } }
+  | {
+      id: string;
+      type: 'i18n:locale:response';
+      timestamp: number;
+      correlationId?: string;
+      payload: { lng: string; bundle?: Record<string, unknown>; error?: string };
+    };
 
 /**
  * Provides a WebviewView for the SandForge sidebar.
@@ -166,7 +190,7 @@ export class SidebarViewProvider {
   }
 
   /** Post a message to the sidebar webview (if visible). */
-  postMessage(message: Record<string, unknown>): void {
+  postMessage(message: SidebarOutboundMessage): void {
     if (this.view) {
       void this.view.webview.postMessage(message);
     }
@@ -182,14 +206,14 @@ export class SidebarViewProvider {
    */
   private async answerLocaleRequest(request: { id?: unknown; payload?: unknown }): Promise<void> {
     const lng = (request.payload as { lng?: unknown } | undefined)?.lng;
-    const base: Record<string, unknown> = {
+    const base = {
       id: `i18n-locale-${Date.now()}`,
       type: 'i18n:locale:response',
       timestamp: Date.now(),
       // Correlated like a broker buildResponse so the webview loader matches
       // this answer to its pending request.
       correlationId: typeof request.id === 'string' ? request.id : undefined,
-    };
+    } as const;
     if (!isSupportedLocaleCode(lng)) {
       this.postMessage({
         ...base,

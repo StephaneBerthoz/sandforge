@@ -43,25 +43,29 @@ describe('renderQueryTemplate', () => {
 });
 
 describe('loadTokensFromSas', () => {
-  it('loads token values from a JSON file in the sas', () => {
+  it('loads token values from a JSON file in the sas', async () => {
     const dir = makeTmpDir();
     fs.writeFileSync(path.join(dir, 'tokens.json'), JSON.stringify({ ROOT_IDS: "'001'" }));
     // Guard rooted at a fake repo dir: the tmp sas is outside it.
-    const tokens = loadTokensFromSas(dir, 'tokens.json', new SasPathGuard(path.join(dir, 'repo')));
+    const tokens = await loadTokensFromSas(
+      dir,
+      'tokens.json',
+      new SasPathGuard(path.join(dir, 'repo')),
+    );
     expect(tokens).toEqual({ ROOT_IDS: "'001'" });
   });
 
-  it('refuses a token file inside the repository', () => {
+  it('refuses a token file inside the repository', async () => {
     const guard = new SasPathGuard();
-    expect(() =>
+    await expect(
       loadTokensFromSas(path.join(guard.repoRoot, 'packages'), 'tokens.json', guard),
-    ).toThrow(InsideRepoPathError);
+    ).rejects.toThrow(InsideRepoPathError);
   });
 
-  it('rejects malformed token files', () => {
+  it('rejects malformed token files', async () => {
     const dir = makeTmpDir();
     fs.writeFileSync(path.join(dir, 'tokens.json'), JSON.stringify(['not-an-object']));
     const guard = new SasPathGuard(path.join(dir, 'repo'));
-    expect(() => loadTokensFromSas(dir, 'tokens.json', guard)).toThrow(QueryTemplateError);
+    await expect(loadTokensFromSas(dir, 'tokens.json', guard)).rejects.toThrow(QueryTemplateError);
   });
 });

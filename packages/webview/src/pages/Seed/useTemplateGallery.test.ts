@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import '../../i18n';
 import { useTemplateGallery } from './useTemplateGallery';
 
 /* ------------------------------------------------------------------ */
@@ -128,9 +129,83 @@ describe('useTemplateGallery', () => {
     const template = await result.current.loadFullTemplate('prebuilt-sales-cloud-starter');
 
     expect(template).toBeDefined();
-    expect(template.id).toBe('prebuilt-sales-cloud-starter');
-    expect(template.objects.length).toBe(7);
+    expect(template?.id).toBe('prebuilt-sales-cloud-starter');
+    expect(template?.objects.length).toBe(7);
     expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it('asks for a saved template by the id the host validates', () => {
+    // The request named `templateId`; the boundary reads `id`, so every saved
+    // template answered with INVALID_PAYLOAD and "Use this" did nothing.
+    const { result } = renderHook(() => useTemplateGallery());
+
+    void result.current.loadFullTemplate('tpl-saved-1');
+
+    expect(mockMutate).toHaveBeenCalledWith({ id: 'tpl-saved-1' });
+  });
+
+  it('opens a saved template from the template the host answers with', async () => {
+    // seed:template:load answers `{ template }`. Handing that wrapper on as
+    // the template gave the customize dialog no `objects` to list, and it threw.
+    const saved = {
+      id: 'tpl-saved-1',
+      name: 'Account — 2026-09-16',
+      description: '',
+      version: 1,
+      strategy: 'faker',
+      objects: [
+        {
+          objectApiName: 'Account',
+          recordCount: 10,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+      ],
+      tags: [],
+      createdAt: '2026-09-16T00:00:00.000Z',
+      updatedAt: '2026-09-16T00:00:00.000Z',
+    };
+    const { result, rerender } = renderHook(() => useTemplateGallery());
+
+    let loaded: Promise<unknown> = Promise.resolve(undefined);
+    act(() => {
+      loaded = result.current.loadFullTemplate('tpl-saved-1');
+    });
+    mockMutationState.data = { template: saved };
+    rerender();
+
+    await expect(loaded).resolves.toEqual(saved);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('says a saved template is gone instead of opening nothing', async () => {
+    const { result, rerender } = renderHook(() => useTemplateGallery());
+
+    let loaded: Promise<unknown> = Promise.resolve(undefined);
+    act(() => {
+      loaded = result.current.loadFullTemplate('tpl-deleted');
+    });
+    mockMutationState.data = { template: null };
+    rerender();
+
+    await expect(loaded).resolves.toBeNull();
+    expect(result.current.error).toBe('This saved template no longer exists.');
+  });
+
+  it('settles a saved template load the host refuses', async () => {
+    const { result, rerender } = renderHook(() => useTemplateGallery());
+
+    let loaded: Promise<unknown> = Promise.resolve(undefined);
+    act(() => {
+      loaded = result.current.loadFullTemplate('tpl-saved-1');
+    });
+    mockMutationState.error = 'Invalid payload';
+    rerender();
+
+    await expect(loaded).resolves.toBeNull();
+    expect(result.current.error).toBe('Invalid payload');
   });
 
   it('reports loading state from bridge query', () => {

@@ -4,11 +4,9 @@ import { buildResponse } from './HandlerTypes.js';
 import {
   validatePayload,
   settingsUpdatePayloadSchema,
-  hintDismissPayloadSchema,
   telemetryTogglePayloadSchema,
 } from '../validatePayload.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
-import type { HintTracker } from '../../core/onboarding/HintTracker.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by SettingsHandler. */
@@ -16,31 +14,25 @@ const SETTINGS_TYPES = new Set([
   'settings:get',
   'settings:update',
   'onboarding:complete',
-  'onboarding:reset',
-  'hint:dismiss',
   'telemetry:status',
   'telemetry:toggle',
-  'connectivity:status',
 ]);
 
 /**
- * Domain handler for settings, onboarding, telemetry,
- * and connectivity-related webview-to-extension messages.
+ * Domain handler for settings, onboarding and telemetry
+ * webview-to-extension messages.
  *
- * Groups all configuration and infrastructure-status operations
- * into a single cohesive handler.
+ * Groups all configuration operations into a single cohesive handler.
  */
 export class SettingsHandler implements DomainHandler {
   private onboardingService?: OnboardingService;
-  private hintTracker?: HintTracker;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
-  /** Inject onboarding services after construction. */
-  setOnboardingServices(onboarding: OnboardingService, hints: HintTracker): void {
+  /** Inject the onboarding service after construction. */
+  setOnboardingService(onboarding: OnboardingService): void {
     this.onboardingService = onboarding;
-    this.hintTracker = hints;
   }
 
   /**
@@ -62,20 +54,11 @@ export class SettingsHandler implements DomainHandler {
       case 'onboarding:complete':
         this.handleOnboardingComplete(msg);
         return true;
-      case 'onboarding:reset':
-        this.handleOnboardingReset(msg);
-        return true;
-      case 'hint:dismiss':
-        this.handleHintDismiss(msg);
-        return true;
       case 'telemetry:status':
         this.handleTelemetryStatus(msg);
         return true;
       case 'telemetry:toggle':
         await this.handleTelemetryToggle(msg);
-        return true;
-      case 'connectivity:status':
-        this.handleConnectivityStatus(msg);
         return true;
       default:
         return false;
@@ -109,26 +92,6 @@ export class SettingsHandler implements DomainHandler {
     if (this.onboardingService) {
       this.onboardingService.markOnboardingComplete().catch((err) => {
         this.deps.log(`[ERR] Failed to mark onboarding complete: ${extractErrorMessage(err)}`);
-      });
-    }
-  }
-
-  private handleOnboardingReset(msg: BaseMessage): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    if (this.onboardingService) {
-      this.onboardingService.resetOnboarding().catch((err) => {
-        this.deps.log(`[ERR] Failed to reset onboarding: ${extractErrorMessage(err)}`);
-      });
-    }
-  }
-
-  private handleHintDismiss(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    if (this.hintTracker) {
-      const parsed = validatePayload(hintDismissPayloadSchema, msg, 'settings:error', this.deps);
-      if (!parsed) return;
-      this.hintTracker.markHintSeen(parsed.hintId).catch((err) => {
-        this.deps.log(`[ERR] Failed to mark hint seen: ${extractErrorMessage(err)}`);
       });
     }
   }
@@ -183,17 +146,5 @@ export class SettingsHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     }
-  }
-
-  private handleConnectivityStatus(msg: InboundRequest): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const offlineManager = this.deps.infraServices?.offlineManager;
-    const status = offlineManager ? offlineManager.getStatus() : 'online';
-    const response = buildResponse(this.deps, msg, 'connectivity:status:response', {
-      online: status === 'online',
-      lastChecked: new Date().toISOString(),
-      queueSize: offlineManager ? offlineManager.getQueueSize() : 0,
-    });
-    this.deps.broker.postToWebview(response);
   }
 }

@@ -276,8 +276,12 @@ export class SeedCloneHandler implements DomainHandler {
           orgId: parsed.targetOrgId,
           orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
           operation: (parsed.upsert ? 'upsert' : 'insert') as 'upsert' | 'insert',
-          objectName: parsed.objects[0]?.objectApiName ?? 'CloneData',
-          recordCount: 1,
+          // Every object the run will write, not just the first one: a
+          // production confirmation naming one object hid the rest of them.
+          objectName: parsed.objects.map((o) => o.objectApiName).join(', ') || 'CloneData',
+          // The source records are queried further down, so nothing here can
+          // count them yet.
+          recordCount: 'unknown' as const,
           module: 'clone',
         };
         const check = guard.check(guardRequest);

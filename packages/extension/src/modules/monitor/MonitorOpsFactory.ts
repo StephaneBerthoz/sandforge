@@ -14,7 +14,7 @@ import type { UserSessionInfo } from './UserSessionMonitor.js';
 import { ApexLogAnalyzer } from './ApexLogAnalyzer.js';
 import type { ApexLogEntry } from '@sandforge/shared';
 import { SandboxRefreshTracker } from './SandboxRefreshTracker.js';
-import type { SandboxRefreshEvent } from './SandboxRefreshTracker.js';
+import type { SandboxRefreshEvent, SandboxRefreshFetch } from './SandboxRefreshTracker.js';
 import { HealthCheck } from './HealthCheck.js';
 import type { HealthSignalProvider } from './HealthCheck.js';
 import { JobMonitor } from './JobMonitor.js';
@@ -139,18 +139,22 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const records = await queryAll<{
         Id: string;
         UsersId: string;
+        Users: { Username: string } | null;
         LoginType: string;
         SessionType: string;
         CreatedDate: string;
         SourceIp: string;
       }>(
         conn,
-        'SELECT Id, UsersId, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
+        'SELECT Id, UsersId, Users.Username, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
       );
       checkApiLimits(conn.limitInfo, 'monitor:sessions authSession');
       return records.map((r) => ({
+        sessionId: r.Id,
         userId: r.UsersId,
-        username: r.UsersId,
+        // The panel's first column is headed "Username" and showed the 18-char
+        // user id, the same value twice. The relationship carries the login.
+        username: r.Users?.Username ?? r.UsersId,
         sessionType: r.SessionType ?? r.LoginType ?? 'Unknown',
         loginTime: r.CreatedDate,
         sourceIp: r.SourceIp ?? '',
@@ -192,8 +196,8 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
   // answer with an empty list instead of erroring on every refresh cycle.
   const sandboxRefreshUnsupported = new Set<string>();
   const sandboxRefreshTracker = new SandboxRefreshTracker(
-    async (orgId: string): Promise<SandboxRefreshEvent[]> => {
-      if (sandboxRefreshUnsupported.has(orgId)) return [];
+    async (orgId: string): Promise<SandboxRefreshFetch> => {
+      if (sandboxRefreshUnsupported.has(orgId)) return { supported: false, events: [] };
       const conn = await deps.getConnection(orgId);
       let records;
       try {
@@ -211,18 +215,21 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         const message = err instanceof Error ? err.message : String(err);
         if (message.includes('SandboxProcess') && message.includes('not supported')) {
           sandboxRefreshUnsupported.add(orgId);
-          return [];
+          return { supported: false, events: [] };
         }
         throw err;
       }
       checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
-      return records.map((r) => ({
-        orgId,
-        sandboxName: r.SandboxName ?? 'Unknown',
-        refreshDate: r.CreatedDate,
-        status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
-        sourceOrg: r.Description ?? undefined,
-      }));
+      return {
+        supported: true,
+        events: records.map((r) => ({
+          orgId,
+          sandboxName: r.SandboxName ?? 'Unknown',
+          refreshDate: r.CreatedDate,
+          status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
+          sourceOrg: r.Description ?? undefined,
+        })),
+      };
     },
   );
   // No onRefreshDetected callback: the tracker starts with an empty seen-set,

@@ -99,7 +99,8 @@
     "tagsPlaceholder": "dev, équipe-a",
     "aliasPlaceholder": "mon-sandbox",
     "bannerConnected": "{{count}} sur {{total}} org(s) connectée(s)",
-    "bannerEmpty": "Importez vos orgs depuis Salesforce CLI ou connectez-vous manuellement"
+    "bannerEmpty": "Importez vos orgs depuis Salesforce CLI ou connectez-vous manuellement",
+    "installCli": "Installer le CLI Salesforce"
   },
   "monitor": {
     "refresh": "Actualiser",
@@ -252,7 +253,8 @@
     "sandboxRefresh": {
       "title": "Rafraîchissements de sandbox",
       "empty": "Aucun événement de rafraîchissement de sandbox",
-      "inProgress": "Rafraîchissement en cours"
+      "inProgress": "Rafraîchissement en cours",
+      "unsupported": "Seule une org qui gère des sandboxes conserve un historique de rafraîchissement. Celle-ci n'en a aucun à lire."
     },
     "resetIn": "Réinitialisation dans",
     "sessions": {
@@ -275,9 +277,9 @@
     "run": "Lancer la comparaison",
     "running": "Comparaison en cours...",
     "diff": "Visionneuse de diff",
-    "permissions": "Matrice de permissions",
+    "permissions": "Présence des permissions",
     "snapshots": "Instantanés",
-    "drift": "Tableau de drift",
+    "drift": "Écarts de paramètres d'org",
     "deploy": "Déployer depuis le diff",
     "noResults": "Pas encore de résultats",
     "added": "Ajouté",
@@ -349,6 +351,7 @@
     "dependencies": "Dépendances",
     "sampleRecords": "Exemples d'enregistrements",
     "saveAsTemplate": "Enregistrer comme modèle",
+    "templateSaved": "Modèle enregistré. Choisissez-le dans la galerie la prochaine fois.",
     "recordsCreated": "Enregistrements créés",
     "recordsFailed": "Enregistrements échoués",
     "executionTime": "Temps d'exécution",
@@ -396,7 +399,8 @@
       "useThis": "Utiliser",
       "customize": "Personnaliser les volumes",
       "startSeeding": "Lancer le seed",
-      "orCustomize": "ou configurez manuellement"
+      "orCustomize": "ou configurez manuellement",
+      "templateMissing": "Ce modèle enregistré n'existe plus."
     },
     "quickSeed": {
       "title": "Seed rapide",
@@ -576,6 +580,7 @@
     "transforms": "Transformations",
     "review": "Vérification",
     "reviewDesc": "Vérifiez la configuration de sync avant exécution",
+    "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
     "execute": "Exécuter",
     "executeDesc": "Lancer l'opération de synchronisation",
     "results": "Résultats",
@@ -766,6 +771,7 @@
       "name": "Nom",
       "namePlaceholder": "ex. Sync Account nocturne",
       "syncConfig": "Configuration de synchronisation",
+      "configGone": "La configuration de cette planification n'existe plus : choisissez-en une",
       "simpleMode": "Simple",
       "advancedMode": "Avancé (cron)",
       "frequency": "Fréquence",
@@ -786,7 +792,7 @@
       "notifyOnComplete": "Notifier à la fin",
       "notifyOnFailure": "Notifier en cas d’échec",
       "preview": "Aperçu",
-      "defaultConfig": "Configuration par défaut",
+      "noSavedConfig": "Enregistrez d'abord une configuration depuis l'onglet Sync : une planification exécute une configuration enregistrée.",
       "emptyTitle": "Aucune planification",
       "emptyDesc": "Lancez une synchronisation automatiquement selon une planification récurrente au lieu de la déclencher à la main.",
       "createFirst": "Créer une planification",
@@ -984,7 +990,6 @@
       "queued": "En file",
       "running": "En cours",
       "paused": "En pause",
-      "waiting_approval": "En attente d'approbation",
       "completed": "Terminé",
       "completed_with_warnings": "Terminé avec avertissements",
       "failed": "Échoué",
@@ -1006,7 +1011,6 @@
     "stepConfig": "Configuration de l'étape",
     "stepName": "Nom de l'étape",
     "typeConfig": "Configuration spécifique au type",
-    "stepConfigChannel": "Canal",
     "stepConfigMessage": "Message",
     "stepConfigDelay": "Délai (secondes)",
     "stepConfigScript": "Script",
@@ -1057,7 +1061,8 @@
     "error": {
       "overloaded": "Fournisseur AI temporairement surcharge. Reprise dans {{countdown}}.",
       "rateLimit": "Limite d'appels AI atteinte. Reprise dans {{countdown}}.",
-      "auth": "Clé AI invalide ou absente. Ouvrir la palette → SandForge: Configurer la clé AI.",
+      "auth": "Clé AI invalide ou absente. Ajoutez-la dans Paramètres SandForge > IA > Clé API.",
+      "invalidRequest": "Le fournisseur AI a refusé la requête comme invalide. Aucune nouvelle tentative.",
       "cancelled": "Requête AI annulée.",
       "transient": "Erreur AI temporaire. Réessayez.",
       "unknown": "Erreur AI inattendue."
@@ -1234,15 +1239,15 @@
     "gettingStartedDesc": "Apprenez les bases de SandForge",
     "gettingStartedContent": "1. Connectez votre org Salesforce via la page Organisations.\n2. Ouvrez le Moniteur pour vérifier la santé de votre org.\n3. Utilisez Seed pour générer des données de test dans votre sandbox.\n4. Configurez Sync pour garder vos environnements synchronisés.\n5. Explorez Compare, DataOps et Automation pour les workflows avancés.",
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org en temps réel :\n- Jauge de score de santé avec facteurs contributifs\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Alertes pour les seuils critiques\n\nAstuce : Activez le rafraîchissement auto pour un suivi continu.",
-    "seedContent": "L'assistant Seed génère des données de test réalistes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Définissez les relations et volumes\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
+    "seedContent": "L'assistant Seed génère des données de test réalistes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Fixez le nombre d'enregistrements — un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
     "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental, le delta et le CDC ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Drift : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : bientôt disponible, rien n'est encore déployé depuis un diff",
     "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme GDPR, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Conformité, Nettoyage et Qualité : bientôt disponible, rien ne tourne encore derrière ces onglets",
     "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Seules Délai et Condition font quelque chose : les 13 autres signalent un succès sans toucher à une org\n- Les pipelines se lancent à la main, avec le bouton Exécuter le pipeline ; rien d'autre n'en démarre un pour l'instant\n- Étapes Condition avec 11 opérateurs\n- Historique d'exécution : statut, durée totale, nombre d'étapes et erreurs de chaque exécution\n- Modèles de pipeline depuis la Marketplace",
-    "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : chaque enregistrement inséré voit ses ID remappés\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
+    "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
-    "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, et NL2SOQL, personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Tant que l'IA est activée, une exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur au modèle pour une suggestion de correction, sauf si une table intégrée répond déjà à son code d'erreur\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
+    "aiContent": "L'Assistant IA, avec votre propre clé Anthropic :\n- Chat, et NL2SOQL, personas personnalisés et règles de champ IA dans Seed\n- Brouillons de pipeline dans Automation\n- Une table intégrée de codes d'erreur Salesforce répond d'abord aux codes qu'elle connaît, sur votre machine, que l'IA soit activée ou non, et n'envoie rien\n- Rien n'est envoyé pour une liste fixe de messages propres à SandForge, comme une confirmation de production refusée, une exécution en double ou un refus CRUD, FLS ou Production Guard, ni pour un échec survenu sans vue SandForge ouverte\n- Quand l'IA est activée, toute autre exécution Seed, Sync, DataOps ou Automation en échec envoie son message d'erreur, avec ses Id Salesforce remplacés par <id>, et la suggestion revient en notification VS Code\n- Désactivez cet envoi avec sandforge.ai.errorResolution : le reste de l'assistant continue de fonctionner\n- Les conseils de schéma de Compare et le scan d'anomalies de Monitor reposent sur des règles : ils fonctionnent avec l'IA désactivée et sans clé\n- Configurez votre clé API dans Paramètres > IA",
     "shortcutsContent": "G + lettre — Accéder à un module (ex. G puis F pour Forge, G puis Y pour Sync, G puis L pour l'Aide)\nCtrl+K — Palette de commandes\nEscape — Fermer les modales et dialogues\nTab — Naviguer entre les éléments\nEntrée/Espace — Activer les boutons et liens",
     "faqContent": "Q : Pourquoi mon Score de Santé est-il bas ?\nR : Vérifiez l'utilisation des limites API, les jobs échoués et la consommation de stockage.\n\nQ : Comment corriger les erreurs de timeout ?\nR : SandForge n'a aucun réglage de délai pour les appels Salesforce. Réduisez la taille de lot (sandforge.seed.defaultBatchSize et sandforge.sync.defaultBatchSize dans les paramètres de VS Code) et découpez une grosse exécution en plusieurs petites. Grappe ne rend pas une exécution plus rapide : il signale la progression partition par partition.\n\nQ : Puis-je annuler une opération de sync ?\nR : Non. Une exécution de sync ne peut pas être défaite. Avant une exécution risquée, faites une sauvegarde DataOps de l'org cible : elle couvre Account et Contact, et ne se restaure que dans cette org.\n\nQ : Comment connecter une org de production en sécurité ?\nR : Les orgs de production sont auto-détectées et marquées comme niveau de sécurité Critique.",
     "faq": "FAQ",
@@ -1305,10 +1310,10 @@
     "sandboxHealth": "Santé des Sandboxes",
     "smartAction": {
       "title": "Action recommandée",
-      "execute": "Lancer",
-      "confirm": "Exécuter",
+      "execute": "Configurer",
+      "confirm": "Ouvrir",
       "cancel": "Annuler",
-      "confirmMsg": "Sur le point de {{action}} sur {{org}}. Continuer ?",
+      "confirmMsg": "Ouvrir {{action}} pour {{org}} ?",
       "reasonEmpty": "Votre sandbox est vide — alimentez-la avec des données de démo",
       "reasonClone": "L'org source contient des données — clonez-les vers votre cible",
       "reasonSync": "Les deux orgs ont des données — synchronisez pour les aligner",
@@ -1344,8 +1349,6 @@
     "sfdxImport": "Importer depuis SF CLI",
     "sfdxImportDesc": "Détecter automatiquement toutes les orgs authentifiées via Salesforce CLI",
     "oauthWebDesc": "S'authentifier via le navigateur avec OAuth 2.0",
-    "oauthDeviceDesc": "S'authentifier depuis un environnement sans interface",
-    "jwtDesc": "S'authentifier avec un token JWT et un certificat",
     "usernamePasswordDesc": "S'authentifier avec nom d'utilisateur, mot de passe et token de sécurité",
     "loginProduction": "Production / Développeur",
     "loginSandbox": "Sandbox",
@@ -1512,7 +1515,7 @@
     "quickStartTemplateHint": "Saute la découverte et utilise les objets connus du modèle starter. Les counts d'enregistrements seront calculés pendant l'exécution.",
     "emptyState": {
       "title": "Peuplez votre sandbox à partir d'un enregistrement réel",
-      "description": "Forge clone un enregistrement racine et tout son graphe de relations — Accounts, Contacts, Opportunities, Cases — vers votre sandbox, en réattribuant chaque ID.",
+      "description": "Forge clone un enregistrement racine et tout son graphe de relations — Accounts, Contacts, Opportunities, Cases — vers votre sandbox, en remappant les ID à l'écriture. Un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale.",
       "step1Select": "Sélectionnez une org source",
       "step2": "Collez l'ID d'un enregistrement racine (ex. un Account de recette)",
       "step3": "Découvrez son graphe de relations",
@@ -1637,7 +1640,10 @@
         "explanation": "{{detail}}",
         "action": "Recherchez ce code d'erreur dans la documentation Salesforce."
       }
-    }
+    },
+    "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
+    "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
+    "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste."
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1817,7 +1823,8 @@
       "noDataset": "Aucun jeu figé pour l'instant",
       "selection": "Sélection",
       "noSelection": "Aucune sélection",
-      "lastVerify": "Dernière vérification"
+      "lastVerify": "Dernière vérification",
+      "saltMismatch": "Le sel de cet environnement ({{current}}) n'est pas celui avec lequel ce jeu de données a été construit ({{manifest}}). Une nouvelle extraction avec ce sel donnerait aux mêmes enregistrements d'autres pseudonymes que ceux de ce jeu de données. Remettez d'abord ce sel dans SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extraire",
@@ -2039,6 +2046,11 @@
     "timeline": "Chronologie",
     "easterEgg": "Easter egg",
     "csvImportSteps": "Étapes de l'import CSV",
-    "mapped": "Mappé"
+    "mapped": "Mappé",
+    "triggerType": "Type de déclencheur",
+    "anonymizationMethodFor": "Méthode d'anonymisation pour {{category}}",
+    "includeObject": "Inclure {{object}} dans le clone",
+    "recordCountFor": "Nombre d'enregistrements pour {{object}}",
+    "batchSizeFor": "Taille de lot pour {{object}}"
   }
 }

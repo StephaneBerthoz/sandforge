@@ -1,6 +1,7 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
+import { ErrorResolutionReplySchema, parseModelJson } from '@sandforge/shared';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { ERROR_RESOLVE_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 import {
@@ -37,9 +38,13 @@ const MAX_REMEMBERED_ANSWERS = 50;
 
 /**
  * 15- or 18-character Salesforce Ids. At least one digit is required, so an
- * ordinary 15-letter word is not taken for one.
+ * ordinary 15-letter word is not taken for one. Only a letter or a digit ends
+ * an Id, so one joined to a name by an underscore is still found. A run whose
+ * name goes on to a `__` suffix is a segment of a custom API name such as
+ * `Q_Region2024Budge__c`, and is left alone.
  */
-const SALESFORCE_ID_PATTERN = /\b(?=[A-Za-z]*\d)[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?\b/g;
+const SALESFORCE_ID_PATTERN =
+  /(?<![A-Za-z0-9])(?=[A-Za-z]*\d)[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?(?![A-Za-z0-9])(?!\w*__)/g;
 
 /**
  * Replace every Salesforce Id in an error message with `<id>`.
@@ -68,10 +73,18 @@ interface RememberedAnswer {
  */
 export class ErrorResolver {
   private readonly provider: AIProvider;
+  private readonly language?: string;
   private readonly answers = new Map<string, RememberedAnswer>();
 
-  constructor(provider: AIProvider) {
+  /**
+   * @param provider - What asks the model.
+   * @param language - The editor's display language, so the answer is written
+   *   in the language the notification shows it in. Passed in by the
+   *   composition root: nothing here reads the host.
+   */
+  constructor(provider: AIProvider, language?: string) {
     this.provider = provider;
+    this.language = language;
   }
 
   /**
@@ -99,7 +112,7 @@ export class ErrorResolver {
     if (remembered && remembered.expiresAt > now) return remembered.resolution;
 
     const resolution = this.provider(
-      buildAIPrompt(error, context),
+      buildAIPrompt(error, context, this.language),
       ERROR_RESOLVE_SYSTEM_PROMPT,
     ).then(parseAIResolution);
     this.remember(key, { expiresAt: now + ANSWER_TTL_MS, resolution }, now);
@@ -128,16 +141,25 @@ export class ErrorResolver {
 /**
  * Build the prompt for AI-based error resolution.
  */
-function buildAIPrompt(error: SalesforceError, context: OperationContext): string {
+function buildAIPrompt(
+  error: SalesforceError,
+  context: OperationContext,
+  language?: string,
+): string {
   // Salesforce echoes org-writable text back in error messages — a validation
   // rule's custom text (FIELD_CUSTOM_VALIDATION_EXCEPTION) or the offending
   // field value (DUPLICATE_VALUE) — so the message is untrusted input and must
   // cross the <user-data> boundary rather than land at instruction level.
+  //
+  // The Ids go first: a message may name the org or the record it failed on,
+  // the explanation never turns on which one it was, and the caller cannot
+  // strip what it has not written — a message thrown deep in a run reaches
+  // the emitter through a generic catch.
   const lines = [
     'You are a Salesforce error resolution expert. Analyze the following error and provide a resolution.',
     '',
     `Error code: ${error.errorCode}`,
-    `Error message: ${wrapAsUserData('errorMessage', error.message)}`,
+    `Error message: ${wrapAsUserData('errorMessage', normalizeErrorMessage(error.message))}`,
   ];
 
   if (error.fields) {
@@ -182,66 +204,36 @@ function buildAIPrompt(error: SalesforceError, context: OperationContext): strin
   lines.push('  "relatedDocs": ["https://..."]');
   lines.push('}');
 
+  if (language) {
+    lines.push('');
+    lines.push(`Answer in ${language}: the suggestion is shown in that language.`);
+  }
+
   return lines.join('\n');
 }
 
 /**
- * Parse the AI response into an ErrorResolution.
- * Handles responses wrapped in markdown code blocks.
+ * Read the model's reply as an ErrorResolution.
+ *
+ * Fenced or bare, well-shaped or not, the reply is read the one way every AI
+ * module reads one, so a reply nobody can parse raises the message written for
+ * a reader rather than the SyntaxError of a failed `JSON.parse`.
  */
 function parseAIResolution(response: string): ErrorResolution {
-  const trimmed = response.trim();
-  const jsonContent = extractJsonFromMarkdown(trimmed);
-  const parsed: unknown = JSON.parse(jsonContent);
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
-      'AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.',
-    );
-  }
-
-  const obj = parsed as Record<string, unknown>;
-
-  const explanation =
-    typeof obj['explanation'] === 'string' ? obj['explanation'] : 'Unable to determine root cause.';
-  const autoFixable = typeof obj['autoFixable'] === 'boolean' ? obj['autoFixable'] : false;
-  const autoFixAction = typeof obj['autoFixAction'] === 'string' ? obj['autoFixAction'] : undefined;
-  const confidence = typeof obj['confidence'] === 'number' ? obj['confidence'] : 0.5;
-
-  const suggestions: ErrorSuggestion[] = [];
-  if (Array.isArray(obj['suggestions'])) {
-    for (const item of obj['suggestions'] as unknown[]) {
-      if (typeof item === 'object' && item !== null) {
-        const s = item as Record<string, unknown>;
-        suggestions.push({
-          title: typeof s['title'] === 'string' ? s['title'] : 'Unknown',
-          description: typeof s['description'] === 'string' ? s['description'] : '',
-          probability: typeof s['probability'] === 'number' ? s['probability'] : 0.5,
-          action: typeof s['action'] === 'string' ? s['action'] : undefined,
-        });
-      }
-    }
-  }
-
-  const relatedDocs: string[] = [];
-  if (Array.isArray(obj['relatedDocs'])) {
-    for (const doc of obj['relatedDocs'] as unknown[]) {
-      if (typeof doc === 'string') {
-        relatedDocs.push(doc);
-      }
-    }
-  }
-
-  return { explanation, suggestions, autoFixable, autoFixAction, confidence, relatedDocs };
-}
-
-/**
- * Extract JSON content from a string that may be wrapped in markdown code blocks.
- */
-function extractJsonFromMarkdown(text: string): string {
-  const codeBlockMatch = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/.exec(text);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
-  }
-  return text;
+  const reply = parseModelJson(ErrorResolutionReplySchema, response);
+  return {
+    explanation: reply.explanation,
+    suggestions: reply.suggestions.map(
+      (suggestion): ErrorSuggestion => ({
+        title: suggestion.title,
+        description: suggestion.description,
+        probability: suggestion.probability,
+        ...(suggestion.action !== undefined ? { action: suggestion.action } : {}),
+      }),
+    ),
+    autoFixable: reply.autoFixable,
+    ...(reply.autoFixAction !== undefined ? { autoFixAction: reply.autoFixAction } : {}),
+    confidence: reply.confidence,
+    relatedDocs: reply.relatedDocs,
+  };
 }

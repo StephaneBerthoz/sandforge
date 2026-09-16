@@ -462,6 +462,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </div>
       )}
 
+      {/* A read stopped by a bound is not a failure and would otherwise leave
+          the wizard showing an unqualified success for a partial clone. */}
+      {result?.truncatedObjects && result.truncatedObjects.length > 0 && (
+        <div
+          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-[var(--sf-warning)]"
+          role="status"
+          data-testid="forge-results-truncated"
+        >
+          {t('forge.truncatedRead', { objects: result.truncatedObjects.join(', ') })}
+        </div>
+      )}
+
       {/* Structured execution errors, grouped by object/stage */}
       {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}
 

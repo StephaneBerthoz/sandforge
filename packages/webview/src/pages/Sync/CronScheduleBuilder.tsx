@@ -151,7 +151,15 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
   // Form state
   const [name, setName] = useState(initialName);
-  const [configId, setConfigId] = useState(initialConfigId || (configs[0]?.id ?? ''));
+  // An edited schedule whose configuration is gone starts with none picked:
+  // preselecting another one moved the schedule onto a different org pair
+  // as soon as any other field was saved.
+  const initialConfigGone =
+    initialConfigId !== '' && !configs.some((c) => c.id === initialConfigId);
+  const [configId, setConfigId] = useState(
+    initialConfigGone ? '' : initialConfigId || (configs[0]?.id ?? ''),
+  );
+  const configPicked = configs.some((c) => c.id === configId);
   const [mode, setMode] = useState<'simple' | 'advanced'>(
     initialCron && !isSimpleCron(initialCron) ? 'advanced' : 'simple',
   );
@@ -202,6 +210,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      if (!configPicked) return;
       onSubmit({
         name,
         cron: currentCron,
@@ -220,6 +229,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       maxRetries,
       notifyOnComplete,
       notifyOnFailure,
+      configPicked,
       onSubmit,
     ],
   );
@@ -261,6 +271,11 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           onChange={(e) => setConfigId(e.target.value)}
           data-testid="config-selector"
         >
+          {!configPicked && (
+            <option value="" disabled>
+              {t('sync.schedules.configGone')}
+            </option>
+          )}
           {configs.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -498,7 +513,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         </button>
         <button
           type="submit"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]"
+          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] disabled:opacity-50"
+          disabled={!configPicked}
           data-testid="submit-btn"
         >
           <Icon name="check" /> {t('common.save')}

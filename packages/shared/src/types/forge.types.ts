@@ -218,6 +218,14 @@ export interface ForgeExecutionResult {
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];
   /**
+   * Objects whose source read stopped on a bound (50 000 records or 500
+   * pages) instead of at the end of the cursor: the rows past the bound were
+   * never read and never cloned, and the run is otherwise a success.
+   *
+   * Optional because runs recorded before this field existed do not carry it.
+   */
+  truncatedObjects?: string[];
+  /**
    * The configuration that produced this run, minus the org ids.
    *
    * History used to store graph + timings + remap table and nothing you could

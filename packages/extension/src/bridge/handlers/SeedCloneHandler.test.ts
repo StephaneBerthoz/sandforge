@@ -210,7 +210,8 @@ describe('SeedCloneHandler', () => {
         requiresApproval: false,
         blockedReason: behavior.blockedReason,
         warnings: [],
-        impactSummary: 'INSERT 1 Account record(s) on production org tgt-org [module: clone]',
+        impactSummary:
+          'INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
       });
       const logOperation = vi.fn();
       const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
@@ -249,6 +250,26 @@ describe('SeedCloneHandler', () => {
       expect(guard.logOperation).toHaveBeenCalledTimes(1);
       expect(writer.insert).toHaveBeenCalledTimes(1);
       expect(posted(deps, 'seed:clone:execute:response')).toHaveLength(1);
+    });
+
+    it('names every object of the clone to the guard, count unknown until the source is read', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      mockTargetOrgType('Production');
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({
+            objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }],
+          }),
+        ),
+      );
+
+      expect(guard.check.mock.calls[0][0]).toMatchObject({
+        objectName: 'Account, Contact',
+        recordCount: 'unknown',
+      });
     });
 
     it('declares an upsert clone as an upsert to the guard', async () => {
@@ -307,7 +328,7 @@ describe('SeedCloneHandler', () => {
 
       const failures = posted(deps, 'operation:failed');
       expect((failures[0].payload as { error: string }).error).toBe(
-        'Operation blocked by Production Guard: INSERT 1 Account record(s) on production org tgt-org [module: clone]',
+        'Operation blocked by Production Guard: INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
       );
     });
 

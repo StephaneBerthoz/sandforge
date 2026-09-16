@@ -14,7 +14,7 @@ vi.mock('../hooks/useVSCodeApi', () => ({
   }),
 }));
 
-import { getPersistedItem, setPersistedItem, removePersistedItem } from './webviewStorage';
+import { getPersistedItem, setPersistedItem } from './webviewStorage';
 
 /* ---------- Tests ---------- */
 
@@ -61,21 +61,6 @@ describe('webviewStorage', () => {
       mockState = { myKey: 'old' };
       setPersistedItem('myKey', 'new');
       expect(mockState?.myKey).toBe('new');
-    });
-  });
-
-  describe('removePersistedItem', () => {
-    it('removes only the target key', () => {
-      mockState = { myKey: 'bye', otherKey: 'stay' };
-      removePersistedItem('myKey');
-      expect(mockState?.myKey).toBeUndefined();
-      expect(mockState?.otherKey).toBe('stay');
-    });
-
-    it('is a no-op when the key is absent', () => {
-      mockState = { otherKey: 'stay' };
-      removePersistedItem('missing');
-      expect(mockState).toEqual({ otherKey: 'stay' });
     });
   });
 });

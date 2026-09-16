@@ -248,3 +248,22 @@ export function soqlFilterRefused(soql: string): boolean {
   const where = soqlRootFilter(soql)?.where;
   return !!where && !objectSoqlFilterRule.safeParse(where).success;
 }
+
+/** The rule every object filter KEY is checked against: an SObject API name. */
+const objectSoqlFilterKeyRule = forgeConfigSchema.shape.objectSoqlFilters
+  .unwrap()
+  .innerType().keySchema;
+
+/**
+ * Whether the name after FROM breaks the rule the extension checks every
+ * object filter key against: a letter followed by at most 79 letters, digits
+ * or underscores. The clause travels under that name, so a name the schema
+ * refuses sinks the whole run — and only once it reached the host, with the
+ * form showing nothing.
+ *
+ * A query with no WHERE clause sends no filter at all, so nothing is refused.
+ */
+export function soqlObjectNameRefused(soql: string): boolean {
+  const root = soqlRootFilter(soql);
+  return !!root?.where && !objectSoqlFilterKeyRule.safeParse(root.objectApiName).success;
+}

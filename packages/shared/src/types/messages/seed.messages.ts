@@ -18,6 +18,10 @@ import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../c
  * The template type comes from the seed config schema, so a change to that
  * schema reaches this contract; SeedOpsHandler assigns its validated payload
  * to this type, which keeps the two from drifting apart unnoticed.
+ *
+ * `dryRun` is accepted only to be refused with DRY_RUN_UNSUPPORTED: a stored
+ * request carrying it must be turned down by name rather than run as a real
+ * seed that writes.
  */
 export interface SeedExecuteRequest extends BaseMessage {
   type: 'seed:execute';
@@ -39,15 +43,13 @@ export interface SeedDescribeObjectRequest extends BaseMessage {
 /**
  * Response for seed execution (consumed by useQuickSeed / useSeedExecution).
  *
- * Dual shape: the real path posts the SeedOrchestrator result
- * ({@link SeedExecutionResult}); the dry-run short-circuit posts a synthetic
- * `{ success, dryRun, insertedCount, results }` summary instead.
+ * One shape: the SeedOrchestrator result of a run that happened. A request
+ * that cannot run is answered on `seed:error`, never with a summary of a run
+ * that did not take place.
  */
 export interface SeedExecuteResponse extends BaseMessage {
   type: 'seed:execute:response';
-  payload:
-    | SeedExecutionResult
-    | { success: boolean; dryRun: boolean; insertedCount: number; results: unknown[] };
+  payload: SeedExecutionResult;
 }
 
 /** Response containing describable (createable) objects of an org. */

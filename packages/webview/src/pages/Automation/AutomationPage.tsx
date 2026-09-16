@@ -235,6 +235,7 @@ export const AutomationPage: React.FC = () => {
                   and Condition have handlers: the rest pass through without
                   touching an org. Say so before the Run button is pressed. */}
               <ComingSoon
+                variant="banner"
                 data-testid="automation-steps-soon"
                 description={t('automation.soon.steps')}
               />
@@ -297,6 +298,14 @@ export const AutomationPage: React.FC = () => {
               <h2 className="text-sm font-semibold text-text-primary">
                 {t('automation.marketplace')}
               </h2>
+              {/* A template card is read on its own, and its description
+                  promises work its steps do not do: the steps only show up on
+                  the canvas after Install. Say it here, before the button. */}
+              <ComingSoon
+                variant="banner"
+                data-testid="automation-marketplace-steps-soon"
+                description={t('automation.soon.steps')}
+              />
               {marketplaceLoading && (
                 <div className="flex gap-3" data-testid="marketplace-loading">
                   {Array.from({ length: 3 }, (_, i) => (

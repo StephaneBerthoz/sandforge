@@ -10,6 +10,9 @@ import type { BudgetThreshold } from '../adapters/ai/tokenBudget/index.js';
 
 const BUDGET_SETTING = 'sandforge.ai.tokenBudgetMaxPerSession';
 
+/** Read under the `sandforge` section, so without its prefix. */
+const ERROR_RESOLUTION_SETTING = 'ai.errorResolution';
+
 /**
  * Number of the latest {@link initAIComposition} run. Runs are not queued —
  * every `sandforge.ai.*` change starts one — so a run checks this after each
@@ -183,15 +186,28 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   ]);
   if (superseded()) return;
 
+  // A failed run asks the model on its own, with nobody pressing anything, so
+  // it has a switch of its own next to the AI one. Off, no resolver is
+  // injected and the failure is answered from the built-in table of error
+  // codes or not at all — the rest of the assistant is untouched.
+  const resolveFailures = services.getSandforgeSetting(ERROR_RESOLUTION_SETTING, true);
+
   // Installed together after the last await, so a run that gives way never
   // leaves half a stack behind.
   handlers.setAIAssistant(aiAssistant);
   log('AI Assistant initialized (unified adapter stack).');
   handlers.setAIModules({
     nl2soql: new NL2SOQL(aiProvider),
-    errorResolver: new ErrorResolver(aiProvider),
+    // The display language travels from here: the resolver builds the prompt,
+    // and nothing under `modules/` reads the host.
+    ...(resolveFailures
+      ? { errorResolver: new ErrorResolver(aiProvider, vscode.env.language) }
+      : {}),
     pipelineGenerator: new PipelineGenerator(aiProvider),
   });
+  if (!resolveFailures) {
+    log('Error resolution disabled (sandforge.ai.errorResolution=false) — no failure is sent.');
+  }
   log('AI modules initialized.');
   postAIStatus(broker, true);
 

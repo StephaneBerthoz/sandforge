@@ -47,16 +47,16 @@
   },
   "nav": {
     "home": "Inicio",
-    "orgs": "Organizacoes",
+    "orgs": "Organizações",
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "Monitor",
     "compare": "Comparar Org",
     "dataops": "DataOps",
-    "automation": "Automacao",
+    "automation": "Automação",
     "ai": "Assistente IA",
     "reports": "Relatorios",
-    "settings": "Configuracoes",
+    "settings": "Configurações",
     "forge": "Forge",
     "frozen": "Dataset congelado",
     "grappe": "Grappe",
@@ -65,7 +65,7 @@
     "help": "Ajuda"
   },
   "org": {
-    "title": "Organizacoes",
+    "title": "Organizações",
     "connect": "Conectar Org",
     "disconnect": "Desconectar",
     "disconnectConfirm": "Desconectar {{alias}}? O SandForge esquece esta organização: alias, tags, cor e nível de segurança são excluídos, e reconectar recomeça pelos padrões.",
@@ -99,7 +99,8 @@
     "tagsPlaceholder": "dev, equipe-a",
     "aliasPlaceholder": "minha-sandbox",
     "bannerConnected": "{{count}} de {{total}} org(s) conectadas",
-    "bannerEmpty": "Importe suas orgs do Salesforce CLI ou conecte manualmente"
+    "bannerEmpty": "Importe suas orgs do Salesforce CLI ou conecte manualmente",
+    "installCli": "Instalar a CLI do Salesforce"
   },
   "monitor": {
     "refresh": "Atualizar",
@@ -115,7 +116,7 @@
     },
     "jobs": "Jobs",
     "alerts": "Alertas",
-    "health": "Pontuacao de saude",
+    "health": "Pontuação de saúde",
     "trends": "Tendencias",
     "noAlerts": "Sem alertas ativos",
     "activeAlertCount_one": "{{count}} ativo",
@@ -124,7 +125,7 @@
     "dismiss": "Dispensar",
     "selectOrg": "Selecione uma org para monitorar",
     "viewFullReport": "Ver relatorio completo",
-    "healthReport": "Relatorio de saude",
+    "healthReport": "Relatório de saúde",
     "limitReachedIn": "Limite atingido em ~{{hours}}h",
     "period24h": "24h",
     "period7d": "7d",
@@ -252,7 +253,8 @@
     "sandboxRefresh": {
       "title": "Atualizações de sandbox",
       "empty": "Nenhum evento de atualização de sandbox",
-      "inProgress": "Atualização em andamento"
+      "inProgress": "Atualização em andamento",
+      "unsupported": "Apenas uma org que gerencia sandboxes mantém um histórico de atualizações. Esta não tem nenhum para ler."
     },
     "resetIn": "Redefinição em",
     "sessions": {
@@ -275,9 +277,9 @@
     "run": "Executar comparacao",
     "running": "Comparando...",
     "diff": "Visualizador de diferencas",
-    "permissions": "Matriz de permissoes",
+    "permissions": "Presença de permissões",
     "snapshots": "Snapshots",
-    "drift": "Painel de drift",
+    "drift": "Desvio das configurações da org",
     "deploy": "Implantar a partir do diff",
     "noResults": "Sem resultados de comparacao",
     "added": "Adicionado",
@@ -349,6 +351,7 @@
     "dependencies": "Dependencias",
     "sampleRecords": "Registros de exemplo",
     "saveAsTemplate": "Salvar como modelo",
+    "templateSaved": "Modelo salvo. Escolha-o na galeria na próxima vez.",
     "recordsCreated": "Registros criados",
     "recordsFailed": "Registros com falha",
     "executionTime": "Tempo de execucao",
@@ -396,7 +399,8 @@
       "useThis": "Usar este",
       "customize": "Personalizar quantidades de registros",
       "startSeeding": "Iniciar Seed",
-      "orCustomize": "ou crie o seu"
+      "orCustomize": "ou crie o seu",
+      "templateMissing": "Este modelo salvo não existe mais."
     },
     "quickSeed": {
       "title": "Seed rápido",
@@ -576,6 +580,7 @@
     "transforms": "Transformacoes",
     "review": "Revisar",
     "reviewDesc": "Revise a configuracao de sync antes da execucao",
+    "configSaved": "Configuração salva. Um agendamento já pode executá-la.",
     "execute": "Executar",
     "executeDesc": "Executar a operacao de sincronizacao",
     "results": "Resultados",
@@ -766,6 +771,7 @@
       "name": "Nome",
       "namePlaceholder": "ex. Sincronização noturna de Account",
       "syncConfig": "Configuração de sincronização",
+      "configGone": "A configuração deste agendamento não existe mais: escolha uma",
       "simpleMode": "Simples",
       "advancedMode": "Avançado (cron)",
       "frequency": "Frequência",
@@ -786,7 +792,7 @@
       "notifyOnComplete": "Notificar ao concluir",
       "notifyOnFailure": "Notificar em caso de falha",
       "preview": "Pré-visualização",
-      "defaultConfig": "Configuração padrão",
+      "noSavedConfig": "Salve primeiro uma configuração na aba Sync: um agendamento executa uma configuração salva.",
       "emptyTitle": "Nenhum agendamento ainda",
       "emptyDesc": "Execute uma sincronização automaticamente em um agendamento recorrente em vez de iniciá-la manualmente.",
       "createFirst": "Criar agendamento",
@@ -928,7 +934,7 @@
     }
   },
   "automation": {
-    "title": "Automacao",
+    "title": "Automação",
     "createPipeline": "Criar pipeline",
     "newPipeline": "Novo Pipeline",
     "noPipelines": "Nenhum pipeline configurado",
@@ -976,7 +982,7 @@
       "schedule": "Agendado",
       "event": "Evento",
       "webhook": "Webhook",
-      "sandbox_refresh": "Atualizacao de Sandbox",
+      "sandbox_refresh": "Atualização de Sandbox",
       "deployment_complete": "Implantacao concluida"
     },
     "runStatuses": {
@@ -984,7 +990,6 @@
       "queued": "Na fila",
       "running": "Em execucao",
       "paused": "Em pausa",
-      "waiting_approval": "Aguardando aprovacao",
       "completed": "Concluido",
       "completed_with_warnings": "Concluido com avisos",
       "failed": "Falhou",
@@ -1006,7 +1011,6 @@
     "stepConfig": "Configuracao da etapa",
     "stepName": "Nome da etapa",
     "typeConfig": "Configuracao especifica do tipo",
-    "stepConfigChannel": "Canal",
     "stepConfigMessage": "Mensagem",
     "stepConfigDelay": "Atraso (segundos)",
     "stepConfigScript": "Script",
@@ -1057,7 +1061,8 @@
     "error": {
       "overloaded": "Provedor de IA temporariamente sobrecarregado. Tentando novamente em {{countdown}}.",
       "rateLimit": "Limite de requisições de IA atingido. Tente novamente em {{countdown}}.",
-      "auth": "Chave de IA inválida ou ausente. Abra a Paleta de Comandos → SandForge: Configure AI Key.",
+      "auth": "Chave de IA inválida ou ausente. Adicione-a em Configurações do SandForge > IA > Chave de API.",
+      "invalidRequest": "O provedor de IA recusou a requisição como inválida. Não houve nova tentativa.",
       "cancelled": "Requisição de IA cancelada.",
       "transient": "Erro temporário de IA. Nova tentativa disponível.",
       "unknown": "Erro inesperado de IA."
@@ -1129,7 +1134,7 @@
     "auditEntries": "Entradas de auditoria"
   },
   "settings": {
-    "title": "Configuracoes",
+    "title": "Configurações",
     "general": "Geral",
     "advanced": "Avancado",
     "profiles": "Perfis",
@@ -1144,7 +1149,7 @@
     "telemetryEventCount": "Eventos de diagnóstico registrados",
     "telemetryEnable": "Habilitar telemetria",
     "telemetryDisable": "Desabilitar telemetria",
-    "telemetryUnavailable": "Indisponivel",
+    "telemetryUnavailable": "Indisponível",
     "ai": "IA",
     "aiStatus": "Status",
     "aiEnabled": "Ativada",
@@ -1171,7 +1176,7 @@
     "step3Desc": "Aprimore o SandForge com insights e geracao de dados impulsionados por IA",
     "skipOnboarding": "Pular",
     "connectOrg": "Conectar uma Org",
-    "aiOptional": "Os recursos de IA sao opcionais. Voce pode configura-los depois em Configuracoes.",
+    "aiOptional": "Os recursos de IA são opcionais. Você pode configurá-los depois em Configurações.",
     "bienvenueTitle": "Bem-vindo ao SandForge",
     "bienvenueDesc": "Forje suas sandboxes Salesforce com confianca.",
     "bienvenueTagline": "Seu kit de ferramentas completo para gerenciamento de sandboxes",
@@ -1179,10 +1184,10 @@
     "step4Title": "Primeiros passos",
     "step4Desc": "Com base no tipo da sua org, aqui esta um ponto de partida recomendado",
     "suggestSeed": "Comece com Seed para popular sua sandbox com dados de teste realistas",
-    "suggestMonitor": "Comece com Monitor para acompanhar a saude da sua org de producao",
+    "suggestMonitor": "Comece com Monitor para acompanhar a saúde da sua org de produção",
     "openSeed": "Abrir Seed",
     "openMonitor": "Abrir Monitor",
-    "openSettings": "Abrir Configuracoes",
+    "openSettings": "Abrir Configurações",
     "gotIt": "Entendi!",
     "whatsNewTitle": "Novidades no SandForge",
     "openForge": "Abrir Forge",
@@ -1232,17 +1237,17 @@
     "title": "Ajuda e Recursos",
     "gettingStarted": "Primeiros passos",
     "gettingStartedDesc": "Aprenda o basico do SandForge",
-    "gettingStartedContent": "1. Conecte sua org Salesforce pela pagina de Organizacoes.\n2. Abra o Monitor para verificar a saude da sua org.\n3. Use Seed para gerar dados de teste na sua sandbox.\n4. Configure Sync para manter os ambientes sincronizados.\n5. Explore Compare, DataOps e Automacao para fluxos de trabalho avancados.",
-    "monitorContent": "O painel de Monitor mostra a saude da org em tempo real:\n- Indicador de pontuacao de saude com fatores contribuintes\n- Limites de API com tendencias de uso e previsoes\n- Jobs Apex ativos e recentes\n- Alertas para limites criticos\n\nDica: Habilite a atualizacao automatica para monitoramento continuo.",
-    "seedContent": "O assistente de Seed gera dados de teste realistas:\n1. Selecione sua org de destino\n2. Escolha os objetos para popular\n3. Configure as regras de campos (IA, Faker, estatico, sequencia...)\n4. Defina relacionamentos e volumes\n5. Revise e execute\n\nDica: Use a geracao por IA para os dados mais realistas.",
+    "gettingStartedContent": "1. Conecte sua org Salesforce pela página de Organizações.\n2. Abra o Monitor para verificar a saúde da sua org.\n3. Use Seed para gerar dados de teste na sua sandbox.\n4. Configure Sync para manter os ambientes sincronizados.\n5. Explore Compare, DataOps e Automação para fluxos de trabalho avançados.",
+    "monitorContent": "O painel de Monitor mostra a saúde da org em tempo real:\n- Indicador de pontuação de saúde com fatores contribuintes\n- Limites de API com tendências de uso e previsões\n- Jobs Apex ativos e recentes\n- Alertas para limites críticos\n\nDica: Habilite a atualização automática para monitoramento contínuo.",
+    "seedContent": "O assistente de Seed gera dados de teste realistas:\n1. Selecione sua org de destino\n2. Escolha os objetos para popular\n3. Configure as regras de campos (IA, Faker, estático, sequência...)\n4. Defina a quantidade de registros — um campo de pesquisa é preenchido com os registros que a mesma execução inseriu antes\n5. Revise e execute\n\nDica: Use a geração por IA para os dados mais realistas.",
     "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental, delta e CDC não estão implementados)\n- Mapeamento automatico de campos com pontuacoes de confianca\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Snapshots: os objetos das duas orgs, capturados ao vivo quando você abre a aba\n- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantação: em breve, nada é implantado a partir de um diff ainda",
     "dataopsContent": "Operações de dados na org selecionada:\n- Backup: um snapshot completo de Account e Contact, guardado no armazenamento da extensão\n- Restauração: devolve um backup, inteiro, à org de onde ele foi tirado\n- Anonimização: mascara os campos no lugar com um modelo integrado como GDPR, CCPA ou HIPAA; é irreversível, então faça um backup antes\n- Conformidade, Limpeza e Qualidade: em breve, nada roda por trás dessas abas ainda",
     "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Só Atraso e Condição fazem algo por enquanto: as outras 13 informam sucesso sem tocar em nenhuma org\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Etapas de Condição com 11 operadores\n- Histórico de execução: status, duração total, número de etapas e erros de cada execução\n- Modelos de pipeline do Marketplace",
-    "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: cada registro inserido recebe seus IDs remapeados\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
+    "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: os IDs são remapeados na escrita; um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
     "frozenContent": "O Dataset congelado extrai um conjunto de dados de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Pseudonimização determinística, com um sal guardado fora do repositório\n- Uma verificação de quatro pontos precisa passar antes de o dataset ser gravado\n- Carga: somente sandboxes como destino, com um Piloto opcional sobre uma única pasta raiz antes da carga completa, e uma verificação depois da carga",
     "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",
-    "aiContent": "O Assistente IA, com sua própria chave da Anthropic:\n- Chat, e NL2SOQL, personas personalizadas e regras de campo IA no Seed\n- Rascunhos de pipeline no Automation\n- Enquanto a IA está ligada, uma execução de Seed, Sync, DataOps ou Automation com falha envia sua mensagem de erro ao modelo para uma sugestão de correção, a menos que uma tabela interna já responda ao seu código de erro\n- O conselho de esquema do Compare e a varredura de anomalias do Monitor são baseados em regras: funcionam com a IA desligada e sem chave\n- Configure sua chave de API em Configurações > IA",
+    "aiContent": "O Assistente IA, com sua própria chave da Anthropic:\n- Chat, e NL2SOQL, personas personalizadas e regras de campo IA no Seed\n- Rascunhos de pipeline no Automation\n- Uma tabela interna de códigos de erro do Salesforce responde primeiro aos códigos que conhece, na sua máquina, com a IA ligada ou desligada, e não envia nada\n- Nada é enviado por uma lista fixa de mensagens do próprio SandForge, como uma confirmação de produção recusada, uma execução duplicada ou uma recusa CRUD, FLS ou do Production Guard, nem por uma falha ocorrida sem nenhuma view do SandForge aberta\n- Com a IA ligada, qualquer outra execução de Seed, Sync, DataOps ou Automation com falha envia sua mensagem de erro, com seus Ids do Salesforce substituídos por <id>, e a sugestão volta como notificação do VS Code\n- Desligue esse envio com sandforge.ai.errorResolution: o resto do assistente continua funcionando\n- O conselho de esquema do Compare e a varredura de anomalias do Monitor são baseados em regras: funcionam com a IA desligada e sem chave\n- Configure sua chave de API em Configurações > IA",
     "shortcutsContent": "G + letra — Ir para um módulo (ex.: G e depois F para Forge, G e depois Y para Sync, G e depois L para Ajuda)\nCtrl+K — Paleta de comandos\nEscape — Fechar modais e diálogos\nTab — Navegar entre elementos\nEnter/Espaço — Ativar botões e links",
     "faqContent": "P: Por que minha Pontuacao de Saude esta baixa?\nR: Verifique o uso de limites de API, jobs com falha e consumo de armazenamento. A pontuacao pondera multiplos fatores.\n\nP: Como corrigir erros de timeout?\nR: O SandForge não tem nenhuma configuração de tempo limite para as chamadas ao Salesforce. Reduza o tamanho do lote (sandforge.seed.defaultBatchSize e sandforge.sync.defaultBatchSize nas configurações do VS Code) e divida uma execução grande em várias menores. O Grappe não deixa uma execução mais rápida: ele informa o progresso por partição.\n\nP: Posso desfazer uma operação de sync?\nR: Não. Uma execução de sync não pode ser revertida. Antes de uma execução arriscada, faça um backup DataOps da org de destino: ele cobre Account e Contact e só é restaurado nessa org.\n\nP: Como conectar uma org de producao com seguranca?\nR: As orgs de producao sao detectadas automaticamente e marcadas com nivel de seguranca Critico. Todas as operacoes destrutivas requerem confirmacao.",
     "faq": "FAQ",
@@ -1280,8 +1285,8 @@
     "openPipelines": "Abrir pipelines",
     "recentOperations": "Operacoes recentes",
     "noRecentOps": "Sem operacoes recentes",
-    "healthSummary": "Resumo de saude",
-    "healthScore": "Pontuacao de saude",
+    "healthSummary": "Resumo de saúde",
+    "healthScore": "Pontuação de saúde",
     "gettingStarted": "Primeiros passos",
     "gettingStartedDesc": "Bem-vindo ao SandForge! Siga estes passos para comecar.",
     "step1": "Conecte sua primeira org Salesforce",
@@ -1305,10 +1310,10 @@
     "sandboxHealth": "Saúde da sandbox",
     "smartAction": {
       "title": "Ação recomendada",
-      "execute": "Executar agora",
-      "confirm": "Executar",
+      "execute": "Configurar",
+      "confirm": "Abrir",
       "cancel": "Cancelar",
-      "confirmMsg": "Prestes a executar {{action}} em {{org}}. Continuar?",
+      "confirmMsg": "Abrir {{action}} para {{org}}?",
       "reasonEmpty": "Sua sandbox está vazia — preencha-a com dados de demonstração",
       "reasonClone": "A org de origem tem dados — clone-os para o destino",
       "reasonSync": "Ambas as orgs têm dados — sincronize para mantê-las alinhadas",
@@ -1344,8 +1349,6 @@
     "sfdxImport": "Importar do SF CLI",
     "sfdxImportDesc": "Detecta automaticamente todas as orgs autenticadas via Salesforce CLI",
     "oauthWebDesc": "Autentique pelo navegador com OAuth 2.0",
-    "oauthDeviceDesc": "Autentique a partir de um ambiente sem interface gráfica",
-    "jwtDesc": "Autentique com um token JWT bearer e certificado",
     "usernamePasswordDesc": "Autentique com usuário, senha e token de segurança",
     "loginProduction": "Produção / Desenvolvedor",
     "loginSandbox": "Sandbox",
@@ -1512,7 +1515,7 @@
     "quickStartTemplateHint": "Pule a descoberta e use o conjunto de objetos conhecido do modelo inicial. As quantidades de registros serão consultadas durante a execução.",
     "emptyState": {
       "title": "Preencha sua sandbox a partir de um registro real",
-      "description": "O Forge clona um registro raiz e todo o seu grafo de relacionamentos — Accounts, Contacts, Opportunities, Cases — para sua sandbox, remapeando cada ID.",
+      "description": "O Forge clona um registro raiz e todo o seu grafo de relacionamentos — Accounts, Contacts, Opportunities, Cases — para sua sandbox, remapeando os IDs na escrita. Um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso.",
       "step1Select": "Selecione uma org de origem",
       "step2": "Cole o ID de um registro raiz (ex. uma Account de UAT)",
       "step3": "Descubra seu grafo de relacionamentos",
@@ -1637,7 +1640,10 @@
         "explanation": "{{detail}}",
         "action": "Consulte este código de erro na documentação do Salesforce."
       }
-    }
+    },
+    "soqlObjectNameInvalid": "\"{{object}}\" não é um nome de API de SObject, então a cláusula WHERE não pode ser enviada com ele. Ele deve começar com uma letra e ter no máximo 80 letras, dígitos ou sublinhados.",
+    "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
+    "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante."
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1817,7 +1823,8 @@
       "noDataset": "Nenhum dataset congelado ainda",
       "selection": "Seleção",
       "noSelection": "Nenhuma seleção ainda",
-      "lastVerify": "Última verificação"
+      "lastVerify": "Última verificação",
+      "saltMismatch": "O salt deste ambiente ({{current}}) não é aquele com que este conjunto de dados foi construído ({{manifest}}). Uma nova extração com ele daria aos mesmos registros pseudônimos diferentes dos deste conjunto. Antes, volte a definir esse salt em SANDFORGE_FROZEN_SALT."
     },
     "tabs": {
       "extract": "Extrair",
@@ -2017,12 +2024,12 @@
     "objects": "Objetos"
   },
   "pagination": {
-    "navigation": "Paginacao",
+    "navigation": "Paginação",
     "showing": "Mostrando {{start}}-{{end}} de {{total}}",
-    "pageOf": "Pagina {{page}} de {{totalPages}}",
-    "rowsPerPage": "Linhas por pagina",
-    "previous": "Pagina anterior",
-    "next": "Proxima pagina"
+    "pageOf": "Página {{page}} de {{totalPages}}",
+    "rowsPerPage": "Linhas por página",
+    "previous": "Página anterior",
+    "next": "Próxima página"
   },
   "list": {
     "empty": "Nenhum item"
@@ -2039,6 +2046,11 @@
     "timeline": "Linha do tempo",
     "easterEgg": "Easter egg",
     "csvImportSteps": "Etapas da importação de CSV",
-    "mapped": "Mapeado"
+    "mapped": "Mapeado",
+    "triggerType": "Tipo de gatilho",
+    "anonymizationMethodFor": "Método de anonimização para {{category}}",
+    "includeObject": "Incluir {{object}} no clone",
+    "recordCountFor": "Quantidade de registros para {{object}}",
+    "batchSizeFor": "Tamanho do lote para {{object}}"
   }
 }

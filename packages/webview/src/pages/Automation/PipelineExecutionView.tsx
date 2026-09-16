@@ -87,10 +87,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
     );
   }
 
-  const isActive =
-    execution.status === 'running' ||
-    execution.status === 'paused' ||
-    execution.status === 'waiting_approval';
+  const isActive = execution.status === 'running' || execution.status === 'paused';
   const completedSteps = execution.steps.filter((s) => s.status === 'completed').length;
   const failedSteps = execution.steps.filter((s) => s.status === 'failed').length;
 

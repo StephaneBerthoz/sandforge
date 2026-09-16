@@ -161,6 +161,57 @@ describe('useSyncScheduleStore', () => {
     expect(state.error).toBe('Server error');
   });
 
+  it('shows the refusal of a request this panel sent', () => {
+    useSyncScheduleStore.getState().deleteSchedule('s-9');
+    const sent = mockPostMessage.mock.calls[0][0] as { payload: { id: string } };
+
+    useSyncScheduleStore.getState().handleMessage({
+      type: 'sync:schedule:error',
+      correlationId: sent.payload.id,
+      payload: { message: 'Schedule not found: s-9' },
+    });
+
+    expect(useSyncScheduleStore.getState().error).toBe('Schedule not found: s-9');
+  });
+
+  it('leaves a refusal of another panel request out of this panel', () => {
+    // Every open panel receives every sync:schedule:error; the Schedules tab
+    // of a panel that asked nothing showed another panel's refusal.
+    useSyncScheduleStore.setState({ loading: true });
+
+    useSyncScheduleStore.getState().handleMessage({
+      type: 'sync:schedule:error',
+      correlationId: 'wv-sent-by-another-panel',
+      payload: { message: 'Schedule not found: s-9' },
+    });
+
+    const state = useSyncScheduleStore.getState();
+    expect(state.error).toBeNull();
+    expect(state.loading).toBe(true);
+  });
+
+  it('clears a refusal once a toggle is confirmed', () => {
+    useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')], error: 'Refused' });
+
+    useSyncScheduleStore.getState().handleMessage({
+      type: 'sync:schedule:toggle:response',
+      payload: { success: true, scheduleId: 's-1', enabled: false },
+    });
+
+    expect(useSyncScheduleStore.getState().error).toBeNull();
+  });
+
+  it('clears a refusal once a delete is confirmed', () => {
+    useSyncScheduleStore.setState({ schedules: [makeMockSchedule('s-1')], error: 'Refused' });
+
+    useSyncScheduleStore.getState().handleMessage({
+      type: 'sync:schedule:delete:response',
+      payload: { success: true, scheduleId: 's-1' },
+    });
+
+    expect(useSyncScheduleStore.getState().error).toBeNull();
+  });
+
   it('handleMessage ignores unknown message types', () => {
     useSyncScheduleStore.setState({
       schedules: [makeMockSchedule('s-1')],

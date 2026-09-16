@@ -10,7 +10,6 @@ import type { SecretVault } from '../core/storage/SecretVault.js';
 import type { AuthProvider } from '../core/connection/AuthProvider.js';
 import type { SfdxBridge } from '../core/connection/SfdxBridge.js';
 import type { OnboardingService } from '../core/onboarding/OnboardingService.js';
-import type { HintTracker } from '../core/onboarding/HintTracker.js';
 import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace.js';
 import type { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
@@ -52,7 +51,6 @@ import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
 import { SyncScheduleHandler } from './handlers/SyncScheduleHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
-import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { FileHandler } from './handlers/FileHandler.js';
 import { ReportsHandler } from './handlers/ReportsHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
@@ -139,7 +137,6 @@ export class ExtensionHandlers {
   private readonly quickSyncHandler: QuickSyncHandler;
   private readonly syncScheduleHandler: SyncScheduleHandler;
   private readonly noOpHandler: NoOpHandler;
-  private readonly cacheHandler: CacheDomainHandler;
   private readonly fileHandler: FileHandler;
   private readonly reportsHandler: ReportsHandler;
   private readonly smartActionHandler: SmartActionHandler;
@@ -199,7 +196,6 @@ export class ExtensionHandlers {
     this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
     this.syncScheduleHandler = new SyncScheduleHandler(this.handlerDeps);
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
-    this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
     this.fileHandler = new FileHandler(this.handlerDeps);
     this.reportsHandler = new ReportsHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
@@ -225,9 +221,9 @@ export class ExtensionHandlers {
     this.aiHandler.setAIAssistant(ai);
   }
 
-  /** Inject onboarding services. */
-  setOnboardingServices(onboarding: OnboardingService, hints: HintTracker): void {
-    this.settingsHandler.setOnboardingServices(onboarding, hints);
+  /** Inject the onboarding service. */
+  setOnboardingService(onboarding: OnboardingService): void {
+    this.settingsHandler.setOnboardingService(onboarding);
   }
 
   /** Inject infrastructure services. */
@@ -395,11 +391,8 @@ export class ExtensionHandlers {
         'settings:get',
         'settings:update',
         'onboarding:complete',
-        'onboarding:reset',
-        'hint:dismiss',
         'telemetry:status',
         'telemetry:toggle',
-        'connectivity:status',
       ],
       this.settingsHandler,
     );
@@ -615,9 +608,6 @@ export class ExtensionHandlers {
       ['config:export', 'config:import', 'config:categories', 'config:validate'],
       this.configHandler,
     );
-
-    // Cache management
-    route(['cache:invalidate-all', 'cache:get-stats'], this.cacheHandler);
 
     // Smart Action
     route(['smart-action:analyze'], this.smartActionHandler);

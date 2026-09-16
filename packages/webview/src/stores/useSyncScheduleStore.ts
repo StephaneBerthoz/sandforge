@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SyncScheduleEntry } from '@sandforge/shared';
-import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
+import { isRequestFromHere, sendBridgeMessage } from '../bridge/sendBridgeMessage';
 
 /** Fields required to create or update a schedule (server computes nextRunAt, lastRunAt, lastResult). */
 export type SyncScheduleUpsertPayload = Omit<
@@ -29,7 +29,9 @@ export interface SyncScheduleState {
 }
 
 /** Type guard for messages with a type field. */
-function isTypedMessage(msg: unknown): msg is { type: string; payload?: Record<string, unknown> } {
+function isTypedMessage(
+  msg: unknown,
+): msg is { type: string; correlationId?: string; payload?: Record<string, unknown> } {
   return (
     typeof msg === 'object' &&
     msg !== null &&
@@ -92,6 +94,7 @@ export const useSyncScheduleStore = create<SyncScheduleState>((set) => ({
         if (toggledId !== undefined && enabled !== undefined) {
           set((state) => ({
             schedules: state.schedules.map((s) => (s.id === toggledId ? { ...s, enabled } : s)),
+            error: null,
           }));
         }
         break;
@@ -101,11 +104,16 @@ export const useSyncScheduleStore = create<SyncScheduleState>((set) => ({
         if (deletedId) {
           set((state) => ({
             schedules: state.schedules.filter((s) => s.id !== deletedId),
+            error: null,
           }));
         }
         break;
       }
       case 'sync:schedule:error': {
+        // Every open panel receives the refusal; only the one that sent the
+        // request shows it.
+        const { correlationId } = message;
+        if (typeof correlationId === 'string' && !isRequestFromHere(correlationId)) break;
         const errorMsg = (payload?.message ?? 'Unknown error') as string;
         set({ loading: false, error: errorMsg });
         break;

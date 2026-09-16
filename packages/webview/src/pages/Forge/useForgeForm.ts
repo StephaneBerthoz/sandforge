@@ -25,6 +25,7 @@ import {
   extractSalesforceDomain,
   smartLimitForCount,
   soqlFilterRefused,
+  soqlObjectNameRefused,
   soqlObjectFilters,
   SOQL_UNSCOPED_RECORD_CAP,
 } from './forgeUtils';
@@ -130,6 +131,10 @@ export interface ForgeFormState {
   canDiscover: boolean;
   /** The query this run would send has a WHERE clause the extension refuses. */
   whereClauseRefused: boolean;
+  /** The object after FROM is not an API name the extension accepts. */
+  objectNameRefused: boolean;
+  /** The SOQL query of the selected template, when it saved one. */
+  templateSoqlQuery: string | null;
   handleDiscover: () => void;
   canQuickStartTemplate: boolean;
   builtinTplCandidate: (typeof BUILTIN_FORGE_TEMPLATES)[number] | null;
@@ -299,6 +304,23 @@ export function useForgeForm(): ForgeFormState {
     return templateInput?.inputMode === 'soql' && soqlFilterRefused(templateInput.soqlQuery ?? '');
   }, [inputMode, soqlQuery, templateInput]);
 
+  /*
+   * The clause travels under the name of the object after FROM, and that name
+   * has a rule of its own. `SELECT Id FROM 1Account WHERE …` passed every
+   * check the form made and was refused by the extension when Discover was
+   * clicked, with no explanation attached to the field that caused it.
+   */
+  const objectNameRefused = useMemo((): boolean => {
+    if (inputMode === 'soql') return soqlObjectNameRefused(soqlQuery);
+    return (
+      templateInput?.inputMode === 'soql' && soqlObjectNameRefused(templateInput.soqlQuery ?? '')
+    );
+  }, [inputMode, soqlQuery, templateInput]);
+
+  /** The template's own query, which the SOQL warnings below the picker read. */
+  const templateSoqlQuery =
+    templateInput?.inputMode === 'soql' ? (templateInput.soqlQuery ?? null) : null;
+
   /**
    * The root input fields of an outgoing config, shared by Discover and by
    * Reuse last graph so both send the same run. A saved template's root input
@@ -338,7 +360,8 @@ export function useForgeForm(): ForgeFormState {
     sourceOrgId.length > 0 &&
     targetOrgId.length > 0 &&
     !sameOrgSelected &&
-    !whereClauseRefused;
+    !whereClauseRefused &&
+    !objectNameRefused;
 
   /** Refs to the depth chips so arrow-key nav can move DOM focus. */
   const depthRefs = useRef<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>({});
@@ -635,6 +658,8 @@ export function useForgeForm(): ForgeFormState {
     closePreview,
     canDiscover,
     whereClauseRefused,
+    objectNameRefused,
+    templateSoqlQuery,
     handleDiscover,
     canQuickStartTemplate,
     builtinTplCandidate,

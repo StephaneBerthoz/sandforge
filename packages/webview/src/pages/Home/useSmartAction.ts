@@ -36,7 +36,8 @@ export interface SmartActionState {
  *
  * Confirming opens the page for that action: the clone wizard on the orgs the
  * recommendation names with its source selected, the quick-seed template
- * gallery (its org is still picked there), or Sync with both named orgs set.
+ * gallery with the named org preselected once a template is picked, or Sync
+ * with both named orgs set.
  * It does not run anything: the clone preview and the production guard still
  * come first. It used to only switch route, so the page opened blank.
  *
@@ -85,7 +86,9 @@ export function useSmartAction(): SmartActionState {
     const source = recommendation.details.sourceOrgId ?? sourceOrgId;
     switch (recommendation.action) {
       case 'quick-seed':
-        navigate('seed', { seedMode: 'quick-seed' });
+        // The gallery opens on the org the confirmation named, instead of
+        // asking for it again on the next step.
+        navigate('seed', { seedMode: 'quick-seed', targetOrgId: target });
         break;
       case 'clone':
         // The wizard writes to the selected org; make it the one the

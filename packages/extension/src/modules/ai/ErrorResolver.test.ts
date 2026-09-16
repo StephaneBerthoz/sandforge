@@ -236,6 +236,23 @@ describe('ErrorResolver', () => {
       expect(prompt).toContain('Error code: UNKNOWN');
     });
 
+    it('strips the Salesforce Ids of a message the fixed list does not cover', async () => {
+      // The list of messages SandForge writes itself is matched on its own
+      // wordings; a message outside it can still name an org or a record, and
+      // the model has no use for the Id.
+      const error: SalesforceError = {
+        errorCode: 'UNKNOWN',
+        message: 'Secret storage did not answer within 10000 ms for org "00D000000000001AAA"',
+      };
+
+      await resolver.resolveError(error, {});
+
+      const prompt = mockProvider.mock.calls[0][0];
+      expect(prompt).not.toContain('00D000000000001AAA');
+      // The wrapper escapes what it carries, so the placeholder reads escaped too.
+      expect(prompt).toContain('for org "&lt;id&gt;"');
+    });
+
     it('should handle AI response wrapped in markdown code blocks', async () => {
       const json = createMockAIResolution({ explanation: 'Wrapped response' });
       mockProvider.mockResolvedValue(`\`\`\`json\n${json}\n\`\`\``);
@@ -251,6 +268,38 @@ describe('ErrorResolver', () => {
       const error: SalesforceError = { errorCode: 'UNKNOWN', message: 'Error' };
 
       await expect(resolver.resolveError(error, BASE_CONTEXT)).rejects.toThrow('AI offline');
+    });
+
+    it.each([
+      ['a fence around something that is not JSON', '```json\nsorry, no idea\n```'],
+      ['a plain sentence', 'I cannot help with that.'],
+    ])('answers %s with the message every reader gives', async (_case, reply) => {
+      mockProvider.mockResolvedValue(reply);
+      const error: SalesforceError = { errorCode: 'UNKNOWN', message: 'Error' };
+
+      const thrown = await resolver.resolveError(error, BASE_CONTEXT).catch((err: unknown) => err);
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(SyntaxError);
+      expect((thrown as Error).message).toBe('The AI reply is not valid JSON.');
+    });
+  });
+
+  // --- The language the answer is written in ---
+
+  describe('host language', () => {
+    it('asks for the answer in the language the host runs in', async () => {
+      const french = new ErrorResolver(mockProvider, 'fr');
+
+      await french.resolveError({ errorCode: 'UNKNOWN', message: 'Error' }, {});
+
+      expect(mockProvider.mock.calls[0][0]).toContain('Answer in fr');
+    });
+
+    it('asks for no language in particular when the host names none', async () => {
+      await resolver.resolveError({ errorCode: 'UNKNOWN', message: 'Error' }, {});
+
+      expect(mockProvider.mock.calls[0][0]).not.toContain('Answer in');
     });
   });
 
@@ -321,6 +370,33 @@ describe('normalizeErrorMessage', () => {
         'Backup op-1 was taken from org 00D000000000001AAA and cannot be restored into org 00D000000000002.',
       ),
     ).toBe('Backup op-1 was taken from org <id> and cannot be restored into org <id>.');
+  });
+
+  it('replaces an Id joined to a name by an underscore', () => {
+    expect(normalizeErrorMessage('Cannot restore backup_001xx000003DGb2AAG_tmp')).toBe(
+      'Cannot restore backup_<id>_tmp',
+    );
+  });
+
+  it('leaves a custom field API name alone when one of its segments is Id-shaped', () => {
+    const message =
+      'INVALID_FIELD: Q_Region2024Budge__c and A_Region2024Budge_B__c are not writable';
+
+    expect(normalizeErrorMessage(message)).toBe(message);
+  });
+
+  it('keeps an Id that sits inside a name ending in a `__` suffix, like any segment of it', () => {
+    // Nothing tells `001xx000003DGb2AAG_Account__c` from `A_Region2024Budge_B__c`:
+    // both are a run of 18 inside a name that goes on to `__c`.
+    const message = 'Id 001xx000003DGb2AAG_Account__c and ns_00D000000000001AAA__x';
+
+    expect(normalizeErrorMessage(message)).toBe(message);
+  });
+
+  it('leaves a longer run of letters and digits alone', () => {
+    const message = 'Token 001xx000003DGb2AAGZ is not an Id';
+
+    expect(normalizeErrorMessage(message)).toBe(message);
   });
 
   it('leaves error codes, field names and ordinary words alone', () => {

@@ -21,11 +21,36 @@ import { buildMessage } from './messageHelpers';
  *   that already hold the API.
  */
 export function postEnvelopedMessage(message: BaseMessage, api: VSCodeApi = getVscodeApi()): void {
+  rememberSent(message.id);
   api.postMessage({
     protocolVersion: PROTOCOL_VERSION,
     correlationId: message.correlationId,
     payload: message,
   });
+}
+
+/**
+ * Ids of the requests this webview sent recently. The broker broadcasts
+ * `bridge:error` to every open panel with the refused request's id as
+ * correlationId; this lets a panel tell a refusal of its own request from
+ * another panel's.
+ */
+const sentIds = new Set<string>();
+
+/** How many sent ids are kept; a refusal answers within moments of its request. */
+const SENT_IDS_KEPT = 200;
+
+function rememberSent(id: string): void {
+  sentIds.add(id);
+  if (sentIds.size > SENT_IDS_KEPT) {
+    const oldest = sentIds.values().next().value;
+    if (oldest !== undefined) sentIds.delete(oldest);
+  }
+}
+
+/** Whether this webview sent the request `id`. */
+export function isRequestFromHere(id: string): boolean {
+  return sentIds.has(id);
 }
 
 /**

@@ -10,13 +10,8 @@
  * straight from `ComparePage.tsx`, so this test reads the source back and
  * fails when the prose and the tab table stop agreeing.
  *
- * NOT YET WIRED INTO CI. It sits next to the doc it guards, but every vitest
- * project scopes `include` to its own `src/`, and the `vitest` package is
- * installed per workspace package rather than at the root — so from here the
- * suite is reachable by an explicit `npx vitest run` at the repo root and by
- * nothing else, and `tsc` cannot resolve the import below. Moving the file to
- * `packages/webview/src/pages/Compare/` fixes both at once; that is the
- * intended home once someone owns that directory.
+ * It runs through the repo-root `vitest.config.ts`, whose `include` covers
+ * every `.test.ts` under `docs/`, as `pnpm test:docs` inside `pnpm validate`.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -40,9 +35,9 @@ const COMPARE_PAGE = readFileSync(
  */
 const HEADING_TO_TAB: Readonly<Record<string, string>> = {
   'Metadata Diff': 'diff',
-  'Permission Matrix': 'permissions',
+  'Permission Presence': 'permissions',
   Snapshots: 'snapshots',
-  'Drift Detection': 'drift',
+  'Org Settings Drift': 'drift',
   'Deploy from Diff': 'deploy',
 };
 
@@ -96,7 +91,9 @@ function featureHeadings(doc: string): string[] {
 /** Body text under a `###` heading, up to the next heading of any level. */
 function sectionBody(doc: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`^### ${escaped}$([\\s\\S]*?)(?=^#{2,3} |\\z)`, 'm').exec(doc);
+  // JavaScript has no `\z`: written that way it matched a literal "z", and a
+  // section ended at the first one ("Organization").
+  const match = new RegExp(`^### ${escaped}$([\\s\\S]*?)(?=^#{2,3} |(?![\\s\\S]))`, 'm').exec(doc);
   if (match?.[1] === undefined) {
     throw new Error(`Section "${heading}" not found in compare.md`);
   }
@@ -140,6 +137,38 @@ describe('docs/modules/compare.md', () => {
     if (!mountedPropless) return;
 
     expect(sectionBody(DOC, 'Deploy from Diff')).toContain('> **Coming soon:**');
+  });
+
+  it('promises no permission grid, since only names are read', () => {
+    // `handlePermissions` queries PermissionSet and Profile by name and splits
+    // the names three ways. It never touches ObjectPermissions, so there is no
+    // CRUD or FLS anywhere behind this tab.
+    const handler = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/bridge/handlers/CompareHandler.ts'),
+      'utf8',
+    );
+    expect(/ObjectPermissions|FieldPermissions/.test(handler)).toBe(false);
+    expect(sectionBody(DOC, 'Permission Presence')).not.toMatch(/CRUD|FLS|grid/i);
+  });
+
+  it('claims no automated drift, since the tab reads five Organization fields on request', () => {
+    const handler = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/bridge/handlers/CompareHandler.ts'),
+      'utf8',
+    );
+    // The one query the drift path runs, and there is no second one.
+    expect(handler).toContain('FROM Organization');
+    expect(/metadata\.read|SecuritySettings|CompanyInfo/.test(handler)).toBe(false);
+    expect(sectionBody(DOC, 'Org Settings Drift')).not.toMatch(/automated|categories|dashboard/i);
+  });
+
+  it('does not say only differing fields are listed, since matching ones get a row too', () => {
+    const handler = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/bridge/handlers/CompareHandler.ts'),
+      'utf8',
+    );
+    expect(handler).toContain("status: 'match'");
+    expect(sectionBody(DOC, 'Org Settings Drift')).not.toMatch(/where they differ|only .*differ/i);
   });
 
   it('claims no scheduled drift monitoring, since drift is request/response only', () => {

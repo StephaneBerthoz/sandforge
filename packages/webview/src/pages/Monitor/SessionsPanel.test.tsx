@@ -41,6 +41,7 @@ describe('SessionsPanel', () => {
       success: true,
       sessions: [
         {
+          sessionId: 'session-1',
           userId: 'user-1',
           username: 'admin@dev.sandbox',
           sessionType: 'UI',
@@ -48,6 +49,7 @@ describe('SessionsPanel', () => {
           sourceIp: '192.168.1.1',
         },
         {
+          sessionId: 'session-2',
           userId: 'user-2',
           username: 'api@dev.sandbox',
           sessionType: 'API',
@@ -60,8 +62,8 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel />);
 
     expect(screen.getByTestId('sessions-panel')).toBeDefined();
-    expect(screen.getByTestId('session-row-user-1')).toBeDefined();
-    expect(screen.getByTestId('session-row-user-2')).toBeDefined();
+    expect(screen.getByTestId('session-row-session-1')).toBeDefined();
+    expect(screen.getByTestId('session-row-session-2')).toBeDefined();
     expect(screen.getByText('2 active user(s)')).toBeDefined();
   });
 
@@ -70,6 +72,7 @@ describe('SessionsPanel', () => {
       success: true,
       sessions: [
         {
+          sessionId: 'session-1',
           userId: 'user-1',
           username: 'admin@dev.sandbox',
           sessionType: 'UI',
@@ -82,5 +85,41 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel />);
 
     expect(screen.getByText('UI')).toBeDefined();
+  });
+
+  it('gives each session of the same user its own row', () => {
+    // Two sessions of one user shared a React key while the rows were keyed by
+    // user id: the second row was dropped from the list it belongs to.
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockData = {
+      success: true,
+      sessions: [
+        {
+          sessionId: 'session-1',
+          userId: 'user-1',
+          username: 'admin@dev.sandbox',
+          sessionType: 'UI',
+          loginTime: '2026-03-20T10:00:00Z',
+          sourceIp: '192.168.1.1',
+        },
+        {
+          sessionId: 'session-2',
+          userId: 'user-1',
+          username: 'admin@dev.sandbox',
+          sessionType: 'API',
+          loginTime: '2026-03-20T10:05:00Z',
+          sourceIp: '10.0.0.1',
+        },
+      ],
+      activeUserCount: 1,
+    };
+
+    render(<SessionsPanel />);
+
+    expect(screen.getByTestId('session-row-session-1')).toBeDefined();
+    expect(screen.getByTestId('session-row-session-2')).toBeDefined();
+    expect(screen.getAllByText('admin@dev.sandbox')).toHaveLength(2);
+    expect(warn.mock.calls.filter((call) => String(call[0]).includes('same key'))).toHaveLength(0);
+    warn.mockRestore();
   });
 });

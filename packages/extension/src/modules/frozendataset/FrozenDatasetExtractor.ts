@@ -24,7 +24,7 @@
  *    it to replace `RecordTypeId` by the RecordType Name.
  */
 
-import * as fs from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
@@ -207,9 +207,9 @@ export class FrozenDatasetExtractor {
 
     const recordTypeMap = await this.pullRecordTypes(options);
 
-    fs.mkdirSync(sasDir, { recursive: true });
+    await fs.mkdir(sasDir, { recursive: true });
     const rtMapPath = guard.assertOutsideRepo(path.join(sasDir, RT_MAP_FILE_NAME));
-    fs.writeFileSync(rtMapPath, `${JSON.stringify(recordTypeMap, null, 2)}\n`, 'utf8');
+    await fs.writeFile(rtMapPath, `${JSON.stringify(recordTypeMap, null, 2)}\n`, 'utf8');
 
     return { objects, asOf: options.asOf, recordTypeMap };
   }

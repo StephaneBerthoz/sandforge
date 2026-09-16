@@ -36,18 +36,3 @@ export function setPersistedItem(key: string, value: string): void {
     // Non-webview context (tests, dev server) — nothing to persist to.
   }
 }
-
-/** Remove a persisted key while preserving the other webview state keys. */
-export function removePersistedItem(key: string): void {
-  try {
-    const api = getVscodeApi();
-    const existing = (api.getState() as Record<string, unknown> | null | undefined) ?? {};
-    if (key in existing) {
-      const next = { ...existing };
-      delete next[key];
-      api.setState(next);
-    }
-  } catch {
-    // Non-webview context (tests, dev server) — nothing to persist to.
-  }
-}

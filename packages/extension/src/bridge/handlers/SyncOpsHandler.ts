@@ -330,10 +330,9 @@ export class SyncOpsHandler implements DomainHandler {
    *   straight past the rule that blocks destructive operations on production.
    * - `objectName`: every object in the config, not just the first — the audit
    *   entry and the confirmation prompt must name what is actually touched.
-   * - `recordCount`: 0. The source rows are only queried later, inside the
-   *   orchestrator, so no count is known at gate time; 0 reports "unknown"
-   *   (same convention as ForgeHandler's `graph.totalRecords ?? 0`) instead of
-   *   the previous hard-coded 1, which claimed a volume nobody had measured.
+   * - `recordCount`: `'unknown'`. The source rows are only queried later,
+   *   inside the orchestrator, so no count is known at gate time — the
+   *   previous hard-coded 1 claimed a volume nobody had measured.
    *
    * @param config - The sync config about to be executed.
    * @returns The guard request for its target org.
@@ -353,7 +352,7 @@ export class SyncOpsHandler implements DomainHandler {
       orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
       operation,
       objectName: objectNames.length > 0 ? objectNames.join(', ') : 'SyncData',
-      recordCount: 0,
+      recordCount: 'unknown',
       module: 'sync',
     };
   }

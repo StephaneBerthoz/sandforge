@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { cn } from '../../theme';
 
 /** Props for the SmartActionCard component. */
@@ -58,6 +59,12 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
   loading,
 }) => {
   const { t } = useTranslation();
+  // The recommendation carries the org id. The confirmation is read by
+  // somebody who picked that org by its alias and has never seen its id, so
+  // the name is resolved here and the id is only the last resort.
+  const targetOrgId = recommendation.details.targetOrgId;
+  const targetOrg = useOrgStore((state) => state.orgs.find((org) => org.id === targetOrgId));
+  const targetOrgName = targetOrg?.alias || targetOrg?.username || targetOrgId;
 
   if (loading) {
     return (
@@ -83,7 +90,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
               <span className="text-sm text-text-primary font-medium">
                 {t('home.smartAction.confirmMsg', {
                   action: t(`home.smartAction.action.${recommendation.action}`),
-                  org: recommendation.details.targetOrgId,
+                  org: targetOrgName,
                 })}
               </span>
             </div>

@@ -12,6 +12,8 @@ const host = vi.hoisted(() => ({
 }));
 
 vi.mock('vscode', () => ({
+  // The display language the error resolver asks the model to answer in.
+  env: { language: 'en' },
   workspace: {
     onDidChangeConfiguration: vi.fn((listener: typeof host.configListener) => {
       host.configListener = listener;

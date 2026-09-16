@@ -37,7 +37,9 @@ describe('SandboxRefreshTracker', () => {
   let onRefreshDetected: RefreshDetectedFn;
 
   beforeEach(() => {
-    querySandboxes = vi.fn<QuerySandboxesFn>().mockResolvedValue(createMockRefreshEvents());
+    querySandboxes = vi
+      .fn<QuerySandboxesFn>()
+      .mockResolvedValue({ supported: true, events: createMockRefreshEvents() });
     onRefreshDetected = vi.fn();
     tracker = new SandboxRefreshTracker(querySandboxes, onRefreshDetected);
   });
@@ -80,7 +82,10 @@ describe('SandboxRefreshTracker', () => {
         refreshDate: '2026-01-05T10:00:00Z',
         status: 'Pending',
       };
-      vi.mocked(querySandboxes).mockResolvedValue([...createMockRefreshEvents(), newEvent]);
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        events: [...createMockRefreshEvents(), newEvent],
+      });
 
       await tracker.fetch('org-1');
       expect(onRefreshDetected).toHaveBeenCalledTimes(1);
@@ -108,40 +113,49 @@ describe('SandboxRefreshTracker', () => {
     });
 
     it('should return true when a sandbox is Pending', async () => {
-      vi.mocked(querySandboxes).mockResolvedValue([
-        {
-          orgId: 'org-1',
-          sandboxName: 'test',
-          refreshDate: '2026-01-01T00:00:00Z',
-          status: 'Pending',
-        },
-      ]);
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        events: [
+          {
+            orgId: 'org-1',
+            sandboxName: 'test',
+            refreshDate: '2026-01-01T00:00:00Z',
+            status: 'Pending',
+          },
+        ],
+      });
       await tracker.fetch('org-1');
       expect(tracker.isRefreshInProgress('org-1')).toBe(true);
     });
 
     it('should return false when all sandboxes are Completed', async () => {
-      vi.mocked(querySandboxes).mockResolvedValue([
-        {
-          orgId: 'org-1',
-          sandboxName: 'test',
-          refreshDate: '2026-01-01T00:00:00Z',
-          status: 'Completed',
-        },
-      ]);
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        events: [
+          {
+            orgId: 'org-1',
+            sandboxName: 'test',
+            refreshDate: '2026-01-01T00:00:00Z',
+            status: 'Completed',
+          },
+        ],
+      });
       await tracker.fetch('org-1');
       expect(tracker.isRefreshInProgress('org-1')).toBe(false);
     });
 
     it('should return false when all sandboxes are Failed', async () => {
-      vi.mocked(querySandboxes).mockResolvedValue([
-        {
-          orgId: 'org-1',
-          sandboxName: 'test',
-          refreshDate: '2026-01-01T00:00:00Z',
-          status: 'Failed',
-        },
-      ]);
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        events: [
+          {
+            orgId: 'org-1',
+            sandboxName: 'test',
+            refreshDate: '2026-01-01T00:00:00Z',
+            status: 'Failed',
+          },
+        ],
+      });
       await tracker.fetch('org-1');
       expect(tracker.isRefreshInProgress('org-1')).toBe(false);
     });
