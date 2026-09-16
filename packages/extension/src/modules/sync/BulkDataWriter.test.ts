@@ -79,7 +79,6 @@ function createHarness(overrides?: {
     bulkExecutor: { shouldUseBulkApi, executeBulk } as unknown as BulkApiExecutor,
     bulkManager: {} as unknown as BulkApiManager,
     retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
-    describeTimeoutMs: 5000,
     signal: abort.signal,
     onProgress: vi.fn(),
     log: vi.fn(),

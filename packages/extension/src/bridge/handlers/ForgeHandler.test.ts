@@ -14,6 +14,7 @@ import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -656,6 +657,137 @@ describe('ForgeHandler', () => {
         expect.any(Array),
         'forge',
       );
+    });
+  });
+
+  describe('background registry', () => {
+    let registry: BackgroundOperationRegistry;
+    /** Lifecycle events the registry emitted, in order, per operation. */
+    let events: Array<[string, string]>;
+
+    beforeEach(() => {
+      registry = new BackgroundOperationRegistry();
+      events = [];
+      registry.onEvent((operationId, type) => events.push([operationId, type]));
+      // The registry reaches a handler through the shared infra bundle, the
+      // way composition supplies it.
+      deps.infraServices = {
+        backgroundRegistry: registry,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+    });
+
+    it('stops a run in flight when the registry is disposed', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      let release: (r: ForgeExecutionResult) => void = () => {};
+      vi.mocked(orchestrator.execute).mockReturnValue(
+        new Promise<ForgeExecutionResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const run = handler.handle(buildMsg('forge:execute', { graph, config }));
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      expect(registry.getRunning()).toHaveLength(1);
+
+      registry.dispose();
+
+      expect(orchestrator.abort).toHaveBeenCalledTimes(1);
+      release(createMockResult());
+      await run;
+    });
+
+    it('records a run the user stopped as aborted, not as completed', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      let release: (r: ForgeExecutionResult) => void = () => {};
+      vi.mocked(orchestrator.execute).mockReturnValue(
+        new Promise<ForgeExecutionResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const run = handler.handle(buildMsg('forge:execute', { graph, config }));
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+      const [operationId] = registry.getRunning().map((o) => o.operationId);
+      expect(operationId).toBeDefined();
+
+      await handler.handle(buildMsg('forge:abort', {}));
+
+      // The stop is what the registry recorded, and it recorded it once.
+      expect(events.filter(([id]) => id === operationId)).toEqual([
+        [operationId, 'started'],
+        [operationId, 'aborted'],
+      ]);
+
+      // The orchestrator settles afterwards, as it does in a real run: that
+      // must not turn the stopped run into a completed one.
+      release(createMockResult());
+      await run;
+      expect(events.filter(([id]) => id === operationId)).toEqual([
+        [operationId, 'started'],
+        [operationId, 'aborted'],
+      ]);
+    });
+
+    it('lists a run, then stops listing it once it has settled', async () => {
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(events.map(([, type]) => type)).toEqual(['started', 'completed']);
+      expect(registry.getRunning()).toHaveLength(0);
+      registry.dispose();
+      expect(orchestrator.abort).not.toHaveBeenCalled();
+    });
+
+    it('lists a run that threw as failed, not as completed', async () => {
+      vi.mocked(orchestrator.execute).mockRejectedValue(new Error('target refused every insert'));
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(events.map(([, type]) => type)).toEqual(['started', 'failed']);
+      expect(registry.get(events[0][0])?.resultSummary).toBe('target refused every insert');
+    });
+
+    it('lists a run the executor could not finish as failed', async () => {
+      // The executor reports that outcome by resolving, not by throwing.
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({ status: 'failure', idRemapCount: 0 }),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(events.map(([, type]) => type)).toEqual(['started', 'failed']);
+    });
+
+    it('lists a discovery that threw as failed', async () => {
+      vi.mocked(orchestrator.discover).mockRejectedValue(new Error('source org unreachable'));
+
+      await handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+
+      expect(events.map(([, type]) => type)).toEqual(['started', 'failed']);
+    });
+
+    it('cancelling a discovery leaves the Forge run beside it alone', async () => {
+      // One orchestrator serves every Forge run, so a per-run cancel must not
+      // reach it: aborting it here would stop the execute running next to it.
+      vi.mocked(orchestrator.discover).mockReturnValue(new Promise<ForgeGraph>(() => {}));
+      void handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+      await vi.waitFor(() => expect(registry.getRunning()).toHaveLength(1));
+      const discovery = registry.getRunning()[0];
+
+      registry.abort(discovery.operationId);
+
+      // The walk stops on the signal it was handed; the shared executor is
+      // left alone.
+      const options = vi.mocked(orchestrator.discover).mock.calls[0][1] as DiscoveryOptions;
+      expect(options.signal?.aborted).toBe(true);
+      expect(orchestrator.abort).not.toHaveBeenCalled();
     });
   });
 

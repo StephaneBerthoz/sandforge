@@ -199,6 +199,26 @@ describe('ForgeInput', () => {
     expect(mockSetConfig).not.toHaveBeenCalled();
   });
 
+  it('names the FROM clause, not the WHERE one, when an alias leads nowhere', () => {
+    // `x` is declared by nothing, so `a.Name` cannot be rewritten and the run
+    // is held back. The WHERE clause itself breaks none of the filter rules:
+    // telling the user to shorten it names the wrong clause.
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    fireEvent.change(screen.getByTestId('forge-input-soql'), {
+      target: { value: "SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'" },
+    });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    expect(screen.getByTestId('forge-soql-filter-refused').textContent).toBe(
+      i18n.t('forge.soqlAliasRefused'),
+    );
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+      i18n.t('forge.hintSoqlAliasRefused'),
+    );
+  });
+
   it('says the WHERE clause filters only the object after FROM', () => {
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
@@ -342,6 +362,18 @@ describe('ForgeInput', () => {
 
       expect(screen.getByTestId('forge-soql-filter-refused')).toBeDefined();
       expect(screen.queryByTestId('forge-soql-where-warning')).toBeNull();
+    });
+
+    it('names the FROM clause when a saved query declares an alias that leads nowhere', () => {
+      pickTemplate("SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'");
+      selectOrg('forge-target-org', 'org-tgt');
+
+      expect(screen.getByTestId('forge-soql-filter-refused').textContent).toBe(
+        i18n.t('forge.soqlAliasRefused'),
+      );
+      expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+        i18n.t('forge.hintSoqlAliasRefused'),
+      );
     });
 
     it('refuses a template whose query names no API name after FROM', () => {

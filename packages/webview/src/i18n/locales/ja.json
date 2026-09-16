@@ -1452,6 +1452,7 @@
     "hintNoInput": "レコードIDまたはクエリを入力するか、テンプレートを選択してください",
     "hintSameOrg": "ソースとターゲットは異なる必要があります",
     "hintSoqlFilterRefused": "グラフを検出するには、WHERE 句を短くするか書き直してください",
+    "hintSoqlAliasRefused": "グラフを検出するには、FROM のあとの別名を修正してください",
     "depthDirectTooltip": "直接関連する子オブジェクトのみ（1レベル）",
     "depthFullTooltip": "依存関係ツリー全体 — すべての深さ",
     "depthCustomTooltip": "リレーションの最大深さを指定",
@@ -1521,6 +1522,7 @@
     "soqlUnscopedWarnTitle": "WHERE 句で絞り込まれるのは {{object}} だけです。",
     "soqlUnscopedWarnBody": "関連オブジェクトは、この句に一致したレコードに絞り込まれず、それぞれテーブル全体から読み取られます。この実行では、各オブジェクトが {{cap}} 件までに制限されます。",
     "soqlFilterRefused": "この WHERE 句は適用できません。512 文字以内にし、--、/*、*/ を含めず（引用符で囲んだ値の中も含む）、末尾をセミコロンにしないでください。",
+    "soqlAliasRefused": "このクエリは実行できません。FROM 句が、FROM のあとのオブジェクトから始まっていないリレーションに別名を宣言しています。ピリオドの前の別名を確認してください。",
     "idMapping": {
       "title": "レコード Id の対応",
       "subtitle": "{{count}} 件のレコードを作成しました。左が元の Id、右がターゲット組織の新しい Id です。",

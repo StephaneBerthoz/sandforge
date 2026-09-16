@@ -1456,6 +1456,7 @@
     "hintNoInput": "Entrez un ID ou une requête, ou choisissez un modèle",
     "hintSameOrg": "La source et la cible doivent être différentes",
     "hintSoqlFilterRefused": "Raccourcissez ou réécrivez la clause WHERE pour découvrir le graphe",
+    "hintSoqlAliasRefused": "Corrigez l'alias après FROM pour découvrir le graphe",
     "depthDirectTooltip": "Uniquement les objets enfants directs (1 niveau)",
     "depthFullTooltip": "Arbre de dépendances complet — tous les niveaux",
     "depthCustomTooltip": "Spécifiez la profondeur maximale des relations",
@@ -1525,6 +1526,7 @@
     "soqlUnscopedWarnTitle": "Votre clause WHERE ne filtre que {{object}}.",
     "soqlUnscopedWarnBody": "Les objets liés ne sont pas limités aux enregistrements qu’elle retient : chacun est lu dans toute sa table. Chaque objet est plafonné à {{cap}} enregistrements pour cette exécution.",
     "soqlFilterRefused": "Cette clause WHERE ne peut pas être appliquée. Elle doit compter au plus 512 caractères, ne contenir ni --, ni /*, ni */ (même dans une valeur entre guillemets), et ne pas se terminer par un point-virgule.",
+    "soqlAliasRefused": "Cette requête ne peut pas être exécutée. La clause FROM déclare un alias sur une relation qui ne part pas de l'objet situé après FROM : vérifiez l'alias avant le point.",
     "idMapping": {
       "title": "Correspondance des Ids",
       "subtitle": "{{count}} enregistrements créés. Id source à gauche, nouvel Id dans l’org cible à droite.",

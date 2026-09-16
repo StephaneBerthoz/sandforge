@@ -189,6 +189,34 @@ describe('AnonymizationEngine', () => {
       expect(lastNames.size).toBeGreaterThan(1);
     });
 
+    it("gives a record the same fake persona in two engines under the rule's salt", () => {
+      const records = [{ Id: '003xx000001', FirstName: 'Alexander', LastName: 'Hamilton' }];
+      const salted = (hashSalt: string): DataOpsAnonymizationRule[] => [
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'FirstName',
+          method: 'fake',
+          config: { hashSalt },
+        },
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'LastName',
+          method: 'fake',
+          config: { hashSalt },
+        },
+      ];
+      // Each engine mints its own random instance key, so only the salt can
+      // make the two agree.
+      const run = (hashSalt: string) =>
+        new AnonymizationEngine().anonymize(records, salted(hashSalt));
+
+      expect(run('payroll-2026')).toEqual(run('payroll-2026'));
+      const lastNames = new Set(
+        Array.from({ length: 8 }, (_, k) => run(`salt-${k}`)[0]['LastName']),
+      );
+      expect(lastNames.size).toBeGreaterThan(1);
+    });
+
     it('should keep no plaintext prefix when truncating', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',

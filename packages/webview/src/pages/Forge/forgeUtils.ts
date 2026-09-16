@@ -89,6 +89,14 @@ export interface SoqlRootFilter {
   objectApiName: string;
   /** The top-level WHERE clause without the keyword, or null when there is none. */
   where: string | null;
+  /**
+   * Set only when a query that has a WHERE clause lists, after the FROM
+   * object, a relationship whose alias cannot be traced back to it. The clause
+   * then still carries an alias nothing can rewrite, so the run must not be
+   * sent. A query with no WHERE clause sends no filter at all — its aliases
+   * are read by nothing — and the flag stays unset there.
+   */
+  unresolvedAlias?: true;
 }
 
 /** Clauses that may follow WHERE, as `[keyword, one of the words that must follow it]`. */
@@ -124,6 +132,12 @@ const WORDS_AFTER_OBJECT = new Set([
   'FOR',
   'UPDATE',
 ]);
+
+/**
+ * One entry of the comma list after the FROM object: `<alias>.<Relationship> <alias>`,
+ * captured as head alias, dotted relationship path and the alias it declares.
+ */
+const RELATIONSHIP_ENTRY = /^([A-Za-z]\w*)((?:\.[A-Za-z]\w*)+)\s+(?:AS\s+)?([A-Za-z]\w*)$/i;
 
 /** The top-level words of `soql`: quoted strings and parenthesised parts are skipped. */
 function topLevelWords(soql: string): SoqlWord[] {
@@ -168,6 +182,13 @@ function topLevelWords(soql: string): SoqlWord[] {
  * an alias (`FROM Account a WHERE a.Industry = …`) is removed from the
  * top-level field paths that start with it.
  *
+ * A comma list after the object declares more aliases, each standing for a
+ * relationship walked from an alias already declared
+ * (`FROM Contact c, c.Account a`). Those are rewritten to the relationship
+ * path the object itself understands, so `a.Name` is sent as `Account.Name`.
+ * An entry no alias resolves leaves {@link SoqlRootFilter.unresolvedAlias} set,
+ * which only a query with a WHERE clause to rewrite can reach.
+ *
  * Returns null when there is no top-level `FROM <object>`.
  */
 export function soqlRootFilter(soql: string): SoqlRootFilter | null {
@@ -187,6 +208,24 @@ export function soqlRootFilter(soql: string): SoqlRootFilter | null {
       ? aliasWord
       : null;
 
+  // What a top-level path headed by each alias becomes: the empty string for
+  // the root alias (the path is sent bare), the relationship path for a
+  // comma-form entry.
+  const aliasPaths = new Map<string, string>();
+  if (alias) aliasPaths.set(alias, '');
+  let unresolvedAlias = false;
+  const fromClause = soql.slice(words[fromAt + 1].end, words[whereAt].start);
+  for (const entry of fromClause.split(',').slice(1)) {
+    const parts = RELATIONSHIP_ENTRY.exec(entry.trim());
+    const head = parts ? aliasPaths.get(parts[1].toUpperCase()) : undefined;
+    if (!parts || head === undefined) {
+      unresolvedAlias = true;
+      continue;
+    }
+    const path = parts[2].slice(1);
+    aliasPaths.set(parts[3].toUpperCase(), head ? `${head}.${path}` : path);
+  }
+
   let endAt = words.length;
   for (let k = whereAt + 1; k < words.length; k++) {
     const next = upper(k + 1);
@@ -203,22 +242,30 @@ export function soqlRootFilter(soql: string): SoqlRootFilter | null {
   const end = endAt < words.length ? words[endAt].start : soql.length;
 
   let where = soql.slice(words[whereAt].end, end);
-  if (alias) {
+  if (aliasPaths.size > 0) {
     const offset = words[whereAt].end;
     // Right to left, so the offsets of the paths not yet visited stay valid.
     for (let k = endAt - 1; k > whereAt; k--) {
       const w = words[k];
+      const path = aliasPaths.get(w.word.toUpperCase());
       const isPathHead =
-        w.word.toUpperCase() === alias &&
+        path !== undefined &&
         soql[w.end] === '.' &&
         soql.slice(0, w.start).trimEnd().slice(-1) !== '.';
       if (isPathHead) {
-        where = where.slice(0, w.start - offset) + where.slice(w.end + 1 - offset);
+        where =
+          where.slice(0, w.start - offset) +
+          (path ? `${path}.` : '') +
+          where.slice(w.end + 1 - offset);
       }
     }
   }
   where = where.trim();
-  return { objectApiName, where: where.length > 0 ? where : null };
+  return {
+    objectApiName,
+    where: where.length > 0 ? where : null,
+    ...(unresolvedAlias ? { unresolvedAlias: true as const } : {}),
+  };
 }
 
 /**
@@ -243,9 +290,17 @@ const objectSoqlFilterRule = forgeConfigSchema.shape.objectSoqlFilters
  * object filter against: at most 512 characters, no SOQL comment marker even
  * inside a quoted value, no trailing semicolon. Such a run would be refused as
  * a whole, so the form holds it back and says why.
+ *
+ * A WHERE clause under a FROM clause that declares an alias over a relationship
+ * nobody can trace is held back too: its paths would reach the org under a name
+ * the object has no field for, and the run would fail on the first object it
+ * reads. Without a WHERE clause there is nothing to send under those aliases,
+ * and the query is accepted.
  */
 export function soqlFilterRefused(soql: string): boolean {
-  const where = soqlRootFilter(soql)?.where;
+  const root = soqlRootFilter(soql);
+  if (root?.unresolvedAlias) return true;
+  const where = root?.where;
   return !!where && !objectSoqlFilterRule.safeParse(where).success;
 }
 

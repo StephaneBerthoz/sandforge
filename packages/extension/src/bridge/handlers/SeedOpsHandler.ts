@@ -4,12 +4,7 @@ import type {
   SeedExecutionResult,
   SeedExecuteRequest,
 } from '@sandforge/shared';
-import {
-  sanitizeSoqlObjectName,
-  orgTypeToGuardTier,
-  RobustnessConfigSchema,
-} from '@sandforge/shared';
-import type { RobustnessConfig } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -27,6 +22,8 @@ import {
   objectsFailureContext,
   postGrappeEvent,
   readGrappeConfig,
+  robustnessConfigOf,
+  bulkManagerOf,
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
@@ -47,7 +44,6 @@ import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -307,15 +303,6 @@ export class SeedOpsHandler implements DomainHandler {
     }
   }
 
-  /**
-   * Load and validate robustness configuration from ConfigStore.
-   * Falls back to schema defaults when no config is stored.
-   */
-  private getRobustnessConfig(): RobustnessConfig {
-    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
-    return RobustnessConfigSchema.parse(raw ?? {});
-  }
-
   /** List all built-in and custom personas. */
   private async handleListPersonas(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -434,7 +421,7 @@ export class SeedOpsHandler implements DomainHandler {
     const parsed = validatePayload(seedDescribeGlobalPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
-    const config = this.getRobustnessConfig();
+    const config = robustnessConfigOf(this.deps);
 
     try {
       const conn = await getJsforceConnection(
@@ -468,7 +455,7 @@ export class SeedOpsHandler implements DomainHandler {
     const parsed = validatePayload(seedDescribeObjectPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
-    const config = this.getRobustnessConfig();
+    const config = robustnessConfigOf(this.deps);
 
     try {
       const conn = await getJsforceConnection(
@@ -684,12 +671,12 @@ export class SeedOpsHandler implements DomainHandler {
     abortController: AbortController,
     failure: OperationFailureContext,
   ): Promise<{ status: 'failure' } | void> {
-    const robustnessConfig = this.getRobustnessConfig();
+    const robustnessConfig = robustnessConfigOf(this.deps);
 
     try {
       // Build robustness-aware insert function
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
-      const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      const bulkManager = bulkManagerOf(this.deps);
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
         onRetry: (attempt, classified, delay) => {
@@ -854,7 +841,9 @@ export class SeedOpsHandler implements DomainHandler {
       );
       const result = await orchestrator.execute(template, payload.orgId);
       sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
-      const totalRecords = (result as { insertedIds?: string[] }).insertedIds?.length ?? 0;
+      // What the orchestrator reports it wrote. A cast to an `insertedIds`
+      // array no result ever carried reported every finished run as 0 records.
+      const totalRecords = result.totalRecordsCreated;
       this.deps.infraServices?.performanceTracker?.update(operationId, totalRecords, 1);
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationCompleted(this.deps, operationId, { totalRecords });

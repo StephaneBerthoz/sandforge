@@ -10,7 +10,7 @@ import type {
   FrozenSelectionSummary,
   FrozenStatusInfo,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
@@ -18,6 +18,8 @@ import {
   sendHandlerError,
   sendOperationStarted,
   sendOperationCompleted,
+  robustnessConfigOf,
+  bulkManagerOf,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -33,7 +35,6 @@ import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { GraphDiscoveryService } from '../../modules/forge/GraphDiscoveryService.js';
 import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
@@ -997,15 +998,12 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const robustnessConfig = RobustnessConfigSchema.parse(
-        this.deps.configStore.get('robustness:config') ?? {},
-      );
+      const robustnessConfig = robustnessConfigOf(this.deps);
       const bulkWriter = new BulkDataWriter({
         connection: conn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
-        bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
+        bulkManager: bulkManagerOf(this.deps),
         retryConfig: robustnessConfig.retry,
-        describeTimeoutMs: robustnessConfig.timeouts.describe,
         signal: abortController.signal,
         onProgress: () => undefined,
         log: (message) => this.deps.log(message),

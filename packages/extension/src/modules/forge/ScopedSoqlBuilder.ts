@@ -205,13 +205,13 @@ export class ScopedSoqlBuilder {
  * statement and 30 in the URI. The budget leaves room for the API path in
  * front of the query and the ` LIMIT N` a per-object cap appends after it.
  */
-const MAX_STATEMENT_URI_CHARS = 15_800;
+export const MAX_STATEMENT_URI_CHARS = 15_800;
 
 /**
  * Most Ids one statement carries even when the URI would take more. Keeps a
  * single statement's result set, and the cost of retrying it, modest.
  */
-const MAX_IDS_PER_STATEMENT = 500;
+export const MAX_IDS_PER_STATEMENT = 500;
 
 /** One `field IN (...)` term of a scoped WHERE clause. */
 interface InClause {
@@ -234,7 +234,7 @@ interface StatementFrame {
 }
 
 /** Characters `text` occupies once percent-encoded into a query URI. */
-function uriLength(text: string): number {
+export function uriLength(text: string): number {
   return encodeURIComponent(text).length;
 }
 

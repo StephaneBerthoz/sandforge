@@ -31,6 +31,9 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -146,6 +149,32 @@ describe('SeedCsvHandler', () => {
   });
 
   describe('seed:csv:execute', () => {
+    /** The dependencies each run handed to the (mocked) BulkDataWriter. */
+    function writerDeps(): Array<ConstructorParameters<typeof BulkDataWriter>[0]> {
+      return vi.mocked(BulkDataWriter).mock.calls.map((call) => call[0]);
+    }
+
+    it('writes through the injected Bulk API job limiter, the same one every run', async () => {
+      const bulkManager = new BulkApiManager(2);
+      deps.bulkManager = bulkManager;
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      const managers = writerDeps().map((d) => d.bulkManager);
+      expect(managers).toHaveLength(2);
+      expect(managers[0]).toBe(bulkManager);
+      expect(managers[1]).toBe(bulkManager);
+    });
+
+    it('bounds concurrent bulk jobs with the default limit when none is injected', async () => {
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(writerDeps()[0].bulkManager.maxConcurrentJobs).toBe(
+        DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs,
+      );
+    });
+
     it('coerces cell values and skips unmapped columns before writing', async () => {
       await handler.handle(
         buildMsg(

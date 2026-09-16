@@ -206,6 +206,48 @@ describe('BulkApiExecutor', () => {
       ).rejects.toThrow('Maximum concurrent bulk jobs reached');
     });
 
+    it('frees the job slot when the job throws mid-flight', async () => {
+      const job = createMockJob();
+      job.uploadData = vi.fn().mockRejectedValue(new Error('connection reset'));
+      const connection = createMockConnection(job);
+      // The limiter outlives the run, so a job that never reaches a terminal
+      // state would hold its slot for the life of the window.
+      const manager = new BulkApiManager(1);
+      const deps = createDeps(connection, manager);
+      const executor = new BulkApiExecutor();
+
+      await expect(
+        executor.executeBulk(deps, 'Account', 'insert', [{ Name: 'A' }]),
+      ).rejects.toThrow('connection reset');
+
+      expect(manager.canStartNewJob()).toBe(true);
+    });
+
+    it('tracks two jobs opened in the same millisecond separately', async () => {
+      const manager = new BulkApiManager(2);
+      const executor = new BulkApiExecutor();
+      const run = (): Promise<unknown> => {
+        // jsforce leaves `id` undefined until the job is opened, so both jobs
+        // reach the limiter without a Salesforce id of their own.
+        const job = createMockJob({
+          checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 1 }],
+          allResults: [{ success: true, id: '001xx0000001' }],
+        });
+        job.id = undefined;
+        return executor.executeBulk(
+          createDeps(createMockConnection(job), manager),
+          'Account',
+          'insert',
+          [{ Name: 'A' }],
+        );
+      };
+
+      const first = run();
+      const second = run();
+      expect(manager.getActiveJobs()).toHaveLength(2);
+      await Promise.all([first, second]);
+    });
+
     it('should call onProgress during polling', async () => {
       const onProgress = vi.fn();
       const job = createMockJob({

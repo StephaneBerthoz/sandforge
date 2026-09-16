@@ -27,12 +27,6 @@ export interface BulkDataWriterDeps {
   bulkManager: BulkApiManager;
   /** Retry configuration for REST batch calls. */
   retryConfig: Partial<RetryConfig>;
-  /**
-   * Describe timeout (ms) of the calling module. The writer makes no describe
-   * call of its own — a sync compares both orgs' field types before it starts —
-   * and keeps the field because every caller still passes it.
-   */
-  describeTimeoutMs: number;
   /** Abort signal cancelling the streaming upload path. */
   signal: AbortSignal;
   /** Progress sink invoked by the streaming and bulk paths. */

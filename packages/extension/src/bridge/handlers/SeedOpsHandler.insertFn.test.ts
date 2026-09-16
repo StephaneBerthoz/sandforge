@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import type { SeedExecutionResult } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -22,18 +24,10 @@ type InsertFn = (
   batchSize: number,
 ) => Promise<InsertResult>;
 
-/**
- * ConfigStore double serving one key: the robustness config. Retries are
- * disabled so a rejecting `create()` settles immediately instead of burning
- * the default 1s/2s/4s backoff.
- */
+/** ConfigStore double serving nothing: this suite injects what it needs. */
 function createConfigStore(): HandlerDeps['configStore'] {
   return {
-    get: vi.fn((key: string) =>
-      key === 'robustness:config'
-        ? { retry: { maxRetries: 0 }, bulk: { threshold: 200 } }
-        : undefined,
-    ),
+    get: vi.fn(() => undefined),
     set: vi.fn(),
     delete: vi.fn(),
     has: vi.fn(() => false),
@@ -58,6 +52,12 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // Retries off so a rejecting `create()` settles immediately instead of
+    // burning the default 1s/2s/4s backoff.
+    robustness: {
+      ...DEFAULT_ROBUSTNESS_CONFIG,
+      retry: { ...DEFAULT_ROBUSTNESS_CONFIG.retry, maxRetries: 0 },
+    },
     nextId: () => String(++idCounter),
   };
 }
@@ -85,6 +85,20 @@ function seedTemplate(): Record<string, unknown> {
   };
 }
 
+/** A finished run that wrote nothing: this suite only needs the insert function. */
+function emptySeedResult(): SeedExecutionResult {
+  return {
+    templateId: 'tpl-fail',
+    operationId: 'op-1',
+    status: 'failure',
+    objectResults: [],
+    totalRecordsCreated: 0,
+    totalRecordsFailed: 0,
+    duration: 1,
+    timestamp: '2026-03-01T00:00:00.000Z',
+  };
+}
+
 /**
  * Drive `seed:execute` far enough to capture the insert function the handler
  * builds, by standing in for the orchestrator factory.
@@ -100,7 +114,7 @@ async function captureInsertFn(deps: HandlerDeps): Promise<InsertFn> {
     }),
     seedOrchestrator: (orchestratorDeps: { insert: InsertFn }) => {
       captured = orchestratorDeps.insert;
-      return { execute: () => Promise.resolve({ insertedIds: [] }) };
+      return { execute: () => Promise.resolve(emptySeedResult()) };
     },
   } as unknown as HandlerDeps['services'];
 

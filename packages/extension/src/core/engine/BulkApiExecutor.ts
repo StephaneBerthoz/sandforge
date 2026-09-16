@@ -312,7 +312,11 @@ export class BulkApiExecutor {
       ...(externalIdField ? { externalIdFieldName: externalIdField } : {}),
     });
 
-    const jobId = job.id ?? `bulk-${Date.now()}`;
+    // Tracked under an id of our own when Salesforce has not assigned one yet
+    // (jsforce fills `job.id` only once the job is open): the limiter's map is
+    // window-lived, and two jobs keyed on the same millisecond overwrote each
+    // other, undercounting the cap and crossing their record counts.
+    const jobId = job.id ?? `bulk-${crypto.randomUUID()}`;
     const jobInfo: BulkJobInfo = {
       id: jobId,
       operation,
@@ -324,56 +328,63 @@ export class BulkApiExecutor {
       createdDate: new Date().toISOString(),
     };
     deps.bulkManager.registerJob(jobInfo);
+    try {
+      await job.open();
+      await job.uploadData(records);
+      await job.close();
 
-    await job.open();
-    await job.uploadData(records);
-    await job.close();
+      let status = await job.check();
+      while (status.state === 'InProgress' || status.state === 'UploadComplete') {
+        deps.bulkManager.updateJobState(jobId, status.state);
+        deps.onProgress?.(status.numberRecordsProcessed ?? 0, records.length);
+        await new Promise((r) => setTimeout(r, 5000));
+        status = await job.check();
+      }
 
-    let status = await job.check();
-    while (status.state === 'InProgress' || status.state === 'UploadComplete') {
-      deps.bulkManager.updateJobState(jobId, status.state);
-      deps.onProgress?.(status.numberRecordsProcessed ?? 0, records.length);
-      await new Promise((r) => setTimeout(r, 5000));
-      status = await job.check();
+      const results = await job.getAllResults();
+      const normalized = normalizeBulkJobResults(results, records);
+
+      const failures: BulkRecordFailure[] = normalized.outcomes
+        .filter((o) => !o.success)
+        .map((o) => ({ recordIndex: o.recordIndex, error: o.error ?? 'Unknown error' }));
+      for (const error of normalized.unattributedFailures) {
+        failures.push({ recordIndex: -1, error });
+      }
+
+      // Real IDs only — the previous `bulk-${jobId}-${i}` fallback fabricated
+      // IDs that downstream consumers (remap tables, history) treated as real.
+      const successIds = normalized.outcomes
+        .filter((o) => o.success && o.id !== undefined)
+        .map((o) => o.id as string)
+        .concat(normalized.unattributedSuccessIds);
+      const successCount =
+        normalized.outcomes.filter((o) => o.success).length +
+        normalized.unattributedSuccessIds.length;
+
+      const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
+      deps.bulkManager.updateJobState(jobId, finalState);
+      deps.bulkManager.updateJobCounts(
+        jobId,
+        status.numberRecordsProcessed ?? records.length,
+        failures.length,
+      );
+
+      return {
+        totalRecords: records.length,
+        successCount,
+        failureCount: failures.length,
+        failures,
+        jobId,
+        usedBulkApi: true,
+        successIds,
+        outcomes: normalized.outcomes,
+      };
+    } catch (err: unknown) {
+      // The limiter counts this job until it reaches a terminal state, and it
+      // outlives the run: a job that threw mid-flight has to free its slot,
+      // or the window loses one Bulk API slot for good.
+      deps.bulkManager.updateJobState(jobId, 'Failed');
+      throw err;
     }
-
-    const results = await job.getAllResults();
-    const normalized = normalizeBulkJobResults(results, records);
-
-    const failures: BulkRecordFailure[] = normalized.outcomes
-      .filter((o) => !o.success)
-      .map((o) => ({ recordIndex: o.recordIndex, error: o.error ?? 'Unknown error' }));
-    for (const error of normalized.unattributedFailures) {
-      failures.push({ recordIndex: -1, error });
-    }
-
-    // Real IDs only — the previous `bulk-${jobId}-${i}` fallback fabricated
-    // IDs that downstream consumers (remap tables, history) treated as real.
-    const successIds = normalized.outcomes
-      .filter((o) => o.success && o.id !== undefined)
-      .map((o) => o.id as string)
-      .concat(normalized.unattributedSuccessIds);
-    const successCount =
-      normalized.outcomes.filter((o) => o.success).length +
-      normalized.unattributedSuccessIds.length;
-
-    const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
-    deps.bulkManager.updateJobState(jobId, finalState);
-    deps.bulkManager.updateJobCounts(
-      jobId,
-      status.numberRecordsProcessed ?? records.length,
-      failures.length,
-    );
-
-    return {
-      totalRecords: records.length,
-      successCount,
-      failureCount: failures.length,
-      failures,
-      jobId,
-      usedBulkApi: true,
-      successIds,
-      outcomes: normalized.outcomes,
-    };
   }
 }

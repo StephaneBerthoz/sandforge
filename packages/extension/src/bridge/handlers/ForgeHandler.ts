@@ -222,6 +222,12 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
 export class ForgeHandler implements DomainHandler {
   private discoverAbortController: AbortController | null = null;
   private abortController: AbortController | null = null;
+  /* The operations the registry is tracking for this handler. Stop has to
+     reach the registry, not just the controllers: a run whose promise simply
+     settles is recorded as completed, so a clone the user stopped was listed
+     as finished in Live Operations and announced as one. */
+  private discoverOperationId: string | null = null;
+  private executeOperationId: string | null = null;
   private orchestrator?: ForgeOrchestrator;
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
@@ -301,6 +307,58 @@ export class ForgeHandler implements DomainHandler {
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
     }
+  }
+
+  /**
+   * Put a run on the background registry for as long as it lasts.
+   *
+   * Forge was the one long module that registered nothing, so the registry's
+   * dispose — the extension deactivating, the window closing — had no run to
+   * abort: a clone in flight kept walking the source org and writing to the
+   * target with nothing left to report what it did.
+   *
+   * The registry aborts a controller of its own, which the run then follows:
+   * the walk through its own signal, and — for a write run only — the executor
+   * by being told, because jsforce cannot cancel a request it has sent. Only
+   * `handleAbort` stops everything at once; cancelling one run from Live
+   * Operations must not take the other Forge run in flight with it, and the
+   * orchestrator is shared by both.
+   *
+   * @param operationId - Id the run reports progress under.
+   * @param description - What the Live Operations panel shows.
+   * @param controller - The run's own abort controller.
+   * @param stopsExecutor - Whether a cancel also tells the shared orchestrator
+   *   to stop writing. True for an execute, false for a discover.
+   * @returns Call once the run has settled: with the error it failed on, or
+   *   with nothing when it succeeded. A failed run is listed as failed instead
+   *   of being announced as completed.
+   */
+  private trackRun(
+    operationId: string,
+    description: string,
+    controller: AbortController,
+    stopsExecutor = false,
+  ): (error?: unknown) => void {
+    const registry = this.deps.infraServices?.backgroundRegistry;
+    if (!registry) return () => {};
+    let settle: (error?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (error) => {
+        if (error === undefined) resolve();
+        else reject(error instanceof Error ? error : new Error(String(error)));
+      };
+    });
+    const stop = new AbortController();
+    stop.signal.addEventListener(
+      'abort',
+      () => {
+        controller.abort();
+        if (stopsExecutor) this.orchestrator?.abort();
+      },
+      { once: true },
+    );
+    registry.register(operationId, 'forge', description, tracked, stop);
+    return settle;
   }
 
   /**
@@ -539,6 +597,10 @@ export class ForgeHandler implements DomainHandler {
     this.discoverAbortController = controller;
     const operationId = `forge-discover-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Discovering object graph');
+    const releaseRun = this.trackRun(operationId, 'Discovering object graph', controller);
+    this.discoverOperationId = operationId;
+    /** What the walk failed on, so the registry lists the run as failed. */
+    let runError: unknown;
 
     // Throttle progress events to ~10/s. Without this, big graphs flood
     // the webview with hundreds of postMessages, each carrying a JSON
@@ -587,11 +649,14 @@ export class ForgeHandler implements DomainHandler {
       // `operation:failed` also triggers an error resolution
       // (`sendOperationFailed`), so emitting one alongside the domain error
       // would make each forge failure pay for a parasitic duplicate.
+      runError = error;
       sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', msg, error, {
         code: 'DISCOVER_ERROR',
         retryable: true,
       });
     } finally {
+      releaseRun(runError);
+      if (this.discoverOperationId === operationId) this.discoverOperationId = null;
       // Only release the controller this call owns: a superseded discovery
       // settles after its replacement started, and nulling the field then cut
       // the live one off from forge:abort.
@@ -711,6 +776,10 @@ export class ForgeHandler implements DomainHandler {
     this.abortController = runController;
     const operationId = `forge-execute-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
+    const releaseRun = this.trackRun(operationId, 'Executing forge operation', runController, true);
+    this.executeOperationId = operationId;
+    /** What the run failed on, so the registry lists it as failed. */
+    let runError: unknown;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -755,6 +824,12 @@ export class ForgeHandler implements DomainHandler {
       if (result.status !== 'failure' && result.idRemapCount > 0) {
         this.noteForgeWrite(forgeOpId);
       }
+      // The executor reports a run it could not finish by resolving with a
+      // failure status rather than throwing. Left as a plain resolution, the
+      // registry announced "forge completed" for a clone that wrote nothing.
+      if (result.status === 'failure') {
+        runError = new Error('Forge execution finished with a failure status.');
+      }
 
       // Persist to history via ConfigStore, carrying the config that produced
       // the run. Without it a history entry is inspectable but not repeatable
@@ -773,6 +848,7 @@ export class ForgeHandler implements DomainHandler {
       this.dmlTracker.markCompleted(forgeOpId);
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
+      runError = error;
       this.dmlTracker.markFailed(forgeOpId);
       // A failed run wrote nothing worth protecting — clear any cooldown so
       // the user can fix the cause and re-run immediately.
@@ -784,6 +860,8 @@ export class ForgeHandler implements DomainHandler {
         retryable: true,
       });
     } finally {
+      releaseRun(runError);
+      if (this.executeOperationId === operationId) this.executeOperationId = null;
       // Unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.
       // Then flush so the last queued progress event reaches the webview
@@ -809,6 +887,12 @@ export class ForgeHandler implements DomainHandler {
     // can't leak between sequential operations (e.g. abort during discover
     // followed by an immediate execute). The handler functions reset the
     // refs on entry, but defensive nulling here closes the race window.
+    // The registry first: it stamps the run aborted and stops it through the
+    // handle it was registered with. Settling the tracked promise instead
+    // would record the stopped run as completed.
+    const registry = this.deps.infraServices?.backgroundRegistry;
+    if (this.discoverOperationId) registry?.abort(this.discoverOperationId);
+    if (this.executeOperationId) registry?.abort(this.executeOperationId);
     this.discoverAbortController?.abort();
     this.discoverAbortController = null;
     this.abortController?.abort();

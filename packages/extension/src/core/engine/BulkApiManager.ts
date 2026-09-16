@@ -30,7 +30,8 @@ export interface BulkJobOptions {
  */
 export class BulkApiManager {
   private activeJobs: Map<string, BulkJobInfo> = new Map();
-  private readonly maxConcurrentJobs: number;
+  /** Jobs allowed to run at once. Read by the callers that share this limiter. */
+  readonly maxConcurrentJobs: number;
   private readonly maxCompletedJobs = 50;
 
   constructor(maxConcurrentJobs: number = 5) {

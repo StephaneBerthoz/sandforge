@@ -101,6 +101,33 @@ describe('soqlRootFilter', () => {
     );
   });
 
+  it('rewrites an alias declared over a relationship to the path it stands for', () => {
+    expect(soqlRootFilter("SELECT Id FROM Contact c, c.Account a WHERE a.Name = 'X'")).toEqual({
+      objectApiName: 'Contact',
+      where: "Account.Name = 'X'",
+    });
+  });
+
+  it('leaves a quoted value alone when it reads like a relationship alias path', () => {
+    expect(
+      soqlRootFilter("SELECT Id FROM Contact c, c.Account a WHERE c.Description = 'a.Name'")?.where,
+    ).toBe("Description = 'a.Name'");
+  });
+
+  it('marks a relationship entry that no alias resolves', () => {
+    const root = soqlRootFilter("SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'");
+    expect(root?.unresolvedAlias).toBe(true);
+  });
+
+  it('leaves the same entry unmarked when there is no clause to rewrite', () => {
+    // No WHERE clause means no filter travels, so the aliases are read by
+    // nothing: the query reads Contact and is accepted as it stands.
+    expect(soqlRootFilter('SELECT Id FROM Contact c, x.Account a ORDER BY Name')).toEqual({
+      objectApiName: 'Contact',
+      where: null,
+    });
+  });
+
   it('does not read USING SCOPE as an alias', () => {
     expect(soqlRootFilter("SELECT Id FROM Account USING SCOPE mine WHERE Name = 'x'")).toEqual({
       objectApiName: 'Account',
@@ -128,6 +155,19 @@ describe('soqlFilterRefused', () => {
 
   it('judges the clause alone, not the name of the object it filters', () => {
     expect(soqlFilterRefused('SELECT Id FROM 1Account WHERE Name = null')).toBe(false);
+  });
+
+  it('refuses a FROM clause whose relationship alias leads nowhere, and accepts one that resolves', () => {
+    expect(soqlFilterRefused("SELECT Id FROM Contact c, x.Account a WHERE a.Name = 'X'")).toBe(
+      true,
+    );
+    expect(soqlFilterRefused("SELECT Id FROM Contact c, c.Account a WHERE a.Name = 'X'")).toBe(
+      false,
+    );
+  });
+
+  it('accepts an alias that leads nowhere when the query carries no clause', () => {
+    expect(soqlFilterRefused('SELECT Id FROM Contact c, x.Account a')).toBe(false);
   });
 });
 

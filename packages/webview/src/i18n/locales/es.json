@@ -1456,6 +1456,7 @@
     "hintNoInput": "Ingrese un ID de registro o una consulta, o elija una plantilla",
     "hintSameOrg": "Origen y destino deben ser diferentes",
     "hintSoqlFilterRefused": "Acorte o reescriba la cláusula WHERE para descubrir el grafo",
+    "hintSoqlAliasRefused": "Corrija el alias después de FROM para descubrir el grafo",
     "depthDirectTooltip": "Solo objetos hijos directamente relacionados (1 nivel)",
     "depthFullTooltip": "Árbol de dependencias completo — todos los niveles",
     "depthCustomTooltip": "Especifique la profundidad máxima de relaciones",
@@ -1525,6 +1526,7 @@
     "soqlUnscopedWarnTitle": "Su cláusula WHERE solo filtra {{object}}.",
     "soqlUnscopedWarnBody": "Los objetos relacionados no se limitan a los registros que selecciona: cada uno se lee de toda su tabla. Cada objeto está limitado a {{cap}} registros en esta ejecución.",
     "soqlFilterRefused": "Esta cláusula WHERE no se puede aplicar. Debe tener 512 caracteres o menos, no contener --, /* ni */ (ni siquiera dentro de un valor entre comillas) y no terminar en punto y coma.",
+    "soqlAliasRefused": "Esta consulta no se puede ejecutar. La cláusula FROM declara un alias sobre una relación que no parte del objeto que sigue a FROM: revise el alias antes del punto.",
     "idMapping": {
       "title": "Correspondencia de Ids",
       "subtitle": "{{count}} registros creados. Id de origen a la izquierda, nuevo Id en la org destino a la derecha.",

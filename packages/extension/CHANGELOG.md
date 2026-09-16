@@ -107,7 +107,13 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   cap, under a warning that admitted it. The clause now reaches the run as that
   object's filter: discovery counts the rows it matches, and the clone reads
   only those. An alias on the object (`FROM Account a WHERE a.Industry = …`) is
-  removed from the clause first. Related objects are still read from their whole
+  removed from the clause first, and an alias declared over a relationship after
+  the FROM object (`FROM Contact c, c.Account a WHERE a.Name = 'Acme'`) is
+  rewritten to the path the object understands, so the clause filters on the
+  related field as you wrote it; text inside quotes that reads like one is left
+  alone. An alias built on a relationship that starts from no alias the query
+  declares keeps Discover disabled, under a message pointing at the FROM clause
+  rather than the WHERE one. Related objects are still read from their whole
   tables, not narrowed to the matching rows, and every object stays capped at
   200 records or fewer; the warning under the query now says exactly that and
   names the object it filters. ORDER BY, LIMIT and the other clauses after WHERE
@@ -845,6 +851,45 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   until the answer arrives; a list that already holds jobs keeps showing them
   while it is read again.
 
+- **Bulk API jobs count against one limit, whichever run opened them.**
+  SandForge caps how many Bulk API 2.0 jobs it keeps open at once, but each run
+  built a counter of its own, so the cap held for one run at a time: a seed, a
+  CSV import, a clone started from Seed, a frozen dataset load and a sync
+  writing at the same time each had a full budget, and the sync's came from _Maximum concurrent
+  sync operations_, a setting that caps how many scheduled runs overlap, not
+  the jobs inside one. Those five write paths now share one counter, one
+  cap of five for the whole window, and a job that would push past it is
+  refused instead of opened — the write it belonged to stops with an error. A job that dies partway — a
+  connection dropped mid-upload — releases its slot instead of holding it for
+  the rest of the window, and two jobs opened in the same millisecond are
+  tracked as two rather than the second taking the first's place and freeing a
+  slot still in use.
+- **A clone matches reference data however many rows the object holds.**
+  Business Hours and Operating Hours are not cloned: Forge looks each source row
+  up on the target by name and points the records that use it at the row already
+  there. The whole list of names travelled in one query, and past a few hundred
+  rows that query outgrew the request URI Salesforce accepts, so the org refused
+  it outright. The object was then reported as failed and the run carried on,
+  with every record whose lookup pointed at one of those rows going out under
+  the source org's Id — an Id the target does not have. The names are now split
+  across as many queries as fit, at most 500 to a query, and the answers are
+  merged: the run resolves exactly the rows the single query was meant to.
+- **Forge runs and DataOps backups join the runs a window close stops, and
+  end recorded as what they were.** None of the three was tracked as a
+  background run, so a window close, a reload or an extension update left a
+  clone walking the source org and writing to the target with nothing left to
+  report what it had done. They now take the same shutdown stop the syncs and
+  seeds already took. A backup stops between two objects: nothing reaches
+  storage until every object has been read, so a stopped backup leaves no
+  half-saved snapshot and has to be run again for a complete one. A restore is
+  deliberately not stopped: cut in the middle it would leave the org with some
+  records put back and some not, and nothing records where it stopped. Each run
+  also ends recorded as what it was — a clone that finished in failure, or that
+  you stopped with Abort, is never recorded as completed — so when no SandForge
+  panel is open the native notification reports a failure as a failure and says
+  nothing at all about a run you stopped yourself. Live Operations still lists
+  Seed and Sync runs only.
+
 ### Changed
 
 - **Only Anthropic can be picked as the AI provider.** The provider setting
@@ -1089,14 +1134,15 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   error, still are.
 - **Fake personas and format-preserving values are keyed with the anonymizer's
   salt.** The persona picked for a record, the placeholder for a field no
-  persona maps and the output of `preserve_format` all came from an unkeyed hash
-  of the record Id or of the original value. A record got the same fake identity
-  in every installation, and a phone number or national Id run through
+  persona maps and the output of `preserve_format` all came from an unkeyed
+  hash of the record Id or of the original value. A record got the same fake
+  identity in every installation, and a phone number or national Id run through
   `preserve_format` could be confirmed by trying candidates. They are now drawn
-  from HMAC-SHA256 under the salt that already keys `hash` and `shuffle`: random
-  for each anonymizer unless a salt is passed, and the same salt gives the same
-  output. In DataOps, a record now gets a different fake name, email or phone on
-  each anonymization run, even when the rule sets a hash salt.
+  from HMAC-SHA256 under the same key that already covers `hash` and `shuffle`.
+  No template DataOps ships carries a salt, so masking there runs under a key
+  the window draws when it starts and never writes down: a record keeps the
+  same fake name, email, phone and address, and the same shuffled values,
+  across every masking run of that window, and is given others in the next one.
 - **A webview can load files from the webview bundle only.** Panels and the
   sidebar used the whole extension folder as their resource root, so a webview
   could request any packaged file, compiled extension code included. The root is

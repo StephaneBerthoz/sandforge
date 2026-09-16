@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import type { BackupSummary } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
@@ -166,6 +168,19 @@ export class DataOpsHandler implements DomainHandler {
    */
   private backupRecords?: BackupRecordStore;
 
+  /**
+   * HMAC key the masking engine falls back to for rules that carry no salt.
+   *
+   * Held here rather than left to the engine, which mints a random one per
+   * instance: a fresh engine per request meant two masking runs of the same
+   * template replaced the same record with two different people, so nothing
+   * the user saw in one run told them anything about the next. This handler is
+   * built once per activation and shared by every panel, so the key is one per
+   * window, and staying out of storage keeps the permutation from being
+   * replayable by anyone who reads the workspace.
+   */
+  private readonly maskingKey = randomBytes(32).toString('hex');
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
@@ -265,6 +280,15 @@ export class DataOpsHandler implements DomainHandler {
     }
     this.activeOrgOperations.add(lockKey);
 
+    /**
+     * Settles the promise the registry watches, so it stops listing this run:
+     * with the error the snapshot failed on, or with nothing when it finished.
+     * Settled unconditionally, a snapshot that errored was announced completed.
+     */
+    let settleBackup: (error?: unknown) => void = () => {};
+    /** What the snapshot failed on, read by `settleBackup` in `finally`. */
+    let backupError: unknown;
+
     try {
       if (this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
@@ -299,15 +323,35 @@ export class DataOpsHandler implements DomainHandler {
         records: Record<string, unknown>[];
       }> = [];
 
-      sendOperationStarted(
-        this.deps,
+      const description = `Backup ${payload.objects.length} object(s)`;
+      sendOperationStarted(this.deps, operationId, 'dataops', description);
+
+      // A snapshot reads one object after another, so the registry's abort —
+      // the extension deactivating, the window closing, a cancel from Live
+      // Operations — is honoured between two objects. Nothing is written to
+      // storage until the whole loop is through, so stopping there leaves no
+      // half-saved backup behind.
+      const stop = new AbortController();
+      this.deps.infraServices?.backgroundRegistry?.register(
         operationId,
         'dataops',
-        `Backup ${payload.objects.length} object(s)`,
+        description,
+        new Promise<void>((resolve, reject) => {
+          settleBackup = (error) => {
+            if (error === undefined) resolve();
+            else reject(error instanceof Error ? error : new Error(String(error)));
+          };
+        }),
+        stop,
       );
 
       let processedObjects = 0;
       for (const objectApiName of payload.objects) {
+        if (stop.signal.aborted) {
+          throw new Error(
+            'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.',
+          );
+        }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
         const records = await queryAll<Record<string, unknown>>(
@@ -379,6 +423,7 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
       this.dmlTracker.markCompleted(operationId);
     } catch (err: unknown) {
+      backupError = err;
       this.dmlTracker.markFailed(operationId);
       // Dual channel, single display: `operation:failed` carries the lifecycle
       // (webview clears global loading + auto AI-resolver); `dataops:error` is
@@ -390,6 +435,7 @@ export class DataOpsHandler implements DomainHandler {
         context: failure,
       });
     } finally {
+      settleBackup(backupError);
       this.activeOrgOperations.delete(lockKey);
     }
   }
@@ -900,7 +946,8 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationStarted(this.deps, operationId, 'dataops', `Anonymizing with ${template.name}`);
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
-      const engine = new AnonymizationEngine();
+      // The window's key, not a fresh random one: see `maskingKey`.
+      const engine = new AnonymizationEngine(undefined, this.maskingKey);
 
       let totalProcessed = 0;
       let totalFailed = 0;

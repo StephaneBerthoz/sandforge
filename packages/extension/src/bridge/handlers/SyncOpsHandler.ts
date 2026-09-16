@@ -6,12 +6,7 @@ import type {
   SyncExecutionResult,
   SyncOperation,
 } from '@sandforge/shared';
-import {
-  sanitizeSoqlObjectName,
-  orgTypeToGuardTier,
-  RobustnessConfigSchema,
-} from '@sandforge/shared';
-import type { RobustnessConfig } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -30,6 +25,8 @@ import {
   objectsFailureContext,
   postGrappeEvent,
   readGrappeConfig,
+  robustnessConfigOf,
+  bulkManagerOf,
   syntheticRequest,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
@@ -60,7 +57,6 @@ import { isNetworkError } from '../../core/common/isNetworkError.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -311,15 +307,6 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /**
-   * Load and validate robustness configuration from ConfigStore.
-   * Falls back to schema defaults when no config is stored.
-   */
-  private getRobustnessConfig(): RobustnessConfig {
-    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
-    return RobustnessConfigSchema.parse(raw ?? {});
-  }
-
-  /**
    * Build the Production Guard request describing a sync run on its target org.
    *
    * The guard judges one operation on one object, while a sync config carries
@@ -431,7 +418,7 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
-    const config = this.getRobustnessConfig();
+    const config = robustnessConfigOf(this.deps);
 
     try {
       const conn = await getJsforceConnection(
@@ -464,7 +451,7 @@ export class SyncOpsHandler implements DomainHandler {
     const parsed = validatePayload(syncDescribeFieldsPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
-    const config = this.getRobustnessConfig();
+    const config = robustnessConfigOf(this.deps);
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -767,7 +754,7 @@ export class SyncOpsHandler implements DomainHandler {
     abortController: AbortController,
     triggeredBy: 'manual' | 'rerun' | 'schedule',
   ): Promise<SyncExecutionResult> {
-    const robustnessConfig = this.getRobustnessConfig();
+    const robustnessConfig = robustnessConfigOf(this.deps);
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -801,11 +788,11 @@ export class SyncOpsHandler implements DomainHandler {
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
-      // `sandforge.sync.maxConcurrentOps` (manifest default 3) bounds the
-      // number of concurrent Bulk API jobs for sync operations.
-      const maxConcurrentOps =
-        this.deps.services?.getSandforgeSetting?.('sync.maxConcurrentOps', 3) ?? 3;
-      const bulkManager = new BulkApiManager(maxConcurrentOps);
+      // Salesforce caps concurrent Bulk API jobs per org, not per run, so a
+      // sync counts its jobs against the same limiter as every other write
+      // path. (`sandforge.sync.maxConcurrentOps` caps concurrent sync *runs* —
+      // see SyncScheduleHandler — not the jobs inside one.)
+      const bulkManager = bulkManagerOf(this.deps);
       // Build the record writer: mutualizes insert/upsert/update/delete across
       // the streaming, Bulk API, and REST batch paths (see BulkDataWriter).
       const writer = new BulkDataWriter({
@@ -813,7 +800,6 @@ export class SyncOpsHandler implements DomainHandler {
         bulkExecutor,
         bulkManager,
         retryConfig: robustnessConfig.retry,
-        describeTimeoutMs: robustnessConfig.timeouts.describe,
         signal: abortController.signal,
         onProgress: (processed, total, label) => {
           const pct = Math.round((processed / total) * 100);

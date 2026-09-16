@@ -320,6 +320,15 @@ export const seedTemplatePayloadSchema = seedConfigSchema
 export const seedExecutePayloadSchema = z.object({
   orgId: orgIdSchema,
   template: seedTemplatePayloadSchema,
+  /**
+   * Accepted only so the request can be refused with DRY_RUN_UNSUPPORTED.
+   *
+   * Seed has no way to generate records without writing them, so a dry run
+   * that was quietly downgraded to a real one wrote to the org. Dropping the
+   * field from the schema would make such a payload INVALID_PAYLOAD, which
+   * says nothing about why; keeping it lets the handler answer with the
+   * reason. The response type carries no dry-run shape either.
+   */
   dryRun: z.boolean().optional(),
 });
 export const seedDescribeGlobalPayloadSchema = z.object({ orgId: orgIdSchema });

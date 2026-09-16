@@ -3,7 +3,8 @@ import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, SeedExecutionResult } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -98,6 +99,28 @@ function validSeedTemplate(): Record<string, unknown> {
     tags: [],
     createdAt: '2026-03-01T00:00:00Z',
     updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
+/** What the orchestrator resolves for a run that created `created` records. */
+function seedResult(created: number): SeedExecutionResult {
+  return {
+    templateId: 'tpl-1',
+    operationId: 'op-1',
+    status: created > 0 ? 'success' : 'failure',
+    objectResults: [
+      {
+        objectApiName: 'Account',
+        recordsCreated: created,
+        recordsFailed: 0,
+        createdIds: Array.from({ length: created }, (_, i) => `001${String(i).padStart(12, '0')}`),
+        errors: [],
+      },
+    ],
+    totalRecordsCreated: created,
+    totalRecordsFailed: 0,
+    duration: 10,
+    timestamp: '2026-01-01T00:00:00.000Z',
   };
 }
 
@@ -414,97 +437,55 @@ describe('SeedOpsHandler', () => {
       expect(postToWebview.mock.calls[0][0].type).toBe('seed:describe-object:response');
     });
 
-    it('sends TimeoutError to webview when describe-global times out', async () => {
+    /**
+     * Hold a describe open and report the timeout the handler gave up after.
+     * The handler catches the TimeoutError and answers `seed:error`, so the
+     * message is read rather than the rejection.
+     */
+    async function timeoutAfter(advanceMs: number): Promise<string | undefined> {
       const describeGlobalFn = vi.fn().mockImplementation(
         () =>
-          new Promise((_resolve) => {
-            /* never resolves -- simulates a hung API call */
+          new Promise(() => {
+            /* never resolves -- a hung API call */
           }),
       );
-      mockGetConn.mockResolvedValue({
-        describeGlobal: describeGlobalFn,
-      } as never);
+      mockGetConn.mockResolvedValue({ describeGlobal: describeGlobalFn } as never);
 
-      // Set very short timeout via configStore
-      vi.mocked(deps.configStore.get).mockReturnValue({
-        timeouts: {
-          describeGlobal: 5000,
-          describe: 5000,
-          crudBatch: 10000,
-          bulkJob: 60000,
-        },
-        retry: { maxRetries: 0 },
-        bulk: { threshold: 200 },
-      });
+      vi.useFakeTimers();
+      try {
+        void handler.handle(
+          inboundRequest({
+            id: 'req-timeout-err',
+            type: 'seed:describe-global',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1' },
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(advanceMs);
+      } finally {
+        vi.useRealTimers();
+      }
 
-      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-        id: 'req-timeout-err',
-        type: 'seed:describe-global',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1' },
-      });
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const error = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { message?: string } })
+        .find((m) => m.type === 'seed:error');
+      return error?.payload?.message;
+    }
 
-      // The handler should catch the timeout and send an error
-      // But since 5s is too long for a test, just verify the timeout wrapping
-      // by checking that describeGlobal was called
-      // (The actual timeout behavior is tested in TimeoutManager.test.ts)
-      await Promise.race([handler.handle(msg), new Promise((resolve) => setTimeout(resolve, 50))]);
-
-      expect(describeGlobalFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('loads robustness config from ConfigStore', async () => {
-      const customConfig = {
-        timeouts: {
-          describeGlobal: 60000,
-          describe: 30000,
-          crudBatch: 120000,
-          bulkJob: 600000,
-        },
-        retry: {
-          maxRetries: 5,
-          initialDelay: 2000,
-          maxDelay: 60000,
-          backoffMultiplier: 3,
-        },
-        bulk: { threshold: 500 },
+    it('gives up on a hung describe after the injected timeout', async () => {
+      deps.robustness = {
+        ...DEFAULT_ROBUSTNESS_CONFIG,
+        timeouts: { ...DEFAULT_ROBUSTNESS_CONFIG.timeouts, describeGlobal: 5000 },
       };
-      vi.mocked(deps.configStore.get).mockReturnValue(customConfig);
 
-      mockGetConn.mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
-      } as never);
-
-      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-        id: 'req-config',
-        type: 'seed:describe-global',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1' },
-      });
-
-      await handler.handle(msg);
-
-      // ConfigStore.get was called with the robustness config key
-      expect(deps.configStore.get).toHaveBeenCalledWith('robustness:config');
+      expect(await timeoutAfter(5000)).toContain('timed out after 5000ms');
     });
 
-    it('falls back to defaults when configStore returns undefined', async () => {
-      vi.mocked(deps.configStore.get).mockReturnValue(undefined);
+    it('falls back to the default timeout when no robustness config is injected', async () => {
+      const timeout = DEFAULT_ROBUSTNESS_CONFIG.timeouts.describeGlobal;
 
-      mockGetConn.mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
-      } as never);
-
-      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-        id: 'req-default',
-        type: 'seed:describe-global',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1' },
-      });
-
-      // Should not throw even with undefined config
-      const result = await handler.handle(msg);
-      expect(result).toBe(true);
+      expect(await timeoutAfter(timeout)).toContain(`timed out after ${timeout}ms`);
     });
   });
 
@@ -1047,7 +1028,7 @@ describe('SeedOpsHandler', () => {
         isAIEnabled: () => false,
         getSandforgeSetting: vi.fn(() => 200),
         seedOrchestrator: vi.fn(() => ({
-          execute: vi.fn().mockResolvedValue({ insertedIds: ['id-1', 'id-2'] }),
+          execute: vi.fn().mockResolvedValue(seedResult(2)),
         })),
       } as unknown as HandlerDeps['services'];
 
@@ -1377,7 +1358,7 @@ describe('SeedOpsHandler', () => {
         isAIEnabled: () => false,
         getSandforgeSetting: vi.fn(() => 200),
         seedOrchestrator: vi.fn(() => ({
-          execute: vi.fn().mockResolvedValue({ insertedIds: ['id-1'] }),
+          execute: vi.fn().mockResolvedValue(seedResult(1)),
         })),
       } as unknown as HandlerDeps['services'];
       mockGetConn.mockResolvedValue({} as never);
@@ -1506,6 +1487,39 @@ describe('SeedOpsHandler', () => {
         createdIds: ['003000000000001'],
         errors: [],
       });
+    });
+
+    it('completes with the records the run created, not zero', async () => {
+      const update = vi.fn();
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), update, complete: vi.fn() },
+        productionGuard: undefined,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await runWith(() => ({
+        templateId: 'tpl-1',
+        operationId: 'op-1',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 3,
+            recordsFailed: 0,
+            createdIds: ['003000000000001', '003000000000002', '003000000000003'],
+            errors: [],
+          },
+        ],
+        totalRecordsCreated: 3,
+        totalRecordsFailed: 0,
+        duration: 10,
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }));
+
+      const completed = postedMessages().find((m) => m.type === 'operation:completed');
+      expect(completed?.payload?.result).toEqual({ totalRecords: 3 });
+      expect(update).toHaveBeenCalledWith(expect.any(String), 3, 1);
     });
 
     it('relays each object the orchestrator reaches as operation:progress', async () => {

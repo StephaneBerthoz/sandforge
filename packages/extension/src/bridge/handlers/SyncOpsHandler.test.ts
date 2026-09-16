@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
@@ -29,6 +30,9 @@ vi.mock('../../modules/sync/TransformPipeline.js', () => ({
 vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
   IncrementalTracker: vi.fn().mockImplementation(() => ({})),
 }));
+vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
+  BulkDataWriter: vi.fn(),
+}));
 vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
   SyncOrchestrator: vi.fn().mockImplementation(() => ({
     execute: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -36,6 +40,8 @@ vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -225,6 +231,9 @@ describe('SyncOpsHandler', () => {
         piiDetector: undefined as unknown as NonNullable<
           HandlerDeps['infraServices']
         >['piiDetector'],
+        backgroundRegistry: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['backgroundRegistry'],
       };
 
       mockGetConn.mockRejectedValue(new Error('connection failed'));
@@ -268,6 +277,9 @@ describe('SyncOpsHandler', () => {
         piiDetector: undefined as unknown as NonNullable<
           HandlerDeps['infraServices']
         >['piiDetector'],
+        backgroundRegistry: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['backgroundRegistry'],
       };
 
       mockGetConn.mockResolvedValue({
@@ -577,41 +589,57 @@ describe('SyncOpsHandler', () => {
       expect(targetDescribeFn).toHaveBeenCalledTimes(1);
     });
 
-    it('loads robustness config from ConfigStore', async () => {
+    /**
+     * Hold a describe open and report the timeout the handler gave up after.
+     * The handler catches the TimeoutError and answers `sync:error`, so the
+     * message is read rather than the rejection.
+     */
+    async function timeoutAfter(advanceMs: number): Promise<string | undefined> {
       mockGetConn.mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+        describeGlobal: vi.fn().mockImplementation(
+          () =>
+            new Promise(() => {
+              /* never resolves -- a hung API call */
+            }),
+        ),
         limitInfo: undefined,
       } as never);
 
-      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-        id: 'req-config-sync',
-        type: 'sync:describe-global',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1' },
-      });
+      vi.useFakeTimers();
+      try {
+        void handler.handle(
+          inboundRequest({
+            id: 'req-timeout-sync',
+            type: 'sync:describe-global',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-1' },
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(advanceMs);
+      } finally {
+        vi.useRealTimers();
+      }
 
-      await handler.handle(msg);
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const error = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { message?: string } })
+        .find((m) => m.type === 'sync:error');
+      return error?.payload?.message;
+    }
 
-      expect(deps.configStore.get).toHaveBeenCalledWith('robustness:config');
+    it('gives up on a hung describe after the injected timeout', async () => {
+      deps.robustness = {
+        ...DEFAULT_ROBUSTNESS_CONFIG,
+        timeouts: { ...DEFAULT_ROBUSTNESS_CONFIG.timeouts, describeGlobal: 5000 },
+      };
+
+      expect(await timeoutAfter(5000)).toContain('timed out after 5000ms');
     });
 
-    it('falls back to defaults when configStore returns undefined', async () => {
-      vi.mocked(deps.configStore.get).mockReturnValue(undefined);
+    it('falls back to the default timeout when no robustness config is injected', async () => {
+      const timeout = DEFAULT_ROBUSTNESS_CONFIG.timeouts.describeGlobal;
 
-      mockGetConn.mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
-        limitInfo: undefined,
-      } as never);
-
-      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
-        id: 'req-default-sync',
-        type: 'sync:describe-global',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1' },
-      });
-
-      const result = await handler.handle(msg);
-      expect(result).toBe(true);
+      expect(await timeoutAfter(timeout)).toContain(`timed out after ${timeout}ms`);
     });
   });
 
@@ -834,6 +862,65 @@ describe('SyncOpsHandler', () => {
         .map((c) => c[0] as BaseMessage)
         .filter((m) => m.type === 'operation:started');
       expect(startedMsgs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('Bulk API job limiter', () => {
+    /** Run one sync to completion and hand back the writer's dependencies. */
+    async function runSync(): Promise<ConstructorParameters<typeof BulkDataWriter>[0]> {
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        limitInfo: undefined,
+      } as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-limiter-1',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      const call = vi.mocked(BulkDataWriter).mock.calls[0];
+      if (!call) throw new Error('BulkDataWriter was never constructed');
+      return call[0];
+    }
+
+    it('writes through the injected limiter, not one sized per run', async () => {
+      // Salesforce caps concurrent Bulk API jobs per org, not per run: a sync
+      // holding a budget of its own let a sync and a seed exceed the cap
+      // together.
+      const bulkManager = new BulkApiManager(2);
+      deps.bulkManager = bulkManager;
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      expect((await runSync()).bulkManager).toBe(bulkManager);
+    });
+
+    it('falls back to the default job limit when none is injected', async () => {
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      expect((await runSync()).bulkManager.maxConcurrentJobs).toBe(
+        DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs,
+      );
     });
   });
 

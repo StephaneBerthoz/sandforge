@@ -3,8 +3,9 @@ import type {
   NotificationAction,
   NotificationMessage,
   GrappeConfig,
+  RobustnessConfig,
 } from '@sandforge/shared';
-import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
+import { DEFAULT_GRAPPE_CONFIG, DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
 import { hasKnownResolution, resolveKnownError } from '../../core/common/errorKnowledgeBase.js';
 import type { ErrorResolver, OperationContext } from '../../modules/ai/ErrorResolver.js';
@@ -16,10 +17,12 @@ import type { SecretVault } from '../../core/storage/SecretVault.js';
 import type { AuthProvider } from '../../core/connection/AuthProvider.js';
 import type { SfdxBridge } from '../../core/connection/SfdxBridge.js';
 import type { WebviewStateSync } from '../WebviewStateSync.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import type { PerformanceTracker } from '../../core/engine/PerformanceTracker.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { OfflineManager } from '../../core/connection/OfflineManager.js';
 import type { PIIDetector } from '../../core/precheck/PIIDetector.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { Services } from '../../services.js';
 
 /** Infrastructure services bundle shared across handlers. */
@@ -28,6 +31,12 @@ export interface InfraServices {
   productionGuard: ProductionGuard;
   offlineManager: OfflineManager;
   piiDetector: PIIDetector;
+  /**
+   * Runs that outlive the panel. A handler that starts a long run registers it
+   * here so the registry's abort — the window closing, the extension
+   * deactivating, a cancel from Live Operations — can still reach it.
+   */
+  backgroundRegistry: BackgroundOperationRegistry;
 }
 
 /** Core dependencies available to all domain handlers. */
@@ -67,6 +76,18 @@ export interface HandlerDeps {
    * orchestrators inline — see services.ts for the single source of truth.
    */
   services?: Services;
+  /**
+   * Retry, timeout and Bulk API settings every write path reads. Injected once
+   * by the composition root; left out, {@link robustnessConfigOf} answers with
+   * the schema defaults.
+   */
+  robustness?: RobustnessConfig;
+  /**
+   * The Bulk API 2.0 job limiter. One per window, so the concurrency limit
+   * counts the jobs of every run together — Salesforce caps concurrent jobs per
+   * org, not per run, and a limiter built per run granted each its own budget.
+   */
+  bulkManager?: BulkApiManager;
   /** Generates sequential message IDs. */
   nextId: () => string;
   /**
@@ -75,6 +96,21 @@ export interface HandlerDeps {
    * the handlers are constructed (same pattern as setOnboardingService).
    */
   onOrgSelected?: (orgId: string) => void;
+}
+
+/** The retry, timeout and bulk settings of a run. */
+export function robustnessConfigOf(deps: Pick<HandlerDeps, 'robustness'>): RobustnessConfig {
+  return deps.robustness ?? DEFAULT_ROBUSTNESS_CONFIG;
+}
+
+/**
+ * The Bulk API job limiter of a run: the shared one, or a private one sized by
+ * the same settings when nothing was injected.
+ */
+export function bulkManagerOf(
+  deps: Pick<HandlerDeps, 'robustness' | 'bulkManager'>,
+): BulkApiManager {
+  return deps.bulkManager ?? new BulkApiManager(robustnessConfigOf(deps).bulk.maxConcurrentJobs);
 }
 
 /**

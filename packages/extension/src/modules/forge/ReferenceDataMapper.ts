@@ -12,6 +12,7 @@
  */
 
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { MAX_IDS_PER_STATEMENT, MAX_STATEMENT_URI_CHARS, uriLength } from './ScopedSoqlBuilder.js';
 
 /** Mapping between source and target IDs for one reference-data row. */
 export interface ReferenceDataMapping {
@@ -99,20 +100,48 @@ export class ReferenceDataMapper {
       };
     }
 
-    const inList = [...new Set(valueByRecord.values())]
-      .map((v) => `'${sanitizeSoqlValue(v)}'`)
-      .join(', ');
-    const soql = `SELECT Id, ${validatedField} FROM ${validatedObject} WHERE ${validatedField} IN (${inList})`;
-    const targetRecords = await this.query(targetOrgId, soql);
+    // One statement per batch of match values: a whole reference-data table
+    // pasted into a single `IN (...)` overflows the query URI Salesforce
+    // accepts, and the org answers with a 414 rather than a partial result.
+    // The batches partition the distinct values, so their union is exactly
+    // what the one unsplit statement would have matched.
+    const prefix = `SELECT Id, ${validatedField} FROM ${validatedObject} WHERE ${validatedField} IN (`;
+    const frameLength = uriLength(`${prefix})`);
+    const separatorLength = uriLength(', ');
 
     const targetByValue = new Map<string, string>();
-    for (const r of targetRecords) {
-      const id = r['Id'];
-      const value = r[field];
-      if (typeof id === 'string' && typeof value === 'string') {
-        targetByValue.set(value, id);
+    let batch: string[] = [];
+    let length = frameLength;
+
+    const runBatch = async (): Promise<void> => {
+      if (batch.length === 0) return;
+      const soql = `${prefix}${batch.join(', ')})`;
+      batch = [];
+      length = frameLength;
+      for (const r of await this.query(targetOrgId, soql)) {
+        const id = r['Id'];
+        const value = r[field];
+        if (typeof id === 'string' && typeof value === 'string') {
+          targetByValue.set(value, id);
+        }
       }
+    };
+
+    for (const value of new Set(valueByRecord.values())) {
+      const literal = `'${sanitizeSoqlValue(value)}'`;
+      const cost = (batch.length > 0 ? separatorLength : 0) + uriLength(literal);
+      if (
+        batch.length >= MAX_IDS_PER_STATEMENT ||
+        (batch.length > 0 && length + cost > MAX_STATEMENT_URI_CHARS)
+      ) {
+        await runBatch();
+        length += uriLength(literal);
+      } else {
+        length += cost;
+      }
+      batch.push(literal);
     }
+    await runBatch();
 
     const mappings: ReferenceDataMapping[] = [];
     const unmatched: Array<{ sourceId: string; matchValue: string | null }> = [];

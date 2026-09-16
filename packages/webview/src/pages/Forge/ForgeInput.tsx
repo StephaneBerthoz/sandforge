@@ -108,6 +108,16 @@ export const ForgeInput: React.FC = () => {
   const templateRoot = form.templateSoqlQuery ? soqlRootFilter(form.templateSoqlQuery) : null;
   const templateWhereRefused =
     form.templateSoqlQuery !== null && soqlFilterRefused(form.templateSoqlQuery);
+  /**
+   * The refusal is about the FROM clause, not the WHERE one: an alias there
+   * stands for a relationship that starts from no declared alias, so nothing
+   * can rewrite the paths headed by it. Saying "shorten the WHERE clause"
+   * would name a clause that may be faultless, and point at the wrong fix.
+   */
+  const aliasRefused =
+    form.inputMode === 'soql'
+      ? Boolean(soqlRoot?.unresolvedAlias)
+      : Boolean(templateRoot?.unresolvedAlias);
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -302,7 +312,11 @@ export const ForgeInput: React.FC = () => {
                       role="alert"
                       className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
                     >
-                      {t('forge.soqlFilterRefused')}
+                      {t(
+                        soqlRoot?.unresolvedAlias
+                          ? 'forge.soqlAliasRefused'
+                          : 'forge.soqlFilterRefused',
+                      )}
                     </div>
                   )}
                   {/* The clause travels under the object's own name, which has
@@ -352,7 +366,11 @@ export const ForgeInput: React.FC = () => {
                       role="alert"
                       className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
                     >
-                      {t('forge.soqlFilterRefused')}
+                      {t(
+                        templateRoot?.unresolvedAlias
+                          ? 'forge.soqlAliasRefused'
+                          : 'forge.soqlFilterRefused',
+                      )}
                     </div>
                   )}
                   {form.objectNameRefused && templateRoot && (
@@ -485,7 +503,11 @@ export const ForgeInput: React.FC = () => {
                   : form.sameOrgSelected
                     ? t('forge.hintSameOrg')
                     : form.whereClauseRefused
-                      ? t('forge.hintSoqlFilterRefused')
+                      ? t(
+                          aliasRefused
+                            ? 'forge.hintSoqlAliasRefused'
+                            : 'forge.hintSoqlFilterRefused',
+                        )
                       : form.objectNameRefused
                         ? t('forge.hintSoqlObjectNameInvalid')
                         : t('forge.hintNoInput')}

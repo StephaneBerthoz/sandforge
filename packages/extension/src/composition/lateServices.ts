@@ -36,7 +36,12 @@ export interface LateServices {
   onboardingService: OnboardingService;
   /** Infrastructure services shared via the mutable HandlerDeps. */
   infraServices: InfraServices;
-  /** Background registry — also constructs the ExecutionHandler. */
+  /**
+   * Background registry — also constructs the ExecutionHandler, which is why
+   * it is passed here as well as inside `infraServices`. A handler that only
+   * needs to register a run reads it from `infraServices`; this entry is the
+   * construction step, and nothing else performs it.
+   */
   backgroundRegistry: BackgroundOperationRegistry;
   /** Migration file reader. */
   migrationFileReader: MigrationFileReader;

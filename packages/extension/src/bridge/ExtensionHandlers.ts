@@ -25,6 +25,8 @@ import type {
   InfraServices,
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
+import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
@@ -160,6 +162,11 @@ export class ExtensionHandlers {
       authProvider: deps.authProvider,
       sfdxBridge: deps.sfdxBridge,
       services: deps.services,
+      // Retry, timeout and Bulk API settings, and the one job limiter they
+      // size: every handler shares them, so the concurrency cap counts the
+      // jobs of every run together.
+      robustness: DEFAULT_ROBUSTNESS_CONFIG,
+      bulkManager: new BulkApiManager(DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs),
       nextId: () => this.nextId(),
     };
 

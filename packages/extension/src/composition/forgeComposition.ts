@@ -160,6 +160,26 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         const sfTimeouts = new TimeoutManager(30_000);
 
         /**
+         * Drop what both caches hold, for every org or only the ones named.
+         *
+         * A re-discovery is the user saying the schema moved. Only the graph
+         * used to be dropped, so the rebuild read the same describes for up to
+         * five more minutes and produced the same graph — a field deployed on
+         * the target stayed invisible to the drift check for that long.
+         */
+        const clearDescribes = (orgIds?: string[]): void => {
+          if (!orgIds) {
+            describeCache.clear();
+            describeGlobalCache.clear();
+            return;
+          }
+          for (const orgId of orgIds) {
+            describeCache.invalidateByPrefix(`${orgId}::`);
+            describeGlobalCache.invalidate(orgId);
+          }
+        };
+
+        /**
          * The cached describe of `objectApiName` on `orgId`, fetched once.
          *
          * A caller that arrives while the same describe is under way waits for
@@ -403,6 +423,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           discoveryService,
           executor,
           planGenerator,
+          clearDescribes,
         });
 
         handlers.setForgeOrchestrator(forgeOrchestrator, {

@@ -24,6 +24,9 @@ Take a full snapshot of Account and Contact:
   object picker and no incremental mode -- each backup is a new full snapshot
 - Every backup is written to extension storage with per-object record counts, and listed newest-first in the Backup tab
 - One-click backup creation from the Backup Panel
+- A backup stops between two objects when the window closes or the extension
+  deactivates. Nothing is written until every object has been read, so a
+  stopped run leaves no half-saved snapshot -- run it again for a complete one
 
 ### Restore
 
@@ -51,6 +54,10 @@ What a restore does, in order:
 - Stops with an FLS error if a field _you_ may not write is in the payload,
   rather than restoring the record with that column silently missing
 
+A restore is **not** stopped when the window closes: it runs to the end. A
+restore cut in the middle leaves the org with some records put back and some
+not, and nothing records where it stopped, so finishing is the safer outcome.
+
 ### Anonymize
 
 Mask sensitive data using the built-in anonymization templates:
@@ -63,6 +70,12 @@ Mask sensitive data using the built-in anonymization templates:
 - **The library is read-only.** It exposes lookups only,
   and no channel creates, edits, imports or exports a template. The templates
   that ship with the extension are the whole set.
+- **Reproducibility.** A rule that carries a hash salt gives the same
+  replacement for the same input on every run and on every machine: the salt
+  is the whole key. A rule without one -- which is every rule in the templates
+  that ship -- draws from a key the window generates when it starts, so two
+  runs in one window mask a record identically and the next window masks it
+  differently.
 
 ### Compliance (GDPR/CCPA)
 

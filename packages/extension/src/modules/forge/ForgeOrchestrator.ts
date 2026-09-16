@@ -25,6 +25,15 @@ export interface ForgeOrchestratorDeps {
   executor: ForgeExecutor;
   /** Optional plan generator for wave-based execution planning. */
   planGenerator?: ForgePlanGenerator;
+  /**
+   * Drop the cached org describes, for every org or only the ones named.
+   *
+   * The discovery cache is not the only thing that goes stale when the source
+   * or target schema changes: the graph is built from describes held in their
+   * own cache, so re-discovering with that cache warm rebuilt the same graph
+   * from the same five-minute-old schema.
+   */
+  clearDescribes?: (orgIds?: string[]) => void;
 }
 
 /**
@@ -87,9 +96,19 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
     ].join('::');
   }
 
-  /** Drop the discovery cache — called when the user explicitly re-discovers. */
-  clearDiscoveryCache(): void {
+  /**
+   * Drop the discovery cache and the org describes behind it — called when the
+   * user explicitly re-discovers. Keeping the describes would rebuild the same
+   * graph from the same schema and make the re-discovery a no-op.
+   *
+   * @param orgIds - The orgs whose schema the caller is re-reading, normally
+   *   the source and the target of the run. Omitted, every org's describes go:
+   *   a caller that cannot name its pair still gets a truthful rebuild, at the
+   *   cost of the describes another org pair had warm.
+   */
+  clearDiscoveryCache(orgIds?: string[]): void {
     this.discoveryCache.clear();
+    this.deps.clearDescribes?.(orgIds);
   }
 
   /**

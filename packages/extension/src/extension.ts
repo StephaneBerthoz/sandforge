@@ -198,7 +198,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   applyLateServices(handlers, {
     onboardingService,
-    infraServices: { performanceTracker, productionGuard, offlineManager, piiDetector },
+    infraServices: {
+      performanceTracker,
+      productionGuard,
+      offlineManager,
+      piiDetector,
+      backgroundRegistry,
+    },
     backgroundRegistry,
     migrationFileReader: fsReader,
     pipelineMarketplace,

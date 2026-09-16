@@ -162,16 +162,19 @@ const NARRATION = [
     why: 'Numbered delivery phase. Shipped phases are named or lettered, never numbered.',
   },
   {
-    pattern: /\bplan[ _]\d+\b|\bplans?[ _-]?\d{2}-\d{2}\b/gi,
+    pattern: /\bplans?[ _]\d+\b|\bplans?[ _-]?\d{2}-\d{2}\b/gi,
     example: ['Plan', '04-04'].join(' '),
     why: 'Plan-document numbering, singular or plural. A plan RECORD id is hyphenated with one digit and stays legal.',
   },
   {
-    pattern: /(?:\bin |\(|\/ ?)0\d-\d{2}\b/g,
+    pattern: /(?:\bin |\(|\/ ?)(?!(?:00-23|01-12|01-31|00-59)\b)0\d-\d{2}\b/g,
     example: ['(', ['05', '02'].join('-'), ')'].join(''),
     why:
       'A bare plan number (zero-padded group, two-digit item) cited after "in", an opening ' +
-      'parenthesis or a slash. Numeric ranges and dates in this repo are not zero-padded that way.',
+      'parenthesis or a slash. Numeric ranges and dates in this repo are not zero-padded that ' +
+      'way, with one family that is: the calendar bounds a schedule expression spells out — ' +
+      'hours 00-23, months 01-12, days 01-31, minutes 00-59. The lookahead lets exactly those ' +
+      'four through, so documenting a cron field does not turn the gate red.',
   },
   {
     pattern: /\btask[ _-]\d+\b/gi,
@@ -342,6 +345,8 @@ test('detects plan numbers written as a plural or as a bare number', () => {
     `* per-provider state (CircuitBreaker in ${planNo('04', '02')}, in-flight registry)`,
     `// ── Dashboard Refresh UX (${planNo('05', '02')}) ──`,
     `* see the root / ${planNo('01', '04')} for the rest`,
+    `* ${['plans', '3'].join(' ')} wire these into the root.`,
+    `// deferred to ${['plans', '12'].join(' ')}.`,
   ];
   for (const line of lines) {
     assert.equal(findTraces(line).length, 1, `missed: ${line}`);
@@ -376,6 +381,8 @@ test('leaves standards, provider names and delivered vocabulary alone', () => {
     '// 65% usage: 70 - (65-50)*1.4 = 70 - 21 = 49 -> warning',
     'Released on 2026-09-15 in 2026-09 builds (see /2026-09-15/notes).',
     'pricing plans in 2 tiers',
+    'Schedule hour field (00-23), minute field (00-59).',
+    'Schedule month field (01-12), day-of-month field in 01-31.',
   ];
   for (const line of clean) {
     assert.deepEqual(findTraces(line), [], `false positive on: ${line}`);

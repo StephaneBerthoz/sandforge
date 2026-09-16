@@ -209,6 +209,65 @@ describe('initForgeComposition', () => {
     expect(describeCalls.get('tgt::Account')).toBe(1);
   });
 
+  it('describes an object again once the caller re-discovers', async () => {
+    const { orchestrator, services } = await compose();
+
+    await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+    expect(describeCalls.get('tgt::Account')).toBe(1);
+
+    orchestrator.clearDiscoveryCache();
+    await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+
+    expect(describeCalls.get('tgt::Account')).toBe(2);
+  });
+
+  it('drops the describes of the orgs a caller names and leaves the others warm', async () => {
+    const { orchestrator, services } = await compose();
+
+    await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+    expect(describeCalls.get('src::Account')).toBe(1);
+    expect(describeCalls.get('tgt::Account')).toBe(1);
+
+    // Re-reading one org's schema is no reason to make every other org pay for
+    // its describes again.
+    orchestrator.clearDiscoveryCache(['tgt']);
+    await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+
+    expect(describeCalls.get('src::Account')).toBe(1);
+    expect(describeCalls.get('tgt::Account')).toBe(2);
+  });
+
+  it('shows a field deployed on the target once the caller re-discovers', async () => {
+    // The source always has Industry; the target gains it partway through, the
+    // way a deployment lands between two drift checks.
+    let targetHasIndustry = false;
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      const hasIndustry = orgId === 'src' ? () => true : () => targetHasIndustry;
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => {
+          const described = (await connection.describe(objectApiName)) as {
+            fields: unknown[];
+          };
+          if (objectApiName !== 'Account' || !hasIndustry()) return described;
+          return { ...described, fields: [...described.fields, field('Industry', 'string')] };
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator, services } = await compose();
+
+    const drift = await services.metadataDiff?.compare('src', 'tgt', ['Account']);
+    expect(drift?.map((d) => d.fieldApiName)).toEqual(['Industry']);
+
+    targetHasIndustry = true;
+    // Still the cached describes: the drift is reported exactly as before.
+    expect(await services.metadataDiff?.compare('src', 'tgt', ['Account'])).toEqual(drift);
+
+    orchestrator.clearDiscoveryCache();
+    expect(await services.metadataDiff?.compare('src', 'tgt', ['Account'])).toEqual([]);
+  });
+
   it('sends no describe once discovery was cancelled while the connection was opening', async () => {
     // Discovery opens one connection per request (the describe and the count);
     // every pending one is held so that both are opened after the cancel.
@@ -233,5 +292,34 @@ describe('initForgeComposition', () => {
     expect(graph.nodes).toEqual([]);
     expect(connection.describe).not.toHaveBeenCalled();
     expect(connection.query).not.toHaveBeenCalled();
+  });
+
+  it('sends no describeGlobal once a record-mode discovery was cancelled while the connection was opening', async () => {
+    // Record mode starts by reading the org's key prefixes, so describeGlobal
+    // is the request the cancel has to reach.
+    const pendingOpens: Array<() => void> = [];
+    const connection = fakeConnection('src');
+    vi.mocked(getJsforceConnection).mockImplementation(
+      () =>
+        new Promise<Connection>((resolve) => {
+          pendingOpens.push(() => resolve(connection as unknown as Connection));
+        }),
+    );
+    const { orchestrator } = await compose();
+    const controller = new AbortController();
+
+    const discovery = orchestrator.discover(
+      { ...SOQL_CONFIG, inputMode: 'record', soqlQuery: undefined, recordId: sfId('Account', 1) },
+      { signal: controller.signal },
+    );
+    await vi.waitFor(() => expect(getJsforceConnection).toHaveBeenCalled());
+    controller.abort();
+    const graph = await discovery;
+    for (const open of pendingOpens) open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(graph.nodes).toEqual([]);
+    expect(connection.describeGlobal).not.toHaveBeenCalled();
+    expect(connection.describe).not.toHaveBeenCalled();
   });
 });

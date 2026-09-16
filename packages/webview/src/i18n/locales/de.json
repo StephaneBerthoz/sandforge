@@ -1456,6 +1456,7 @@
     "hintNoInput": "Geben Sie eine Datensatz-ID oder eine Abfrage ein, oder wählen Sie eine Vorlage",
     "hintSameOrg": "Quelle und Ziel müssen unterschiedlich sein",
     "hintSoqlFilterRefused": "Kürzen oder überarbeiten Sie die WHERE-Klausel, um den Graph zu ermitteln",
+    "hintSoqlAliasRefused": "Korrigieren Sie den Alias nach FROM, um den Graph zu ermitteln",
     "depthDirectTooltip": "Nur direkt verknüpfte untergeordnete Objekte (1 Ebene)",
     "depthFullTooltip": "Gesamter Abhängigkeitsbaum — alle Ebenen tief",
     "depthCustomTooltip": "Geben Sie die maximale Beziehungstiefe an",
@@ -1525,6 +1526,7 @@
     "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel filtert nur {{object}}.",
     "soqlUnscopedWarnBody": "Verknüpfte Objekte werden nicht auf die Datensätze eingeschränkt, die sie trifft: Jedes wird aus seiner gesamten Tabelle gelesen. Jedes Objekt ist für diesen Lauf auf {{cap}} Datensätze begrenzt.",
     "soqlFilterRefused": "Diese WHERE-Klausel kann nicht angewendet werden. Sie darf höchstens 512 Zeichen lang sein, weder --, /* noch */ enthalten (auch nicht in einem Wert in Anführungszeichen) und nicht mit einem Semikolon enden.",
+    "soqlAliasRefused": "Diese Abfrage kann nicht ausgeführt werden. Die FROM-Klausel deklariert einen Alias über eine Beziehung, die nicht beim Objekt nach FROM beginnt — prüfen Sie den Alias vor dem Punkt.",
     "idMapping": {
       "title": "Datensatz-Id-Zuordnung",
       "subtitle": "{{count}} Datensätze erstellt. Quell-Id links, neue Id in der Ziel-Org rechts.",

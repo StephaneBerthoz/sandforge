@@ -126,4 +126,32 @@ describe('ReferenceDataMapper', () => {
       `SELECT Id, Name FROM BusinessHours WHERE Name IN ('Default')`,
     );
   });
+
+  it('splits a large value list into statements that each fit the query URI', async () => {
+    const names = Array.from({ length: 1_200 }, (_, i) => `Reference Data Row ${i}`);
+    const query = vi.fn(async (_orgId: string, soql: string) => {
+      const quoted = soql.match(/'([^']*)'/g) ?? [];
+      return quoted.map((q) => {
+        const name = q.slice(1, -1);
+        return { Id: `01mTGT${names.indexOf(name)}`, Name: name };
+      });
+    });
+    const mapper = new ReferenceDataMapper(query);
+
+    const result = await mapper.resolve(
+      'BusinessHours',
+      names.map((Name, i) => ({ Id: `01mSRC${i}`, Name })),
+      'tgt',
+    );
+
+    expect(query.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const [, soql] of query.mock.calls) {
+      expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+    }
+    // Every distinct value was asked about exactly once, and every source
+    // record came back with the target id its name resolved to.
+    expect(result.unmatched).toEqual([]);
+    expect(result.mappings).toHaveLength(1_200);
+    expect(new Set(result.mappings.map((m) => m.targetId)).size).toBe(1_200);
+  });
 });

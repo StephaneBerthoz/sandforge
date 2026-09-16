@@ -91,7 +91,11 @@ export class ChunkedBulkExecutor {
       ...(externalIdField ? { externalIdFieldName: externalIdField } : {}),
     });
 
-    const jobId = job.id ?? `bulk-${Date.now()}`;
+    // Tracked under an id of our own when Salesforce has not assigned one yet
+    // (jsforce fills `job.id` only once the job is open): the limiter's map is
+    // window-lived, and two jobs keyed on the same millisecond overwrote each
+    // other, undercounting the cap and crossing their record counts.
+    const jobId = job.id ?? `bulk-${crypto.randomUUID()}`;
     const jobInfo: BulkJobInfo = {
       id: jobId,
       operation,
@@ -104,101 +108,110 @@ export class ChunkedBulkExecutor {
       totalRecords,
     };
     deps.bulkManager.registerJob(jobInfo);
+    try {
+      await job.open();
 
-    await job.open();
+      // Upload phase: stream chunks into the open job
+      let uploadedRecords = 0;
+      for await (const chunk of recordChunks) {
+        if (this.signal?.aborted) {
+          await this.closeJobSafely(job);
+          deps.bulkManager.updateJobState(jobId, 'Aborted');
+          return this.buildAbortedResult(uploadedRecords);
+        }
 
-    // Upload phase: stream chunks into the open job
-    let uploadedRecords = 0;
-    for await (const chunk of recordChunks) {
-      if (this.signal?.aborted) {
-        await this.closeJobSafely(job);
-        deps.bulkManager.updateJobState(jobId, 'Aborted');
-        return this.buildAbortedResult(uploadedRecords);
+        await job.uploadData(chunk);
+        uploadedRecords += chunk.length;
+        deps.onProgress?.(uploadedRecords, totalRecords);
       }
 
-      await job.uploadData(chunk);
-      uploadedRecords += chunk.length;
-      deps.onProgress?.(uploadedRecords, totalRecords);
-    }
+      await job.close();
 
-    await job.close();
+      // Poll phase: wait for Salesforce to finish processing
+      let status = await job.check();
+      while (status.state === 'InProgress' || status.state === 'UploadComplete') {
+        if (this.signal?.aborted) {
+          deps.bulkManager.updateJobState(jobId, 'Aborted');
+          return this.buildAbortedResult(uploadedRecords);
+        }
 
-    // Poll phase: wait for Salesforce to finish processing
-    let status = await job.check();
-    while (status.state === 'InProgress' || status.state === 'UploadComplete') {
-      if (this.signal?.aborted) {
-        deps.bulkManager.updateJobState(jobId, 'Aborted');
-        return this.buildAbortedResult(uploadedRecords);
+        deps.bulkManager.updateJobState(jobId, status.state);
+        deps.onProgress?.(status.numberRecordsProcessed ?? 0, totalRecords);
+        await new Promise((r) => setTimeout(r, this.pollIntervalMs));
+        status = await job.check();
       }
 
-      deps.bulkManager.updateJobState(jobId, status.state);
-      deps.onProgress?.(status.numberRecordsProcessed ?? 0, totalRecords);
-      await new Promise((r) => setTimeout(r, this.pollIntervalMs));
-      status = await job.check();
-    }
+      // Results phase: parse job results. Both the legacy flat shape (test
+      // doubles) and the real jsforce grouped shape are normalized; IDs are
+      // the real Salesforce IDs (the old `bulk-${jobId}-${i}` fallback
+      // fabricated them).
+      const results = await job.getAllResults();
+      const successIds: string[] = [];
+      const failureErrors: string[] = [];
+      let successCount = 0;
+      let outcomes: BulkRecordOutcome[] | undefined;
 
-    // Results phase: parse job results. Both the legacy flat shape (test
-    // doubles) and the real jsforce grouped shape are normalized; IDs are
-    // the real Salesforce IDs (the old `bulk-${jobId}-${i}` fallback
-    // fabricated them).
-    const results = await job.getAllResults();
-    const successIds: string[] = [];
-    const failureErrors: string[] = [];
-    let successCount = 0;
-    let outcomes: BulkRecordOutcome[] | undefined;
-
-    if (correlationRecords) {
-      const normalized = normalizeBulkJobResults(results, correlationRecords);
-      outcomes = normalized.outcomes;
-      successCount = normalized.unattributedSuccessIds.length;
-      for (const outcome of outcomes) {
-        if (outcome.success) {
+      if (correlationRecords) {
+        const normalized = normalizeBulkJobResults(results, correlationRecords);
+        outcomes = normalized.outcomes;
+        successCount = normalized.unattributedSuccessIds.length;
+        for (const outcome of outcomes) {
+          if (outcome.success) {
+            successCount++;
+            if (outcome.id !== undefined) successIds.push(outcome.id);
+          } else {
+            failureErrors.push(outcome.error ?? 'Unknown error');
+          }
+        }
+        successIds.push(...normalized.unattributedSuccessIds);
+        failureErrors.push(...normalized.unattributedFailures);
+      } else if (Array.isArray(results)) {
+        for (const row of results) {
+          if (row.success) {
+            successCount++;
+            if (row.id !== undefined) successIds.push(row.id);
+          } else {
+            failureErrors.push(row.errors?.join(', ') ?? 'Unknown error');
+          }
+        }
+      } else {
+        for (const row of results.successfulResults ?? []) {
           successCount++;
-          if (outcome.id !== undefined) successIds.push(outcome.id);
-        } else {
-          failureErrors.push(outcome.error ?? 'Unknown error');
+          const id = row['sf__Id'];
+          if (typeof id === 'string') successIds.push(id);
+        }
+        for (const row of results.failedResults ?? []) {
+          const error = row['sf__Error'];
+          failureErrors.push(
+            typeof error === 'string' && error.length > 0 ? error : 'Unknown error',
+          );
         }
       }
-      successIds.push(...normalized.unattributedSuccessIds);
-      failureErrors.push(...normalized.unattributedFailures);
-    } else if (Array.isArray(results)) {
-      for (const row of results) {
-        if (row.success) {
-          successCount++;
-          if (row.id !== undefined) successIds.push(row.id);
-        } else {
-          failureErrors.push(row.errors?.join(', ') ?? 'Unknown error');
-        }
-      }
-    } else {
-      for (const row of results.successfulResults ?? []) {
-        successCount++;
-        const id = row['sf__Id'];
-        if (typeof id === 'string') successIds.push(id);
-      }
-      for (const row of results.failedResults ?? []) {
-        const error = row['sf__Error'];
-        failureErrors.push(typeof error === 'string' && error.length > 0 ? error : 'Unknown error');
-      }
+
+      const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
+      deps.bulkManager.updateJobState(jobId, finalState);
+      deps.bulkManager.updateJobCounts(
+        jobId,
+        status.numberRecordsProcessed ?? totalRecords,
+        failureErrors.length,
+      );
+
+      return {
+        totalRecords: uploadedRecords,
+        successCount,
+        failureCount: failureErrors.length,
+        successIds,
+        errors: failureErrors,
+        aborted: false,
+        ...(outcomes ? { outcomes } : {}),
+      };
+    } catch (err: unknown) {
+      // The limiter counts this job until it reaches a terminal state, and it
+      // outlives the run: a job that threw mid-flight has to free its slot,
+      // or the window loses one Bulk API slot for good.
+      deps.bulkManager.updateJobState(jobId, 'Failed');
+      throw err;
     }
-
-    const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
-    deps.bulkManager.updateJobState(jobId, finalState);
-    deps.bulkManager.updateJobCounts(
-      jobId,
-      status.numberRecordsProcessed ?? totalRecords,
-      failureErrors.length,
-    );
-
-    return {
-      totalRecords: uploadedRecords,
-      successCount,
-      failureCount: failureErrors.length,
-      successIds,
-      errors: failureErrors,
-      aborted: false,
-      ...(outcomes ? { outcomes } : {}),
-    };
   }
 
   /**

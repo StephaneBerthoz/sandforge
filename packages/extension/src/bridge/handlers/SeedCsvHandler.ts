@@ -1,5 +1,5 @@
-import type { CsvValidationResult, RobustnessConfig } from '@sandforge/shared';
-import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import type { CsvValidationResult } from '@sandforge/shared';
+import { orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -14,6 +14,8 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  robustnessConfigOf,
+  bulkManagerOf,
 } from './HandlerTypes.js';
 import { validatePayload, seedCsvPayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -23,7 +25,6 @@ import { CsvValidator } from '../../modules/seed/CsvValidator.js';
 import type { DescribeField } from '../../modules/seed/SchemaAnalyzer.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 
 /** Message types handled by SeedCsvHandler. */
 const SEED_CSV_TYPES = new Set(['seed:csv:validate', 'seed:csv:execute']);
@@ -82,12 +83,6 @@ export class SeedCsvHandler implements DomainHandler {
       default:
         return false;
     }
-  }
-
-  /** Load robustness configuration (retry/timeout/bulk thresholds) from ConfigStore. */
-  private getRobustnessConfig(): RobustnessConfig {
-    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
-    return RobustnessConfigSchema.parse(raw ?? {});
   }
 
   /** Validate mapped CSV rows against the target object's live describe metadata. */
@@ -197,16 +192,15 @@ export class SeedCsvHandler implements DomainHandler {
         `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
       );
 
-      const robustnessConfig = this.getRobustnessConfig();
+      const robustnessConfig = robustnessConfigOf(this.deps);
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
       failure.batchSize = defaultBatchSize;
       const writer = new BulkDataWriter({
         connection: conn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
-        bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
+        bulkManager: bulkManagerOf(this.deps),
         retryConfig: robustnessConfig.retry,
-        describeTimeoutMs: robustnessConfig.timeouts.describe,
         signal: abortController.signal,
         onProgress: (processed, total, label) => {
           sendOperationProgress(

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
-import { OrgSafetyTier, PROTOCOL_VERSION } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG, OrgSafetyTier, PROTOCOL_VERSION } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import type { ExtensionHandlersDeps } from './ExtensionHandlers';
+import type { HandlerDeps } from './handlers/HandlerTypes';
 import { MessageBroker } from './MessageBroker';
 import { MessageRouter } from './MessageRouter';
 import { WebviewStateSync } from './WebviewStateSync';
@@ -203,6 +204,25 @@ describe('ExtensionHandlers', () => {
 
     handlers = new ExtensionHandlers(deps);
     handlers.registerAll(router);
+  });
+
+  describe('shared write-path settings', () => {
+    /** The dependency bundle every handler was constructed with. */
+    function injected(): HandlerDeps {
+      return (handlers as unknown as { handlerDeps: HandlerDeps }).handlerDeps;
+    }
+
+    it('gives every handler the same Bulk API job limiter, sized by the default settings', () => {
+      // Salesforce caps concurrent Bulk API jobs per org, not per run: one
+      // limiter for the window is what keeps the cap honest.
+      expect(injected().bulkManager?.maxConcurrentJobs).toBe(
+        DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs,
+      );
+    });
+
+    it('gives every handler the same retry, timeout and bulk settings', () => {
+      expect(injected().robustness).toEqual(DEFAULT_ROBUSTNESS_CONFIG);
+    });
   });
 
   describe('org:list', () => {
@@ -1099,6 +1119,7 @@ describe('ExtensionHandlers', () => {
         } as never,
         offlineManager: { isOffline: vi.fn().mockReturnValue(false) } as never,
         piiDetector: { detectPII: vi.fn() } as never,
+        backgroundRegistry: { register: vi.fn() } as never,
       });
 
       // Seed execute on production should work (insert is allowed with confirmation)

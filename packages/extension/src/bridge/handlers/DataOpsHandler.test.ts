@@ -5,6 +5,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 /**
  * Creates minimal mock deps for DataOpsHandler tests.
@@ -567,6 +568,78 @@ describe('DataOpsHandler', () => {
       expect(configStore.has('backup:other-org')).toBe(true);
 
       vi.restoreAllMocks();
+    });
+  });
+
+  describe('background registry', () => {
+    let registry: BackgroundOperationRegistry;
+    /** Lifecycle events the registry emitted, in order. */
+    let events: string[];
+
+    beforeEach(() => {
+      registry = new BackgroundOperationRegistry();
+      events = [];
+      registry.onEvent((_operationId, type) => events.push(type));
+      // The registry reaches a handler through the shared infra bundle, the
+      // way composition supplies it.
+      deps.infraServices = {
+        backgroundRegistry: registry,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+    });
+
+    it('stops a backup before the next object when the registry is disposed', async () => {
+      const describe = vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] });
+      // The first object's read is what the dispose lands in the middle of.
+      let disposed = false;
+      const query = vi.fn(async () => {
+        if (!disposed) {
+          registry.dispose();
+          disposed = true;
+        }
+        return { records: [{ Id: '001' }], done: true };
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({ query, describe } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-dispose',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account', 'Contact', 'Opportunity'] },
+        } as BaseMessage),
+      );
+
+      // Only the object that was already under way was read.
+      expect(query).toHaveBeenCalledTimes(1);
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage,
+      );
+      expect(posted.filter((m) => m.type === 'dataops:backup:response')).toHaveLength(0);
+      expect(posted.filter((m) => m.type === 'dataops:error')).toHaveLength(1);
+      // Nothing reached storage: the snapshot is written after the last object.
+      expect(deps.configStore.set).not.toHaveBeenCalled();
+    });
+
+    it('lists a backup that errored as failed, not as completed', async () => {
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query: vi.fn().mockRejectedValue(new Error('INVALID_TYPE: Account is not queryable')),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-failed',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(events).toEqual(['started', 'failed']);
     });
   });
 
@@ -1146,6 +1219,55 @@ describe('DataOpsHandler', () => {
 
       expect(anonymizePayload()?.status).toBe('partial');
       expect(anonymizePayload()?.message).not.toBe('Anonymization completed: 1 records processed.');
+    });
+
+    /** The FirstName one masking run wrote back for `Ada`. */
+    async function maskedFirstName(
+      target: DataOpsHandler,
+      targetDeps: HandlerDeps,
+      id: string,
+    ): Promise<unknown> {
+      const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query: vi.fn(async () => ({
+          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
+          done: true,
+        })),
+        describe: vi.fn().mockResolvedValue(contactDescribe),
+        sobject: vi.fn(() => ({ update })),
+      } as never);
+      (targetDeps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
+
+      await target.handle(
+        inboundRequest({
+          id,
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      const batch = update.mock.calls[0][0] as Array<Record<string, unknown>>;
+      return batch[0]['FirstName'];
+    }
+
+    it('gives a record the same fake identity in two runs of one panel session', async () => {
+      const first = await maskedFirstName(handler, deps, 'an-key-1');
+      const second = await maskedFirstName(handler, deps, 'an-key-2');
+
+      expect(first).not.toBe('Ada');
+      expect(second).toBe(first);
+
+      // Another session picks its own key, so the same record gets another
+      // identity — the replacement is not derivable from the record alone.
+      const elsewhere = new Set([first]);
+      for (let k = 0; k < 8; k++) {
+        elsewhere.add(await maskedFirstName(new DataOpsHandler(deps), deps, `an-key-other-${k}`));
+      }
+      expect(elsewhere.size).toBeGreaterThan(1);
     });
 
     it('tells the model the object and batch size a refused masking used', async () => {

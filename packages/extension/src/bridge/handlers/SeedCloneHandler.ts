@@ -2,9 +2,8 @@ import type {
   CloneExecutionResult,
   CloneObjectResult,
   ClonePreviewResult,
-  RobustnessConfig,
 } from '@sandforge/shared';
-import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import { orgTypeToGuardTier } from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -20,6 +19,8 @@ import {
   sendOperationCompleted,
   sendOperationFailed,
   objectsFailureContext,
+  robustnessConfigOf,
+  bulkManagerOf,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -34,7 +35,6 @@ import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -105,12 +105,6 @@ export class SeedCloneHandler implements DomainHandler {
       default:
         return false;
     }
-  }
-
-  /** Load robustness configuration (retry/timeout/bulk thresholds) from ConfigStore. */
-  private getRobustnessConfig(): RobustnessConfig {
-    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
-    return RobustnessConfigSchema.parse(raw ?? {});
   }
 
   /** List cloneable objects on the source org. */
@@ -322,16 +316,15 @@ export class SeedCloneHandler implements DomainHandler {
         `Clone ${parsed.objects.length} object(s)`,
       );
 
-      const robustnessConfig = this.getRobustnessConfig();
+      const robustnessConfig = robustnessConfigOf(this.deps);
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
       failure.batchSize = defaultBatchSize;
       const writer = new BulkDataWriter({
         connection: targetConn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
-        bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
+        bulkManager: bulkManagerOf(this.deps),
         retryConfig: robustnessConfig.retry,
-        describeTimeoutMs: robustnessConfig.timeouts.describe,
         signal: abortController.signal,
         onProgress: (processed, total, label) => {
           sendOperationProgress(

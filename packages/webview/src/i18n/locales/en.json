@@ -1456,6 +1456,7 @@
     "hintNoInput": "Enter a record ID or a query, or pick a template",
     "hintSameOrg": "Source and target must be different",
     "hintSoqlFilterRefused": "Shorten or rewrite the WHERE clause to discover the graph",
+    "hintSoqlAliasRefused": "Fix the alias after FROM to discover the graph",
     "depthDirectTooltip": "Only directly related child objects (1 level)",
     "depthFullTooltip": "Entire dependency tree — all levels deep",
     "depthCustomTooltip": "Specify the maximum relationship depth",
@@ -1525,6 +1526,7 @@
     "soqlUnscopedWarnTitle": "Your WHERE clause filters {{object}} only.",
     "soqlUnscopedWarnBody": "Related objects are not narrowed to the records it matches: each one is read from its whole table. Every object is capped at {{cap}} records for this run.",
     "soqlFilterRefused": "This WHERE clause cannot be applied. It must be 512 characters or fewer, contain no --, /* or */ (not even inside a quoted value), and not end with a semicolon.",
+    "soqlAliasRefused": "This query cannot be run. The FROM clause declares an alias over a relationship that does not start from the object after FROM — check the alias before the dot.",
     "idMapping": {
       "title": "Record Id mapping",
       "subtitle": "{{count}} records created. Source Id on the left, the new Id in the target org on the right.",

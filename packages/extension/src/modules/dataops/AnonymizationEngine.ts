@@ -42,12 +42,14 @@ export class AnonymizationEngine {
   private readonly fallbackKey: string;
 
   /**
-   * @param personaRegistry - Shared persona source. Pass the same registry as the
+   * @param personaRegistry - Shared persona source for rules that carry no
+   *   `config.hashSalt`. Pass the same registry as the
    *   autopilot run to keep a record's fake identity consistent across modules.
+   *   A salted rule draws from its own registry instead, so that its output is
+   *   reproducible from the salt alone.
    * @param fallbackKey - HMAC key for `shuffle` and `fake` when the rule carries
    *   no `config.hashSalt`, and the key a registry built here picks personas
-   *   with. Persona-mapped `fake` fields (names, emails, phones) follow this key
-   *   only, never the rule's `hashSalt`. When omitted a random per-instance key
+   *   with. When omitted a random per-instance key
    *   is generated: outputs stay consistent within a run but differ between
    *   runs. There is
    *   deliberately no fixed default — a hardcoded key would make every
@@ -58,6 +60,32 @@ export class AnonymizationEngine {
   constructor(personaRegistry?: PersonaRegistry, fallbackKey?: string) {
     this.fallbackKey = fallbackKey ?? randomBytes(32).toString('hex');
     this.personaRegistry = personaRegistry ?? new PersonaRegistry(this.fallbackKey);
+  }
+
+  /**
+   * Persona sources keyed by the salt that picks from them, one per salt.
+   *
+   * A `fake` rule used to draw from the instance registry alone, whose key is
+   * random unless the caller passed one: the same record got a different
+   * person on every run, while `hash` and `shuffle` on the same rule were
+   * already reproducible from its `hashSalt`. Keying the registry by that salt
+   * too makes the whole rule reproducible.
+   */
+  private readonly saltedRegistries = new Map<string, PersonaRegistry>();
+
+  /**
+   * The persona source a rule draws from: its own, keyed by `config.hashSalt`,
+   * or the instance registry when the rule carries no salt.
+   */
+  private registryFor(rule: DataOpsAnonymizationRule): PersonaRegistry {
+    const salt = rule.config.hashSalt;
+    if (!salt) return this.personaRegistry;
+    let registry = this.saltedRegistries.get(salt);
+    if (!registry) {
+      registry = new PersonaRegistry(salt);
+      this.saltedRegistries.set(salt, registry);
+    }
+    return registry;
   }
 
   /**
@@ -223,10 +251,13 @@ export class AnonymizationEngine {
    * Personas are keyed by record id when the caller has one. A bare `applyRule`
    * has none, so the key is a keyed digest of the value instead: same value,
    * same persona, and the registry never holds plaintext PII as a map key.
+   *
+   * Which registry answers is decided by the rule's salt — see
+   * {@link registryFor}.
    */
   private applyFake(value: unknown, rule: DataOpsAnonymizationRule, recordId: string): string {
     const personaKey = recordId !== '' ? recordId : this.keyedDigest(String(value ?? ''), rule);
-    const persona = this.personaRegistry.getPersona(personaKey);
+    const persona = this.registryFor(rule).getPersona(personaKey);
     const personaField = PERSONA_FIELD_MAP[rule.fieldApiName];
     if (personaField) {
       return persona[personaField];

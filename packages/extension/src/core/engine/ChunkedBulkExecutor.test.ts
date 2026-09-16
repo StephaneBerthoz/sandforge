@@ -249,6 +249,64 @@ describe('ChunkedBulkExecutor', () => {
     expect(result.errors).toContain('FIELD_CUSTOM_VALIDATION_EXCEPTION');
   });
 
+  it('frees the job slot when a chunk upload throws mid-flight', async () => {
+    const job = createMockJob();
+    job.uploadData = vi.fn().mockRejectedValue(new Error('connection reset'));
+    const connection: BulkApiConnection = {
+      bulk2: { createJob: vi.fn().mockReturnValue(job) },
+    };
+    // The limiter outlives the run, so a job that never reaches a terminal
+    // state would hold its slot for the life of the window.
+    const manager = new BulkApiManager(1);
+
+    await expect(
+      executor.executeChunked(
+        { connection, bulkManager: manager },
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(10)]),
+        10,
+      ),
+    ).rejects.toThrow('connection reset');
+
+    expect(manager.canStartNewJob()).toBe(true);
+  });
+
+  it('tracks two jobs opened in the same millisecond separately', async () => {
+    const manager = new BulkApiManager(2);
+    const run = (): Promise<unknown> => {
+      // jsforce leaves `id` undefined until the job is opened, so both jobs
+      // reach the limiter without a Salesforce id of their own.
+      const job = createMockJob();
+      job.id = undefined;
+      const connection: BulkApiConnection = {
+        bulk2: { createJob: vi.fn().mockReturnValue(job) },
+      };
+      return executor.executeChunked(
+        { connection, bulkManager: manager },
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(10)]),
+        10,
+      );
+    };
+
+    /* The clock is held still so that two jobs opened without an id of their
+       own are indistinguishable by time: keying them by the clock would give
+       both the same key and lose one, whatever the machine's timing. Only
+       `Date.now` is frozen — the executor polls on a timer and would never
+       settle under fake timers. */
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+    try {
+      const first = run();
+      const second = run();
+      expect(manager.getActiveJobs()).toHaveLength(2);
+      await Promise.all([first, second]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   describe('createChunkGenerator', () => {
     it('should yield correct chunk sizes', async () => {
       const records = generateRecords(5500);
