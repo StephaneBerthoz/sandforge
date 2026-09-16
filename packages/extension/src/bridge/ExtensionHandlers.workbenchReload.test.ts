@@ -9,7 +9,7 @@ import { WebviewStateSync } from './WebviewStateSync';
 import { OrgManager } from '../core/connection/OrgManager';
 import { OrgRegistry } from '../core/connection/OrgRegistry';
 import { ConfigStore } from '../core/storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../core/storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../test/InMemoryConfigStoreBackend';
 import { SecretVault } from '../core/storage/SecretVault';
 import type { SecretStorageAdapter } from '../core/storage/SecretVault';
 import { AuthProvider } from '../core/connection/AuthProvider';
@@ -80,15 +80,6 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
     };
     handlers = new ExtensionHandlers(deps);
     handlers.registerAll(router);
-  });
-
-  it('registers the workbench:reload route', () => {
-    // The router has at least one subscription for our type.
-    const handler = vi.fn();
-    const dispose = broker.on('workbench:reload', handler);
-    // Registering a second handler confirms broker.on works; we remove it to
-    // keep the registered-by-ExtensionHandlers path the only listener below.
-    dispose();
   });
 
   it('invokes workbench.action.reloadWindow when a workbench:reload message is dispatched', () => {

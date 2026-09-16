@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CsvValidator } from './CsvValidator.js';
 import type { CsvColumnMapping } from '@sandforge/shared';
-import type { DescribeField } from './SchemaAnalyzer.js';
+import type { DescribeField } from './describeField.js';
 
 function makeField(
   overrides: Partial<DescribeField> & { name: string; type: string },

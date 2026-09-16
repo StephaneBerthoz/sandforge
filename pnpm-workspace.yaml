@@ -46,8 +46,9 @@ onlyBuiltDependencies:
 # on it, so this range rewrites code that ships inside webview-dist. It stays
 # global rather than narrowed to `recharts>lodash` because 4.18.1 is already
 # the single resolution — narrowing would re-resolve a chart dependency for no
-# security gain. Any lodash bump must be smoke-tested before publishing:
-# render one Monitor chart from the packaged VSIX.
+# security gain. Any lodash bump is smoke-tested in CI: an E2E test renders a
+# Monitor chart with Recharts and checks it drew a curve
+# (packages/webview/e2e/monitor.spec.ts).
 overrides:
   'picomatch@<4.0.4': '>=4.0.4'
   'lodash@<4.18.0': '>=4.18.0'

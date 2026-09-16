@@ -35,7 +35,18 @@ export interface OperationCompleted extends BaseMessage {
 /** Notification that an operation has failed */
 export interface OperationFailed extends BaseMessage {
   type: 'operation:failed';
-  payload: { operationId: string; error: string; retryable: boolean };
+  payload: {
+    operationId: string;
+    error: string;
+    retryable: boolean;
+    /**
+     * Stable identifier for the kind of failure, when the emitting handler
+     * knows one (e.g. `PRODUCTION_CONFIRMATION_DECLINED`). `error` stays the
+     * English text the logs need; a page that shows the failure to the user
+     * translates the code instead of the text.
+     */
+    code?: string;
+  };
 }
 
 /** Grappe messages */

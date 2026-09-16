@@ -1,0 +1,62 @@
+name: Soak
+
+# The one-hour soak: the extension's composition root and message broker are
+# driven in a loop while RSS is sampled, and the run fails when memory grows by
+# more than 50 MB, when a broker cycle leaves a panel registered, or when the
+# composition root does not load at all.
+#
+# An hour is too long for a push, so it runs weekly (Monday 04:00 UTC) and on
+# manual dispatch. The report is uploaded whatever the verdict: a failing run
+# is precisely the one whose samples somebody needs to read.
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Soak duration in minutes'
+        type: number
+        required: false
+        default: 60
+
+jobs:
+  soak:
+    name: Soak (memory over time)
+    runs-on: ubuntu-latest
+    # The run itself is SOAK_MINUTES long; the margin covers install and build.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm version comes from the packageManager field in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The composition root imports @sandforge/shared from its dist/.
+      - name: Build shared package
+        run: pnpm build:shared
+
+      - name: Run soak
+        env:
+          SOAK_MINUTES: ${{ inputs.minutes || 60 }}
+        run: pnpm soak:test
+
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: soak-report
+          path: reports/soak-baseline.md
+          if-no-files-found: warn
+          retention-days: 90

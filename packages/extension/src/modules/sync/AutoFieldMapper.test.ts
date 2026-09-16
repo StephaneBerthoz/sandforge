@@ -45,23 +45,25 @@ describe('AutoFieldMapper', () => {
     });
 
     it('should not reuse target fields', () => {
+      // Two sources compete for the single target: the first to claim it wins
+      // and the second is left unmapped, never a duplicate write to `Name`.
       const source = [f('Name', 'Name'), f('Name__c', 'Name')];
       const target = [f('Name', 'Name')];
       const suggestions = mapper.suggest(source, target);
-      // Only one can be matched since target is unique
-      expect(suggestions.length).toBeLessThanOrEqual(2);
-      const targets = suggestions.map((s) => s.targetField);
-      const unique = new Set(targets);
-      expect(unique.size).toBe(targets.length);
+      expect(suggestions).toHaveLength(1);
+      expect(suggestions[0].sourceField).toBe('Name');
+      expect(suggestions[0].targetField).toBe('Name');
     });
 
     it('should return suggestions sorted by confidence', () => {
       const source = [f('XYZ__c', 'xyz'), f('Name', 'Name')];
       const target = [f('Name', 'Name'), f('XYZ', 'XYZ')];
       const suggestions = mapper.suggest(source, target);
-      for (let i = 1; i < suggestions.length; i++) {
-        expect(suggestions[i].confidence).toBeLessThanOrEqual(suggestions[i - 1].confidence);
-      }
+      // Both match, and the weaker one is listed second — the order the
+      // mapping table shows them in.
+      expect(suggestions).toHaveLength(2);
+      expect(suggestions.map((s) => s.sourceField)).toEqual(['Name', 'XYZ__c']);
+      expect(suggestions.map((s) => s.confidence)).toEqual([1.0, 0.9]);
     });
 
     it('should return empty array for no matches', () => {
@@ -105,9 +107,8 @@ describe('AutoFieldMapper', () => {
       const source = [f('CompanyName__c', 'Company Name')];
       const target = [f('AccountName', 'Company Name')];
       const suggestions = mapper.suggest(source, target);
-      if (suggestions.length > 0) {
-        expect(suggestions[0].type).toBe('rename');
-      }
+      expect(suggestions).toHaveLength(1);
+      expect(suggestions[0].type).toBe('rename');
     });
   });
 
@@ -144,13 +145,15 @@ describe('AutoFieldMapper', () => {
       expect(suggestions).toHaveLength(0);
     });
 
-    it('should allow lower threshold to include weaker matches', () => {
-      const lenient = new AutoFieldMapper(0.1);
-      const source = [f('CompanyName', 'Company')];
-      const target = [f('AccountCompany', 'Company Account')];
-      const suggestions = lenient.suggest(source, target);
-      // With low threshold, partial matches should be included
-      expect(suggestions.length).toBeGreaterThanOrEqual(0);
+    it('should keep a match sitting exactly on the threshold', () => {
+      // The gate is `>=`: a 0.9 normalized-name match survives a 0.9 floor.
+      // At `>` the same pair would silently drop out of the mapping table.
+      const onTheLine = new AutoFieldMapper(0.9);
+      const source = [f('Status__c', 'Status')];
+      const target = [f('Status', 'Status')];
+      const suggestions = onTheLine.suggest(source, target);
+      expect(suggestions).toHaveLength(1);
+      expect(suggestions[0].confidence).toBe(0.9);
     });
   });
 });

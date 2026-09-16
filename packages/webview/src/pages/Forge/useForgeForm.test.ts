@@ -185,14 +185,27 @@ const LEGACY_RUN: ForgeExecutionResult = {
 };
 
 /** Dispatch a simulated extension -> webview message. */
-function simulateResponse(type: string, payload: unknown): void {
+function simulateResponse(type: string, payload: unknown, correlationId?: string): void {
   const message: BaseMessage & { payload: unknown } = {
     id: `resp-${type}`,
     type,
     timestamp: Date.now(),
     payload,
   };
+  if (correlationId) {
+    message.correlationId = correlationId;
+  }
   window.dispatchEvent(new MessageEvent('message', { data: message }));
+}
+
+/** Answer a request the hook sent, correlated to its id the way a handler does. */
+function replyTo(requestType: string, responseType: string, payload: unknown): void {
+  const envelope = mockPostMessage.mock.calls
+    .map((call) => call[0] as { payload: BaseMessage })
+    .filter((sent) => sent.payload.type === requestType)
+    .pop();
+  if (!envelope) throw new Error(`no '${requestType}' message was sent`);
+  simulateResponse(responseType, payload, envelope.payload.id);
 }
 
 /** Every message type the hook posted through the bridge envelope. */
@@ -229,7 +242,7 @@ describe('useForgeForm run history', () => {
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
-      simulateResponse('forge:history:list:response', {
+      replyTo('forge:history:list', 'forge:history:list:response', {
         history: [RECORD_RUN, SOQL_RUN, LEGACY_RUN],
       });
     });

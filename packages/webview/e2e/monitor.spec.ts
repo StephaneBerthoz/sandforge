@@ -189,10 +189,42 @@ const MOCK_MONITOR_DATA = {
     flowCount: 30,
     isHyperforce: false,
   },
-  // Left empty on purpose: two sparkline points would mount Recharts and its
-  // 1.5 s entry animation, which buys the assertions below nothing.
+  // Left empty on purpose: the dashboard assertions below are about KPIs and
+  // jobs, and an empty trends record keeps Recharts out of those renders.
+  // The chart has its own fixture and its own test — see MONITOR_DATA_WITH_TRENDS.
   trends: {},
   lastUpdated: '2026-03-13T11:05:00Z',
+};
+
+/**
+ * The same payload with a real trend series on `DailyApiRequests`.
+ *
+ * Two points is the threshold at which MonitorTrendsJobsRow mounts the
+ * Recharts area chart instead of the "not enough data" placeholder. Recharts
+ * pulls in lodash as a transitive dependency, rewritten by the
+ * `lodash@<4.18.0` security override in pnpm-workspace.yaml, and this chart is
+ * the Recharts render the end-to-end suite exercises in CI.
+ *
+ * That override used to be covered by a note asking whoever bumped lodash to
+ * open the packaged VSIX and look at a chart. Nobody ever did. This fixture is
+ * that check, run by the suite: a lodash the chart cannot use no longer
+ * reaches a release green.
+ */
+const MONITOR_DATA_WITH_TRENDS = {
+  ...MOCK_MONITOR_DATA,
+  trends: {
+    DailyApiRequests: {
+      sparklineData: [41000, 47000, 52000, 55000],
+      timestamps: [
+        '2026-03-13T08:00:00Z',
+        '2026-03-13T09:00:00Z',
+        '2026-03-13T10:00:00Z',
+        '2026-03-13T11:00:00Z',
+      ],
+      direction: 'up',
+      changePercent: 34,
+    },
+  },
 };
 
 /** `monitor:alerts:result` payload — two countable, one already resolved. */
@@ -238,9 +270,13 @@ const MOCK_ALERTS = {
 };
 
 /** Answer the two queries the dashboard needs, and wait for it to render. */
-async function loadDashboard(page: Page, bridge: MockBridge): Promise<void> {
+async function loadDashboard(
+  page: Page,
+  bridge: MockBridge,
+  monitorData: Record<string, unknown> = MOCK_MONITOR_DATA,
+): Promise<void> {
   await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
-  await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_MONITOR_DATA);
+  await respondToAll(page, 'monitor:refresh', 'monitor:data', monitorData);
   await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
   // AlertHistoryPanel only mounts with the dashboard, so its `monitor:alerts`
   // request exists only now — answering earlier would miss it.
@@ -419,6 +455,50 @@ test.describe('Monitor — dashboard', () => {
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+test.describe('Monitor — trend chart', () => {
+  test('draws the area chart once the org has two readings', async ({ page }) => {
+    const bridge = await openMonitorOnSelectedOrg(page);
+    await loadDashboard(page, bridge, MONITOR_DATA_WITH_TRENDS);
+
+    // Recharts mounted: the placeholder is gone and its <svg> is on screen.
+    await expect(page.getByTestId('trend-chart-container')).toBeVisible({ timeout: 10_000 });
+    const surface = page.locator('[data-testid="trend-chart-container"] .recharts-surface');
+    await expect(surface).toBeVisible();
+
+    // And it drew something: the area curve carries a path with real geometry.
+    // A charting stack that loads but computes nothing renders an empty <svg>,
+    // which is exactly what a broken lodash resolution looks like from here.
+    const area = surface.locator('path.recharts-area-area');
+    await expect(area).toHaveCount(1);
+    const d = await area.getAttribute('d');
+    expect(d).toBeTruthy();
+    expect((d ?? '').length).toBeGreaterThan(20);
+
+    // The x axis was laid out from the timestamps, not left blank.
+    await expect(surface.locator('.recharts-xAxis .recharts-cartesian-axis-tick')).not.toHaveCount(
+      0,
+    );
+  });
+
+  test('shows the placeholder, and no chart, below two readings', async ({ page }) => {
+    const bridge = await openMonitorOnSelectedOrg(page);
+    await loadDashboard(page, bridge, {
+      ...MOCK_MONITOR_DATA,
+      trends: {
+        DailyApiRequests: {
+          sparklineData: [55000],
+          timestamps: ['2026-03-13T11:00:00Z'],
+          direction: 'flat',
+          changePercent: 0,
+        },
+      },
+    });
+
+    await expect(page.getByTestId('monitor-page')).toBeVisible();
+    await expect(page.locator('.recharts-surface')).toHaveCount(0);
   });
 });
 

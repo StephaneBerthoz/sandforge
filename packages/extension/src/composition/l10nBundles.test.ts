@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { knownErrorCodes, knownErrorTexts } from '../core/common/errorKnowledgeBase';
+
 /**
  * Manifest-level l10n guard, mirroring what `scripts/check-i18n-parity.ts`
  * does for the webview locales and `package.nls.*`: the extension host's
@@ -14,7 +16,12 @@ import { join } from 'node:path';
  *   2. the 5 locale bundles have exactly the English key set — no missing, no
  *      orphans left behind by a reworded source string;
  *   3. a translation keeps the `{0}`/`{1}` placeholders of its source, so an
- *      interpolated org alias cannot silently vanish from a French dialog.
+ *      interpolated org alias cannot silently vanish from a French dialog;
+ *   4. every entry of the table of known Salesforce error codes is in all six
+ *      bundles. Those sentences reach `vscode.l10n.t` through a variable, so
+ *      the source-literal scan above cannot see them at either end: they would
+ *      read as orphans in the reference bundle, and a code added to the table
+ *      with no translation would ship English to five locales unnoticed.
  */
 
 const L10N_DIR = join(__dirname, '..', '..', 'l10n');
@@ -59,6 +66,25 @@ function readSourceStrings(): Set<string> {
   return strings;
 }
 
+/**
+ * The curated sentences the host translates: the explanation and the first
+ * suggestion of every entry in the table of known Salesforce error codes.
+ *
+ * `localizedFixSuggestion` passes them to `vscode.l10n.t` as a variable read
+ * out of the table, so they are collected from the table itself rather than
+ * from a source literal.
+ */
+function readKnowledgeBaseStrings(): Set<string> {
+  const strings = new Set<string>();
+  for (const code of knownErrorCodes()) {
+    const texts = knownErrorTexts(code);
+    if (!texts) continue;
+    strings.add(texts.explanation);
+    if (texts.suggestion) strings.add(texts.suggestion);
+  }
+  return strings;
+}
+
 describe('extension host l10n bundles', () => {
   const reference = loadBundle(REFERENCE);
 
@@ -74,9 +100,39 @@ describe('extension host l10n bundles', () => {
   });
 
   it('keeps the reference bundle free of entries no source string uses', () => {
-    const used = readSourceStrings();
+    const used = new Set([...readSourceStrings(), ...readKnowledgeBaseStrings()]);
     const orphans = Object.keys(reference).filter((key) => !used.has(key));
     expect(orphans).toEqual([]);
+  });
+
+  it('collects both sentences of every known error code (extraction sanity guard)', () => {
+    // Two sentences per code: an empty or halved extraction must fail loudly
+    // rather than make the parity check below pass vacuously.
+    expect(knownErrorCodes().length).toBeGreaterThanOrEqual(20);
+    expect(readKnowledgeBaseStrings().size).toBe(knownErrorCodes().length * 2);
+  });
+
+  it.each(['en', ...LOCALES])('bundle.l10n.%s.json translates every known error code', (locale) => {
+    const bundle = locale === 'en' ? reference : loadBundle(`bundle.l10n.${locale}.json`);
+    const missing: string[] = [];
+    // A value left as its English key passes the key check and still shows
+    // English: the reference bundle is the only one allowed to hold it back.
+    const untranslated: string[] = [];
+    for (const code of knownErrorCodes()) {
+      const texts = knownErrorTexts(code);
+      if (!texts) continue;
+      if (!(texts.explanation in bundle)) missing.push(`${code}.explanation`);
+      if (texts.suggestion && !(texts.suggestion in bundle)) missing.push(`${code}.suggestion`);
+      if (locale === 'en') continue;
+      if (bundle[texts.explanation] === texts.explanation) {
+        untranslated.push(`${code}.explanation`);
+      }
+      if (texts.suggestion && bundle[texts.suggestion] === texts.suggestion) {
+        untranslated.push(`${code}.suggestion`);
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(untranslated).toEqual([]);
   });
 
   it.each(LOCALES)('bundle.l10n.%s.json is at key parity with English', (locale) => {

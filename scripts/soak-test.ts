@@ -14,6 +14,12 @@
  * regressions in adapter allocation shapes (listeners, breadcrumb lists, etc.)
  * without requiring `code --extensionDevelopmentPath`.
  *
+ * `services.ts` imports `vscode`, a module that only exists inside the host.
+ * The harness resolves that name to an in-file stand-in before loading the
+ * composition root. It used to skip that step, fail the import, fall back to
+ * sorting an array for an hour and report PASS — a soak of nothing. A
+ * composition root that does not load is now exit 1, never a fallback.
+ *
  * Env vars:
  *   SOAK_MINUTES            (default 60) — total run time
  *   SAMPLE_INTERVAL_MINUTES (default 10) — how often to record RSS
@@ -21,10 +27,12 @@
  * Run with:  pnpm soak:test        (60 min, real baseline)
  *            SOAK_MINUTES=1 pnpm soak:test  (smoke test harness itself)
  *
- * Exits 1 if RSS delta (end - start) exceeds 50 MB (hard failure — indicates
- * a regression in adapter or orchestrator hygiene).
+ * Exits 1 if the composition root fails to load, if a message-broker cycle
+ * leaves a panel registered, or if RSS delta (end - start) exceeds 50 MB
+ * (hard failure — indicates a regression in adapter or orchestrator hygiene).
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
+import Module from 'node:module';
 import { dirname } from 'node:path';
 
 interface Sample {
@@ -87,6 +95,66 @@ function createFakeContext(): unknown {
   };
 }
 
+/**
+ * The part of the `vscode` API the composition root touches while it is built
+ * and while telemetry is emitted: settings are read (and answer their
+ * defaults), no workspace is open, telemetry is off.
+ */
+const vscodeStandIn = {
+  env: { isTelemetryEnabled: false },
+  workspace: {
+    getConfiguration: () => ({
+      get: <T>(_key: string, fallback?: T): T | undefined => fallback,
+      update: (): Promise<void> => Promise.resolve(),
+    }),
+    workspaceFolders: undefined,
+  },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+  ExtensionMode: { Production: 1, Development: 2, Test: 3 },
+};
+
+/** Cache key the stand-in is registered under. */
+const VSCODE_ID = 'vscode';
+
+/** The CommonJS loader internals the alias needs; tsx runs this file as CommonJS. */
+interface CommonJsLoader {
+  _resolveFilename: (request: string, ...rest: unknown[]) => string;
+  _cache: Record<string, unknown>;
+}
+
+/**
+ * Make `require('vscode')` return {@link vscodeStandIn}.
+ *
+ * Resolution is redirected for that one name and every other request goes
+ * through untouched; the stand-in is pre-seeded in the module cache under the
+ * id the redirect returns, so the loader serves it without reading a file.
+ */
+function aliasVscodeToStandIn(): void {
+  const loader = Module as unknown as CommonJsLoader;
+  const resolve = loader._resolveFilename;
+  loader._resolveFilename = function (this: unknown, request: string, ...rest: unknown[]) {
+    if (request === VSCODE_ID) return VSCODE_ID;
+    return resolve.call(this, request, ...rest);
+  };
+  loader._cache[VSCODE_ID] = {
+    id: VSCODE_ID,
+    filename: VSCODE_ID,
+    loaded: true,
+    exports: vscodeStandIn,
+    children: [],
+  };
+}
+
+/** A webview panel as far as the broker can tell: it posts and it listens. */
+function createFakePanel(): unknown {
+  return {
+    webview: {
+      postMessage: () => Promise.resolve(true),
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+    },
+  };
+}
+
 async function main(): Promise<void> {
   const soakMinutes = Number(process.env.SOAK_MINUTES ?? '60');
   const sampleIntervalMinutes = Math.max(1, Number(process.env.SAMPLE_INTERVAL_MINUTES ?? '10'));
@@ -96,40 +164,56 @@ async function main(): Promise<void> {
     `[soak-test] starting — duration=${soakMinutes}min, sampleInterval=${sampleIntervalMinutes}min`,
   );
 
-  // Try to exercise createServices with the fake context. If the import fails
-  // (e.g. vscode/node_modules shim not set up), fall back to a pure memory
-  // loop that still measures the harness itself — that's valuable as a canary.
-  let exerciseCycle: () => Promise<void> = async () => {
-    // Fallback: allocate+free a small workload to keep GC busy.
-    const tmp: number[] = new Array(10_000).fill(0).map((_, i) => i);
-    tmp.sort(() => Math.random() - 0.5);
-    await sleep(50);
-  };
+  let exerciseCycle: () => Promise<void>;
+  let broker: { panelCount: number };
 
   try {
-    // Dynamic import so the harness runs on machines without a built extension.
-    // Import path is resolved relative to the repo root when tsx runs this file.
+    aliasVscodeToStandIn();
+    // Resolved relative to this file, so the harness can run from any cwd.
     const servicesModule = (await import('../packages/extension/src/services.js')) as {
       createServices: (ctx: unknown) => {
         telemetry: { addBreadcrumb: (...args: unknown[]) => void };
       };
     };
-    const fakeCtx = createFakeContext();
-    const services = servicesModule.createServices(fakeCtx);
+    const brokerModule = (await import('../packages/extension/src/bridge/MessageBroker.js')) as {
+      MessageBroker: new () => {
+        registerPanel: (panel: unknown) => { dispose: () => void };
+        on: (type: string, handler: (msg: unknown) => void) => () => void;
+        postToWebview: (message: unknown) => void;
+        readonly panelCount: number;
+      };
+    };
+    const services = servicesModule.createServices(createFakeContext());
+    const messageBroker = new brokerModule.MessageBroker();
+    broker = messageBroker;
+    let cycle = 0;
     exerciseCycle = async () => {
       // Emit a telemetry breadcrumb every cycle — hits Pino logger + Sentry
-      // breadcrumb buffer. This is the "monitor cycle" stand-in.
+      // breadcrumb buffer.
       services.telemetry.addBreadcrumb('soak cycle', 'soak', 'info');
+      // A panel opened, answered and closed, as the Monitor view does on every
+      // show/hide: whatever registration it leaves behind accumulates here.
+      const registration = messageBroker.registerPanel(createFakePanel());
+      const unsubscribe = messageBroker.on('monitor:data', () => {});
+      messageBroker.postToWebview({
+        id: `soak-${++cycle}`,
+        type: 'monitor:data',
+        timestamp: Date.now(),
+        payload: { healthScore: 100 },
+      });
+      unsubscribe();
+      registration.dispose();
       await sleep(50);
     };
     // eslint-disable-next-line no-console
-    console.log('[soak-test] composition root wired — exercising telemetry loop');
+    console.log('[soak-test] composition root wired — exercising telemetry and broker loop');
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn(
-      '[soak-test] composition root unavailable — falling back to allocation loop. Reason:',
-      (err as Error).message,
+    console.error(
+      '[soak-test] composition root failed to load — nothing to soak. Reason:',
+      err instanceof Error ? err.message : String(err),
     );
+    process.exit(1);
   }
 
   const samples: Sample[] = [];
@@ -176,7 +260,10 @@ async function main(): Promise<void> {
     )
     .join('\n');
 
-  const verdict = delta <= MAX_RSS_DELTA_MB ? 'PASS' : 'FAIL';
+  // Every cycle disposed what it registered; a panel still counted is a leak
+  // whatever the RSS says.
+  const leakedPanels = broker.panelCount;
+  const verdict = delta <= MAX_RSS_DELTA_MB && leakedPanels === 0 ? 'PASS' : 'FAIL';
 
   const lines = [
     '# Soak Test Baseline',
@@ -192,6 +279,7 @@ async function main(): Promise<void> {
     `- End RSS: **${endRss.toFixed(2)} MB**`,
     `- Delta: **${delta >= 0 ? '+' : ''}${delta.toFixed(2)} MB**`,
     `- Peak RSS: **${maxRss.toFixed(2)} MB**`,
+    `- Panels left registered: **${leakedPanels}**`,
     '',
     '## Samples',
     '',
@@ -201,9 +289,10 @@ async function main(): Promise<void> {
     '',
     '## Notes',
     '',
-    '- Harness exercises `createServices` with a fake VSCode `ExtensionContext` — no extension host required.',
-    '- A `soak cycle` breadcrumb is emitted per iteration; on machines without the composition root available, an allocation loop keeps GC busy.',
-    '- This harness is NOT wired into CI by default — run locally or in nightly.',
+    '- Harness exercises `createServices` with a fake VSCode `ExtensionContext` and a `vscode` stand-in — no extension host required.',
+    '- Each iteration emits a `soak cycle` breadcrumb and registers, posts to and disposes a webview panel on the message broker.',
+    '- A composition root that fails to load ends the run with exit 1; there is no fallback workload.',
+    '- Runs weekly in CI (`.github/workflows/soak.yml`) and on demand.',
     '',
   ];
 

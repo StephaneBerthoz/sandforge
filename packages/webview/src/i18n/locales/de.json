@@ -551,6 +551,13 @@
         "stepObjects": "Objekte waehlen",
         "stepPreview": "Vorschau",
         "stepExecute": "Ausfuehren"
+      },
+      "error": {
+        "PRODUCTION_CONFIRMATION_DECLINED": "Klonen abgebrochen: Der Schreibvorgang in der Produktion wurde nicht bestätigt.",
+        "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
+        "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
+        "generic": "Der Klonvorgang konnte nicht abgeschlossen werden.",
+        "detail": "Einzelheiten: {{detail}}"
       }
     },
     "emptyState": {

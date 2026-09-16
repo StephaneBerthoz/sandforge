@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { createInstance, type i18n as I18n } from 'i18next';
+import { initReactI18next } from 'react-i18next';
+
+import en from '../../../i18n/locales/en.json';
+import fr from '../../../i18n/locales/fr.json';
 import { useClone } from './useClone';
 
 /* ------------------------------------------------------------------ */
@@ -52,7 +57,7 @@ vi.mock('../../../hooks/useBridgeMutation', () => ({
 }));
 
 /** Deliver an `operation:failed` the way the extension posts it. */
-function operationFailed(operationId: string, error: string): void {
+function operationFailed(operationId: string, error: string, code?: string): void {
   act(() => {
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -60,15 +65,33 @@ function operationFailed(operationId: string, error: string): void {
           id: 'host-failed',
           type: 'operation:failed',
           timestamp: Date.now(),
-          payload: { operationId, error, retryable: false },
+          payload: { operationId, error, retryable: false, ...(code ? { code } : {}) },
         },
       }),
     );
   });
 }
 
+/**
+ * A real i18next instance, not a key-echoing stub: what the wizard shows for a
+ * failed clone is the translation of the code the host sent, so only a loaded
+ * catalogue can tell a translated sentence from a key or from English prose.
+ */
+let i18nInstance: I18n;
+
 describe('useClone', () => {
-  beforeEach(() => {
+  beforeAll(async () => {
+    i18nInstance = createInstance();
+    await i18nInstance.use(initReactI18next).init({
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      lng: 'en',
+      fallbackLng: 'en',
+      interpolation: { escapeValue: false },
+    });
+  });
+
+  beforeEach(async () => {
+    await i18nInstance.changeLanguage('en');
     mockDescribeMutate.mockClear();
     mutationCalls.length = 0;
     mockDescribeReset.mockClear();
@@ -323,13 +346,91 @@ describe('useClone', () => {
     operationFailed(
       'wv-clone-run',
       'Operation cancelled by user (production confirmation declined).',
+      'PRODUCTION_CONFIRMATION_DECLINED',
     );
 
     expect(result.current.executionStatus).toBe('error');
-    expect(result.current.error).toBe(
-      'Operation cancelled by user (production confirmation declined).',
-    );
+    expect(result.current.error).toBe(en.seed.clone.error.PRODUCTION_CONFIRMATION_DECLINED);
     expect(mockExecuteReset).toHaveBeenCalled();
+  });
+
+  it('shows the declined production confirmation in French, not the English the host logged', async () => {
+    // The host keeps writing the failure in English for the output channel and
+    // the fix-suggestion table; the wizard showed that same English sentence to
+    // a French user. The code is what it translates now.
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'Operation cancelled by user (production confirmation declined).',
+      'PRODUCTION_CONFIRMATION_DECLINED',
+    );
+
+    expect(result.current.error).toBe(fr.seed.clone.error.PRODUCTION_CONFIRMATION_DECLINED);
+    expect(result.current.error).not.toContain('Operation cancelled by user');
+  });
+
+  it('shows the production guard refusal in French, with no English detail under it', async () => {
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'Operation blocked by Production Guard: insert is not allowed on production org tgt',
+      'PRODUCTION_GUARD_BLOCKED',
+    );
+
+    expect(result.current.error).toBe(fr.seed.clone.error.PRODUCTION_GUARD_BLOCKED);
+    expect(result.current.error).not.toContain('Operation blocked');
+  });
+
+  it('falls back to the translated generic failure on a code it does not know', async () => {
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed('wv-clone-run', 'Bulk job failed', 'SOMETHING_NEW');
+
+    expect(result.current.error).toContain(fr.seed.clone.error.generic);
+    // The raw mutation fallback is what the wizard used to show.
+    expect(result.current.error).not.toContain("Bridge mutation 'seed:clone:execute' failed");
+    expect(result.current.error).not.toBe('Bulk job failed');
+    // The host text survives as a detail, so the org's own words are not lost.
+    expect(result.current.error).toContain('Bulk job failed');
+  });
+
+  it('keeps the org failure as a detail under the translated CLONE_FAILED sentence', async () => {
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = renderHook(() => useClone('target-1'));
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'STORAGE_LIMIT_EXCEEDED: storage limit exceeded',
+      'CLONE_FAILED',
+    );
+
+    expect(result.current.error).toContain(fr.seed.clone.error.CLONE_FAILED);
+    expect(result.current.error).toContain('STORAGE_LIMIT_EXCEEDED: storage limit exceeded');
   });
 
   it('ignores a failure reported for another operation', () => {

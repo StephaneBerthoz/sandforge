@@ -19,14 +19,24 @@ vi.mock('./useVSCodeApi', () => ({
 import { useBridgeMutation } from './useBridgeMutation';
 
 /** Dispatch a simulated extension→webview message. */
-function simulateResponse(type: string, payload: unknown): void {
+function simulateResponse(type: string, payload: unknown, correlationId?: string): void {
   const message: BaseMessage & { payload: unknown } = {
     id: `resp-${Date.now()}`,
     type,
     timestamp: Date.now(),
     payload,
   };
+  if (correlationId) {
+    message.correlationId = correlationId;
+  }
   window.dispatchEvent(new MessageEvent('message', { data: message }));
+}
+
+/** Answer the request in flight the way a handler does: correlated to its id. */
+function replyToLastRequest(type: string, payload: unknown): void {
+  const calls = mockPostMessage.mock.calls;
+  const envelope = calls[calls.length - 1][0] as { payload: BaseMessage };
+  simulateResponse(type, payload, envelope.payload.id);
 }
 
 describe('useBridgeMutation', () => {
@@ -85,7 +95,7 @@ describe('useBridgeMutation', () => {
     });
 
     act(() => {
-      simulateResponse('org:statusChanged', { orgId: 'org-1', status: 'connected' });
+      replyToLastRequest('org:statusChanged', { orgId: 'org-1', status: 'connected' });
     });
 
     expect(result.current.loading).toBe(false);
@@ -139,7 +149,7 @@ describe('useBridgeMutation', () => {
       result.current.mutate({ orgId: '', authMethod: 'sfdx_import' });
     });
     act(() => {
-      simulateResponse('org:statusChanged', { orgId: 'org-1', status: 'connected' });
+      replyToLastRequest('org:statusChanged', { orgId: 'org-1', status: 'connected' });
     });
     expect(result.current.data).not.toBeNull();
 
@@ -216,7 +226,7 @@ describe('useBridgeMutation', () => {
     });
 
     act(() => {
-      simulateResponse('org:statusChanged', { orgId: 'org-1', status: 'connected' });
+      replyToLastRequest('org:statusChanged', { orgId: 'org-1', status: 'connected' });
     });
 
     expect(result.current.data).not.toBeNull();
@@ -267,7 +277,7 @@ describe('useBridgeMutation', () => {
 
     // Only the second mutation should accept a response
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-2'] });
+      replyToLastRequest('org:list:response', { orgs: ['org-2'] });
     });
 
     expect(result.current.loading).toBe(false);

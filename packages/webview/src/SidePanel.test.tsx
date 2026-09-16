@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SidePanel } from './SidePanel';
@@ -331,6 +331,55 @@ describe('SidePanel', () => {
     const starBtn = screen.getByTestId('sidepanel-star-monitor');
     expect(starBtn.className).toContain('text-text-muted');
     expect(starBtn.className).not.toMatch(/(^|\s)opacity-(0|[1-9]0)(\s|$)/);
+  });
+
+  describe('compact mode on a short viewport', () => {
+    const REAL_INNER_HEIGHT = window.innerHeight;
+
+    function setViewportHeight(height: number): void {
+      Object.defineProperty(window, 'innerHeight', {
+        value: height,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    afterEach(() => {
+      setViewportHeight(REAL_INNER_HEIGHT);
+    });
+
+    it('draws the tall Forge hero in a panel with room for it', () => {
+      setViewportHeight(800);
+      render(<SidePanel />);
+
+      expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-forge-compact')).not.toBeInTheDocument();
+      // Quick metrics stay open: there is height to show them.
+      expect(screen.getByTestId('sidepanel-metrics')).toBeInTheDocument();
+    });
+
+    it('swaps in the one-line Forge button and folds the metrics on a short panel', () => {
+      // A docked sidebar in a split editor is this short, and the tall hero
+      // pushed the module list below the fold.
+      setViewportHeight(600);
+      render(<SidePanel />);
+
+      expect(screen.getByTestId('sidepanel-forge-compact')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-forge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-metrics')).not.toBeInTheDocument();
+    });
+
+    it('switches to compact when the panel is dragged shorter', () => {
+      setViewportHeight(800);
+      render(<SidePanel />);
+      expect(screen.getByTestId('sidepanel-forge')).toBeInTheDocument();
+
+      setViewportHeight(600);
+      fireEvent(window, new Event('resize'));
+
+      expect(screen.getByTestId('sidepanel-forge-compact')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidepanel-forge')).not.toBeInTheDocument();
+    });
   });
 
   // No version badge in header

@@ -22,11 +22,13 @@ export interface UseMessageResponseOptions {
   errorType?: string;
   /**
    * Whether a message of the response type carrying no correlationId is taken
-   * as the answer (default `true`). Some response types are also pushed with
-   * no request behind them — `org:list:response` on every org change — and a
-   * page that wants those keeps the default. Set it to `false` where the push
-   * can land between a request and its reply and must not stand in for it:
-   * `ai:status:response` is pushed whenever the AI wiring changes.
+   * as the answer (default `false`). Every handler reply is correlated
+   * (`buildResponse` takes a typed origin), so an uncorrelated message of a
+   * response type is a host broadcast with no request behind it — and taken
+   * as the answer, one landing between a request and its reply closed the
+   * request and the real reply was then dropped: `ai:status:response` is
+   * pushed to the panels whenever the AI wiring changes. Set it to `true` only
+   * where a caller wants such a push to stand in for its answer.
    */
   acceptUncorrelated?: boolean;
 }
@@ -78,7 +80,7 @@ export function useMessageResponse<T>(
     timeoutMs,
     requestLabel,
     errorType,
-    acceptUncorrelated = true,
+    acceptUncorrelated = false,
   } = options;
 
   const [data, setData] = useState<T | null>(null);
@@ -136,11 +138,11 @@ export function useMessageResponse<T>(
         }
 
         // A response carrying a correlationId must carry ours. One carrying
-        // none is accepted by type unless the caller opted out: handler
-        // responses are always correlated (`buildResponse` takes a typed
-        // origin), but some messages of a response type are broadcasts with no
-        // request behind them — `org:list:response` is pushed on every org
-        // change.
+        // none is a broadcast, not our answer, and is only accepted when the
+        // caller asked for the pushes: handler responses are always correlated
+        // (`buildResponse` takes a typed origin), while some messages of a
+        // response type are pushed with no request behind them —
+        // `ai:status:response` whenever the AI wiring changes.
         if (eventData.correlationId ? eventData.correlationId !== messageId : !acceptUncorrelated) {
           return;
         }

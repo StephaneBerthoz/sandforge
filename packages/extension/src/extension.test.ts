@@ -49,6 +49,25 @@ const mockEventEmitter = {
 
 const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();
 
+/** `vscode.l10n.t` as the host provides it: substitutes `{0}`, returns the source string. */
+const substituteL10n = (message: string, ...args: unknown[]): string =>
+  message.replace(/\{(\d+)\}/g, (_match: string, i: string) => String(args[Number(i)]));
+const mockL10nT = vi.fn(substituteL10n);
+
+/** The options every MessageBroker was built with, in construction order. */
+const brokerOptions: Array<MessageBrokerOptions | undefined> = [];
+
+vi.mock('./bridge/MessageBroker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./bridge/MessageBroker')>();
+  class OptionsCapturingBroker extends actual.MessageBroker {
+    constructor(options?: MessageBrokerOptions) {
+      super(options);
+      brokerOptions.push(options);
+    }
+  }
+  return { ...actual, MessageBroker: OptionsCapturingBroker };
+});
+
 vi.mock('vscode', () => ({
   window: {
     createOutputChannel: vi.fn(() => mockOutputChannel),
@@ -92,8 +111,9 @@ vi.mock('vscode', () => ({
       })),
   },
   l10n: {
-    t: (message: string, ...args: unknown[]) =>
-      message.replace(/\{(\d+)\}/g, (_match: string, i: string) => String(args[Number(i)])),
+    // Indirection on purpose: the factory runs while the module body is still
+    // in its temporal dead zone, so the spy is read at call time, not here.
+    t: (message: string, ...args: unknown[]) => mockL10nT(message, ...args),
   },
   EventEmitter: vi.fn(() => mockEventEmitter),
   ThemeIcon: vi.fn().mockImplementation((iconId: string) => ({ id: iconId })),
@@ -104,13 +124,15 @@ vi.mock('vscode', () => ({
   })),
 }));
 
-import { activate, deactivate, buildStatusBarLabel } from './extension';
+import { activate, deactivate, buildStatusBarLabel, localizedFixSuggestion } from './extension';
+import { knownErrorTexts } from './core/common/errorKnowledgeBase';
 import { OrgManager } from './core/connection/OrgManager';
 import { WebviewStateSync } from './bridge/WebviewStateSync';
 import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
 import { MODULE_COMMANDS } from './composition/moduleCommands';
 import type { SidebarViewProvider } from './providers/SidebarViewProvider';
 import type { StatusBarOrg } from './extension';
+import type { MessageBrokerOptions } from './bridge/MessageBroker';
 
 function createMockMemento(): import('vscode').Memento {
   const store = new Map<string, unknown>();
@@ -525,5 +547,94 @@ describe('buildStatusBarLabel', () => {
   it('falls back to the first connected org when the selection no longer exists', () => {
     const label = buildStatusBarLabel([connectedOrg], 'ghost');
     expect(label.text).toBe('$(flame) SandForge: dev (1 org)');
+  });
+});
+
+describe('localizedFixSuggestion', () => {
+  beforeEach(() => {
+    mockL10nT.mockClear();
+  });
+
+  it('translates a curated answer through the entry its error code selects', () => {
+    // The table is written in English and reached the notification rendered:
+    // a French VS Code showed an English paragraph. The code is what picks the
+    // sentence `vscode.l10n.t` is keyed on.
+    const entry = knownErrorTexts('UNABLE_TO_LOCK_ROW');
+    mockL10nT.mockImplementationOnce((message: string) => `[fr] ${message}`);
+
+    const line = localizedFixSuggestion({
+      source: 'knowledge-base',
+      text: entry?.suggestion ?? '',
+      code: 'UNABLE_TO_LOCK_ROW',
+    });
+
+    expect(mockL10nT).toHaveBeenCalledWith(entry?.suggestion);
+    expect(line).toBe(`[fr] ${entry?.suggestion}`);
+  });
+
+  it('leaves a model answer alone — it is already written in the UI language', () => {
+    const line = localizedFixSuggestion({ source: 'model', text: 'reduce the batch size' });
+
+    expect(line).toBe('reduce the batch size');
+    expect(mockL10nT).not.toHaveBeenCalled();
+  });
+
+  it('keeps the rendered line when the code is not one the table answers', () => {
+    const line = localizedFixSuggestion({
+      source: 'knowledge-base',
+      text: 'something the table no longer holds',
+      code: 'SOMETHING_WE_HAVE_NEVER_SEEN',
+    });
+
+    expect(line).toBe('something the table no longer holds');
+    expect(mockL10nT).not.toHaveBeenCalled();
+  });
+});
+
+describe('the fix suggestion notification', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await deactivate();
+    brokerOptions.length = 0;
+  });
+
+  afterEach(() => {
+    mockL10nT.mockImplementation(substituteL10n);
+  });
+
+  /** Activates, then has `vscode.l10n.t` answer in "French" from here on. */
+  async function activateInFrench() {
+    activate(createContext());
+    mockL10nT.mockImplementation(
+      (message: string, ...args: unknown[]) => `[fr] ${substituteL10n(message, ...args)}`,
+    );
+    const vscode = await import('vscode');
+    expect(brokerOptions.at(-1)?.showFixSuggestion).toBeTypeOf('function');
+    return {
+      notify: brokerOptions.at(-1)?.showFixSuggestion,
+      shown: vi.mocked(vscode.window.showInformationMessage),
+    };
+  }
+
+  it('shows a known error code the way the UI language writes it', async () => {
+    const { notify, shown } = await activateInFrench();
+    const suggestion = knownErrorTexts('UNABLE_TO_LOCK_ROW')?.suggestion;
+    expect(suggestion).toBeDefined();
+
+    notify?.({ source: 'knowledge-base', text: suggestion ?? '', code: 'UNABLE_TO_LOCK_ROW' });
+
+    expect(shown).toHaveBeenCalledWith(
+      `[fr] SandForge: suggested fix for a known Salesforce error — [fr] ${suggestion}`,
+    );
+  });
+
+  it('shows a model answer as the model wrote it', async () => {
+    const { notify, shown } = await activateInFrench();
+
+    notify?.({ source: 'model', text: 'réduire la taille des lots' });
+
+    expect(shown).toHaveBeenCalledWith(
+      '[fr] SandForge: fix suggested by the AI model — réduire la taille des lots',
+    );
   });
 });

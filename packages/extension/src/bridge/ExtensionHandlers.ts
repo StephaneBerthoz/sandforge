@@ -83,7 +83,7 @@ export interface ExtensionHandlersDeps {
   authProvider: AuthProvider;
   sfdxBridge: SfdxBridge;
   /**
-   * Composition-root Services bundle (4 core adapters + orchestrator factories).
+   * Composition-root Services bundle (the core adapters + orchestrator factories).
    * Optional so tests that construct ExtensionHandlers with the legacy shape
    * continue to compile; production extension.ts wires it eagerly.
    */

@@ -22,7 +22,7 @@ import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js'
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
-import type { ObjectDescribe } from '../../core/metadata/MetadataReader.js';
+import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
   validatePayload,

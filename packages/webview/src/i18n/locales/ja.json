@@ -548,6 +548,13 @@
         "stepObjects": "オブジェクト選択",
         "stepPreview": "プレビュー",
         "stepExecute": "実行"
+      },
+      "error": {
+        "PRODUCTION_CONFIRMATION_DECLINED": "クローンを中止しました。本番組織への書き込みが承認されませんでした。",
+        "PRODUCTION_GUARD_BLOCKED": "本番保護機能により、レコードが書き込まれる前にこのクローンがブロックされました。",
+        "CLONE_FAILED": "クローンは完了前に停止しました。",
+        "generic": "クローンを完了できませんでした。",
+        "detail": "詳細: {{detail}}"
       }
     },
     "emptyState": {

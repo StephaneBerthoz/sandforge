@@ -1,11 +1,6 @@
 import * as vscode from 'vscode';
 
-import {
-  SalesforceAdapter,
-  TelemetryAdapter,
-  StorageAdapter,
-  FsAdapter,
-} from './adapters/index.js';
+import { TelemetryAdapter, StorageAdapter, FsAdapter } from './adapters/index.js';
 import {
   createAIClientFactory,
   type AIClientFactory,
@@ -27,7 +22,7 @@ import type { PipelineOrchestratorDependencies } from './modules/automation/Pipe
 /**
  * CoreServices — the cross-cutting adapter bundle.
  * Every orchestrator and handler receives this subset via constructor
- * injection so telemetry, storage, and jsforce IO stay centralised.
+ * injection so telemetry, storage and filesystem IO stay centralised.
  */
 export interface CoreServices {
   /** The active VSCode extension context (used by adapters that need it). */
@@ -36,8 +31,6 @@ export interface CoreServices {
   storage: StorageAdapter;
   /** Telemetry + structured logger facade. */
   telemetry: TelemetryAdapter;
-  /** Describe cache + concurrency gate. No production code reads it. */
-  salesforce: SalesforceAdapter;
   /** Safe filesystem wrapper constrained to workspace root. */
   fs: FsAdapter;
   /**
@@ -141,9 +134,8 @@ export type Services = CoreServices & OrchestratorFactories;
  * Construction order is a pure DAG:
  *   telemetry (no deps)
  *     → storage (no deps)
- *       → salesforce (no deps)
- *         → fs (telemetry)
- *           → orchestrator factories (capture the above)
+ *       → fs (telemetry)
+ *         → orchestrator factories (capture the above)
  *
  * After wiring, `runSecretMigration` is invoked (fire-and-forget) to silently
  * move legacy credentials (globalState and legacy SecretStorage AI keys) into
@@ -168,7 +160,6 @@ export function createServices(
       vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
   });
   const storage = new StorageAdapter(context);
-  const salesforce = new SalesforceAdapter();
   const fs = new FsAdapter(telemetry);
 
   const readTokenBudget = (): number => {
@@ -208,7 +199,6 @@ export function createServices(
     context,
     storage,
     telemetry,
-    salesforce,
     fs,
     aiClient,
     isAIEnabled: () =>

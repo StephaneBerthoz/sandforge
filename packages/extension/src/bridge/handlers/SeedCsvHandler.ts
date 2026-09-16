@@ -22,7 +22,7 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CsvValidator } from '../../modules/seed/CsvValidator.js';
-import type { DescribeField } from '../../modules/seed/SchemaAnalyzer.js';
+import type { DescribeField } from '../../modules/seed/describeField.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 

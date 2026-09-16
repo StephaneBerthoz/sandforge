@@ -52,7 +52,7 @@ export interface SyncOrchestratorDeps {
    */
   countSource?: OrchestratorCountFn;
   /**
-   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
    */

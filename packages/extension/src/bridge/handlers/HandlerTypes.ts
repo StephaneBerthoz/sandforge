@@ -634,7 +634,11 @@ function resolveFailedOperation(
   const errorCode = extractErrorCode(error, hasKnownResolution) ?? 'UNKNOWN';
   const known = resolveKnownError({ errorCode, message: error });
   if (known) {
-    deps.broker.showFixSuggestion({ source: 'knowledge-base', text: suggestedFix(known) });
+    deps.broker.showFixSuggestion({
+      source: 'knowledge-base',
+      text: suggestedFix(known),
+      code: errorCode,
+    });
     return;
   }
 

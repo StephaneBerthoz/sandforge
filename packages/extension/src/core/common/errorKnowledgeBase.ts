@@ -662,6 +662,30 @@ export function knownErrorCodes(): string[] {
   return Object.keys(KNOWLEDGE_BASE);
 }
 
+/** The English sentences of a curated entry, as the translation bundles key them. */
+export interface KnownErrorTexts {
+  /** The entry's explanation, before any enrichment from the failure itself. */
+  explanation: string;
+  /** The first suggestion's description — the one line a notification has room for. */
+  suggestion?: string;
+}
+
+/**
+ * The curated sentences written for a code, untouched.
+ *
+ * The table is written in English because the error codes are: it is the host
+ * that translates what it shows, keying `vscode.l10n.t` on these exact
+ * strings, so they are handed over raw rather than enriched with the failure.
+ */
+export function knownErrorTexts(errorCode: string): KnownErrorTexts | undefined {
+  const entry = entryFor(errorCode);
+  if (!entry) return undefined;
+  return {
+    explanation: entry.explanation,
+    ...(entry.suggestions[0] ? { suggestion: entry.suggestions[0].description } : {}),
+  };
+}
+
 /**
  * The curated resolution for a known error code, or `undefined` when the table
  * has none. Decided on this machine: nothing is sent anywhere.

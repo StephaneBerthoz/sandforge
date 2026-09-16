@@ -161,7 +161,7 @@ export interface ObjectNode {
   relationships: SeedRelationship[];
 }
 
-/** ERD data produced by SchemaAnalyzer */
+/** ERD data: the objects of a seed, their links and the order to insert them in */
 export interface ERDData {
   nodes: ObjectNode[];
   edges: ERDEdge[];

@@ -1,5 +1,4 @@
-import { z } from 'zod';
-import { AIUsageSchema } from './callResult.js';
+import type { AIUsage } from './callResult.js';
 
 /**
  * Token budget snapshot: one counter for the window session, shared by every
@@ -9,16 +8,14 @@ import { AIUsageSchema } from './callResult.js';
  *   - 'ok'        — percent < 80
  *   - 'warn'      — 80 <= percent < 100 (the host shows a notice at the first crossing)
  *   - 'exceeded'  — percent >= 100 (AI calls are refused; the host says so once)
- *
- * `percent` is clamped to <= 200 in the schema.
  */
-export const TokenBudgetStateSchema = z
-  .object({
-    sessionId: z.string().min(1),
-    used: AIUsageSchema,
-    budget: z.number().int().positive(),
-    percent: z.number().min(0).max(200),
-    state: z.enum(['ok', 'warn', 'exceeded']),
-  })
-  .strict();
-export type TokenBudgetState = z.infer<typeof TokenBudgetStateSchema>;
+export type TokenBudgetState = {
+  /** Non-empty id of the window session the counter belongs to. */
+  sessionId: string;
+  used: AIUsage;
+  /** Positive integer: the session ceiling in tokens. */
+  budget: number;
+  /** 0 to 200: usage past twice the budget is reported as 200. */
+  percent: number;
+  state: 'ok' | 'warn' | 'exceeded';
+};

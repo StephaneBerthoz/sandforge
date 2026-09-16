@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { InMemoryConfigStoreBackend } from './ConfigStoreBackend';
-import type { ConfigEntry } from './ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from './InMemoryConfigStoreBackend';
+import type { ConfigEntry } from '../core/storage/ConfigStoreBackend';
 
 describe('InMemoryConfigStoreBackend', () => {
   it('should return empty data initially', () => {

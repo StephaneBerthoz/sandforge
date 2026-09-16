@@ -185,9 +185,12 @@ describe('SeedCloneHandler', () => {
 
       const failures = posted(deps, 'operation:failed');
       expect(failures).toHaveLength(1);
+      // The English text is what the output channel and the fix-suggestion
+      // table read; the code is what the wizard translates.
       expect(failures[0].payload as unknown).toMatchObject({
         error: 'bulk write exploded',
         retryable: true,
+        code: 'CLONE_FAILED',
       });
     });
   });
@@ -317,6 +320,7 @@ describe('SeedCloneHandler', () => {
         error:
           'Operation blocked by Production Guard: insert is not allowed on production org tgt-org',
         retryable: true,
+        code: 'PRODUCTION_GUARD_BLOCKED',
       });
     });
 
@@ -354,6 +358,7 @@ describe('SeedCloneHandler', () => {
         operationId: 'msg-seed:clone:execute',
         error: 'Operation cancelled by user (production confirmation declined).',
         retryable: false,
+        code: 'PRODUCTION_CONFIRMATION_DECLINED',
       });
     });
 

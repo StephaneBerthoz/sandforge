@@ -1,5 +1,5 @@
 import type { CsvColumnMapping, CsvValidationError, CsvValidationResult } from '@sandforge/shared';
-import type { DescribeField } from './SchemaAnalyzer.js';
+import type { DescribeField } from './describeField.js';
 
 /** Maximum number of errors to collect before stopping validation. */
 const MAX_ERRORS = 100;

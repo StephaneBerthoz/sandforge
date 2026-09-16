@@ -145,6 +145,37 @@ describe('Brazilian Portuguese copy carries its accents', () => {
   });
 });
 
+describe('no locale carries a stray diacritic', () => {
+  const ALL = ['en', ...NON_EN] as const;
+
+  /* The accented letters each language is written with. A combining mark (a
+     U+0327 cedilla typed after "grava") or a precomposed letter from outside
+     this set (U+0229, e with cedilla, in "proteção") passes every structural
+     check and still renders as a garbled word. */
+  const LETTERS: Record<(typeof ALL)[number], string> = {
+    en: '',
+    fr: 'àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ',
+    // Ø is the average sign ("Ø 120ms"), not a misspelt letter.
+    de: 'äöüßÄÖÜẞØ',
+    es: 'áéíóúñüÁÉÍÓÚÑÜ',
+    ja: '',
+    'pt-BR': 'áâãàçéêíóôõúüÁÂÃÀÇÉÊÍÓÔÕÚÜ',
+  };
+
+  it.each(ALL)('%s has no combining mark and no letter foreign to its language', (locale) => {
+    const offenders = [...flatten(load(locale))]
+      .filter(
+        ([, value]) =>
+          /\p{Mn}/u.test(value) ||
+          (value.match(/(?![A-Za-z])\p{Script=Latin}/gu) ?? []).some(
+            (letter) => !LETTERS[locale].includes(letter),
+          ),
+      )
+      .map(([key, value]) => `${key} = ${value}`);
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('the in-app help describes what the modules do', () => {
   const ALL = ['en', ...NON_EN] as const;
 

@@ -23,14 +23,29 @@ vi.mock('./useVSCodeApi', () => ({
 import { useBridgeQuery } from './useBridgeQuery';
 
 /** Dispatch a simulated extension→webview message. */
-function simulateResponse(type: string, payload: unknown): void {
+function simulateResponse(type: string, payload: unknown, correlationId?: string): void {
   const message: BaseMessage & { payload: unknown } = {
     id: `resp-${Date.now()}`,
     type,
     timestamp: Date.now(),
     payload,
   };
+  if (correlationId) {
+    message.correlationId = correlationId;
+  }
   window.dispatchEvent(new MessageEvent('message', { data: message }));
+}
+
+/** The id of the last request sent — what a handler correlates its reply to. */
+function lastRequestId(): string {
+  const calls = mockPostMessage.mock.calls;
+  const envelope = calls[calls.length - 1][0] as { payload: BaseMessage };
+  return envelope.payload.id;
+}
+
+/** Answer the request in flight the way a handler does: correlated to its id. */
+function replyToLastRequest(type: string, payload: unknown): void {
+  simulateResponse(type, payload, lastRequestId());
 }
 
 describe('useBridgeQuery', () => {
@@ -60,7 +75,7 @@ describe('useBridgeQuery', () => {
     const { result } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] });
+      replyToLastRequest('org:list:response', { orgs: ['org-1', 'org-2'] });
     });
 
     expect(result.current.loading).toBe(false);
@@ -102,7 +117,7 @@ describe('useBridgeQuery', () => {
 
     // First response
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1'] });
+      replyToLastRequest('org:list:response', { orgs: ['org-1'] });
     });
 
     expect(result.current.data).toEqual({ orgs: ['org-1'] });
@@ -118,7 +133,7 @@ describe('useBridgeQuery', () => {
 
     // Second response
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] });
+      replyToLastRequest('org:list:response', { orgs: ['org-1', 'org-2'] });
     });
 
     expect(result.current.loading).toBe(false);
@@ -151,7 +166,7 @@ describe('useBridgeQuery', () => {
     expect(mockPostMessage).toHaveBeenCalledOnce();
 
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1'] });
+      replyToLastRequest('org:list:response', { orgs: ['org-1'] });
     });
 
     expect(result.current.loading).toBe(false);
@@ -166,7 +181,7 @@ describe('useBridgeQuery', () => {
     );
 
     act(() => {
-      simulateResponse('org:statusChanged', { orgId: 'org-1', status: 'connected' });
+      replyToLastRequest('org:statusChanged', { orgId: 'org-1', status: 'connected' });
     });
 
     expect(result.current.loading).toBe(false);
@@ -211,10 +226,8 @@ describe('useBridgeQuery', () => {
     expect(result.current).toBe(first);
   });
 
-  it('ignores an uncorrelated push of the response type when acceptUncorrelated is false', () => {
-    const { result } = renderHook(() =>
-      useBridgeQuery<{ enabled: boolean }>('ai:status', undefined, { acceptUncorrelated: false }),
-    );
+  it('ignores an uncorrelated push of the response type by default', () => {
+    const { result } = renderHook(() => useBridgeQuery<{ enabled: boolean }>('ai:status'));
 
     act(() => {
       simulateResponse('ai:status:response', { enabled: false });
@@ -222,6 +235,21 @@ describe('useBridgeQuery', () => {
 
     expect(result.current.loading).toBe(true);
     expect(result.current.data).toBeNull();
+  });
+
+  it('takes the same push once the query opts in', () => {
+    // The option reaches the listener: an uncorrelated message of the response
+    // type answers a query that asks for it.
+    const { result } = renderHook(() =>
+      useBridgeQuery<{ orgs: string[] }>('org:list', undefined, { acceptUncorrelated: true }),
+    );
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-9'] });
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['org-9'] });
   });
 
   it('should not update state after unmount', () => {

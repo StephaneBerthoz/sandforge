@@ -551,6 +551,13 @@
         "stepObjects": "Select Objects",
         "stepPreview": "Preview",
         "stepExecute": "Execute"
+      },
+      "error": {
+        "PRODUCTION_CONFIRMATION_DECLINED": "Clone cancelled: the production write was not confirmed.",
+        "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
+        "CLONE_FAILED": "The clone stopped before it finished.",
+        "generic": "The clone could not be completed.",
+        "detail": "Details: {{detail}}"
       }
     },
     "emptyState": {

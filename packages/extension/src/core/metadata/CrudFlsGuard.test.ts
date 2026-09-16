@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CrudFlsGuard } from './CrudFlsGuard';
-import type { ObjectDescribe } from './MetadataReader';
+import type { ObjectDescribe } from './describeTypes';
 import type { DescribeFetchFn, CrudOperation } from './CrudFlsGuard';
 
 function makeDescribe(overrides: Partial<ObjectDescribe> = {}): ObjectDescribe {

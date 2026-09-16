@@ -150,42 +150,16 @@ const TEST_SUPPORT_DIRS = ['/testing/', '/__mocks__/', '/test-utils/', '/src/tes
 const FIXTURE_FILE = /\.fixtures\.[cm]?[tj]sx?$/;
 
 /**
- * Orphans this gate tolerates, each with the reason it survived. Every entry
- * carries a type contract that shipped code imports: the file cannot be
- * deleted without breaking `tsc`, only the runtime value inside it is
- * unreachable. Splitting the types out is a separate change.
+ * Orphans this gate tolerates, each with the reason it survived. Empty, and
+ * meant to stay so: a file that mixes a live type with a dead value is split —
+ * the type into a module that emits nothing, the value deleted or moved to
+ * test support — rather than listed here.
  *
  * The list is a ratchet, re-validated on every run: an entry that no longer
  * exists, or that shipping code has since started importing by value, fails
  * the gate so the list can neither rot nor quietly grant amnesty.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
-  {
-    path: 'packages/extension/src/modules/seed/SchemaAnalyzer.ts',
-    reason:
-      'exports the DescribeField type that SeedCsvHandler and CsvValidator import; only the SchemaAnalyzer class is unreachable',
-  },
-  {
-    path: 'packages/extension/src/core/metadata/MetadataReader.ts',
-    reason:
-      'exports the ObjectDescribe/FieldDescribe types that CrudFlsGuard and DataOpsHandler import; only the MetadataReader class is unreachable',
-  },
-  {
-    path: 'packages/extension/src/core/storage/ConfigStoreBackend.ts',
-    reason:
-      'declares the ConfigStoreBackend interface the shipped store implements; only the InMemoryConfigStoreBackend test double is unreachable',
-  },
-  {
-    path: 'packages/shared/src/schemas/ai/callResult.ts',
-    reason:
-      'AIUsage, which the AI client, the Anthropic adapter and SessionBudget import, is z.infer of AIUsageSchema; the schema is unreachable as a value but cannot be deleted without the type',
-  },
-  {
-    path: 'packages/shared/src/schemas/ai/budget.ts',
-    reason:
-      'TokenBudgetState, which SessionBudget imports, is z.infer of TokenBudgetStateSchema; the schema is unreachable as a value but cannot be deleted without the type',
-  },
-];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
 
 /** True for a spec/test/story file — never part of the production graph. */
 function isTestFile(path: string): boolean {

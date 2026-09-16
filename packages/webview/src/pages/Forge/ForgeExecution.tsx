@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import { Pause, Play, Square, Flame } from 'lucide-react';
@@ -90,9 +91,10 @@ export const ForgeExecution: React.FC = () => {
   }, [isPaused, executionStatus]);
 
   // Clear store logs on mount so a fresh execution starts clean
+  const clearLogsRef = useLatestRef(clearLogs);
   useEffect(() => {
-    clearLogs();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    clearLogsRef.current();
+  }, [clearLogsRef]);
 
   /** Add a log entry (local state + store persistence). */
   const addLog = useCallback(

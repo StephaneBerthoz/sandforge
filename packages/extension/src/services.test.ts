@@ -4,12 +4,7 @@ import { join } from 'node:path';
 import type * as vscode from 'vscode';
 
 import { createServices, runSecretMigration } from './services.js';
-import {
-  SalesforceAdapter,
-  TelemetryAdapter,
-  StorageAdapter,
-  FsAdapter,
-} from './adapters/index.js';
+import { TelemetryAdapter, StorageAdapter, FsAdapter } from './adapters/index.js';
 import { SeedOrchestrator } from './modules/seed/SeedOrchestrator.js';
 import { SyncOrchestrator } from './modules/sync/SyncOrchestrator.js';
 import { CompareOrchestrator } from './modules/compare/CompareOrchestrator.js';
@@ -129,7 +124,6 @@ describe('services', () => {
       expect(services).toHaveProperty('context', context);
       expect(services).toHaveProperty('storage');
       expect(services).toHaveProperty('telemetry');
-      expect(services).toHaveProperty('salesforce');
       expect(services).toHaveProperty('fs');
       expect(services).toHaveProperty('aiClient');
       expect(services).toHaveProperty('seedOrchestrator');
@@ -137,6 +131,12 @@ describe('services', () => {
       expect(services).toHaveProperty('compareOrchestrator');
       expect(services).toHaveProperty('dataopsOrchestrator');
       expect(services).toHaveProperty('automationOrchestrator');
+    });
+
+    it('carries no Salesforce describe/concurrency adapter — nothing ever read one', () => {
+      const services = createServices(context);
+
+      expect(services).not.toHaveProperty('salesforce');
     });
 
     it('aiClient is a memoised factory: calling it twice returns the same instance', () => {
@@ -168,12 +168,11 @@ describe('services', () => {
       expect(services.isAIEnabled()).toBe(false);
     });
 
-    it('wires the four core adapters as instanceof of their classes', () => {
+    it('wires the three core adapters as instanceof of their classes', () => {
       const services = createServices(context);
 
       expect(services.storage).toBeInstanceOf(StorageAdapter);
       expect(services.telemetry).toBeInstanceOf(TelemetryAdapter);
-      expect(services.salesforce).toBeInstanceOf(SalesforceAdapter);
       expect(services.fs).toBeInstanceOf(FsAdapter);
     });
 

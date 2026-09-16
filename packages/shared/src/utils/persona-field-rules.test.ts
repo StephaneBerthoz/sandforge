@@ -202,5 +202,282 @@ describe('personaPatternToFieldRule', () => {
     });
 
     expect(rule).toEqual({ ruleType: 'faker', config: {} });
+    expect(Object.keys(rule?.config ?? {})).toEqual([]);
+  });
+
+  /* ----------------------------------------------------------------- *
+   * Contract keys win, and the persona alias is only a fallback.
+   * ----------------------------------------------------------------- */
+
+  it('prefers the contract key over the persona alias for a faker method', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'string',
+      generator: 'faker',
+      params: { fakerMethod: 'email', method: 'company.name', fakerLocale: 'de', locale: 'fr' },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ fakerMethod: 'email', fakerLocale: 'de' });
+  });
+
+  it('prefers the contract keys over the persona aliases for a sequence', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'string',
+      generator: 'sequence',
+      params: {
+        sequencePrefix: 'INV-',
+        prefix: 'MRN-',
+        sequenceStart: 500,
+        start: 1,
+        sequenceStep: 5,
+        step: 1,
+      },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({
+      sequencePrefix: 'INV-',
+      sequenceStart: 500,
+      sequenceStep: 5,
+    });
+  });
+
+  it('prefers the contract key over the persona alias for a pattern', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'string',
+      generator: 'pattern',
+      params: { regexPattern: '[A-Z]{3}', pattern: '###' },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ regexPattern: '[A-Z]{3}' });
+  });
+
+  it('prefers the contract key over the persona alias for an AI instruction', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'textarea',
+      generator: 'ai_generate',
+      params: { aiPrompt: 'contract wording', prompt: 'persona wording' },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ aiPrompt: 'contract wording' });
+  });
+
+  it('prefers the contract key over the persona alias for a picklist', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'picklist',
+      generator: 'random_pick',
+      params: { picklistValues: ['Gold'], values: ['Silver'] },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ picklistValues: ['Gold'] });
+  });
+
+  /* ----------------------------------------------------------------- *
+   * A key that is present but unusable falls through to the next one,
+   * and a config key is only emitted when a value was actually read.
+   * ----------------------------------------------------------------- */
+
+  it('skips an empty string and reads the next candidate', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'string',
+      generator: 'faker',
+      params: { fakerMethod: '', method: 'email' },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ fakerMethod: 'email' });
+  });
+
+  it('skips a non-finite number and reads the next candidate', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { minValue: Number.NaN, min: 7 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ minValue: 7 });
+  });
+
+  it('skips a blank string and reads the next candidate', () => {
+    // `Number('   ')` is 0: a blank left in a persona used to become a real
+    // bound of zero instead of falling through to the value beside it.
+    const rule = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { minValue: '   ', min: 7 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ minValue: 7 });
+  });
+
+  it('skips a string that is not a number and reads the next candidate', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { minValue: 'about ten', min: 7 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ minValue: 7 });
+  });
+
+  it('skips a value that is neither number nor string', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { minValue: false, min: 7 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ minValue: 7 });
+  });
+
+  it('emits no key at all for a generator whose params say nothing', () => {
+    // `toEqual` treats `{ fakerMethod: undefined }` as `{}`, which is how a
+    // config key set to undefined reached the extension unnoticed. The keys
+    // are what the schema looks at, so the keys are what is asserted.
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['faker', {}],
+      ['range', {}],
+      ['sequence', {}],
+      ['pattern', {}],
+      ['ai_generate', {}],
+      ['random_pick', {}],
+      ['weighted_pick', {}],
+    ];
+
+    for (const [generator, params] of cases) {
+      const rule = personaPatternToFieldRule({
+        fieldType: 'string',
+        generator,
+        params,
+        examples: [],
+      });
+      expect(Object.keys(rule?.config ?? { unread: true })).toEqual([]);
+    }
+  });
+
+  it('emits only the bound the params actually carry', () => {
+    const minOnly = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { min: 4 },
+      examples: [],
+    });
+    const maxOnly = personaPatternToFieldRule({
+      fieldType: 'number',
+      generator: 'range',
+      params: { max: 9 },
+      examples: [],
+    });
+
+    expect(Object.keys(minOnly?.config ?? {})).toEqual(['minValue']);
+    expect(Object.keys(maxOnly?.config ?? {})).toEqual(['maxValue']);
+  });
+
+  it('emits only the sequence parts the params actually carry', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'string',
+      generator: 'sequence',
+      params: { start: 10 },
+      examples: [],
+    });
+
+    expect(Object.keys(rule?.config ?? {})).toEqual(['sequenceStart']);
+  });
+
+  /* ----------------------------------------------------------------- *
+   * Picklist values: what is a value, and what is not a list at all.
+   * ----------------------------------------------------------------- */
+
+  it('drops the holes in a picklist rather than turning them into values', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'picklist',
+      generator: 'random_pick',
+      params: { values: ['Auto', null, undefined, 'Santé'] },
+      examples: [],
+    });
+
+    // Kept as written, a hole becomes the literal string "null" — a picklist
+    // value no org has.
+    expect(rule?.config).toEqual({ picklistValues: ['Auto', 'Santé'] });
+  });
+
+  it('reads nothing from a picklist that is a bare string', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'picklist',
+      generator: 'random_pick',
+      params: { values: 'Auto' },
+      examples: [],
+    });
+
+    // Indexing a string would yield ['0', '1', '2', '3'].
+    expect(Object.keys(rule?.config ?? {})).toEqual([]);
+  });
+
+  it('reads nothing from a null picklist', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'picklist',
+      generator: 'random_pick',
+      params: { values: null },
+      examples: [],
+    });
+
+    expect(Object.keys(rule?.config ?? {})).toEqual([]);
+  });
+
+  it('numbers in a picklist reach the contract as strings', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'picklist',
+      generator: 'weighted_pick',
+      params: { values: [1, 2] },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ picklistValues: ['1', '2'] });
+  });
+
+  /* ----------------------------------------------------------------- *
+   * relative_date: which end of the window decides the direction.
+   * ----------------------------------------------------------------- */
+
+  it('reads the far end of a relative_date window first', () => {
+    // A window that starts in the past and ends in the future is a future
+    // date: `maxDaysFromNow` decides, not the bound that happens to be first.
+    const rule = personaPatternToFieldRule({
+      fieldType: 'date',
+      generator: 'relative_date',
+      params: { maxDaysFromNow: 10, minDaysFromNow: -5 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ fakerMethod: 'futureDate' });
+  });
+
+  it('falls back to the near end when the window has no far end', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'date',
+      generator: 'relative_date',
+      params: { minDaysFromNow: -30 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ fakerMethod: 'pastDate' });
+  });
+
+  it('treats a window ending today as a future date', () => {
+    const rule = personaPatternToFieldRule({
+      fieldType: 'date',
+      generator: 'relative_date',
+      params: { maxDaysFromNow: 0 },
+      examples: [],
+    });
+
+    expect(rule?.config).toEqual({ fakerMethod: 'futureDate' });
   });
 });

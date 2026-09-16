@@ -9,7 +9,7 @@ import { WebviewStateSync } from './WebviewStateSync';
 import { OrgManager } from '../core/connection/OrgManager';
 import { OrgRegistry } from '../core/connection/OrgRegistry';
 import { ConfigStore } from '../core/storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../core/storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../test/InMemoryConfigStoreBackend';
 import { SecretVault } from '../core/storage/SecretVault';
 import type { SecretStorageAdapter } from '../core/storage/SecretVault';
 import { AuthProvider } from '../core/connection/AuthProvider';

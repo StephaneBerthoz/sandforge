@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
   CloneObjectConfig,
@@ -24,8 +25,21 @@ export type CloneExecutionStatus = 'idle' | 'previewing' | 'executing' | 'comple
 
 /** `operation:failed` as the extension posts it; read defensively. */
 type OperationFailedMessage = BaseMessage & {
-  payload?: { operationId?: unknown; error?: unknown };
+  payload?: { operationId?: unknown; error?: unknown; code?: unknown };
 };
+
+/**
+ * The failure codes SeedCloneHandler attaches to `operation:failed`.
+ *
+ * The message next to them stays English on purpose — the output channel and
+ * the fix-suggestion table read it — so the code is what the wizard shows,
+ * translated.
+ */
+const CLONE_ERROR_CODES = [
+  'PRODUCTION_CONFIRMATION_DECLINED',
+  'PRODUCTION_GUARD_BLOCKED',
+  'CLONE_FAILED',
+];
 
 /** Return type for the useClone hook. */
 export interface UseCloneReturn {
@@ -77,6 +91,7 @@ export interface UseCloneReturn {
  *   recommendation). It is described, never previewed or run.
  */
 export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseCloneReturn {
+  const { t } = useTranslation();
   const [sourceOrgId, setSourceOrgId] = useState('');
   const [sourceObjects, setSourceObjects] = useState<SourceObjectInfo[]>([]);
   const [selectedObjects, setSelectedObjects] = useState<CloneObjectConfig[]>([]);
@@ -152,10 +167,17 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     if (failed?.operationId !== executeRequestId) return;
     executeMutation.reset();
     setExecutionStatus('error');
+    const code = typeof failed.code === 'string' ? failed.code : '';
+    const known = CLONE_ERROR_CODES.includes(code);
+    const headline = known ? t(`seed.clone.error.${code}`) : t('seed.clone.error.generic');
+    // The host text is written in English for the logs. It is worth reading
+    // only when it carries what the org said: the two guard refusals are
+    // SandForge's own sentences and their translation already says all of it.
+    const hostMessage = typeof failed.error === 'string' ? failed.error : '';
     setError(
-      typeof failed.error === 'string' && failed.error
-        ? failed.error
-        : "Bridge mutation 'seed:clone:execute' failed",
+      hostMessage && (!known || code === 'CLONE_FAILED')
+        ? `${headline} ${t('seed.clone.error.detail', { detail: hostMessage })}`
+        : headline,
     );
   });
 

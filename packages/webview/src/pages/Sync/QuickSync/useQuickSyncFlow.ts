@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
+import { useLatestRef } from '../../../hooks/useLatestRef';
 
 /** Step in the Quick Sync 3-screen flow. */
 export type QuickSyncStep = 'orgs' | 'objects' | 'preview' | 'executing' | 'results';
@@ -104,13 +105,16 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
    * the operation is gone (`isExecuting` is intentionally not persisted), so
    * restore the flow at its initial step instead of a dead execution screen.
    */
-  useEffect(() => {
+  // Mount-only: reacting to later `step` changes would cancel live runs, so
+  // the restored step is read through a ref instead of a dependency.
+  const buryDeadStep = useLatestRef(() => {
     if (step === 'executing') {
       setStep('orgs');
     }
-    // Mount-only: reacting to later `step` changes would cancel live runs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+  useEffect(() => {
+    buryDeadStep.current();
+  }, [buryDeadStep]);
 
   const previewMutation = useBridgeMutation<{ preview: QuickSyncPreview }>('quicksync:preview');
   // `quicksync:execute` prepares the run: the extension auto-maps fields and

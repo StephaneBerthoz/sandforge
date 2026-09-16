@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { cn } from '../../theme';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import { fadeIn } from '../../motion/presets';
 import { useCommandStore } from '../../stores/useCommandStore';
 import { useAppStore, ALL_ROUTES } from '../../stores/useAppStore';
@@ -100,6 +101,13 @@ export const CommandPalette: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [recentSearches, setRecentSearches] = React.useState<string[]>(loadRecentSearches);
 
+  // The label text is the only trigger: the store setters and `navigate` are
+  // read through refs so a re-created setter cannot unregister and re-register
+  // every command mid-keystroke.
+  const navigateRef = useLatestRef(navigate);
+  const registerItemsRef = useLatestRef(registerItems);
+  const removeItemsRef = useLatestRef(removeItems);
+
   /** Build and register navigation + action items on mount. */
   useEffect(() => {
     const navItems: CommandItem[] = ALL_ROUTES.filter((r) => r !== 'welcome').map(
@@ -108,7 +116,7 @@ export const CommandPalette: React.FC = () => {
         label: t(ROUTE_LABEL_KEYS[route] ?? `nav.${route}`),
         group: 'navigate' as const,
         icon: ROUTE_ICONS[route] ?? 'file',
-        action: () => navigate(route),
+        action: () => navigateRef.current(route),
         keywords: [route],
       }),
     );
@@ -119,7 +127,7 @@ export const CommandPalette: React.FC = () => {
         label: t('home.quickForge'),
         group: 'actions' as const,
         icon: 'flame',
-        action: () => navigate('forge'),
+        action: () => navigateRef.current('forge'),
         keywords: ['forge', 'seed', 'sync', 'quick'],
       },
       {
@@ -127,7 +135,7 @@ export const CommandPalette: React.FC = () => {
         label: t('home.refreshMonitor'),
         group: 'actions' as const,
         icon: 'refresh',
-        action: () => navigate('monitor'),
+        action: () => navigateRef.current('monitor'),
         keywords: ['monitor', 'refresh'],
       },
       {
@@ -135,19 +143,19 @@ export const CommandPalette: React.FC = () => {
         label: t('home.openPipelines'),
         group: 'actions' as const,
         icon: 'circuit-board',
-        action: () => navigate('automation'),
+        action: () => navigateRef.current('automation'),
         keywords: ['pipeline', 'automation'],
       },
     ];
 
     const ids = [...navItems, ...actionItems].map((i) => i.id);
-    registerItems([...navItems, ...actionItems]);
+    registerItemsRef.current([...navItems, ...actionItems]);
 
+    const remove = removeItemsRef.current;
     return () => {
-      removeItems(ids);
+      remove(ids);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t]);
+  }, [t, navigateRef, registerItemsRef, removeItemsRef]);
 
   /** Group items by their group property. */
   const grouped = useMemo(() => {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LimitsSnapshot } from '@sandforge/shared';
 import { TrendStorage } from './TrendStorage';
 import { ConfigStore } from '../../core/storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../../core/storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
 
 function createSnapshot(
   orgId: string,

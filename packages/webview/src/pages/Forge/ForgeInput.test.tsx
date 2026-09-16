@@ -563,14 +563,56 @@ describe('ForgeInput', () => {
     expect(fullChip.getAttribute('title')).toBeTruthy();
   });
 
-  /* ---- Ctrl+Enter submit ---- */
+  /* ---- Ctrl+Enter submit (SOQL textarea: plain Enter is a newline there) ---- */
+  it('should launch discovery on Ctrl+Enter from the SOQL editor', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    const editor = screen.getByTestId('forge-input-soql');
+    fireEvent.change(editor, { target: { value: 'SELECT Id FROM Account' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    expect(mockSetConfig.mock.calls[0][0].inputMode).toBe('soql');
+    expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+  });
+
+  it('should launch discovery on Cmd+Enter from the SOQL editor', () => {
+    // macOS sends metaKey, and the run must start there too.
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    const editor = screen.getByTestId('forge-input-soql');
+    fireEvent.change(editor, { target: { value: 'SELECT Id FROM Account' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.keyDown(editor, { key: 'Enter', metaKey: true });
+
+    expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+  });
+
+  it('should leave a bare Enter in the SOQL editor alone', () => {
+    // Enter writes a newline in a multi-line query; only the modifier submits.
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    const editor = screen.getByTestId('forge-input-soql');
+    fireEvent.change(editor, { target: { value: 'SELECT Id FROM Account' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    expect(mockSetPhase).not.toHaveBeenCalled();
+  });
+
   it('should not trigger discover on Ctrl+Enter when canDiscover is false', () => {
     render(<ForgeInput />);
-    // Record input is visible by default; type something but do NOT set target org
-    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
-    // Ctrl+Enter on the input should NOT trigger discover (no target org)
-    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+    const editor = screen.getByTestId('forge-input-soql');
+    // A query, but no target org: there is nowhere to forge into.
+    fireEvent.change(editor, { target: { value: 'SELECT Id FROM Account' } });
+
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
+
     expect(mockSetPhase).not.toHaveBeenCalled();
   });
 

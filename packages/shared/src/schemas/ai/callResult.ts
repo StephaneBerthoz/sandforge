@@ -1,12 +1,13 @@
-import { z } from 'zod';
-
-export const AIUsageSchema = z
-  .object({
-    input: z.number().int().nonnegative(),
-    output: z.number().int().nonnegative(),
-    cacheRead: z.number().int().nonnegative().default(0),
-    cacheCreate: z.number().int().nonnegative().default(0),
-    total: z.number().int().nonnegative(),
-  })
-  .strict();
-export type AIUsage = z.infer<typeof AIUsageSchema>;
+/**
+ * Token usage of one AI call, or of a session so far.
+ *
+ * Every count is a non-negative integer. `cacheRead` and `cacheCreate` are 0
+ * when the provider reports no prompt caching.
+ */
+export type AIUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreate: number;
+  total: number;
+};

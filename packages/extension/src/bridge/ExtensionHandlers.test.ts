@@ -10,7 +10,7 @@ import { WebviewStateSync } from './WebviewStateSync';
 import { OrgManager } from '../core/connection/OrgManager';
 import { OrgRegistry } from '../core/connection/OrgRegistry';
 import { ConfigStore } from '../core/storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../core/storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../test/InMemoryConfigStoreBackend';
 import { SecretVault } from '../core/storage/SecretVault';
 import type { SecretStorageAdapter } from '../core/storage/SecretVault';
 import { AuthProvider } from '../core/connection/AuthProvider';
@@ -1065,19 +1065,15 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('seed:describe-object', { orgId: 'org1', objectApiName: 'Account' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
 
-      const response = posted.find((p) => p.type === 'seed:describe-object:response');
-      const errResponse = posted.find((p) => p.type === 'seed:error');
-      // Either we get a successful response or no error about invalid name
-      expect(response ?? errResponse).toBeDefined();
-      if (response) {
-        expect(response.type).toBe('seed:describe-object:response');
-      }
-      if (errResponse) {
-        // If error, it should NOT be about SOQL injection
-        expect(
-          (errResponse as BaseMessage & { payload: { message: string } }).payload.message,
-        ).not.toContain('Invalid Salesforce object API name');
-      }
+      // The control for the rejection above: a valid name reaches the org and
+      // is answered. Accepting "a response or some other error" let the guard
+      // refuse every name while this test stayed green.
+      await vi.waitFor(
+        () => expect(posted.some((p) => p.type === 'seed:describe-object:response')).toBe(true),
+        { timeout: 3000 },
+      );
+      expect(posted.filter((p) => p.type === 'seed:error')).toEqual([]);
+      expect(mockConn.describe).toHaveBeenCalledWith('Account');
     });
   });
 

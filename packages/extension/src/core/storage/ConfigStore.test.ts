@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConfigStore } from './ConfigStore';
-import { InMemoryConfigStoreBackend } from './ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
 
 describe('ConfigStore', () => {
   function createStore(): ConfigStore {

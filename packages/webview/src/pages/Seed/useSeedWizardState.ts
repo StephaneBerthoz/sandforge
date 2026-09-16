@@ -9,6 +9,7 @@ import type {
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import type { SeedRelation } from '../../stores/useSeedWizardStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
@@ -176,7 +177,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   /* Store lifecycle + draft persistence — reset & restore on mount      */
   /* ------------------------------------------------------------------ */
-  useEffect(() => {
+  const restoreDraft = useLatestRef(() => {
     const store = useSeedWizardStore.getState();
     // Fresh wizard on every page mount (the store mirrors component-local
     // state), then re-apply the persisted draft.
@@ -191,10 +192,13 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     if (saved.nl2soqlQuery) {
       nl2soqlState.setNl2soqlQuery(saved.nl2soqlQuery);
     }
+  });
+  useEffect(() => {
+    restoreDraft.current();
     return () => {
       useSeedWizardStore.getState().resetSeedWizard();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restoreDraft]);
 
   /* Draft persistence — save on form state changes */
   useEffect(() => {
@@ -240,18 +244,17 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   /* Persona application                                                 */
   /* ------------------------------------------------------------------ */
-  // The deps below intentionally pin specific fields of `fieldConfig` instead
-  // of the full object. `useSeedFieldConfig` rebuilds its return object on
-  // every render even when the underlying state is unchanged, so depending on
-  // `fieldConfig` itself would trigger a re-run on every parent render.
-  // Pinning `applyPersona` (a method ref) and `fieldConfigs.length` is the
-  // intended behavior — the lint rule cannot statically prove the ref is
-  // stable, so disable it here with a rationale.
+  // The deps below name specific fields of `fieldConfig` instead of the full
+  // object. `useSeedFieldConfig` rebuilds its return object on every render
+  // even when the underlying state is unchanged, so depending on `fieldConfig`
+  // itself would trigger a re-run on every parent render. Taking the method
+  // and the length out of it first lets the dependency arrays say so.
+  const { applyPersona } = fieldConfig;
+  const fieldConfigCount = fieldConfig.fieldConfigs.length;
   const applySelectedPersona = useCallback((): number => {
     if (!selectedPersona) return 0;
-    return fieldConfig.applyPersona(selectedPersona);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPersona, fieldConfig.applyPersona]);
+    return applyPersona(selectedPersona);
+  }, [selectedPersona, applyPersona]);
 
   /* Auto-apply a newly picked persona to the objects already described.
      Objects described later receive it in useSeedFieldRules as they arrive. */
@@ -261,14 +264,13 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   useEffect(() => {
     if (
       selectedPersona &&
-      fieldConfig.fieldConfigs.length > 0 &&
+      fieldConfigCount > 0 &&
       personaAppliedRef.current !== selectedPersona.id
     ) {
       personaAppliedRef.current = selectedPersona.id;
-      fieldConfig.applyPersona(selectedPersona);
+      applyPersona(selectedPersona);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPersona, fieldConfig.fieldConfigs.length, fieldConfig.applyPersona]);
+  }, [selectedPersona, fieldConfigCount, applyPersona]);
 
   /* ------------------------------------------------------------------ */
   /* Navigation guards                                                   */

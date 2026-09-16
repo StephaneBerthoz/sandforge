@@ -1,4 +1,4 @@
-import type { ObjectDescribe, FieldDescribe } from './MetadataReader.js';
+import type { ObjectDescribe, FieldDescribe } from './describeTypes.js';
 
 /** DML operation type that requires CRUD permission verification. */
 export type CrudOperation = 'insert' | 'update' | 'upsert' | 'delete';

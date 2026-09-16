@@ -30,6 +30,12 @@ export interface FixSuggestion {
   source: 'knowledge-base' | 'model';
   /** The suggestion itself, as the table or the model wrote it. */
   text: string;
+  /**
+   * The Salesforce error code the table answered, when it is the one that
+   * answered. The host keys its translation on it: the table is written in
+   * English, and `text` is the English line it holds.
+   */
+  code?: string;
 }
 
 /** Options for configuring the MessageBroker */

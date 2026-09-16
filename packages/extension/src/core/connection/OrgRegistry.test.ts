@@ -4,7 +4,7 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import { OrgRegistry } from './OrgRegistry';
 import { OrgManager } from './OrgManager';
 import { ConfigStore } from '../storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
 import { SecretVault } from '../storage/SecretVault';
 import type { SecretStorageAdapter } from '../storage/SecretVault';
 

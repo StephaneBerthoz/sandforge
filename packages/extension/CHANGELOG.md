@@ -221,13 +221,18 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   that started it, as a sync's already was. Stop targets that id, and the Seed,
   Quick Seed and Sync progress bars read only their own run's figures, so
   another run no longer moves them.
-- **A clone that fails says so at once.** A clone could fail after it started,
-  including when the production guard blocked it or its confirmation was
-  declined. The extension reported that only as an operation failure, which the
-  clone wizard never listened for, so the wizard stayed on its running screen
-  for two minutes and then showed a raw timeout instead of the reason. It now
-  matches that failure to the clone it started and shows the extension's message
-  straight away.
+- **A clone that fails says so at once, in your language.** A clone could fail
+  after it started, including when the production guard blocked it or its
+  confirmation was declined. The extension reported that only as an operation
+  failure, which the clone wizard never listened for, so the wizard stayed on
+  its running screen for two minutes and then showed a raw timeout instead of
+  the reason. It now matches that failure to the clone it started and says
+  straight away, in the SandForge interface language, which of three things
+  happened: the production confirmation was declined, the production guard
+  blocked the clone before any record was written, or the clone stopped before
+  it finished. Only that last one is followed by the error as it was reported,
+  untranslated; the guard's own reason is written to the SandForge output
+  channel.
 - **Home's recommended action opens the screen it names, ready to go.**
   Confirming a recommendation only switched page: Clone and Quick Seed landed on
   Seed's mode picker, and Sync landed on Grappe, which can only display a run
@@ -906,8 +911,11 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   it cannot answer goes to the model, while AI is on. It covers every code the
   retry classifier knows: `REQUEST_RUNNING_TOO_LONG`, `SERVER_UNAVAILABLE`,
   `INVALID_FIELD` and `INSUFFICIENT_ACCESS_OR_READONLY` had no entry. The
-  suggestion used to be posted to every open panel, each of which showed it; it
-  is now a single VS Code notification. With no SandForge view open nothing is
+  suggestion used to be posted to every open panel, each of which showed it,
+  and a suggestion from the table was always in English. It is now a single VS
+  Code notification, and a suggestion from the table follows VS Code's display
+  language: every code it knows is translated into French, German, Spanish,
+  Japanese and Brazilian Portuguese. With no SandForge view open nothing is
   asked, so a scheduled sync failing with every panel closed no longer costs a
   model call for a suggestion nobody sees.
 - **Production orgs are listed first.** The Organizations page showed orgs in

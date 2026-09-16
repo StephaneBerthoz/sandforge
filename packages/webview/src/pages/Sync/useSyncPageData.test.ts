@@ -33,9 +33,21 @@ const execution = vi.hoisted(() => ({
   mutate: vi.fn(),
 }));
 
+/**
+ * Calls of the sync:describe-fields mutation. The mock hands out a new `mutate`
+ * on every render, so an effect that listed the mutation among its triggers
+ * would fire again on each render.
+ */
+const describeFields = vi.hoisted(() => ({ mutate: vi.fn() }));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => ({
-    mutate: requestType === 'sync:execute' ? execution.mutate : vi.fn(),
+    mutate:
+      requestType === 'sync:execute'
+        ? execution.mutate
+        : requestType === 'sync:describe-fields'
+          ? (payload?: Record<string, unknown>) => describeFields.mutate(payload)
+          : vi.fn(),
     data: null,
     loading: requestType === 'sync:execute' ? execution.loading : false,
     error: null,
@@ -248,6 +260,29 @@ describe('useSyncPageData', () => {
   it('should expose handleApplyTemplate in the return object', () => {
     const { result } = renderHook(() => useSyncPageData());
     expect(typeof result.current.handleApplyTemplate).toBe('function');
+  });
+
+  it("asks for the first object's fields on entering the mapping step, and not on every render", () => {
+    const { result, rerender } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleSourceOrgChange('org-src');
+      result.current.handleTargetOrgChange('org-tgt');
+      result.current.handleAddObject('Account');
+    });
+    expect(describeFields.mutate).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.setCurrentStep(1);
+    });
+    rerender();
+    rerender();
+
+    expect(describeFields.mutate).toHaveBeenCalledTimes(1);
+    expect(describeFields.mutate).toHaveBeenCalledWith({
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      objectApiName: 'Account',
+    });
   });
 
   it('starts from the source and target orgs Home recommended syncing, once', () => {

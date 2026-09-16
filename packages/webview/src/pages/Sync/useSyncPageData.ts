@@ -19,6 +19,7 @@ import type {
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOperationProgress } from '../../hooks/useOperationProgress';
@@ -381,27 +382,34 @@ export function useSyncPageData(): SyncPageData {
     }
   }, [result, isRunning]);
 
-  // Trigger PII scan when entering the review step
-  useEffect(() => {
+  // Trigger PII scan when entering the review step. The step is the trigger:
+  // re-scanning on every object-list identity change would fire a scan per
+  // keystroke in the object picker.
+  const scanForPii = useLatestRef(() => {
     if (currentStep === 3 && sourceOrgId && objectEntries.length > 0) {
       piiScan.mutate({
         orgId: sourceOrgId,
         objectNames: objectEntries.map((e) => e.objectApiName),
       });
     }
-  }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    scanForPii.current();
+  }, [currentStep, scanForPii]);
 
-  // Fetch fields when entering field mapping step
+  // Fetch fields when entering field mapping step, or when the orgs or objects
+  // change on it. `mutate` is read through a ref so the dependency array names
+  // those triggers only.
+  const describeFields = useLatestRef(fieldsMutation.mutate);
   useEffect(() => {
     if (currentStep === 1 && sourceOrgId && targetOrgId && objectEntries.length > 0) {
-      fieldsMutation.mutate({
+      describeFields.current({
         sourceOrgId,
         targetOrgId,
         objectApiName: objectEntries[0].objectApiName,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep, sourceOrgId, targetOrgId, objectEntries]);
+  }, [currentStep, sourceOrgId, targetOrgId, objectEntries, describeFields]);
 
   const handleSourceOrgChange = useCallback((orgId: string) => {
     setSourceOrgId(orgId);

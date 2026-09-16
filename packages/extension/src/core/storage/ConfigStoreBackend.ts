@@ -16,21 +16,3 @@ export interface ConfigStoreBackend {
   /** Persist all entries. May be fire-and-forget for async backends. */
   setData(data: Record<string, ConfigEntry>): void;
 }
-
-/**
- * In-memory ConfigStore backend for tests and MVP.
- * Data persists for the lifetime of the instance only.
- */
-export class InMemoryConfigStoreBackend implements ConfigStoreBackend {
-  private data: Record<string, ConfigEntry> = {};
-
-  /** Load all entries from memory */
-  getData(): Record<string, ConfigEntry> {
-    return { ...this.data };
-  }
-
-  /** Save all entries to memory */
-  setData(data: Record<string, ConfigEntry>): void {
-    this.data = { ...data };
-  }
-}

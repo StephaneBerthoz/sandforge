@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
+import { useLatestRef } from '../../../hooks/useLatestRef';
 import { Button } from '../../../components/ui/Button';
 import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
@@ -80,11 +81,14 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
   };
 
   /** Auto-trigger validation when entering validate step. */
-  useEffect(() => {
+  const validateOnEntry = useLatestRef(() => {
     if (csv.step === 'validate' && !csv.validationResult && csv.executionStatus !== 'validating') {
       csv.handleValidate();
     }
-  }, [csv.step]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    validateOnEntry.current();
+  }, [csv.step, validateOnEntry]);
 
   const canGoNext = (): boolean => {
     switch (csv.step) {

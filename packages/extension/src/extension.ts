@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import { MessageBroker } from './bridge/MessageBroker';
+import type { FixSuggestion } from './bridge/MessageBroker';
 import { MessageRouter } from './bridge/MessageRouter';
 import { WebviewStateSync } from './bridge/WebviewStateSync';
 import { ExtensionHandlers } from './bridge/ExtensionHandlers';
@@ -36,6 +37,7 @@ import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
+import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
 import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
 import { formatPinoLine } from './adapters/telemetry/formatPinoLine.js';
 
@@ -83,6 +85,27 @@ export function buildStatusBarLabel(
 }
 
 /**
+ * The line a fix suggestion is shown with, in the UI language.
+ *
+ * The table of known Salesforce error codes is written in English, and its
+ * sentences reach here already rendered — so a French user read an English
+ * paragraph in a French VS Code. The table is keyed on the error code, so the
+ * code is what selects the sentence to translate, and `vscode.l10n.t` is keyed
+ * on that sentence exactly as `bundle.l10n.json` holds it. A model answer is
+ * already written in the UI language and is passed through untouched.
+ *
+ * Exported for unit tests.
+ *
+ * @param suggestion - The suggestion the broker decided on.
+ */
+export function localizedFixSuggestion(suggestion: FixSuggestion): string {
+  if (suggestion.source !== 'knowledge-base' || !suggestion.code) return suggestion.text;
+  const texts = knownErrorTexts(suggestion.code);
+  if (!texts) return suggestion.text;
+  return vscode.l10n.t(texts.suggestion ?? texts.explanation);
+}
+
+/**
  * Called when the extension is activated.
  *
  * Orchestrates the composition factories under `./composition/` (core,
@@ -103,7 +126,7 @@ export function activate(context: vscode.ExtensionContext): void {
   logger.init(outputChannel);
   log('SandForge is now active.');
 
-  // 1b. Composition root — wires core adapters (telemetry, storage, salesforce, fs)
+  // 1b. Composition root — wires core adapters (telemetry, storage, fs)
   // and exposes orchestrator factories. Also kicks off SecretStorage migration.
   // Pino (telemetry logger) is routed to the OutputChannel instead of stdout,
   // each JSON record rewritten in the channel's `[time] [LEVEL] message` form.
@@ -152,11 +175,12 @@ export function activate(context: vscode.ExtensionContext): void {
     telemetry: services.telemetry,
     // A fix suggestion for a failed operation is shown here, once: posted to
     // the webviews it was repeated in every open panel.
-    showFixSuggestion: ({ source, text }) => {
+    showFixSuggestion: (suggestion) => {
+      const line = localizedFixSuggestion(suggestion);
       void vscode.window.showInformationMessage(
-        source === 'model'
-          ? vscode.l10n.t('SandForge: fix suggested by the AI model — {0}', text)
-          : vscode.l10n.t('SandForge: suggested fix for a known Salesforce error — {0}', text),
+        suggestion.source === 'model'
+          ? vscode.l10n.t('SandForge: fix suggested by the AI model — {0}', line)
+          : vscode.l10n.t('SandForge: suggested fix for a known Salesforce error — {0}', line),
       );
     },
   });

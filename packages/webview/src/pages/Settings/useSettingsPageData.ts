@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import i18n from '../../i18n';
 import { SUPPORTED_LANGUAGES } from '../../i18n';
 import type { SupportedLanguage } from '../../i18n';
@@ -162,14 +163,15 @@ export function useSettingsPageData(
   const [aiKeySaved, setAiKeySaved] = useState(false);
 
   /** When AI key is saved, refresh status — twice, see AI_STATUS_RECHECK_MS. */
+  const refetchAiStatus = useLatestRef(() => aiStatusQuery.refetch());
   useEffect(() => {
     if (!aiSaveKeyMutation.data?.success) return;
     setAiKeySaved(true);
     setAiApiKey('');
-    aiStatusQuery.refetch();
-    const recheck = setTimeout(() => aiStatusQuery.refetch(), AI_STATUS_RECHECK_MS);
+    refetchAiStatus.current();
+    const recheck = setTimeout(() => refetchAiStatus.current(), AI_STATUS_RECHECK_MS);
     return () => clearTimeout(recheck);
-  }, [aiSaveKeyMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aiSaveKeyMutation.data, refetchAiStatus]);
 
   /** When settings are loaded from extension, update local state. */
   useEffect(() => {
@@ -197,11 +199,12 @@ export function useSettingsPageData(
    * After a successful toggle, refresh the status so the UI shows the value
    * actually persisted by the extension (and the latest event count).
    */
+  const refetchTelemetryStatus = useLatestRef(() => telemetryStatusQuery.refetch());
   useEffect(() => {
     if (telemetryToggleMutation.data?.success) {
-      telemetryStatusQuery.refetch();
+      refetchTelemetryStatus.current();
     }
-  }, [telemetryToggleMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [telemetryToggleMutation.data, refetchTelemetryStatus]);
 
   const updateSetting = <K extends keyof SettingsValues>(
     key: K,

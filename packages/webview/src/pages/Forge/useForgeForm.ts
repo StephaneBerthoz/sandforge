@@ -7,6 +7,7 @@ import {
 } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import type {
   ForgeConfig,
   ForgeDepth,
@@ -189,11 +190,14 @@ export function useForgeForm(): ForgeFormState {
   const [recordLimit, setRecordLimit] = useState<string>('smart');
 
   /* ---- Auto-select source org from global selectedOrgId on mount ---- */
-  useEffect(() => {
+  const adoptGlobalOrg = useLatestRef(() => {
     if (!sourceOrgId && selectedOrgId) {
       setSourceOrgId(selectedOrgId);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    adoptGlobalOrg.current();
+  }, [adoptGlobalOrg]);
 
   /**
    * Adopt a record id handed over by another page.
@@ -206,13 +210,16 @@ export function useForgeForm(): ForgeFormState {
    * Mount-only, and only when the field is still empty — the store config is a
    * handoff, not a second source of truth for a field the user is editing.
    */
-  useEffect(() => {
+  const adoptHandedOverRecord = useLatestRef(() => {
     const handedOver = useForgeStore.getState().config?.recordId;
     if (handedOver && !recordId) {
       setInputMode('record');
       setRecordId(handedOver);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    adoptHandedOverRecord.current();
+  }, [adoptHandedOverRecord]);
 
   /* ---- Record preview (composed hook) ---- */
   const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =

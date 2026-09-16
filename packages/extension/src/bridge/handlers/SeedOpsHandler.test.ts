@@ -1,11 +1,11 @@
-import fs from 'fs';
-import path from 'path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, SeedExecutionResult } from '@sandforge/shared';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -697,22 +697,6 @@ describe('SeedOpsHandler', () => {
     });
   });
 
-  describe('bulk path uses real IDs', () => {
-    it('passes bulkResult.successIds instead of synthetic IDs', () => {
-      // This is a structural test: verify the SeedOpsHandler source uses
-      // bulkResult.successIds (not Array.from with synthetic bulk-N IDs).
-      // The actual bulk executor is tested in BulkApiExecutor.test.ts.
-      // Here we just verify the code references bulkResult.successIds.
-      const handlerPath = path.join(__dirname, 'SeedOpsHandler.ts');
-      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
-
-      // Should use bulkResult.successIds
-      expect(source).toContain('bulkResult.successIds');
-      // Should NOT contain the old synthetic pattern
-      expect(source).not.toContain('Array.from({ length: bulkResult.successCount }');
-    });
-  });
-
   describe('background operation registry', () => {
     it('registers operation in BackgroundOperationRegistry when registry is set', async () => {
       const registry = new BackgroundOperationRegistry();
@@ -793,14 +777,91 @@ describe('SeedOpsHandler', () => {
     });
   });
 
-  describe('streaming threshold', () => {
-    it('SeedOpsHandler source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
-      const handlerPath = path.join(__dirname, 'SeedOpsHandler.ts');
-      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+  describe('insert path by record count', () => {
+    /** Records above this count are streamed instead of sent as one job. */
+    const STREAMING_THRESHOLD = 10_000;
 
-      expect(source).toContain('STREAMING_THRESHOLD');
-      expect(source).toContain('ChunkedBulkExecutor');
-      expect(source).toContain('BackgroundOperationRegistry');
+    /** The insert function signature the orchestrator is handed. */
+    type InsertFn = (
+      orgId: string,
+      objectApiName: string,
+      records: Record<string, unknown>[],
+      batchSize: number,
+    ) => Promise<{ successIds: string[]; errors: string[] }>;
+
+    function makeRecords(count: number): Record<string, unknown>[] {
+      return Array.from({ length: count }, (_, i) => ({ Name: `Account ${i}` }));
+    }
+
+    /**
+     * Run a seed and hand back the insert function the handler built, so the
+     * routing it performs can be exercised with any record count.
+     */
+    async function captureInsert(): Promise<InsertFn> {
+      let captured: InsertFn | undefined;
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: { insert: InsertFn }) => {
+          captured = seedDeps.insert;
+          return { execute: vi.fn().mockResolvedValue(seedResult(5)) };
+        }),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-insert-path',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+
+      if (!captured) throw new Error('the orchestrator was never given an insert function');
+      return captured;
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('streams a record set above the threshold instead of loading one job with it', async () => {
+      // One Bulk job of 10_001 records holds the whole set in memory and
+      // reports nothing until it ends; above the threshold the work is chunked.
+      const streamed = vi
+        .spyOn(ChunkedBulkExecutor.prototype, 'executeChunked')
+        .mockResolvedValue({ successIds: ['001stream'], errors: [] } as never);
+      const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk');
+
+      const insert = await captureInsert();
+      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      expect(oneJob).not.toHaveBeenCalled();
+      expect(streamed).toHaveBeenCalledOnce();
+      const [, objectApiName, operation, , totalRecords] = streamed.mock.calls[0];
+      expect(objectApiName).toBe('Account');
+      expect(operation).toBe('insert');
+      expect(totalRecords).toBe(STREAMING_THRESHOLD + 1);
+      expect(result.successIds).toEqual(['001stream']);
+    });
+
+    it('sends a record set at the threshold as one job, returning the ids the org assigned', async () => {
+      // At the threshold the streaming path must not kick in, and the ids
+      // returned are the org's own — never a synthetic run of bulk-N strings.
+      const streamed = vi.spyOn(ChunkedBulkExecutor.prototype, 'executeChunked');
+      const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
+        successIds: ['001AAA', '001BBB'],
+        failures: [{ recordIndex: 2, error: 'DUPLICATE_VALUE' }],
+      } as never);
+
+      const insert = await captureInsert();
+      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD), 200);
+
+      expect(streamed).not.toHaveBeenCalled();
+      expect(oneJob).toHaveBeenCalledOnce();
+      expect(result.successIds).toEqual(['001AAA', '001BBB']);
+      expect(result.errors).toEqual(['DUPLICATE_VALUE']);
     });
   });
 

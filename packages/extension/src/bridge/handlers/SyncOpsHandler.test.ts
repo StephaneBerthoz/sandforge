@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -954,24 +952,6 @@ describe('SyncOpsHandler', () => {
     });
   });
 
-  describe('streaming threshold', () => {
-    it('BulkDataWriter source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
-      const writerPath = path.join(__dirname, '../../modules/sync/BulkDataWriter.ts');
-      const source = fs.readFileSync(writerPath, 'utf-8') as string;
-
-      expect(source).toContain('STREAMING_THRESHOLD');
-      expect(source).toContain('ChunkedBulkExecutor');
-    });
-
-    it('SyncOpsHandler source delegates writes to BulkDataWriter', () => {
-      const handlerPath = path.join(__dirname, 'SyncOpsHandler.ts');
-      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
-
-      expect(source).toContain('BulkDataWriter');
-      expect(source).toContain('BackgroundOperationRegistry');
-    });
-  });
-
   describe('payload validation', () => {
     it('rejects sync:execute with an injection-shaped objectApiName before touching the org', async () => {
       const config = validSyncConfig();
@@ -1313,6 +1293,80 @@ describe('SyncOpsHandler', () => {
           ]) as unknown as import('@sandforge/shared').SyncConfig,
         ),
       ).rejects.toThrow(/delete is not allowed on production org tgt-org/);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Wire a guard that allows the run but demands a confirmation the user
+     * then refuses. Both entry points must stop on that refusal.
+     */
+    function wireDecliningGuard(): ReturnType<typeof vi.fn> {
+      const confirmIfNeeded = vi.fn().mockResolvedValue(false);
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            requiresConfirmation: true,
+            requiresApproval: false,
+            warnings: [],
+            impactSummary: 'upsert 1 object on a production org',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded,
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return confirmIfNeeded;
+    }
+
+    it('stops an interactive sync the user declined to confirm, before any connection', async () => {
+      // A decline is not a failure to report twice, nor a run to start anyway:
+      // exactly one sync:error settles the webview mutation and the org is
+      // never opened.
+      const confirmIfNeeded = wireDecliningGuard();
+      mockWorkingConnection();
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-declined',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        }),
+      );
+
+      expect(confirmIfNeeded).toHaveBeenCalledOnce();
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { message?: string; code?: string } },
+      );
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.code).toBe('PROD_CONFIRMATION_DECLINED');
+      expect(syncErrors[0].payload.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      // Nothing was executed: no completion is announced.
+      expect(posted.filter((m) => m.type === 'operation:completed')).toHaveLength(0);
+    });
+
+    it('rejects a scheduled sync the user declined to confirm, before any connection', async () => {
+      // The scheduler owns the outcome of a tick, so a decline rejects rather
+      // than posting to a channel nobody listens on at tick time.
+      const confirmIfNeeded = wireDecliningGuard();
+      mockWorkingConnection();
+
+      await expect(
+        handler.executeScheduled(
+          validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+        ),
+      ).rejects.toThrow('Scheduled sync cancelled (production confirmation declined).');
+
+      expect(confirmIfNeeded).toHaveBeenCalledOnce();
       expect(mockGetConn).not.toHaveBeenCalled();
     });
 

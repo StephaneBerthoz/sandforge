@@ -57,6 +57,25 @@ const PREVIEW_SAMPLE_MAX_FIELDS = 10;
 const RECORD_COUNT_NOT_COMPUTED = -1;
 
 /**
+ * Message the production guard refusal is thrown with. Matched in the `catch`
+ * to tell that refusal apart from a failure the org returned: both arrive
+ * there, and only the code tells the webview which sentence to show.
+ */
+const GUARD_BLOCKED_PREFIX = 'Operation blocked by Production Guard: ';
+
+/**
+ * Failure codes `operation:failed` carries for a clone run.
+ *
+ * The English `error` text stays what it was — the logs and the fix-suggestion
+ * table read it — and the code is what the webview translates.
+ */
+const CLONE_FAILURE_CODES = {
+  confirmationDeclined: 'PRODUCTION_CONFIRMATION_DECLINED',
+  guardBlocked: 'PRODUCTION_GUARD_BLOCKED',
+  failed: 'CLONE_FAILED',
+} as const;
+
+/**
  * Domain handler for the record-clone wizard (`seed:clone:*`).
  *
  * Wires the Clone pipeline modules (CloneRecordFetcher, CloneReferenceLinker,
@@ -281,9 +300,7 @@ export class SeedCloneHandler implements DomainHandler {
         const check = guard.check(guardRequest);
         guard.logOperation(guardRequest, check);
         if (!check.allowed) {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
+          throw new Error(`${GUARD_BLOCKED_PREFIX}${check.blockedReason ?? check.impactSummary}`);
         }
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
@@ -292,7 +309,10 @@ export class SeedCloneHandler implements DomainHandler {
             operationId,
             'Operation cancelled by user (production confirmation declined).',
             false,
-            { context: failure },
+            {
+              context: failure,
+              extraPayload: { code: CLONE_FAILURE_CODES.confirmationDeclined },
+            },
           );
           return;
         }
@@ -471,9 +491,15 @@ export class SeedCloneHandler implements DomainHandler {
     } catch (err: unknown) {
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
-      this.deps.log(`[ERR] seed:clone:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] seed:clone:execute: ${message}`);
+      sendOperationFailed(this.deps, operationId, message, true, {
         context: failure,
+        extraPayload: {
+          code: message.startsWith(GUARD_BLOCKED_PREFIX)
+            ? CLONE_FAILURE_CODES.guardBlocked
+            : CLONE_FAILURE_CODES.failed,
+        },
       });
       settle(err);
     }

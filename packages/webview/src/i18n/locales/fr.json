@@ -551,6 +551,13 @@
         "stepObjects": "Sélection objets",
         "stepPreview": "Aperçu",
         "stepExecute": "Exécution"
+      },
+      "error": {
+        "PRODUCTION_CONFIRMATION_DECLINED": "Clonage annulé : l'écriture en production n'a pas été confirmée.",
+        "PRODUCTION_GUARD_BLOCKED": "La protection production a bloqué ce clonage avant le moindre enregistrement écrit.",
+        "CLONE_FAILED": "Le clonage s'est arrêté avant la fin.",
+        "generic": "Le clonage n'a pas pu être mené à son terme.",
+        "detail": "Détail : {{detail}}"
       }
     },
     "emptyState": {

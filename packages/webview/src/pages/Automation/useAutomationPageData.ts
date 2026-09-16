@@ -10,6 +10,7 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { usePipelineGenerator } from '../../hooks/useAIFeatures';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import type { ScheduledPipeline } from './SchedulerCalendar';
 
@@ -366,15 +367,18 @@ export function useAutomationPageData(): AutomationPageData {
   // write had silently failed. Failures still surface through the bridge-error
   // effect above: handlePipelineSave replies on `pipeline:error`, which is the
   // default error channel of this mutation, and a lost reply becomes a timeout.
-  useEffect(() => {
-    if (!saveMutation.data?.success) return;
+  const announceSaved = useLatestRef(() => {
     addNotification({
       level: 'success',
       title: t('automation.title'),
       message: t('automation.pipelineSaved'),
       autoDismissMs: 3000,
     });
-  }, [saveMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    if (!saveMutation.data?.success) return;
+    announceSaved.current();
+  }, [saveMutation.data, announceSaved]);
 
   // The host writes a run to its history when the run ends, but answers
   // `pipeline:history` only on request, and the query fires once on mount:
@@ -382,10 +386,11 @@ export function useAutomationPageData(): AutomationPageData {
   // since the page opened. A completed or failed run both answer on
   // `pipeline:run:response`; a run that throws is not written, so there is
   // nothing new to fetch.
+  const refetchHistory = useLatestRef(() => historyQuery.refetch());
   useEffect(() => {
     if (!executeMutation.data) return;
-    historyQuery.refetch();
-  }, [executeMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+    refetchHistory.current();
+  }, [executeMutation.data, refetchHistory]);
 
   // Consume the AI-generated pipeline.
   //
@@ -393,9 +398,7 @@ export function useAutomationPageData(): AutomationPageData {
   // waited out the round trip and got nothing — no canvas, no explanation.
   // `success: false` carries the reason (an unset API key is the common one),
   // which is the only thing that tells the user what to do next.
-  useEffect(() => {
-    const generated = pipelineGen.data;
-    if (!generated) return;
+  const adoptGenerated = useLatestRef((generated: NonNullable<typeof pipelineGen.data>) => {
     if (!generated.success || !generated.pipeline) {
       const message = generated.error ?? t('ai.error.unknown');
       setError(message);
@@ -409,12 +412,15 @@ export function useAutomationPageData(): AutomationPageData {
     }
     setPipeline(toPipelineDefinition(generated.pipeline, t('automation.newPipeline')));
     setActiveTab('canvas');
-  }, [pipelineGen.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    const generated = pipelineGen.data;
+    if (!generated) return;
+    adoptGenerated.current(generated);
+  }, [pipelineGen.data, adoptGenerated]);
 
   // Same shape as the generator effect above: the answer decides, not the click.
-  useEffect(() => {
-    const installed = installMutation.data;
-    if (!installed) return;
+  const adoptInstalled = useLatestRef((installed: NonNullable<typeof installMutation.data>) => {
     if (!installed.success || !installed.pipeline) {
       const message = installed.error ?? t('automation.installFailed');
       setError(message);
@@ -434,7 +440,12 @@ export function useAutomationPageData(): AutomationPageData {
       message: t('automation.templateInstalled'),
       autoDismissMs: 3000,
     });
-  }, [installMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    const installed = installMutation.data;
+    if (!installed) return;
+    adoptInstalled.current(installed);
+  }, [installMutation.data, adoptInstalled]);
 
   const handleCreatePipeline = () => {
     const newPipeline: PipelineDefinition = {

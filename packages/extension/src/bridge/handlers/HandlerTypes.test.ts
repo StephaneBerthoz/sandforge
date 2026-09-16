@@ -376,9 +376,12 @@ describe('sendOperationFailed — fix suggestion', () => {
     );
 
     expect(deps.provider).not.toHaveBeenCalled();
+    // The code travels with the line: the table is written in English, and the
+    // host keys its translation on the entry the code selects.
     expect(deps.showFixSuggestion).toHaveBeenCalledWith({
       source: 'knowledge-base',
       text: 'Wait a moment and retry. Row locks are usually transient.',
+      code: 'UNABLE_TO_LOCK_ROW',
     });
   });
 
@@ -397,6 +400,7 @@ describe('sendOperationFailed — fix suggestion', () => {
     expect(deps.showFixSuggestion).toHaveBeenCalledWith({
       source: 'knowledge-base',
       text: 'API limits reset on a rolling 24-hour basis. Wait before retrying.',
+      code: 'REQUEST_LIMIT_EXCEEDED',
     });
   });
 

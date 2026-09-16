@@ -53,7 +53,7 @@ describe('useMessageResponse', () => {
     });
 
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] });
+      simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] }, 'req-1');
     });
 
     expect(result.current.loading).toBe(false);
@@ -147,7 +147,7 @@ describe('useMessageResponse', () => {
     });
 
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1'] });
+      simulateResponse('org:list:response', { orgs: ['org-1'] }, 'req-1');
     });
 
     expect(result.current.data).not.toBeNull();
@@ -174,7 +174,7 @@ describe('useMessageResponse', () => {
     unmount();
 
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['late'] });
+      simulateResponse('org:list:response', { orgs: ['late'] }, 'req-1');
     });
 
     // After unmount, the last captured state should remain unchanged
@@ -195,14 +195,19 @@ describe('useMessageResponse', () => {
       result.current.listen('req-2');
     });
 
-    // Response that would have matched req-1 should be ignored because
-    // activeRequestId is now req-2
+    // A reply correlated to req-1 must be ignored: activeRequestId is req-2.
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['org-1'] });
+      simulateResponse('org:list:response', { orgs: ['stale'] }, 'req-1');
     });
 
-    // The response still matches req-2 (we don't track per-message id matching
-    // in the message payload, only in the internal activeRequestId ref)
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+
+    // req-2's own reply closes it.
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-1'] }, 'req-2');
+    });
+
     expect(result.current.loading).toBe(false);
     expect(result.current.data).toEqual({ orgs: ['org-1'] });
   });
@@ -240,7 +245,11 @@ describe('useMessageResponse', () => {
     expect(result.current.data).toBeNull();
   });
 
-  it('should fall back to type-only matching when correlationId is absent', () => {
+  it('does not answer a pending request with an uncorrelated message of its type', () => {
+    // Handler replies are correlated at the source, so an uncorrelated message
+    // of a response type is a host broadcast. Taken by type, one landing
+    // between a request and its reply closed the request, and the reply that
+    // actually answered it was then dropped as stale.
     const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
@@ -248,19 +257,46 @@ describe('useMessageResponse', () => {
       result.current.listen('req-42');
     });
 
-    // No correlationId in response — backward-compatible type-only match
     act(() => {
-      simulateResponse('org:list:response', { orgs: ['fallback'] });
+      simulateResponse('org:list:response', { orgs: ['pushed'] });
+    });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['answer'] }, 'req-42');
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.data).toEqual({ orgs: ['fallback'] });
+    expect(result.current.data).toEqual({ orgs: ['answer'] });
+  });
+
+  it('takes the uncorrelated push where the caller opted in', () => {
+    // Taking a push by type alone stays possible, but only for a caller that
+    // asks for it.
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>({ ...defaultOptions, acceptUncorrelated: true }),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-42');
+    });
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['pushed'] });
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['pushed'] });
   });
 
   it('ignores an uncorrelated message of the response type when told to, and still takes its own reply', () => {
     // `ai:status:response` is also pushed with no request behind it whenever
     // the AI wiring changes. Accepted by type, that push closed the Settings
     // query it happened to land on, and the real reply was then dropped.
+    // Settings states the refusal rather than leaning on the default.
     const { result } = renderHook(() =>
       useMessageResponse<{ enabled: boolean }>({
         requestType: 'ai:status',
@@ -448,7 +484,7 @@ describe('useMessageResponse', () => {
         result.current.listen('req-1');
       });
       act(() => {
-        simulateResponse('org:list:response', { orgs: ['a'] });
+        simulateResponse('org:list:response', { orgs: ['a'] }, 'req-1');
       });
       act(() => {
         simulateResponse('org:error', { message: 'late error' }, 'req-1');

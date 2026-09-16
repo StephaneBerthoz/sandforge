@@ -48,7 +48,7 @@ export function useBridgeQuery<T>(
     errorType?: string;
     /**
      * Whether an uncorrelated message of the response type answers the query
-     * (default `true`). See `UseMessageResponseOptions.acceptUncorrelated`.
+     * (default `false`). See `UseMessageResponseOptions.acceptUncorrelated`.
      */
     acceptUncorrelated?: boolean;
   },

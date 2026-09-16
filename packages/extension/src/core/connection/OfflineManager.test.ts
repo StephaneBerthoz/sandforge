@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { OfflineManager } from './OfflineManager';
 import type { QueuedOperation, OfflineEventListener, OperationExecutor } from './OfflineManager';
 import { ConfigStore } from '../storage/ConfigStore';
-import { InMemoryConfigStoreBackend } from '../storage/ConfigStoreBackend';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
 
 function createOperation(
   id: string,
