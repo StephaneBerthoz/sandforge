@@ -77,8 +77,9 @@ export interface CoreServices {
    * The window's one AI token counter, shared by every AI feature. `aiClient`
    * builds each adapter with it, so rebuilding the AI stack (any
    * `sandforge.ai.*` change, a new key) keeps the count and no adapter is ever
-   * unmetered; only a window reload starts a new one. `wireBudgetReporting`
-   * connects it to the webview and host notices once the broker exists.
+   * unmetered; only a window reload or `sandforge.ai.resetTokenBudget` starts
+   * a new one. `wireBudgetReporting` connects it to the webview and host
+   * notices once the broker exists.
    */
   sessionBudget: SessionBudget;
   /**
@@ -108,7 +109,7 @@ export interface CoreServices {
  * declares the same default for the Settings editor; services.test holds the
  * two together.
  */
-const DEFAULT_TOKEN_BUDGET = 50_000;
+const DEFAULT_TOKEN_BUDGET = 200_000;
 
 export interface OrchestratorFactories {
   seedOrchestrator: (deps: SeedOrchestratorDependencies) => SeedOrchestrator;
@@ -185,6 +186,11 @@ export function createServices(
     telemetry,
     logger: telemetry.getLogger(),
     budget: sessionBudget,
+    budgetRefusalMessage: (state) =>
+      vscode.l10n.t(
+        'AI token budget exceeded for this session ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession in Settings, or run SandForge: Reset AI Token Budget, to continue.',
+        `${state.used.total}/${state.budget}`,
+      ),
     getProvider: () => {
       const cfg = vscode.workspace.getConfiguration('sandforge.ai');
       return (cfg.get<AIProviderType>('provider') ?? 'anthropic') as AIProviderType;

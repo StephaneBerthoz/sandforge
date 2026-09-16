@@ -32,7 +32,7 @@ export interface SessionBudgetDeps {
  * client factory builds each adapter with this one instance, and the adapter
  * is the chokepoint every AI call passes through. Rebuilding the AI stack
  * (any `sandforge.ai.*` change, a new key) keeps the count; only a window
- * reload starts a new one.
+ * reload or the `sandforge.ai.resetTokenBudget` command starts a new one.
  *
  * Counts ALL four `AIUsage` fields (input + output + cacheRead + cacheCreate)
  * — an output-only counter under-bills by 5-20×.
@@ -41,6 +41,7 @@ export interface SessionBudgetDeps {
  *   - activation → `new SessionBudget({ sessionId, budget })`, `connect(sink)` once the broker exists
  *   - per call   → `preflight(predictedInput)` then (after SDK) `increment(usage)`
  *   - setting    → `resize(budget)` when `tokenBudgetMaxPerSession` changes (count kept)
+ *   - command    → `reset()` on `sandforge.ai.resetTokenBudget` (limit kept)
  *
  * Reports:
  *   - `ai:budget:state`    — every increment, reset and resize (the AI page gauge)

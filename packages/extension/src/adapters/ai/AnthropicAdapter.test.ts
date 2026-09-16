@@ -482,16 +482,17 @@ describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → pre
 
     // 6th call: preflight blocks because total is already AT 100% — adding ANY input puts it over.
     const callsBefore = mockMessagesCreate.mock.calls.length;
-    await expect(
-      adapter.chat({
-        messages: [
-          {
-            role: 'user',
-            content: 'this is a longer message that should be predicted at > 0 tokens',
-          },
-        ],
-      }),
-    ).rejects.toThrow(/budget exceeded/i);
+    const refused = adapter.chat({
+      messages: [
+        {
+          role: 'user',
+          content: 'this is a longer message that should be predicted at > 0 tokens',
+        },
+      ],
+    });
+    await expect(refused).rejects.toThrow(/budget exceeded/i);
+    // The way out that needs no reload is named.
+    await expect(refused).rejects.toThrow(/run SandForge: Reset AI Token Budget, to continue/);
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
     // the refusal itself is not announced a second time
     expect(notices).toEqual(['warn', 'exceeded']);

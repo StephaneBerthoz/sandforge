@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events';
 // Node16 a plain `import type` resolves to the .d.ts twin whose #private field
 // is nominal-incompatible with it.
 import type Anthropic from '@anthropic-ai/sdk' with { 'resolution-mode': 'import' };
-import type { AIUsage } from '@sandforge/shared';
+import type { AIUsage, TokenBudgetState } from '@sandforge/shared';
 
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
@@ -34,6 +34,11 @@ export interface AnthropicAdapterDeps {
   model?: string;
   breaker?: CircuitBreaker;
   budget?: SessionBudget;
+  /**
+   * The error text of a call the budget refuses, in the UI language. The host
+   * supplies it; left undefined, the text is English.
+   */
+  budgetRefusalMessage?: (state: TokenBudgetState) => string;
 }
 
 /**
@@ -89,6 +94,7 @@ export class AnthropicAdapter implements AIClient {
   private readonly telemetry?: TelemetryAdapter;
   private readonly logger?: Logger;
   private readonly model: string;
+  private readonly budgetRefusalMessage?: (state: TokenBudgetState) => string;
   private readonly inFlight = new Set<AbortController>();
 
   /** Last reported state — used to debounce state-change events. */
@@ -107,6 +113,7 @@ export class AnthropicAdapter implements AIClient {
         halfOpenRequests: 1,
       });
     this.budget = deps.budget;
+    this.budgetRefusalMessage = deps.budgetRefusalMessage;
   }
 
   /**
@@ -175,8 +182,9 @@ export class AnthropicAdapter implements AIClient {
     const result = this.budget.preflight(predicted);
     if (!result.allowed) {
       const err = new Error(
-        `AI token budget exceeded for this session (${result.state.used.total}/${result.state.budget} tokens used). ` +
-          'Raise sandforge.ai.tokenBudgetMaxPerSession in Settings, or reload the window, to start a new session.',
+        this.budgetRefusalMessage?.(result.state) ??
+          `AI token budget exceeded for this session (${result.state.used.total}/${result.state.budget} tokens used). ` +
+            'Raise sandforge.ai.tokenBudgetMaxPerSession in Settings, or run SandForge: Reset AI Token Budget, to continue.',
       );
       (err as Error & { code?: string }).code = 'AI_BUDGET_EXCEEDED';
       (err as Error & { budgetState?: typeof result.state }).budgetState = result.state;

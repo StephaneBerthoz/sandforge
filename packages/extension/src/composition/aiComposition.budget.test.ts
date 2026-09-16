@@ -4,7 +4,12 @@ const host = vi.hoisted(() => ({
   showWarningMessage: vi.fn((..._args: unknown[]) =>
     Promise.resolve<string | undefined>(undefined),
   ),
+  showInformationMessage: vi.fn((..._args: unknown[]) =>
+    Promise.resolve<string | undefined>(undefined),
+  ),
   executeCommand: vi.fn((..._args: unknown[]) => Promise.resolve()),
+  /** Command handlers the code under test registered, by command id. */
+  commands: new Map<string, () => unknown>(),
   configListener: undefined as
     | ((event: { affectsConfiguration: (section: string) => boolean }) => void)
     | undefined,
@@ -21,8 +26,17 @@ vi.mock('vscode', () => ({
     }),
     getConfiguration: vi.fn(() => ({ get: vi.fn((_k: string, d: unknown) => d) })),
   },
-  window: { showWarningMessage: host.showWarningMessage },
-  commands: { executeCommand: host.executeCommand },
+  window: {
+    showWarningMessage: host.showWarningMessage,
+    showInformationMessage: host.showInformationMessage,
+  },
+  commands: {
+    executeCommand: host.executeCommand,
+    registerCommand: vi.fn((command: string, handler: () => unknown) => {
+      host.commands.set(command, handler);
+      return { dispose: vi.fn() };
+    }),
+  },
   l10n: {
     t: (message: string, ...args: Array<string | number | boolean>) =>
       message.replace(/\{(\d+)\}/g, (_m, index: string) => String(args[Number(index)])),
@@ -46,7 +60,12 @@ vi.mock('../modules/ai/SchemaAdvisor.js', () => ({ SchemaAdvisor: vi.fn() }));
 
 import type { AIUsage } from '@sandforge/shared';
 import { NL2SOQL } from '../modules/ai/NL2SOQL.js';
-import { initAIComposition, registerAIConfigListener, wireBudgetReporting } from './aiComposition';
+import {
+  initAIComposition,
+  registerAIConfigListener,
+  registerTokenBudgetReset,
+  wireBudgetReporting,
+} from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
 import type { Services } from '../services.js';
 import type { MessageBroker } from '../bridge/MessageBroker';
@@ -85,6 +104,7 @@ describe('the AI token budget, as the user meets it', () => {
     vi.clearAllMocks();
     posted.length = 0;
     host.configListener = undefined;
+    host.commands.clear();
     configuredBudget = 10_000;
     budget = new SessionBudget({ sessionId: 'ai-window', budget: 10_000 });
     const storage = {
@@ -127,6 +147,28 @@ describe('the AI token budget, as the user meets it', () => {
     expect(String(host.showWarningMessage.mock.calls[1][0])).toContain('10000/10000');
   });
 
+  it('offers the reset only once AI requests are refused, not at 80%', () => {
+    wireBudgetReporting(services, broker);
+
+    budget.increment(usage(8_000));
+    budget.increment(usage(2_000));
+
+    // At 80% nothing is refused yet: a reset there would only silence a warning.
+    const [warned, refused] = host.showWarningMessage.mock.calls;
+    expect(warned.slice(1)).toEqual(['Open Settings']);
+    expect(refused.slice(1)).toEqual(['Open Settings', 'Reset Budget']);
+  });
+
+  it('names the command that resets the budget when AI requests are refused', () => {
+    wireBudgetReporting(services, broker);
+
+    budget.increment(usage(10_000));
+
+    expect(String(host.showWarningMessage.mock.calls[0][0])).toContain(
+      'SandForge: Reset AI Token Budget',
+    );
+  });
+
   it('opens the budget setting when the user picks the notice action', async () => {
     host.showWarningMessage.mockImplementationOnce((...args: unknown[]) =>
       Promise.resolve(args[1] as string),
@@ -140,6 +182,27 @@ describe('the AI token budget, as the user meets it', () => {
       'workbench.action.openSettings',
       'sandforge.ai.tokenBudgetMaxPerSession',
     );
+  });
+
+  it('resets the budget when the user picks the reset action of the refusal notice', async () => {
+    host.showWarningMessage.mockImplementationOnce((...args: unknown[]) =>
+      Promise.resolve(args.find((arg) => arg === 'Reset Budget') as string | undefined),
+    );
+    host.executeCommand.mockImplementationOnce(async (...args: unknown[]) => {
+      await host.commands.get(String(args[0]))?.();
+    });
+    wireBudgetReporting(services, broker);
+    registerTokenBudgetReset({ services, log: vi.fn() });
+
+    budget.increment(usage(10_000));
+    await settle();
+
+    expect(host.showWarningMessage.mock.calls[0].slice(1)).toEqual([
+      'Open Settings',
+      'Reset Budget',
+    ]);
+    expect(host.executeCommand).toHaveBeenCalledWith('sandforge.ai.resetTokenBudget');
+    expect(budget.getState().used.total).toBe(0);
   });
 
   it('keeps the gauge on the AI page live on every call', () => {
@@ -161,6 +224,58 @@ describe('the AI token budget, as the user meets it', () => {
       code: 'AI_BUDGET_EXCEEDED',
     });
     expect(host.sdkCreate).not.toHaveBeenCalled();
+  });
+
+  it('lets a call refused at 100% through once the budget is reset, without a reload', async () => {
+    await initAIComposition(makeDeps());
+    registerTokenBudgetReset({ services, log: vi.fn() });
+    const aiProvider = vi.mocked(NL2SOQL).mock.calls[0][0];
+    host.sdkCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'SELECT Id FROM Account' }],
+      usage: { input_tokens: 40, output_tokens: 10 },
+      model: 'claude-test',
+      stop_reason: 'end_turn',
+    });
+    budget.increment(usage(10_000));
+    await expect(aiProvider('all accounts')).rejects.toMatchObject({
+      code: 'AI_BUDGET_EXCEEDED',
+    });
+
+    await host.commands.get('sandforge.ai.resetTokenBudget')?.();
+
+    await expect(aiProvider('all accounts')).resolves.toBe('SELECT Id FROM Account');
+    expect(host.sdkCreate).toHaveBeenCalledTimes(1);
+    expect(budget.getState().used.total).toBe(50);
+  });
+
+  it('shows the reset on the AI page gauge and tells the user', async () => {
+    wireBudgetReporting(services, broker);
+    const log = vi.fn();
+    registerTokenBudgetReset({ services, log });
+    // Over the limit, so the count before the reset and the limit differ.
+    budget.increment(usage(12_000));
+    posted.length = 0;
+
+    await host.commands.get('sandforge.ai.resetTokenBudget')?.();
+
+    expect(posted).toEqual([
+      expect.objectContaining({
+        type: 'ai:budget:state',
+        payload: expect.objectContaining({
+          used: expect.objectContaining({ total: 0 }),
+          budget: 10_000,
+          percent: 0,
+          state: 'ok',
+        }),
+      }),
+    ]);
+    expect(host.showInformationMessage).toHaveBeenCalledTimes(1);
+    const notice = String(host.showInformationMessage.mock.calls[0][0]);
+    expect(notice).toContain('10000 tokens available');
+    expect(notice).not.toContain('12000');
+    expect(log.mock.calls).toEqual([
+      ['AI token budget reset: 12000 tokens used before, 10000 available.'],
+    ]);
   });
 
   // Every sandforge.ai.* change rebuilds the stack. It used to start the

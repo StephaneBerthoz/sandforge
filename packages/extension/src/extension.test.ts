@@ -442,11 +442,11 @@ describe('extension', () => {
 
     // 16 module commands + 1 cheers + 1 sandforge.ai config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
-    // + openOrgInBrowser command
+    // + openOrgInBrowser command + AI token budget reset command
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
-    // + performanceTracker = 31
-    expect(context.subscriptions.length).toBe(31);
+    // + performanceTracker = 32
+    expect(context.subscriptions.length).toBe(32);
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {

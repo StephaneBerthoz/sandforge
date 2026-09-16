@@ -10,6 +10,9 @@ import type { BudgetThreshold } from '../adapters/ai/tokenBudget/index.js';
 
 const BUDGET_SETTING = 'sandforge.ai.tokenBudgetMaxPerSession';
 
+/** Starts the window's AI token count over; the limit is kept. */
+const RESET_BUDGET_COMMAND = 'sandforge.ai.resetTokenBudget';
+
 /** Read under the `sandforge` section, so without its prefix. */
 const ERROR_RESOLUTION_SETTING = 'ai.errorResolution';
 
@@ -270,13 +273,48 @@ async function showBudgetNotice(
           used,
         )
       : vscode.l10n.t(
-          'SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession or reload the window to continue.',
+          'SandForge: AI requests are refused — they would exceed the AI token budget for this window ({0} tokens used). Raise sandforge.ai.tokenBudgetMaxPerSession, or run SandForge: Reset AI Token Budget, to continue.',
           used,
         );
-  const choice = await vscode.window.showWarningMessage(message, openSettings);
+  // Once calls are refused, the reset is offered where the user reads why.
+  const resetBudget = vscode.l10n.t('Reset Budget');
+  const actions = threshold === 'exceeded' ? [openSettings, resetBudget] : [openSettings];
+  const choice = await vscode.window.showWarningMessage(message, ...actions);
   if (choice === openSettings) {
     await vscode.commands.executeCommand('workbench.action.openSettings', BUDGET_SETTING);
+  } else if (choice === resetBudget) {
+    await vscode.commands.executeCommand(RESET_BUDGET_COMMAND);
   }
+}
+
+/** Inputs for the command that resets the AI token budget. */
+export interface TokenBudgetResetDeps {
+  services: Pick<Services, 'sessionBudget'>;
+  log: (msg: string) => void;
+}
+
+/**
+ * Register `sandforge.ai.resetTokenBudget`: start this window's AI token count
+ * over without reloading the window. The limit stays what the setting says.
+ * The budget reports the reset itself (`ai:budget:state`, so the AI page gauge
+ * follows) and re-arms its 80% and refusal notices.
+ *
+ * @returns the Disposable — the caller MUST push it to context.subscriptions.
+ */
+export function registerTokenBudgetReset(deps: TokenBudgetResetDeps): vscode.Disposable {
+  const { services, log } = deps;
+  return vscode.commands.registerCommand(RESET_BUDGET_COMMAND, () => {
+    const used = services.sessionBudget.getState().used.total;
+    services.sessionBudget.reset();
+    const { budget } = services.sessionBudget.getState();
+    log(`AI token budget reset: ${used} tokens used before, ${budget} available.`);
+    void vscode.window.showInformationMessage(
+      vscode.l10n.t(
+        'SandForge: the AI token budget for this window is reset — {0} tokens available.',
+        budget,
+      ),
+    );
+  });
 }
 
 /** Inputs for the sandforge.ai.* configuration watcher. */

@@ -31,6 +31,7 @@ import {
   createAIReinit,
   initAIComposition,
   registerAIConfigListener,
+  registerTokenBudgetReset,
   wireBudgetReporting,
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
@@ -283,6 +284,7 @@ export function activate(context: vscode.ExtensionContext): void {
   services.reinitAI = createAIReinit({ services, run: runAI, log });
   runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
+  context.subscriptions.push(registerTokenBudgetReset({ services, log }));
 
   // 8. Register all message routes
   handlers.registerAll(router);

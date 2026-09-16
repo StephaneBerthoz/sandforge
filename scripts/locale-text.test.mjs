@@ -20,6 +20,18 @@
  *    ligatures of Latin Extended-A; the blocks above hold letters for other
  *    languages, and one appearing here is a substitution.
  *
+ * And a translation is written in its language:
+ *
+ *  - a host bundle (`l10n/bundle.l10n.<lang>.json`) is keyed by the English
+ *    text, so a value equal to its key is a string nobody translated. None is
+ *    legitimately identical today, and a new one would show English to a user
+ *    who picked another language;
+ *  - in the webview and manifest bundles a value may rightly match English —
+ *    "Sandbox", "Type", a module name — but an English sentence left as it is
+ *    may not. A value of three words or more holding an English function word,
+ *    identical in a translated bundle to its English one, is refused, with the
+ *    exceptions named below and the reason each one stands.
+ *
  * Run: node --test scripts/locale-text.test.mjs
  */
 import assert from 'node:assert/strict';
@@ -98,4 +110,94 @@ test('no bundle holds a combining mark or a letter from another alphabet', () =>
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+/** English words that only occur in running English text. */
+const ENGLISH_FUNCTION_WORD =
+  /\b(the|and|or|is|are|to|of|for|with|this|that|your|you|not|no|from|in|on|at|be|will|can|has|have|was|were|a|an)\b/i;
+
+/** A value that reads as an English sentence rather than as a name. */
+export function looksLikeEnglishSentence(text) {
+  return (
+    typeof text === 'string' &&
+    ENGLISH_FUNCTION_WORD.test(text) &&
+    text.trim().split(/\s+/).length >= 3
+  );
+}
+
+/**
+ * Values that are English in every language on purpose.
+ * Each one is code or a proper noun a user types or reads verbatim.
+ */
+const SAME_IN_EVERY_LANGUAGE = new Map([
+  ['forge.soqlPlaceholder', 'a SOQL query: the keywords are the language, not English'],
+]);
+
+const flatten = (node, prefix = '', acc = {}) => {
+  for (const [key, value] of Object.entries(node)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object') flatten(value, path, acc);
+    else acc[path] = value;
+  }
+  return acc;
+};
+
+const readJson = (relative) => JSON.parse(readFileSync(join(repoRoot, relative), 'utf8'));
+
+test('a sentence is told apart from a name', () => {
+  assert.ok(looksLikeEnglishSentence('Save the configuration first'));
+  assert.ok(looksLikeEnglishSentence('This saved template no longer exists.'));
+  for (const name of ['Sandbox', 'Reset Budget', 'Bulk API 2.0', 'Open Settings']) {
+    assert.equal(looksLikeEnglishSentence(name), false, `took a name for a sentence: ${name}`);
+  }
+});
+
+test('no host bundle leaves a string in English', () => {
+  const dir = 'packages/extension/l10n';
+  const translated = existsSync(join(repoRoot, dir))
+    ? readdirSync(join(repoRoot, dir)).filter((name) => /^bundle\.l10n\..+\.json$/.test(name))
+    : [];
+  assert.ok(translated.length >= 5, `only ${translated.length} translated host bundles found`);
+  const offenders = [];
+  for (const file of translated) {
+    for (const [key, value] of Object.entries(readJson(join(dir, file)))) {
+      if (value === key) offenders.push(`${dir}/${file}: ${JSON.stringify(key)}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('no translated bundle leaves an English sentence as it is', () => {
+  const offenders = [];
+  const compare = (label, english, translated) => {
+    for (const [key, value] of Object.entries(english)) {
+      if (SAME_IN_EVERY_LANGUAGE.has(key)) continue;
+      if (translated[key] === value && looksLikeEnglishSentence(value)) {
+        offenders.push(`${label} › ${key}: ${JSON.stringify(value)}`);
+      }
+    }
+  };
+
+  const webview = 'packages/webview/src/i18n/locales';
+  const webviewEnglish = flatten(readJson(`${webview}/en.json`));
+  for (const name of readdirSync(join(repoRoot, webview)).filter((n) => n.endsWith('.json'))) {
+    if (name === 'en.json') continue;
+    compare(`${webview}/${name}`, webviewEnglish, flatten(readJson(`${webview}/${name}`)));
+  }
+
+  const manifestEnglish = readJson('packages/extension/package.nls.json');
+  for (const name of readdirSync(join(repoRoot, 'packages/extension')).filter((n) =>
+    /^package\.nls\..+\.json$/.test(n),
+  )) {
+    compare(`packages/extension/${name}`, manifestEnglish, readJson(`packages/extension/${name}`));
+  }
+
+  assert.deepEqual(offenders, []);
+});
+
+test('every named exception still exists, so none outlives what it excuses', () => {
+  const english = flatten(readJson('packages/webview/src/i18n/locales/en.json'));
+  for (const key of SAME_IN_EVERY_LANGUAGE.keys()) {
+    assert.ok(key in english, `exception ${key} names a string that is gone — remove it`);
+  }
 });

@@ -1,3 +1,5 @@
+import type { TokenBudgetState } from '@sandforge/shared';
+
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { AnthropicAdapter } from './AnthropicAdapter.js';
@@ -17,6 +19,8 @@ export interface AIClientFactoryDeps {
    * of the AI composition that follows it.
    */
   budget?: SessionBudget;
+  /** The error text of a call the budget refuses, in the UI language. */
+  budgetRefusalMessage?: (state: TokenBudgetState) => string;
   /** Reads the current provider from VSCode settings. */
   getProvider: () => AIProviderType;
   /** Reads the current model override from VSCode settings. */
@@ -67,6 +71,7 @@ export function createAIClientFactory(deps: AIClientFactoryDeps): AIClientFactor
           logger: deps.logger,
           model: deps.getModel?.(),
           budget: deps.budget,
+          budgetRefusalMessage: deps.budgetRefusalMessage,
         });
         break;
       case 'openai':

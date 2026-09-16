@@ -83,6 +83,9 @@ function createMockContext(
 /** Settings a test wants the mocked workspace configuration to return. */
 const configValues = vi.hoisted(() => ({ map: new Map<string, unknown>() }));
 
+/** The `l10n` bundle of the display language a test runs in; empty is English. */
+const displayLanguage = vi.hoisted(() => ({ bundle: {} as Record<string, string> }));
+
 vi.mock('vscode', () => ({
   env: { isTelemetryEnabled: false },
   workspace: {
@@ -90,6 +93,12 @@ vi.mock('vscode', () => ({
       get: (key: string, fallback: unknown) =>
         configValues.map.has(key) ? configValues.map.get(key) : fallback,
     }),
+  },
+  l10n: {
+    t: (message: string, ...args: Array<string | number | boolean>) =>
+      (displayLanguage.bundle[message] ?? message).replace(/\{(\d+)\}/g, (_m, index: string) =>
+        String(args[Number(index)]),
+      ),
   },
   ExtensionMode: { Production: 1, Development: 2, Test: 3 },
 }));
@@ -346,7 +355,10 @@ describe('services', () => {
   });
 
   describe('sessionBudget', () => {
-    afterEach(() => configValues.map.clear());
+    afterEach(() => {
+      configValues.map.clear();
+      displayLanguage.bundle = {};
+    });
 
     /** The default the manifest declares for sandforge.ai.tokenBudgetMaxPerSession. */
     function manifestDefault(): unknown {
@@ -367,12 +379,21 @@ describe('services', () => {
       expect(services.sessionBudget.getState().state).toBe('ok');
     });
 
-    it('reads a configured budget', () => {
-      configValues.map.set('tokenBudgetMaxPerSession', 200_000);
+    // 50 000 tokens ran out after a dozen chat turns, since each turn resends
+    // the conversation so far.
+    it('gives an unconfigured install 200 000 tokens', () => {
       const services = createServices(createMockContext());
 
+      expect(manifestDefault()).toBe(200_000);
       expect(services.sessionBudget.getState().budget).toBe(200_000);
-      expect(services.readTokenBudget()).toBe(200_000);
+    });
+
+    it('reads a configured budget', () => {
+      configValues.map.set('tokenBudgetMaxPerSession', 120_000);
+      const services = createServices(createMockContext());
+
+      expect(services.sessionBudget.getState().budget).toBe(120_000);
+      expect(services.readTokenBudget()).toBe(120_000);
     });
 
     // Rebuilding the AI stack used to hand every feature a fresh, empty counter,
@@ -396,6 +417,39 @@ describe('services', () => {
       expect(rebuilt.budget).toBe(services.sessionBudget);
       expect(rebuilt.budget?.getState().used.total).toBe(1_200);
     });
+
+    // The refusal reaches the chat banner, Seed personas and NL2SOQL as the error
+    // text itself. In English only, it sent a French user to a palette title that
+    // French VS Code does not show.
+    it.each(['en', 'fr', 'de', 'es', 'ja', 'pt-br'])(
+      'refuses a call over the budget in the %s display language, naming the reset command as its palette does',
+      async (locale) => {
+        const suffix = locale === 'en' ? '' : `.${locale}`;
+        const readJson = (file: string): Record<string, string> =>
+          JSON.parse(readFileSync(join(__dirname, '..', file), 'utf8')) as Record<string, string>;
+        displayLanguage.bundle = readJson(`l10n/bundle.l10n${suffix}.json`);
+        const paletteTitle = readJson(`package.nls${suffix}.json`)['command.resetTokenBudget'];
+        configValues.map.set('tokenBudgetMaxPerSession', 1_000);
+        const services = createServices(createMockContext());
+        services.sessionBudget.increment({
+          input: 1_200,
+          output: 0,
+          cacheRead: 0,
+          cacheCreate: 0,
+          total: 1_200,
+        });
+
+        const refused = services
+          .aiClient('anthropic')
+          .chat({ messages: [{ role: 'user', content: 'hello' }] });
+
+        await expect(refused).rejects.toMatchObject({ code: 'AI_BUDGET_EXCEEDED' });
+        const message = await refused.catch((err: Error) => err.message);
+        expect(paletteTitle).toMatch(/^SandForge/);
+        expect(message).toContain(paletteTitle);
+        expect(message).toContain('1200/1000');
+      },
+    );
 
     // `minimum` in the manifest guards the settings editor, not a file edited by
     // hand. SessionBudget refuses a budget that is not a positive number, and

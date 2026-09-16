@@ -284,14 +284,15 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   way out was announced nowhere. The dialog now opens and the file's path — or
   the reason it was not written — reaches you wherever you are. A dismissed
   dialog stays silent, as other exports already did.
-- **The AI token budget holds for the whole window.** Every change to a
+- **The AI token budget holds across AI setting changes.** Every change to a
   `sandforge.ai.*` setting rebuilt the AI stack with a fresh, empty counter, so
   toggling any AI setting was a way past the limit, and until the rebuild
   finished, calls from Seed or an open chat went through with no budget at
   all. There is now one counter per window, shared by every AI call and kept
   across rebuilds. **Raising `sandforge.ai.tokenBudgetMaxPerSession` no longer
   restarts the count, as 1.22.0 said it did**: the new limit applies to the
-  tokens already used, and only a window reload starts over.
+  tokens already used, and only a window reload or "SandForge: Reset AI Token
+  Budget" starts over.
 - **You are told when the AI budget runs low, wherever you are.** The 80%
   warning and the refusal were sent to a page that never listened for them;
   the only sign was the gauge on the AI page, and a Seed run whose AI values
@@ -1055,6 +1056,22 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
   cancel it. The Frozen Dataset guide no longer gives Production Guard an audit
   trail: with `sandforge.safety.auditLogging` on, the guard keeps its
   safety-check decisions in memory for the session only.
+
+- **The AI token budget is 200,000 tokens by default, and a command starts it
+  over without a reload.** The previous default of 50,000 tokens lasted roughly
+  a dozen exchanges with the assistant, since each message sends the recent
+  conversation again, and going on meant raising the limit or reloading the
+  window. Unless you set `sandforge.ai.tokenBudgetMaxPerSession` yourself, the
+  limit is now 200,000. "SandForge: Reset AI Token Budget", in the Command
+  Palette, brings this window's count back to zero and keeps the limit: a
+  notice says how many tokens are available, the gauge on the AI page follows,
+  and the 80% and refusal notices come again once the count climbs back. The
+  notice shown when requests start being refused offers Reset Budget next to
+  Open Settings; the 80% notice, while nothing is refused yet, does not. The
+  reason a refused request gives in the assistant's chat names the command
+  instead of a reload. It was always in English; it now follows VS Code's
+  display language in French, German, Spanish, Japanese and Brazilian
+  Portuguese, and names the command as the Command Palette shows it there.
 
 ### Removed
 

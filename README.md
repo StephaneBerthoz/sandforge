@@ -167,7 +167,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | `sandforge.ai.provider`                    | AI provider (only `anthropic` is implemented)                                                                                        | `anthropic`                  |
 | `sandforge.ai.model`                       | AI model used by every AI feature (chat, NL2SOQL, pipeline drafts, error resolution, Seed)                                           | `claude-sonnet-4-5-20250929` |
 | `sandforge.ai.errorResolution`             | Send a failed run's error message to the model for a fix suggestion (Salesforce Ids removed first)                                   | `true`                       |
-| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `50000`                      |
+| `sandforge.ai.tokenBudgetMaxPerSession`    | Maximum AI tokens per window session, shared by all AI features (warns at 80%)                                                       | `200000`                     |
 | `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`                         |
 | `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`                     |
 | `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`                       |

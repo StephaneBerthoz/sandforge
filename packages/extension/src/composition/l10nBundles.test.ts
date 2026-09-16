@@ -39,6 +39,15 @@ function loadBundle(file: string): Record<string, string> {
   return JSON.parse(readFileSync(join(L10N_DIR, file), 'utf8')) as Record<string, string>;
 }
 
+/** The `command.*` titles of one `package.nls` bundle, by key. */
+function loadCommandTitles(file: string): Record<string, string> {
+  const nls = JSON.parse(readFileSync(join(L10N_DIR, '..', file), 'utf8')) as Record<
+    string,
+    string
+  >;
+  return Object.fromEntries(Object.entries(nls).filter(([key]) => key.startsWith('command.')));
+}
+
 /** Turn a TS single-quoted literal back into the runtime string it denotes. */
 function unescapeLiteral(raw: string): string {
   return raw.replace(/\\(n|t|r|'|\\)/g, (_m, char: string) =>
@@ -139,6 +148,28 @@ describe('extension host l10n bundles', () => {
     const bundle = loadBundle(`bundle.l10n.${locale}.json`);
     const referenceKeys = Object.keys(reference).sort();
     expect(Object.keys(bundle).sort()).toEqual(referenceKeys);
+  });
+
+  // A sentence that sends the user to a command names it by its title. The
+  // Command Palette shows that title from `package.nls.<locale>.json`, so a
+  // translation keeping the English one leads to an empty search.
+  it.each(LOCALES)('bundle.l10n.%s.json names a command as that palette shows it', (locale) => {
+    const bundle = loadBundle(`bundle.l10n.${locale}.json`);
+    const englishTitles = loadCommandTitles('package.nls.json');
+    const localeTitles = loadCommandTitles(`package.nls.${locale}.json`);
+    const named: string[] = [];
+    const offenders: string[] = [];
+    for (const key of Object.keys(reference)) {
+      for (const [titleKey, englishTitle] of Object.entries(englishTitles)) {
+        if (!key.includes(englishTitle)) continue;
+        named.push(titleKey);
+        if (!bundle[key]?.includes(localeTitles[titleKey])) {
+          offenders.push(`${titleKey} in: ${bundle[key]}`);
+        }
+      }
+    }
+    expect(named.length).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
   });
 
   it.each(LOCALES)('bundle.l10n.%s.json preserves every placeholder', (locale) => {

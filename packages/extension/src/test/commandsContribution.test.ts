@@ -155,6 +155,12 @@ describe('contributed commands', () => {
     expect(unregistered).toEqual([]);
   });
 
+  // The only way to start the AI token count over without reloading the window.
+  it('contributes and registers the command that resets the AI token budget', () => {
+    expect(contributed).toContain('sandforge.ai.resetTokenBudget');
+    expect(registrations).toContain('sandforge.ai.resetTokenBudget');
+  });
+
   it('registers each contributed command exactly once', () => {
     const repeated = contributed.filter(
       (id) => registrations.filter((registered) => registered === id).length !== 1,
