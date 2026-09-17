@@ -22,5 +22,5 @@
   },
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": ["vsce"],
-  "ignoreDependencies": ["@types/.*", "@vscode/vsce", "@axe-core/playwright", "@playwright/test"]
+  "ignoreDependencies": ["@vscode/vsce", "@axe-core/playwright", "@playwright/test"]
 }
