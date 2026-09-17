@@ -1246,7 +1246,9 @@
       "forgeProgress": "Forge が前回の実行の進捗を表示しなくなりました",
       "forgeProgressDesc": "開始時にノードの状態をリセットし、スキップしたオブジェクトも完了として数え、残り時間は決着した作業から見積もります。",
       "deadKeys": "16 個のラベルが翻訳キーそのものを表示していました",
-      "deadKeysDesc": "Autopilot の凡例、履歴のステータス列と実行契機の列、待機中のノードが、6 言語すべてで再び文章として読めます。"
+      "deadKeysDesc": "Autopilot の凡例、履歴のステータス列と実行契機の列、待機中のノードが、6 言語すべてで再び文章として読めます。",
+      "templateRoot": "Forge のテンプレートは、指定したレコードを複製します",
+      "templateRootDesc": "組み込みテンプレートは 1 件のレコードとその周辺をまとめて複製すると説明していますが、どのレコードかを尋ねる箇所がなく、実際にはテーブル全体を複製していました。テンプレートタブで尋ねるようになりました。"
     },
     "heroTitle": "実際のレコードからサンドボックスを作成",
     "heroDesc": "SandForgeを任意のOrgのレコードに向けるだけ — 関連グラフ全体をサンドボックスへ複製します。コピーするデータがない場合は、データセットを生成または再生できます。",
@@ -1393,6 +1395,8 @@
     "templateTab": "テンプレート",
     "aiTab": "AI",
     "recordIdPlaceholder": "レコードIDまたはSalesforce URL",
+    "templateRootRecord": "クローン元のレコード",
+    "templateRootRecordHint": "このテンプレートは 1 件のレコードと、それに関連するすべてを複製します。レコード ID または Salesforce の URL を貼り付けてください。",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
     "depth": "深さ",
     "depthDirect": "直接のみ",

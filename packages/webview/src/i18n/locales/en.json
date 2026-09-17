@@ -1250,7 +1250,9 @@
       "forgeProgress": "Forge no longer shows the last run\\u2019s progress",
       "forgeProgressDesc": "Node statuses are cleared when a run starts, a skipped object counts as finished, and the time remaining is measured on the work that settled.",
       "deadKeys": "Sixteen labels showed their own translation key",
-      "deadKeysDesc": "The Autopilot legend, the sync history status and trigger columns and a queued node read as text again, in all six languages."
+      "deadKeysDesc": "The Autopilot legend, the sync history status and trigger columns and a queued node read as text again, in all six languages.",
+      "templateRoot": "A Forge template clones the record you name",
+      "templateRootDesc": "The built-in templates say they clone one record and everything around it, but nothing asked which record — so the run copied whole tables instead. The Template tab now asks."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1397,6 +1399,8 @@
     "templateTab": "Template",
     "aiTab": "AI",
     "recordIdPlaceholder": "Record ID or Salesforce URL",
+    "templateRootRecord": "Record to clone from",
+    "templateRootRecordHint": "This template clones one record and everything it relates to. Paste the record id or its Salesforce URL.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
     "depth": "Depth",
     "depthDirect": "Direct only",

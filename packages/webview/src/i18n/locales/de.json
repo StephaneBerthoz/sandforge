@@ -1250,7 +1250,9 @@
       "forgeProgress": "Forge zeigt nicht mehr den Fortschritt des letzten Laufs",
       "forgeProgressDesc": "Die Knotenstatus werden beim Start zurückgesetzt, ein übersprungenes Objekt zählt als fertig, und die Restzeit wird an der erledigten Arbeit gemessen.",
       "deadKeys": "Sechzehn Beschriftungen zeigten ihren eigenen Übersetzungsschlüssel",
-      "deadKeysDesc": "Die Autopilot-Legende, die Status- und Auslöserspalten des Verlaufs und ein wartender Knoten lesen sich wieder als Text, in allen sechs Sprachen."
+      "deadKeysDesc": "Die Autopilot-Legende, die Status- und Auslöserspalten des Verlaufs und ein wartender Knoten lesen sich wieder als Text, in allen sechs Sprachen.",
+      "templateRoot": "Eine Forge-Vorlage klont den Datensatz, den Sie angeben",
+      "templateRootDesc": "Die mitgelieferten Vorlagen sagen, dass sie einen Datensatz mit allem Zugehörigen klonen, aber niemand fragte nach welchem — der Lauf kopierte ganze Tabellen. Die Registerkarte Vorlage fragt jetzt danach."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1397,6 +1399,8 @@
     "templateTab": "Vorlage",
     "aiTab": "KI",
     "recordIdPlaceholder": "Datensatz-ID oder Salesforce-URL",
+    "templateRootRecord": "Datensatz, von dem geklont wird",
+    "templateRootRecordHint": "Diese Vorlage klont einen Datensatz und alles, was mit ihm zusammenhängt. Fügen Sie die Datensatz-ID oder ihre Salesforce-URL ein.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
     "depth": "Tiefe",
     "depthDirect": "Nur direkt",

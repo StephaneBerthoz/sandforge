@@ -541,3 +541,46 @@ describe('useForgeForm reusing the last graph', () => {
     expect(sentTypes()).not.toContain('forge:plan:request');
   });
 });
+
+describe('a built-in template clones from a record', () => {
+  it('will not start without one', () => {
+    // The templates promise "Clone an Account with its Contacts…". Without a
+    // root record the executor's scoped path never activates, so the run
+    // cloned whole tables into the target org instead of one record's graph.
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('builtin:account-360');
+      result.current.setSourceOrgId('src');
+      result.current.setTargetOrgId('tgt');
+    });
+    expect(result.current.canQuickStartTemplate).toBe(false);
+    expect(result.current.canDiscover).toBe(false);
+  });
+
+  it('runs as the record mode it declares, carrying the record', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setInputMode('template');
+      result.current.setSelectedTemplate('builtin:account-360');
+      result.current.setSourceOrgId('src');
+      result.current.setTargetOrgId('tgt');
+      result.current.handleRecordIdChange('001AB00000ABCDEFGH');
+    });
+    expect(result.current.canQuickStartTemplate).toBe(true);
+    expect(result.current.canDiscover).toBe(true);
+
+    mockPostMessage.mockClear();
+    act(() => {
+      result.current.handleDiscover();
+    });
+    const discover = mockPostMessage.mock.calls
+      .map(([envelope]) => (envelope as { payload?: Record<string, unknown> })?.payload)
+      .find((m) => (m as { type?: string })?.type === 'forge:discover') as
+      | { payload: { config: { inputMode: string; recordId?: string } } }
+      | undefined;
+    expect(discover, 'no forge:discover was sent').toBeDefined();
+    expect(discover?.payload.config.inputMode).toBe('record');
+    expect(discover?.payload.config.recordId).toBe('001AB00000ABCDEFGH');
+  });
+});

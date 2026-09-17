@@ -1250,7 +1250,9 @@
       "forgeProgress": "Forge ya no muestra el progreso de la ejecución anterior",
       "forgeProgressDesc": "Los estados de los nodos se reinician al empezar, un objeto omitido cuenta como terminado, y el tiempo restante se mide sobre el trabajo ya resuelto.",
       "deadKeys": "Dieciséis etiquetas mostraban su propia clave de traducción",
-      "deadKeysDesc": "La leyenda de Autopilot, las columnas de estado y de origen del historial y un nodo en cola vuelven a leerse, en los seis idiomas."
+      "deadKeysDesc": "La leyenda de Autopilot, las columnas de estado y de origen del historial y un nodo en cola vuelven a leerse, en los seis idiomas.",
+      "templateRoot": "Una plantilla de Forge clona el registro que usted indica",
+      "templateRootDesc": "Las plantillas integradas dicen que clonan un registro y todo lo relacionado, pero nada preguntaba cuál: la ejecución copiaba tablas enteras. Ahora la pestaña Plantilla lo pregunta."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -1397,6 +1399,8 @@
     "templateTab": "Plantilla",
     "aiTab": "IA",
     "recordIdPlaceholder": "ID de registro o URL de Salesforce",
+    "templateRootRecord": "Registro desde el que clonar",
+    "templateRootRecordHint": "Esta plantilla clona un registro y todo lo relacionado con él. Pegue el id del registro o su URL de Salesforce.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
     "depth": "Profundidad",
     "depthDirect": "Solo directos",

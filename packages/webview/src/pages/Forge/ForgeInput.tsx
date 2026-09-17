@@ -94,8 +94,14 @@ export const ForgeInput: React.FC = () => {
    * record" after a describeGlobal call. Say it under the field instead,
    * before the trip.
    */
+  /*
+   * A built-in template clones one record's graph, so the Template tab asks
+   * for the root record exactly as the Record tab does — it had no way to,
+   * and the run went out unscoped.
+   */
+  const templateNeedsRoot = form.inputMode === 'template' && !!form.builtinTplCandidate;
   const recordIdInvalid =
-    form.inputMode === 'record' &&
+    (form.inputMode === 'record' || templateNeedsRoot) &&
     form.recordId.trim().length > 0 &&
     extractRecordId(form.recordId) === null;
   /** The CTA gate: everything `canDiscover` asks, plus a record id that parses. */
@@ -357,6 +363,50 @@ export const ForgeInput: React.FC = () => {
                     onSelectTemplate={form.setSelectedTemplate}
                     buildTemplateConfig={form.buildTemplateConfig}
                   />
+                  {/* The root record a built-in template clones from. A saved
+                      template carries its own input, so it asks for nothing. */}
+                  {templateNeedsRoot && (
+                    <div className="mt-3 flex flex-col gap-1">
+                      <label
+                        htmlFor="forge-template-record-id"
+                        className="text-[10px] uppercase tracking-widest text-text-secondary"
+                      >
+                        {t('forge.templateRootRecord')}
+                      </label>
+                      <input
+                        id="forge-template-record-id"
+                        data-testid="forge-template-record-id"
+                        type="text"
+                        value={form.recordId}
+                        onChange={(e) => form.handleRecordIdChange(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && canDiscoverNow) {
+                            e.preventDefault();
+                            form.handleDiscover();
+                          }
+                        }}
+                        placeholder={t('forge.recordIdPlaceholder')}
+                        aria-invalid={recordIdInvalid}
+                        aria-describedby="forge-template-record-id-hint"
+                        className={cn(
+                          'px-3 py-2 rounded-md text-sm font-mono',
+                          'bg-[var(--sf-bg-input)]',
+                          'text-[var(--sf-text-input)]',
+                          'border',
+                          recordIdInvalid
+                            ? 'border-status-error/40'
+                            : 'border-[var(--sf-border-input)]',
+                          'focus:outline-none focus:border-forge/50',
+                        )}
+                      />
+                      <p
+                        id="forge-template-record-id-hint"
+                        className="text-[10px] text-text-secondary"
+                      >
+                        {t('forge.templateRootRecordHint')}
+                      </p>
+                    </div>
+                  )}
                   {/* A template that saved a SOQL query runs it exactly as the
                       SOQL tab would, so it carries the same two verdicts —
                       which the picker used to show neither of. */}

@@ -1250,7 +1250,9 @@
       "forgeProgress": "Forge n\\u2019affiche plus la progression du run précédent",
       "forgeProgressDesc": "Les statuts des nœuds sont remis à zéro au lancement, un objet ignoré compte comme terminé, et le temps restant se mesure sur le travail réellement soldé.",
       "deadKeys": "Seize libellés affichaient leur propre clé de traduction",
-      "deadKeysDesc": "La légende Autopilot, les colonnes de statut et de déclencheur de l\\u2019historique et un nœud en file d\\u2019attente se lisent de nouveau, dans les six langues."
+      "deadKeysDesc": "La légende Autopilot, les colonnes de statut et de déclencheur de l\\u2019historique et un nœud en file d\\u2019attente se lisent de nouveau, dans les six langues.",
+      "templateRoot": "Un modèle Forge clone l'enregistrement que vous indiquez",
+      "templateRootDesc": "Les modèles intégrés annoncent qu'ils clonent un enregistrement et tout ce qui l'entoure, mais rien ne demandait lequel : le run copiait des tables entières. L'onglet Modèle le demande désormais."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
@@ -1397,6 +1399,8 @@
     "templateTab": "Modèle",
     "aiTab": "IA",
     "recordIdPlaceholder": "ID d'enregistrement ou URL Salesforce",
+    "templateRootRecord": "Enregistrement à cloner",
+    "templateRootRecordHint": "Ce modèle clone un enregistrement et tout ce qui s'y rattache. Collez son identifiant ou son URL Salesforce.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
     "depth": "Profondeur",
     "depthDirect": "Direct uniquement",

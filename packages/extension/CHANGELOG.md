@@ -5,10 +5,37 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.1] - 2026-09-17
+
+### Fixed
+
+- **A Forge template asks for the record it clones from.** Every built-in
+  template says what it does — "Clone an Account with its Contacts,
+  Opportunities and Cases", "Clone a Case with its Account, Contact,
+  EmailMessages" — and its configuration declares the record input mode. But
+  the Template tab had no field for a record, and neither the quick start nor
+  discovery sent one: the executor scopes a run to a record's graph only when
+  it is given both, so it fell back to cloning whole tables, capped at the
+  template's per-object limit, into the target org. The tab now asks for the
+  root record, refuses to start without a valid one, and the run goes out as
+  the record clone the template describes. A template you saved yourself
+  carries its own input and still asks for nothing.
+
 ## [1.24.0] - 2026-09-17
 
 ### Fixed
 
+- **A Forge template asks for the record it clones from.** Every built-in
+  template says what it does — "Clone an Account with its Contacts,
+  Opportunities and Cases", "Clone a Case with its Account, Contact,
+  EmailMessages" — and its configuration declares the record input mode. But
+  the Template tab had no field for a record, and neither the quick start nor
+  discovery sent one: the executor scopes a run to a record's graph only when
+  it is given both, so it fell back to cloning whole tables, capped at the
+  template's per-object limit, into the target org. The tab now asks for the
+  root record, refuses to start without a valid one, and the run goes out as
+  the record clone the template describes. A template you saved yourself
+  carries its own input and still asks for nothing.
 - **The panel had no stylesheet at all.** 1.23.0 linked
   `webview-dist/assets/style.css` from every panel and
   `webview-dist/assets/sidepanel.css` from the sidebar, and shipped neither:

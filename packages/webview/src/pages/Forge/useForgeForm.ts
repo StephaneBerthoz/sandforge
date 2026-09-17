@@ -293,12 +293,23 @@ export function useForgeForm(): ForgeFormState {
       case 'soql':
         return soqlQuery.trim().length > 0;
       case 'template':
-        return selectedTemplate.length > 0;
+        /*
+         * A built-in template clones ONE record's graph — "Clone an Account
+         * with its Contacts, Opportunities and Cases" — so it needs the root
+         * record, exactly as the Record tab does. It used to need only a
+         * selection, and the run then went out with no `recordId`: the
+         * executor's scoped path is gated on one, so it fell back to cloning
+         * whole tables, capped by maxRecordsPerObject, into the target org.
+         * A saved template carries its own input and asks for nothing.
+         */
+        if (selectedTemplate.length === 0) return false;
+        if (templateInput) return true;
+        return extractRecordId(recordId) !== null;
       case 'ai':
         // Nothing turns a prompt into a seed plan: discovery refuses the mode.
         return false;
     }
-  }, [inputMode, recordId, soqlQuery, selectedTemplate]);
+  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput]);
 
   /*
    * The WHERE clause travels as an object filter, which the extension checks
@@ -345,14 +356,23 @@ export function useForgeForm(): ForgeFormState {
         : templateInput?.inputMode === 'soql'
           ? templateInput.soqlQuery
           : undefined;
+    // A built-in template IS the record mode — that is what its config
+    // declares and what its description promises — so discovery runs it as
+    // one. Sent as `template`, nothing downstream resolved it: the extension
+    // reads `templateId` only as part of a cache key.
+    const builtinTemplateRoot =
+      inputMode === 'template' && !templateInput ? extractRecordId(recordId) : null;
     return {
-      inputMode: templateInput ? templateInput.inputMode : inputMode,
+      inputMode: templateInput
+        ? templateInput.inputMode
+        : builtinTemplateRoot
+          ? 'record'
+          : inputMode,
       recordId:
         inputMode === 'record'
           ? (extractRecordId(recordId) ?? undefined)
-          : templateInput?.inputMode === 'record'
-            ? templateInput.recordId
-            : undefined,
+          : (builtinTemplateRoot ?? undefined) ||
+            (templateInput?.inputMode === 'record' ? templateInput.recordId : undefined),
       soqlQuery: runSoql,
       // The query's WHERE clause reaches the executor as the root object's
       // filter; without it the root was cloned from its whole table.
@@ -461,7 +481,8 @@ export function useForgeForm(): ForgeFormState {
     if (inputMode !== 'template') return null;
     return BUILTIN_FORGE_TEMPLATES.find((p) => p.id === selectedTemplate) ?? null;
   }, [inputMode, selectedTemplate]);
-  const canQuickStartTemplate = !!builtinTplCandidate && !!sourceOrgId && !!targetOrgId;
+  const canQuickStartTemplate =
+    !!builtinTplCandidate && !!sourceOrgId && !!targetOrgId && extractRecordId(recordId) !== null;
   const handleQuickStartTemplate = useCallback(() => {
     if (!canQuickStartTemplate || !builtinTplCandidate) return;
     const objects = getBuiltinTemplateObjects(builtinTplCandidate.id);
@@ -470,8 +491,13 @@ export function useForgeForm(): ForgeFormState {
     // to widen the builtin's record cap, toggle anonymize, etc.
     const tplCap = builtinTplCandidate.config.maxRecordsPerObject;
     const effectiveCap = recordLimit === '100' && tplCap != null ? tplCap : recordLimitValue;
+    const rootRecordId = extractRecordId(recordId);
+    if (rootRecordId === null) return;
     const config: ForgeConfig = {
       ...builtinTplCandidate.config,
+      // The template's config says `inputMode: 'record'`; without the record
+      // itself the executor cannot scope the run to its graph.
+      recordId: rootRecordId,
       sourceOrgId,
       targetOrgId,
       anonymizePII: anonymize,
@@ -492,6 +518,7 @@ export function useForgeForm(): ForgeFormState {
   }, [
     canQuickStartTemplate,
     builtinTplCandidate,
+    recordId,
     sourceOrgId,
     targetOrgId,
     anonymize,
