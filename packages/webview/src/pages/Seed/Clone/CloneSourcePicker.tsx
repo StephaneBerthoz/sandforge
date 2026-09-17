@@ -78,7 +78,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           data-testid="clone-direction-arrow"
           aria-label={t('seed.clone.sourcePicker.direction')}
         >
-          <ArrowRight size={24} className="text-[var(--sf-accent)]" />
+          <ArrowRight size={24} className="text-[var(--sf-text-link)]" />
         </div>
 
         {/* Target org column (read-only) */}

@@ -46,7 +46,7 @@ export const GuidedFirstStepCard: React.FC<GuidedFirstStepCardProps> = ({
             name={icon}
             className={cn(
               'text-lg mt-0.5',
-              variant === 'sync' ? 'text-blue-400' : 'text-green-400',
+              variant === 'sync' ? 'text-hue-blue' : 'text-hue-green',
             )}
           />
           <div className="flex-1">

@@ -71,7 +71,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
               key={obj.apiName}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors',
-                isSelected ? 'bg-[var(--sf-bg-active)]' : 'hover:bg-[var(--sf-bg-hover)]',
+                isSelected ? 'bg-status-info/10' : 'hover:bg-[var(--sf-bg-hover)]',
               )}
               data-testid={`object-${obj.apiName}`}
             >
@@ -83,9 +83,9 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
               />
               <span className="text-sm text-text-primary flex-1">
                 {obj.label}
-                <span className="text-xs text-text-secondary ml-1">({obj.apiName})</span>
+                <span className="text-xs text-text-primary ml-1">({obj.apiName})</span>
               </span>
-              <span className="text-xs text-text-secondary tabular-nums">
+              <span className="text-xs text-text-primary tabular-nums">
                 {formatCount(obj.recordCount)} {t('autopilot.step2.records')}
               </span>
             </label>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ForgeExecutionError } from '@sandforge/shared';
 import en from '../../i18n/locales/en.json';
 import { ForgeResults } from './ForgeResults';
@@ -71,6 +71,19 @@ describe('ForgeResults — translated stage badges', () => {
     expect(rows.length).toBe(STAGES.length);
     for (const [i, stage] of STAGES.entries()) {
       expect(rows[i]?.textContent).toContain(`forge.stage.${stage}`);
+    }
+  });
+
+  it('writes a sample error message in the error token, legible on light themes', () => {
+    errors[0].samples = [{ recordSummary: 'Account 001', messages: ['REQUIRED_FIELD_MISSING'] }];
+    try {
+      render(<ForgeResults />);
+      fireEvent.click(within(screen.getAllByTestId('forge-errors-row')[0]).getByRole('button'));
+      const message = screen.getByText('└ REQUIRED_FIELD_MISSING');
+      expect(message.className).toContain('text-status-error');
+      expect(message.className).not.toMatch(/\btext-red-\d+\b/);
+    } finally {
+      errors[0].samples = [];
     }
   });
 

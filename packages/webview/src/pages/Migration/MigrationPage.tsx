@@ -261,12 +261,12 @@ export const MigrationPage: React.FC = () => {
           aria-pressed={importType === 'sfdmu'}
           data-testid="migration-type-sfdmu"
         >
-          <FileJson className="w-4 h-4 mt-0.5 shrink-0 text-teal-400" />
+          <FileJson className="w-4 h-4 mt-0.5 shrink-0 text-hue-teal" />
           <span>
             <span className="block text-sm font-semibold text-text-primary">
               {t('migration.type.sfdmu.title')}
             </span>
-            <span className="block text-xs text-text-muted mt-0.5">
+            <span className="block text-xs text-text-secondary mt-0.5">
               {t('migration.type.sfdmu.description')}
             </span>
           </span>
@@ -283,12 +283,12 @@ export const MigrationPage: React.FC = () => {
           aria-pressed={importType === 'universal'}
           data-testid="migration-type-universal"
         >
-          <FileUp className="w-4 h-4 mt-0.5 shrink-0 text-teal-400" />
+          <FileUp className="w-4 h-4 mt-0.5 shrink-0 text-hue-teal" />
           <span>
             <span className="block text-sm font-semibold text-text-primary">
               {t('migration.type.universal.title')}
             </span>
-            <span className="block text-xs text-text-muted mt-0.5">
+            <span className="block text-xs text-text-secondary mt-0.5">
               {t('migration.type.universal.description')}
             </span>
           </span>
@@ -362,7 +362,7 @@ export const MigrationPage: React.FC = () => {
           />
           <CardBody>
             <div className="flex flex-col gap-[var(--sf-space-3)]">
-              <div className="text-xs text-text-muted" data-testid="migration-objects-count">
+              <div className="text-xs text-text-secondary" data-testid="migration-objects-count">
                 {t('migration.objectsCount', { count: objectPreviews.length })}
               </div>
               <ul className="flex flex-col gap-[var(--sf-space-2)]" data-testid="migration-objects">
@@ -382,7 +382,7 @@ export const MigrationPage: React.FC = () => {
                         </Badge>
                       )}
                       {obj.externalIdField && (
-                        <span className="text-xs text-text-muted">
+                        <span className="text-xs text-text-secondary">
                           {t('migration.externalId', { field: obj.externalIdField })}
                         </span>
                       )}
@@ -435,7 +435,7 @@ export const MigrationPage: React.FC = () => {
                     {runMutation.loading ? t('migration.run.running') : t('migration.run.action')}
                   </Button>
                   {!canRunImported && (
-                    <div className="text-xs text-text-muted" data-testid="migration-run-hint">
+                    <div className="text-xs text-text-secondary" data-testid="migration-run-hint">
                       {t('migration.run.orgsRequired')}
                     </div>
                   )}
@@ -467,12 +467,12 @@ export const MigrationPage: React.FC = () => {
                         {t('sync.totalSuccess')}: <strong>{runMutation.data.totalSuccess}</strong>
                       </span>
                       {runMutation.data.totalFailed > 0 && (
-                        <span className="text-[var(--sf-error)]">
+                        <span className="text-status-error">
                           {t('sync.totalFailed')}: <strong>{runMutation.data.totalFailed}</strong>
                         </span>
                       )}
                       {runMutation.data.totalSkipped > 0 && (
-                        <span className="text-text-muted">
+                        <span className="text-text-secondary">
                           {t('sync.totalSkipped')}: <strong>{runMutation.data.totalSkipped}</strong>
                         </span>
                       )}
@@ -482,7 +482,7 @@ export const MigrationPage: React.FC = () => {
               )}
 
               <details data-testid="migration-raw-config">
-                <summary className="text-xs text-text-muted cursor-pointer select-none">
+                <summary className="text-xs text-text-secondary cursor-pointer select-none">
                   {t('migration.rawConfig')}
                 </summary>
                 <div className="mt-2 rounded bg-surface-1 border border-subtle p-2 overflow-auto">

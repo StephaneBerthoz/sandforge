@@ -15,6 +15,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
+import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useFrozenMutation } from './useFrozenBridge';
 
 /** Props for the load tab. */
@@ -148,7 +149,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         <CardBody className="flex flex-col gap-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-muted">{t('frozen.load.targetOrg')}</span>
+              <span className="text-[10px] text-text-secondary">{t('frozen.load.targetOrg')}</span>
               <OrgDropdown
                 value={effectiveTarget}
                 onChange={setTargetOrgId}
@@ -216,17 +217,18 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   {t('frozen.load.progress')}
                 </h2>
                 {latestProgress && (
-                  <span className="text-[10px] text-text-muted tabular-nums">
+                  <span className="text-[10px] text-text-secondary tabular-nums">
                     {latestProgress.progress}%
                   </span>
                 )}
               </div>
               {latestProgress && (
-                <div className="w-full h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-cyan-400 transition-all"
-                    style={{ width: `${latestProgress.progress}%` }}
-                    data-testid="frozen-load-progress-bar"
+                <div data-testid="frozen-load-progress-bar">
+                  <ProgressBar
+                    value={latestProgress.progress}
+                    size="sm"
+                    ariaLabel={t('frozen.load.progress')}
+                    barClassName="bg-cyan-500"
                   />
                 </div>
               )}
@@ -271,7 +273,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 <Badge variant={loadReport.status === 'completed' ? 'success' : 'warning'}>
                   {t(`frozen.report.status.${loadReport.status}`)}
                 </Badge>
-                <span className="text-[10px] text-text-muted">
+                <span className="text-[10px] text-text-secondary">
                   {Math.round(loadReport.durationMs / 1000)}s
                 </span>
               </div>
@@ -362,7 +364,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 </div>
               )}
 
-              <p className="text-[11px] text-text-muted" data-testid="frozen-report-postload">
+              <p className="text-[11px] text-text-secondary" data-testid="frozen-report-postload">
                 {t('frozen.report.postLoad', {
                   pass2: loadReport.pass2.resolved,
                   personContact: loadReport.personContact.restored,
@@ -393,7 +395,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 >
                   {t(`frozen.verify.status.${verdict.status}`)}
                 </Badge>
-                <span className="text-[10px] text-text-muted">
+                <span className="text-[10px] text-text-secondary">
                   {t('frozen.verify.attempts', { count: verdict.attempts })}
                 </span>
               </div>

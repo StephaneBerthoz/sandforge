@@ -102,7 +102,7 @@ export const DeploymentTimeline: React.FC = () => {
 
       {deployments.length === 0 ? (
         <p
-          className="text-xs text-text-muted text-center py-6"
+          className="text-xs text-text-secondary text-center py-6"
           data-testid="deployment-timeline-empty"
         >
           {t('monitor.deployments.empty', 'No recent deployments')}

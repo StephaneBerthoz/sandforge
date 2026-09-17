@@ -140,3 +140,48 @@ describe('HealthScoreCard', () => {
     expect(screen.getByText(/Review scheduled batch jobs/)).toBeDefined();
   });
 });
+
+describe('HealthScoreCard report dialog focus', () => {
+  it('leaves focus where it is when the report is refreshed under the open dialog', () => {
+    const { rerender } = render(<HealthScoreCard report={warningReport} />);
+    fireEvent.click(screen.getByTestId('view-full-report'));
+    const dialog = screen.getByRole('dialog');
+    dialog.focus();
+    expect(document.activeElement).toBe(dialog);
+
+    rerender(<HealthScoreCard report={{ ...warningReport, overallScore: 61 }} />);
+
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it('closes on Escape and gives focus back to the button that opened it', () => {
+    render(<HealthScoreCard report={warningReport} />);
+    const opener = screen.getByTestId('view-full-report');
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.activeElement).toBe(screen.getByTestId('close-report-modal'));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByTestId('health-report-modal')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('wraps Tab and Shift+Tab inside the dialog', () => {
+    render(<HealthScoreCard report={warningReport} />);
+    fireEvent.click(screen.getByTestId('view-full-report'));
+    const close = screen.getByTestId('close-report-modal');
+    // The report offers one control, Close: a second gives Tab two ends to wrap between.
+    const last = document.createElement('button');
+    last.textContent = 'Last';
+    screen.getByRole('dialog').firstElementChild?.appendChild(last);
+
+    last.focus();
+    // `false`: the trap cancelled the browser's own move out of the dialog.
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false);
+    expect(document.activeElement).toBe(close);
+
+    expect(fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(last);
+  });
+});

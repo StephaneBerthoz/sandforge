@@ -33,7 +33,7 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
 
   return (
     <div>
-      <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2">
+      <div className="text-[10px] text-text-secondary uppercase tracking-widest mb-2">
         {t('forge.depth')}
       </div>
       <div
@@ -58,8 +58,8 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
             className={cn(
               'px-4 py-1.5 rounded-full text-xs font-medium transition-all border',
               depth === d
-                ? 'bg-forge/15 border-forge text-forge'
-                : 'bg-transparent border-subtle text-text-muted hover:border-forge/30 hover:text-text-secondary',
+                ? 'bg-forge/15 border-forge text-hue-forge'
+                : 'bg-transparent border-subtle text-text-secondary hover:border-forge/30 hover:text-text-primary',
             )}
           >
             {t(DEPTH_KEYS[d])}

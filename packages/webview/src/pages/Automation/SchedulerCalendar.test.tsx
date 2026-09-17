@@ -87,11 +87,12 @@ describe('SchedulerCalendar', () => {
     expect(badge).not.toMatch(/v\d/);
   });
 
-  it('should have content with pointer-events-none and reduced opacity', () => {
+  it('takes no input in the preview but does not fade its text', () => {
     render(<SchedulerCalendar />);
     const container = screen.getByTestId('scheduler-calendar');
-    const disabledContent = container.querySelector('.pointer-events-none.opacity-50');
-    expect(disabledContent).toBeDefined();
-    expect(disabledContent).not.toBeNull();
+    const preview = container.querySelector('.pointer-events-none');
+    expect(preview).not.toBeNull();
+    // Faded to half opacity, its text read 2.7:1 on Light Modern.
+    expect(preview?.className).not.toMatch(/(^|\s)opacity-\d+(\s|$)/);
   });
 });

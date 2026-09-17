@@ -108,7 +108,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
             className={cn(
               'px-2 py-0.5 text-xs rounded border border-subtle cursor-pointer transition-colors',
               period === p.key
-                ? 'bg-[var(--sf-accent)] text-[var(--sf-bg-card)]'
+                ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
                 : 'bg-transparent text-text-secondary hover:bg-surface-2',
             )}
           >
@@ -131,13 +131,13 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
             <XAxis
               dataKey="timestamp"
               tickFormatter={(ts: number) => formatXAxis(ts, period)}
-              stroke="var(--sf-text-muted, #6b6b6b)"
+              stroke="var(--sf-text-secondary)"
               fontSize={10}
               tickLine={false}
               axisLine={false}
             />
             <YAxis
-              stroke="var(--sf-text-muted, #6b6b6b)"
+              stroke="var(--sf-text-secondary)"
               fontSize={10}
               tickLine={false}
               axisLine={false}

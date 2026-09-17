@@ -326,10 +326,12 @@ describe('SidePanel', () => {
     expect(starBtn.className).not.toContain('opacity-0');
   });
 
-  it('draws an unstarred favorite star without dimming it below the muted text color', () => {
+  it('draws an unstarred favorite star in the description colour, never the disabled one', () => {
     render(<SidePanel />);
     const starBtn = screen.getByTestId('sidepanel-star-monitor');
-    expect(starBtn.className).toContain('text-text-muted');
+    // The disabled foreground reads 2.1:1 on light themes: it is for disabled controls only.
+    expect(starBtn.className).toContain('text-text-secondary');
+    expect(starBtn.className).not.toContain('text-text-muted');
     expect(starBtn.className).not.toMatch(/(^|\s)opacity-(0|[1-9]0)(\s|$)/);
   });
 

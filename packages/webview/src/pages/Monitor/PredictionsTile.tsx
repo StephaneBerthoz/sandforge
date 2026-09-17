@@ -20,11 +20,21 @@ export interface PredictionsTileProps {
   className?: string;
 }
 
-/** Returns the urgency color based on estimated hours. */
+/** Returns the urgency dot's colour: the theme's raw severity, drawn, not read. */
 function urgencyColor(hours: number): string {
   if (hours < 2) return 'var(--sf-error, #EF4444)';
   if (hours < 12) return 'var(--sf-warning, #F59E0B)';
   return 'var(--sf-success, #10B981)';
+}
+
+/**
+ * Returns the class the time estimate is written in: the severity sized for
+ * text, since the raw ones read 1.88:1 to 3.15:1 on Light Modern.
+ */
+function urgencyTextClass(hours: number): string {
+  if (hours < 2) return 'text-status-error';
+  if (hours < 12) return 'text-status-warning';
+  return 'text-status-success';
 }
 
 /** Returns the urgency label based on estimated hours. */
@@ -77,8 +87,9 @@ export const PredictionsTile: React.FC<PredictionsTileProps> = ({ predictions, c
                 className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-2 px-3 py-2"
                 data-testid={`prediction-${prediction.limitName}`}
               >
-                {/* Urgency indicator dot */}
+                {/* Urgency indicator dot: an image, since a bare span cannot carry a label */}
                 <span
+                  role="img"
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
                   style={{ backgroundColor: color }}
                   data-testid={`prediction-dot-${prediction.limitName}`}
@@ -97,8 +108,10 @@ export const PredictionsTile: React.FC<PredictionsTileProps> = ({ predictions, c
 
                 {/* Time estimate */}
                 <span
-                  className="text-xs font-semibold tabular-nums"
-                  style={{ color }}
+                  className={cn(
+                    'text-xs font-semibold tabular-nums',
+                    urgencyTextClass(prediction.estimatedHoursToLimit),
+                  )}
                   data-testid={`prediction-time-${prediction.limitName}`}
                 >
                   {formatHours(prediction.estimatedHoursToLimit)}

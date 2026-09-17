@@ -37,7 +37,11 @@ const variantClasses: Record<ButtonVariant, string> = {
     'bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]',
   ghost:
     'bg-transparent text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-  danger: 'bg-[var(--vscode-errorForeground,#f48771)] text-white hover:opacity-90',
+  // The severity token as the fill and the editor background as the label: the
+  // token is sized to read against that background on every measured theme but
+  // Solarized Light, so the pair holds both ways round, where white on
+  // errorForeground reads 2.4:1 on Dark+.
+  danger: 'bg-status-error text-[var(--sf-bg-primary)]',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

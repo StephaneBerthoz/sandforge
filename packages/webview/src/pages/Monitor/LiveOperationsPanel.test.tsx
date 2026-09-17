@@ -118,3 +118,14 @@ describe('LiveOperationsPanel', () => {
     expect(screen.getByText('17 rec/s')).toBeTruthy();
   });
 });
+
+describe('LiveOperationsPanel progress bars', () => {
+  it('names each bar after the operation on its row', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[makeOperation({ operationId: 'op-9', description: 'Seeding Contact' })]}
+      />,
+    );
+    expect(screen.getByRole('progressbar', { name: 'Seeding Contact' })).toBeDefined();
+  });
+});

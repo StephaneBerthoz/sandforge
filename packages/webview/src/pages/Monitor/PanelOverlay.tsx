@@ -14,7 +14,7 @@ export function PanelOverlay({
       {children}
       {isRefreshing && (
         <div
-          className="absolute inset-0 bg-background/50 flex items-center justify-center z-10 rounded-lg"
+          className="absolute inset-0 bg-[color-mix(in_srgb,var(--sf-bg-primary)_50%,transparent)] flex items-center justify-center z-10 rounded-lg"
           data-testid="panel-overlay"
         >
           <Spinner size="sm" />

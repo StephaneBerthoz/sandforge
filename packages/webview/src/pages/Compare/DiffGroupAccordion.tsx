@@ -35,6 +35,16 @@ const changeSymbol: Record<EnrichedDiff['changeType'], string> = {
   modified: '~',
 };
 
+/**
+ * The symbol's colour: the severity tokens, sized to read on the row tints.
+ * The raw `var(--sf-success)` read 1.8:1 on a light editor.
+ */
+const changeSymbolClass: Record<EnrichedDiff['changeType'], string> = {
+  added: 'text-status-success',
+  removed: 'text-status-error',
+  modified: 'text-status-warning',
+};
+
 /** Row height fed to the virtualizer — must stay in sync with DIFF_ROW_STYLE's box. */
 const DIFF_ROW_HEIGHT = 36;
 
@@ -146,7 +156,7 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
       <p
         style={{
           fontSize: 'var(--sf-font-size-sm)',
-          color: 'var(--sf-text-muted)',
+          color: 'var(--sf-text-secondary)',
           textAlign: 'center',
           padding: 'var(--sf-space-6) 0',
         }}
@@ -187,7 +197,7 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                 gap: 'var(--sf-space-2)',
                 width: '100%',
                 padding: 'var(--sf-space-2) var(--sf-space-3)',
-                backgroundColor: 'var(--sf-bg-input)',
+                backgroundColor: 'var(--sf-bg-secondary)',
                 border: 'none',
                 cursor: 'pointer',
                 color: 'var(--sf-text-primary)',
@@ -233,8 +243,11 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                         cursor: onSelectDiff ? 'pointer' : 'default',
                       }}
                     >
-                      {/* Change symbol */}
+                      {/* Change symbol: the badge beside it names the change, so a
+                          screen reader reads the name once instead of "plus added". */}
                       <span
+                        aria-hidden="true"
+                        className={changeSymbolClass[diff.changeType]}
                         style={{
                           width: '18px',
                           height: '18px',
@@ -243,20 +256,15 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                           justifyContent: 'center',
                           fontWeight: 700,
                           fontFamily: 'monospace',
-                          color:
-                            diff.changeType === 'added'
-                              ? 'var(--sf-success)'
-                              : diff.changeType === 'removed'
-                                ? 'var(--sf-error)'
-                                : 'var(--sf-warning)',
                         }}
                       >
                         {changeSymbol[diff.changeType]}
                       </span>
 
-                      {/* Category + Name */}
+                      {/* Category + Name, in the row's foreground: description text
+                          falls under AA on the risk tints. */}
                       <Badge variant={changeBadge[diff.changeType]}>{diff.changeType}</Badge>
-                      <span style={{ color: 'var(--sf-text-secondary)' }}>{diff.category}</span>
+                      <span>{diff.category}</span>
                       <span style={{ flex: 1, fontFamily: 'monospace' }}>{diff.name}</span>
 
                       {/* Risk badge */}
@@ -264,12 +272,7 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
 
                       {/* Dependencies count */}
                       {diff.dependencies.length > 0 && (
-                        <span
-                          style={{
-                            fontSize: 'var(--sf-font-size-xs)',
-                            color: 'var(--sf-text-muted)',
-                          }}
-                        >
+                        <span style={{ fontSize: 'var(--sf-font-size-xs)' }}>
                           {diff.dependencies.length} {t('compare.deps', 'deps')}
                         </span>
                       )}

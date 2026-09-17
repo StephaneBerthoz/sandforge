@@ -167,7 +167,7 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
       <CardHeader title={t('monitor.trends', 'Trends')} />
       <CardBody>
         {series.length === 0 ? (
-          <p className="text-xs text-[var(--sf-text-muted)] text-center py-4">
+          <p className="text-xs text-text-secondary text-center py-4">
             {t('common.noData', 'No data available')}
           </p>
         ) : (
@@ -203,7 +203,7 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
                         x={PADDING_LEFT - 5}
                         y={y + 3}
                         textAnchor="end"
-                        fill="var(--sf-text-muted)"
+                        fill="var(--sf-text-secondary)"
                         fontSize={9}
                         data-testid={`y-label-${pct}`}
                       >
@@ -260,7 +260,7 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
                       x={label.x}
                       y={CHART_HEIGHT - 5}
                       textAnchor="middle"
-                      fill="var(--sf-text-muted)"
+                      fill="var(--sf-text-secondary)"
                       fontSize={9}
                     >
                       {label.text}

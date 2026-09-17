@@ -102,7 +102,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       {/* Error display */}
       {state.error && (
         <div
-          className="text-xs text-[var(--sf-error)] p-2 rounded bg-[var(--sf-error-bg)]"
+          className="text-xs text-status-error p-2 rounded bg-[var(--sf-error-bg)]"
           data-testid="quick-sync-error"
         >
           {state.error}

@@ -78,7 +78,7 @@ describe('CDCMetricsDashboard', () => {
     render(<CDCMetricsDashboard />);
 
     const lag = screen.getByTestId('cdc-metric-lag');
-    const valueEl = lag.querySelector('.text-green-500');
+    const valueEl = lag.querySelector('.text-status-success');
     expect(valueEl).not.toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe('CDCMetricsDashboard', () => {
     render(<CDCMetricsDashboard />);
 
     const lag = screen.getByTestId('cdc-metric-lag');
-    const valueEl = lag.querySelector('.text-yellow-500');
+    const valueEl = lag.querySelector('.text-status-warning');
     expect(valueEl).not.toBeNull();
   });
 
@@ -104,7 +104,7 @@ describe('CDCMetricsDashboard', () => {
     render(<CDCMetricsDashboard />);
 
     const lag = screen.getByTestId('cdc-metric-lag');
-    const valueEl = lag.querySelector('.text-red-500');
+    const valueEl = lag.querySelector('.text-status-error');
     expect(valueEl).not.toBeNull();
   });
 
@@ -114,7 +114,7 @@ describe('CDCMetricsDashboard', () => {
     render(<CDCMetricsDashboard />);
 
     const errorRate = screen.getByTestId('cdc-metric-error-rate');
-    const valueEl = errorRate.querySelector('.text-green-500');
+    const valueEl = errorRate.querySelector('.text-status-success');
     expect(valueEl).not.toBeNull();
   });
 
@@ -124,7 +124,7 @@ describe('CDCMetricsDashboard', () => {
     render(<CDCMetricsDashboard />);
 
     const errorRate = screen.getByTestId('cdc-metric-error-rate');
-    const valueEl = errorRate.querySelector('.text-red-500');
+    const valueEl = errorRate.querySelector('.text-status-error');
     expect(valueEl).not.toBeNull();
   });
 

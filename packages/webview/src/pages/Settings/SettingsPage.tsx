@@ -232,13 +232,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </Button>
                     </div>
                     {aiKeySaved && (
-                      <span className="text-xs text-[var(--sf-success)]" data-testid="ai-key-saved">
+                      <span className="text-xs text-status-success" data-testid="ai-key-saved">
                         {t('settings.aiKeySaved')}
                       </span>
                     )}
-                    {aiKeyError && (
-                      <span className="text-xs text-[var(--sf-error)]">{aiKeyError}</span>
-                    )}
+                    {aiKeyError && <span className="text-xs text-status-error">{aiKeyError}</span>}
                   </div>
 
                   <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
@@ -358,7 +356,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </span>
                     ) : (
                       <span
-                        className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--sf-success)]' : 'text-text-secondary'}`}
+                        className={`text-xs font-medium ${telemetryEnabled ? 'text-status-success' : 'text-text-secondary'}`}
                       >
                         {telemetryEnabled
                           ? t('settings.telemetryEnabled')
@@ -375,7 +373,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </span>
                   </div>
                   {telemetryToggleError && (
-                    <span className="text-xs text-[var(--sf-error)]" data-testid="telemetry-error">
+                    <span className="text-xs text-status-error" data-testid="telemetry-error">
                       {telemetryToggleError}
                     </span>
                   )}

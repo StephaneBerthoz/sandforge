@@ -389,3 +389,24 @@ describe('MonitorLimitsSection scan outcome', () => {
     expect(screen.queryByTestId('anomaly-scan-error')).toBeNull();
   });
 });
+
+describe('MonitorLimitsSection governor limits', () => {
+  beforeEach(() => {
+    storageObjects = [];
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+  });
+
+  it('names the collapse toggle after its section and says whether it is open', () => {
+    renderSection();
+    const toggle = screen.getByRole('button', { name: 'Governor Limits' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('names each limit bar after the limit on its row', () => {
+    renderSection();
+    fireEvent.click(screen.getByRole('button', { name: 'Governor Limits' }));
+    expect(screen.getByRole('progressbar', { name: 'DailyApiRequests' })).toBeDefined();
+  });
+});

@@ -67,7 +67,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
 
   return (
     <div data-testid="review-anonymization-tab" className="flex flex-col gap-3">
-      <p className="text-xs text-text-muted">
+      <p className="text-xs text-text-secondary">
         {t('forge.review.anonymizationDesc', {
           defaultValue:
             '{{count}} PII fields detected. Configure anonymization method per category.',
@@ -102,7 +102,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
         {presetId && (
           <span
             data-testid="anonymization-preset-description"
-            className="text-[10px] text-text-muted max-w-[40%] truncate"
+            className="text-[10px] text-text-secondary max-w-[40%] truncate"
             title={findForgeAnonymizationPreset(presetId)?.description ?? ''}
           >
             {findForgeAnonymizationPreset(presetId)?.description}
@@ -114,10 +114,10 @@ export const ReviewAnonymizationTab: React.FC = () => {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-subtle bg-surface-2">
-              <th className="text-left px-3 py-2 text-text-muted font-medium">
+              <th className="text-left px-3 py-2 text-text-secondary font-medium">
                 {t('forge.review.category', 'Category')}
               </th>
-              <th className="text-left px-3 py-2 text-text-muted font-medium">
+              <th className="text-left px-3 py-2 text-text-secondary font-medium">
                 {t('forge.review.method', 'Method')}
               </th>
             </tr>

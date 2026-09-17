@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ProgressBar } from './ui/ProgressBar';
+import { ProgressAnnouncer, ProgressBar } from './ui/ProgressBar';
 import { Badge } from './ui/Badge';
 import { cn } from '../theme';
 import { useGrappeStore } from '../stores/useGrappeStore';
@@ -10,7 +10,14 @@ import { useGrappeStore } from '../stores/useGrappeStore';
  * Shows partition progress and worker status.
  * Only renders when a grappe operation is active or recently completed.
  */
-export const GrappeProgressPanel: React.FC = () => {
+export const GrappeProgressPanel: React.FC<{
+  /**
+   * Say the run's progress in a live region. Off inside a page that already
+   * announces the run the partitions belong to: two polite regions would each
+   * speak on their own schedule.
+   */
+  announce?: boolean;
+}> = ({ announce = true }) => {
   const { t } = useTranslation();
   const {
     active,
@@ -60,7 +67,18 @@ export const GrappeProgressPanel: React.FC = () => {
         max={100}
         showPercent
         variant={!active && totalFailed === 0 ? 'success' : totalFailed > 0 ? 'error' : 'default'}
+        ariaLabel={t('a11y.runProgress', { name: t('nav.grappe') })}
       />
+      {announce && (
+        <ProgressAnnouncer
+          message={t('a11y.progressAnnouncement', {
+            name: t('nav.grappe'),
+            percent: active ? overallPercent : 100,
+          })}
+          immediate={!active}
+          testId="grappe-progress-status"
+        />
+      )}
 
       {/* Stats */}
       <div
@@ -72,11 +90,11 @@ export const GrappeProgressPanel: React.FC = () => {
         </span>
         {!active && (
           <>
-            <span className="text-[var(--sf-success)]">
+            <span className="text-status-success">
               {totalProcessed.toLocaleString()} {t('grappe.processed', 'processed')}
             </span>
             {totalFailed > 0 && (
-              <span className="text-[var(--sf-error)]">
+              <span className="text-status-error">
                 {totalFailed.toLocaleString()} {t('grappe.failed', 'failed')}
               </span>
             )}
@@ -97,7 +115,13 @@ export const GrappeProgressPanel: React.FC = () => {
                 data-testid={`grappe-partition-${p.grappeId}`}
               >
                 <span className="w-28 truncate text-[var(--sf-text-secondary)]">{p.grappeId}</span>
-                <ProgressBar value={p.percentage} max={100} size="sm" className="flex-1" />
+                <ProgressBar
+                  value={p.percentage}
+                  max={100}
+                  size="sm"
+                  className="flex-1"
+                  ariaLabel={p.grappeId}
+                />
                 <span className="w-12 text-right text-[var(--sf-text-secondary)]">
                   {p.percentage}%
                 </span>

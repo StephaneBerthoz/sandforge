@@ -67,7 +67,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
           <div className="flex flex-col gap-1" data-testid="clone-insert-order">
             {previewResult.insertOrder.map((objectName, index) => (
               <div key={objectName} className="flex items-center gap-2">
-                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--sf-accent)] text-white text-[10px] font-bold shrink-0">
+                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] text-[10px] font-bold shrink-0">
                   {index + 1}
                 </span>
                 <Badge variant="default">{objectName}</Badge>
@@ -118,7 +118,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
       {/* Large clone warning */}
       {totalRecords > LARGE_CLONE_THRESHOLD && (
         <div
-          className="p-3 rounded border border-amber-600 bg-amber-950/30 text-xs text-amber-400"
+          className="p-3 rounded border border-amber-600 bg-amber-500/10 text-xs text-status-warning"
           role="alert"
           data-testid="clone-large-warning"
         >

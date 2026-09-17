@@ -226,7 +226,7 @@ export function DataTable<T extends Record<string, unknown>>({
         className="text-center"
         style={{
           padding: 'var(--sf-space-8) var(--sf-space-4)',
-          color: 'var(--sf-text-muted)',
+          color: 'var(--sf-text-secondary)',
         }}
       >
         {emptyMessage ?? t('common.noData', 'No data available')}

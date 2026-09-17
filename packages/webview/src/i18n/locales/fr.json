@@ -229,7 +229,8 @@
       "duration": "Durée",
       "soql": "SOQL",
       "dml": "DML",
-      "heap": "Mémoire"
+      "heap": "Mémoire",
+      "soqlFor": "Requêtes SOQL, journal {{log}}"
     },
     "errorLogs": {
       "title": "Journaux d'erreurs",
@@ -2060,6 +2061,9 @@
     "anonymizationMethodFor": "Méthode d'anonymisation pour {{category}}",
     "includeObject": "Inclure {{object}} dans le clone",
     "recordCountFor": "Nombre d'enregistrements pour {{object}}",
-    "batchSizeFor": "Taille de lot pour {{object}}"
+    "batchSizeFor": "Taille de lot pour {{object}}",
+    "runProgress": "Progression {{name}}",
+    "progressAnnouncement": "Progression {{name}} : {{percent}} %",
+    "orgDropdownValue": "{{label}} : {{org}}, état : {{status}}"
   }
 }

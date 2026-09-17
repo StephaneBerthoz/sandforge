@@ -33,6 +33,37 @@ function statusDotColor(status: string): string {
 }
 
 /**
+ * Shape of the status indicator, so status is not told by colour alone: a
+ * filled circle when connected, a ring while refreshing, a diamond otherwise.
+ */
+type StatusShape = 'circle' | 'ring' | 'diamond';
+
+function statusShape(status: string): StatusShape {
+  if (status === 'connected') return 'circle';
+  if (status === 'refreshing') return 'ring';
+  return 'diamond';
+}
+
+const SHAPE_CLASSES: Record<StatusShape, string> = {
+  circle: 'rounded-full',
+  ring: 'rounded-full border-2 border-current bg-transparent text-status-warning',
+  diamond: 'rounded-[1px] rotate-45',
+};
+
+/** The status indicator of one org. Decorative: the status is also given as text. */
+const StatusDot: React.FC<{ status: string; testId?: string }> = ({ status, testId }) => {
+  const shape = statusShape(status);
+  return (
+    <span
+      aria-hidden="true"
+      data-shape={shape}
+      data-testid={testId}
+      className={cn('w-2 h-2 shrink-0', statusDotColor(status), SHAPE_CLASSES[shape])}
+    />
+  );
+};
+
+/**
  * Custom styled dropdown for org selection.
  * Shows the selected org with status dot, alias, and username.
  * Opens a dropdown list on click with keyboard and click-outside support.
@@ -95,27 +126,31 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
       <button
         type="button"
         data-testid={testId}
-        aria-label={ariaLabel}
+        aria-label={
+          selectedOrg
+            ? t('a11y.orgDropdownValue', {
+                label: ariaLabel,
+                org: selectedOrg.alias || selectedOrg.username,
+                status: t(`org.status_${selectedOrg.status}`),
+              })
+            : ariaLabel
+        }
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen(!open)}
         className={cn(
           'w-full flex items-center gap-2 text-sm font-semibold cursor-pointer',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]',
-          selectedOrg ? 'text-text-primary' : 'text-text-muted',
+          selectedOrg ? 'text-text-primary' : 'text-text-secondary',
         )}
       >
-        {selectedOrg && (
-          <div
-            className={cn('w-2 h-2 rounded-full shrink-0', statusDotColor(selectedOrg.status))}
-          />
-        )}
+        {selectedOrg && <StatusDot status={selectedOrg.status} testId={`${testId}-status`} />}
         <span className="truncate flex-1 text-left">
           {selectedOrg ? selectedOrg.alias || selectedOrg.username : t('forge.selectOrg')}
         </span>
         <ChevronDown
           size={14}
-          className={cn('text-text-muted shrink-0 transition-transform', open && 'rotate-180')}
+          className={cn('text-text-secondary shrink-0 transition-transform', open && 'rotate-180')}
         />
       </button>
 
@@ -134,7 +169,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
             type="button"
             data-testid={`${testId}-option-empty`}
             onClick={() => handleSelect('')}
-            className="w-full text-left px-3 py-1.5 text-sm text-text-muted hover:bg-surface-2 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-2 transition-colors"
           >
             {t('forge.selectOrg')}
           </button>
@@ -147,14 +182,22 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
               className={cn(
                 'w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors',
                 org.id === value
-                  ? 'bg-forge/10 text-forge'
+                  ? 'bg-forge/10 text-hue-forge'
                   : 'text-text-secondary hover:bg-surface-2',
               )}
             >
-              <div className={cn('w-2 h-2 rounded-full shrink-0', statusDotColor(org.status))} />
+              <StatusDot status={org.status} />
               <span className="truncate">{org.alias || org.username}</span>
+              <span className="sr-only">{t(`org.status_${org.status}`)}</span>
               {org.alias && (
-                <span className="text-[10px] text-text-muted truncate ml-auto">{org.username}</span>
+                <span
+                  className={cn(
+                    'text-[10px] truncate ml-auto',
+                    org.id === value ? 'text-text-primary' : 'text-text-secondary',
+                  )}
+                >
+                  {org.username}
+                </span>
               )}
             </button>
           ))}

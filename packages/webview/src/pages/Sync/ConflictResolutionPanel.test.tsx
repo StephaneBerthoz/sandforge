@@ -72,7 +72,7 @@ describe('ConflictResolutionPanel', () => {
     const pickTarget = screen.getByTestId('pick-target-Industry');
     fireEvent.click(pickTarget);
 
-    expect(pickTarget.className).toContain('border-emerald-500');
+    expect(pickTarget.className).toContain('border-green-500');
   });
 
   it('should disable Apply button until all fields have a resolution', () => {

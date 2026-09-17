@@ -593,14 +593,33 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   on the Welcome wizard skips it the way its Skip button does, so a ticked
   "Don't show again" is kept, and the Generate with AI dialog is named after its
   heading. The Compare diff dialog uses the same trap and no longer pulls focus
-  back to its close button whenever its page re-renders.
-- **Two progress bars have an accessible name, and the side panel's unstarred
-  favorite star can be seen.** Screen readers announced the Welcome wizard's
-  step bar and the Automation run bar as a bare number, which axe rates as
-  serious; they are now named "Step progress" and "Progress", and a progress bar
-  with a visible label takes that label as its name. The unstarred star sat at
-  40% opacity over the muted text colour, well under the contrast an icon
-  control needs; it is now drawn at full strength and brightens on hover.
+  back to its close button whenever its page re-renders. So does Monitor's
+  health report dialog, which already kept Tab inside: it pulled focus back to
+  its Close button whenever Monitor refreshed the figures behind it and lost
+  focus when it closed, and now leaves focus where it is and gives it back to
+  View Full Report on close.
+- **Screen readers hear what a progress bar measures and how far a seed, sync or
+  Forge run has got, and the side panel's unstarred favorite star can be seen.**
+  The Welcome wizard's step bar, the Automation and Forge run bars, Seed's
+  per-object bars, Compare's drift score, the Grappe progress panel and
+  Monitor's KPI cards, limits, API usage, live operations and Apex insights were
+  announced as a bare number, which axe rates as serious, and the bars on the
+  Grappe page, the Frozen Dataset load and Autopilot's control panel were not
+  progress bars to a screen reader at all. Each is now a progress bar with a
+  name — the limit, category, operation, object, partition or log on its row,
+  the title of its Monitor card, "Records Processed", "API Calls" and
+  "Progress" on Autopilot's control panel, "Forge progress" or "Grappe
+  progress" for a whole run, "Step progress" on the Welcome wizard, and
+  "Progress" on an Automation run and a Frozen Dataset load — and gives its
+  value as a percentage. A progress bar with a visible label takes that label as
+  its name. Seed and Quick Seed, Sync, Forge and the Grappe panel on the
+  Autopilot page also announce a running operation's progress, as in "Seed
+  progress: 40%": the first at once, then at most once every five seconds with
+  the latest figure, and the end without waiting. Inside Seed and Sync the
+  Grappe panel stays quiet, since the page already announces the run. The
+  unstarred favorite star sat at 40% opacity over the muted text colour, well
+  under the contrast an icon control needs; it is now drawn at full strength in
+  the description colour and brightens on hover.
 - **The example pipelines can no longer delete what they did not clone.**
   `sandforge-cleanup --since today` selects every record the user created that
   day on the target, cloned or not, and its help, the CI README and the Forge
@@ -895,6 +914,71 @@ WHERE Industry = 'Energy'` cloned Accounts from the whole table, up to the
   panel is open the native notification reports a failure as a failure and says
   nothing at all about a run you stopped yourself. Live Operations still lists
   Seed and Sync runs only.
+
+- **Text reaches readable contrast on seven of VS Code's themes, its default
+  Light 2026 and Dark 2026 among them.** Much of the panel's text was written in
+  colours no theme picks for reading. Secondary text — timestamps, usernames,
+  counts, hints, empty states, chart axes — used VS Code's colour for disabled
+  controls, 1.92:1 on Light 2026's editor background and 2.50:1 on Dark 2026's;
+  it now uses the description colour VS Code gives its own secondary text, or
+  the editor text colour where it sits on a tint, and text keeps the disabled
+  colour only on controls that are disabled. Severity and accent text often used
+  fixed shades picked for a dark editor — red read 2.77:1 on a white one, yellow
+  1.53:1 — or VS Code's severity colours, most of them made for icons and
+  squiggles rather than text. Severity text now mixes the theme's own severity
+  colour, and accent text its old shade, with the theme's text colour in a share
+  that reads on each of the seven themes named below, on the tinted badges, rows
+  and banners under them too. Text faded to part strength is drawn in full:
+  upcoming wizard steps, toast messages and the Automation scheduler preview. An
+  object you leave out of a Forge clone gets a dashed outline on the graph
+  instead, and a suggested Quick Sync object that cannot be added is struck
+  through. Labels written in white on a coloured fill, 2.46:1 on the danger
+  button under Dark+, now take the editor background colour, so on a dark theme
+  the danger and Forge buttons and the org type badges carry dark text.
+  Placeholders without a colour of their own take the theme's placeholder colour
+  instead of a grey no theme picked, 2.54:1 on a white input. The bar is 4.5:1
+  for text against everything drawn under it on Light 2026, Dark 2026, Light
+  Modern, Dark Modern, Light+, Dark+ and Quiet Light. Text in a colour pair the
+  theme itself draws below that — its placeholders, its secondary text on
+  Light+'s side bar and cards and throughout Quiet Light, and Quiet Light's
+  badges and selected items — is held to the theme's own contrast instead.
+  Solarized Light, whose own text reads 3.64:1 on its side bar, is held to no
+  bar, and the other themes VS Code bundles, the high contrast ones included,
+  are not measured. Every change is checked against the bar: in the colours the
+  code writes under all seven themes, in the browser on fifteen pages and ten
+  further states under the first four, and on eight more states under all
+  seven.
+- **Spinners, pulses and hover effects hold still when your system asks for
+  reduced motion, and the org pickers show status by shape as well as colour.**
+  With reduced motion turned on in the operating system, spinners, the pulsing
+  blocks shown while a page loads, the Monitor alert ping, the moving dashes on
+  graph edges and hover and colour transitions kept moving; they now stand
+  still. Wizard steps, cards and dialogs still fade in, and Monitor's health
+  gauge still fills to its score. The org pickers in Forge and on Frozen
+  Dataset's Load tab told an org's status only by the colour of a dot. The dot
+  is now a filled circle when the org is connected, a ring while it refreshes
+  and a diamond when its session has expired or its connection failed, and
+  screen readers hear the status as well: the picker names the selected org
+  with its status, and each org in the list says its own. The buttons that fold
+  Monitor's sections away, which had no name, are now named after their section
+  and say whether it is open.
+- **Spanish and Brazilian Portuguese have their accents back.** Some of the text
+  in SandForge's panels and side panel had been written without them: the side
+  panel listed "Automatizacion", an expired org's card read "Sesion expirada" or
+  "Sessao expirada", the Username / Password form asked for a "Contrasena", and
+  the Welcome wizard offered "Nao mostrar novamente". In all, 135 Spanish and
+  176 Brazilian Portuguese strings are corrected, so these now read
+  "Automatización", "Sesión expirada", "Sessão expirada", "Contraseña" and "Não
+  mostrar novamente". The Spanish questions and exclamations that lacked their
+  opening mark have it too: Help's FAQ asks "¿Por qué mi Puntaje de Salud es
+  bajo?", and Home's Getting Started card, shown while no org is connected,
+  opens with "¡Bienvenido a SandForge!". Seed's getting-started card now asks
+  you to "pueble su sandbox", where it said "poble". Command titles, settings
+  and the messages SandForge shows through VS Code already had their accents in
+  both languages, and French, German and Japanese were not affected. A Spanish
+  word ending in -ción or -sión, a Portuguese one ending in -ção or -são, or one
+  of a short list of common words such as página, también, não or você, written
+  without its accent, now fails the checks run on every change.
 
 ### Changed
 
@@ -1304,7 +1388,8 @@ answer within 10000 ms for org "00D…"` reached the model with the org in it.
   anything beyond the status it owes. The accessibility scans now also cover the
   Welcome and What's New overlays open over a page, the Generate with AI dialog
   and the Automation canvas with a run in progress; on their first run they
-  found the two unnamed progress bars fixed above.
+  found the Welcome wizard's and the Automation run's unnamed progress bars,
+  fixed above.
 - **The CI and contributor docs describe the pipeline that runs.** ci.yml
   still called Windows the only leg running E2E, and CONTRIBUTING and the pull
   request template listed six validate gates where there are fifteen. They now

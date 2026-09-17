@@ -181,7 +181,7 @@ interface StatCardProps {
 
 /** Stat card component for the review step. */
 const StatCard: React.FC<StatCardProps> = ({ label, value, testId }) => (
-  <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-input)]" data-testid={testId}>
+  <div className="flex flex-col gap-1 p-3 rounded bg-surface-2" data-testid={testId}>
     <span className="text-xs text-text-secondary">{label}</span>
     <span className="text-lg font-semibold text-text-primary">{value}</span>
   </div>

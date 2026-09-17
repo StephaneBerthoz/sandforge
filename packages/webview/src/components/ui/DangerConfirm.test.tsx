@@ -77,13 +77,13 @@ describe('DangerConfirm', () => {
   it('should show warning colors when variant is warning', () => {
     render(<DangerConfirm {...baseProps} variant="warning" />);
     const titleEl = screen.getByTestId('danger-title');
-    expect(titleEl.className).toContain('text-monitor');
+    expect(titleEl.className).toContain('text-status-warning');
   });
 
   it('should show info colors when variant is info', () => {
     render(<DangerConfirm {...baseProps} variant="info" />);
     const titleEl = screen.getByTestId('danger-title');
-    expect(titleEl.className).toContain('text-sync');
+    expect(titleEl.className).toContain('text-status-info');
   });
 
   it('should confirm on Enter key when text matches', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
 import '../../i18n';
@@ -443,6 +443,86 @@ describe('ForgeExecution', () => {
       deliver('forge:execute:error', 'wv-forge-own', { message: 'Insert failed' });
 
       expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
+    });
+  });
+});
+
+describe('ForgeExecution progress for assistive technology', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGraph = makeMockGraph();
+    mockExecutionRequestId = null;
+    mockStoreLogs.length = 0;
+  });
+
+  it('draws the run progress with a named progress bar', () => {
+    render(<ForgeExecution />);
+    const bar = screen.getByRole('progressbar', { name: 'Forge progress' });
+    expect(bar.getAttribute('aria-valuetext')).toMatch(/^\d+%$/);
+    expect(screen.getByTestId('forge-execution-progress').contains(bar)).toBe(true);
+    expect((bar.firstChild as HTMLElement).className).toContain('bg-forge');
+  });
+
+  it('announces the run progress in a polite status region', () => {
+    render(<ForgeExecution />);
+    const region = screen.getByTestId('forge-progress-status');
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    const value = screen.getByRole('progressbar').getAttribute('aria-valuenow');
+    expect(region.textContent).toBe(`Forge progress: ${value}%`);
+  });
+
+  describe('the last announcement of a run', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Post a message from the extension host. */
+    function host(type: string, payload: Record<string, unknown>): void {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { id: `host-${type}`, type, timestamp: Date.now(), payload },
+          }),
+        );
+      });
+    }
+
+    /** Mark the named objects done in the graph the store hands out. */
+    function finish(...names: string[]): void {
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) =>
+          names.includes(node.objectApiName) ? { ...node, status: 'done' as const } : node,
+        ),
+      };
+    }
+
+    /** A run at 25% whose second object finishes within the announcement interval. */
+    function runUnderway(): HTMLElement {
+      vi.useFakeTimers();
+      render(<ForgeExecution />);
+      const region = screen.getByTestId('forge-progress-status');
+      expect(region.textContent).toBe('Forge progress: 25%');
+      finish('Contact');
+      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
+      expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
+      // Mid-run values wait for the interval.
+      expect(region.textContent).toBe('Forge progress: 25%');
+      return region;
+    }
+
+    it('says 100% as soon as the run completes', () => {
+      const region = runUnderway();
+      finish('Opportunity', 'Case');
+      host('forge:execute:response', {});
+      expect(region.textContent).toBe('Forge progress: 100%');
+    });
+
+    it('says where an aborted run stopped, as soon as it stops', () => {
+      const region = runUnderway();
+      host('forge:execute:error', { message: 'Insert failed' });
+      expect(region.textContent).toBe('Forge progress: 50%');
     });
   });
 });

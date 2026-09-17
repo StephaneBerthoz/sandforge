@@ -34,21 +34,15 @@ describe('LogStream', () => {
     const { container } = render(<LogStream entries={entries} />);
     const entryDivs = container.querySelectorAll('[data-testid="logstream-entry"]');
 
-    // Info entry should have text-text-secondary
-    const infoMessage = entryDivs[0].querySelector('.text-text-secondary');
-    expect(infoMessage).toBeDefined();
-
-    // Warn entry should have text-monitor
-    const warnMessage = entryDivs[1].querySelector('.text-monitor');
-    expect(warnMessage).toBeDefined();
-
-    // Error entry should have text-automation
-    const errorMessage = entryDivs[2].querySelector('.text-automation');
-    expect(errorMessage).toBeDefined();
-
-    // Debug entry should have text-text-muted
-    const debugMessage = entryDivs[3].querySelector('.text-text-muted');
-    expect(debugMessage).toBeDefined();
+    // Severity reads in the severity tokens, sized for contrast; the module
+    // colours they replace read 1.3 to 2.8:1 on light themes. querySelector
+    // returns null, never undefined, so the check is on null.
+    expect(entryDivs[0].querySelector('.text-text-secondary')).not.toBeNull();
+    expect(entryDivs[1].querySelector('.text-status-warning')).not.toBeNull();
+    expect(entryDivs[2].querySelector('.text-status-error')).not.toBeNull();
+    // Debug is read too: not the disabled foreground.
+    expect(entryDivs[3].querySelector('.text-text-muted')).toBeNull();
+    expect(entryDivs[3].querySelector('.text-text-secondary')).not.toBeNull();
   });
 
   it('should filter to only error entries when error filter active', () => {

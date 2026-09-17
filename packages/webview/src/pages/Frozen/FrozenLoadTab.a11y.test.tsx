@@ -61,3 +61,26 @@ describe('FrozenLoadTab accessible names', () => {
     expect(orphanLabels(screen.getByTestId('frozen-load-tab'))).toEqual([]);
   });
 });
+
+describe('FrozenLoadTab progress bar', () => {
+  beforeEach(() => {
+    useFrozenStore.setState({
+      progress: [{ phase: 'guards', status: 'started', progress: 35, message: 'Loading Account' }],
+      loadReport: null,
+      verdict: null,
+      lastError: null,
+    } as unknown as Parameters<typeof useFrozenStore.setState>[0]);
+  });
+
+  it('names the load progress bar after its heading', () => {
+    render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
+    const bar = screen.getByRole('progressbar', { name: 'Progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('35');
+  });
+
+  it('keeps the Frozen cyan on the fill', () => {
+    render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
+    const bar = screen.getByRole('progressbar', { name: 'Progress' });
+    expect((bar.firstChild as HTMLElement).className).toContain('bg-cyan-500');
+  });
+});

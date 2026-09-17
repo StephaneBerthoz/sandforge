@@ -35,10 +35,10 @@ export const ForgeOrgCard: React.FC<ForgeOrgCardProps> = ({
     <div
       className={cn(
         'rounded-lg border p-3 transition-all',
-        org ? 'border-subtle bg-surface-1' : 'border-dashed border-subtle bg-surface-1/50',
+        org ? 'border-subtle bg-surface-1' : 'border-dashed border-subtle bg-surface-1',
       )}
     >
-      <div className="text-[10px] text-text-muted uppercase tracking-widest mb-1.5">
+      <div className="text-[10px] text-text-secondary uppercase tracking-widest mb-1.5">
         {t(labelKey)}
       </div>
       <OrgDropdown
@@ -48,7 +48,7 @@ export const ForgeOrgCard: React.FC<ForgeOrgCardProps> = ({
         ariaLabel={t(labelKey)}
         testId={testId}
       />
-      {org && <div className="text-[10px] text-text-muted mt-1 truncate">{org.username}</div>}
+      {org && <div className="text-[10px] text-text-secondary mt-1 truncate">{org.username}</div>}
     </div>
   );
 };

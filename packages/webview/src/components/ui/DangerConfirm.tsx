@@ -7,17 +7,24 @@ import { fadeIn, slideUp } from '../../motion/presets';
 
 /** Variant styles for different confirmation dialog types. */
 const variantStyles = {
+  // The confirm button fills with the severity token and writes in the editor
+  // background: the token is sized to read against that background on every
+  // theme, where white on red-500, yellow-500 or blue-500 read 3.8, 1.9 and 3.7:1.
   danger: {
-    accent: 'text-red-400',
+    accent: 'text-status-error',
     border: 'border-red-500/50',
-    btnBg: 'bg-red-500 hover:bg-red-600',
+    btnBg: 'bg-status-error',
   },
   warning: {
-    accent: 'text-monitor',
+    accent: 'text-status-warning',
     border: 'border-monitor/50',
-    btnBg: 'bg-monitor hover:bg-yellow-600',
+    btnBg: 'bg-status-warning',
   },
-  info: { accent: 'text-sync', border: 'border-sync/50', btnBg: 'bg-sync hover:bg-blue-600' },
+  info: {
+    accent: 'text-status-info',
+    border: 'border-sync/50',
+    btnBg: 'bg-status-info',
+  },
 } as const;
 
 /** Supported dialog variant types. */
@@ -186,10 +193,11 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                       </button>
                       <button
                         className={cn(
-                          'px-3 py-1.5 text-sm rounded font-medium',
-                          isMatch
-                            ? `${styles.btnBg} text-white cursor-pointer`
-                            : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-disabledForeground,#6b6b6b)] cursor-not-allowed',
+                          'px-3 py-1.5 text-sm rounded font-medium cursor-pointer',
+                          styles.btnBg,
+                          'text-[var(--sf-bg-primary)]',
+                          // Until the text matches the button is disabled, and reads as such.
+                          'disabled:bg-[var(--vscode-input-background,#3c3c3c)] disabled:text-text-muted disabled:cursor-not-allowed',
                         )}
                         onClick={handleConfirm}
                         disabled={!isMatch}

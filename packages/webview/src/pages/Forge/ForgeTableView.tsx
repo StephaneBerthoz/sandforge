@@ -12,12 +12,12 @@ type SortDirection = 'asc' | 'desc';
 
 /** Status badge color mapping. */
 const statusColors: Record<string, string> = {
-  idle: 'bg-gray-500/20 text-gray-400',
-  running: 'bg-blue-500/20 text-blue-400',
-  done: 'bg-green-500/20 text-green-400',
-  failed: 'bg-red-500/20 text-red-400',
-  queued: 'bg-yellow-500/20 text-yellow-400',
-  skipped: 'bg-gray-500/20 text-gray-500',
+  idle: 'bg-gray-500/10 text-text-primary',
+  running: 'bg-blue-500/10 text-status-info',
+  done: 'bg-green-500/10 text-status-success',
+  failed: 'bg-red-500/10 text-status-error',
+  queued: 'bg-yellow-500/10 text-status-warning',
+  skipped: 'bg-gray-500/10 text-text-primary',
 };
 
 /**
@@ -163,8 +163,9 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
               key={node.objectApiName}
               data-testid="forge-table-row"
               className={cn(
-                'border-b border-subtle/50 transition-colors hover:bg-surface-2',
-                selectedNodeName === node.objectApiName && 'bg-forge/10 border-l-2 border-forge',
+                'border-b border-subtle transition-colors hover:bg-surface-2',
+                // An opaque surface, so each status badge's tint is the only one under it.
+                selectedNodeName === node.objectApiName && 'bg-surface-2 border-l-2 border-forge',
               )}
             >
               <td className="px-3 py-2">

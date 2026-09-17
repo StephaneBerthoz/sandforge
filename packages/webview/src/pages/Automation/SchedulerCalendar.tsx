@@ -34,7 +34,9 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
         <span data-testid="scheduler-coming-soon">
           <Badge variant="info">{t('common.comingSoon')}</Badge>
         </span>
-        <div className="opacity-50 pointer-events-none mt-2">
+        {/* A preview until scheduling ships: the badge says so, and it takes no input.
+            It is not faded, since faded text is text nobody can read. */}
+        <div className="pointer-events-none mt-2">
           <EmptyState
             icon="calendar"
             title={t('automation.scheduler')}
@@ -50,7 +52,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
       <span data-testid="scheduler-coming-soon">
         <Badge variant="info">{t('common.comingSoon')}</Badge>
       </span>
-      <div className="opacity-50 pointer-events-none mt-2">
+      <div className="pointer-events-none mt-2">
         <div className="flex flex-col gap-3">
           <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
             {t('automation.scheduler')}

@@ -47,6 +47,22 @@ describe('ProtocolMismatchBanner', () => {
     expect(screen.getByText(/reload the window/i)).toBeDefined();
   });
 
+  it('writes its message and dismiss button in the editor foreground, legible on light themes', () => {
+    render(<ProtocolMismatchBanner />);
+
+    act(() => {
+      fireBanner();
+    });
+
+    for (const element of [
+      screen.getByTestId('protocol-mismatch-banner'),
+      screen.getByTestId('protocol-mismatch-dismiss'),
+    ]) {
+      expect(element.className).toContain('text-text-primary');
+      expect(element.className).not.toMatch(/\btext-yellow-\d+\b/);
+    }
+  });
+
   it('sends a workbench:reload envelope when the Reload button is clicked', () => {
     render(<ProtocolMismatchBanner />);
 

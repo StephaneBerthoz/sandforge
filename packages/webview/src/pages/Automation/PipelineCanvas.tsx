@@ -82,7 +82,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               )}
               {onRemoveStep && (
                 <button
-                  className="text-xs text-[var(--sf-text-secondary)] hover:text-red-400 ml-auto"
+                  className="text-xs text-[var(--sf-text-secondary)] hover:text-status-error ml-auto"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemoveStep(step.id);

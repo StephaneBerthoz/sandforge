@@ -243,7 +243,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             >
               <span
                 className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold mt-px"
-                style={{ background: 'var(--sf-accent, #E8A838)', color: '#1e1e1e' }}
+                style={{ background: 'var(--sf-button-bg)', color: 'var(--sf-button-fg)' }}
                 aria-hidden="true"
               >
                 {index + 1}
@@ -258,7 +258,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {encouragement && (
         <p
           className="text-xs mt-2 max-w-xs"
-          style={{ color: 'var(--sf-accent, #E8A838)' }}
+          style={{ color: 'var(--sf-text-link)' }}
           data-testid="empty-encouragement"
         >
           {encouragement}

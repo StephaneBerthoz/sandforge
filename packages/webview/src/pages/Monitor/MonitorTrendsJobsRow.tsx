@@ -51,7 +51,7 @@ export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.m
             ) : trendSeries.length > 0 ? (
               <TrendCharts series={trendSeries} />
             ) : (
-              <div className="flex items-center justify-center h-32 text-xs text-text-muted">
+              <div className="flex items-center justify-center h-32 text-xs text-text-secondary">
                 {t('monitor.noTrends', 'Not enough data for trends yet')}
               </div>
             )}

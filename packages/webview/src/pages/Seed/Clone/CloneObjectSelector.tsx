@@ -106,7 +106,7 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
                   data-testid={`clone-obj-check-${obj.name}`}
                 />
                 <span className="text-[var(--sf-text-primary)] font-medium">{obj.label}</span>
-                <span className="text-[var(--sf-text-secondary)]">{obj.name}</span>
+                <span className="text-[var(--sf-text-primary)]">{obj.name}</span>
               </label>
 
               {/* WHERE clause input -- shown only for selected objects */}

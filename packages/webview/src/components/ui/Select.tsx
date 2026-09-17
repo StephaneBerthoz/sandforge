@@ -84,11 +84,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           ))}
         </select>
         {error && (
-          <span
-            id={`${selectId}-error`}
-            className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
-            role="alert"
-          >
+          <span id={`${selectId}-error`} className="text-xs text-status-error" role="alert">
             {error}
           </span>
         )}

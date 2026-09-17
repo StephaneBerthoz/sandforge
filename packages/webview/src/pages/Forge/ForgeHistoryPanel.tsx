@@ -80,7 +80,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       <p
         data-testid="forge-history-error"
         role="status"
-        className="text-[10px] text-text-muted mt-2"
+        className="text-[10px] text-text-secondary mt-2"
       >
         {t('forge.history.loadError')}
       </p>
@@ -89,7 +89,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
 
   return (
     <div data-testid="forge-history-panel" className="flex flex-col gap-1.5 mt-2">
-      <div className="text-[10px] text-text-muted uppercase tracking-widest">
+      <div className="text-[10px] text-text-secondary uppercase tracking-widest">
         {t('forge.history.title')}
       </div>
 
@@ -112,7 +112,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                 </span>
               </div>
               {config && (
-                <span className="block text-[11px] text-text-muted truncate">
+                <span className="block text-[11px] text-text-secondary truncate">
                   {[t(MODE_KEYS[config.inputMode]), subject, t(DEPTH_KEYS[config.depth])]
                     .filter(Boolean)
                     .join(' · ')}
@@ -132,7 +132,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
               title={config ? t('forge.history.reuseHint') : t('forge.history.noConfig')}
               className={cn(
                 'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium',
-                'border border-forge/30 bg-forge/5 text-forge',
+                'border border-forge/30 bg-forge/5 text-hue-forge',
                 'hover:bg-forge/10 hover:border-forge/50 transition-colors',
                 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-forge/5',
               )}
@@ -148,7 +148,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         <p
           data-testid="forge-history-reused"
           role="status"
-          className="text-[10px] text-forge mt-0.5"
+          className="text-[10px] text-hue-forge mt-0.5"
         >
           {t('forge.history.reused', { date: reusedFrom })}
         </p>

@@ -35,12 +35,12 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
 
   return (
     <div
-      className="flex items-center gap-3 p-3 rounded-lg border border-amber-600/40 bg-amber-950/20"
+      className="flex items-center gap-3 p-3 rounded-lg border border-amber-600/40 bg-amber-500/10"
       data-testid="sandbox-banner"
       role="status"
     >
-      <Icon name="database" className="text-amber-400 shrink-0" />
-      <span className="flex-1 text-sm text-amber-200">{t('onboarding.sandboxBanner')}</span>
+      <Icon name="database" className="text-status-warning shrink-0" />
+      <span className="flex-1 text-sm text-text-primary">{t('onboarding.sandboxBanner')}</span>
       <div className="flex items-center gap-2 shrink-0">
         <Button
           variant="primary"
@@ -59,7 +59,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
           {t('onboarding.openSync')}
         </Button>
         <button
-          className="text-amber-400/60 hover:text-amber-400 transition-colors p-1"
+          className="text-status-warning hover:text-text-primary transition-colors p-1"
           onClick={handleDismiss}
           aria-label={t('common.dismiss')}
           data-testid="sandbox-banner-dismiss"

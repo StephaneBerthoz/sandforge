@@ -81,7 +81,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
               {t('seed.recordsCreated')}: <strong>{executionResult.totalRecordsCreated}</strong>
             </span>
             {executionResult.totalRecordsFailed > 0 && (
-              <span className="text-[var(--sf-error)]">
+              <span className="text-status-error">
                 {t('seed.recordsFailed')}: <strong>{executionResult.totalRecordsFailed}</strong>
               </span>
             )}
@@ -119,7 +119,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                       </p>
                     )}
                     {obj.errors.map((err, i) => (
-                      <p key={i} className="text-[10px] text-[var(--sf-error)]">
+                      <p key={i} className="text-[10px] text-status-error">
                         {err}
                       </p>
                     ))}
@@ -158,7 +158,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
             )}
             {saveTemplate.error && (
               <span
-                className="self-center text-[10px] text-[var(--sf-error)]"
+                className="self-center text-[10px] text-status-error"
                 data-testid="seed-template-save-error"
               >
                 {saveTemplate.error}

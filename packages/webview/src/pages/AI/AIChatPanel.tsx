@@ -188,7 +188,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               >
                 <span className="truncate flex-1">{conv.title}</span>
                 <span
-                  className="shrink-0 ml-1 cursor-pointer opacity-60 hover:opacity-100"
+                  className="shrink-0 ml-1 cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDeleteConversation?.(conv.id);

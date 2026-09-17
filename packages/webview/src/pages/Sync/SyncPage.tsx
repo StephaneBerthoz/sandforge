@@ -8,7 +8,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
-import { ProgressBar } from '../../components/ui/ProgressBar';
+import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
@@ -165,7 +165,7 @@ const ConflictsTabContent: React.FC = () => {
 const SyncGrappePanel: React.FC = () => {
   const { active, operationId } = useGrappeStore();
   if (!active && !operationId) return null;
-  return <GrappeProgressPanel />;
+  return <GrappeProgressPanel announce={false} />;
 };
 
 /** Main Sync page — wired to extension via bridge hooks. */
@@ -593,6 +593,14 @@ export const SyncPage: React.FC = () => {
                 showPercent
                 variant={overallPercent >= 100 ? 'success' : 'default'}
               />
+              <ProgressAnnouncer
+                message={t('a11y.progressAnnouncement', {
+                  name: t('nav.sync'),
+                  percent: Math.round(overallPercent),
+                })}
+                immediate={!isRunning || overallPercent >= 100}
+                testId="sync-progress-status"
+              />
               <div className="text-[10px] text-text-secondary" data-testid="sync-elapsed">
                 {(elapsedMs / 1000).toFixed(1)}s
               </div>
@@ -625,7 +633,7 @@ export const SyncPage: React.FC = () => {
                       {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
                     </span>
                     {result.totalFailed > 0 && (
-                      <span className="text-[var(--sf-error)]">
+                      <span className="text-status-error">
                         {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
                       </span>
                     )}
@@ -639,7 +647,7 @@ export const SyncPage: React.FC = () => {
                       {obj.errors.length > 0 && (
                         <CardBody>
                           {obj.errors.map((err, i) => (
-                            <p key={i} className="text-[10px] text-[var(--sf-error)]">
+                            <p key={i} className="text-[10px] text-status-error">
                               {err}
                             </p>
                           ))}

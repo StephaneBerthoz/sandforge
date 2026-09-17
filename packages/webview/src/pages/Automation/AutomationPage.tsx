@@ -332,7 +332,7 @@ export const AutomationPage: React.FC = () => {
                       </div>
                       <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
                       <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs text-text-muted">
+                        <span className="text-xs text-text-secondary">
                           {t('automation.marketplaceAuthor')}: {tpl.author}
                         </span>
                         <Button
@@ -415,7 +415,7 @@ const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
           {t('automation.generatePipeline')}
         </h3>
         <input
-          className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-active"
+          className="w-full rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-active"
           placeholder={t('automation.generatePipelinePrompt')}
           aria-label={t('automation.generatePipelinePrompt')}
           value={description}

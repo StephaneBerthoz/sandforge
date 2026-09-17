@@ -393,8 +393,7 @@ export const OrgManagerPage: React.FC = () => {
                   isActive
                     ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
                     : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] border-transparent hover:bg-[var(--sf-button-secondary-hover)]',
-                  card.comingSoon && 'opacity-50',
-                  isConnecting && 'pointer-events-none opacity-60',
+                  'disabled:pointer-events-none disabled:opacity-60',
                 )}
                 onClick={() => handleMethodClick(card)}
                 disabled={isConnecting}
@@ -420,7 +419,7 @@ export const OrgManagerPage: React.FC = () => {
 
         {updateMutation.error && (
           <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-[var(--sf-error)]"
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-status-error"
             role="alert"
             data-testid="org-update-error"
           >
@@ -432,7 +431,7 @@ export const OrgManagerPage: React.FC = () => {
             form-less methods (sfdx_import) too. `mutate` clears it on retry. */}
         {connectError && (
           <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-[var(--sf-error)]"
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-status-error"
             role="alert"
             data-testid="org-connect-error"
           >
@@ -564,7 +563,7 @@ export const OrgManagerPage: React.FC = () => {
       </div>
 
       {orgListQuery.error && (
-        <div className="text-[var(--sf-error)]" data-testid="org-list-error">
+        <div className="text-status-error" data-testid="org-list-error">
           {orgListQuery.error}
         </div>
       )}

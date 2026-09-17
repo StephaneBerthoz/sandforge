@@ -90,7 +90,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
                 />
               ))}
               <button
-                className="text-[var(--sf-error)] hover:opacity-70 px-1 ml-auto"
+                className="text-status-error hover:underline px-1 ml-auto"
                 onClick={() => onRemoveRule(i)}
                 data-testid={`remove-transform-${i}`}
               >

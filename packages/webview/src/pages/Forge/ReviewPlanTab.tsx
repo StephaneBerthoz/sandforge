@@ -33,7 +33,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
     return (
       <div
         data-testid="plan-loading"
-        className="flex items-center justify-center py-8 text-text-muted text-sm"
+        className="flex items-center justify-center py-8 text-text-secondary text-sm"
       >
         {t('forge.review.planLoading', 'Generating execution plan...')}
       </div>
@@ -43,7 +43,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
   return (
     <div data-testid="review-plan-tab" className="flex flex-col gap-3">
       {/* Summary */}
-      <div className="flex gap-4 text-xs text-text-muted">
+      <div className="flex gap-4 text-xs text-text-secondary">
         <span>
           {plan.totalRecords.toLocaleString()} {t('forge.records', 'records')}
         </span>
@@ -62,7 +62,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             <span className="text-xs font-semibold text-text-primary">
               {t('forge.review.wave', 'Wave')} {wave.order + 1}
             </span>
-            <span className="text-[10px] text-text-muted">
+            <span className="text-[10px] text-text-secondary">
               {wave.estimatedApiCalls} calls · ~{wave.estimatedDurationSeconds.toFixed(1)}s
             </span>
           </div>
@@ -82,12 +82,12 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
       {/* Cycle resolutions */}
       {plan.cycleResolutions.length > 0 && (
         <div data-testid="cycle-resolutions" className="mt-2">
-          <h4 className="text-xs font-semibold text-orange-400 mb-1">
+          <h4 className="text-xs font-semibold text-status-warning mb-1">
             {t('forge.review.cycles', 'Cycle Resolutions')}
           </h4>
           {plan.cycleResolutions.map((cycle, idx) => (
-            <div key={`cycle-${idx}`} className="text-[10px] text-text-muted mb-1">
-              <span className="text-orange-400">{cycle.objects.join(' \u2192 ')}</span>
+            <div key={`cycle-${idx}`} className="text-[10px] text-text-secondary mb-1">
+              <span className="text-status-warning">{cycle.objects.join(' \u2192 ')}</span>
               {' \u2014 '}
               {cycle.description}
             </div>

@@ -105,9 +105,7 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         className={cn(
           'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
           'border-[var(--vscode-input-border,#3c3c3c)]',
-          isDragOver &&
-            !disabled &&
-            'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-focusBorder,#007fd4)]/5',
+          isDragOver && !disabled && 'border-[var(--vscode-focusBorder,#007fd4)] bg-status-info/5',
           disabled && 'opacity-50 cursor-not-allowed',
         )}
         onDragOver={handleDragOver}
@@ -124,7 +122,17 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
             <p className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
               {t('seed.csv.dropzone.title')}
             </p>
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+            {/* The tint while a file is dragged over brings the description colour
+                under what the theme gives it: the subtitle reads in the editor
+                foreground then. */}
+            <p
+              className={cn(
+                'text-xs',
+                isDragOver && !disabled
+                  ? 'text-text-primary'
+                  : 'text-[var(--vscode-descriptionForeground,#868686)]',
+              )}
+            >
               {t('seed.csv.dropzone.subtitle')}
             </p>
           </div>

@@ -55,7 +55,7 @@ export function VirtualList<T>({
         className={cn('flex items-center justify-center', className)}
         style={{
           padding: 'var(--sf-space-4)',
-          color: 'var(--sf-text-muted)',
+          color: 'var(--sf-text-secondary)',
         }}
       >
         {emptyMessage ?? t('list.empty', 'No items')}

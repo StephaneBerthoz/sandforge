@@ -56,9 +56,9 @@ function Sparkline({
  * @returns CSS color class name.
  */
 function lagColor(lagMs: number): string {
-  if (lagMs < 500) return 'text-green-500';
-  if (lagMs <= 2000) return 'text-yellow-500';
-  return 'text-red-500';
+  if (lagMs < 500) return 'text-status-success';
+  if (lagMs <= 2000) return 'text-status-warning';
+  return 'text-status-error';
 }
 
 /**
@@ -67,9 +67,9 @@ function lagColor(lagMs: number): string {
  * @returns CSS color class name.
  */
 function errorRateColor(rate: number): string {
-  if (rate < 1) return 'text-green-500';
-  if (rate <= 5) return 'text-yellow-500';
-  return 'text-red-500';
+  if (rate < 1) return 'text-status-success';
+  if (rate <= 5) return 'text-status-warning';
+  return 'text-status-error';
 }
 
 /**
@@ -147,10 +147,7 @@ export const CDCMetricsDashboard: React.FC = () => {
 
   if (!metrics) {
     return (
-      <div
-        data-testid="cdc-metrics-dashboard"
-        className="p-4 text-center text-[var(--sf-text-muted)]"
-      >
+      <div data-testid="cdc-metrics-dashboard" className="p-4 text-center text-text-secondary">
         {t('sync.realtime.metricsPanel.noMetrics')}
       </div>
     );
@@ -170,12 +167,12 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-throughput"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.throughput')}
         </div>
         <div className="text-xl font-semibold">
           {evtPerSec.toFixed(1)}{' '}
-          <span className="text-sm text-[var(--sf-text-muted)]">
+          <span className="text-sm text-text-secondary">
             {t('sync.realtime.metricsPanel.evtPerSec')}
           </span>
         </div>
@@ -187,13 +184,13 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-lag"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.lag')}
         </div>
         <div className={`text-xl font-semibold ${currentLagColor}`}>
           {formatLag(metrics.currentLagMs)}
         </div>
-        <div className="text-xs text-[var(--sf-text-muted)]">
+        <div className="text-xs text-text-secondary">
           {t('sync.realtime.metricsPanel.average', { value: Math.round(metrics.averageLagMs) })}
         </div>
         <Sparkline
@@ -213,10 +210,10 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-applied"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.applied')}
         </div>
-        <div className="text-xl font-semibold text-green-500">
+        <div className="text-xl font-semibold text-status-success">
           {metrics.eventsApplied.toLocaleString()}
         </div>
       </div>
@@ -226,11 +223,11 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-failed"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.failed')}
         </div>
         <div
-          className={`text-xl font-semibold ${metrics.eventsFailed > 0 ? 'text-red-500' : 'text-gray-400'}`}
+          className={`text-xl font-semibold ${metrics.eventsFailed > 0 ? 'text-status-error' : 'text-text-secondary'}`}
         >
           {metrics.eventsFailed.toLocaleString()}
         </div>
@@ -241,7 +238,7 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-error-rate"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.errorRate')}
         </div>
         <div className={`text-xl font-semibold ${currentErrorColor}`}>
@@ -254,11 +251,11 @@ export const CDCMetricsDashboard: React.FC = () => {
         data-testid="cdc-metric-uptime"
         className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
-        <div className="text-xs text-[var(--sf-text-muted)] mb-1">
+        <div className="text-xs text-text-secondary mb-1">
           {t('sync.realtime.metricsPanel.uptime')}
         </div>
         <div className="text-xl font-semibold">{uptimeDisplay}</div>
-        <div className="text-xs text-[var(--sf-text-muted)]">
+        <div className="text-xs text-text-secondary">
           {t('sync.realtime.metricsPanel.since', {
             time: new Date(metrics.startedAt).toLocaleTimeString(),
           })}

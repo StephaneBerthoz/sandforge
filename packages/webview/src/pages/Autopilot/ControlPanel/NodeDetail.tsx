@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { ProgressBar } from '../../../components/ui/ProgressBar';
 
 /** Shows details of the selected node in the dependency graph. */
 export const NodeDetail: React.FC = () => {
@@ -41,12 +42,7 @@ export const NodeDetail: React.FC = () => {
           <span>{t('common.progress')}</span>
           <span>{selectedNode.progress}%</span>
         </div>
-        <div className="w-full h-2 rounded bg-[var(--sf-bg-input)]">
-          <div
-            className="h-full rounded bg-[var(--sf-progress-bg)] transition-all duration-300"
-            style={{ width: `${selectedNode.progress}%` }}
-          />
-        </div>
+        <ProgressBar value={selectedNode.progress} ariaLabel={t('common.progress')} />
       </div>
 
       {/* Record Count */}
@@ -60,9 +56,7 @@ export const NodeDetail: React.FC = () => {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-text-secondary">{t('autopilot.control.errors')}</span>
-          <span className="font-medium text-[var(--sf-error)]">
-            {selectedNode.failureCount ?? 0}
-          </span>
+          <span className="font-medium text-status-error">{selectedNode.failureCount ?? 0}</span>
         </div>
       </div>
 

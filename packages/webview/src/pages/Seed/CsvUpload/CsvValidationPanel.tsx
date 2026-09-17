@@ -72,8 +72,11 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
     return (
       <div className="flex flex-col items-center gap-4 py-6" data-testid="csv-validation-panel">
         <div className="flex items-center gap-2">
-          <Check className="w-6 h-6 text-emerald-400" />
-          <span className="text-sm font-medium text-emerald-400" data-testid="validation-success">
+          <Check className="w-6 h-6 text-status-success" />
+          <span
+            className="text-sm font-medium text-status-success"
+            data-testid="validation-success"
+          >
             {t('seed.csv.validation.valid', { count: estimatedTotalRows })}
           </span>
         </div>
@@ -102,8 +105,9 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
               <Badge variant="default">{t('seed.csv.validation.row', { row: error.row })}</Badge>
               <span className="font-medium text-[var(--sf-text-primary)]">{error.column}</span>
               <span className="text-[var(--sf-text-secondary)] truncate">{error.message}</span>
+              {/* bg-transparent: VS Code paints every <code> with textPreformat.background. */}
               {error.value && (
-                <code className="text-[var(--sf-error)] text-[10px]">{error.value}</code>
+                <code className="bg-transparent text-status-error text-[10px]">{error.value}</code>
               )}
             </div>
           ))}
@@ -124,9 +128,9 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
     <div className="flex flex-col gap-4" data-testid="csv-validation-panel">
       {/* Error summary */}
       <div className="flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-[var(--sf-error)]" />
+        <AlertTriangle className="w-5 h-5 text-status-error" />
         <span
-          className="text-sm font-medium text-[var(--sf-error)]"
+          className="text-sm font-medium text-status-error"
           data-testid="validation-error-count"
         >
           {t('seed.csv.validation.errors', { count: validationResult.errors.length })}
@@ -151,7 +155,7 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
             >
               {t('seed.csv.validation.proceedAnyway')}
             </Button>
-            <span className="text-[10px] text-amber-400">
+            <span className="text-[10px] text-status-warning">
               {t('seed.csv.validation.warningProceed')}
             </span>
           </div>

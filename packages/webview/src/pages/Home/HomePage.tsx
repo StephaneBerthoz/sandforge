@@ -20,7 +20,7 @@ import { OrgBadge } from '../../components/ui/OrgBadge';
 import { staggerContainer, slideUp, fadeIn } from '../../motion/presets';
 import { SandboxBanner } from '../../components/ui/SandboxBanner';
 import { useSandboxDetection } from '../../hooks/useSandboxDetection';
-import { moduleColors, cn } from '../../theme';
+import { cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { extractRecordId } from '../Forge/forgeUtils';
 import { useSmartAction } from './useSmartAction';
@@ -166,7 +166,7 @@ export const HomePage: React.FC = () => {
                 icon="organization"
                 label={t('home.orgsConnected')}
                 value={connectedOrgs.length}
-                accentColor={moduleColors.grappe}
+                accentClassName="text-hue-indigo"
               />
             </m.div>
             <m.div className="flex-1 min-w-[140px]" variants={slideUp}>
@@ -174,7 +174,7 @@ export const HomePage: React.FC = () => {
                 icon="tasklist"
                 label={t('home.activeJobs')}
                 value={activeJobsCount}
-                accentColor={moduleColors.automation}
+                accentClassName="text-hue-rose"
               />
             </m.div>
             <m.div className="flex-1 min-w-[140px]" variants={slideUp}>
@@ -182,7 +182,7 @@ export const HomePage: React.FC = () => {
                 icon="history"
                 label={t('home.opsLast7d')}
                 value={opsLast7dCount}
-                accentColor={moduleColors.forge}
+                accentClassName="text-hue-forge"
               />
             </m.div>
             <m.div className="flex-1 min-w-[140px]" variants={slideUp}>
@@ -193,7 +193,7 @@ export const HomePage: React.FC = () => {
                   icon="warning"
                   label={t('home.limitWarnings')}
                   value={health.limitWarnings ?? NO_VALUE}
-                  accentColor={moduleColors.monitor}
+                  accentClassName="text-hue-yellow"
                   variant="warning"
                 />
               )}
@@ -233,7 +233,7 @@ export const HomePage: React.FC = () => {
         <BentoTile colSpan={2} className="border-forge/30">
           <div className="flex flex-col h-full" data-testid="forge-hero-card">
             <div className="flex items-center gap-2 mb-3">
-              <Flame className="w-6 h-6" style={{ color: moduleColors.forge }} />
+              <Flame className="w-6 h-6 text-hue-forge" />
               <h1 className="text-lg font-semibold text-text-primary">{t('home.forgeASandbox')}</h1>
             </div>
             <p className="text-sm text-text-secondary mb-6">{t('home.forgeDescription')}</p>
@@ -256,7 +256,7 @@ export const HomePage: React.FC = () => {
                   aria-describedby={heroIdInvalid ? 'forge-record-error' : undefined}
                   className={cn(
                     'flex-1 rounded border bg-surface-2 px-3 py-1.5 text-sm',
-                    'text-text-primary placeholder:text-text-muted',
+                    'text-text-primary placeholder:text-text-secondary',
                     'focus:outline-none focus:ring-1 focus:ring-[var(--sf-accent)]',
                     heroIdInvalid ? 'border-[var(--sf-error)]' : 'border-subtle',
                   )}
@@ -269,7 +269,7 @@ export const HomePage: React.FC = () => {
               {heroIdInvalid && (
                 <p
                   id="forge-record-error"
-                  className="mt-1.5 text-xs text-[var(--sf-error)]"
+                  className="mt-1.5 text-xs text-status-error"
                   data-testid="forge-record-error"
                 >
                   {t('home.invalidRecordId')}
@@ -327,7 +327,7 @@ export const HomePage: React.FC = () => {
                     >
                       <Badge variant={statusBadgeMap[op.status] ?? 'default'}>{op.status}</Badge>
                       <span className="flex-1 truncate text-text-primary">{op.label}</span>
-                      <span className="text-text-muted shrink-0">
+                      <span className="text-text-secondary shrink-0">
                         {formatRelativeTimeI18n(op.timestamp, t, 'home')}
                       </span>
                     </div>

@@ -42,16 +42,22 @@ const FILTER_TABS: { key: LogFilter; labelKey: string; testId: string }[] = [
 
 const levelColorClasses: Record<LogEntry['level'], string> = {
   info: 'text-text-secondary',
-  warn: 'text-monitor',
-  error: 'text-automation',
-  debug: 'text-text-muted',
+  warn: 'text-status-warning',
+  error: 'text-status-error',
+  debug: 'text-text-secondary',
 };
 
-const levelBadgeBgClasses: Record<LogEntry['level'], string> = {
-  info: 'bg-text-secondary/20',
-  warn: 'bg-monitor/20',
-  error: 'bg-automation/20',
-  debug: 'bg-text-muted/20',
+/**
+ * The level badge: its tint and the colour written on it, as one pair. The
+ * description foreground falls under AA on a tint, so info and debug write in
+ * the editor foreground there. `bg-text-secondary/20` compiled to nothing: a
+ * bare var() token has no alpha.
+ */
+const levelBadgeClasses: Record<LogEntry['level'], string> = {
+  info: 'bg-gray-500/10 text-text-primary',
+  warn: 'bg-yellow-500/10 text-status-warning',
+  error: 'bg-red-500/10 text-status-error',
+  debug: 'bg-gray-500/10 text-text-primary',
 };
 
 /** Format a Unix-ms timestamp as HH:mm:ss. */
@@ -145,7 +151,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 'px-2 py-1 text-xs transition-colors',
                 activeFilter === tab.key
                   ? 'text-text-primary font-semibold border-b-2 border-forge'
-                  : 'text-text-muted hover:text-text-secondary',
+                  : 'text-text-secondary hover:text-text-primary',
               )}
             >
               {t(tab.labelKey)}
@@ -169,7 +175,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 .join('\n');
               await navigator.clipboard.writeText(text);
             }}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
             title={t('forge.copyAllLogs')}
           >
             <Copy size={10} />
@@ -192,7 +198,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 // `allow-downloads`, so this click frequently wrote nothing.
                 onExport?.(`forge-logs-${new Date().toISOString().slice(0, 10)}.log`, text);
               }}
-              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
               title={t('forge.exportLogs')}
             >
               <Download size={10} />
@@ -211,7 +217,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
         className="overflow-y-auto flex-1 min-h-0 p-2 font-mono text-xs"
       >
         {visibleEntries.length === 0 ? (
-          <p data-testid="logstream-empty" className="text-text-muted text-center py-4">
+          <p data-testid="logstream-empty" className="text-text-secondary text-center py-4">
             {t('common.noLogEntries')}
           </p>
         ) : (
@@ -221,12 +227,13 @@ export const LogStream: React.FC<LogStreamProps> = ({
               data-testid="logstream-entry"
               className="flex items-baseline gap-2 py-0.5"
             >
-              <span className="text-text-muted shrink-0">{formatTimestamp(entry.timestamp)}</span>
+              <span className="text-text-secondary shrink-0">
+                {formatTimestamp(entry.timestamp)}
+              </span>
               <span
                 className={cn(
                   'px-1 rounded text-[10px] uppercase font-medium shrink-0',
-                  levelColorClasses[entry.level],
-                  levelBadgeBgClasses[entry.level],
+                  levelBadgeClasses[entry.level],
                 )}
               >
                 {entry.level}

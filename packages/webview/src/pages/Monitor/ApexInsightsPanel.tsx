@@ -90,7 +90,7 @@ export const ApexInsightsPanel: React.FC = () => {
             {t('monitor.apexInsights.title', 'Apex Insights')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.apexInsights.empty', 'No Apex log data available')}
         </p>
       </div>
@@ -126,13 +126,13 @@ export const ApexInsightsPanel: React.FC = () => {
           ))}
         </div>
       ) : (
-        <p className="text-xs text-text-muted mb-3">
+        <p className="text-xs text-text-secondary mb-3">
           {t('monitor.apexInsights.noIssues', 'No performance issues detected')}
         </p>
       )}
 
       {/* Analysis table header */}
-      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
+      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-secondary font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="w-20 shrink-0">{t('monitor.apexInsights.logId', 'Log ID')}</span>
         <span className="w-16 shrink-0 text-right">
           {t('monitor.apexInsights.duration', 'Duration')}
@@ -150,14 +150,19 @@ export const ApexInsightsPanel: React.FC = () => {
             className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
             data-testid={`apex-analysis-row-${analysis.logId}`}
           >
-            <span className="text-[11px] font-mono text-text-muted w-20 shrink-0 truncate">
+            <span className="text-[11px] font-mono text-text-secondary w-20 shrink-0 truncate">
               {analysis.logId.slice(0, 8)}
             </span>
             <span className="text-xs tabular-nums text-text-secondary w-16 shrink-0 text-right">
               {analysis.totalDuration}ms
             </span>
             <div className="flex-1">
-              <ProgressBar value={analysis.soqlQueries} max={100} size="sm" />
+              <ProgressBar
+                value={analysis.soqlQueries}
+                max={100}
+                size="sm"
+                ariaLabel={t('monitor.apexInsights.soqlFor', { log: analysis.logId.slice(0, 8) })}
+              />
             </div>
             <span className="text-xs tabular-nums text-text-secondary w-12 text-right">
               {analysis.dmlStatements}

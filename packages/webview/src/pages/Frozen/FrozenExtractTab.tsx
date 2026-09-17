@@ -39,8 +39,12 @@ const FORM_KEYS = new Set(['rootObject', 'budgetMaxRecords', 'axes', 'edgeCases'
 const EMPTY_AXIS: AxisDraft = { name: '', label: '', filterField: '', valuesSoql: '' };
 const EMPTY_EDGE: EdgeCaseDraft = { name: '', label: '', whereFragment: '' };
 
+/**
+ * On the input background: that is the surface the theme sizes its placeholder
+ * colour for. On the card's own surface Light Modern's placeholder read 4.27:1.
+ */
 const inputClass =
-  'w-full bg-surface-1 border border-subtle rounded px-2 py-1 text-xs text-text-primary';
+  'w-full bg-surface-3 border border-subtle rounded px-2 py-1 text-xs text-text-primary';
 
 /** Split a saved config into form fields + the advanced JSON remainder. */
 function splitConfig(config: FrozenProjectConfig): {
@@ -222,7 +226,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
           <h2 className="text-sm font-semibold text-text-primary">{t('frozen.config.title')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-muted">{t('frozen.config.rootObject')}</span>
+              <span className="text-[10px] text-text-secondary">
+                {t('frozen.config.rootObject')}
+              </span>
               <input
                 className={inputClass}
                 value={rootObject}
@@ -232,7 +238,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-muted">{t('frozen.config.budget')}</span>
+              <span className="text-[10px] text-text-secondary">{t('frozen.config.budget')}</span>
               <input
                 className={inputClass}
                 type="number"
@@ -354,7 +360,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
 
           {/* Advanced config (JSON) */}
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-muted">{t('frozen.config.advanced')}</span>
+            <span className="text-[10px] text-text-secondary">{t('frozen.config.advanced')}</span>
             <textarea
               className={`${inputClass} font-mono h-28`}
               value={advancedJson}
@@ -363,7 +369,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               data-testid="frozen-config-advanced"
             />
           </label>
-          {jsonError && <p className="text-xs text-red-400">{jsonError}</p>}
+          {jsonError && <p className="text-xs text-status-error">{jsonError}</p>}
 
           <div className="flex items-center gap-2">
             <Button
@@ -377,7 +383,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               {t('frozen.config.save')}
             </Button>
             {saveMutation.data?.success && (
-              <span className="text-xs text-green-400" data-testid="frozen-config-saved">
+              <span className="text-xs text-status-success" data-testid="frozen-config-saved">
                 {t('frozen.config.saved')}
               </span>
             )}
@@ -434,12 +440,12 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               />
               {selection.uncovered.length > 0 && (
                 <div data-testid="frozen-selection-uncovered">
-                  <span className="text-xs font-medium text-amber-400">
+                  <span className="text-xs font-medium text-status-warning">
                     {t('frozen.selection.uncovered', { count: selection.uncovered.length })}
                   </span>
                   <ul className="mt-1 flex flex-col gap-0.5">
                     {selection.uncovered.map((u) => (
-                      <li key={u.combinationKey} className="text-[11px] text-text-muted">
+                      <li key={u.combinationKey} className="text-[11px] text-text-secondary">
                         {u.combinationKey} — {u.reason}
                       </li>
                     ))}
@@ -483,7 +489,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 <Badge variant={controlReport.passed ? 'success' : 'error'}>
                   {controlReport.passed ? t('frozen.control.pass') : t('frozen.control.fail')}
                 </Badge>
-                <span className="text-[10px] text-text-muted">{controlReport.checkedAt}</span>
+                <span className="text-[10px] text-text-secondary">{controlReport.checkedAt}</span>
               </div>
               <DataTable
                 columns={checkColumns}

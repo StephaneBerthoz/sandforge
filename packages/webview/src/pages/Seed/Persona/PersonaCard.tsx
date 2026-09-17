@@ -95,7 +95,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
         title={persona.name}
         action={
           <div className="flex items-center gap-2">
-            <IconComponent className="w-4 h-4 text-[var(--sf-accent)]" />
+            <IconComponent className="w-4 h-4 text-[var(--sf-text-link)]" />
             {isCustom && <Badge variant="info">{t('seed.persona.card.custom')}</Badge>}
           </div>
         }

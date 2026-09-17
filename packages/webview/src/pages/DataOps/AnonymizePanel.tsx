@@ -152,7 +152,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                       {t('dataops.applyAnonymization')}
                     </Button>
                   </div>
-                  <span className="text-xs text-text-muted" data-testid="preview-unavailable">
+                  <span className="text-xs text-text-secondary" data-testid="preview-unavailable">
                     {t('common.comingSoon')}
                   </span>
                 </div>

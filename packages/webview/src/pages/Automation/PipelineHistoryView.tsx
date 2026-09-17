@@ -74,7 +74,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                   {entry.stepCount} {t('automation.steps')}
                 </span>
                 {entry.errorCount > 0 && (
-                  <span className="text-red-400">
+                  <span className="text-status-error">
                     {entry.errorCount} {t('automation.errors')}
                   </span>
                 )}

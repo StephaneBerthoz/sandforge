@@ -54,7 +54,8 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
             className={cn(
               'relative flex items-center gap-[var(--sf-space-2)]',
               'px-[var(--sf-space-4)] py-[var(--sf-space-3)]',
-              'text-[var(--sf-font-size)] font-medium',
+              // `length:` says it is a size: bare, the value compiled to a text colour.
+              'text-[length:var(--sf-font-size)] font-medium',
               'border-b-2 -mb-px',
               'transition-colors',
               'cursor-pointer',
@@ -85,7 +86,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
                   'inline-flex items-center justify-center',
                   'min-w-[18px] h-[18px] px-1',
                   'text-[10px] font-bold leading-none rounded-full',
-                  'bg-[var(--sf-accent)] text-[var(--sf-button-fg)]',
+                  'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]',
                 )}
                 data-testid={`page-tab-badge-${tab.id}`}
               >

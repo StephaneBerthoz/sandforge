@@ -69,7 +69,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
               data-testid="forge-template-save"
               onClick={() => manager.handleCreateTemplate(buildTemplateConfig())}
               disabled={!manager.newTemplateName.trim()}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-forge text-white disabled:opacity-40"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-hue-forge text-[var(--sf-bg-primary)] disabled:opacity-40"
             >
               <Check size={12} />
               {t('forge.createTemplate')}
@@ -78,7 +78,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
               type="button"
               data-testid="forge-template-cancel"
               onClick={manager.cancelCreateForm}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs text-text-muted hover:text-text-primary"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs text-text-primary"
             >
               <X size={12} />
               {t('forge.cancelEdit')}
@@ -90,7 +90,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           type="button"
           data-testid="forge-template-create"
           onClick={manager.openCreateForm}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-dashed border-subtle text-text-muted hover:text-forge hover:border-forge/30 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-dashed border-subtle text-text-secondary hover:text-hue-forge hover:border-forge/30 transition-colors"
         >
           <Plus size={14} />
           {t('forge.createTemplate')}
@@ -99,7 +99,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
 
       {/* Starter (builtin) templates section header */}
       {BUILTIN_FORGE_TEMPLATES.length > 0 && (
-        <div className="text-[10px] text-text-muted uppercase tracking-widest mt-1">
+        <div className="text-[10px] text-text-secondary uppercase tracking-widest mt-1">
           {t('forge.starterTemplates')}
         </div>
       )}
@@ -112,25 +112,34 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           onClick={() => onSelectTemplate(tpl.id)}
           className={cn(
             'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors text-left',
+            // The border marks the selection; the tint stays light enough for the
+            // badges' own tints to be laid over it.
             selectedTemplate === tpl.id
-              ? 'border-forge bg-forge/10 text-text-primary'
+              ? 'border-forge bg-forge/5 text-text-primary'
               : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
           )}
         >
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="font-medium">{tpl.name}</span>
-              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-forge/20 text-forge font-semibold uppercase tracking-wider">
+              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-forge/10 text-hue-forge font-semibold uppercase tracking-wider">
                 {t('forge.starterBadge')}
               </span>
               {tpl.config.maxRecordsPerObject != null && (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-mono">
+                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-status-warning font-mono">
                   ≤ {tpl.config.maxRecordsPerObject}/obj
                 </span>
               )}
             </div>
             {tpl.description && (
-              <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+              <span
+                className={cn(
+                  'block text-xs mt-0.5',
+                  selectedTemplate === tpl.id ? 'text-text-primary' : 'text-text-secondary',
+                )}
+              >
+                {tpl.description}
+              </span>
             )}
           </div>
         </button>
@@ -138,13 +147,13 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
 
       {/* User templates section header (only if there are any) */}
       {manager.templates.length > 0 && (
-        <div className="text-[10px] text-text-muted uppercase tracking-widest mt-2">
+        <div className="text-[10px] text-text-secondary uppercase tracking-widest mt-2">
           {t('forge.yourTemplates')}
         </div>
       )}
       {/* User-created templates with full edit/delete affordance */}
       {manager.templates.length === 0 && !manager.showCreateForm ? (
-        <p className="text-sm text-text-muted italic">{t('forge.noTemplates')}</p>
+        <p className="text-sm text-text-secondary italic">{t('forge.noTemplates')}</p>
       ) : (
         manager.templates.map((tpl) => (
           <div
@@ -152,7 +161,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
             className={cn(
               'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors',
               selectedTemplate === tpl.id
-                ? 'border-forge bg-forge/10 text-text-primary'
+                ? 'border-forge bg-forge/5 text-text-primary'
                 : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
             )}
           >
@@ -187,14 +196,17 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                     type="button"
                     onClick={manager.handleSaveEdit}
                     data-testid="forge-template-edit-save"
-                    className="text-forge text-xs hover:underline"
+                    className="text-hue-forge text-xs hover:underline"
                   >
                     <Check size={12} className="inline" /> {t('forge.saveTemplate')}
                   </button>
                   <button
                     type="button"
                     onClick={manager.handleCancelEdit}
-                    className="text-text-muted text-xs hover:underline"
+                    className={cn(
+                      'text-xs hover:underline',
+                      selectedTemplate === tpl.id ? 'text-text-primary' : 'text-text-secondary',
+                    )}
                   >
                     <X size={12} className="inline" /> {t('forge.cancelEdit')}
                   </button>
@@ -209,7 +221,14 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                 >
                   <span className="font-medium">{tpl.name}</span>
                   {tpl.description && (
-                    <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                    <span
+                      className={cn(
+                        'block text-xs mt-0.5',
+                        selectedTemplate === tpl.id ? 'text-text-primary' : 'text-text-secondary',
+                      )}
+                    >
+                      {tpl.description}
+                    </span>
                   )}
                 </button>
                 <div className="flex items-center gap-1 shrink-0">
@@ -220,7 +239,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                       e.stopPropagation();
                       manager.handleStartEdit(tpl);
                     }}
-                    className="p-1 text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+                    className="p-1 text-text-secondary hover:text-text-primary transition-colors rounded hover:bg-surface-2"
                     title={t('forge.editTemplate')}
                   >
                     <Pencil size={12} />
@@ -232,7 +251,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                       e.stopPropagation();
                       manager.requestDeleteTemplate(tpl.id);
                     }}
-                    className="p-1 text-text-muted hover:text-red-400 transition-colors rounded hover:bg-red-500/10"
+                    className="p-1 text-text-secondary hover:text-status-error transition-colors rounded hover:bg-red-500/10"
                     title={t('forge.deleteTemplate')}
                   >
                     <Trash2 size={12} />

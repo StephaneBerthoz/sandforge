@@ -72,7 +72,7 @@ export const ApiUsagePanel: React.FC = () => {
             {t('monitor.apiUsage.title', 'API Usage Breakdown')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.apiUsage.empty', 'No API usage data available')}
         </p>
       </div>
@@ -89,7 +89,7 @@ export const ApiUsagePanel: React.FC = () => {
       </div>
 
       {/* Table header */}
-      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
+      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-secondary font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="flex-1">{t('monitor.apiUsage.category', 'Category')}</span>
         <span className="w-28">{t('monitor.apiUsage.usage', 'Usage')}</span>
         <span className="w-24 text-right">
@@ -114,6 +114,7 @@ export const ApiUsagePanel: React.FC = () => {
                 value={cat.usedPercent}
                 variant={usageVariant(cat.usedPercent)}
                 size="sm"
+                ariaLabel={formatCategoryName(cat.category)}
               />
             </div>
             <span className="text-xs tabular-nums text-text-secondary w-24 text-right">
@@ -129,7 +130,7 @@ export const ApiUsagePanel: React.FC = () => {
                   <Badge variant="warning">{cat.usedPercent}%</Badge>
                 </span>
               ) : (
-                <span className="text-xs tabular-nums text-text-muted">{cat.usedPercent}%</span>
+                <span className="text-xs tabular-nums text-text-secondary">{cat.usedPercent}%</span>
               )}
             </span>
           </div>

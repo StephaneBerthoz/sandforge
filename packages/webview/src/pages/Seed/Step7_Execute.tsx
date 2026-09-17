@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ProgressBar } from '../../components/ui/ProgressBar';
+import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { GrappeProgressPanel } from '../../components/GrappeProgressPanel';
@@ -35,7 +35,7 @@ const statusVariant: Record<string, BadgeVariant> = {
 const GrappeProgressPanelWrapper: React.FC = () => {
   const { active, operationId } = useGrappeStore();
   if (!active && !operationId) return null;
-  return <GrappeProgressPanel />;
+  return <GrappeProgressPanel announce={false} />;
 };
 
 /** Step 7 — Execute seed operation with progress. */
@@ -58,6 +58,14 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
         label={isRunning ? t('seed.running') : `${Math.round(overallPercent)}%`}
         showPercent
         variant={overallPercent >= 100 ? 'success' : 'default'}
+      />
+      <ProgressAnnouncer
+        message={t('a11y.progressAnnouncement', {
+          name: t('nav.seed'),
+          percent: Math.round(overallPercent),
+        })}
+        immediate={!isRunning || overallPercent >= 100}
+        testId="seed-progress-status"
       />
 
       <div className="text-[10px] text-[var(--sf-text-secondary)]" data-testid="elapsed-time">
@@ -88,12 +96,13 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
                 }
                 size="sm"
                 className="flex-1"
+                ariaLabel={obj.objectApiName}
               />
               <span className="text-[var(--sf-text-secondary)] w-20 text-right">
                 {obj.completed}/{obj.total}
               </span>
               {obj.failed > 0 && (
-                <span className="text-[var(--sf-error)]">
+                <span className="text-status-error">
                   {obj.failed} {t('seed.failed').toLowerCase()}
                 </span>
               )}

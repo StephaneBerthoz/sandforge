@@ -75,7 +75,7 @@ export const FloatingToasts: React.FC = () => {
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold truncate">{n.title}</p>
-              <p className="text-xs opacity-80 mt-0.5 line-clamp-2">{n.message}</p>
+              <p className="text-xs mt-0.5 line-clamp-2">{n.message}</p>
               {n.actions && n.actions.length > 0 && (
                 <div className="flex gap-2 mt-1.5">
                   {n.actions.map((action) =>
@@ -89,7 +89,7 @@ export const FloatingToasts: React.FC = () => {
                         href={action.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:opacity-90 transition-opacity"
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
                         data-testid={`toast-action-${action.command}`}
                       >
                         {action.label}
@@ -97,7 +97,7 @@ export const FloatingToasts: React.FC = () => {
                     ) : (
                       <button
                         key={action.command}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:opacity-90 transition-opacity"
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
                         onClick={() => {
                           action.onAction?.();
                           removeNotification(n.id);
@@ -112,7 +112,7 @@ export const FloatingToasts: React.FC = () => {
               )}
             </div>
             <button
-              className="text-xs opacity-60 hover:opacity-100 shrink-0"
+              className="text-xs shrink-0"
               onClick={() => removeNotification(n.id)}
               aria-label={t('common.dismiss', 'Dismiss')}
             >

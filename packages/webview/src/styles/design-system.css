@@ -162,6 +162,21 @@ body {
   animation: sf-fade-in var(--sf-transition-normal) ease-out;
 }
 
+/* ===== REDUCED MOTION ===== */
+/* The OS setting stops every animation and transition, the ones above and the
+   Tailwind utilities alike (animate-spin, animate-ping, transition-all):
+   each still reaches its end state, it just no longer moves to get there. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ===== CARD HOVER LIFT ===== */
 .sf-card-hover {
   transition:

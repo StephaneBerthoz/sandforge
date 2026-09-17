@@ -102,3 +102,53 @@ describe('ControlPanel', () => {
     );
   });
 });
+
+describe('ControlPanel progress bars', () => {
+  beforeEach(() => {
+    mockStoreState = {
+      liveStats: {
+        recordsProcessed: 25,
+        recordsTotal: 100,
+        apiCallsUsed: 10,
+        apiCallsEstimated: 50,
+        elapsedMs: 0,
+        currentWave: 0,
+        totalWaves: 3,
+      },
+      executionStatus: 'executing',
+      selectedNodeName: 'Account',
+      complianceFramework: 'none',
+      rules: [],
+      graph: null,
+      selectedNode: () => ({
+        objectApiName: 'Account',
+        status: 'extracting',
+        progress: 60,
+        recordCount: 100,
+        successCount: 60,
+        failureCount: 0,
+        errors: [],
+      }),
+      failedCount: () => 0,
+      completedCount: () => 0,
+      overallProgress: () => 0,
+      setExecutionStatus: vi.fn(),
+      updateNodeStatus: vi.fn(),
+    };
+  });
+
+  it('names the live stats bars after the figure they draw', () => {
+    render(<ControlPanel />);
+    const records = screen.getByRole('progressbar', { name: 'Records Processed' });
+    expect(records.getAttribute('aria-valuetext')).toBe('25%');
+    const calls = screen.getByRole('progressbar', { name: 'API Calls' });
+    expect(calls.getAttribute('aria-valuetext')).toBe('20%');
+  });
+
+  it('names the selected node progress bar', () => {
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+    const bar = screen.getByRole('progressbar', { name: 'Progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('60');
+  });
+});

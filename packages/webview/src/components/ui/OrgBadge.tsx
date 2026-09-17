@@ -21,10 +21,15 @@ const statusColors: Record<string, string> = {
   error: 'bg-[var(--sf-error)]',
 };
 
+/**
+ * The type label fills with a severity token and writes in the editor
+ * background, which the token is sized to read against on every measured theme
+ * but Solarized Light: white on the raw errorForeground read 2.5:1 on Dark+.
+ */
 const orgTypeConfig: Record<string, { label: string; bg: string }> = {
-  Production: { label: 'PROD', bg: 'bg-[var(--sf-error)]' },
-  Sandbox: { label: 'SBX', bg: 'bg-[var(--sf-info)]' },
-  Scratch: { label: 'SCR', bg: 'bg-[var(--sf-success)]' },
+  Production: { label: 'PROD', bg: 'bg-status-error' },
+  Sandbox: { label: 'SBX', bg: 'bg-status-info' },
+  Scratch: { label: 'SCR', bg: 'bg-status-success' },
 };
 
 /**
@@ -41,7 +46,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   const dotClass = statusColors[status] ?? statusColors.error;
   const typeInfo = orgTypeConfig[orgType] ?? {
     label: orgType.slice(0, 3).toUpperCase(),
-    bg: 'bg-[var(--sf-info)]',
+    bg: 'bg-status-info',
   };
 
   /** Truncate instance URL to hostname only. */
@@ -56,7 +61,8 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
         'rounded-[var(--sf-radius-md)]',
         'bg-[var(--sf-bg-card)]',
         'border border-[var(--sf-border-subtle)]',
-        'text-[var(--sf-font-size)]',
+        // `length:` says it is a size: bare, the value compiled to a text colour.
+        'text-[length:var(--sf-font-size)]',
         className,
       )}
       data-testid="org-badge"
@@ -82,7 +88,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
           'inline-flex items-center px-1.5 py-0.5',
           'text-[10px] font-bold leading-none',
           'rounded-[var(--sf-radius-sm)]',
-          'text-white',
+          'text-[var(--sf-bg-primary)]',
           typeInfo.bg,
         )}
         data-testid="org-badge-type"
@@ -93,7 +99,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
       {/* Instance URL */}
       {truncatedUrl && (
         <span
-          className="text-[var(--sf-text-muted)] text-[var(--sf-font-size-sm)] truncate max-w-[160px]"
+          className="text-text-secondary text-[length:var(--sf-font-size-sm)] truncate max-w-[160px]"
           data-testid="org-badge-url"
           title={instanceUrl}
         >

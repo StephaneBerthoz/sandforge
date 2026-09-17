@@ -76,7 +76,7 @@ function statusIcon(status: GovernanceRuleDisplay['status']): React.ReactNode {
     case 'fail':
       return <XCircle className="w-4 h-4 text-status-error" />;
     case 'unknown':
-      return <HelpCircle className="w-4 h-4 text-text-muted" />;
+      return <HelpCircle className="w-4 h-4 text-text-secondary" />;
   }
 }
 
@@ -175,7 +175,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                 {t('governance.complianceScore', 'Compliance Score')}
               </span>
               {complianceScore === null ? (
-                <span className="text-xs text-text-muted">
+                <span className="text-xs text-text-secondary">
                   {t('governance.notMeasured', 'Not measured')}
                 </span>
               ) : (
@@ -206,7 +206,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                   key={policy.id}
                   className={`flex items-center justify-between p-2 rounded border transition-colors ${
                     selectedPolicyId === policy.id
-                      ? 'border-[var(--sf-accent)] bg-[var(--sf-bg-active)]'
+                      ? 'border-[var(--sf-accent)] bg-status-info/10'
                       : 'border-[var(--sf-border)] bg-[var(--sf-bg-primary)]'
                   }`}
                 >
@@ -220,7 +220,11 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                     onClick={() => setSelectedPolicyId(policy.id)}
                   >
                     <span className="text-xs font-medium text-text-primary">{policy.name}</span>
-                    <span className="text-[10px] text-text-secondary">
+                    <span
+                      className={`text-[10px] ${
+                        selectedPolicyId === policy.id ? 'text-text-primary' : 'text-text-secondary'
+                      }`}
+                    >
                       {policy.description} — {policy.ruleCount} {t('governance.rules', 'rules')}
                     </span>
                   </button>

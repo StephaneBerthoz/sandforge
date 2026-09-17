@@ -83,7 +83,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
               {t('monitor.healthCheck.title', 'Org Health Check')}
             </h3>
           </div>
-          <p className="text-xs text-text-muted text-center py-6">
+          <p className="text-xs text-text-secondary text-center py-6">
             {t('monitor.healthCheck.empty', 'Health data loads with dashboard refresh')}
           </p>
         </div>
@@ -113,7 +113,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           {/* API Limits */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
+            <span className="text-[10px] text-text-secondary font-medium uppercase tracking-wider">
               {t('monitor.healthCheck.apiLimits', 'API Limits')}
             </span>
             <Badge variant={statusVariant(orgHealthStatus.apiLimitsStatus)}>
@@ -123,7 +123,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
 
           {/* Storage */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
+            <span className="text-[10px] text-text-secondary font-medium uppercase tracking-wider">
               {t('monitor.healthCheck.storage', 'Storage')}
             </span>
             <Badge variant={statusVariant(orgHealthStatus.storageStatus)}>
@@ -133,7 +133,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
 
           {/* Failed Jobs */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
+            <span className="text-[10px] text-text-secondary font-medium uppercase tracking-wider">
               {t('monitor.healthCheck.failedJobs', 'Failed Jobs')}
             </span>
             <span className="text-sm font-semibold tabular-nums text-text-primary">
@@ -143,7 +143,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
 
           {/* Recent Error Logs */}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
+            <span className="text-[10px] text-text-secondary font-medium uppercase tracking-wider">
               {t('monitor.healthCheck.recentErrorLogs', 'Recent Error Logs')}
             </span>
             {orgHealthStatus.recentErrorLogs > 0 ? (
@@ -157,7 +157,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
         </div>
 
         {/* Last checked */}
-        <p className="text-[10px] text-text-muted">
+        <p className="text-[10px] text-text-secondary">
           {t('monitor.healthCheck.lastChecked', 'Last checked')}:{' '}
           {dateFormatter.format(new Date(orgHealthStatus.lastChecked))}
         </p>

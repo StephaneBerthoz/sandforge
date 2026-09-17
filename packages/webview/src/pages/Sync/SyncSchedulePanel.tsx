@@ -261,7 +261,7 @@ export const SyncSchedulePanel: React.FC = () => {
                   <div className="flex gap-1">
                     <button
                       type="button"
-                      className="text-[10px] px-2 py-1 rounded bg-[var(--sf-error)] text-white"
+                      className="text-[10px] px-2 py-1 rounded bg-status-error text-[var(--sf-bg-primary)]"
                       onClick={() => handleDelete(schedule.id)}
                       data-testid={`confirm-delete-btn-${schedule.id}`}
                     >

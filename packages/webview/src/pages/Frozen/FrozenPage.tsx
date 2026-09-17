@@ -80,7 +80,7 @@ export const FrozenPage: React.FC = () => {
 
       {saltMismatch && status?.manifest && (
         <div
-          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-[var(--sf-warning)]"
+          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
           role="alert"
           data-testid="frozen-salt-mismatch"
         >
@@ -155,7 +155,7 @@ export const FrozenPage: React.FC = () => {
       )}
       {tab === 'load' && <FrozenLoadTab onRefetchStatus={() => statusQuery.refetch()} />}
       {manifest && tab === 'extract' && (
-        <p className="text-[10px] text-text-muted" data-testid="frozen-manifest-footnote">
+        <p className="text-[10px] text-text-secondary" data-testid="frozen-manifest-footnote">
           {t('frozen.manifest.version', { version: manifest.version })} — {manifest.frozenAt}
         </p>
       )}

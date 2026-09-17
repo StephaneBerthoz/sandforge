@@ -23,7 +23,7 @@ export const QuickSyncCard: React.FC<QuickSyncCardProps> = ({ onStart }) => {
       <CardBody>
         <div className="flex items-center gap-4">
           <span
-            className="codicon codicon-zap text-2xl text-[var(--sf-accent)]"
+            className="codicon codicon-zap text-2xl text-[var(--sf-text-link)]"
             aria-hidden="true"
           />
           <div className="flex-1">

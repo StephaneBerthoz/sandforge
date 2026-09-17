@@ -73,6 +73,14 @@ describe('SandboxBanner', () => {
     expect(screen.getByText('onboarding.sandboxBanner')).toBeDefined();
   });
 
+  it('writes its message in the editor foreground, legible on light themes', () => {
+    useOrgStore.setState({ orgs: [createSandboxOrg()] });
+    render(<SandboxBanner onNavigate={onNavigate} />);
+    const message = screen.getByText('onboarding.sandboxBanner');
+    expect(message.className).toContain('text-text-primary');
+    expect(message.className).not.toMatch(/\btext-amber-\d+\b/);
+  });
+
   it('should call onNavigate with seed when seed button clicked', () => {
     useOrgStore.setState({ orgs: [createSandboxOrg()] });
     render(<SandboxBanner onNavigate={onNavigate} />);

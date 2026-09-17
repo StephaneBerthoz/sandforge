@@ -5,6 +5,7 @@ import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
+import { ProgressBar } from '../../components/ui/ProgressBar';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
@@ -194,29 +195,18 @@ function WelcomePageView(
       style={{ background: 'var(--sf-bg-primary)' }}
     >
       {/* Animated Progress Bar */}
-      <div
-        className="w-full max-w-2xl mb-6 rounded-full overflow-hidden"
-        style={{ height: '4px', background: 'var(--sf-text-muted, #6a6a6a)' }}
-        data-testid="progress-bar"
-        role="progressbar"
-        aria-label={t('a11y.stepProgress')}
-        aria-valuenow={progressPercent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${String(progressPercent)}%`,
-            background: 'var(--sf-accent, #E8A838)',
-            transition: 'width 0.4s ease-in-out',
-          }}
+      <div className="w-full max-w-2xl mb-6" data-testid="progress-bar">
+        <ProgressBar
+          value={progressPercent}
+          size="sm"
+          ariaLabel={t('a11y.stepProgress')}
+          barClassName="bg-[var(--sf-accent)]"
         />
       </div>
 
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--sf-accent, #E8A838)' }}>
+        <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--sf-text-link)' }}>
           {t('onboarding.welcomeTitle')}
         </h1>
         <p className="text-base" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -236,7 +226,7 @@ function WelcomePageView(
             <p className="mb-2" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.bienvenueDesc')}
             </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}>
+            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-secondary)' }}>
               {t('onboarding.bienvenueTagline')}
             </p>
             {/* Primary use case — what SandForge is for */}
@@ -248,10 +238,7 @@ function WelcomePageView(
               }}
               data-testid="welcome-hero-usecase"
             >
-              <p
-                className="text-sm font-semibold mb-1"
-                style={{ color: 'var(--sf-accent, #E8A838)' }}
-              >
+              <p className="text-sm font-semibold mb-1" style={{ color: 'var(--sf-text-link)' }}>
                 {t('onboarding.heroTitle')}
               </p>
               <p className="text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -363,7 +350,7 @@ function WelcomePageView(
             <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.step3Desc')}
             </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}>
+            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-secondary)' }}>
               {t('onboarding.aiOptional')}
             </p>
           </div>
@@ -373,10 +360,7 @@ function WelcomePageView(
         {step === 4 && (
           <div data-testid="welcome-step-4" className="text-center">
             <div className="text-5xl mb-4">{'\uD83D\uDE80'}</div>
-            <h2
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--sf-accent, #E8A838)' }}
-            >
+            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-link)' }}>
               {t('onboarding.step4Title')}
             </h2>
             <p className="mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -428,7 +412,7 @@ function WelcomePageView(
             </div>
             <label
               className="flex items-center gap-2 justify-center text-xs cursor-pointer"
-              style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}
+              style={{ color: 'var(--sf-text-secondary)' }}
             >
               <input
                 type="checkbox"
@@ -469,8 +453,7 @@ function WelcomePageView(
             style={{
               width: step === i ? '24px' : '8px',
               height: '8px',
-              background:
-                step === i ? 'var(--sf-accent, #E8A838)' : 'var(--sf-text-muted, #6a6a6a)',
+              background: step === i ? 'var(--sf-accent, #E8A838)' : 'var(--sf-text-secondary)',
             }}
           />
         ))}

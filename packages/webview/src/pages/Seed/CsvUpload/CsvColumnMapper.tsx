@@ -67,7 +67,7 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
     if (mapping.sfFieldApiName === '') {
       return (
         <AlertTriangle
-          className="w-4 h-4 text-amber-400"
+          className="w-4 h-4 text-status-warning"
           aria-label={t('seed.csv.mapper.unmapped')}
         />
       );
@@ -76,13 +76,12 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
     const field = describeFields.find((f) => f.apiName === mapping.sfFieldApiName);
     if (!field) {
       return (
-        <X
-          className="w-4 h-4 text-[var(--sf-error)]"
-          aria-label={t('seed.csv.mapper.incompatible')}
-        />
+        <X className="w-4 h-4 text-status-error" aria-label={t('seed.csv.mapper.incompatible')} />
       );
     }
-    return <Check className="w-4 h-4 text-emerald-400" aria-label={t('a11y.mapped', 'Mapped')} />;
+    return (
+      <Check className="w-4 h-4 text-status-success" aria-label={t('a11y.mapped', 'Mapped')} />
+    );
   };
 
   return (
@@ -137,7 +136,7 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
                 {mapping ? (
                   getStatusIcon(mapping)
                 ) : (
-                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <AlertTriangle className="w-4 h-4 text-status-warning" />
                 )}
               </div>
             </div>

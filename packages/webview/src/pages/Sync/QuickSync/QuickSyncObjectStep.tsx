@@ -153,7 +153,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
               >
                 <Badge
                   variant={isSelected ? 'info' : s.isAvailable ? 'default' : 'default'}
-                  className={`cursor-pointer ${!s.isAvailable ? 'opacity-40' : ''} ${isSelected ? '' : 'opacity-80 hover:opacity-100'}`}
+                  className={`cursor-pointer ${!s.isAvailable ? 'line-through' : ''}`}
                 >
                   {s.label}
                 </Badge>
@@ -166,10 +166,10 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
       {/* Relationship detection banner */}
       {relationshipBanner && (
         <div
-          className="flex items-center gap-3 p-3 rounded-lg bg-[var(--sf-info-bg)] border border-[var(--sf-info-border)]"
+          className="flex items-center gap-3 p-3 rounded-lg bg-status-info/10 border border-status-info/40"
           data-testid="relationship-banner"
         >
-          <span className="codicon codicon-info text-[var(--sf-info)]" aria-hidden="true" />
+          <span className="codicon codicon-info text-status-info" aria-hidden="true" />
           <span className="text-xs flex-1 text-text-primary">
             {t('quickSync.addParent', {
               parent: relationshipBanner.parentObject,
@@ -241,15 +241,13 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                   <Badge variant={isParent ? 'warning' : 'info'}>
                     {name}
                     {isParent && (
-                      <span className="ml-1 text-[8px] opacity-75">
-                        ({t('quickSync.parentDependency')})
-                      </span>
+                      <span className="ml-1 text-[8px]">({t('quickSync.parentDependency')})</span>
                     )}
                   </Badge>
                   <button
                     type="button"
                     onClick={() => onRemoveObject(name)}
-                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-[var(--sf-error)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
+                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
                     aria-label={`Remove ${name}`}
                     data-testid={`remove-object-${name}`}
                   />

@@ -32,16 +32,20 @@ export interface KPICardProps {
   trendDirection?: 'up' | 'down' | 'stable';
   /** Warning text shown below progress bar (e.g. "Limit reached in ~2h"). */
   trendWarning?: string;
-  /** Optional override for the accent color (e.g. a moduleColors value). */
-  accentColor?: string;
+  /**
+   * Optional override for the icon's colour, as a text colour class sized for
+   * contrast (e.g. `text-hue-forge`). A raw hex could not follow the theme: the
+   * Forge orange read 2.6:1 on Light Modern.
+   */
+  accentClassName?: string;
 }
 
-/** Maps variant to the CSS variable used for accent color. */
+/** Maps variant to the text colour class of its icon. */
 const variantColorMap: Record<KPICardVariant, string> = {
-  default: 'var(--sf-accent)',
-  success: 'var(--sf-success)',
-  warning: 'var(--sf-warning)',
-  error: 'var(--sf-error)',
+  default: 'text-[var(--sf-accent)]',
+  success: 'text-status-success',
+  warning: 'text-status-warning',
+  error: 'text-status-error',
 };
 
 /**
@@ -51,11 +55,11 @@ const variantColorMap: Record<KPICardVariant, string> = {
 /** Map trend direction to its Lucide icon component and color. */
 const trendIndicatorMap: Record<
   string,
-  { icon: React.FC<React.SVGProps<SVGSVGElement>>; color: string }
+  { icon: React.FC<React.SVGProps<SVGSVGElement>>; className: string }
 > = {
-  up: { icon: TrendingUp, color: 'var(--sf-error)' },
-  down: { icon: TrendingDown, color: 'var(--sf-success)' },
-  stable: { icon: Minus, color: 'var(--sf-text-muted)' },
+  up: { icon: TrendingUp, className: 'text-status-error' },
+  down: { icon: TrendingDown, className: 'text-status-success' },
+  stable: { icon: Minus, className: 'text-text-secondary' },
 };
 
 export const KPICard: React.FC<KPICardProps> = ({
@@ -69,9 +73,9 @@ export const KPICard: React.FC<KPICardProps> = ({
   sparklineData,
   trendDirection,
   trendWarning,
-  accentColor: accentColorProp,
+  accentClassName,
 }) => {
-  const accentColor = accentColorProp ?? variantColorMap[variant];
+  const accentClass = accentClassName ?? variantColorMap[variant];
   const trendIndicator = trendDirection ? trendIndicatorMap[trendDirection] : undefined;
 
   return (
@@ -84,15 +88,14 @@ export const KPICard: React.FC<KPICardProps> = ({
     >
       {/* Header row: icon + label + trend arrow */}
       <div className="mb-3 flex items-center gap-2">
-        <span style={{ color: accentColor }}>
+        <span className={accentClass}>
           <Icon name={icon} label={label} />
         </span>
         <span className="text-sm font-medium text-text-secondary">{label}</span>
         {trendIndicator && (
           <span
             data-testid="trend-arrow"
-            className="ml-auto flex items-center"
-            style={{ color: trendIndicator.color }}
+            className={cn('ml-auto flex items-center', trendIndicator.className)}
             aria-label={`Trend ${trendDirection}`}
           >
             <trendIndicator.icon width={14} height={14} />
@@ -119,25 +122,25 @@ export const KPICard: React.FC<KPICardProps> = ({
       {/* Progress bar */}
       {progress !== undefined && (
         <div className="mt-3">
-          <ProgressBar value={progress} variant={variant} size="sm" />
+          <ProgressBar value={progress} variant={variant} size="sm" ariaLabel={label} />
         </div>
       )}
 
       {/* Trend warning */}
       {trendWarning && (
-        <div data-testid="trend-warning" className="mt-1 text-xs text-monitor">
+        <div data-testid="trend-warning" className="mt-1 text-xs text-hue-yellow">
           {trendWarning}
         </div>
       )}
 
       {/* Sparkline */}
       {sparklineData && sparklineData.length >= 2 && (
-        <div className="mt-2" data-testid="kpi-sparkline">
+        <div className={cn('mt-2', accentClass)} data-testid="kpi-sparkline">
           <Sparkline
             data={sparklineData}
             width={200}
             height={24}
-            color={accentColor}
+            color="currentColor"
             strokeWidth={1}
           />
         </div>

@@ -226,7 +226,8 @@
       "duration": "処理時間",
       "soql": "SOQL",
       "dml": "DML",
-      "heap": "ヒープ"
+      "heap": "ヒープ",
+      "soqlFor": "SOQL クエリ、ログ {{log}}"
     },
     "errorLogs": {
       "title": "エラーログ",
@@ -2056,6 +2057,9 @@
     "anonymizationMethodFor": "{{category}} の匿名化方式",
     "includeObject": "{{object}} をクローンに含める",
     "recordCountFor": "{{object}} のレコード件数",
-    "batchSizeFor": "{{object}} のバッチサイズ"
+    "batchSizeFor": "{{object}} のバッチサイズ",
+    "runProgress": "{{name}} の進捗",
+    "progressAnnouncement": "{{name}} の進捗: {{percent}}%",
+    "orgDropdownValue": "{{label}}: {{org}}、状態: {{status}}"
   }
 }

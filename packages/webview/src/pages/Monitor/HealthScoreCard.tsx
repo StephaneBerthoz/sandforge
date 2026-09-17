@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HealthReport, HealthFactor } from '@sandforge/shared';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { cn } from '../../theme';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -27,11 +28,11 @@ function statusIcon(status: HealthFactor['status']): string {
 function statusColor(status: HealthFactor['status']): string {
   switch (status) {
     case 'healthy':
-      return 'var(--sf-success, #10B981)';
+      return 'text-status-success';
     case 'warning':
-      return 'var(--sf-warning, #F59E0B)';
+      return 'text-status-warning';
     case 'critical':
-      return 'var(--sf-error, #EF4444)';
+      return 'text-status-error';
   }
 }
 
@@ -145,8 +146,7 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
                       className="flex items-center gap-[var(--sf-space-1)] text-[10px] min-w-0"
                     >
                       <span
-                        className={`codicon codicon-${statusIcon(risk.status)} shrink-0`}
-                        style={{ color: statusColor(risk.status) }}
+                        className={`codicon codicon-${statusIcon(risk.status)} shrink-0 ${statusColor(risk.status)}`}
                         aria-hidden="true"
                       />
                       <span className="flex-1 min-w-0 truncate text-[var(--sf-text-primary)]">
@@ -187,44 +187,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
   const categories = ['limits', 'jobs', 'storage'] as const;
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  /** Close on Escape and trap focus within the modal. */
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key === 'Tab' && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    const closeBtn = dialogRef.current?.querySelector<HTMLElement>(
-      '[data-testid="close-report-modal"]',
-    );
-    closeBtn?.focus();
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  useFocusTrap(dialogRef, onClose, { initialFocus: '[data-testid="close-report-modal"]' });
 
   return (
     <div
@@ -232,6 +195,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       role="dialog"
       aria-modal="true"
+      tabIndex={-1}
       aria-label={t('monitor.healthReport', 'Health Report')}
       data-testid="health-report-modal"
       onClick={(e) => {
@@ -286,13 +250,12 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
                 {catFactors.map((factor) => (
                   <div
                     key={factor.name}
-                    className="p-[var(--sf-space-2)] rounded-[var(--sf-radius-md)] bg-[var(--sf-bg-input)]"
+                    className="p-[var(--sf-space-2)] rounded-[var(--sf-radius-md)] bg-surface-2"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-[var(--sf-space-1)]">
                         <span
-                          className={`codicon codicon-${statusIcon(factor.status)}`}
-                          style={{ color: statusColor(factor.status) }}
+                          className={`codicon codicon-${statusIcon(factor.status)} ${statusColor(factor.status)}`}
                           aria-hidden="true"
                         />
                         <span className="text-xs font-medium text-[var(--sf-text-primary)]">
@@ -314,7 +277,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
                     <p className="text-[10px] text-[var(--sf-text-secondary)] mt-[var(--sf-space-1)]">
                       {factor.detail}
                     </p>
-                    <p className="text-[10px] text-[var(--sf-info,#3B82F6)] mt-[var(--sf-space-1)]">
+                    <p className="text-[10px] text-status-info mt-[var(--sf-space-1)]">
                       {factor.recommendation}
                     </p>
                   </div>

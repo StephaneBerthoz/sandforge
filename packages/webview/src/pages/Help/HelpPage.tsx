@@ -152,7 +152,7 @@ export const HelpPage: React.FC = () => {
       {!hasSearchResults && searchQuery.trim() && (
         <p
           className="text-sm mb-4 text-center"
-          style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}
+          style={{ color: 'var(--sf-text-secondary)' }}
           data-testid="help-no-results"
         >
           {t('help.noSearchResults')}

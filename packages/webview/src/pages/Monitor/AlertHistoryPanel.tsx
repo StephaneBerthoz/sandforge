@@ -58,16 +58,16 @@ function StatusIcon({ status }: { status: AlertStatus }): React.ReactElement {
     case 'active':
       return (
         <span className="relative flex h-3 w-3" data-testid="status-icon-active">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
+          <span className="absolute inline-flex h-full w-full rounded-full bg-status-error opacity-75 animate-ping" />
           <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
         </span>
       );
     case 'acknowledged':
-      return <Eye className="h-3.5 w-3.5 text-amber-400" />;
+      return <Eye className="h-3.5 w-3.5 text-status-warning" />;
     case 'resolved':
-      return <CheckCircle className="h-3.5 w-3.5 text-green-400" />;
+      return <CheckCircle className="h-3.5 w-3.5 text-status-success" />;
     case 'dismissed':
-      return <EyeOff className="h-3.5 w-3.5 text-gray-400" />;
+      return <EyeOff className="h-3.5 w-3.5 text-text-secondary" />;
   }
 }
 
@@ -221,7 +221,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                       </span>
                       {alert.acknowledgedAt && (
                         <span
-                          className="text-[10px] text-amber-400"
+                          className="text-[10px] text-status-warning"
                           data-testid={`acknowledged-time-${alert.id}`}
                         >
                           {t('monitor.ack', 'Ack')}:{' '}
@@ -230,7 +230,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                       )}
                       {alert.resolvedAt && (
                         <span
-                          className="text-[10px] text-green-400"
+                          className="text-[10px] text-status-success"
                           data-testid={`resolved-time-${alert.id}`}
                         >
                           {t('monitor.resolved', 'Resolved')}:{' '}

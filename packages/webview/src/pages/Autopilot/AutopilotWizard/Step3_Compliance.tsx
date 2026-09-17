@@ -73,7 +73,7 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
               className={cn(
                 'flex items-start gap-3 p-3 rounded border-2 cursor-pointer transition-colors',
                 isSelected
-                  ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)]'
+                  ? 'bg-status-info/10 border-[var(--sf-accent)]'
                   : 'bg-[var(--sf-bg-primary)] border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]',
               )}
               data-testid={`framework-${option.value}`}
@@ -91,8 +91,8 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
                   className={cn(
                     'w-8 h-8 rounded flex items-center justify-center text-sm font-bold shrink-0',
                     isSelected
-                      ? 'bg-[var(--sf-accent)] text-white'
-                      : 'bg-[var(--sf-bg-input)] text-text-secondary',
+                      ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
+                      : 'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]',
                   )}
                 >
                   {option.icon}
@@ -101,7 +101,7 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
                   <span className="text-sm font-medium text-text-primary">
                     {t(option.labelKey)}
                   </span>
-                  <span className="text-xs text-text-secondary">{t(option.descriptionKey)}</span>
+                  <span className="text-xs text-text-primary">{t(option.descriptionKey)}</span>
                 </div>
               </div>
             </label>

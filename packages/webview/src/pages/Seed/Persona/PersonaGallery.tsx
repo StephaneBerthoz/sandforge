@@ -121,7 +121,7 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
               <CardBody>
                 <div className="flex flex-col gap-3 py-2">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-[var(--sf-accent)]" />
+                    <Sparkles className="w-5 h-5 text-[var(--sf-text-link)]" />
                     <span className="text-xs font-semibold text-[var(--sf-text-primary)]">
                       {t('seed.persona.card.createCustom')}
                     </span>

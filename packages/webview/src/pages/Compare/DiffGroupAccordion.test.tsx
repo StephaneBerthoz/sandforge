@@ -151,6 +151,31 @@ describe('DiffGroupAccordion', () => {
     expect(screen.getByText('~')).toBeDefined();
   });
 
+  it('names a change once to a screen reader, and paints its symbol in the severity token', () => {
+    const diffs = [
+      createDiff({ name: 'Added', changeType: 'added', group: 'G' }),
+      createDiff({ name: 'Removed', changeType: 'removed', group: 'G' }),
+      createDiff({ name: 'Modified', changeType: 'modified', group: 'G' }),
+    ];
+    render(<DiffGroupAccordion diffs={diffs} />);
+    fireEvent.click(screen.getByTestId('diff-group-toggle-G'));
+
+    // The badge beside the symbol already says "added": the symbol is not read out.
+    const row = screen.getByTestId('diff-item-Added');
+    expect(row.textContent).toContain('added');
+    for (const [symbol, token] of [
+      ['+', 'text-status-success'],
+      ['-', 'text-status-error'],
+      ['~', 'text-status-warning'],
+    ]) {
+      const glyph = screen.getByText(symbol);
+      expect(glyph.getAttribute('aria-hidden')).toBe('true');
+      // The raw theme colour read 1.8:1 on a light editor; the token is sized for AA.
+      expect(glyph.classList.contains(token)).toBe(true);
+      expect(glyph.style.color).toBe('');
+    }
+  });
+
   it('should virtualize a large group instead of mounting every diff row', () => {
     const diffs = Array.from({ length: 500 }, (_, i) =>
       createDiff({ name: `Class${i}`, group: 'Apex Code' }),

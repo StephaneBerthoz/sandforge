@@ -54,7 +54,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
   if (!step) {
     return (
       <div
-        className={cn('text-xs text-center py-6 text-[var(--sf-text-muted,#868686)]', className)}
+        className={cn('text-xs text-center py-6 text-text-secondary', className)}
         data-testid="step-config-empty"
       >
         {t('automation.selectStep', 'Select a step to configure')}
@@ -92,7 +92,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
 
       {/* Step name */}
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+        <span className="text-[10px] text-text-secondary">
           {t('automation.stepName', 'Step Name')}
         </span>
         <input
@@ -106,7 +106,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
 
       {/* Timeout */}
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+        <span className="text-[10px] text-text-secondary">
           {t('automation.timeout', 'Timeout (seconds)')}
         </span>
         <input
@@ -123,7 +123,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
 
       {/* Retries */}
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+        <span className="text-[10px] text-text-secondary">
           {t('automation.retries', 'Retries')}
         </span>
         <input
@@ -157,7 +157,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
           className="flex flex-col gap-2 mt-1 pt-2 border-t border-[var(--sf-border,#3c3c3c)]"
           data-testid="step-type-config"
         >
-          <span className="text-[10px] font-semibold text-[var(--sf-text-muted,#868686)] uppercase">
+          <span className="text-[10px] font-semibold text-text-secondary uppercase">
             {t('automation.typeConfig', 'Type-specific config')}
           </span>
           {/* A checkbox already carries its caption inside its own wrapping
@@ -178,9 +178,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
               </label>
             ) : (
               <label key={field.key} className="flex flex-col gap-1">
-                <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
-                  {t(field.labelKey)}
-                </span>
+                <span className="text-[10px] text-text-secondary">{t(field.labelKey)}</span>
                 <input
                   type={field.type}
                   value={String(step.config[field.key] ?? '')}

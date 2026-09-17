@@ -88,7 +88,7 @@ export const RefreshPanel: React.FC = () => {
             {t('monitor.sandboxRefresh.title')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.sandboxRefresh.unsupported')}
         </p>
       </div>
@@ -107,7 +107,7 @@ export const RefreshPanel: React.FC = () => {
             {t('monitor.sandboxRefresh.title', 'Sandbox Refreshes')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.sandboxRefresh.empty', 'No sandbox refresh events')}
         </p>
       </div>
@@ -146,11 +146,11 @@ export const RefreshPanel: React.FC = () => {
             <span className="shrink-0">
               <Badge variant={statusVariant(refresh.status)}>{refresh.status}</Badge>
             </span>
-            <span className="text-[11px] tabular-nums text-text-muted w-28 shrink-0">
+            <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
               {dateFormatter.format(new Date(refresh.refreshDate))}
             </span>
             {refresh.sourceOrg && (
-              <span className="text-[11px] text-text-muted truncate max-w-24">
+              <span className="text-[11px] text-text-secondary truncate max-w-24">
                 {refresh.sourceOrg}
               </span>
             )}

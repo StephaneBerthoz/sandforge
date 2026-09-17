@@ -4,9 +4,9 @@ import { useForgeStore } from '../../stores/useForgeStore';
 
 /** CSS classes for severity badge variants. */
 const SEVERITY_STYLES: Record<string, string> = {
-  info: 'bg-blue-500/20 text-blue-400',
-  warning: 'bg-orange-500/20 text-orange-400',
-  error: 'bg-red-500/20 text-red-400',
+  info: 'bg-blue-500/10 text-status-info',
+  warning: 'bg-orange-500/10 text-status-warning',
+  error: 'bg-red-500/10 text-status-error',
 };
 
 /** Props for {@link ReviewMetadataTab}. */
@@ -48,7 +48,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
   if (pending) {
     return (
       <div data-testid="review-metadata-tab" className="py-4">
-        <p data-testid="metadata-loading" className="text-xs text-text-muted text-center">
+        <p data-testid="metadata-loading" className="text-xs text-text-secondary text-center">
           {t('forge.review.diffsLoading', 'Comparing metadata schemas...')}
         </p>
       </div>
@@ -58,7 +58,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
   if (diffs.length === 0) {
     return (
       <div data-testid="review-metadata-tab" className="py-4">
-        <p data-testid="no-diffs" className="text-xs text-text-muted text-center">
+        <p data-testid="no-diffs" className="text-xs text-text-secondary text-center">
           {t('forge.review.noDiffs', 'No metadata differences detected.')}
         </p>
       </div>
@@ -67,7 +67,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
 
   return (
     <div data-testid="review-metadata-tab" className="flex flex-col gap-2">
-      <p className="text-xs text-text-muted">
+      <p className="text-xs text-text-secondary">
         {t('forge.review.diffsFound', {
           defaultValue: '{{count}} differences found between source and target.',
           count: diffs.length,
@@ -87,7 +87,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
               {diff.severity.toUpperCase()}
             </span>
           </div>
-          <p className="text-text-muted text-[10px]">{diff.details}</p>
+          <p className="text-text-secondary text-[10px]">{diff.details}</p>
         </div>
       ))}
     </div>

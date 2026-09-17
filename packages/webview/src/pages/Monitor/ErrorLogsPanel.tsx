@@ -71,7 +71,7 @@ export const ErrorLogsPanel: React.FC = () => {
             {t('monitor.errorLogs.title', 'Error Logs')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.errorLogs.empty', 'No recent errors detected')}
         </p>
       </div>
@@ -104,7 +104,7 @@ export const ErrorLogsPanel: React.FC = () => {
       )}
 
       {/* Table header */}
-      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
+      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-secondary font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="w-28 shrink-0">{t('monitor.errorLogs.time', 'Time')}</span>
         <span className="w-24 shrink-0">{t('monitor.errorLogs.type', 'Type')}</span>
         <span className="flex-1">{t('monitor.errorLogs.message', 'Message')}</span>
@@ -119,7 +119,7 @@ export const ErrorLogsPanel: React.FC = () => {
             className="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-surface-2 transition-colors"
             data-testid={`error-log-row-${error.id}`}
           >
-            <span className="text-[11px] tabular-nums text-text-muted w-28 shrink-0">
+            <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
               {dateFormatter.format(new Date(error.timestamp))}
             </span>
             <span className="w-24 shrink-0">
@@ -127,7 +127,7 @@ export const ErrorLogsPanel: React.FC = () => {
             </span>
             <span className="text-xs text-text-secondary flex-1 truncate">{error.message}</span>
             {error.user && (
-              <span className="text-[11px] text-text-muted w-20 text-right truncate">
+              <span className="text-[11px] text-text-secondary w-20 text-right truncate">
                 {error.user}
               </span>
             )}

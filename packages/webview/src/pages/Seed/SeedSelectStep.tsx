@@ -126,11 +126,11 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
             {/* PII badge warnings on selected objects */}
             {hasPiiWarnings && (
               <div
-                className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-amber-600 bg-amber-950/30"
+                className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-amber-600 bg-amber-500/10"
                 role="alert"
                 data-testid="pii-scan-warning"
               >
-                <span className="text-sm font-medium text-amber-400">
+                <span className="text-sm font-medium text-status-warning">
                   {t('seed.piiWarningTitle')}
                 </span>
                 {piiResults
@@ -147,7 +147,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                       </div>
                     </div>
                   ))}
-                <span className="text-xs text-amber-400/80">{t('seed.piiWarningHint')}</span>
+                <span className="text-xs text-status-warning">{t('seed.piiWarningHint')}</span>
               </div>
             )}
 
@@ -205,7 +205,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                   field list, or anything in the draft worth comparing. */}
               {nl2soql.data?.success === true && nl2soql.data.verified === false && (
                 <span
-                  className="text-xs text-amber-400"
+                  className="text-xs text-status-warning"
                   role="status"
                   data-testid="nl2soql-unverified"
                 >
@@ -217,7 +217,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
               {(nl2soql.error ??
                 (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
                 <span
-                  className="text-xs text-[var(--sf-error)]"
+                  className="text-xs text-status-error"
                   role="alert"
                   data-testid="nl2soql-error"
                 >

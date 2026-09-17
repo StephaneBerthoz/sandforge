@@ -255,8 +255,8 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                 fontSize: 'var(--sf-font-size-xs)',
                 borderRadius: 'var(--sf-radius-sm)',
                 border: '1px solid var(--sf-border)',
-                backgroundColor: filter === f.key ? 'var(--sf-accent)' : 'transparent',
-                color: filter === f.key ? 'var(--sf-bg-card)' : 'var(--sf-text-secondary)',
+                backgroundColor: filter === f.key ? 'var(--sf-button-bg)' : 'transparent',
+                color: filter === f.key ? 'var(--sf-button-fg)' : 'var(--sf-text-secondary)',
                 cursor: 'pointer',
               }}
             >
@@ -266,7 +266,6 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                 style={{
                   fontWeight: 600,
                   fontVariantNumeric: 'tabular-nums',
-                  opacity: filterCounts[f.key] === 0 ? 0.5 : 1,
                 }}
               >
                 {formatNumber(filterCounts[f.key])}
@@ -302,7 +301,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
           <p
             style={{
               fontSize: 'var(--sf-font-size-xs)',
-              color: 'var(--sf-text-muted)',
+              color: 'var(--sf-text-secondary)',
               textAlign: 'center',
               padding: 'var(--sf-space-4) 0',
             }}
@@ -337,7 +336,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                       gap: 'var(--sf-space-2)',
                       width: '100%',
                       padding: 'var(--sf-space-2) var(--sf-space-3)',
-                      backgroundColor: 'var(--sf-bg-input)',
+                      backgroundColor: 'var(--sf-bg-secondary)',
                       border: 'none',
                       cursor: 'pointer',
                       color: 'var(--sf-text-primary)',
@@ -478,9 +477,17 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                             <span role="cell">
                               <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
                             </span>
+                            {/* A failed row is tinted, and description text falls
+                              under AA on the tint: its cells take the editor foreground. */}
                             <span
                               role="cell"
-                              style={{ color: 'var(--sf-text-secondary)', minWidth: '80px' }}
+                              style={{
+                                color:
+                                  job.status === 'Failed'
+                                    ? 'var(--sf-text-primary)'
+                                    : 'var(--sf-text-secondary)',
+                                minWidth: '80px',
+                              }}
                             >
                               {job.objectType ?? '-'}
                             </span>
@@ -497,8 +504,8 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                                 : '-'}
                               {(job.failedRecords ?? 0) > 0 && (
                                 <span
+                                  className="text-status-error"
                                   style={{
-                                    color: 'var(--sf-error)',
                                     marginLeft: 'var(--sf-space-1)',
                                   }}
                                 >
@@ -506,7 +513,15 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                                 </span>
                               )}
                             </span>
-                            <span role="cell" style={{ color: 'var(--sf-text-muted)' }}>
+                            <span
+                              role="cell"
+                              style={{
+                                color:
+                                  job.status === 'Failed'
+                                    ? 'var(--sf-text-primary)'
+                                    : 'var(--sf-text-secondary)',
+                              }}
+                            >
                               {job.createdBy}
                             </span>
                             {/* How long ago answers "is this still moving?" at a
@@ -519,7 +534,10 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                               data-testid={`job-created-${job.id}`}
                               title={exactCreated}
                               style={{
-                                color: 'var(--sf-text-muted)',
+                                color:
+                                  job.status === 'Failed'
+                                    ? 'var(--sf-text-primary)'
+                                    : 'var(--sf-text-secondary)',
                                 minWidth: '120px',
                                 textAlign: 'right',
                               }}

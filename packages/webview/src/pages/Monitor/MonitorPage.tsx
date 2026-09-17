@@ -78,12 +78,12 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
       <div className="text-sm font-medium text-text-primary truncate">
         {org.alias || org.username}
       </div>
-      <div className="text-xs text-text-muted truncate">{org.instanceUrl}</div>
+      <div className="text-xs text-text-secondary truncate">{org.instanceUrl}</div>
     </div>
     <span
       className={cn(
         'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
-        ORG_TYPE_STYLES[org.orgType] ?? 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+        ORG_TYPE_STYLES[org.orgType] ?? 'bg-gray-500/10 text-text-primary border-gray-500/30',
       )}
     >
       {org.orgType === 'Production' ? 'PROD' : org.orgType.toUpperCase()}
@@ -242,7 +242,7 @@ export const MonitorPage: React.FC = () => {
       >
         <div className="max-w-md w-full flex flex-col items-center gap-6">
           <div className="w-16 h-16 rounded-2xl bg-surface-1 border border-subtle flex items-center justify-center">
-            <Activity className="w-8 h-8 text-text-muted" />
+            <Activity className="w-8 h-8 text-text-secondary" />
           </div>
           <div className="text-center">
             <h2 className="text-lg font-semibold text-text-primary mb-1">
@@ -262,7 +262,7 @@ export const MonitorPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Plug className="w-4 h-4" />
               <span>
                 {t('monitor.noOrgsHint', 'No connected orgs. Go to Organizations to connect one.')}
@@ -318,7 +318,7 @@ export const MonitorPage: React.FC = () => {
             </>
           )}
           {orgInfo && (
-            <span className="text-xs text-text-muted hidden sm:inline">
+            <span className="text-xs text-text-secondary hidden sm:inline">
               {orgInfo.edition} &middot; {orgInfo.instanceName} &middot; API v{orgInfo.apiVersion}
             </span>
           )}
@@ -327,7 +327,7 @@ export const MonitorPage: React.FC = () => {
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
           <ResetCountdown />
-          {lastUpdatedStr && <span className="text-xs text-text-muted">{lastUpdatedStr}</span>}
+          {lastUpdatedStr && <span className="text-xs text-text-secondary">{lastUpdatedStr}</span>}
           <Button
             variant="ghost"
             size="sm"
@@ -357,8 +357,8 @@ export const MonitorPage: React.FC = () => {
           className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-md"
           data-testid="connection-lost-warning"
         >
-          <WifiOff className="h-4 w-4 text-amber-400 shrink-0" />
-          <span className="flex-1 text-sm text-amber-300">
+          <WifiOff className="h-4 w-4 text-status-warning shrink-0" />
+          <span className="flex-1 text-sm text-status-warning">
             {t('monitor.connectionLost', {
               defaultValue: 'Connection lost. Auto-refresh failed {{count}} times.',
               count: consecutiveFailures,
@@ -376,8 +376,8 @@ export const MonitorPage: React.FC = () => {
           className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md"
           data-testid="monitor-error"
         >
-          <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-          <span className="flex-1 text-sm text-red-400">
+          <AlertTriangle className="h-4 w-4 text-status-error shrink-0" />
+          <span className="flex-1 text-sm text-status-error">
             {t('monitor.refreshFailed', 'Failed to refresh dashboard data')}
           </span>
           <Button size="sm" variant="secondary" onClick={retryFailed} data-testid="error-retry-btn">
@@ -397,7 +397,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Error details (expandable) ── */}
       {showErrorDetails && Object.keys(sectionErrors).length > 0 && (
         <div
-          className="rounded-md border border-red-500/10 bg-surface-1 p-3 text-xs text-red-400"
+          className="rounded-md border border-red-500/10 bg-surface-1 p-3 text-xs text-status-error"
           data-testid="error-details-panel"
         >
           {Object.entries(sectionErrors).map(([section, msg]) => (
@@ -462,7 +462,7 @@ export const MonitorPage: React.FC = () => {
           data-testid="monitor-job-insights-unknown"
           className="flex items-center gap-3 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-2"
         >
-          <CircleDashed className="w-4 h-4 text-text-muted shrink-0" />
+          <CircleDashed className="w-4 h-4 text-text-secondary shrink-0" />
           <span className="text-sm text-text-secondary">{t('common.noData')}</span>
         </div>
       ) : criticalInsights.length > 0 || warningInsights.length > 0 ? (
@@ -473,10 +473,10 @@ export const MonitorPage: React.FC = () => {
               data-testid="monitor-job-insight-critical"
               className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
             >
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-status-error shrink-0" />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium text-text-primary">{insight.title}</span>
-                <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+                <span className="text-xs text-text-primary ml-2">{insight.detail}</span>
               </div>
               {insight.type === 'stuck' && insight.affectedJobs.length > 0 && (
                 <Button
@@ -495,7 +495,7 @@ export const MonitorPage: React.FC = () => {
             <p
               role="alert"
               data-testid="monitor-open-apex-jobs-error"
-              className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs text-red-400"
+              className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs text-status-error"
             >
               {openApexJobsError}
             </p>
@@ -506,10 +506,10 @@ export const MonitorPage: React.FC = () => {
               data-testid="monitor-job-insight-warning"
               className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2"
             >
-              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+              <Clock className="w-4 h-4 text-status-warning shrink-0" />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium text-text-primary">{insight.title}</span>
-                <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+                <span className="text-xs text-text-primary ml-2">{insight.detail}</span>
               </div>
             </div>
           ))}
@@ -519,7 +519,7 @@ export const MonitorPage: React.FC = () => {
           data-testid="monitor-job-insights-idle"
           className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
         >
-          <Clock className="w-4 h-4 text-text-muted shrink-0" />
+          <Clock className="w-4 h-4 text-text-secondary shrink-0" />
           <span className="text-sm text-text-secondary">
             {t('monitor.noJobs', 'No recent jobs')}
           </span>
@@ -529,7 +529,7 @@ export const MonitorPage: React.FC = () => {
           data-testid="monitor-job-insights-clear"
           className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
         >
-          <Activity className="w-4 h-4 text-green-400 shrink-0" />
+          <Activity className="w-4 h-4 text-status-success shrink-0" />
           <span className="text-sm text-text-primary">{t('monitor.apexInsights.noIssues')}</span>
           <span className="text-xs text-text-secondary">
             {jobs.length} {t('monitor.jobs')}
@@ -645,7 +645,7 @@ export const MonitorPage: React.FC = () => {
                         <span className="text-xs font-semibold text-text-primary">
                           {anomaly.field}
                         </span>
-                        <span className="text-xs text-text-muted ml-1">({anomaly.type})</span>
+                        <span className="text-xs text-text-secondary ml-1">({anomaly.type})</span>
                         <p className="text-xs text-text-secondary mt-0.5">{anomaly.description}</p>
                       </div>
                     </div>

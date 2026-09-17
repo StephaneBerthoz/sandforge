@@ -81,16 +81,18 @@ describe('ProgressNode', () => {
     expect(screen.queryByTestId('progress-bar-fill')).toBeNull();
   });
 
-  it('should apply dim styling when not included', () => {
+  it('marks a node left out of the run with a dashed outline, not faded text', () => {
     render(<ProgressNode {...makeNodeProps({ included: false })} />);
     const node = screen.getByTestId('progress-node');
-    expect(node.className).toContain('opacity-40');
+    expect(node.className).toContain('border-dashed');
+    // At 40% opacity its name read 2.1:1 on Light Modern.
+    expect(node.className).not.toMatch(/(^|\s)opacity-\d+(\s|$)/);
   });
 
-  it('should not apply dim styling when included', () => {
+  it('draws an included node with a solid outline', () => {
     render(<ProgressNode {...makeNodeProps({ included: true })} />);
     const node = screen.getByTestId('progress-node');
-    expect(node.className).not.toContain('opacity-40');
+    expect(node.className).not.toContain('border-dashed');
   });
 
   it('should show PII badge with count when hasPII is true', () => {

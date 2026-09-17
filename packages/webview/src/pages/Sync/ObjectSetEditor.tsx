@@ -104,7 +104,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               aria-label={rowLabel(t('automation.stepConfigWhere'), entry.objectApiName)}
             />
             <button
-              className="text-[var(--sf-error)] hover:opacity-70 px-1"
+              className="text-status-error hover:underline px-1"
               onClick={() => onRemove(i)}
               data-testid={`remove-obj-${entry.objectApiName}`}
               aria-label={rowLabel(t('sync.removeObject'), entry.objectApiName)}

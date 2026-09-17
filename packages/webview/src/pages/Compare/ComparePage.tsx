@@ -336,13 +336,13 @@ export const ComparePage: React.FC = () => {
 
           {/* Summary bar */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="compare-summary">
-            <span className="text-[var(--sf-success)]">
+            <span className="text-status-success">
               +{result.summary.added} {t('compare.added')}
             </span>
-            <span className="text-[var(--sf-error)]">
+            <span className="text-status-error">
               -{result.summary.removed} {t('compare.removed')}
             </span>
-            <span className="text-[var(--sf-warning)]">
+            <span className="text-status-warning">
               ~{result.summary.modified} {t('compare.modified')}
             </span>
             <span className="text-[var(--sf-text-secondary)]">

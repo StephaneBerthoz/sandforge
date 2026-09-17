@@ -117,7 +117,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
               className="w-28"
             />
             <button
-              className="text-[var(--sf-error)] hover:opacity-70 px-1"
+              className="text-status-error hover:underline px-1"
               onClick={() => onRemoveMapping(i)}
               data-testid={`remove-mapping-${i}`}
             >
@@ -136,7 +136,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
       {/* Auto-map suggestions preview */}
       {autoMapSuggestions.length > 0 && (
         <div className="flex flex-col gap-1" data-testid="auto-map-suggestions">
-          <span className="text-[10px] font-medium text-[var(--sf-text-muted,#868686)]">
+          <span className="text-[10px] font-medium text-text-secondary">
             {t('sync.suggestedMappings', 'Suggested Mappings')} ({autoMapSuggestions.length})
           </span>
           {autoMapSuggestions.map((s, i) => (
@@ -145,8 +145,8 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
               className={cn(
                 'flex items-center gap-2 px-2 py-1 rounded text-xs',
                 'border border-dashed border-[var(--sf-info,#3B82F6)]',
-                'bg-[var(--sf-info,#3B82F6)]',
-                'bg-opacity-5',
+                // `bg-opacity-5` never reached an arbitrary var() colour: the row was solid info.
+                'bg-status-info/5',
               )}
               data-testid={`suggestion-${i}`}
             >

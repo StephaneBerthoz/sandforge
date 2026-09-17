@@ -43,7 +43,7 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       {/* Adaptive: show "using defaults" banner when configure was skipped */}
       {configSkipped && (
         <div
-          className="flex items-center gap-2 p-2 rounded text-xs bg-[var(--sf-bg-input)] text-[var(--sf-text-secondary)] mb-2"
+          className="flex items-center gap-2 p-2 rounded text-xs bg-surface-2 text-[var(--sf-text-secondary)] mb-2"
           data-testid="adaptive-defaults-banner"
         >
           <span>{t('seed.adaptive.usingDefaults')}</span>

@@ -126,7 +126,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                 {/* PII toggles */}
                 {hasPiiWarnings && (
                   <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-amber-400">
+                    <span className="text-xs font-medium text-status-warning">
                       {t('seed.piiWarningTitle')}
                     </span>
                     {piiResults

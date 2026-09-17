@@ -32,6 +32,15 @@
  *    identical in a translated bundle to its English one, is refused, with the
  *    exceptions named below and the reason each one stands.
  *
+ * And Spanish and Brazilian Portuguese keep their accents. Both were once
+ * written largely without them — "Configuracion", "Sessao expirada", "nao" — in
+ * text that renders and passes every other check. Each language is refused a
+ * word that is never correct unaccented: a singular -cion/-sion/-xion in Spanish (its
+ * plural -ciones rightly drops the accent), an ending -cao/-coes/-sao/-soes/-xao
+ * in Portuguese, and a short list of common words. Placeholders, paths, email
+ * addresses, identifiers and code are set aside first: "{{version}}",
+ * "/home/voce/export.json" and "tokenBudgetMaxPerSession" are not prose.
+ *
  * Run: node --test scripts/locale-text.test.mjs
  */
 import assert from 'node:assert/strict';
@@ -200,4 +209,79 @@ test('every named exception still exists, so none outlives what it excuses', () 
   for (const key of SAME_IN_EVERY_LANGUAGE.keys()) {
     assert.ok(key in english, `exception ${key} names a string that is gone — remove it`);
   }
+});
+
+/** A word no correct text in the language writes without its accent. */
+const UNACCENTED = {
+  es: new RegExp(
+    String.raw`(?<!\p{L})(?:\p{L}*(?:cion|sion|xion)|pagina|numero|tambien|despues|codigo|metodo|aqui|ademas|automaticamente)(?!\p{L})`,
+    'iu',
+  ),
+  'pt-BR': new RegExp(
+    String.raw`(?<!\p{L})(?:\p{L}*(?:cao|coes|sao|soes|xao|xoes)|nao|voce|tambem|numero|pagina|codigo|metodo|disponivel|possivel|usuario|apos)(?!\p{L})`,
+    'iu',
+  ),
+};
+
+/** Everything in a string that is not prose: placeholders, paths, addresses, identifiers, code. */
+export function proseOnly(text) {
+  return text
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/\{\{[^}]*\}\}|\{\d+\}/g, ' ')
+    .replace(/\S+@\S+/g, ' ')
+    .replace(/(?:[A-Za-z]:)?\/\S*/g, ' ')
+    .replace(/\b[\w-]+(?:\.[\w-]+)+\b/g, ' ')
+    .replace(/\b[a-z]+[A-Z]\w*\b/g, ' ');
+}
+
+/** The first unaccented word in `text` for `lang`, or null. */
+export function missingAccent(lang, text) {
+  const match = UNACCENTED[lang].exec(proseOnly(text));
+  return match ? match[0] : null;
+}
+
+const ACCENTED_BUNDLES = {
+  es: [
+    'packages/webview/src/i18n/locales/es.json',
+    'packages/extension/package.nls.es.json',
+    'packages/extension/l10n/bundle.l10n.es.json',
+  ],
+  'pt-BR': [
+    'packages/webview/src/i18n/locales/pt-BR.json',
+    'packages/extension/package.nls.pt-br.json',
+    'packages/extension/l10n/bundle.l10n.pt-br.json',
+  ],
+};
+
+test('an unaccented word is caught, and what only looks like one is not', () => {
+  assert.equal(missingAccent('es', 'Configuracion'), 'Configuracion');
+  assert.equal(missingAccent('es', 'Error de conexion'), 'conexion');
+  assert.equal(missingAccent('pt-BR', 'Sessao expirada'), 'Sessao');
+  assert.equal(missingAccent('pt-BR', 'Voce nao tem acesso'), 'Voce');
+  for (const [lang, text] of [
+    ['es', 'Configuración de sesión'],
+    ['es', 'Operaciones recientes'],
+    ['es', 'Conjunto de datos v{{version}}'],
+    ['es', 'Suba sandforge.ai.tokenBudgetMaxPerSession'],
+    ['pt-BR', 'Paginação'],
+    ['pt-BR', 'Sessão expirada'],
+    ['pt-BR', 'no formato usuario@dominio.com.'],
+    ['pt-BR', 'por exemplo /home/voce/export.json'],
+  ]) {
+    assert.equal(missingAccent(lang, text), null, `rejected correct ${lang} text: ${text}`);
+  }
+});
+
+test('Spanish and Brazilian Portuguese keep their accents', () => {
+  const offenders = [];
+  for (const [lang, files] of Object.entries(ACCENTED_BUNDLES)) {
+    for (const file of files) {
+      for (const [key, value] of Object.entries(flatten(readJson(file)))) {
+        if (typeof value !== 'string') continue;
+        const word = missingAccent(lang, value);
+        if (word) offenders.push(`${file} › ${key}: "${word}"`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
 });

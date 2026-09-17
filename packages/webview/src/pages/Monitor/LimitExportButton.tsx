@@ -136,7 +136,7 @@ export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, tr
       <select
         value={exportMode}
         onChange={(e) => setExportMode(e.target.value as ExportMode)}
-        className="text-xs bg-transparent border-0 text-text-muted cursor-pointer"
+        className="text-xs bg-transparent border-0 text-text-secondary cursor-pointer"
         data-testid="export-mode-select"
         aria-label={t('monitor.export.modeLabel', 'Export mode')}
       >

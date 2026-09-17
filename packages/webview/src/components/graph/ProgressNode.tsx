@@ -50,18 +50,18 @@ const borderByStatus: Record<ForgeNodeStatus, string> = {
 function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement | null {
   switch (status) {
     case 'done':
-      return <Check className="h-3 w-3 text-green-500" />;
+      return <Check className="h-3 w-3 text-status-success" />;
     case 'running':
-      return <Loader2 className="h-3 w-3 animate-spin text-forge" />;
+      return <Loader2 className="h-3 w-3 animate-spin text-hue-forge" />;
     case 'scanning':
-      return <Loader2 className="h-3 w-3 animate-spin text-forge" />;
+      return <Loader2 className="h-3 w-3 animate-spin text-hue-forge" />;
     case 'error':
-      return <X className="h-3 w-3 text-red-500" />;
+      return <X className="h-3 w-3 text-status-error" />;
     case 'skipped':
-      return <Minus className="h-3 w-3 text-text-muted" />;
+      return <Minus className="h-3 w-3 text-text-secondary" />;
     case 'idle':
     default:
-      return <Clock className="h-3 w-3 text-text-muted" />;
+      return <Clock className="h-3 w-3 text-text-secondary" />;
   }
 }
 
@@ -123,7 +123,8 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
       className={cn(
         'bg-surface-2 rounded-lg border p-3 min-w-[200px] cursor-pointer transition-colors',
         borderByStatus[status],
-        !included && 'opacity-40',
+        // Left out of the run: a dashed outline, not faded text.
+        !included && 'border-dashed',
       )}
     >
       <Handle type="target" position={Position.Top} className="!bg-text-muted" />
@@ -150,8 +151,8 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               className={cn(
                 'text-[9px] font-bold px-1 rounded',
                 edgeType === 'master-detail'
-                  ? 'bg-forge/20 text-forge'
-                  : 'bg-text-muted/20 text-text-muted',
+                  ? 'bg-forge/20 text-hue-forge'
+                  : 'bg-gray-500/10 text-text-primary',
               )}
             >
               {edgeType === 'master-detail' ? 'MD' : 'LK'}
@@ -162,13 +163,13 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
       </div>
 
       {/* Counts: records + size */}
-      <div className="mt-1 flex items-center gap-2 text-[10px] text-text-muted">
+      <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
         <span>{recordCount.toLocaleString()} records</span>
         <span>~{estimatedSizeMB.toFixed(1)} MB</span>
       </div>
 
       {/* Fields: total vs createable */}
-      <div className="mt-0.5 text-[10px] text-text-muted">
+      <div className="mt-0.5 text-[10px] text-text-secondary">
         <span>
           {fieldCount} fields ({createableFieldCount} cloneable)
         </span>
@@ -191,7 +192,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
           {hasPII && (
             <span
               data-testid="pii-badge"
-              className="flex items-center gap-0.5 text-[9px] text-orange-400"
+              className="flex items-center gap-0.5 text-[9px] text-status-warning"
             >
               <Shield className="h-2.5 w-2.5" />
               {piiCount} PII
@@ -201,7 +202,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
         {errorCount > 0 && (
           <span
             data-testid="error-badge"
-            className="flex items-center gap-0.5 text-[9px] text-red-400"
+            className="flex items-center gap-0.5 text-[9px] text-status-error"
           >
             <AlertTriangle className="h-2.5 w-2.5" />
             {errorCount}

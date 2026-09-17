@@ -170,10 +170,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 className={cn(
                   'px-3 text-xs font-mono rounded-full border transition-colors text-left truncate',
                   isMapped
-                    ? 'bg-[var(--sf-accent)] bg-opacity-20 border-[var(--sf-accent)] text-text-primary'
+                    ? 'bg-status-info/10 border-[var(--sf-accent)] text-text-primary'
                     : isSelected
-                      ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)] text-text-primary ring-1 ring-[var(--sf-accent)]'
-                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-text-secondary hover:border-[var(--sf-accent)] hover:text-text-primary',
+                      ? 'bg-status-info/10 border-[var(--sf-accent)] text-text-primary ring-1 ring-[var(--sf-accent)]'
+                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-[var(--sf-text-input)] hover:border-[var(--sf-accent)]',
                   isMapped && 'cursor-default',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
@@ -237,7 +237,7 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                     ? 'bg-[#4ec9b0] bg-opacity-20 border-[#4ec9b0] text-text-primary'
                     : isClickable
                       ? 'bg-[var(--sf-bg-input)] border-dashed border-[var(--sf-accent)] text-text-primary animate-pulse'
-                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-text-secondary',
+                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-[var(--sf-text-input)]',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
                 onClick={() => handleTargetClick(field)}

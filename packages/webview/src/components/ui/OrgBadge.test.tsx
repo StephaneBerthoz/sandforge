@@ -82,18 +82,18 @@ describe('OrgBadge', () => {
   it('should have Production badge with error background', () => {
     render(<OrgBadge {...defaultProps} orgType="Production" />);
     const badge = screen.getByTestId('org-badge-type');
-    expect(badge.className).toContain('bg-[var(--sf-error)]');
+    expect(badge.className).toContain('bg-status-error');
   });
 
   it('should have Sandbox badge with info background', () => {
     render(<OrgBadge {...defaultProps} orgType="Sandbox" />);
     const badge = screen.getByTestId('org-badge-type');
-    expect(badge.className).toContain('bg-[var(--sf-info)]');
+    expect(badge.className).toContain('bg-status-info');
   });
 
   it('should have Scratch badge with success background', () => {
     render(<OrgBadge {...defaultProps} orgType="Scratch" />);
     const badge = screen.getByTestId('org-badge-type');
-    expect(badge.className).toContain('bg-[var(--sf-success)]');
+    expect(badge.className).toContain('bg-status-success');
   });
 });

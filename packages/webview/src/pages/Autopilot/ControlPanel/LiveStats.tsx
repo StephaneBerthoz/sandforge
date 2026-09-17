@@ -2,19 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { formatDuration } from '../../../utils/formatters';
-
-/** Progress bar component for stats. */
-const ProgressBar: React.FC<{ current: number; total: number }> = ({ current, total }) => {
-  const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
-  return (
-    <div className="w-full h-2 rounded bg-[var(--sf-bg-input)]" data-testid="progress-bar">
-      <div
-        className="h-full rounded bg-[var(--sf-progress-bg)] transition-all duration-300"
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-};
+import { ProgressBar } from '../../../components/ui/ProgressBar';
 
 /** Live statistics dashboard cards during execution. */
 export const LiveStats: React.FC = () => {
@@ -31,7 +19,11 @@ export const LiveStats: React.FC = () => {
         <span className="text-lg font-bold text-text-primary">
           {liveStats.recordsProcessed.toLocaleString()} / {liveStats.recordsTotal.toLocaleString()}
         </span>
-        <ProgressBar current={liveStats.recordsProcessed} total={liveStats.recordsTotal} />
+        <ProgressBar
+          value={liveStats.recordsProcessed}
+          max={Math.max(liveStats.recordsTotal, 1)}
+          ariaLabel={t('autopilot.control.recordsProcessed')}
+        />
       </div>
 
       {/* API Calls */}
@@ -42,7 +34,11 @@ export const LiveStats: React.FC = () => {
         <span className="text-lg font-bold text-text-primary">
           {liveStats.apiCallsUsed.toLocaleString()} / {liveStats.apiCallsEstimated.toLocaleString()}
         </span>
-        <ProgressBar current={liveStats.apiCallsUsed} total={liveStats.apiCallsEstimated} />
+        <ProgressBar
+          value={liveStats.apiCallsUsed}
+          max={Math.max(liveStats.apiCallsEstimated, 1)}
+          ariaLabel={t('autopilot.control.apiCalls')}
+        />
       </div>
 
       {/* Elapsed Time */}

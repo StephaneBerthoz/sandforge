@@ -171,8 +171,8 @@ describe('ForgeNodeDetail', () => {
     expect(screen.queryByTestId('node-errors-list')).toBeNull();
   });
 
-  /* ---- Contrast fix for skipped status ---- */
-  it('should use text-gray-400 for skipped status badge', () => {
+  /* ---- Legible on light themes too: theme tokens, not fixed light shades ---- */
+  it('writes the skipped status badge in the editor foreground', () => {
     render(
       <ForgeNodeDetail
         node={makeNode({ status: 'skipped' })}
@@ -181,7 +181,20 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const badge = screen.getByTestId('node-status-badge');
-    expect(badge.className).toContain('text-gray-300');
-    expect(badge.className).not.toContain('text-gray-500');
+    expect(badge.className).toContain('text-text-primary');
+    expect(badge.className).not.toMatch(/\btext-gray-\d+\b/);
+  });
+
+  it('writes each error in the error token', () => {
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION'] })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+    const item = screen.getByText('FIELD_CUSTOM_VALIDATION_EXCEPTION').closest('li');
+    expect(item?.className).toContain('text-status-error');
+    expect(item?.className).not.toMatch(/\btext-red-\d+\b/);
   });
 });

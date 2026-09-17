@@ -12,6 +12,7 @@ import type { LogEntry, LogFilter } from '../../components/ui/LogStream';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
+import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type {
   ForgeNodeStatus,
@@ -241,7 +242,7 @@ export const ForgeExecution: React.FC = () => {
       {/* ---- Top bar: progress, timer, status ---- */}
       <m.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
         <div className="flex items-center justify-between text-sm">
-          <span className="flex items-center gap-2 font-bold text-forge">
+          <span className="flex items-center gap-2 font-bold text-hue-forge">
             <Flame size={16} />
             <span data-testid="forge-execution-status">{t(STATUS_KEYS[executionStatus])}</span>
           </span>
@@ -249,25 +250,27 @@ export const ForgeExecution: React.FC = () => {
             <span data-testid="forge-execution-timer">
               {t('forge.elapsed')}: {formatElapsed(elapsed)}
             </span>
-            <span data-testid="forge-execution-eta" className="text-forge">
+            <span data-testid="forge-execution-eta" className="text-hue-forge">
               {t('forge.eta')}:{' '}
               {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
             </span>
           </span>
         </div>
-        <div
-          className="h-2 w-full rounded-full bg-surface-2 overflow-hidden"
-          data-testid="forge-execution-progress"
-        >
-          <div
-            className="h-full rounded-full bg-forge transition-all duration-300 ease-out"
-            style={{ width: `${kpis.progress}%` }}
-            role="progressbar"
-            aria-valuenow={kpis.progress}
-            aria-valuemin={0}
-            aria-valuemax={100}
+        <div data-testid="forge-execution-progress">
+          <ProgressBar
+            value={kpis.progress}
+            ariaLabel={t('a11y.runProgress', { name: t('nav.forge') })}
+            barClassName="bg-forge"
           />
         </div>
+        <ProgressAnnouncer
+          message={t('a11y.progressAnnouncement', {
+            name: t('nav.forge'),
+            percent: kpis.progress,
+          })}
+          immediate={executionStatus === 'complete' || executionStatus === 'aborted'}
+          testId="forge-progress-status"
+        />
       </m.div>
 
       {/* ---- Middle: SplitView (graph + logs) ---- */}
@@ -278,7 +281,7 @@ export const ForgeExecution: React.FC = () => {
             graph ? (
               <LiveGraph graph={graph as unknown as SharedForgeGraph} className="h-full" />
             ) : (
-              <div className="flex h-full items-center justify-center text-text-muted">
+              <div className="flex h-full items-center justify-center text-text-secondary">
                 {t('common.noData')}
               </div>
             )
@@ -294,8 +297,8 @@ export const ForgeExecution: React.FC = () => {
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
                     logFilter === 'all'
-                      ? 'bg-forge text-white font-semibold'
-                      : 'text-text-muted hover:text-text-secondary',
+                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
                   {t('forge.logFilterAll')}
@@ -308,8 +311,8 @@ export const ForgeExecution: React.FC = () => {
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
                     logFilter === 'error'
-                      ? 'bg-forge text-white font-semibold'
-                      : 'text-text-muted hover:text-text-secondary',
+                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
                   {t('forge.logFilterErrors')}
@@ -322,8 +325,8 @@ export const ForgeExecution: React.FC = () => {
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
                     logFilter === 'warn'
-                      ? 'bg-forge text-white font-semibold'
-                      : 'text-text-muted hover:text-text-secondary',
+                      ? 'bg-hue-forge text-[var(--sf-bg-primary)] font-semibold'
+                      : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
                   {t('forge.logFilterWarnings')}

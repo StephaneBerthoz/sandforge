@@ -42,11 +42,11 @@ import type { OrgListResponse } from '@sandforge/shared';
 const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
   switch (status) {
     case 'success':
-      return <CheckCircle className="w-3.5 h-3.5 text-green-400" />;
+      return <CheckCircle className="w-3.5 h-3.5 text-status-success" />;
     case 'failed':
-      return <XCircle className="w-3.5 h-3.5 text-red-400" />;
+      return <XCircle className="w-3.5 h-3.5 text-status-error" />;
     case 'running':
-      return <Loader className="w-3.5 h-3.5 text-blue-400 animate-spin" />;
+      return <Loader className="w-3.5 h-3.5 text-status-info animate-spin" />;
   }
 };
 
@@ -64,67 +64,67 @@ const MODULE_ITEMS: NavItem[] = [
     id: 'monitor',
     labelKey: 'nav.monitor',
     icon: <Activity className="w-4 h-4" />,
-    accent: 'text-blue-400',
+    accent: 'text-hue-blue',
   },
   {
     id: 'seed',
     labelKey: 'nav.seed',
     icon: <Sprout className="w-4 h-4" />,
-    accent: 'text-green-400',
+    accent: 'text-hue-green',
   },
   {
     id: 'sync',
     labelKey: 'nav.sync',
     icon: <RefreshCw className="w-4 h-4" />,
-    accent: 'text-sky-400',
+    accent: 'text-hue-sky',
   },
   {
     id: 'grappe',
     labelKey: 'nav.grappe',
     icon: <Grape className="w-4 h-4" />,
-    accent: 'text-indigo-400',
+    accent: 'text-hue-indigo',
   },
   {
     id: 'autopilot',
     labelKey: 'nav.autopilot',
     icon: <Rocket className="w-4 h-4" />,
-    accent: 'text-rose-400',
+    accent: 'text-hue-rose',
   },
   {
     id: 'frozen',
     labelKey: 'nav.frozen',
     icon: <Snowflake className="w-4 h-4" />,
-    accent: 'text-cyan-400',
+    accent: 'text-hue-cyan',
   },
   {
     id: 'compare',
     labelKey: 'nav.compare',
     icon: <GitCompare className="w-4 h-4" />,
-    accent: 'text-purple-400',
+    accent: 'text-hue-purple',
   },
   {
     id: 'dataops',
     labelKey: 'nav.dataops',
     icon: <Shield className="w-4 h-4" />,
-    accent: 'text-yellow-400',
+    accent: 'text-hue-yellow',
   },
   {
     id: 'automation',
     labelKey: 'nav.automation',
     icon: <Zap className="w-4 h-4" />,
-    accent: 'text-amber-400',
+    accent: 'text-hue-amber',
   },
   {
     id: 'migration',
     labelKey: 'nav.migration',
     icon: <FileUp className="w-4 h-4" />,
-    accent: 'text-teal-400',
+    accent: 'text-hue-teal',
   },
   {
     id: 'ai',
     labelKey: 'nav.ai',
     icon: <Bot className="w-4 h-4" />,
-    accent: 'text-fuchsia-400',
+    accent: 'text-hue-fuchsia',
   },
 ];
 
@@ -266,8 +266,8 @@ export const SidePanel: React.FC = () => {
       {/* Branding */}
       <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-subtle">
         <div className="relative">
-          <Flame className="w-5 h-5 text-orange-400" />
-          <div className="absolute -inset-1 bg-orange-400/10 rounded-full blur-sm -z-10" />
+          <Flame className="w-5 h-5 text-hue-orange" />
+          <div className="absolute -inset-1 bg-hue-orange/10 rounded-full blur-sm -z-10" />
         </div>
         <span className="text-sm font-bold tracking-tight">SandForge</span>
       </div>
@@ -317,7 +317,7 @@ export const SidePanel: React.FC = () => {
           )}
           <ChevronDown
             className={cn(
-              'w-3.5 h-3.5 text-text-muted transition-transform duration-200',
+              'w-3.5 h-3.5 text-text-secondary transition-transform duration-200',
               orgDropdownOpen && 'rotate-180',
             )}
           />
@@ -364,7 +364,9 @@ export const SidePanel: React.FC = () => {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{org.alias || org.username}</div>
-                          <div className="text-[10px] text-text-muted truncate">{org.username}</div>
+                          <div className="text-[10px] text-text-secondary truncate">
+                            {org.username}
+                          </div>
                         </div>
                         <span
                           className={cn(
@@ -380,7 +382,7 @@ export const SidePanel: React.FC = () => {
                         type="button"
                         className={cn(
                           'p-1.5 mr-2 rounded-md shrink-0',
-                          'text-text-muted hover:text-text-primary hover:bg-surface-3',
+                          'text-text-secondary hover:text-text-primary hover:bg-surface-3',
                           'transition-colors',
                         )}
                         title={t('sidePanel.openInBrowser', 'Open in browser')}
@@ -400,14 +402,14 @@ export const SidePanel: React.FC = () => {
                 })}
               </div>
             ) : (
-              <div className="px-3 py-3 text-xs text-text-muted text-center">
+              <div className="px-3 py-3 text-xs text-text-secondary text-center">
                 {t('sidePanel.noOrgHint', 'No org yet — connect one below')}
               </div>
             )}
             <button
               className={cn(
                 'w-full flex items-center gap-2 px-3 py-2 text-left text-xs',
-                'text-orange-400 hover:bg-surface-2 border-t border-subtle',
+                'text-hue-orange hover:bg-surface-2 border-t border-subtle',
                 'font-medium',
               )}
               onClick={() => {
@@ -426,7 +428,7 @@ export const SidePanel: React.FC = () => {
       {/* Quick Metrics */}
       <div className="px-3 pt-2.5">
         <button
-          className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted px-1 mb-1"
+          className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1"
           onClick={() => setMetricsExpanded(!metricsExpanded)}
           aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
           data-testid="sidepanel-metrics-toggle"
@@ -442,13 +444,13 @@ export const SidePanel: React.FC = () => {
         {metricsExpanded && (
           <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
             <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-muted uppercase tracking-wide">
+              <div className="text-[10px] text-text-secondary uppercase tracking-wide">
                 {t('sidePanel.connectedOrgs', 'Orgs')}
               </div>
               <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
             </div>
             <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-muted uppercase tracking-wide">
+              <div className="text-[10px] text-text-secondary uppercase tracking-wide">
                 {t('sidePanel.recentOps', 'Ops')}
               </div>
               <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
@@ -463,9 +465,9 @@ export const SidePanel: React.FC = () => {
           <button
             className={cn(
               'w-full flex items-center gap-3 rounded-xl px-3.5 py-3 group',
-              'bg-gradient-to-r from-orange-500/10 via-amber-500/8 to-orange-500/5',
-              'border border-orange-500/20',
-              'hover:from-orange-500/20 hover:via-amber-500/15 hover:to-orange-500/10',
+              // A flat tint: text on a gradient has no single background to be read against.
+              'bg-orange-500/10 border border-orange-500/20',
+              'hover:bg-orange-500/15',
               'hover:border-orange-500/40 hover:shadow-[0_0_16px_rgba(249,115,22,0.12)]',
               'transition-all duration-200',
             )}
@@ -474,17 +476,18 @@ export const SidePanel: React.FC = () => {
           >
             <div className="relative shrink-0">
               <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center">
-                <Flame className="w-5 h-5 text-orange-400" />
+                <Flame className="w-5 h-5 text-hue-orange" />
               </div>
-              <div className="absolute -inset-0.5 bg-orange-400/10 rounded-lg blur-sm -z-10 group-hover:bg-orange-400/20 transition-colors" />
+              <div className="absolute -inset-0.5 bg-hue-orange/10 rounded-lg blur-sm -z-10 group-hover:bg-hue-orange/20 transition-colors" />
             </div>
             <div className="text-left flex-1 min-w-0">
-              <div className="text-sm font-bold text-orange-400">{t('sidePanel.forge')}</div>
-              <div className="text-[10px] text-text-muted leading-tight">
+              <div className="text-sm font-bold text-hue-orange">{t('sidePanel.forge')}</div>
+              {/* On the tint, only the editor foreground keeps its contrast. */}
+              <div className="text-[10px] text-text-primary leading-tight">
                 {t('sidePanel.forgeDesc', 'Seed, sync & transform data')}
               </div>
             </div>
-            <ArrowRight className="w-3.5 h-3.5 text-orange-400/40 group-hover:text-orange-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
+            <ArrowRight className="w-3.5 h-3.5 text-text-secondary group-hover:text-hue-orange group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
         </div>
       )}
@@ -499,9 +502,9 @@ export const SidePanel: React.FC = () => {
             onClick={() => navigate('forge')}
             data-testid="sidepanel-forge-compact"
           >
-            <Flame className="w-4 h-4 text-orange-400 shrink-0" />
-            <span className="text-xs font-bold text-orange-400">{t('sidePanel.forge')}</span>
-            <ArrowRight className="w-3 h-3 text-orange-400/40 ml-auto shrink-0" />
+            <Flame className="w-4 h-4 text-hue-orange shrink-0" />
+            <span className="text-xs font-bold text-hue-orange">{t('sidePanel.forge')}</span>
+            <ArrowRight className="w-3 h-3 text-text-secondary ml-auto shrink-0" />
           </button>
         </div>
       )}
@@ -509,7 +512,7 @@ export const SidePanel: React.FC = () => {
       {/* Favorite Modules (if any) */}
       {favorites.length > 0 && (
         <div className="px-3 pt-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted px-1 mb-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary px-1 mb-1.5">
             {t('sidePanel.favorites', 'Favorites')}
           </div>
           <nav
@@ -538,7 +541,7 @@ export const SidePanel: React.FC = () => {
 
       {/* Module Navigation */}
       <div className="px-3 pt-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-muted px-1 mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-2">
           {t('sidePanel.modules', 'Modules')}
         </div>
         <nav
@@ -568,8 +571,8 @@ export const SidePanel: React.FC = () => {
                   'p-1 rounded-md transition-all duration-150',
                   'hover:bg-surface-1',
                   favorites.includes(item.id)
-                    ? 'text-amber-400'
-                    : 'text-text-muted hover:text-text-primary',
+                    ? 'text-hue-amber'
+                    : 'text-text-secondary hover:text-text-primary',
                 )}
                 onClick={() => toggleFavorite(item.id)}
                 data-testid={`sidepanel-star-${item.id}`}
@@ -588,7 +591,7 @@ export const SidePanel: React.FC = () => {
 
       {/* Tool Navigation */}
       <div className="px-3 pt-3">
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-muted px-1 mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-text-secondary px-1 mb-2">
           {t('sidePanel.tools', 'Tools')}
         </div>
         <nav
@@ -622,9 +625,9 @@ export const SidePanel: React.FC = () => {
             className="rounded-lg bg-surface-1 px-3 py-2 flex items-center gap-2"
             data-testid="sidepanel-running-op"
           >
-            <Loader className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+            <Loader className="w-3.5 h-3.5 text-status-info animate-spin shrink-0" />
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] text-text-muted">{t('sidePanel.running')}</div>
+              <div className="text-[10px] text-text-secondary">{t('sidePanel.running')}</div>
               <div className="text-xs font-medium truncate">{runningOp.label}</div>
             </div>
           </div>
@@ -635,11 +638,11 @@ export const SidePanel: React.FC = () => {
       {lastOp && !runningOp && (
         <div className="px-3 pt-3">
           <div className="rounded-lg bg-surface-1 px-3 py-2" data-testid="sidepanel-last-op">
-            <div className="text-[10px] text-text-muted mb-1">{t('sidePanel.lastOp')}</div>
+            <div className="text-[10px] text-text-secondary mb-1">{t('sidePanel.lastOp')}</div>
             <div className="flex items-center gap-2">
               <StatusIcon status={lastOp.status} />
               <span className="text-xs truncate flex-1">{lastOp.label}</span>
-              <span className="text-[10px] text-text-muted shrink-0">
+              <span className="text-[10px] text-text-secondary shrink-0">
                 {formatRelativeTimeI18n(lastOp.timestamp, t, 'sidePanel.relativeTime')}
               </span>
             </div>

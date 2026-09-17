@@ -72,7 +72,7 @@ export const ResetCountdown: React.FC = () => {
 
   return (
     <span
-      className="flex items-center gap-1 text-xs text-text-muted tabular-nums"
+      className="flex items-center gap-1 text-xs text-text-secondary tabular-nums"
       data-testid="reset-countdown"
     >
       <Clock className="w-3 h-3" />

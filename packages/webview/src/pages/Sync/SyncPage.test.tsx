@@ -1,11 +1,12 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useConflictStore } from '../../stores/useConflictStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useGrappeStore } from '../../stores/useGrappeStore';
 import { SyncPage } from './SyncPage';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg, SyncHistoryEntry, UIConflict } from '@sandforge/shared';
@@ -628,5 +629,115 @@ describe('SyncPage', () => {
       'source_to_target',
       'bidirectional',
     ]);
+  });
+});
+
+describe('SyncPage execute step for assistive technology', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    draft.value = {
+      currentStep: 4,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappings: [],
+      transforms: [],
+    };
+  });
+
+  describe('while a run is underway', () => {
+    const idle = mockExecuteMutationState;
+
+    beforeEach(() => {
+      const running = { ...idle, loading: true, requestId: 'sync-run-1' };
+      mockExecuteMutationState = running;
+    });
+    afterEach(() => {
+      mockExecuteMutationState = idle;
+      vi.useRealTimers();
+    });
+
+    /** The host reports the run's progress, keyed by the request that started it. */
+    function progress(percentage: number): void {
+      fromHost({
+        type: 'operation:progress',
+        id: `progress-${percentage}`,
+        payload: {
+          operationId: 'sync-run-1',
+          percentage,
+          processedRecords: percentage,
+          totalRecords: 100,
+          currentStep: '',
+        },
+      });
+    }
+
+    it('announces the run progress in a polite status region', () => {
+      vi.useFakeTimers();
+      render(<SyncPage />);
+      const region = screen.getByTestId('sync-progress-status');
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.getAttribute('aria-live')).toBe('polite');
+      expect(region.textContent).toBe('Sync progress: 0%');
+
+      progress(40);
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(region.textContent).toBe('Sync progress: 40%');
+    });
+
+    it('says 100% as soon as the run reaches it, without waiting for the interval', () => {
+      vi.useFakeTimers();
+      render(<SyncPage />);
+      const region = screen.getByTestId('sync-progress-status');
+      progress(40);
+      // Mid-run values wait for the interval.
+      expect(region.textContent).toBe('Sync progress: 0%');
+
+      progress(100);
+      expect(region.textContent).toBe('Sync progress: 100%');
+    });
+
+    it('says where a run that stopped short ended, as soon as it stops', () => {
+      vi.useFakeTimers();
+      const { rerender } = render(<SyncPage />);
+      const region = screen.getByTestId('sync-progress-status');
+      progress(40);
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(region.textContent).toBe('Sync progress: 40%');
+
+      // Mid-run values wait for the interval.
+      progress(70);
+      expect(region.textContent).toBe('Sync progress: 40%');
+
+      // The run stops short of 100%: the last word follows at once, with no timer.
+      mockExecuteMutationState = { ...mockExecuteMutationState, loading: false };
+      rerender(<SyncPage />);
+      // The wizard's step button shares the testid: the panel is the div.
+      const panel = screen
+        .getAllByTestId('sync-step-execute')
+        .find((element) => element.tagName === 'DIV') as HTMLElement;
+      const bar = within(panel).getByRole('progressbar');
+      expect(region.textContent).toBe(`Sync progress: ${bar.getAttribute('aria-valuenow') ?? ''}%`);
+      expect(region.textContent).not.toBe('Sync progress: 40%');
+    });
+
+    it('keeps a single progress announcement when the run is partitioned', () => {
+      useGrappeStore.getState().start('op-1', 4, 6000);
+      try {
+        render(<SyncPage />);
+        expect(screen.getByTestId('grappe-panel')).toBeDefined();
+        expect(screen.queryByTestId('grappe-progress-status')).toBeNull();
+        expect(screen.getByTestId('sync-progress-status')).toBeDefined();
+      } finally {
+        useGrappeStore.getState().reset();
+      }
+    });
   });
 });

@@ -106,8 +106,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         >
           {/* Icon */}
           <div className="flex items-center justify-center gap-2 mb-6">
-            <Flame className="w-8 h-8" style={{ color: 'var(--sf-error, #f48771)' }} />
-            <AlertTriangle className="w-6 h-6" style={{ color: 'var(--sf-warning, #cca700)' }} />
+            <Flame className="w-8 h-8 text-status-error" />
+            <AlertTriangle className="w-6 h-6 text-status-warning" />
           </div>
 
           {/* Title */}
@@ -126,11 +126,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
           {/* Error message */}
           <div
-            className="text-left text-xs font-mono p-3 rounded-lg mb-6 overflow-auto max-h-32"
+            className="text-left text-xs font-mono p-3 rounded-lg mb-6 overflow-auto max-h-32 text-status-error"
             style={{
               background: 'var(--sf-bg-input, #262635)',
               border: '1px solid var(--sf-border, rgba(255,255,255,0.10))',
-              color: 'var(--sf-error, #f48771)',
             }}
             data-testid="error-message"
           >

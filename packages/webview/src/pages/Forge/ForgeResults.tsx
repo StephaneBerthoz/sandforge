@@ -41,9 +41,9 @@ export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
-  done: 'bg-green-500/20 text-green-400',
-  error: 'bg-red-500/20 text-red-400',
-  skipped: 'bg-yellow-500/20 text-yellow-400',
+  done: 'bg-green-500/10 text-status-success',
+  error: 'bg-red-500/10 text-status-error',
+  skipped: 'bg-yellow-500/10 text-status-warning',
 };
 
 /** Props for the ForgeResults component. */
@@ -466,7 +466,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           the wizard showing an unqualified success for a partial clone. */}
       {result?.truncatedObjects && result.truncatedObjects.length > 0 && (
         <div
-          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-[var(--sf-warning)]"
+          className="rounded border border-[var(--sf-warning)] px-4 py-2 text-xs text-status-warning"
           role="status"
           data-testid="forge-results-truncated"
         >
@@ -492,7 +492,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             />
             <FileText size={14} />
             {showLogs ? t('forge.hideLogs') : t('forge.showLogs')}
-            <span className="text-text-muted">({String(logs.length)})</span>
+            <span className="text-text-secondary">({String(logs.length)})</span>
           </button>
           {showLogs && (
             <LogStream
@@ -566,9 +566,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
 /** Stage label colour and i18n key. */
 const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls: string }> = {
-  insert: { labelKey: 'forge.stage.insert', cls: 'bg-red-500/20 text-red-400' },
-  query: { labelKey: 'forge.stage.query', cls: 'bg-orange-500/20 text-orange-400' },
-  scope: { labelKey: 'forge.stage.scope', cls: 'bg-yellow-500/20 text-yellow-400' },
+  insert: { labelKey: 'forge.stage.insert', cls: 'bg-red-500/10 text-status-error' },
+  query: { labelKey: 'forge.stage.query', cls: 'bg-orange-500/10 text-hue-orange' },
+  scope: { labelKey: 'forge.stage.scope', cls: 'bg-yellow-500/10 text-status-warning' },
 };
 
 /**
@@ -602,14 +602,15 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
       initial="hidden"
       animate="visible"
       data-testid="forge-errors-panel"
-      className="rounded-lg border border-red-500/30 bg-red-500/5"
+      // The border marks the panel: a tint here sat under every stage badge's own.
+      className="rounded-lg border border-red-500/30"
     >
       <div className="flex items-center gap-2 px-4 py-3 border-b border-red-500/20">
-        <AlertTriangle size={16} className="text-red-400" />
+        <AlertTriangle size={16} className="text-status-error" />
         <h3 className="text-sm font-semibold text-text-primary">
           {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
-        <span className="text-xs text-text-muted ml-auto tabular-nums">
+        <span className="text-xs text-text-secondary ml-auto tabular-nums">
           {errors.length} {t('forge.object', { defaultValue: 'objects' })} · {totals}{' '}
           {t('forge.records', { defaultValue: 'records' })}
         </span>
@@ -660,7 +661,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                           const translated = translateForgeError(msg);
                           return (
                             <li key={mi} className="space-y-1">
-                              <div className="text-red-300 break-words font-mono">└ {msg}</div>
+                              <div className="text-status-error break-words font-mono">└ {msg}</div>
                               {translated && (
                                 <div
                                   data-testid="forge-error-translation"
@@ -677,13 +678,13 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                                   <div className="flex items-start gap-1.5">
                                     <Lightbulb
                                       size={12}
-                                      className="mt-0.5 shrink-0 text-yellow-400"
+                                      className="mt-0.5 shrink-0 text-hue-yellow"
                                     />
                                     <div>
                                       <div className="text-text-primary">
                                         {t(translated.explanationKey, translated.vars ?? {})}
                                       </div>
-                                      <div className="text-text-secondary mt-1 italic">
+                                      <div className="text-text-primary mt-1 italic">
                                         → {t(translated.actionKey, translated.vars ?? {})}
                                       </div>
                                     </div>

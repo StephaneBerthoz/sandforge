@@ -54,7 +54,7 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
     <div
       className={cn(
         'flex items-center justify-between gap-2',
-        'text-xs text-[var(--vscode-errorForeground,#f44747)]',
+        'text-xs text-status-error',
         'px-2 py-1.5 rounded',
         'bg-[var(--vscode-inputValidation-errorBackground,#5a1d1d)]',
         className,
@@ -73,7 +73,7 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
         {onDismiss && (
           <button
             type="button"
-            className="shrink-0 opacity-60 hover:opacity-100"
+            className="shrink-0"
             onClick={onDismiss}
             aria-label={t('common.dismiss', 'Dismiss')}
           >
@@ -82,7 +82,7 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({
         )}
         <button
           type="button"
-          className="shrink-0 opacity-60 hover:opacity-100"
+          className="shrink-0"
           onClick={handleCopy}
           aria-label={copyLabel}
           title={copyLabel}

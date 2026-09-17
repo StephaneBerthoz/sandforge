@@ -86,7 +86,7 @@ export const AnimatedEdge: React.FC<EdgeProps<AnimatedEdgeData>> = ({
           y={labelY}
           textAnchor="middle"
           dominantBaseline="central"
-          className="fill-text-muted"
+          className="fill-text-secondary"
           style={{ fontSize: 9 }}
         >
           {relationshipName}

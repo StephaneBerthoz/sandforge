@@ -86,7 +86,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
         <CardBody>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <ActionIcon className="w-5 h-5 text-[var(--sf-accent)]" />
+              <ActionIcon className="w-5 h-5 text-[var(--sf-text-link)]" />
               <span className="text-sm text-text-primary font-medium">
                 {t('home.smartAction.confirmMsg', {
                   action: t(`home.smartAction.action.${recommendation.action}`),
@@ -128,7 +128,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
           )}
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <ActionIcon className="w-5 h-5 shrink-0 text-[var(--sf-accent)]" />
+            <ActionIcon className="w-5 h-5 shrink-0 text-[var(--sf-text-link)]" />
             <div className="flex flex-col gap-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary truncate">
@@ -142,7 +142,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
                 <Tooltip content={recommendation.reason}>
                   <button
                     type="button"
-                    className="text-text-muted hover:text-text-secondary"
+                    className="text-text-secondary hover:text-text-primary"
                     aria-label={t('home.smartAction.whyTooltip')}
                     data-testid="smart-action-why-btn"
                   >

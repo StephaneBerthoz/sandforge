@@ -214,12 +214,12 @@ export const ForgeDiscovery: React.FC = () => {
         data-testid="forge-discovery-loading"
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
-        <Loader2 size={32} className="animate-spin text-forge" />
+        <Loader2 size={32} className="animate-spin text-hue-forge" />
         <p>{t('forge.discovery')}</p>
         {discoveryProgress && (
           <p
             data-testid="forge-discovery-progress"
-            className="text-xs tabular-nums text-text-muted"
+            className="text-xs tabular-nums text-text-secondary"
           >
             {t('forge.discoveryProgress', {
               discovered: discoveryProgress.discoveredCount,
@@ -315,8 +315,8 @@ export const ForgeDiscovery: React.FC = () => {
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
               viewMode === 'graph'
-                ? 'bg-forge text-white'
-                : 'text-text-muted hover:text-text-secondary',
+                ? 'bg-hue-forge text-[var(--sf-bg-primary)]'
+                : 'text-text-secondary hover:text-text-primary',
             )}
             aria-pressed={viewMode === 'graph'}
           >
@@ -330,8 +330,8 @@ export const ForgeDiscovery: React.FC = () => {
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
               viewMode === 'table'
-                ? 'bg-forge text-white'
-                : 'text-text-muted hover:text-text-secondary',
+                ? 'bg-hue-forge text-[var(--sf-bg-primary)]'
+                : 'text-text-secondary hover:text-text-primary',
             )}
             aria-pressed={viewMode === 'table'}
           >
@@ -342,7 +342,7 @@ export const ForgeDiscovery: React.FC = () => {
         <div className="relative flex-1 max-w-xs">
           <Search
             size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary"
           />
           <input
             type="text"

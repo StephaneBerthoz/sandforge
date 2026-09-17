@@ -79,7 +79,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
   if (!execution) {
     return (
       <div
-        className={cn('text-xs text-center py-8 text-[var(--sf-text-muted,#868686)]', className)}
+        className={cn('text-xs text-center py-8 text-text-secondary', className)}
         data-testid="execution-empty"
       >
         {t('automation.noExecution', 'No active execution')}
@@ -118,7 +118,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
           {execution.status === 'paused' && onResume && (
             <button
               onClick={onResume}
-              className="text-[10px] px-2 py-0.5 rounded bg-[var(--sf-info,#3B82F6)] text-white cursor-pointer"
+              className="text-[10px] px-2 py-0.5 rounded bg-status-info text-[var(--sf-bg-primary)] cursor-pointer"
               data-testid="execution-resume"
             >
               {t('automation.resume', 'Resume')}
@@ -127,7 +127,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
           {isActive && onCancel && (
             <button
               onClick={onCancel}
-              className="text-[10px] px-2 py-0.5 rounded bg-[var(--sf-error,#EF4444)] text-white cursor-pointer"
+              className="text-[10px] px-2 py-0.5 rounded bg-status-error text-[var(--sf-bg-primary)] cursor-pointer"
               data-testid="execution-cancel"
             >
               {t('automation.cancel', 'Cancel')}
@@ -142,15 +142,12 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
       </div>
 
       {/* Stats row */}
-      <div
-        className="flex gap-4 text-[10px] text-[var(--sf-text-muted,#868686)]"
-        data-testid="execution-stats"
-      >
+      <div className="flex gap-4 text-[10px] text-text-secondary" data-testid="execution-stats">
         <span>
           {completedSteps}/{execution.steps.length} {t('automation.steps', 'steps')}
         </span>
         {failedSteps > 0 && (
-          <span style={{ color: 'var(--sf-error, #EF4444)' }}>
+          <span className="text-status-error">
             {failedSteps} {t('automation.failed', 'failed')}
           </span>
         )}
@@ -165,7 +162,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
             className={cn(
               'flex items-center justify-between px-2 py-1.5 rounded text-xs',
               'border border-[var(--sf-border,#3c3c3c)]',
-              step.status === 'running' && 'bg-[var(--sf-bg-active,#1a3a5c)]',
+              step.status === 'running' && 'bg-status-info/10',
             )}
             data-testid={`exec-step-${step.stepId}`}
           >
@@ -174,23 +171,23 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--sf-info,#3B82F6)] animate-pulse" />
               )}
               {step.status === 'completed' && (
-                <span className="text-[var(--sf-success,#22C55E)]">{'\u2713'}</span>
+                <span className="text-status-success">{'\u2713'}</span>
               )}
-              {step.status === 'failed' && (
-                <span className="text-[var(--sf-error,#EF4444)]">{'\u2717'}</span>
-              )}
+              {step.status === 'failed' && <span className="text-status-error">{'\u2717'}</span>}
               {step.status === 'pending' && (
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--sf-text-muted,#868686)]" />
               )}
-              {step.status === 'skipped' && (
-                <span className="text-[var(--sf-text-muted,#868686)]">{'\u2014'}</span>
-              )}
+              {step.status === 'skipped' && <span className="text-text-secondary">{'\u2014'}</span>}
               <span className="text-[var(--sf-text-primary,#d4d4d4)]">{step.stepName}</span>
               <Badge variant="default">{t(`automation.stepTypes.${step.stepType}`)}</Badge>
             </div>
             <div className="flex items-center gap-2">
               {step.duration !== undefined && step.duration > 0 && (
-                <span className="text-[var(--sf-text-muted,#868686)]">
+                <span
+                  className={
+                    step.status === 'running' ? 'text-text-primary' : 'text-text-secondary'
+                  }
+                >
                   {formatDurationSec(Math.round(step.duration / 1000))}
                 </span>
               )}
@@ -212,7 +209,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
             .map((s) => (
               <div
                 key={`error-${s.stepId}`}
-                className="text-[10px] px-2 py-1 rounded bg-[var(--sf-error,#EF4444)]/10 text-[var(--sf-error,#EF4444)] border border-[var(--sf-error,#EF4444)]/30"
+                className="text-[10px] px-2 py-1 rounded bg-status-error/10 text-status-error border border-status-error/40"
                 data-testid={`exec-error-${s.stepId}`}
               >
                 <strong>{s.stepName}:</strong> {s.error}

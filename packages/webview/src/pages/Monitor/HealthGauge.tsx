@@ -26,6 +26,13 @@ function gaugeColor(value: number): string {
   return 'var(--sf-error, #EF4444)';
 }
 
+/** The label's fill: the severity tokens, sized for text where the raw colours are not. */
+function gaugeLabelClass(value: number): string {
+  if (value > 80) return 'fill-status-success';
+  if (value >= 40) return 'fill-status-warning';
+  return 'fill-status-error';
+}
+
 /** Returns the status label based on value thresholds. */
 function gaugeLabel(value: number): string {
   if (value > 80) return 'Healthy';
@@ -120,7 +127,7 @@ export const HealthGauge: React.FC<HealthGaugeProps> = ({ value, size = 120, cla
           textAnchor="middle"
           fontSize={size * 0.085}
           fontWeight="500"
-          fill={color}
+          className={gaugeLabelClass(clamped)}
         >
           {label}
         </text>

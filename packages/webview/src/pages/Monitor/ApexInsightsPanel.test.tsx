@@ -92,3 +92,30 @@ describe('ApexInsightsPanel', () => {
     expect(screen.getByText('No performance issues detected')).toBeDefined();
   });
 });
+
+describe('ApexInsightsPanel SOQL bars', () => {
+  beforeEach(() => {
+    mockLoading = false;
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+  });
+
+  it('names each SOQL bar after the log on its row', () => {
+    mockData = {
+      success: true,
+      analyses: [
+        {
+          logId: 'log-001-abcdef',
+          totalDuration: 1200,
+          soqlQueries: 45,
+          dmlStatements: 12,
+          heapUsed: 65000,
+          cpuTime: 800,
+          issues: [],
+        },
+      ],
+      topIssues: [],
+    };
+    render(<ApexInsightsPanel />);
+    expect(screen.getByRole('progressbar', { name: 'SOQL queries, log log-001-' })).toBeDefined();
+  });
+});

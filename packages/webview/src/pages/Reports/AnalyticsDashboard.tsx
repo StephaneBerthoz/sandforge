@@ -31,7 +31,13 @@ export interface AnalyticsDashboardProps {
   className?: string;
 }
 
-/** Dashboard displaying operational analytics with Recharts. */
+/**
+ * Dashboard displaying operational analytics with Recharts.
+ *
+ * Recharts paints a tooltip white whatever the theme, its label in the text
+ * colour it inherits and each item in its series colour: the label read 1.48:1
+ * on Dark+. The tooltips take the panel's own surface and text colours instead.
+ */
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   summary,
   operationsOverTime,
@@ -85,7 +91,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <Card>
               <CardBody>
                 <div className="flex flex-col items-center">
-                  <span className="text-lg font-bold text-[var(--sf-success)]">
+                  <span className="text-lg font-bold text-status-success">
                     {summary.successRate.toFixed(1)}%
                   </span>
                   <span className="text-[10px] text-text-secondary">
@@ -109,7 +115,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <Card>
               <CardBody>
                 <div className="flex flex-col items-center">
-                  <span className="text-lg font-bold text-[var(--sf-error)]">
+                  <span className="text-lg font-bold text-status-error">
                     {summary.errorRate.toFixed(1)}%
                   </span>
                   <span className="text-[10px] text-text-secondary">{t('reports.errorRate')}</span>
@@ -133,7 +139,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }}
                     />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }} />
-                    <Tooltip />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--sf-bg-primary)',
+                        border: '1px solid var(--sf-border)',
+                      }}
+                      labelStyle={{ color: 'var(--sf-text-primary)' }}
+                      itemStyle={{ color: 'var(--sf-text-primary)' }}
+                    />
                     <Bar dataKey="value" fill="var(--sf-text-link)" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -156,7 +169,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }}
                     />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }} />
-                    <Tooltip />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--sf-bg-primary)',
+                        border: '1px solid var(--sf-border)',
+                      }}
+                      labelStyle={{ color: 'var(--sf-text-primary)' }}
+                      itemStyle={{ color: 'var(--sf-text-primary)' }}
+                    />
                     <Line
                       type="monotone"
                       dataKey="value"

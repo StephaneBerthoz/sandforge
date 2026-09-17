@@ -61,11 +61,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           {...props}
         />
         {error && (
-          <span
-            id={`${inputId}-error`}
-            className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
-            role="alert"
-          >
+          <span id={`${inputId}-error`} className="text-xs text-status-error" role="alert">
             {error}
           </span>
         )}

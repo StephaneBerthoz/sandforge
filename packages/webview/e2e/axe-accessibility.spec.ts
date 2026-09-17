@@ -1,6 +1,81 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
-import { MOCK_ORGS } from './fixtures';
+import { themeContrastShortfalls } from './helpers/theme-contrast';
+import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX } from './fixtures';
+import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
+import { sendExtensionMessage } from './mocks/vscode-api';
+import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
+
+/**
+ * What Chromium paints: the reference evidence for a contrast claim in this
+ * package. src/styles/design-system.test.ts models contrast from the source on
+ * every commit, which guards the class, style and theme shapes that model
+ * follows and proves nothing about the others.
+ *
+ * Every page scan runs under VS Code's default themes, Light 2026 and Dark 2026,
+ * and under Light Modern and Dark Modern, the defaults they replaced, with the
+ * colours VS Code actually sends the webview under each: the theme's own values
+ * and, for what it leaves unset, the registry defaults (Light Modern does not
+ * set disabledForeground, so it gets `#61616180`). The page carries the
+ * stylesheet VS Code prepends to every webview (fixtures/vscode-default-styles.ts),
+ * whose rules paint whatever the panel's own leave unset. Colour contrast is
+ * scanned like every other rule.
+ */
+const SCANNED_THEMES = ['Light 2026', 'Dark 2026', 'Light Modern', 'Dark Modern'] as const;
+type ScannedTheme = (typeof SCANNED_THEMES)[number];
+
+/**
+ * The states at the end of this file are rendered on every measured theme held
+ * to a contrast bar (src/styles/testing/vscodeThemes.ts): the four above, and
+ * Light+, Quiet Light and Dark+. On each, every text axe measures or leaves
+ * incomplete (symbols included), every SVG text and every placeholder on screen
+ * is held to the bar or to the theme's own contrast for its colour
+ * (helpers/theme-contrast.ts), since Light+ and Quiet Light write description
+ * text under 4.5:1 on their own surfaces. The full axe scan runs on the four
+ * above as well. Two of the states come from Reports components the panel does
+ * not feed yet, mounted with data by harness/unwired-reports.html.
+ */
+const STATE_THEMES = [...SCANNED_THEMES, 'Light+', 'Quiet Light', 'Dark+'] as const;
+type StateTheme = (typeof STATE_THEMES)[number];
+
+/**
+ * Set the host theme's custom properties on the document before first paint,
+ * where VS Code puts them in a real webview, and prepend the default stylesheet
+ * VS Code puts at the head of every webview.
+ */
+async function paintHostTheme(page: Page, theme: StateTheme): Promise<void> {
+  // Scans measure what a user reads once the panel is still; with reduced motion
+  // the design system ends CSS animations at once instead of mid-fade.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.addInitScript(
+    ({ colours, defaultStyles }: { colours: Record<string, string>; defaultStyles: string }) => {
+      const paint = (): void => {
+        for (const [name, value] of Object.entries(colours)) {
+          document.documentElement.style.setProperty(`--vscode-${name}`, value);
+        }
+      };
+      const prependDefaultStyles = (): void => {
+        const style = document.createElement('style');
+        style.id = '_defaultStyles';
+        style.textContent = defaultStyles;
+        document.head.prepend(style);
+      };
+      // An init script can run before the document element exists.
+      if (document.documentElement) {
+        paint();
+      } else {
+        document.addEventListener('DOMContentLoaded', paint);
+      }
+      if (document.head) {
+        prependDefaultStyles();
+      } else {
+        document.addEventListener('DOMContentLoaded', prependDefaultStyles);
+      }
+    },
+    { colours: hostColours(vscodeTheme(theme)), defaultStyles: VSCODE_DEFAULT_STYLES },
+  );
+}
 
 /** What the panel needs answered before it renders the page under scan. */
 interface ModuleBootOptions {
@@ -23,6 +98,8 @@ interface ModuleBootOptions {
    * otherwise. Same failure mode as above, different gate.
    */
   readonly ai?: boolean;
+  /** The host theme the panel is painted in. */
+  readonly theme: ScannedTheme;
 }
 
 /**
@@ -35,12 +112,13 @@ interface ModuleBootOptions {
  */
 async function navigateToModule(
   bridge: MockBridge,
-  page: import('@playwright/test').Page,
+  page: Page,
   moduleId: string,
   waitForTestId: string,
-  options: ModuleBootOptions = {},
+  options: ModuleBootOptions,
 ): Promise<void> {
   await bridge.setup(page);
+  await paintHostTheme(page, options.theme);
   await page.addInitScript((id: string) => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
   }, moduleId);
@@ -65,16 +143,6 @@ async function navigateToModule(
 
   await page.waitForSelector(`[data-testid="${waitForTestId}"]`, { timeout: 10000 });
 }
-
-/**
- * Common axe-core rules to disable across all pages.
- * These are documented exceptions for the VSCode WebView environment.
- */
-const COMMON_DISABLED_RULES = [
-  // VSCode CSS variables may not resolve to real colors in the E2E Vite
-  // environment, causing false-positive contrast failures.
-  'color-contrast',
-];
 
 /**
  * Graph an `autopilot:schema-result` answers with.
@@ -163,297 +231,722 @@ function expectNoViolations(results: Awaited<ReturnType<typeof checkAccessibilit
   expect(violations.length, formatViolations(violations)).toBe(0);
 }
 
-test.describe('axe-core WCAG 2.1 AA — Page Scans', () => {
-  // axe-core analyze can be slow on complex pages with animations
-  test.describe.configure({ timeout: 60000 });
-  let bridge: MockBridge;
+/** Boot a module panel under a host theme, without waiting on any page. */
+async function openPanel(
+  bridge: MockBridge,
+  page: Page,
+  moduleId: string,
+  theme: StateTheme,
+): Promise<void> {
+  await bridge.setup(page);
+  await paintHostTheme(page, theme);
+  await page.addInitScript((id: string) => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
+  }, moduleId);
+  await page.goto('/');
+}
 
-  test.beforeEach(() => {
-    bridge = new MockBridge();
-  });
-
-  test('Home page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'home', 'home-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Organizations page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'orgs', 'org-manager-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Forge page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'forge', 'forge-page', { orgs: true });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Grappe page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'grappe', 'grappe-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Seed page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'seed', 'panel-app');
-    await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
-    await page.waitForSelector('[data-testid="seed-page"]', { timeout: 5000 }).catch(() => {
-      // Page may render EmptyState if orgs not processed yet — still scan
+/**
+ * Answer every pending request of a type. StrictMode mounts each query twice,
+ * and only the live request's correlationId reaches the page.
+ */
+async function answerAll(
+  page: Page,
+  requestType: string,
+  responseType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const requests = await page.evaluate((type) => {
+    const posted = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return posted
+      .map((m) => ((m as Record<string, unknown>).payload ?? m) as Record<string, unknown>)
+      .filter((m) => m.type === type)
+      .map((m) => String(m.id));
+  }, requestType);
+  for (const correlationId of requests) {
+    await sendExtensionMessage(page, {
+      type: responseType,
+      id: `resp-${correlationId}`,
+      correlationId,
+      payload,
     });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
+  }
+}
 
-  test('Sync page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'sync', 'panel-app');
-    await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
-    await page.waitForSelector('[data-testid="sync-page"]', { timeout: 5000 }).catch(() => {
-      // Scan whatever state rendered
-    });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
+for (const theme of SCANNED_THEMES) {
+  test.describe(`axe-core WCAG 2.1 AA — ${theme} — Page Scans`, () => {
+    // axe-core analyze can be slow on complex pages with animations
+    test.describe.configure({ timeout: 60000 });
+    let bridge: MockBridge;
 
-  test('Monitor page', async ({ page }) => {
-    // Monitor shows empty state without org selection — scan the empty state
-    await navigateToModule(bridge, page, 'monitor', 'panel-app');
-    await page.waitForTimeout(1000);
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Compare page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'compare', 'panel-app');
-    await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
-    await page.waitForSelector('[data-testid="compare-page"]', { timeout: 5000 }).catch(() => {
-      // May show EmptyState if < 2 orgs processed — still scan
-    });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('DataOps page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'dataops', 'panel-app');
-    await page.waitForSelector('[data-testid="dataops-page"]', { timeout: 5000 }).catch(() => {
-      // Scan whatever state rendered
-    });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Automation page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'automation', 'panel-app');
-    await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
-    await page.waitForSelector('[data-testid="automation-page"]', { timeout: 5000 }).catch(() => {
-      // May show EmptyState without orgs — still scan
-    });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Reports page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'reports', 'reports-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Settings page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'settings', 'settings-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Help page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'help', 'help-page');
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('AI page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { ai: true });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('Autopilot page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { orgs: true });
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-});
-
-test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
-  test.describe.configure({ timeout: 60000 });
-  let bridge: MockBridge;
-
-  test.beforeEach(() => {
-    bridge = new MockBridge();
-  });
-
-  test('Autopilot wizard step progression', async ({ page }) => {
-    await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { orgs: true });
-
-    // Step 1: Connect — scan
-    await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 5000 });
-    const step1 = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(step1);
-
-    // Select orgs and advance to Step 2. `next` fires `autopilot:scan-schema`
-    // through useBridgeMutation, which drops any response whose
-    // `correlationId` is not the request's id — hence respondToNext rather
-    // than a bare respond on the result channel.
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
-    await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
-      graph: MOCK_GRAPH,
+    test.beforeEach(() => {
+      bridge = new MockBridge();
     });
 
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-    const step2 = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(step2);
-
-    // Advance to Step 3: Compliance. The scan already selected every
-    // discovered object, so the wizard walks straight over — toggling
-    // select-all here would *clear* the selection and disable `next`.
-    await page.getByTestId('seed-wizard-next').click();
-    await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
-    const step3 = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(step3);
-
-    // Advance to Step 4: Review — one more round trip, this one for the plan
-    // whose numbers the review step puts on screen.
-    await page.getByTestId('seed-wizard-next').click();
-    await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
-      plan: MOCK_PLAN,
-      graph: MOCK_GRAPH,
+    test('Home page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
     });
-    await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
-    const step4 = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(step4);
-  });
 
-  test('AI chat after conversation creation', async ({ page }) => {
-    await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { ai: true });
-
-    // Create a conversation
-    await page.getByTestId('new-conversation-btn').click();
-    await bridge.respond('ai:conversation:created', {
-      conversation: {
-        id: 'axe-conv',
-        title: 'Axe Test',
-        createdAt: new Date().toISOString(),
-      },
+    test('Organizations page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
     });
-    await page
-      .getByTestId('conversation-item-axe-conv')
-      .waitFor({ state: 'visible', timeout: 5000 });
 
-    // Scan with conversation active
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-  });
-
-  test('AI chat with assistant response', async ({ page }) => {
-    await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { ai: true });
-
-    await page.getByTestId('new-conversation-btn').click();
-    await bridge.respond('ai:conversation:created', {
-      conversation: {
-        id: 'axe-conv-2',
-        title: 'Chat',
-        createdAt: new Date().toISOString(),
-      },
+    test('Forge page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
     });
-    await page
-      .getByTestId('conversation-item-axe-conv-2')
-      .waitFor({ state: 'visible', timeout: 5000 });
 
-    // Send message and receive response
-    await page.getByTestId('chat-input').fill('Test query');
-    await page.getByTestId('send-btn').click();
-    await bridge.respond('ai:chat:response', {
-      conversationId: 'axe-conv-2',
-      message: {
-        id: 'msg-axe',
-        role: 'assistant',
-        content: 'Here is a test response with a code block:\n```sql\nSELECT Id FROM Account\n```',
-        timestamp: new Date().toISOString(),
-      },
+    test('Grappe page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'grappe', 'grappe-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
     });
-    await page.getByTestId('message-bubble-assistant').waitFor({ state: 'visible', timeout: 5000 });
 
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
+    test('Seed page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'panel-app', { theme });
+      await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
+      await page.waitForSelector('[data-testid="seed-page"]', { timeout: 5000 }).catch(() => {
+        // Page may render EmptyState if orgs not processed yet — still scan
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Sync page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'sync', 'panel-app', { theme });
+      await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
+      await page.waitForSelector('[data-testid="sync-page"]', { timeout: 5000 }).catch(() => {
+        // Scan whatever state rendered
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Monitor page', async ({ page }) => {
+      // Monitor shows empty state without org selection — scan the empty state
+      await navigateToModule(bridge, page, 'monitor', 'panel-app', { theme });
+      await page.waitForTimeout(1000);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Compare page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'compare', 'panel-app', { theme });
+      await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
+      await page.waitForSelector('[data-testid="compare-page"]', { timeout: 5000 }).catch(() => {
+        // May show EmptyState if < 2 orgs processed — still scan
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('DataOps page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'dataops', 'panel-app', { theme });
+      await page.waitForSelector('[data-testid="dataops-page"]', { timeout: 5000 }).catch(() => {
+        // Scan whatever state rendered
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Automation page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'panel-app', { theme });
+      await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
+      await page.waitForSelector('[data-testid="automation-page"]', { timeout: 5000 }).catch(() => {
+        // May show EmptyState without orgs — still scan
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Reports page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Settings page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Help page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('AI page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Autopilot page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
   });
 
-  test('Welcome overlay open over a page', async ({ page }) => {
-    await navigateToModule(bridge, page, 'home', 'home-page');
-    await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
+  test.describe(`axe-core WCAG 2.1 AA — ${theme} — states with data`, () => {
+    test.describe.configure({ timeout: 60000 });
+    let bridge: MockBridge;
 
-    const dialog = page.getByRole('dialog', { name: 'Welcome wizard' });
-    await dialog.getByTestId('welcome-page').waitFor({ state: 'visible', timeout: 5000 });
-    // The trap moved focus into the overlay when it opened.
-    await expect
-      .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
-      .toBe(true);
+    test.beforeEach(() => {
+      bridge = new MockBridge();
+    });
 
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
+    test('Monitor dashboard with limits, live operations and alert history', async ({ page }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      // A scratch org under observation: its type badge writes purple on a purple tint.
+      await bridge.seedOrgs([{ ...DEV_SANDBOX, orgType: 'Scratch' }, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [
+          { name: 'DailyApiRequests', max: 100000, remaining: 45000, usedPercent: 55 },
+          { name: 'DataStorageMB', max: 5120, remaining: 3072, usedPercent: 40 },
+        ],
+        orgInfo: {
+          orgId: '00D000000000001',
+          name: 'DevSandbox',
+          edition: 'Enterprise',
+          instanceName: 'CS42',
+          apiVersion: '60.0',
+          userCount: 25,
+          customObjectCount: 45,
+          apexClassCount: 120,
+          flowCount: 30,
+          isHyperforce: false,
+        },
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+
+      // Acknowledged and resolved entries carry the timestamps written in severity colours.
+      await answerAll(page, 'monitor:alerts', 'monitor:alerts:result', {
+        alerts: [],
+        history: [
+          {
+            id: 'alert-ack',
+            definitionId: 'def-1',
+            severity: 'warning',
+            status: 'acknowledged',
+            message: 'DataStorageMB above 75%',
+            currentValue: 78,
+            threshold: 75,
+            orgId: DEV_SANDBOX.id,
+            triggeredAt: '2026-03-13T09:15:00Z',
+            acknowledgedAt: '2026-03-13T09:20:00Z',
+          },
+          {
+            id: 'alert-resolved',
+            definitionId: 'def-2',
+            severity: 'info',
+            status: 'resolved',
+            message: 'Sandbox refresh completed',
+            currentValue: 0,
+            threshold: 1,
+            orgId: DEV_SANDBOX.id,
+            triggeredAt: '2026-03-12T08:00:00Z',
+            resolvedAt: '2026-03-12T08:30:00Z',
+          },
+        ],
+      });
+      await answerAll(page, 'monitor:live-operations', 'monitor:live-operations:response', {
+        operations: [
+          {
+            operationId: 'op-1',
+            module: 'seed',
+            description: 'Seed Account',
+            status: 'running',
+            percentage: 42,
+            processedRecords: 420,
+            totalRecords: 1000,
+            currentStep: 'Inserting',
+            startedAt: '2026-03-13T11:00:00Z',
+            elapsedMs: 5000,
+            recordsPerSecond: 84,
+          },
+        ],
+      });
+      await page.getByTestId('live-ops-section').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('history-entry-alert-resolved').waitFor({ timeout: 10_000 });
+      await page.getByRole('button', { name: 'Governor Limits' }).click();
+      await page.getByTestId('limit-DailyApiRequests').waitFor({ timeout: 10_000 });
+      await expect(page.getByRole('progressbar', { name: 'DailyApiRequests' })).toBeVisible();
+      await expect(page.getByRole('progressbar', { name: 'Seed Account' })).toBeVisible();
+
+      expectNoViolations(await checkAccessibility(page));
+
+      // Opening the limits scrolled the header away, and axe files text it cannot
+      // see as unmeasured rather than failing it: bring the org type badge back
+      // and make sure it was measured.
+      const badge = page.getByText('SCRATCH', { exact: true });
+      await badge.scrollIntoViewIfNeeded();
+      const header = await checkAccessibility(page);
+      expectNoViolations(header);
+      const measured = header.passes
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .some((node) => node.html.includes('>SCRATCH<'));
+      expect(measured, 'axe did not measure the org type badge').toBe(true);
+    });
+
+    test('Grappe page while a partitioned run is in progress', async ({ page }) => {
+      await openPanel(bridge, page, 'grappe', theme);
+      await page.waitForSelector('[data-testid="grappe-page"]', { timeout: 10_000 });
+      await bridge.stream([
+        {
+          type: 'grappe:started',
+          payload: { operationId: 'grappe-1', totalPartitions: 2, totalRecords: 2000 },
+        },
+        {
+          type: 'grappe:partitionProgress',
+          payload: { grappeId: 'Account-1', percentage: 40, processedRecords: 400 },
+        },
+      ]);
+      await expect(page.getByRole('progressbar', { name: 'Account-1' })).toBeVisible({
+        timeout: 10_000,
+      });
+
+      expectNoViolations(await checkAccessibility(page));
+    });
   });
 
-  test("What's New overlay open over a page", async ({ page }) => {
-    await navigateToModule(bridge, page, 'home', 'home-page');
-    // The panel opens only for a version that has highlights, and 1.0.0 has them.
-    await bridge.stream([{ type: 'whats-new:show', payload: { version: '1.0.0' } }]);
+  test.describe(`axe-core WCAG 2.1 AA — ${theme} — Interactive Flows`, () => {
+    test.describe.configure({ timeout: 60000 });
+    let bridge: MockBridge;
 
-    const dialog = page.getByRole('dialog', { name: "What's new" });
-    await dialog.getByTestId('whats-new-page').waitFor({ state: 'visible', timeout: 5000 });
-    await expect
-      .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
-      .toBe(true);
+    test.beforeEach(() => {
+      bridge = new MockBridge();
+    });
 
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
+    test('Autopilot wizard step progression', async ({ page }) => {
+      await navigateToModule(bridge, page, 'autopilot', 'autopilot-page', { theme, orgs: true });
+
+      // Step 1: Connect — scan
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 5000 });
+      const step1 = await checkAccessibility(page);
+      expectNoViolations(step1);
+
+      // Select orgs and advance to Step 2. `next` fires `autopilot:scan-schema`
+      // through useBridgeMutation, which drops any response whose
+      // `correlationId` is not the request's id — hence respondToNext rather
+      // than a bare respond on the result channel.
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      const step2 = await checkAccessibility(page);
+      expectNoViolations(step2);
+
+      // Advance to Step 3: Compliance. The scan already selected every
+      // discovered object, so the wizard walks straight over — toggling
+      // select-all here would *clear* the selection and disable `next`.
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      const step3 = await checkAccessibility(page);
+      expectNoViolations(step3);
+
+      // Advance to Step 4: Review — one more round trip, this one for the plan
+      // whose numbers the review step puts on screen.
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
+      const step4 = await checkAccessibility(page);
+      expectNoViolations(step4);
+    });
+
+    test('AI chat after conversation creation', async ({ page }) => {
+      await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
+
+      // Create a conversation
+      await page.getByTestId('new-conversation-btn').click();
+      await bridge.respond('ai:conversation:created', {
+        conversation: {
+          id: 'axe-conv',
+          title: 'Axe Test',
+          createdAt: new Date().toISOString(),
+        },
+      });
+      await page
+        .getByTestId('conversation-item-axe-conv')
+        .waitFor({ state: 'visible', timeout: 5000 });
+
+      // Scan with conversation active
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('AI chat with assistant response', async ({ page }) => {
+      await navigateToModule(bridge, page, 'ai', 'ai-chat-panel', { theme, ai: true });
+
+      await page.getByTestId('new-conversation-btn').click();
+      await bridge.respond('ai:conversation:created', {
+        conversation: {
+          id: 'axe-conv-2',
+          title: 'Chat',
+          createdAt: new Date().toISOString(),
+        },
+      });
+      await page
+        .getByTestId('conversation-item-axe-conv-2')
+        .waitFor({ state: 'visible', timeout: 5000 });
+
+      // Send message and receive response
+      await page.getByTestId('chat-input').fill('Test query');
+      await page.getByTestId('send-btn').click();
+      await bridge.respond('ai:chat:response', {
+        conversationId: 'axe-conv-2',
+        message: {
+          id: 'msg-axe',
+          role: 'assistant',
+          content:
+            'Here is a test response with a code block:\n```sql\nSELECT Id FROM Account\n```',
+          timestamp: new Date().toISOString(),
+        },
+      });
+      await page
+        .getByTestId('message-bubble-assistant')
+        .waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Welcome overlay open over a page', async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
+
+      const dialog = page.getByRole('dialog', { name: 'Welcome wizard' });
+      await dialog.getByTestId('welcome-page').waitFor({ state: 'visible', timeout: 5000 });
+      // The trap moved focus into the overlay when it opened.
+      await expect
+        .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
+        .toBe(true);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test("What's New overlay open over a page", async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      // The panel opens only for a version that has highlights, and 1.0.0 has them.
+      await bridge.stream([{ type: 'whats-new:show', payload: { version: '1.0.0' } }]);
+
+      const dialog = page.getByRole('dialog', { name: "What's new" });
+      await dialog.getByTestId('whats-new-page').waitFor({ state: 'visible', timeout: 5000 });
+      await expect
+        .poll(() => dialog.evaluate((el) => el.contains(document.activeElement)))
+        .toBe(true);
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Automation generate dialog open', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('generate-pipeline-btn').click();
+
+      const dialog = page.getByRole('dialog', { name: 'Generate with AI' });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByRole('textbox')).toBeFocused();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+    });
+
+    test('Automation pipeline while a run is in progress', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      await page.getByTestId('palette-seed').click();
+
+      // `pipeline:execute` is left unanswered, so the run stays in flight and
+      // the canvas shows the execution view for the whole scan.
+      await page.getByTestId('run-pipeline-btn').click();
+      await bridge.waitForMessage('pipeline:execute');
+      await page.getByTestId('execution-view').waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Settings page with tabs', async ({ page }) => {
+      await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
+
+      // Scan initial state
+      const initial = await checkAccessibility(page);
+      expectNoViolations(initial);
+    });
   });
+}
 
-  test('Automation generate dialog open', async ({ page }) => {
-    await navigateToModule(bridge, page, 'automation', 'automation-page', { orgs: true });
-    await page.getByTestId('generate-pipeline-btn').click();
+/**
+ * Hold what is painted to the bar: the full axe scan on the scanned themes, and
+ * on every state theme the contrast of each text, symbol and placeholder
+ * against the bar or the theme's own contrast for its colour.
+ */
+async function expectReadable(page: Page, theme: StateTheme, include?: string): Promise<void> {
+  if ((SCANNED_THEMES as readonly string[]).includes(theme)) {
+    expectNoViolations(await checkAccessibility(page));
+  }
+  const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme), include);
+  expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+}
 
-    const dialog = page.getByRole('dialog', { name: 'Generate with AI' });
-    await dialog.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(dialog.getByRole('textbox')).toBeFocused();
-
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
-
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
+/** Open the CSV import with a target org picked, so the drop zone takes files. */
+async function openCsvImport(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-csv').click();
+  await page.getByTestId('csv-org-selector').selectOption(QA_SANDBOX.id);
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [{ apiName: 'Account', label: 'Account' }],
   });
+  await expect(page.getByTestId('browse-button')).toBeEnabled({ timeout: 10_000 });
+}
 
-  test('Automation pipeline while a run is in progress', async ({ page }) => {
-    await navigateToModule(bridge, page, 'automation', 'automation-page', { orgs: true });
-    await page.getByTestId('create-pipeline-btn').click();
-    await page.getByTestId('palette-seed').click();
+for (const theme of STATE_THEMES) {
+  test.describe(`rendered contrast — ${theme} — states`, () => {
+    test.describe.configure({ timeout: 60000 });
+    let bridge: MockBridge;
 
-    // `pipeline:execute` is left unanswered, so the run stays in flight and
-    // the canvas shows the execution view for the whole scan.
-    await page.getByTestId('run-pipeline-btn').click();
-    await bridge.waitForMessage('pipeline:execute');
-    await page.getByTestId('execution-view').waitFor({ state: 'visible', timeout: 5000 });
+    test.beforeEach(() => {
+      bridge = new MockBridge();
+    });
 
-    const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(results);
+    test('Compare result with its risk score card', async ({ page }) => {
+      await openPanel(bridge, page, 'compare', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
+      await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+      await page.getByTestId('cat-ApexClass').click();
+      await page.getByTestId('run-compare-btn').click();
+      await bridge.waitForMessage('compare:execute', { timeout: 10_000 });
+      // One new class: a low risk score, whose label is written in the success colour.
+      await answerAll(page, 'compare:execute', 'compare:execute:response', {
+        configId: '4f1a2b3c-0000-4000-8000-000000000002',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        mode: 'metadata',
+        summary: { totalItems: 1, added: 1, removed: 0, modified: 0, unchanged: 0, byType: {} },
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'MyClass',
+            status: 'added',
+            sourceValue: 'public class MyClass { }',
+            severity: 'info',
+            deployable: true,
+          },
+        ],
+        timestamp: '2026-09-10T09:00:00.000Z',
+        duration: 1200,
+      });
+      await expect(page.getByTestId('risk-score-label')).toHaveText('Low', { timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Monitor predictions tile at every urgency', async ({ page }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      const trend = (limitName: string, predictedTimeToLimit: number): Record<string, unknown> => ({
+        limitName,
+        direction: 'up',
+        changePercent: 12,
+        predictedTimeToLimit,
+        sparklineData: [40, 45, 52],
+        timestamps: ['2026-03-13T10:30:00Z', '2026-03-13T10:45:00Z', '2026-03-13T11:00:00Z'],
+      });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [
+          { name: 'DailyApiRequests', max: 100000, remaining: 10000, usedPercent: 90 },
+          { name: 'DataStorageMB', max: 5120, remaining: 1024, usedPercent: 80 },
+          { name: 'FileStorageMB', max: 5120, remaining: 3072, usedPercent: 40 },
+        ],
+        orgInfo: null,
+        // Under 2 hours, under 12 and beyond: the three urgencies the tile colours.
+        trends: {
+          DailyApiRequests: trend('DailyApiRequests', 1),
+          DataStorageMB: trend('DataStorageMB', 6),
+          FileStorageMB: trend('FileStorageMB', 48),
+        },
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      const tile = page.getByTestId('predictions-tile');
+      await tile.waitFor({ state: 'visible', timeout: 10_000 });
+      await tile.scrollIntoViewIfNeeded();
+      await expect(tile.getByTestId('prediction-time-FileStorageMB')).toHaveText('2d 0h');
+
+      await expectReadable(page, theme);
+    });
+
+    test('Autopilot graph controls while a run is in progress', async ({ page }) => {
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('execute-button').click();
+      // `autopilot:execute` is left unanswered: the run stays in flight on the graph.
+      await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+      // The minimap is shown from the start, so its toggle is drawn pressed.
+      await page.getByTestId('minimap-toggle-btn').waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('CSV drop zone while a file is dragged over it', async ({ page }) => {
+      await openCsvImport(bridge, page, theme);
+      const dropArea = page.getByTestId('drop-area');
+      const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+      await dropArea.dispatchEvent('dragover', { dataTransfer });
+      await expect(dropArea).toHaveClass(/bg-status-info/);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset extraction form with its placeholders', async ({ page }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('frozen-axis-add').click();
+      await page.getByTestId('frozen-edge-add').click();
+      await expect(
+        page.getByTestId('frozen-extract-tab').locator('input[placeholder]'),
+      ).toHaveCount(8);
+
+      await expectReadable(page, theme);
+    });
+
+    test('CSV validation panel listing an error', async ({ page }) => {
+      await openCsvImport(bridge, page, theme);
+      // The file first: columns are mapped when the object's fields arrive.
+      await page.getByTestId('file-input').setInputFiles({
+        name: 'accounts.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from('Name,NumberOfEmployees\nAcme,twelve\nGlobex,40\n'),
+      });
+      await page.getByTestId('csv-preview').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('csv-object-selector').selectOption('Account');
+      await bridge.waitForMessage('seed:describe-object', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-object', 'seed:describe-object:response', {
+        fields: [
+          {
+            apiName: 'Name',
+            label: 'Account Name',
+            type: 'string',
+            required: true,
+            defaultValue: null,
+            unique: false,
+            externalId: false,
+            maxLength: 255,
+          },
+          {
+            apiName: 'NumberOfEmployees',
+            label: 'Employees',
+            type: 'int',
+            required: false,
+            defaultValue: null,
+            unique: false,
+            externalId: false,
+          },
+        ],
+      });
+      await expect(page.getByTestId('csv-next-button')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('csv-next-button').click();
+      await page.getByTestId('csv-step-map').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('csv-next-button')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('csv-next-button').click();
+      await bridge.waitForMessage('seed:csv:validate', { timeout: 10_000 });
+      await answerAll(page, 'seed:csv:validate', 'seed:csv:validate:response', {
+        valid: false,
+        errors: [
+          {
+            row: 2,
+            column: 'NumberOfEmployees',
+            field: 'NumberOfEmployees',
+            errorType: 'type_mismatch',
+            message: 'Expected a whole number',
+            value: 'twelve',
+          },
+        ],
+        warningCount: 0,
+      });
+      await expect(page.getByText('twelve', { exact: true })).toBeVisible({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Analytics chart tooltips, on the Reports charts the panel does not feed yet', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.goto('/e2e/harness/unwired-reports.html');
+      for (const chart of ['ops-chart', 'error-chart']) {
+        const surface = page.getByTestId(chart).locator('.recharts-surface');
+        await surface.scrollIntoViewIfNeeded();
+        const box = await surface.boundingBox();
+        if (!box) throw new Error(`${chart} has no box`);
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await expect(page.getByTestId(chart).locator('.recharts-default-tooltip')).toBeVisible();
+
+        await expectReadable(page, theme, `[data-testid="${chart}"]`);
+      }
+    });
+
+    test('Lineage legend and edge labels, on the Reports graph the panel does not feed yet', async ({
+      page,
+    }) => {
+      await bridge.setup(page);
+      await paintHostTheme(page, theme);
+      await page.goto('/e2e/harness/unwired-reports.html');
+      const lineage = page.getByTestId('lineage-graph');
+      await lineage.scrollIntoViewIfNeeded();
+      await expect(lineage.locator('.react-flow__edge-text')).toHaveCount(3, { timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="lineage-graph"]');
+    });
   });
-
-  test('Settings page with tabs', async ({ page }) => {
-    await navigateToModule(bridge, page, 'settings', 'settings-page');
-
-    // Scan initial state
-    const initial = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
-    expectNoViolations(initial);
-  });
-});
+}

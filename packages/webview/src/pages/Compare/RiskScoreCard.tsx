@@ -11,12 +11,23 @@ export interface RiskScoreCardProps {
   className?: string;
 }
 
-/** Map risk score to color. */
+/** Map risk score to the gauge stroke: the theme's raw severity, drawn, not read. */
 function riskColor(score: number): string {
   if (score >= 75) return 'var(--sf-error, #EF4444)';
   if (score >= 50) return 'var(--sf-warning, #F59E0B)';
   if (score >= 25) return 'var(--sf-info, #3B82F6)';
   return 'var(--sf-success, #10B981)';
+}
+
+/**
+ * Map risk score to the class its label is written in: the severity sized for
+ * text, since the raw success colour reads 2:1 on a white editor.
+ */
+function riskLabelClass(score: number): string {
+  if (score >= 75) return 'text-status-error';
+  if (score >= 50) return 'text-status-warning';
+  if (score >= 25) return 'text-status-info';
+  return 'text-status-success';
 }
 
 /** Map risk score to label. */
@@ -112,10 +123,10 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
                 {riskScore}
               </span>
               <span
+                className={riskLabelClass(riskScore)}
                 style={{
                   fontSize: 'var(--sf-font-size-xs)',
                   fontWeight: 600,
-                  color,
                 }}
                 data-testid="risk-score-label"
               >

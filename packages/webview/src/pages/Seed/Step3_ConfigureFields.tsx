@@ -143,15 +143,12 @@ const ObjectPanel: React.FC<{
             return (
               <div
                 key={field.fieldApiName}
-                className={cn(
-                  'flex items-center gap-2 p-2 rounded text-xs',
-                  'bg-[var(--sf-bg-input)]',
-                )}
+                className={cn('flex items-center gap-2 p-2 rounded text-xs', 'bg-surface-2')}
                 data-testid={`field-${obj.objectApiName}-${field.fieldApiName}`}
               >
                 <div className="w-32 truncate">
                   <span className="text-[var(--sf-text-primary)]">{field.label}</span>
-                  {field.required && <span className="text-red-400 ml-0.5">*</span>}
+                  {field.required && <span className="text-status-error ml-0.5">*</span>}
                 </div>
                 <span className="w-16 text-[var(--sf-text-secondary)] truncate">{field.type}</span>
                 <Select

@@ -198,15 +198,15 @@ export const ForgeReview: React.FC = () => {
                 disabled={tab.disabled}
                 className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
                   activeTab === tab.id
-                    ? 'text-forge border-b-2 border-forge'
+                    ? 'text-hue-forge border-b-2 border-forge'
                     : tab.disabled
-                      ? 'text-text-muted/50 cursor-not-allowed'
-                      : 'text-text-muted hover:text-text-primary'
+                      ? 'text-text-muted cursor-not-allowed'
+                      : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {tab.label}
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="bg-forge/20 text-forge text-[9px] px-1 rounded-full">
+                  <span className="bg-forge/20 text-hue-forge text-[9px] px-1 rounded-full">
                     {tab.badge}
                   </span>
                 )}
@@ -236,7 +236,7 @@ export const ForgeReview: React.FC = () => {
         <button
           data-testid="back-button"
           onClick={() => setPhase('discovery')}
-          className="px-4 py-2 text-sm text-text-muted hover:text-text-primary transition-colors"
+          className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
         >
           {t('forge.review.back', '\u2190 Back to Discovery')}
         </button>
@@ -244,7 +244,7 @@ export const ForgeReview: React.FC = () => {
           data-testid="execute-button"
           onClick={handleExecute}
           disabled={!graph || !config}
-          className="px-6 py-2 text-sm font-semibold bg-forge text-white rounded-lg hover:bg-forge/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-6 py-2 text-sm font-semibold bg-hue-forge text-[var(--sf-bg-primary)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {t('forge.executeForge', 'Execute Forge')}
         </button>

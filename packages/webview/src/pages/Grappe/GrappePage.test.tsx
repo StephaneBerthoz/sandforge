@@ -67,3 +67,36 @@ describe('GrappePage empty state', () => {
     expect(screen.getByText(en.grappe.emptyDesc)).toBeDefined();
   });
 });
+
+describe('GrappePage active run', () => {
+  beforeEach(() => {
+    useAppStore.setState({ currentRoute: 'grappe' });
+    useGrappeStore.setState({
+      active: true,
+      totalPartitions: 2,
+      totalRecords: 2000,
+      partitions: new Map([
+        ['Account-1', { grappeId: 'Account-1', percentage: 40, processedRecords: 400 }],
+      ]),
+      totalProcessed: 0,
+      totalFailed: 0,
+    });
+  });
+
+  it('names the overall bar and each partition bar', () => {
+    render(<GrappePage />);
+    const overall = screen.getByRole('progressbar', { name: 'Grappe progress' });
+    expect(overall.getAttribute('aria-valuenow')).toBe('20');
+    expect(screen.getByRole('progressbar', { name: 'Account-1' })).toBeDefined();
+  });
+
+  it('keeps the Grappe colours on the bars', () => {
+    render(<GrappePage />);
+    const overall = screen.getByRole('progressbar', { name: 'Grappe progress' });
+    expect((overall.firstChild as HTMLElement).className).toContain(
+      'bg-gradient-to-r from-indigo-500 to-violet-500',
+    );
+    const partition = screen.getByRole('progressbar', { name: 'Account-1' });
+    expect((partition.firstChild as HTMLElement).className).toContain('bg-indigo-500');
+  });
+});

@@ -73,7 +73,7 @@ const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status'] }> = ({ sta
       return <AlertTriangle className="w-3.5 h-3.5 text-status-error" />;
     case 'cancelled':
     default:
-      return <X className="w-3.5 h-3.5 text-gray-400" />;
+      return <X className="w-3.5 h-3.5 text-text-secondary" />;
   }
 };
 
@@ -111,10 +111,11 @@ const OperationRow: React.FC<{
         value={operation.percentage}
         variant={statusVariant(operation.status)}
         size="sm"
+        ariaLabel={operation.description}
       />
 
       {/* Stats row */}
-      <div className="flex items-center gap-4 text-[10px] text-text-muted">
+      <div className="flex items-center gap-4 text-[10px] text-text-secondary">
         <div className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
           <span>{formatElapsed(operation.elapsedMs)}</span>
@@ -178,10 +179,10 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
   if (operations.length === 0) {
     return (
       <div
-        className="flex flex-col items-center justify-center py-6 text-text-muted"
+        className="flex flex-col items-center justify-center py-6 text-text-secondary"
         data-testid="live-ops-empty"
       >
-        <Activity className="w-6 h-6 mb-2 opacity-50" />
+        <Activity className="w-6 h-6 mb-2" />
         <span className="text-xs">
           {t('monitor.liveOps.noOperations', 'No operations running')}
         </span>

@@ -77,7 +77,7 @@ export const StorageBreakdownPanel: React.FC = () => {
             {t('monitor.storage.title', 'Storage Breakdown')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.storage.empty', 'No object storage data available')}
         </p>
       </div>
@@ -91,7 +91,7 @@ export const StorageBreakdownPanel: React.FC = () => {
         <h3 className="text-sm font-semibold text-text-primary">
           {t('monitor.storage.title', 'Storage Breakdown')}
         </h3>
-        <span className="text-xs text-text-muted ml-auto">
+        <span className="text-xs text-text-secondary ml-auto">
           {formatNumber(totalRecords)} {t('monitor.storage.totalRecords', 'total records')}
         </span>
       </div>
@@ -144,7 +144,7 @@ export const StorageBreakdownPanel: React.FC = () => {
               <span className="text-text-secondary tabular-nums w-20 text-right">
                 {formatNumber(obj.recordCount)}
               </span>
-              <span className="text-text-muted tabular-nums w-12 text-right">{pct}%</span>
+              <span className="text-text-secondary tabular-nums w-12 text-right">{pct}%</span>
             </div>
           );
         })}

@@ -210,8 +210,29 @@ describe('ForgeTableView', () => {
       />,
     );
     const rows = screen.getAllByTestId('forge-table-row');
-    // The Contact row (second in alpha order) should have the highlight classes
-    expect(rows[1].className).toContain('bg-forge/10');
+    // The Contact row (second in alpha order) should have the highlight classes.
+    // An opaque surface, not a tint: the status badge's own tint sat on top of
+    // bg-forge/5 and read 4.35:1 on Light Modern.
+    expect(rows[1].className).toContain('bg-surface-2');
+    expect(rows[1].className).toContain('border-forge');
+    expect(rows[1].className).not.toContain('bg-forge/');
+  });
+
+  it('writes the skipped status badge in the editor foreground', () => {
+    const graph = makeGraph([makeNode({ objectApiName: 'Account', status: 'skipped' })]);
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    const badge = screen.getByText('skipped');
+    // text-gray-500 on bg-gray-500/20 read 2.7:1 on Dark Modern.
+    expect(badge.className).toContain('bg-gray-500/10');
+    expect(badge.className).toContain('text-text-primary');
+    expect(badge.className).not.toMatch(/\btext-gray-\d+\b/);
   });
 
   it('should display PII count when node has PII fields', () => {

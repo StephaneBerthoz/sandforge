@@ -70,36 +70,36 @@ export const Wizard: React.FC<WizardProps> = ({
         data-testid={tid(testIdPrefix, 'step-indicator')}
       >
         {steps.map((step, i) => {
-          const isCompleted = i < currentStep;
-          const isCurrent = i === currentStep;
-          const isFuture = i > currentStep;
+          // One status, so what a step paints for one state is never read with
+          // what it paints for another.
+          const status = i === currentStep ? 'current' : i < currentStep ? 'completed' : 'future';
 
           return (
             <button
               key={step.id}
               className={cn(
                 'flex items-start gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors w-full',
-                isCurrent && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
-                isCompleted &&
+                status === 'current' && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
+                status === 'completed' &&
                   'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer',
-                isFuture && 'opacity-50 cursor-default',
+                status === 'future' && 'cursor-default',
               )}
-              onClick={() => isCompleted && onStepChange(i)}
-              disabled={isFuture}
-              aria-current={isCurrent ? 'step' : undefined}
+              onClick={() => status === 'completed' && onStepChange(i)}
+              disabled={status === 'future'}
+              aria-current={status === 'current' ? 'step' : undefined}
               data-testid={tid(testIdPrefix, `step-${step.id}`)}
             >
               <span
                 className={cn(
                   'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5',
-                  isCurrent
-                    ? 'bg-[var(--vscode-focusBorder,#007fd4)] text-white'
-                    : isCompleted
-                      ? 'bg-[#4ec9b0] text-[var(--vscode-editor-background,#1e1e1e)]'
-                      : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)]',
+                  status === 'current'
+                    ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)]'
+                    : status === 'completed'
+                      ? 'bg-status-success text-[var(--sf-bg-primary)]'
+                      : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)]',
                 )}
               >
-                {isCompleted ? (
+                {status === 'completed' ? (
                   <Check size={12} data-testid={tid(testIdPrefix, `check-${step.id}`)} />
                 ) : (
                   i + 1
@@ -109,17 +109,27 @@ export const Wizard: React.FC<WizardProps> = ({
                 <span
                   className={cn(
                     'truncate',
-                    isCurrent
-                      ? 'font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]'
-                      : isCompleted
-                        ? 'text-[var(--vscode-descriptionForeground,#868686)]'
-                        : 'text-[var(--vscode-disabledForeground,#6b6b6b)]',
+                    // The current step sits on the list selection, so it takes the
+                    // selection's own foreground; a completed step takes the list
+                    // hover, on which description text falls under AA.
+                    status === 'current' &&
+                      'font-semibold text-[var(--vscode-list-activeSelectionForeground,#fff)]',
+                    status === 'completed' && 'text-text-primary',
+                    status === 'future' && 'text-[var(--vscode-descriptionForeground,#868686)]',
                   )}
                 >
                   {t(step.labelKey)}
                 </span>
                 {step.descriptionKey && (
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] truncate">
+                  <span
+                    className={cn(
+                      'text-[10px] truncate',
+                      status === 'current' &&
+                        'text-[var(--vscode-list-activeSelectionForeground,#fff)]',
+                      status === 'completed' && 'text-text-primary',
+                      status === 'future' && 'text-[var(--vscode-descriptionForeground,#868686)]',
+                    )}
+                  >
                     {t(step.descriptionKey)}
                   </span>
                 )}

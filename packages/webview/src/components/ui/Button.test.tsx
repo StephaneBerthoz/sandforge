@@ -56,7 +56,11 @@ describe('Button', () => {
   it('should apply danger variant classes', () => {
     render(<Button variant="danger">Delete</Button>);
     const btn = screen.getByRole('button');
-    expect(btn.className).toContain('bg-[var(--vscode-errorForeground');
+    // The severity token as fill, the editor background as label: white on
+    // errorForeground read 2.5:1 on Dark+.
+    expect(btn.className).toContain('bg-status-error');
+    expect(btn.className).toContain('text-[var(--sf-bg-primary)]');
+    expect(btn.className).not.toContain('text-white');
   });
 
   it('should apply size classes', () => {

@@ -130,7 +130,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {/* Errors */}
         {totalErrors > 0 && (
           <>
-            <span className="text-xs font-medium text-[var(--sf-error)]">
+            <span className="text-xs font-medium text-status-error">
               {t('seed.clone.results.failed')} ({totalErrors})
             </span>
             <DataTable
@@ -177,11 +177,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         <span className="text-[var(--sf-text-primary)]">
           {t('seed.clone.results.summary')}: {result.totalSourceRecords} {t('seed.records')}
         </span>
-        <span className="text-emerald-400">
+        <span className="text-status-success">
           {t('seed.clone.results.inserted')}: {result.totalInserted}
         </span>
         {result.totalFailed > 0 && (
-          <span className="text-[var(--sf-error)]">
+          <span className="text-status-error">
             {t('seed.clone.results.failed')}: {result.totalFailed}
           </span>
         )}

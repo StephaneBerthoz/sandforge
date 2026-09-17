@@ -47,7 +47,7 @@ export const ComingSoon: React.FC<ComingSoonProps> = ({
         role="note"
         className="flex items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2"
       >
-        <Icon name="tools" className="shrink-0 text-text-muted" />
+        <Icon name="tools" className="shrink-0 text-text-secondary" />
         <span className="text-xs font-semibold text-text-primary">{t('common.comingSoon')}</span>
         <p className="text-xs text-text-secondary">{description}</p>
       </div>
@@ -59,7 +59,7 @@ export const ComingSoon: React.FC<ComingSoonProps> = ({
       data-testid={testId}
       className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-subtle bg-surface-1 px-6 py-10 text-center"
     >
-      <Icon name="tools" className="text-text-muted" />
+      <Icon name="tools" className="text-text-secondary" />
       <div className="text-sm font-semibold text-text-primary">{t('common.comingSoon')}</div>
       <p className="max-w-md text-xs text-text-secondary">{description}</p>
     </div>

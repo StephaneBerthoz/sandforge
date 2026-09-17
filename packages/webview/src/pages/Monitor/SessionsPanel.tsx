@@ -81,7 +81,7 @@ export const SessionsPanel: React.FC = () => {
             {t('monitor.sessions.title', 'Active Sessions')}
           </h3>
         </div>
-        <p className="text-xs text-text-muted text-center py-6">
+        <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.sessions.empty', 'No active sessions')}
         </p>
       </div>
@@ -105,7 +105,7 @@ export const SessionsPanel: React.FC = () => {
       </div>
 
       {/* Table header */}
-      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
+      <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-secondary font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="flex-1">{t('monitor.sessions.username', 'Username')}</span>
         <span className="w-20 shrink-0">{t('monitor.sessions.sessionType', 'Session Type')}</span>
         <span className="w-28 shrink-0">{t('monitor.sessions.loginTime', 'Login Time')}</span>
@@ -126,10 +126,10 @@ export const SessionsPanel: React.FC = () => {
             <span className="w-20 shrink-0">
               <Badge variant={sessionTypeVariant(session.sessionType)}>{session.sessionType}</Badge>
             </span>
-            <span className="text-[11px] tabular-nums text-text-muted w-28 shrink-0">
+            <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
               {dateFormatter.format(new Date(session.loginTime))}
             </span>
-            <span className="text-[11px] font-mono text-text-muted w-28 text-right">
+            <span className="text-[11px] font-mono text-text-secondary w-28 text-right">
               {session.sourceIp}
             </span>
           </div>

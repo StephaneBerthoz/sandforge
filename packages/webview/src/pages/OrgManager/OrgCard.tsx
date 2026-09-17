@@ -27,10 +27,10 @@ const statusBadgeVariant: Record<string, BadgeVariant> = {
 
 /** Status indicator dot color. */
 const statusDotColor: Record<string, string> = {
-  connected: 'bg-emerald-400',
-  expired: 'bg-yellow-400',
-  error: 'bg-red-400',
-  refreshing: 'bg-blue-400',
+  connected: 'bg-status-success',
+  expired: 'bg-status-warning',
+  error: 'bg-status-error',
+  refreshing: 'bg-status-info',
 };
 
 /** Card displaying a single Salesforce org with prominent environment type. */
@@ -75,7 +75,10 @@ export const OrgCard: React.FC<OrgCardProps> = ({
         <span className="text-sm font-semibold text-text-primary truncate flex-1">{org.alias}</span>
         <div className="flex items-center gap-1.5 shrink-0">
           <span
-            className={cn('w-2 h-2 rounded-full', statusDotColor[org.status] ?? 'bg-gray-400')}
+            className={cn(
+              'w-2 h-2 rounded-full',
+              statusDotColor[org.status] ?? 'bg-text-secondary',
+            )}
           />
           <Badge variant={statusBadgeVariant[org.status] ?? 'default'}>
             {t(`org.status_${org.status}`)}
@@ -86,7 +89,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       {/* Row 2: Username + instance */}
       <div className="mt-1.5 flex items-center gap-3 text-[11px] text-text-secondary">
         <span className="truncate">{org.username}</span>
-        <span className="opacity-40">|</span>
+        <span aria-hidden="true">|</span>
         <span className="truncate">{org.instanceUrl}</span>
       </div>
 
@@ -128,7 +131,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           {t('common.edit')}
         </button>
         <button
-          className="text-xs text-[var(--sf-error)] hover:underline"
+          className="text-xs text-status-error hover:underline"
           onClick={(e) => {
             e.stopPropagation();
             onDisconnect(org.id);

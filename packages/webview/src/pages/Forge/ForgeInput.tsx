@@ -136,7 +136,7 @@ export const ForgeInput: React.FC = () => {
           data-testid="forge-swap-orgs"
           onClick={form.handleSwapOrgs}
           className={cn(
-            'text-forge hover:text-forge/80 transition-colors p-1 rounded-md',
+            'text-hue-forge hover:text-hue-forge transition-colors p-1 rounded-md',
             'hover:bg-forge/10',
           )}
           aria-label={t('forge.swapOrgs')}
@@ -157,7 +157,7 @@ export const ForgeInput: React.FC = () => {
       {/* Same-org warning */}
       {form.sameOrgSelected && (
         <div
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20"
+          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-status-warning bg-yellow-500/10 border border-yellow-500/20"
           data-testid="forge-same-org-warning"
         >
           <AlertTriangle size={14} />
@@ -184,8 +184,8 @@ export const ForgeInput: React.FC = () => {
                     disabled={tab.comingSoon}
                     className={cn(
                       'flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm transition-colors',
-                      'text-text-muted hover:text-text-primary',
-                      'data-[state=active]:text-forge data-[state=active]:border-b-2 data-[state=active]:border-forge',
+                      'text-text-secondary hover:text-text-primary',
+                      'data-[state=active]:text-hue-forge data-[state=active]:border-b-2 data-[state=active]:border-forge',
                       'data-[state=active]:bg-surface-2',
                       'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:text-text-muted',
                     )}
@@ -249,7 +249,7 @@ export const ForgeInput: React.FC = () => {
                         'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
                         'border border-[var(--sf-border-input)]',
                         'bg-[var(--sf-bg-input)]',
-                        'text-text-muted hover:text-forge hover:border-forge/50',
+                        'text-text-secondary hover:text-hue-forge hover:border-forge/50',
                         'disabled:opacity-40 disabled:cursor-not-allowed',
                       )}
                     >
@@ -274,7 +274,7 @@ export const ForgeInput: React.FC = () => {
                     </p>
                   )}
                   {form.previewError && (
-                    <div className="p-2 rounded-md text-sm text-red-400 bg-red-500/10 border border-red-500/20">
+                    <div className="p-2 rounded-md text-sm text-status-error bg-red-500/10 border border-red-500/20">
                       {form.previewError}
                     </div>
                   )}
@@ -411,7 +411,7 @@ export const ForgeInput: React.FC = () => {
 
           {/* Records-per-object cap — keeps big-org clones bounded */}
           <div>
-            <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2 flex items-center gap-2">
+            <div className="text-[10px] text-text-secondary uppercase tracking-widest mb-2 flex items-center gap-2">
               {/* A real <label for>, not a styled <div>: the select had no
                   accessible name at all, so a screen reader announced only
                   "combo box". The name comes from the visible text so voice
@@ -420,7 +420,7 @@ export const ForgeInput: React.FC = () => {
               <label htmlFor="forge-record-limit">{t('forge.recordLimit')}</label>
               <span
                 id="forge-record-limit-hint"
-                className="text-text-muted/60 normal-case tracking-normal text-[10px]"
+                className="text-text-secondary normal-case tracking-normal text-[10px]"
               >
                 — {t('forge.recordLimitHint')}
               </span>
@@ -450,7 +450,7 @@ export const ForgeInput: React.FC = () => {
             {/* Smart-mode hint — surfaces what the auto cap will be */}
             {form.recordLimit === 'smart' && form.preview?.estimatedRecordCount != null && (
               <div
-                className="mt-1.5 text-[10px] text-text-muted flex items-center gap-1.5"
+                className="mt-1.5 text-[10px] text-text-secondary flex items-center gap-1.5"
                 data-testid="forge-record-limit-smart-hint"
               >
                 <span>
@@ -480,8 +480,9 @@ export const ForgeInput: React.FC = () => {
             disabled={!canDiscoverNow}
             onClick={form.handleDiscover}
             className={cn(
-              'w-full py-3 rounded-lg text-white font-bold text-sm tracking-wide',
-              'bg-gradient-to-br from-forge to-[#ea580c]',
+              'w-full py-3 rounded-lg font-bold text-sm tracking-wide',
+              // A flat fill: a label on a gradient has no one background to be read on.
+              'bg-hue-forge text-[var(--sf-bg-primary)]',
               'hover:shadow-lg hover:shadow-forge/20',
               'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none',
               'transition-all flex items-center justify-center gap-2',
@@ -493,7 +494,7 @@ export const ForgeInput: React.FC = () => {
           {/* Disabled CTA hint */}
           {!form.canDiscover && (
             <p
-              className="text-[10px] text-text-muted text-center mt-1"
+              className="text-[10px] text-text-secondary text-center mt-1"
               data-testid="forge-discover-hint"
             >
               {!form.sourceOrgId
@@ -522,7 +523,7 @@ export const ForgeInput: React.FC = () => {
               onClick={form.handleReuseLastGraph}
               className={cn(
                 'w-full py-2 mt-2 rounded-lg text-xs font-medium',
-                'border border-forge/30 bg-forge/5 text-forge',
+                'border border-forge/30 bg-forge/5 text-hue-forge',
                 'hover:bg-forge/10 hover:border-forge/50',
                 'transition-all flex items-center justify-center gap-2',
               )}
@@ -544,7 +545,7 @@ export const ForgeInput: React.FC = () => {
               onClick={form.handleQuickStartTemplate}
               className={cn(
                 'w-full py-2 mt-2 rounded-lg text-xs font-medium',
-                'border border-forge/30 bg-forge/5 text-forge',
+                'border border-forge/30 bg-forge/5 text-hue-forge',
                 'hover:bg-forge/10 hover:border-forge/50',
                 'transition-all flex items-center justify-center gap-2',
               )}

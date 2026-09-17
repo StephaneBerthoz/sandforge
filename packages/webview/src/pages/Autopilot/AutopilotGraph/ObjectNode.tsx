@@ -33,7 +33,7 @@ export interface ObjectNodeData {
 /** Map of node statuses to their corresponding Tailwind color classes. */
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-500',
-  queued: 'bg-gray-400',
+  queued: 'bg-text-secondary',
   extracting: 'bg-blue-500',
   anonymizing: 'bg-purple-500',
   loading: 'bg-green-500',
@@ -45,7 +45,7 @@ const STATUS_COLORS: Record<string, string> = {
 /** Map of node statuses to border color classes. */
 const STATUS_BORDER_COLORS: Record<string, string> = {
   pending: 'border-gray-500/40',
-  queued: 'border-gray-400/40',
+  queued: 'border-subtle',
   extracting: 'border-blue-500/60',
   anonymizing: 'border-purple-500/60',
   loading: 'border-green-500/60',
@@ -97,10 +97,10 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
         'rounded-lg border-2 bg-[var(--sf-bg-primary)] shadow-md',
         'min-w-[180px] px-3 py-2',
         borderColor,
-        data.isSelected && 'ring-2 ring-blue-400',
+        data.isSelected && 'ring-2 ring-[var(--sf-accent)]',
       )}
     >
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
+      <Handle type="target" position={Position.Top} className="!bg-text-muted" />
 
       {/* Header row: object name + PII lock */}
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -113,7 +113,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
         {data.hasPii && (
           <span
             data-testid="pii-indicator"
-            className="text-xs text-amber-400"
+            className="text-xs text-status-warning"
             title={t('autopilot.graph.piiDetected')}
             aria-label={t('autopilot.graph.piiDetected')}
           >
@@ -132,14 +132,14 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
       </div>
 
       {/* Stats row */}
-      <div className="flex items-center justify-between text-[10px] text-gray-400">
+      <div className="flex items-center justify-between text-[10px] text-text-secondary">
         <span data-testid="record-count">
           {data.successCount} / {data.recordCount}
         </span>
         <span data-testid="elapsed-time">{formatDuration(data.elapsedMs)}</span>
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
+      <Handle type="source" position={Position.Bottom} className="!bg-text-muted" />
     </m.div>
   );
 };

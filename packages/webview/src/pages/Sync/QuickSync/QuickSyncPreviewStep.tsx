@@ -81,7 +81,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
           </span>
           {result.totalFailed > 0 && (
-            <span className="text-[var(--sf-error)]">
+            <span className="text-status-error">
               {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
             </span>
           )}
@@ -95,7 +95,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {obj.errors.length > 0 && (
               <CardBody>
                 {obj.errors.map((err, i) => (
-                  <p key={i} className="text-[10px] text-[var(--sf-error)]">
+                  <p key={i} className="text-[10px] text-status-error">
                     {err}
                   </p>
                 ))}

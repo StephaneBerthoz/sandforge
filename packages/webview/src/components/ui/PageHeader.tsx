@@ -48,14 +48,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             gap: 'var(--sf-space-1)',
             marginBottom: 'var(--sf-space-2)',
             fontSize: 'var(--sf-font-size-sm)',
-            color: 'var(--sf-text-muted)',
+            color: 'var(--sf-text-secondary)',
           }}
           aria-label={t('common.breadcrumb', 'Breadcrumb')}
         >
           {breadcrumb.map((segment, index) => (
             <React.Fragment key={index}>
               {index > 0 && (
-                <span aria-hidden="true" style={{ color: 'var(--sf-text-muted)' }}>
+                <span aria-hidden="true" style={{ color: 'var(--sf-text-secondary)' }}>
                   /
                 </span>
               )}
@@ -65,7 +65,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   color:
                     index === breadcrumb.length - 1
                       ? 'var(--sf-text-secondary)'
-                      : 'var(--sf-text-muted)',
+                      : 'var(--sf-text-secondary)',
                 }}
               >
                 {segment}

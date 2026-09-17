@@ -242,7 +242,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai')} data-testid="mode-card-ai">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
-                <Sparkles className="w-8 h-8 text-[var(--sf-accent)]" />
+                <Sparkles className="w-8 h-8 text-[var(--sf-text-link)]" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.ai')}
                 </span>
@@ -256,7 +256,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('csv')} data-testid="mode-card-csv">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
-                <Upload className="w-8 h-8 text-emerald-400" />
+                <Upload className="w-8 h-8 text-hue-green" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.csv')}
                 </span>
@@ -270,7 +270,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('clone')} data-testid="mode-card-clone">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
-                <Copy className="w-8 h-8 text-amber-400" />
+                <Copy className="w-8 h-8 text-hue-amber" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.clone')}
                 </span>
@@ -300,7 +300,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-persona')} data-testid="fork-card-persona">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Users className="w-8 h-8 text-[var(--sf-accent)]" />
+                <Users className="w-8 h-8 text-[var(--sf-text-link)]" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkPersonaTitle')}
                 </span>
@@ -314,7 +314,7 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-scratch')} data-testid="fork-card-scratch">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Sparkles className="w-8 h-8 text-[var(--sf-accent)]" />
+                <Sparkles className="w-8 h-8 text-[var(--sf-text-link)]" />
                 <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkScratchTitle')}
                 </span>

@@ -136,7 +136,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <span className="text-xs font-semibold">{conflict.objectApiName}</span>
         <span className="font-mono text-[10px]">{conflict.recordId}</span>
         <Badge variant="warning">{t(conflictTypeI18nMap[conflict.conflictType])}</Badge>
-        <span className="text-[10px] text-[var(--sf-text-muted)]">
+        <span className="text-[10px] text-text-secondary">
           {t('sync.conflictResolution.fieldCount', { count: conflict.conflictFields.length })}
         </span>
       </div>
@@ -186,7 +186,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 className={cn(
                   'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
                   resolution?.source === 'source'
-                    ? 'border-blue-500 bg-blue-900/30 text-blue-200'
+                    ? 'border-blue-500 bg-blue-500/10 text-status-info'
                     : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                 )}
                 data-testid={`pick-source-${field}`}
@@ -201,7 +201,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 className={cn(
                   'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
                   resolution?.source === 'target'
-                    ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200'
+                    ? 'border-green-500 bg-green-500/10 text-status-success'
                     : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                 )}
                 data-testid={`pick-target-${field}`}
@@ -235,7 +235,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                   className={cn(
                     'px-2 py-0.5 rounded text-[10px] border transition-colors',
                     resolution?.source === 'manual'
-                      ? 'border-amber-500 bg-amber-900/30 text-amber-200'
+                      ? 'border-amber-500 bg-amber-500/10 text-status-warning'
                       : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                   )}
                   data-testid={`pick-manual-${field}`}
@@ -257,9 +257,8 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         disabled={!allFieldsResolved}
         className={cn(
           'text-xs px-3 py-1.5 rounded font-medium transition-colors',
-          allFieldsResolved
-            ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]'
-            : 'bg-[var(--sf-bg-input)] text-text-muted cursor-not-allowed',
+          'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] enabled:hover:bg-[var(--sf-button-hover)]',
+          'disabled:bg-[var(--sf-bg-input)] disabled:text-text-muted disabled:cursor-not-allowed',
         )}
         data-testid="apply-resolution-btn"
       >

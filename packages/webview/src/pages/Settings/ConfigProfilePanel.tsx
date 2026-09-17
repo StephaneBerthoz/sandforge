@@ -168,8 +168,8 @@ export const ConfigProfilePanel: React.FC = () => {
                 className={cn(
                   'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-all',
                   selected
-                    ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
-                    : 'border-subtle bg-surface-2 text-text-muted hover:border-active',
+                    ? 'border-blue-500/50 bg-blue-500/10 text-hue-blue'
+                    : 'border-subtle bg-surface-2 text-text-secondary hover:border-active',
                 )}
                 onClick={() => toggleCategory(cat.key)}
                 data-testid={`cat-toggle-${cat.key}`}
@@ -195,7 +195,7 @@ export const ConfigProfilePanel: React.FC = () => {
 
         {exportMutation.data?.success && (
           <div className="mt-3 flex flex-col gap-2" data-testid="export-result">
-            <div className="flex items-center gap-2 text-xs text-green-400">
+            <div className="flex items-center gap-2 text-xs text-status-success">
               <CheckCircle className="w-3.5 h-3.5" />
               <span>
                 {t('config.profiles.exportSuccess', {
@@ -227,7 +227,7 @@ export const ConfigProfilePanel: React.FC = () => {
         )}
 
         {exportMutation.error && (
-          <div className="mt-2 text-xs text-red-400">{exportMutation.error}</div>
+          <div className="mt-2 text-xs text-status-error">{exportMutation.error}</div>
         )}
       </div>
 
@@ -246,7 +246,7 @@ export const ConfigProfilePanel: React.FC = () => {
         <textarea
           className={cn(
             'w-full h-32 rounded-md border border-subtle bg-surface-2 p-3',
-            'text-xs font-mono text-text-primary placeholder:text-text-muted',
+            'text-xs font-mono text-text-primary placeholder:text-text-secondary',
             'focus:outline-none focus:border-active resize-none',
           )}
           placeholder={t(
@@ -304,7 +304,7 @@ export const ConfigProfilePanel: React.FC = () => {
           <div
             className={cn(
               'mt-3 flex items-center gap-2 text-xs',
-              validationResult.valid ? 'text-green-400' : 'text-red-400',
+              validationResult.valid ? 'text-status-success' : 'text-status-error',
             )}
             data-testid="validation-result"
           >
@@ -325,7 +325,7 @@ export const ConfigProfilePanel: React.FC = () => {
         {/* Import result */}
         {importMutation.data?.success && (
           <div className="mt-3 flex flex-col gap-1" data-testid="import-result">
-            <div className="flex items-center gap-2 text-xs text-green-400">
+            <div className="flex items-center gap-2 text-xs text-status-success">
               <CheckCircle className="w-3.5 h-3.5" />
               <span>
                 {t('config.profiles.importSuccess', {
@@ -338,7 +338,7 @@ export const ConfigProfilePanel: React.FC = () => {
             {importMutation.data.warnings.length > 0 && (
               <div className="flex flex-col gap-0.5 mt-1">
                 {importMutation.data.warnings.map((w, i) => (
-                  <div key={i} className="flex items-center gap-1 text-[10px] text-amber-400">
+                  <div key={i} className="flex items-center gap-1 text-[10px] text-status-warning">
                     <AlertTriangle className="w-3 h-3" />
                     <span>{w}</span>
                   </div>
@@ -349,7 +349,7 @@ export const ConfigProfilePanel: React.FC = () => {
         )}
 
         {importMutation.data && !importMutation.data.success && (
-          <div className="mt-2 text-xs text-red-400" data-testid="import-error">
+          <div className="mt-2 text-xs text-status-error" data-testid="import-error">
             {importMutation.data.error}
           </div>
         )}

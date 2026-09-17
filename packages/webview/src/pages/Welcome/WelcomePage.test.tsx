@@ -396,3 +396,17 @@ describe('WelcomePage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('frozen');
   });
 });
+
+describe('WelcomePage step progress bar', () => {
+  it('speaks the step progress as a percentage', () => {
+    render(<WelcomePage onComplete={vi.fn()} />);
+    const bar = screen.getByRole('progressbar', { name: 'a11y.stepProgress' });
+    expect(bar.getAttribute('aria-valuetext')).toBe(`${bar.getAttribute('aria-valuenow')}%`);
+  });
+
+  it('fills the bar in the accent colour', () => {
+    render(<WelcomePage onComplete={vi.fn()} />);
+    const bar = screen.getByRole('progressbar', { name: 'a11y.stepProgress' });
+    expect((bar.firstChild as HTMLElement).className).toContain('bg-[var(--sf-accent)]');
+  });
+});

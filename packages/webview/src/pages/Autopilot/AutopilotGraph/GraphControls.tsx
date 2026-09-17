@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useReactFlow } from 'reactflow';
 import { useTranslation } from 'react-i18next';
+import { cn } from '../../../theme';
 
 /**
  * GraphControls — Overlay panel providing zoom controls, fit-view button,
@@ -29,7 +30,7 @@ export const GraphControls: React.FC<{
   }, [fitView]);
 
   const buttonClass =
-    'flex h-8 w-8 items-center justify-center rounded text-gray-300 hover:bg-gray-600 hover:text-white transition-colors';
+    'flex h-8 w-8 items-center justify-center rounded text-text-secondary hover:bg-[var(--sf-bg-hover)] hover:text-text-primary transition-colors';
 
   return (
     <div
@@ -68,7 +69,7 @@ export const GraphControls: React.FC<{
       </button>
       <button
         data-testid="minimap-toggle-btn"
-        className={`${buttonClass} ${minimapVisible ? 'bg-gray-600 text-white' : ''}`}
+        className={cn(buttonClass, minimapVisible && 'bg-[var(--sf-bg-hover)] text-text-primary')}
         onClick={onToggleMinimap}
         title={t('autopilot.graph.controls.minimap')}
         aria-label={t('autopilot.graph.controls.minimap')}

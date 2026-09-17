@@ -79,9 +79,7 @@ export const SyncHistoryDetail: React.FC = () => {
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--sf-success)]">
-                {result.totalSuccess}
-              </div>
+              <div className="text-lg font-bold text-status-success">{result.totalSuccess}</div>
               <div className="text-[10px] text-text-secondary">{t('sync.totalSuccess')}</div>
             </div>
           </CardBody>
@@ -89,7 +87,7 @@ export const SyncHistoryDetail: React.FC = () => {
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--sf-error)]">{result.totalFailed}</div>
+              <div className="text-lg font-bold text-status-error">{result.totalFailed}</div>
               <div className="text-[10px] text-text-secondary">{t('sync.totalFailed')}</div>
             </div>
           </CardBody>
@@ -120,10 +118,10 @@ export const SyncHistoryDetail: React.FC = () => {
                 <span>
                   {t('sync.history.processed')}: {obj.processed}
                 </span>
-                <span className="text-[var(--sf-success)]">
+                <span className="text-status-success">
                   {t('sync.history.successCount')}: {obj.success}
                 </span>
-                <span className="text-[var(--sf-error)]">
+                <span className="text-status-error">
                   {t('sync.history.failedCount')}: {obj.failed}
                 </span>
                 <span>
@@ -133,7 +131,7 @@ export const SyncHistoryDetail: React.FC = () => {
               {obj.errors.length > 0 && (
                 <div className="mt-1">
                   {obj.errors.map((err, i) => (
-                    <p key={i} className="text-[10px] text-[var(--sf-error)]">
+                    <p key={i} className="text-[10px] text-status-error">
                       {err}
                     </p>
                   ))}

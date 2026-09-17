@@ -1331,3 +1331,31 @@ describe('MonitorPage', () => {
     expect(mockOpenApexJobsMutate).not.toHaveBeenCalled();
   });
 });
+
+describe('MonitorPage connection lost warning', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+  });
+
+  it('writes its message in the warning token, legible on light themes', () => {
+    const { rerender } = render(<MonitorPage />);
+    // Three refreshes in a row that each end on a new error.
+    for (const error of ['Timed out (1)', 'Timed out (2)', 'Timed out (3)']) {
+      mockMonitorQueryState = { ...mockMonitorQueryState, loading: true, error: null };
+      rerender(<MonitorPage />);
+      mockMonitorQueryState = { ...mockMonitorQueryState, loading: false, error };
+      rerender(<MonitorPage />);
+    }
+    const message = within(screen.getByTestId('connection-lost-warning')).getByText(
+      /Connection lost/,
+    );
+    expect(message.className).toContain('text-status-warning');
+    expect(message.className).not.toMatch(/\btext-amber-\d+\b/);
+  });
+});

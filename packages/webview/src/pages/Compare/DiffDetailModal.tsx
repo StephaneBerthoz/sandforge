@@ -122,13 +122,15 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
           data-testid="diff-detail-meta"
         >
           <div>
-            <span style={{ color: 'var(--sf-text-muted)' }}>
+            <span style={{ color: 'var(--sf-text-secondary)' }}>
               {t('compare.category', 'Category')}:{' '}
             </span>
             <span style={{ color: 'var(--sf-text-primary)' }}>{diff.category}</span>
           </div>
           <div>
-            <span style={{ color: 'var(--sf-text-muted)' }}>{t('compare.group', 'Group')}: </span>
+            <span style={{ color: 'var(--sf-text-secondary)' }}>
+              {t('compare.group', 'Group')}:{' '}
+            </span>
             <span style={{ color: 'var(--sf-text-primary)' }}>{diff.group}</span>
           </div>
         </div>

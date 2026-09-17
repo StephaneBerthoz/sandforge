@@ -36,8 +36,8 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
           anonymize
-            ? 'border-forge bg-forge/10 text-forge'
-            : 'border-subtle bg-surface-1 text-text-muted hover:border-forge/30',
+            ? 'border-forge bg-forge/10 text-hue-forge'
+            : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
         )}
       >
         <input
@@ -54,8 +54,8 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
           skipEmpty
-            ? 'border-forge bg-forge/10 text-forge'
-            : 'border-subtle bg-surface-1 text-text-muted hover:border-forge/30',
+            ? 'border-forge bg-forge/10 text-hue-forge'
+            : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
         )}
       >
         <input
@@ -72,8 +72,8 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
           expandOrphanParents
-            ? 'border-forge bg-forge/10 text-forge'
-            : 'border-subtle bg-surface-1 text-text-muted hover:border-forge/30',
+            ? 'border-forge bg-forge/10 text-hue-forge'
+            : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
         )}
         title={t(
           'forge.expandOrphanParentsHint',

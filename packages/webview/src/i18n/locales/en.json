@@ -229,7 +229,8 @@
       "duration": "Duration",
       "soql": "SOQL",
       "dml": "DML",
-      "heap": "Heap"
+      "heap": "Heap",
+      "soqlFor": "SOQL queries, log {{log}}"
     },
     "errorLogs": {
       "title": "Error Logs",
@@ -2060,6 +2061,9 @@
     "anonymizationMethodFor": "Anonymization method for {{category}}",
     "includeObject": "Include {{object}} in the clone",
     "recordCountFor": "Record count for {{object}}",
-    "batchSizeFor": "Batch size for {{object}}"
+    "batchSizeFor": "Batch size for {{object}}",
+    "runProgress": "{{name}} progress",
+    "progressAnnouncement": "{{name}} progress: {{percent}}%",
+    "orgDropdownValue": "{{label}}: {{org}}, status: {{status}}"
   }
 }

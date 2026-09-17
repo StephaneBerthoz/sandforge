@@ -26,26 +26,26 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
       <div className="flex items-center gap-2 mb-2.5">
         <Server className="w-4 h-4 text-text-secondary" />
         <h3 className="text-sm font-semibold text-text-primary">{orgInfo.name}</h3>
-        <span className="font-mono text-[10px] text-text-muted">{orgInfo.orgId}</span>
+        <span className="font-mono text-[10px] text-text-secondary">{orgInfo.orgId}</span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-x-5 gap-y-2">
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.release', 'Release')}</div>
+          <div className="text-[10px] text-text-secondary">{t('monitor.release', 'Release')}</div>
           <div className="text-xs font-medium text-text-primary">
             {orgInfo.releaseName ?? `API v${orgInfo.apiVersion}`}
           </div>
         </div>
         {orgInfo.nextReleaseName && (
           <div>
-            <div className="text-[10px] text-text-muted">
+            <div className="text-[10px] text-text-secondary">
               {t('monitor.nextRelease', 'Next Release')}
             </div>
             <div className="text-xs font-medium text-text-primary">{orgInfo.nextReleaseName}</div>
           </div>
         )}
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.instance', 'Instance')}</div>
+          <div className="text-[10px] text-text-secondary">{t('monitor.instance', 'Instance')}</div>
           <div className="text-xs font-medium text-text-primary">
             {orgInfo.instanceName}
             {orgInfo.isHyperforce && (
@@ -56,23 +56,25 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.edition', 'Edition')}</div>
+          <div className="text-[10px] text-text-secondary">{t('monitor.edition', 'Edition')}</div>
           <div className="text-xs font-medium text-text-primary">{orgInfo.edition}</div>
         </div>
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.users', 'Users')}</div>
+          <div className="text-[10px] text-text-secondary">{t('monitor.users', 'Users')}</div>
           <div className="text-xs font-medium text-text-primary">
             {formatNumber(orgInfo.userCount)}
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.customObjects', 'Objects')}</div>
+          <div className="text-[10px] text-text-secondary">
+            {t('monitor.customObjects', 'Objects')}
+          </div>
           <div className="text-xs font-medium text-text-primary">
             {formatNumber(orgInfo.customObjectCount)}
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-text-muted">{t('monitor.code', 'Code')}</div>
+          <div className="text-[10px] text-text-secondary">{t('monitor.code', 'Code')}</div>
           <div className="text-xs font-medium text-text-primary">
             {formatNumber(orgInfo.apexClassCount)} Apex &middot; {formatNumber(orgInfo.flowCount)}{' '}
             Flows
@@ -80,7 +82,7 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
         </div>
         {orgInfo.datacenter && (
           <div>
-            <div className="text-[10px] text-text-muted">
+            <div className="text-[10px] text-text-secondary">
               {t('monitor.datacenter', 'Datacenter')}
             </div>
             <div className="text-xs font-medium text-text-primary">{orgInfo.datacenter}</div>
@@ -89,7 +91,7 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
       </div>
 
       {(orgInfo.namespacePrefix || orgInfo.createdDate || orgInfo.podName) && (
-        <div className="flex items-center gap-4 mt-2 pt-2 border-t border-subtle text-[10px] text-text-muted">
+        <div className="flex items-center gap-4 mt-2 pt-2 border-t border-subtle text-[10px] text-text-secondary">
           {orgInfo.namespacePrefix && (
             <span>
               Namespace:{' '}

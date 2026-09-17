@@ -168,7 +168,7 @@ interface FieldRowProps {
 const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate, t }) => {
   return (
     <div
-      className="flex flex-col gap-1 p-2 rounded bg-[var(--sf-bg-input)]"
+      className="flex flex-col gap-1 p-2 rounded bg-surface-2"
       data-testid={`field-row-${fieldName}`}
     >
       <div className="flex items-center gap-2">

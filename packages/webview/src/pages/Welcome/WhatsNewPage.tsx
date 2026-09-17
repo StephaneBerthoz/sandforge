@@ -150,7 +150,7 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
       data-testid="whats-new-page"
       style={{ background: 'var(--sf-bg-primary)' }}
     >
-      <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sf-accent, #E8A838)' }}>
+      <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sf-text-link)' }}>
         {t('onboarding.whatsNewTitle')}
       </h1>
       <p className="text-sm mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>

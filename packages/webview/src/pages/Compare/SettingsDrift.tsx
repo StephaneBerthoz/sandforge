@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../theme';
@@ -86,6 +86,7 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
   className,
 }) => {
   const { t } = useTranslation();
+  const scoreLabelId = useId();
 
   const statusOf = (
     status: SettingsDriftStatus,
@@ -116,9 +117,16 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
       <CardBody className="max-h-80 overflow-y-auto">
         <div className="flex flex-col gap-3" data-testid="settings-drift">
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[var(--sf-text-primary)]">{t('compare.driftScore')}</span>
+            <span id={scoreLabelId} className="text-xs text-[var(--sf-text-primary)]">
+              {t('compare.driftScore')}
+            </span>
             <div className="flex-1">
-              <ProgressBar value={score} variant={scoreVariant(score)} showPercent />
+              <ProgressBar
+                value={score}
+                variant={scoreVariant(score)}
+                showPercent
+                aria-labelledby={scoreLabelId}
+              />
             </div>
           </div>
 
@@ -126,13 +134,13 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
               setting lands in exactly one of these four counts, so the
               denominator behind the score is on screen. */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="drift-summary">
-            <span className="text-[var(--sf-success)]" data-testid="drift-added">
+            <span className="text-status-success" data-testid="drift-added">
               +{added} {t('compare.added')}
             </span>
-            <span className="text-[var(--sf-error)]" data-testid="drift-removed">
+            <span className="text-status-error" data-testid="drift-removed">
               -{removed} {t('compare.removed')}
             </span>
-            <span className="text-[var(--sf-warning)]" data-testid="drift-modified">
+            <span className="text-status-warning" data-testid="drift-modified">
               ~{modified} {t('compare.modified')}
             </span>
             <span className="text-[var(--sf-text-secondary)]" data-testid="drift-unchanged">

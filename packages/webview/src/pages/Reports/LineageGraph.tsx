@@ -5,6 +5,7 @@ import type { DataLineageGraph } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 
 /** LineageGraph component props. */
@@ -13,12 +14,24 @@ export interface LineageGraphProps {
   className?: string;
 }
 
-/** Color mapping for lineage node types. */
+/** Border colour of each lineage node type: the theme's raw colours, drawn, not read. */
 const nodeTypeColors: Record<string, string> = {
   source: 'var(--sf-info, #3794ff)',
   transform: 'var(--sf-warning, #F59E0B)',
   filter: 'var(--sf-breakpoint-icon)',
   destination: 'var(--sf-success, #10B981)',
+};
+
+/**
+ * The legend badge of each node type, in the severity its border is drawn in.
+ * Written in the border colour itself on the default badge, a name read as low
+ * as 1.00:1 (Quiet Light).
+ */
+const nodeTypeBadgeVariants: Record<string, BadgeVariant> = {
+  source: 'info',
+  transform: 'warning',
+  filter: 'error',
+  destination: 'success',
 };
 
 /** Graph visualization of data lineage using React Flow. */
@@ -76,6 +89,8 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
           : undefined),
       style: { stroke: 'var(--sf-border)' },
       labelStyle: { fontSize: 9, fill: 'var(--sf-text-secondary)' },
+      // React Flow draws the label on a white rectangle unless told otherwise.
+      labelBgStyle: { fill: 'var(--sf-bg-primary)' },
     }));
 
     return { nodes: flowNodes, edges: flowEdges };
@@ -92,9 +107,9 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
             <div className="flex flex-col gap-3">
               {/* Legend */}
               <div className="flex gap-2" data-testid="lineage-legend">
-                {Object.entries(nodeTypeColors).map(([type, color]) => (
-                  <Badge key={type} variant="default">
-                    <span style={{ color }}>{t(`reports.${type}`)}</span>
+                {Object.entries(nodeTypeBadgeVariants).map(([type, variant]) => (
+                  <Badge key={type} variant={variant}>
+                    {t(`reports.${type}`)}
                   </Badge>
                 ))}
               </div>
@@ -136,6 +151,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
                     panOnDrag={false}
                     zoomOnScroll={false}
                     preventScrolling={false}
+                    proOptions={{ hideAttribution: true }}
                   />
                 </div>
               )}

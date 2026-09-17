@@ -4,6 +4,7 @@ import { Network, Layers, Cpu, Gauge, Play, Square } from 'lucide-react';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { useAppStore } from '../../stores/useAppStore';
 
@@ -38,7 +39,7 @@ export const GrappePage: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-            <Network className="w-6 h-6 text-indigo-400" />
+            <Network className="w-6 h-6 text-hue-indigo" />
           </div>
           <div>
             <h1 className="text-lg font-bold text-text-primary">{t('nav.grappe', 'Grappe')}</h1>
@@ -53,10 +54,10 @@ export const GrappePage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-0 bg-surface-1">
           <CardBody className="flex items-center gap-3 py-3">
-            <Layers className="w-5 h-5 text-indigo-400 shrink-0" />
+            <Layers className="w-5 h-5 text-hue-indigo shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">{totalPartitions}</div>
-              <div className="text-[10px] text-text-muted">
+              <div className="text-[10px] text-text-secondary">
                 {t('grappe.partitions', 'Partitions')}
               </div>
             </div>
@@ -64,12 +65,12 @@ export const GrappePage: React.FC = () => {
         </Card>
         <Card className="border-0 bg-surface-1">
           <CardBody className="flex items-center gap-3 py-3">
-            <Cpu className="w-5 h-5 text-cyan-400 shrink-0" />
+            <Cpu className="w-5 h-5 text-hue-cyan shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
                 {totalRecords.toLocaleString()}
               </div>
-              <div className="text-[10px] text-text-muted">
+              <div className="text-[10px] text-text-secondary">
                 {t('grappe.totalRecords', 'Records')}
               </div>
             </div>
@@ -77,12 +78,12 @@ export const GrappePage: React.FC = () => {
         </Card>
         <Card className="border-0 bg-surface-1">
           <CardBody className="flex items-center gap-3 py-3">
-            <Play className="w-5 h-5 text-green-400 shrink-0" />
+            <Play className="w-5 h-5 text-status-success shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
                 {currentProcessed.toLocaleString()}
               </div>
-              <div className="text-[10px] text-text-muted">
+              <div className="text-[10px] text-text-secondary">
                 {t('grappe.processed', 'processed')}
               </div>
             </div>
@@ -90,12 +91,12 @@ export const GrappePage: React.FC = () => {
         </Card>
         <Card className="border-0 bg-surface-1">
           <CardBody className="flex items-center gap-3 py-3">
-            <Square className="w-5 h-5 text-red-400 shrink-0" />
+            <Square className="w-5 h-5 text-status-error shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
                 {totalFailed.toLocaleString()}
               </div>
-              <div className="text-[10px] text-text-muted">{t('grappe.failed', 'failed')}</div>
+              <div className="text-[10px] text-text-secondary">{t('grappe.failed', 'failed')}</div>
             </div>
           </CardBody>
         </Card>
@@ -111,7 +112,7 @@ export const GrappePage: React.FC = () => {
             <CardBody>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Network className="w-4 h-4 text-indigo-400" />
+                  <Network className="w-4 h-4 text-hue-indigo" />
                   <Badge variant="info">
                     {totalPartitions} {t('grappe.partitions', 'partitions')}
                   </Badge>
@@ -121,19 +122,19 @@ export const GrappePage: React.FC = () => {
                 </span>
               </div>
               {/* Overall progress bar */}
-              <div className="w-full h-2.5 rounded-full bg-surface-3 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500"
-                  style={{ width: `${overallProgress}%` }}
-                  data-testid="grappe-progress"
+              <div data-testid="grappe-progress">
+                <ProgressBar
+                  value={overallProgress}
+                  ariaLabel={t('a11y.runProgress', { name: t('nav.grappe', 'Grappe') })}
+                  barClassName="bg-gradient-to-r from-indigo-500 to-violet-500"
                 />
               </div>
               <div className="flex items-center justify-between mt-2">
-                <span className="text-[10px] text-text-muted">
+                <span className="text-[10px] text-text-secondary">
                   {overallProgress}% {t('grappe.completed', 'Completed')}
                 </span>
                 {totalFailed > 0 && (
-                  <span className="text-[10px] text-red-400">
+                  <span className="text-[10px] text-status-error">
                     {totalFailed.toLocaleString()} {t('grappe.failed', 'failed')}
                   </span>
                 )}
@@ -144,16 +145,17 @@ export const GrappePage: React.FC = () => {
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {partitionList.map((p) => (
                     <div key={p.grappeId} className="flex items-center gap-2">
-                      <span className="text-[10px] text-text-muted w-20 truncate">
+                      <span className="text-[10px] text-text-secondary w-20 truncate">
                         {p.grappeId}
                       </span>
-                      <div className="flex-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-indigo-400 transition-all"
-                          style={{ width: `${p.percentage}%` }}
-                        />
-                      </div>
-                      <span className="text-[10px] tabular-nums text-text-muted w-8 text-right">
+                      <ProgressBar
+                        value={p.percentage}
+                        size="sm"
+                        className="flex-1"
+                        ariaLabel={p.grappeId}
+                        barClassName="bg-indigo-500"
+                      />
+                      <span className="text-[10px] tabular-nums text-text-secondary w-8 text-right">
                         {p.percentage}%
                       </span>
                     </div>
@@ -168,13 +170,13 @@ export const GrappePage: React.FC = () => {
         <Card className="border border-dashed border-indigo-500/30 bg-indigo-500/5">
           <CardBody className="flex flex-col items-center gap-4 py-12">
             <div className="p-4 rounded-2xl bg-indigo-500/10">
-              <Network className="w-10 h-10 text-indigo-400" />
+              <Network className="w-10 h-10 text-hue-indigo" />
             </div>
             <div className="text-center">
               <h2 className="text-sm font-semibold text-text-primary mb-1">
                 {t('grappe.emptyTitle', 'No Active Grappes')}
               </h2>
-              <p className="text-xs text-text-secondary max-w-sm">{t('grappe.emptyDesc')}</p>
+              <p className="text-xs text-text-primary max-w-sm">{t('grappe.emptyDesc')}</p>
             </div>
             {/*
              * Grappe is switched on in Settings, not here: it needs
@@ -209,12 +211,12 @@ export const GrappePage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col items-center gap-2 text-center">
               <div className="p-2 rounded-lg bg-indigo-500/10">
-                <Layers className="w-5 h-5 text-indigo-400" />
+                <Layers className="w-5 h-5 text-hue-indigo" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
                 {t('grappe.step1Title', 'Smart Partitioning')}
               </span>
-              <span className="text-[10px] text-text-muted">
+              <span className="text-[10px] text-text-secondary">
                 {t(
                   'grappe.step1Desc',
                   'Data is split into optimal partitions based on dependencies and size',
@@ -223,12 +225,12 @@ export const GrappePage: React.FC = () => {
             </div>
             <div className="flex flex-col items-center gap-2 text-center">
               <div className="p-2 rounded-lg bg-cyan-500/10">
-                <Cpu className="w-5 h-5 text-cyan-400" />
+                <Cpu className="w-5 h-5 text-hue-cyan" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
                 {t('grappe.step2Title', 'Partition Queue')}
               </span>
-              <span className="text-[10px] text-text-muted">
+              <span className="text-[10px] text-text-secondary">
                 {t(
                   'grappe.step2Desc',
                   'Partitions are processed one after another, each reported as it completes',
@@ -237,12 +239,12 @@ export const GrappePage: React.FC = () => {
             </div>
             <div className="flex flex-col items-center gap-2 text-center">
               <div className="p-2 rounded-lg bg-green-500/10">
-                <Gauge className="w-5 h-5 text-green-400" />
+                <Gauge className="w-5 h-5 text-hue-green" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
                 {t('grappe.step3Title', 'Run Totals')}
               </span>
-              <span className="text-[10px] text-text-muted">
+              <span className="text-[10px] text-text-secondary">
                 {t(
                   'grappe.step3Desc',
                   'When the run ends, the view keeps the partition count and the records processed and failed',

@@ -136,15 +136,15 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
               key={step.id}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
                 isCurrent
-                  ? 'bg-[var(--sf-bg-active)] font-semibold text-[var(--sf-text-primary)]'
-                  : isCompleted
-                    ? 'text-[var(--sf-text-secondary)]'
-                    : 'text-[var(--sf-text-muted)] opacity-50'
+                  ? 'bg-status-info/10 font-semibold text-[var(--sf-text-primary)]'
+                  : 'text-[var(--sf-text-secondary)]'
               }`}
               data-testid={`csv-indicator-${step.id}`}
             >
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--sf-bg-input)]">
-                {i + 1}
+              {/* A done step shows a check: the fade that used to tell future steps
+                  apart made their labels unreadable. */}
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]">
+                {isCompleted ? '\u2713' : i + 1}
               </span>
               {t(step.labelKey)}
             </div>
@@ -283,7 +283,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                 {csv.executionResult.errors.length > 0 && (
                   <div className="flex flex-col gap-1 max-w-md">
                     {csv.executionResult.errors.slice(0, 5).map((err, i) => (
-                      <span key={i} className="text-[10px] text-[var(--sf-error)]">
+                      <span key={i} className="text-[10px] text-status-error">
                         {err}
                       </span>
                     ))}

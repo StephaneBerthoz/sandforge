@@ -64,7 +64,7 @@ export const ReviewComplianceTab: React.FC = () => {
 
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">
-      <label className="flex items-center gap-2 text-xs text-text-muted">
+      <label className="flex items-center gap-2 text-xs text-text-secondary">
         {t('forge.review.framework', 'Framework')}:
         <select
           data-testid="framework-select"
@@ -81,7 +81,7 @@ export const ReviewComplianceTab: React.FC = () => {
       </label>
 
       {framework === 'none' && (
-        <p data-testid="no-compliance" className="text-xs text-text-muted py-4">
+        <p data-testid="no-compliance" className="text-xs text-text-secondary py-4">
           {t(
             'forge.review.noCompliance',
             'No compliance framework selected. Select one to generate a report.',
@@ -90,13 +90,13 @@ export const ReviewComplianceTab: React.FC = () => {
       )}
 
       {framework !== 'none' && loading && !complianceReport && (
-        <p data-testid="compliance-loading" className="text-xs text-text-muted py-4">
+        <p data-testid="compliance-loading" className="text-xs text-text-secondary py-4">
           {t('forge.review.complianceLoading', 'Analyzing compliance...')}
         </p>
       )}
 
       {framework !== 'none' && !loading && !complianceReport && (
-        <p data-testid="compliance-waiting" className="text-xs text-text-muted py-4">
+        <p data-testid="compliance-waiting" className="text-xs text-text-secondary py-4">
           {t(
             'forge.review.complianceWaiting',
             'Select a framework and execute to generate compliance report.',
@@ -113,16 +113,16 @@ export const ReviewComplianceTab: React.FC = () => {
             <span
               className={`text-[10px] px-2 py-0.5 rounded ${
                 complianceReport.overallStatus === 'pass'
-                  ? 'bg-green-500/20 text-green-400'
+                  ? 'bg-green-500/10 text-status-success'
                   : complianceReport.overallStatus === 'partial'
-                    ? 'bg-orange-500/20 text-orange-400'
-                    : 'bg-red-500/20 text-red-400'
+                    ? 'bg-orange-500/10 text-status-warning'
+                    : 'bg-red-500/10 text-status-error'
               }`}
             >
               {complianceReport.overallStatus.toUpperCase()}
             </span>
           </div>
-          <div className="text-[10px] text-text-muted space-y-0.5">
+          <div className="text-[10px] text-text-secondary space-y-0.5">
             <p>{complianceReport.piiFieldsDetected} PII fields detected</p>
             <p>{complianceReport.piiFieldsAnonymized} fields anonymized</p>
             <p>{complianceReport.totalFieldsScanned} total fields scanned</p>

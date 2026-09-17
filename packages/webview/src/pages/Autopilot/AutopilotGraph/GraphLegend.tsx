@@ -26,7 +26,7 @@ const EDGE_TYPES: LegendItem[] = [
   { labelKey: 'autopilot.graph.legend.masterDetail', colorClass: 'bg-amber-500' },
   { labelKey: 'autopilot.graph.legend.lookup', colorClass: 'bg-blue-500', dashed: true },
   { labelKey: 'autopilot.graph.legend.hierarchical', colorClass: 'bg-cyan-500', dashed: true },
-  { labelKey: 'autopilot.graph.legend.polymorphic', colorClass: 'bg-purple-400' },
+  { labelKey: 'autopilot.graph.legend.polymorphic', colorClass: 'bg-[#a78bfa]' },
 ];
 
 /**
@@ -49,7 +49,7 @@ export const GraphLegend: React.FC = () => {
         {NODE_STATUSES.map((item) => (
           <div key={item.labelKey} className="flex items-center gap-1.5">
             <span className={`inline-block h-2.5 w-2.5 rounded-full ${item.colorClass}`} />
-            <span className="text-gray-400">{t(item.labelKey)}</span>
+            <span className="text-text-secondary">{t(item.labelKey)}</span>
           </div>
         ))}
       </div>
@@ -64,7 +64,7 @@ export const GraphLegend: React.FC = () => {
             <span
               className={`inline-block h-0.5 w-4 ${item.colorClass} ${item.dashed ? 'border-t border-dashed border-current' : ''}`}
             />
-            <span className="text-gray-400">{t(item.labelKey)}</span>
+            <span className="text-text-secondary">{t(item.labelKey)}</span>
           </div>
         ))}
       </div>

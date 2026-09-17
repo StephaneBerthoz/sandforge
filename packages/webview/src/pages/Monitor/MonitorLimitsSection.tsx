@@ -207,7 +207,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
           {nameRefused && (
             <p
               id={nameErrorId}
-              className="text-xs text-[var(--sf-error)] mt-2"
+              className="text-xs text-status-error mt-2"
               role="alert"
               data-testid="anomaly-scan-object-name-error"
             >
@@ -220,7 +220,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
 
           {scanFailure !== null && (
             <p
-              className="text-xs text-[var(--sf-error)] mt-2"
+              className="text-xs text-status-error mt-2"
               role="alert"
               data-testid="anomaly-scan-error"
             >
@@ -230,7 +230,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
 
           {scanFoundNothing && (
             <p
-              className="text-xs text-text-muted mt-2"
+              className="text-xs text-text-secondary mt-2"
               role="status"
               data-testid="anomaly-scan-empty"
             >
@@ -243,7 +243,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
           {limitsExpanded && (
             <div className="flex flex-col gap-1.5">
               {sortedLimits.length === 0 ? (
-                <p className="text-xs text-text-muted text-center py-4">
+                <p className="text-xs text-text-secondary text-center py-4">
                   {t('monitor.noLimits', 'No limits data available')}
                 </p>
               ) : (
@@ -263,6 +263,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
                           value={l.usedPercent}
                           variant={usageVariant(l.usedPercent)}
                           size="sm"
+                          ariaLabel={l.name}
                         />
                       </div>
                       <span className="text-xs tabular-nums text-text-secondary w-24 text-right shrink-0">

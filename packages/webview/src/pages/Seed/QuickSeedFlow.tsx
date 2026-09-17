@@ -131,7 +131,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
                 </span>
                 {quickSeed.executionResult.totalRecordsFailed > 0 && (
-                  <span className="text-[var(--sf-error)]">
+                  <span className="text-status-error">
                     {t('seed.recordsFailed')}:{' '}
                     <strong>{quickSeed.executionResult.totalRecordsFailed}</strong>
                   </span>
@@ -156,7 +156,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                     <CardBody>
                       <div className="flex flex-col gap-1">
                         {obj.errors.map((err, i) => (
-                          <p key={i} className="text-[10px] text-[var(--sf-error)]">
+                          <p key={i} className="text-[10px] text-status-error">
                             {err}
                           </p>
                         ))}

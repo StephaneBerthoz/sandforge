@@ -75,13 +75,13 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
       data-testid={testId}
       className={cn('rounded-lg border px-3 py-2.5 flex flex-col gap-1', klass)}
     >
-      <div className="flex items-center gap-2 text-xs text-text-muted">
+      <div className="flex items-center gap-2 text-xs text-text-primary">
         {icon}
         <span className="font-medium">{label}</span>
       </div>
       <div className="text-lg font-semibold text-text-primary tabular-nums">{value}</div>
       {objects.length > 0 && (
-        <div className="text-[10px] text-text-muted truncate" title={objects.join(', ')}>
+        <div className="text-[10px] text-text-primary truncate" title={objects.join(', ')}>
           {objects.slice(0, 4).join(', ')}
           {objects.length > 4 ? ` +${objects.length - 4}` : ''}
         </div>
@@ -99,7 +99,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         {truncated && (
           <span
             data-testid="forge-preview-truncated"
-            className="ml-auto text-[10px] text-yellow-400 flex items-center gap-1"
+            className="ml-auto text-[10px] text-status-warning flex items-center gap-1"
           >
             <AlertTriangle size={11} />
             {t('forge.preview.truncated', 'Graph truncated (50-node cap hit)')}
@@ -108,7 +108,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {tile(
-          <Database size={13} className="text-green-400" />,
+          <Database size={13} className="text-status-success" />,
           t('forge.preview.willClone', 'Will clone'),
           `${buckets.cloneObjects.length} obj · ${buckets.cloneRecords.toLocaleString()} rec`,
           buckets.cloneObjects,
@@ -116,7 +116,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           'forge-preview-clone',
         )}
         {tile(
-          <Link2 size={13} className="text-blue-400" />,
+          <Link2 size={13} className="text-status-info" />,
           t('forge.preview.willMap', 'Will map'),
           buckets.mappedObjects.length,
           buckets.mappedObjects,
@@ -124,7 +124,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           'forge-preview-map',
         )}
         {tile(
-          <EyeOff size={13} className="text-text-muted" />,
+          <EyeOff size={13} className="text-text-secondary" />,
           t('forge.preview.skippedExcluded', 'Skipped (excluded)'),
           buckets.skippedExcluded.length,
           buckets.skippedExcluded,
@@ -132,7 +132,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           'forge-preview-skipped-excluded',
         )}
         {tile(
-          <EyeOff size={13} className="text-yellow-400" />,
+          <EyeOff size={13} className="text-status-warning" />,
           t('forge.preview.skippedEmpty', 'Skipped (empty)'),
           buckets.skippedOutOfScope.length,
           buckets.skippedOutOfScope,
@@ -141,7 +141,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         )}
       </div>
       {plan && (
-        <div className="flex items-center gap-4 text-xs text-text-muted">
+        <div className="flex items-center gap-4 text-xs text-text-secondary">
           <span className="flex items-center gap-1.5">
             <Zap size={11} />
             {plan.totalApiCalls} {t('forge.apiCalls', 'API calls')}
@@ -152,7 +152,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           {cycleCount > 0 && (
             <span
               data-testid="forge-preview-cycles"
-              className="flex items-center gap-1.5 text-orange-400"
+              className="flex items-center gap-1.5 text-status-warning"
             >
               <AlertTriangle size={11} />
               {cycleCount} {t('forge.preview.cycles', 'cycles (2-pass UPDATE)')}

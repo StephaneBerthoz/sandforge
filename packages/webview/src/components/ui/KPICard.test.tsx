@@ -64,7 +64,7 @@ describe('KPICard', () => {
   it('should apply variant accent color to icon wrapper', () => {
     const { container } = render(<KPICard icon="error" label="Errors" value={5} variant="error" />);
     const iconWrapper = container.querySelector('[data-testid="icon-error"]')?.parentElement;
-    expect(iconWrapper?.style.color).toBe('var(--sf-error)');
+    expect(iconWrapper?.className).toContain('text-status-error');
   });
 
   it('should pass variant to ProgressBar', () => {
@@ -94,7 +94,7 @@ describe('KPICard', () => {
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
-    expect(arrow.style.color).toBe('var(--sf-error)');
+    expect(arrow.className).toContain('text-status-error');
   });
 
   it('should show trend arrow for down direction', () => {
@@ -102,7 +102,7 @@ describe('KPICard', () => {
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
-    expect(arrow.style.color).toBe('var(--sf-success)');
+    expect(arrow.className).toContain('text-status-success');
   });
 
   it('should show trend arrow for stable direction', () => {
@@ -110,7 +110,8 @@ describe('KPICard', () => {
     const arrow = screen.getByTestId('trend-arrow');
     expect(arrow).toBeDefined();
     expect(arrow.querySelector('svg')).toBeDefined();
-    expect(arrow.style.color).toBe('var(--sf-text-muted)');
+    // The disabled foreground read 2.1:1: a steady trend is still read.
+    expect(arrow.className).toContain('text-text-secondary');
   });
 
   it('should not show trend arrow when trendDirection is not provided', () => {
@@ -130,31 +131,39 @@ describe('KPICard', () => {
     expect(screen.queryByTestId('trend-warning')).toBeNull();
   });
 
-  it('should apply accentColor prop to icon wrapper when provided', () => {
+  it('should apply accentClassName prop to icon wrapper when provided', () => {
     const { container } = render(
-      <KPICard icon="dashboard" label="Test" value={0} accentColor="var(--custom-accent)" />,
+      <KPICard icon="dashboard" label="Test" value={0} accentClassName="text-hue-forge" />,
     );
     const iconWrapper = container.querySelector('[data-testid="icon-dashboard"]')?.parentElement;
-    expect(iconWrapper?.style.color).toBe('var(--custom-accent)');
+    expect(iconWrapper?.className).toContain('text-hue-forge');
   });
 
-  it('should use accentColor prop over variant color', () => {
+  it('should use accentClassName prop over variant color', () => {
     const { container } = render(
       <KPICard
         icon="dashboard"
         label="Test"
         value={0}
         variant="error"
-        accentColor="var(--custom-accent)"
+        accentClassName="text-hue-forge"
       />,
     );
     const iconWrapper = container.querySelector('[data-testid="icon-dashboard"]')?.parentElement;
-    expect(iconWrapper?.style.color).toBe('var(--custom-accent)');
+    expect(iconWrapper?.className).toContain('text-hue-forge');
+    expect(iconWrapper?.className).not.toContain('text-status-error');
   });
 
   it('should apply tabular-nums class to value element', () => {
     render(<KPICard icon="dashboard" label="Test" value={1234} />);
     const valueEl = screen.getByTestId('kpi-value');
     expect(valueEl.className).toContain('tabular-nums');
+  });
+});
+
+describe('KPICard progress bar', () => {
+  it('names the bar after the KPI title', () => {
+    render(<KPICard icon="database" label="Data Storage" value="2.0 GB" progress={40} />);
+    expect(screen.getByRole('progressbar', { name: 'Data Storage' })).toBeDefined();
   });
 });

@@ -275,7 +275,7 @@ export const CommandPalette: React.FC = () => {
             >
               {/* Search input */}
               <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
-                <Search className="h-4 w-4 shrink-0 text-muted" />
+                <Search className="h-4 w-4 shrink-0 text-text-secondary" />
                 {/* Autofocus is safe here: the palette only mounts on an
                     explicit Ctrl+K, so typing is what the user just asked for. */}
                 <Command.Input
@@ -312,12 +312,12 @@ export const CommandPalette: React.FC = () => {
                         value={item.label}
                         keywords={item.keywords}
                         onSelect={() => handleSelect(item)}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-[var(--sf-bg-active)] data-[selected=true]:text-[var(--sf-text-active)] hover:bg-[var(--sf-bg-hover)]"
+                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-[var(--sf-bg-hover)] data-[selected=true]:shadow-[inset_2px_0_0_var(--sf-accent)] hover:bg-[var(--sf-bg-hover)]"
                         data-testid={`command-palette-item-${item.id}`}
                       >
                         {item.icon && <Icon name={item.icon} />}
                         <span className="flex-1">{item.label}</span>
-                        <span className="text-xs text-text-secondary">
+                        <span className="text-xs text-text-primary">
                           {groupHeading(item.group)}
                         </span>
                       </Command.Item>
@@ -348,7 +348,7 @@ export const CommandPalette: React.FC = () => {
                     {recentSearches.map((rs) => (
                       <button
                         key={rs}
-                        className="px-2 py-0.5 text-xs rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)] hover:opacity-80"
+                        className="px-2 py-0.5 text-xs rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)] hover:underline"
                         onClick={() => setSearch(rs)}
                         data-testid="recent-search-item"
                       >

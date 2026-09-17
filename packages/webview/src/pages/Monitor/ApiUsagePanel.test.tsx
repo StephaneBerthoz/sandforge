@@ -81,3 +81,19 @@ describe('ApiUsagePanel', () => {
     expect(screen.getByText('96%')).toBeDefined();
   });
 });
+
+describe('ApiUsagePanel progress bars', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+  });
+
+  it('names each usage bar after the category on its row', () => {
+    mockApiUsageLoading = false;
+    mockApiUsageData = {
+      success: true,
+      categories: [{ category: 'DailyApiRequests', used: 12000, max: 15000, usedPercent: 80 }],
+    };
+    render(<ApiUsagePanel />);
+    expect(screen.getByRole('progressbar', { name: 'Api Requests' })).toBeDefined();
+  });
+});

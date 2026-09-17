@@ -44,7 +44,7 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
     >
       {/* Timestamp */}
       <span
-        className="w-[60px] shrink-0 text-[var(--sf-text-secondary)]"
+        className="w-[60px] shrink-0 text-[var(--sf-text-primary)]"
         title={event.commitTimestamp}
       >
         {formatRelativeTime(event.commitTimestamp)}
@@ -64,12 +64,12 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
 
       {/* Record IDs */}
       <span
-        className="flex-1 truncate text-[var(--sf-text-secondary)]"
+        className="flex-1 truncate text-[var(--sf-text-primary)]"
         title={event.recordIds.join(', ')}
       >
         {visibleIds.join(', ')}
         {hiddenCount > 0 && (
-          <span className="ml-1 text-[var(--sf-text-secondary)]">
+          <span className="ml-1 text-[var(--sf-text-primary)]">
             {t('sync.realtime.nMore', { count: hiddenCount })}
           </span>
         )}
@@ -78,9 +78,9 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       {/* Applied status */}
       <span className="w-[20px] shrink-0 text-center">
         {event.error ? (
-          <span className="codicon codicon-error text-[var(--sf-error)]" title={event.error} />
+          <span className="codicon codicon-error text-status-error" title={event.error} />
         ) : event.applied ? (
-          <span className="codicon codicon-check text-[var(--sf-success)]" />
+          <span className="codicon codicon-check text-status-success" />
         ) : (
           <span className="codicon codicon-loading codicon-modifier-spin text-[var(--sf-text-secondary)]" />
         )}

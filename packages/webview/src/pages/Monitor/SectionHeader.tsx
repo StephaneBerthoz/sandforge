@@ -12,7 +12,13 @@ export const SectionHeader: React.FC<{
 }> = ({ title, count, collapsed, onToggle, actions }) => (
   <div className="flex items-center gap-2 mb-3">
     {onToggle && (
-      <button className="text-text-muted hover:text-text-secondary" onClick={onToggle}>
+      <button
+        type="button"
+        className="text-text-secondary hover:text-text-primary"
+        onClick={onToggle}
+        aria-label={title}
+        aria-expanded={!collapsed}
+      >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
     )}

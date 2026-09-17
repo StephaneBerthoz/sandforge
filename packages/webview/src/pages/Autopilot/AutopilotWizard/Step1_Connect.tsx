@@ -59,9 +59,9 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               className={cn(
                 'flex items-center gap-3 p-3 rounded border-2 text-left transition-colors',
                 isSelected
-                  ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)]'
+                  ? 'bg-status-info/10 border-[var(--sf-accent)]'
                   : `bg-[var(--sf-bg-primary)] ${tierClass} hover:bg-[var(--sf-bg-hover)]`,
-                isDisabled && 'opacity-40 cursor-not-allowed',
+                'disabled:opacity-40 disabled:cursor-not-allowed',
               )}
               onClick={() => !isDisabled && onSelect(org.id)}
               disabled={isDisabled}
@@ -77,10 +77,10 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
                 <span className="text-sm font-medium text-text-primary truncate">
                   {org.alias || org.username}
                 </span>
-                <span className="text-xs text-text-secondary truncate">{org.instanceUrl}</span>
+                <span className="text-xs text-text-primary truncate">{org.instanceUrl}</span>
               </div>
               {org.safetyTier && (
-                <span className="ml-auto text-xs text-text-secondary">{org.safetyTier}</span>
+                <span className="ml-auto text-xs text-text-primary">{org.safetyTier}</span>
               )}
             </button>
           );

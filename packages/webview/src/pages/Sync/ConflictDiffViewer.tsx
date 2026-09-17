@@ -78,17 +78,17 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
       {/* Three-way auto-resolved section */}
       {threeWay && Object.keys(threeWay.autoResolved).length > 0 && (
         <div
-          className="px-2 py-1.5 rounded bg-emerald-900/20 border border-emerald-700/30"
+          className="px-2 py-1.5 rounded bg-green-500/10 border border-green-500/30"
           data-testid="auto-resolved-section"
         >
-          <p className="text-[10px] font-semibold text-emerald-300 mb-1">
+          <p className="text-[10px] font-semibold text-status-success mb-1">
             Auto-resolved ({Object.keys(threeWay.autoResolved).length} fields)
           </p>
           <div className="flex flex-wrap gap-1">
             {Object.entries(threeWay.autoResolved).map(([field, value]) => (
               <span
                 key={field}
-                className="text-[10px] font-mono bg-emerald-900/30 px-1.5 py-0.5 rounded"
+                className="text-[10px] font-mono bg-surface-1 px-1.5 py-0.5 rounded"
               >
                 {field}: {formatValue(value)}
               </span>
@@ -133,7 +133,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
                   key={field}
                   className={cn(
                     'border-b border-[var(--sf-border-subtle)]',
-                    isConflict && 'bg-amber-900/20',
+                    isConflict && 'bg-amber-500/10',
                   )}
                   data-testid={`diff-row-${field}`}
                   data-conflict={isConflict ? 'true' : 'false'}
@@ -154,7 +154,9 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
                     {d ? (
                       <Badge variant={diffTypeBadgeVariant[d.type]}>{d.type}</Badge>
                     ) : (
-                      <span className="text-[var(--sf-text-muted)]">-</span>
+                      <span className={isConflict ? 'text-text-primary' : 'text-text-secondary'}>
+                        -
+                      </span>
                     )}
                   </td>
                 </tr>

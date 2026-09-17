@@ -14,11 +14,11 @@ export interface JsonViewerProps {
 
 /** Color classes for different JSON value types. */
 const typeColors: Record<string, string> = {
-  string: 'text-emerald-400',
-  number: 'text-blue-400',
-  boolean: 'text-amber-400',
-  null: 'text-gray-500',
-  key: 'text-purple-400',
+  string: 'text-hue-green',
+  number: 'text-hue-blue',
+  boolean: 'text-hue-amber',
+  null: 'text-text-secondary',
+  key: 'text-hue-purple',
 };
 
 /** Returns the display type of a value. */
@@ -105,7 +105,8 @@ const JsonNode: React.FC<{
           }
         }}
       >
-        <span className="inline-block w-3 text-[10px] text-[var(--vscode-descriptionForeground,#868686)] select-none">
+        {/* The row takes the list hover, on which description text falls under AA. */}
+        <span className="inline-block w-3 text-[10px] text-text-primary select-none">
           {expanded ? '\u25BC' : '\u25B6'}
         </span>
         {keyName !== undefined && (
@@ -118,7 +119,7 @@ const JsonNode: React.FC<{
         ) : (
           <span>
             {openBracket}...{closeBracket}
-            <span className="text-[var(--vscode-descriptionForeground,#868686)] text-[10px] ml-1">
+            <span className="text-text-primary text-[10px] ml-1">
               {entries.length} {entries.length === 1 ? 'item' : 'items'}
             </span>
             {comma}

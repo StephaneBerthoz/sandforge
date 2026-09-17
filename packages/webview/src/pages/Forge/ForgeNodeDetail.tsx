@@ -18,12 +18,12 @@ export interface ForgeNodeDetailProps {
 
 /** Status badge color map. */
 const statusColors: Record<ForgeGraphNode['status'], string> = {
-  idle: 'bg-gray-500/20 text-gray-400',
-  scanning: 'bg-blue-500/20 text-blue-400',
-  running: 'bg-amber-500/20 text-amber-400',
-  done: 'bg-green-500/20 text-green-400',
-  error: 'bg-red-500/20 text-red-400',
-  skipped: 'bg-gray-500/20 text-gray-300',
+  idle: 'bg-gray-500/10 text-text-primary',
+  scanning: 'bg-blue-500/10 text-status-info',
+  running: 'bg-amber-500/10 text-status-warning',
+  done: 'bg-green-500/10 text-status-success',
+  error: 'bg-red-500/10 text-status-error',
+  skipped: 'bg-gray-500/10 text-text-primary',
 };
 
 /** Sample anonymization preview data. */
@@ -103,7 +103,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {/* PII Fields section */}
       {node.piiFields.length > 0 && (
         <m.div variants={slideUp} className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-amber-400">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-status-warning">
             <Shield size={14} />
             <span>{t('forge.piiFields')}</span>
           </div>
@@ -134,7 +134,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {node.anonymizeFields.length > 0 && (
         <m.div variants={slideUp} className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
-            <CheckCircle size={14} className="text-green-400" />
+            <CheckCircle size={14} className="text-status-success" />
             <span>{t('forge.anonymizationPreview')}</span>
           </div>
           <div
@@ -158,8 +158,8 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
                   return (
                     <tr key={field} className="text-text-primary">
                       <td className="py-0.5 font-medium">{field}</td>
-                      <td className="py-0.5 text-red-400 line-through">{preview.before}</td>
-                      <td className="py-0.5 text-green-400">{preview.after}</td>
+                      <td className="py-0.5 text-status-error line-through">{preview.before}</td>
+                      <td className="py-0.5 text-status-success">{preview.after}</td>
                     </tr>
                   );
                 })}
@@ -172,7 +172,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {/* Errors section */}
       {node.errors.length > 0 && (
         <m.div variants={slideUp} className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-red-400">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-status-error">
             <XCircle size={14} />
             <span>{t('common.error')}</span>
           </div>
@@ -180,7 +180,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             {node.errors.map((err, idx) => (
               <li
                 key={idx}
-                className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-300"
+                className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-xs text-status-error"
               >
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                 <span>{err}</span>

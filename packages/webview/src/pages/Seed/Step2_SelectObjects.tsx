@@ -58,14 +58,14 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
                   className={cn(
                     'w-4 h-4 rounded border flex items-center justify-center text-[10px]',
                     isSelected
-                      ? 'bg-[var(--sf-accent)] border-[var(--sf-accent)] text-white'
+                      ? 'bg-[var(--sf-button-bg)] border-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
                       : 'border-[var(--sf-border-input)]',
                   )}
                 >
                   {isSelected ? '\u2713' : ''}
                 </span>
                 <span className="text-text-primary flex-1">{obj.label}</span>
-                <span className="text-text-secondary">{obj.apiName}</span>
+                <span className="text-text-primary">{obj.apiName}</span>
                 {obj.dependencies.length > 0 && (
                   <Badge variant="default">
                     {obj.dependencies.length} {t('seed.dependencies').toLowerCase()}
