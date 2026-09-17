@@ -1222,7 +1222,17 @@
       "a11y": "Accesibilidad mejorada",
       "a11yDesc": "Etiquetas ARIA, navegación por teclado y soporte de alto contraste",
       "branding": "Nuevo branding",
-      "brandingDesc": "Nueva identidad de SandForge con logo e iconos actualizados"
+      "brandingDesc": "Nueva identidad de SandForge con logo e iconos actualizados",
+      "syncFidelity": "La sincronización hace lo que usted configuró",
+      "syncFidelityDesc": "Dirección, filtros, tipos de campo y reglas de transformación se comprueban antes de que la ejecución escriba nada",
+      "themes": "Legible en todos los temas",
+      "themesDesc": "Los colores de texto y de etiqueta alcanzan el contraste AA en los temas de VS Code que probamos, claros y oscuros",
+      "accents": "El español, el portugués y el alemán conservan sus acentos",
+      "accentsDesc": "Cientos de textos los habían perdido; ahora una comprobación vigila cada idioma",
+      "speed": "Monitor y Forge se abren más rápido",
+      "speedDesc": "Menos llamadas a Salesforce en cada actualización y en cada descubrimiento del grafo",
+      "honesty": "Solo se ofrece lo que existe",
+      "honestyDesc": "Las pestañas, los modos y las opciones que no llevaban a ninguna parte han desaparecido: lo que ve es lo que se ejecuta"
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

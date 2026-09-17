@@ -92,12 +92,13 @@ Bypass with `--no-verify` only if you really have to (don't).
   on every push that changes the code they mutate, and nightly; each run
   fails below its config's `thresholds.break`.
 - Smoke suite in a real VS Code: `pnpm --filter sandforge test:smoke`. It
-  builds the extension, compiles `src/test/smoke/` through
-  `tsconfig.smoke.json`, downloads a VS Code the first time (into
-  `packages/extension/.vscode-test/`, gitignored) and starts it with the
-  extension installed. It answers what every other suite mocks away: the
-  extension activates, every contributed command reaches a handler, and the
-  panel opens. On a headless machine, prefix it with `xvfb-run -a`, which is
+  builds the whole workspace — the extension loads the shared package and the
+  webview bundle, so a partial build has nothing to start — compiles
+  `src/test/smoke/` through `tsconfig.smoke.json`, downloads a VS Code the
+  first time (into `packages/extension/.vscode-test/`, gitignored) and starts
+  it with the extension installed. It answers what every other suite mocks
+  away: the extension activates, every contributed command reaches a handler,
+  and the panel opens. On a headless machine, prefix it with `xvfb-run -a`, which is
   what the Smoke workflow does; under WSL it runs as it is. Its two tools are
   devDependencies of `packages/extension`: `@vscode/test-cli`, and
   `@vscode/test-electron`, which the CLI loads without declaring, so knip is

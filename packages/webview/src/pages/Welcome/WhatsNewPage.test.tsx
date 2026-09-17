@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { WhatsNewPage, WHATS_NEW } from './WhatsNewPage';
+import en from '../../i18n/locales/en.json';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -41,6 +42,24 @@ describe('WhatsNewPage', () => {
   it('keys every highlight list by a release version', () => {
     for (const version of Object.keys(WHATS_NEW)) {
       expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+  });
+
+  it('names a catalogue entry for every highlight of every release', () => {
+    // A key with no entry renders as itself, so a typo ships as
+    // "onboarding.whatsNew.speed" on the panel every upgrader sees.
+    const lookup = (key: string) =>
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+          en as unknown,
+        );
+    for (const [version, features] of Object.entries(WHATS_NEW)) {
+      for (const feature of features) {
+        expect(lookup(feature.titleKey), `${version} › ${feature.titleKey}`).toBeTypeOf('string');
+        expect(lookup(feature.descKey), `${version} › ${feature.descKey}`).toBeTypeOf('string');
+      }
     }
   });
 

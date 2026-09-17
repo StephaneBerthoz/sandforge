@@ -79,3 +79,13 @@ overrides:
   # Dev only, through jsdom in the webview tests. 8.21.0 closes
   # GHSA-96hv-2xvq-fx4p; the 8.x API is unchanged.
   'ws@>=8.0.0 <8.21.0': '>=8.21.0 <9'
+  # Dev only, and new to the tree with the smoke suite: @vscode/test-cli pins
+  # mocha ^11.7.6, and mocha 11 asks for diff ^7 and serialize-javascript ^6.
+  # mocha 12 already moved to the patched majors (diff ^9, serialize-javascript
+  # ^7.1.1), so the jump is one mocha made itself — it is taken here because
+  # test-cli's range cannot reach mocha 12. Each floor is the highest patched
+  # version across every advisory on the package: 8.0.3 for GHSA-73rr-hh4g-fpgx
+  # (diff), and 7.0.5 for GHSA-qj8w-gfj5-8c6v and GHSA-5c6j-r48x-rmvq together
+  # (serialize-javascript).
+  'diff@>=6.0.0 <8.0.3': '>=8.0.3 <9'
+  'serialize-javascript@<7.0.5': '>=7.0.5 <8'

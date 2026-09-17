@@ -5,10 +5,23 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.23.0] - 2026-09-17
 
 ### Fixed
 
+- **German is written with its umlauts.** 157 strings spelled them out as
+  "ae", "oe" and "ue" — "Datensaetze", "Loeschen", "zurueck", "fuer" — beside
+  the 374 that used the letters, so the same word was written two ways on two
+  pages. Every one is corrected, and the check that holds Spanish and
+  Portuguese to their accents now holds German to its umlauts, with the
+  sequences that are not a transliteration — "Dauer", "Quelle", "aktuell",
+  "zuerst" — named so they stay legal.
+- **A release says what changed in it.** The What's New panel keys its
+  highlights by version and only 1.0.0 ever had any, so every upgrade since
+  opened a panel that closed itself without a word. This release lists its
+  own, in the six languages; a test refuses a highlight whose text is missing
+  from the catalogue, and the pre-publish check refuses a release that wrote
+  none.
 - **A sync's WHERE filter can only filter.** A sync object's WHERE clause was
   checked for four DML keywords and nothing else, so a clause carrying
   `LIMIT 1`, `OFFSET` or `FOR UPDATE` was appended to the source read as
@@ -1202,6 +1215,12 @@ build:shared`, not an installed CLI; the two scripts' own headers and `--help`
 
 ### Security
 
+- **The smoke suite brings no advisory in with it.** `@vscode/test-cli` pins
+  mocha 11, which asks for `diff` 7 and `serialize-javascript` 6 — three open
+  advisories between them. Both are held at the versions mocha 12 has already
+  moved to, `diff` 8.0.3 and `serialize-javascript` 7.0.5, each the highest
+  patched version across every advisory on that package. Dev-only: neither
+  reaches the packaged extension.
 - **Login credentials only go to Salesforce.** Username/password login sent
   the username, password and security token to any `https:` host the connect
   request named. The login URL is now checked against the Salesforce login

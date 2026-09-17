@@ -32,14 +32,18 @@
  *    identical in a translated bundle to its English one, is refused, with the
  *    exceptions named below and the reason each one stands.
  *
- * And Spanish and Brazilian Portuguese keep their accents. Both were once
- * written largely without them — "Configuracion", "Sessao expirada", "nao" — in
+ * And Spanish, Brazilian Portuguese and German keep their accents. All three
+ * were once written largely without them — "Configuracion", "Sessao expirada", "nao" — in
  * text that renders and passes every other check. Each language is refused a
  * word that is never correct unaccented: a singular -cion/-sion/-xion in Spanish (its
  * plural -ciones rightly drops the accent), an ending -cao/-coes/-sao/-soes/-xao
- * in Portuguese, and a short list of common words. Placeholders, paths, email
- * addresses, identifiers and code are set aside first: "{{version}}",
- * "/home/voce/export.json" and "tokenBudgetMaxPerSession" are not prose.
+ * in Portuguese, and a short list of common words. German is refused the
+ * transliterations "ae", "oe" and "ue" that stand in for its umlauts — with the
+ * sequences that are not one: "ue" after a vowel or a "q" ("Dauer", "neue",
+ * "Quelle"), the Latin "-uell" ending ("aktuell", "manuell") and "zuerst".
+ * Placeholders, paths, email addresses, identifiers and code are set aside
+ * first: "{{version}}", "/home/voce/export.json", "allOrNone=true" and
+ * "tokenBudgetMaxPerSession" are not prose.
  *
  * Run: node --test scripts/locale-text.test.mjs
  */
@@ -221,6 +225,10 @@ const UNACCENTED = {
     String.raw`(?<!\p{L})(?:\p{L}*(?:cao|coes|sao|soes|xao|xoes)|nao|voce|tambem|numero|pagina|codigo|metodo|disponivel|possivel|usuario|apos)(?!\p{L})`,
     'iu',
   ),
+  de: new RegExp(
+    String.raw`(?<!\p{L})(?!zuerst(?!\p{L}))\p{L}*(?:ae|oe|(?<![aeq])ue(?!ll))\p{L}*(?!\p{L})`,
+    'iu',
+  ),
 };
 
 /** Everything in a string that is not prose: placeholders, paths, addresses, identifiers, code. */
@@ -229,6 +237,7 @@ export function proseOnly(text) {
     .replace(/`[^`]*`/g, ' ')
     .replace(/\{\{[^}]*\}\}|\{\d+\}/g, ' ')
     .replace(/\S+@\S+/g, ' ')
+    .replace(/[\w.]+=\S+/g, ' ')
     .replace(/(?:[A-Za-z]:)?\/\S*/g, ' ')
     .replace(/\b[\w-]+(?:\.[\w-]+)+\b/g, ' ')
     .replace(/\b[a-z]+[A-Z]\w*\b/g, ' ');
@@ -251,6 +260,11 @@ const ACCENTED_BUNDLES = {
     'packages/extension/package.nls.pt-br.json',
     'packages/extension/l10n/bundle.l10n.pt-br.json',
   ],
+  de: [
+    'packages/webview/src/i18n/locales/de.json',
+    'packages/extension/package.nls.de.json',
+    'packages/extension/l10n/bundle.l10n.de.json',
+  ],
 };
 
 test('an unaccented word is caught, and what only looks like one is not', () => {
@@ -258,6 +272,10 @@ test('an unaccented word is caught, and what only looks like one is not', () => 
   assert.equal(missingAccent('es', 'Error de conexion'), 'conexion');
   assert.equal(missingAccent('pt-BR', 'Sessao expirada'), 'Sessao');
   assert.equal(missingAccent('pt-BR', 'Voce nao tem acesso'), 'Voce');
+  assert.equal(missingAccent('de', 'Datensaetze auswaehlen'), 'Datensaetze');
+  assert.equal(missingAccent('de', 'Lauf ausfuehren'), 'ausfuehren');
+  assert.equal(missingAccent('de', 'Neue Groesse'), 'Groesse');
+  assert.equal(missingAccent('de', 'Ausloeser'), 'Ausloeser');
   for (const [lang, text] of [
     ['es', 'Configuración de sesión'],
     ['es', 'Operaciones recientes'],
@@ -267,12 +285,19 @@ test('an unaccented word is caught, and what only looks like one is not', () => 
     ['pt-BR', 'Sessão expirada'],
     ['pt-BR', 'no formato usuario@dominio.com.'],
     ['pt-BR', 'por exemplo /home/voce/export.json'],
+    ['de', 'Datensätze auswählen'],
+    ['de', 'Die aktuelle Dauer der neuen manuellen Ausführung'],
+    ['de', 'Quelle, Sequenz und Steuerung'],
+    ['de', 'Speichern Sie zuerst eine Konfiguration'],
+    ['de', 'Ø {{value}}ms'],
+    ['de', 'Aggregat-SOQL (axisValue)'],
+    ['de', 'Ein Stapelvorgang mit allOrNone=true ist fehlgeschlagen'],
   ]) {
     assert.equal(missingAccent(lang, text), null, `rejected correct ${lang} text: ${text}`);
   }
 });
 
-test('Spanish and Brazilian Portuguese keep their accents', () => {
+test('Spanish, Brazilian Portuguese and German keep their accents', () => {
   const offenders = [];
   for (const [lang, files] of Object.entries(ACCENTED_BUNDLES)) {
     for (const file of files) {

@@ -10,9 +10,14 @@
 #   as their own steps before calling this script. The VSIX/bundle size checks
 #   (7, 11) still run — they only need the artifacts those earlier steps
 #   produced.
+#
+#   ALLOW_MISSING_WHATS_NEW=1 — accept a release with no What's New highlights
+#   (check 5c). For a release that genuinely has nothing to announce to an
+#   upgrader; it has to be said out loud, because the panel fails silently.
 set -euo pipefail
 
 SKIP_BUILD_CHECKS="${SKIP_BUILD_CHECKS:-0}"
+ALLOW_MISSING_WHATS_NEW="${ALLOW_MISSING_WHATS_NEW:-0}"
 
 echo "=== SandForge Pre-Publish Checks ==="
 ERRORS=0
@@ -79,6 +84,25 @@ for CL in "changelog.md" "packages/extension/CHANGELOG.md"; do
     ERRORS=$((ERRORS + 1))
   fi
 done
+
+# 5c. What's New freshness. The extension sends `whats-new:show` on every
+# version change, and the panel looks the version up in WHATS_NEW: a release
+# with no entry there shows nothing at all, and says nothing about it — the
+# page dismisses itself. Between 1.0.0 and 1.22.0 that list gained no entry,
+# so no upgrader saw a single highlight. Blocking, with
+# ALLOW_MISSING_WHATS_NEW=1 for a release that really has nothing to announce.
+WHATS_NEW_FILE="packages/webview/src/pages/Welcome/WhatsNewPage.tsx"
+if [[ ! -f "$WHATS_NEW_FILE" ]]; then
+  echo "FAIL: $WHATS_NEW_FILE not found — the What's New check ran against nothing"
+  ERRORS=$((ERRORS + 1))
+elif grep -qF "'$EXT_VER': [" "$WHATS_NEW_FILE"; then
+  echo "PASS: What's New lists highlights for $EXT_VER"
+elif [[ "$ALLOW_MISSING_WHATS_NEW" == "1" ]]; then
+  echo "SKIP: What's New has no '$EXT_VER' entry (ALLOW_MISSING_WHATS_NEW=1)"
+else
+  echo "FAIL: WHATS_NEW has no '$EXT_VER' entry in $WHATS_NEW_FILE — upgraders would see no What's New panel"
+  ERRORS=$((ERRORS + 1))
+fi
 
 # 6. Build and package
 if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then

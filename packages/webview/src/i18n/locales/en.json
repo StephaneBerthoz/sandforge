@@ -1222,7 +1222,17 @@
       "a11y": "Enhanced Accessibility",
       "a11yDesc": "ARIA labels, keyboard navigation, and high contrast support",
       "branding": "New Branding",
-      "brandingDesc": "Fresh SandForge identity with updated logo and icons"
+      "brandingDesc": "Fresh SandForge identity with updated logo and icons",
+      "syncFidelity": "Sync does what you configured",
+      "syncFidelityDesc": "Direction, filters, field types and transform rules are all checked before a run writes anything",
+      "themes": "Readable on every theme",
+      "themesDesc": "Text and badge colours now clear AA contrast on the VS Code themes we test, light and dark",
+      "accents": "Spanish, Portuguese and German keep their accents",
+      "accentsDesc": "Hundreds of strings had lost them; a gate now watches every language",
+      "speed": "Monitor and Forge open faster",
+      "speedDesc": "Fewer round trips to Salesforce on each refresh and each graph discovery",
+      "honesty": "Only what ships is offered",
+      "honestyDesc": "Tabs, modes and options that led nowhere are gone, so what you see is what runs"
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
