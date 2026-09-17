@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useKonamiCode } from './useKonamiCode';
 
@@ -31,10 +31,10 @@ function enterSequence(keys: string[]): void {
 }
 
 describe('useKonamiCode', () => {
-  let callback: ReturnType<typeof vi.fn>;
+  let callback: Mock<() => void>;
 
   beforeEach(() => {
-    callback = vi.fn();
+    callback = vi.fn<() => void>();
   });
 
   it('should call callback when the full Konami Code is entered', () => {

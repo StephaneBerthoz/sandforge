@@ -24,10 +24,14 @@ const writer = vi.hoisted(() => ({
 const validator = vi.hoisted(() => ({ validate: vi.fn() }));
 
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
-  BulkDataWriter: vi.fn().mockImplementation(() => writer),
+  BulkDataWriter: vi.fn().mockImplementation(function () {
+    return writer;
+  }),
 }));
 vi.mock('../../modules/seed/CsvValidator.js', () => ({
-  CsvValidator: vi.fn().mockImplementation(() => validator),
+  CsvValidator: vi.fn().mockImplementation(function () {
+    return validator;
+  }),
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -434,9 +438,11 @@ describe('SeedCsvHandler', () => {
     it('tells the model the object and batch size a failed import was writing to', async () => {
       // The prompt is all the model sees: without the run behind it, an org
       // error arrives as a bare sentence and the answer fits any import.
-      const provider = vi.fn<AIProvider>(() =>
-        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
-      );
+      const provider = vi.fn<AIProvider>(function () {
+        return Promise.resolve(
+          JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 }),
+        );
+      });
       deps.errorResolver = new ErrorResolver(provider);
       deps.broker = {
         postToWebview: vi.fn(),

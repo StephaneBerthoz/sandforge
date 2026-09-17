@@ -46,7 +46,7 @@ describe('MementoConfigStoreBackend', () => {
     const existingData: Record<string, ConfigEntry> = {
       lang: { value: '"en"', category: 'settings' },
     };
-    (memento.update as ReturnType<typeof vi.fn>)('sandforge.configStore', existingData);
+    void memento.update('sandforge.configStore', existingData);
 
     const backend = new MementoConfigStoreBackend(memento);
 

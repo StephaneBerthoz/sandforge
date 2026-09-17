@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { createRef } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { WelcomePage } from './WelcomePage';
@@ -61,10 +61,10 @@ vi.mock('../../utils/webviewStorage', () => ({
 }));
 
 describe('WelcomePage', () => {
-  let onComplete: ReturnType<typeof vi.fn>;
+  let onComplete: Mock<() => void>;
 
   beforeEach(() => {
-    onComplete = vi.fn();
+    onComplete = vi.fn<() => void>();
     mockNavigate.mockClear();
     mockSetShowWelcome.mockClear();
     mockChangeLanguage.mockClear();

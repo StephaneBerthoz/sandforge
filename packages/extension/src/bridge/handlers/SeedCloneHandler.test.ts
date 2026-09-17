@@ -32,13 +32,19 @@ const linker = vi.hoisted(() => ({
 }));
 
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
-  BulkDataWriter: vi.fn().mockImplementation(() => writer),
+  BulkDataWriter: vi.fn().mockImplementation(function () {
+    return writer;
+  }),
 }));
 vi.mock('../../modules/seed/CloneRecordFetcher.js', () => ({
-  CloneRecordFetcher: vi.fn().mockImplementation(() => fetcher),
+  CloneRecordFetcher: vi.fn().mockImplementation(function () {
+    return fetcher;
+  }),
 }));
 vi.mock('../../modules/seed/CloneReferenceLinker.js', () => ({
-  CloneReferenceLinker: vi.fn().mockImplementation(() => linker),
+  CloneReferenceLinker: vi.fn().mockImplementation(function () {
+    return linker;
+  }),
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -365,9 +371,11 @@ describe('SeedCloneHandler', () => {
     it('tells the model which objects a failed clone was writing', async () => {
       // The prompt is all the model sees: without the run behind it, an org
       // error arrives as a bare sentence and the answer fits any clone.
-      const provider = vi.fn<AIProvider>(() =>
-        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
-      );
+      const provider = vi.fn<AIProvider>(function () {
+        return Promise.resolve(
+          JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 }),
+        );
+      });
       deps.errorResolver = new ErrorResolver(provider);
       deps.broker = {
         postToWebview: vi.fn(),

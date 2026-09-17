@@ -8,13 +8,15 @@ vi.mock('jsforce', () => {
   const mockLogin = vi.fn();
   const mockIdentity = vi.fn();
   const mockQuery = vi.fn();
-  const MockConnection = vi.fn().mockImplementation((opts: Record<string, string>) => ({
-    accessToken: opts.accessToken ?? 'mock-access-token',
-    instanceUrl: opts.instanceUrl ?? 'https://mock.salesforce.com',
-    login: mockLogin,
-    identity: mockIdentity,
-    query: mockQuery,
-  }));
+  const MockConnection = vi.fn().mockImplementation(function (opts: Record<string, string>) {
+    return {
+      accessToken: opts.accessToken ?? 'mock-access-token',
+      instanceUrl: opts.instanceUrl ?? 'https://mock.salesforce.com',
+      login: mockLogin,
+      identity: mockIdentity,
+      query: mockQuery,
+    };
+  });
   return {
     default: { Connection: MockConnection },
     __mockLogin: mockLogin,

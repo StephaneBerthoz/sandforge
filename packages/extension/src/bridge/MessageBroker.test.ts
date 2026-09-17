@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
@@ -456,13 +456,14 @@ describe('MessageBroker', () => {
 
   describe('envelope + protocol version handling', () => {
     function createTelemetry(): BrokerTelemetry & {
-      addBreadcrumb: ReturnType<typeof vi.fn>;
-      warn: ReturnType<typeof vi.fn>;
+      addBreadcrumb: Mock<BrokerTelemetry['addBreadcrumb']>;
+      /** The logger's own warn, which takes what is logged and an optional message. */
+      warn: Mock<(obj: unknown, msg?: string) => void>;
     } {
-      const warn = vi.fn();
+      const warn = vi.fn<(obj: unknown, msg?: string) => void>();
       return {
-        addBreadcrumb: vi.fn(),
-        getLogger: vi.fn(() => ({ warn })),
+        addBreadcrumb: vi.fn<BrokerTelemetry['addBreadcrumb']>(),
+        getLogger: () => ({ warn }),
         warn,
       };
     }

@@ -7,24 +7,36 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
 vi.mock('../../modules/compare/DiffEngine.js', () => ({
-  DiffEngine: vi.fn().mockImplementation(() => ({})),
+  DiffEngine: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/compare/MetadataCompare.js', () => ({
-  MetadataCompare: vi.fn().mockImplementation(() => ({})),
+  MetadataCompare: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/compare/ConfigCompare.js', () => ({
-  ConfigCompare: vi.fn().mockImplementation(() => ({})),
+  ConfigCompare: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/compare/PermissionCompare.js', () => ({
-  PermissionCompare: vi.fn().mockImplementation(() => ({})),
+  PermissionCompare: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/compare/DataCompare.js', () => ({
-  DataCompare: vi.fn().mockImplementation(() => ({})),
+  DataCompare: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/compare/CompareOrchestrator.js', () => ({
-  CompareOrchestrator: vi.fn().mockImplementation(() => ({
-    execute: vi.fn().mockResolvedValue({ diffs: [], summary: {} }),
-  })),
+  CompareOrchestrator: vi.fn().mockImplementation(function () {
+    return {
+      execute: vi.fn().mockResolvedValue({ diffs: [], summary: {} }),
+    };
+  }),
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';

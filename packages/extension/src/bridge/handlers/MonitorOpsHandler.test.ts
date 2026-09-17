@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { MonitorOpsHandler } from './MonitorOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
@@ -987,7 +987,7 @@ describe('MonitorOpsHandler', () => {
    */
   describe('monitor:open-apex-jobs', () => {
     const PAGE = 'https://acme.my.salesforce.com/lightning/setup/AsyncApexJobs/home';
-    let openExternal: ReturnType<typeof vi.fn>;
+    let openExternal: Mock<(target: vscode.Uri) => Thenable<boolean>>;
     let browser: ExternalBrowserAdapter;
 
     /** A handler with a stand-in browser, over an org store holding `org-1` (or nothing). */
@@ -1016,7 +1016,7 @@ describe('MonitorOpsHandler', () => {
     }
 
     beforeEach(() => {
-      openExternal = vi.fn().mockResolvedValue(true);
+      openExternal = vi.fn<(target: vscode.Uri) => Thenable<boolean>>().mockResolvedValue(true);
       browser = new ExternalBrowserAdapter({
         openExternal,
         parseUri: (value: string) => ({ toString: () => value }) as unknown as vscode.Uri,

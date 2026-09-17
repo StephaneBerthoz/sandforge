@@ -13,7 +13,8 @@ catalog:
   fast-check: '^3'
   typescript: '~5.5'
   typescript-eslint: '^8'
-  vitest: '^3'
+  vitest: '^4.1.11'
+  '@vitest/coverage-v8': '^4.1.11'
 
 # pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
 # esbuild: required for the extension bundle. @vscode/vsce-sign: required by

@@ -11,30 +11,44 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
 vi.mock('../../modules/sync/DataSync.js', () => ({
-  DataSync: vi.fn().mockImplementation(() => ({})),
+  DataSync: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/MetadataSync.js', () => ({
-  MetadataSync: vi.fn().mockImplementation(() => ({})),
+  MetadataSync: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/ConflictResolver.js', () => ({
-  ConflictResolver: vi.fn().mockImplementation(() => ({})),
+  ConflictResolver: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/FieldMapping.js', () => ({
-  FieldMappingService: vi.fn().mockImplementation(() => ({})),
+  FieldMappingService: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/TransformPipeline.js', () => ({
-  TransformPipeline: vi.fn().mockImplementation(() => ({})),
+  TransformPipeline: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
-  IncrementalTracker: vi.fn().mockImplementation(() => ({})),
+  IncrementalTracker: vi.fn().mockImplementation(function () {
+    return {};
+  }),
 }));
 vi.mock('../../modules/sync/BulkDataWriter.js', () => ({
   BulkDataWriter: vi.fn(),
 }));
 vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
-  SyncOrchestrator: vi.fn().mockImplementation(() => ({
-    execute: vi.fn().mockResolvedValue({ status: 'completed' }),
-  })),
+  SyncOrchestrator: vi.fn().mockImplementation(function () {
+    return {
+      execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+    };
+  }),
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -54,24 +68,26 @@ function createMockConfigStoreWithData() {
   const data: Record<string, { value: string; category: string }> = {};
 
   return {
-    get: vi.fn(<T>(key: string): T | undefined => {
+    get: vi.fn(function <T>(key: string): T | undefined {
       const entry = data[key];
       if (!entry) return undefined;
       return JSON.parse(entry.value) as T;
     }),
-    set: vi.fn(<T>(key: string, value: T, category: string): void => {
+    set: vi.fn(function <T>(key: string, value: T, category: string): void {
       data[key] = { value: JSON.stringify(value), category };
     }),
-    delete: vi.fn((key: string): boolean => {
+    delete: vi.fn(function (key: string): boolean {
       if (!(key in data)) return false;
       delete data[key];
       return true;
     }),
-    has: vi.fn((key: string): boolean => key in data),
-    getKeysByPrefix: vi.fn((prefix: string): string[] =>
-      Object.keys(data).filter((k) => k.startsWith(prefix)),
-    ),
-    getByCategory: vi.fn((category: string): Record<string, unknown> => {
+    has: vi.fn(function (key: string): boolean {
+      return key in data;
+    }),
+    getKeysByPrefix: vi.fn(function (prefix: string): string[] {
+      return Object.keys(data).filter((k) => k.startsWith(prefix));
+    }),
+    getByCategory: vi.fn(function (category: string): Record<string, unknown> {
       const result: Record<string, unknown> = {};
       for (const [key, entry] of Object.entries(data)) {
         if (entry.category === category) {
@@ -80,7 +96,9 @@ function createMockConfigStoreWithData() {
       }
       return result;
     }),
-    getAllKeys: vi.fn((): string[] => Object.keys(data)),
+    getAllKeys: vi.fn(function (): string[] {
+      return Object.keys(data);
+    }),
     clearCategory: vi.fn(),
     clearAll: vi.fn(),
     initialize: vi.fn(),
@@ -434,9 +452,11 @@ describe('SyncOpsHandler', () => {
     it('tells the model which module and object a failed sync was on', async () => {
       // The prompt is all the model sees: an org error with no run behind it
       // gets an answer that fits any sync.
-      const provider = vi.fn<AIProvider>(() =>
-        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
-      );
+      const provider = vi.fn<AIProvider>(function () {
+        return Promise.resolve(
+          JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 }),
+        );
+      });
       deps.errorResolver = new ErrorResolver(provider);
       deps.broker = {
         postToWebview: vi.fn(),
@@ -465,9 +485,11 @@ describe('SyncOpsHandler', () => {
     it('names the objects of a run that failed before it reached the org', async () => {
       // The pre-flight failure happens before any connection, so the context
       // can only come from the configuration the run was started with.
-      const provider = vi.fn<AIProvider>(() =>
-        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
-      );
+      const provider = vi.fn<AIProvider>(function () {
+        return Promise.resolve(
+          JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 }),
+        );
+      });
       deps.errorResolver = new ErrorResolver(provider);
       deps.broker = {
         postToWebview: vi.fn(),
@@ -594,12 +616,11 @@ describe('SyncOpsHandler', () => {
      */
     async function timeoutAfter(advanceMs: number): Promise<string | undefined> {
       mockGetConn.mockResolvedValue({
-        describeGlobal: vi.fn().mockImplementation(
-          () =>
-            new Promise(() => {
-              /* never resolves -- a hung API call */
-            }),
-        ),
+        describeGlobal: vi.fn().mockImplementation(function () {
+          return new Promise(() => {
+            /* never resolves -- a hung API call */
+          });
+        }),
         limitInfo: undefined,
       } as never);
 
@@ -899,10 +920,14 @@ describe('SyncOpsHandler', () => {
       const bulkManager = new BulkApiManager(2);
       deps.bulkManager = bulkManager;
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn(() => ({
-          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
-        })),
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return {
+            execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+          };
+        }),
       } as unknown as HandlerDeps['services'];
 
       expect((await runSync()).bulkManager).toBe(bulkManager);
@@ -910,10 +935,14 @@ describe('SyncOpsHandler', () => {
 
     it('falls back to the default job limit when none is injected', async () => {
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn(() => ({
-          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
-        })),
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return {
+            execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+          };
+        }),
       } as unknown as HandlerDeps['services'];
 
       expect((await runSync()).bulkManager.maxConcurrentJobs).toBe(
@@ -1046,10 +1075,14 @@ describe('SyncOpsHandler', () => {
       handler.setLiveOperationTracker(tracker);
 
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn(() => ({
-          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
-        })),
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return {
+            execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+          };
+        }),
       } as unknown as HandlerDeps['services'];
 
       mockGetConn.mockResolvedValue({
@@ -1496,7 +1529,7 @@ describe('SyncOpsHandler', () => {
 
     it('never lets a history-logging failure mask the sync error', async () => {
       handler.setHistoryLogger({
-        logExecution: vi.fn(() => {
+        logExecution: vi.fn(function () {
           throw new Error('history store full');
         }),
       } as unknown as SyncExecutionLogger);
@@ -1637,13 +1670,19 @@ describe('SyncOpsHandler', () => {
       sourceType: string,
       targetType: string = sourceType,
     ): Promise<{ querySource: QueryFn; queryTarget: QueryFn }> {
-      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation((id: string) => ({
-        orgType: id === validSyncConfig().sourceOrgId ? sourceType : targetType,
-      }));
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation(function (
+        id: string,
+      ) {
+        return {
+          orgType: id === validSyncConfig().sourceOrgId ? sourceType : targetType,
+        };
+      });
       let both: { querySource: QueryFn; queryTarget: QueryFn } | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn((d: unknown) => {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: unknown) {
           both = d as { querySource: QueryFn; queryTarget: QueryFn };
           return {
             execute: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -1670,8 +1709,10 @@ describe('SyncOpsHandler', () => {
       });
       let captured: { querySource: QueryFn } | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn((d: unknown) => {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: unknown) {
           captured = d as { querySource: QueryFn };
           return {
             execute: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -1767,8 +1808,10 @@ describe('SyncOpsHandler', () => {
         | { countSource?: (orgId: string, o: ReturnType<typeof accountConfig>) => Promise<number> }
         | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn((d: unknown) => {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: unknown) {
           captured = d as typeof captured;
           return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
         }),
@@ -1948,8 +1991,10 @@ describe('SyncOpsHandler', () => {
           }
         | undefined;
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn((d: unknown) => {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (d: unknown) {
           captured = d as typeof captured;
           return { execute: vi.fn().mockResolvedValue({ status: 'success' }) };
         }),
@@ -2065,8 +2110,12 @@ describe('SyncOpsHandler', () => {
       );
       const execute = vi.fn().mockResolvedValue({ status: 'success', objectResults: [] });
       deps.services = {
-        getSandforgeSetting: vi.fn(() => 200),
-        syncOrchestrator: vi.fn(() => ({ execute })),
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return { execute };
+        }),
       } as unknown as HandlerDeps['services'];
 
       const config = validSyncConfig();

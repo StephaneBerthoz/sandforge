@@ -15,9 +15,11 @@ const mockIdentity = vi.fn();
 
 vi.mock('jsforce', () => ({
   default: {
-    Connection: vi.fn().mockImplementation(() => ({
-      identity: mockIdentity,
-    })),
+    Connection: vi.fn().mockImplementation(function () {
+      return {
+        identity: mockIdentity,
+      };
+    }),
   },
 }));
 

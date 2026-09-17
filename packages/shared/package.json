@@ -39,7 +39,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^3",
+    "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

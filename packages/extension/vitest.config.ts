@@ -30,14 +30,17 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],
-      // Anti-regression gate (2026-08): set ~5 pts under the measured baseline
-      // (lines 90.0 / branches 87.1 / functions 93.4 — measured under vitest 3,
-      // whose v8 provider ignores empty lines by default). Raise as coverage grows.
+      // Anti-regression gate, a couple of points under what is measured today:
+      // statements 91.4 / branches 81.5 / functions 90.9 / lines 92.2. Those
+      // numbers are on vitest 4's scale, which counts more branches than
+      // vitest 3 did: the same tests measured 93.1 / 88.6 / 94.3 / 93.1 there,
+      // so the branch floor moved down with the scale, not with the tests.
+      // Raise as coverage grows.
       thresholds: {
-        statements: 88,
-        branches: 82,
+        statements: 89,
+        branches: 79,
         functions: 88,
-        lines: 88,
+        lines: 90,
       },
     },
   },

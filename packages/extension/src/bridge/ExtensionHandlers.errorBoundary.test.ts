@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import type { ExtensionHandlersDeps } from './ExtensionHandlers';
@@ -45,7 +45,7 @@ function createMockSfdxBridge(): SfdxBridge {
 describe('ExtensionHandlers — error:boundary route', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
-  let log: ReturnType<typeof vi.fn>;
+  let log: Mock<(msg: string) => void>;
 
   beforeEach(() => {
     broker = new MessageBroker();
@@ -60,7 +60,7 @@ describe('ExtensionHandlers — error:boundary route', () => {
     const authProvider = new AuthProvider();
     const sfdxBridge = createMockSfdxBridge();
 
-    log = vi.fn();
+    log = vi.fn<(msg: string) => void>();
     const deps: ExtensionHandlersDeps = {
       log,
       broker,

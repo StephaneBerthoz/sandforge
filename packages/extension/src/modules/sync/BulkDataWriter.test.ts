@@ -16,11 +16,13 @@ const streaming = vi.hoisted(() => ({
 }));
 
 vi.mock('../../core/engine/ChunkedBulkExecutor.js', () => ({
-  ChunkedBulkExecutor: vi.fn().mockImplementation((config: unknown) => ({
-    config,
-    executeChunked: streaming.executeChunked,
-    createChunkGenerator: streaming.createChunkGenerator,
-  })),
+  ChunkedBulkExecutor: vi.fn().mockImplementation(function (config: unknown) {
+    return {
+      config,
+      executeChunked: streaming.executeChunked,
+      createChunkGenerator: streaming.createChunkGenerator,
+    };
+  }),
 }));
 
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';

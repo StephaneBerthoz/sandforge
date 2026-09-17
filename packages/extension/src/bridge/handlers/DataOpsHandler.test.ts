@@ -7,6 +7,13 @@ import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
+/* The connection helper is replaced for the whole file: vi.mock is hoisted above
+   the imports whichever block it is written in, so one factory is all there
+   ever was. Each test sets the behaviour it needs on getJsforceConnection. */
+vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+  getJsforceConnection: vi.fn(),
+}));
+
 /**
  * Creates minimal mock deps for DataOpsHandler tests.
  */
@@ -72,9 +79,6 @@ describe('DataOpsHandler', () => {
     it('rejects concurrent backup operations on the same org', async () => {
       // Simulate a long-running backup by making getJsforceConnection hang
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn(),
-      }));
 
       const mockGetConn = vi.mocked(getJsforceConnection);
       let resolveFirst: (() => void) | undefined;
@@ -153,9 +157,8 @@ describe('DataOpsHandler', () => {
     });
 
     it('releases the lock after a failed backup', async () => {
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn().mockRejectedValue(new Error('connection failed')),
-      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
 
       const makeMsg = (
         id: string,
@@ -197,9 +200,6 @@ describe('DataOpsHandler', () => {
       // hoisted vi.mock factories for ConnectionHelper, so the resolved
       // implementation is set per-test rather than via a new factory
       // (same rule as the backup-retention test below).
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn(),
-      }));
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
 
@@ -229,9 +229,6 @@ describe('DataOpsHandler', () => {
     it('tells the model which module and request a failed backup came from', async () => {
       // The prompt is all the model sees: an org error with no run behind it
       // gets an answer that fits any operation.
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn(),
-      }));
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockRejectedValue(
         new Error('SOMETHING_WE_HAVE_NEVER_SEEN: odd'),
@@ -266,9 +263,6 @@ describe('DataOpsHandler', () => {
     it('names the object a backup was reading when it failed, not the whole request', async () => {
       // A backup walks its objects one at a time, so a failure has one object
       // behind it — the run's list would point the answer at the wrong one.
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn(),
-      }));
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
         describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
