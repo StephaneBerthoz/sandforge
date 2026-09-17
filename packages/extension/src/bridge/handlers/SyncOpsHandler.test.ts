@@ -60,6 +60,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { clearDescribeCache } from '../../core/connection/describeCache.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -187,6 +188,9 @@ describe('SyncOpsHandler', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The describe cache is shared by the whole extension host, so one test's
+    // Account describe would otherwise answer the next test's.
+    clearDescribeCache();
     deps = createMockDeps();
     handler = new SyncOpsHandler(deps);
   });

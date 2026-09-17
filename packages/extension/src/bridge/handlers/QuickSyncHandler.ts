@@ -16,6 +16,7 @@ import { QuickSyncPreviewEstimator } from '../../modules/sync/QuickSyncPreviewEs
 import type { RecordCountResult } from '../../modules/sync/QuickSyncPreviewEstimator.js';
 import { AutoFieldMapper } from '../../modules/sync/AutoFieldMapper.js';
 import type { AutoMapFieldInfo } from '../../modules/sync/AutoFieldMapper.js';
+import { describeCached } from '../../core/connection/describeCache.js';
 
 /** Message types handled by QuickSyncHandler. */
 const QUICKSYNC_TYPES = new Set([
@@ -298,10 +299,16 @@ export class QuickSyncHandler implements DomainHandler {
         const objectApiName = allObjects[i];
         const isParent = validatedConfig.parentObjects.includes(objectApiName);
 
-        // Describe both source and target to get field metadata for auto-mapping
+        // Describe both source and target to get field metadata for auto-mapping.
+        // Cached: the run describes the same objects on the same orgs again a
+        // few seconds later, to compare field types before writing.
         const [sourceDesc, targetDesc] = await Promise.all([
-          sourceConn.describe(objectApiName),
-          targetConn.describe(objectApiName),
+          describeCached(validatedConfig.sourceOrgId, objectApiName, () =>
+            sourceConn.describe(objectApiName),
+          ),
+          describeCached(validatedConfig.targetOrgId, objectApiName, () =>
+            targetConn.describe(objectApiName),
+          ),
         ]);
 
         const sourceFields: AutoMapFieldInfo[] = (

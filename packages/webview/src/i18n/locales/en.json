@@ -843,7 +843,9 @@
       "emptyTitle": "No runs yet",
       "emptyDesc": "Completed syncs appear here with their per-object results."
     },
-    "piiWarningTitle": "PII Detected"
+    "piiWarningTitle": "PII Detected",
+    "mappingForObject": "Mapping for",
+    "mappingForObjectHint": "Each object carries the mappings drawn for it. Objects you leave unmapped are copied field for field."
   },
   "migration": {
     "title": "Migration",
@@ -1252,7 +1254,11 @@
       "deadKeys": "Sixteen labels showed their own translation key",
       "deadKeysDesc": "The Autopilot legend, the sync history status and trigger columns and a queued node read as text again, in all six languages.",
       "templateRoot": "A Forge template clones the record you name",
-      "templateRootDesc": "The built-in templates say they clone one record and everything around it, but nothing asked which record — so the run copied whole tables instead. The Template tab now asks."
+      "templateRootDesc": "The built-in templates say they clone one record and everything around it, but nothing asked which record — so the run copied whole tables instead. The Template tab now asks.",
+      "perObjectMapping": "Map every object, not just the first",
+      "perObjectMappingDesc": "Whatever you mapped was attached to every object of the run, so only one object could really be mapped. Each now keeps its own, and an object you leave unmapped is copied field for field.",
+      "describeOnce": "An object is described once, not twice",
+      "describeOnceDesc": "A Quick Sync described its objects to build the mapping and the run described them all over again. Each describe carries its own timeout, and running out of one ends the run."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1688,7 +1694,8 @@
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
     "node": {
       "records": "{{records}} records",
-      "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)"
+      "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
+      "notMeasured": "Size not measured yet"
     }
   },
   "autopilot": {

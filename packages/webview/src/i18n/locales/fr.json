@@ -843,7 +843,9 @@
       "emptyTitle": "Aucune exécution",
       "emptyDesc": "Les synchronisations terminées apparaissent ici avec leurs résultats par objet."
     },
-    "piiWarningTitle": "PII détectées"
+    "piiWarningTitle": "PII détectées",
+    "mappingForObject": "Mapping de",
+    "mappingForObjectHint": "Chaque objet porte les mappings tracés pour lui. Les objets laissés sans mapping sont copiés champ pour champ."
   },
   "migration": {
     "title": "Migration",
@@ -1252,7 +1254,11 @@
       "deadKeys": "Seize libellés affichaient leur propre clé de traduction",
       "deadKeysDesc": "La légende Autopilot, les colonnes de statut et de déclencheur de l\\u2019historique et un nœud en file d\\u2019attente se lisent de nouveau, dans les six langues.",
       "templateRoot": "Un modèle Forge clone l'enregistrement que vous indiquez",
-      "templateRootDesc": "Les modèles intégrés annoncent qu'ils clonent un enregistrement et tout ce qui l'entoure, mais rien ne demandait lequel : le run copiait des tables entières. L'onglet Modèle le demande désormais."
+      "templateRootDesc": "Les modèles intégrés annoncent qu'ils clonent un enregistrement et tout ce qui l'entoure, mais rien ne demandait lequel : le run copiait des tables entières. L'onglet Modèle le demande désormais.",
+      "perObjectMapping": "Mappez chaque objet, pas seulement le premier",
+      "perObjectMappingDesc": "Ce que vous mappiez était rattaché à tous les objets du run : un seul objet pouvait donc réellement être mappé. Chacun garde désormais le sien, et un objet laissé sans mapping est copié champ pour champ.",
+      "describeOnce": "Un objet n'est décrit qu'une fois",
+      "describeOnceDesc": "Quick Sync décrivait ses objets pour construire le mapping, puis le run les décrivait à nouveau. Chaque describe a son propre délai, et en dépasser un met fin au run."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
@@ -1688,7 +1694,8 @@
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
     "node": {
       "records": "{{records}} enregistrements",
-      "fieldsCloneable": "{{total}} champs ({{cloneable}} clonables)"
+      "fieldsCloneable": "{{total}} champs ({{cloneable}} clonables)",
+      "notMeasured": "Volume pas encore mesuré"
     }
   },
   "autopilot": {

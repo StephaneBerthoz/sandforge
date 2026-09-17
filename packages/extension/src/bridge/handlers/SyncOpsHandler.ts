@@ -51,6 +51,7 @@ import {
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import { SyncRunFailure } from '../../modules/sync/SyncRunFailure.js';
+import { describeCached } from '../../core/connection/describeCache.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
@@ -377,9 +378,17 @@ export class SyncOpsHandler implements DomainHandler {
       if (object.operation === 'delete') continue;
       const name = object.objectApiName;
       const timeout = new TimeoutManager(describeTimeoutMs);
+      // Cached per org and object: a Quick Sync has just described the same
+      // objects on the same orgs to build its mapping, and each describe here
+      // carries its own timeout — describing twice doubled the chances of
+      // running out of one and ending the run before it wrote anything.
       const [sourceDesc, targetDesc] = await Promise.all([
-        timeout.withTimeout(`describe-source-${name}`, () => sourceConn.describe(name)),
-        timeout.withTimeout(`describe-target-${name}`, () => targetConn.describe(name)),
+        timeout.withTimeout(`describe-source-${name}`, () =>
+          describeCached(config.sourceOrgId, name, () => sourceConn.describe(name)),
+        ),
+        timeout.withTimeout(`describe-target-${name}`, () =>
+          describeCached(config.targetOrgId, name, () => targetConn.describe(name)),
+        ),
       ]);
       const sourceFields = parseDescribedFields(sourceDesc, name, 'source').map(toDescriptor);
       const targetFields = parseDescribedFields(targetDesc, name, 'target')

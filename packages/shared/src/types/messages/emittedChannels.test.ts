@@ -54,6 +54,12 @@ const { join } = require('node:path') as { join(...parts: string[]): string };
  *   - `forge:progress` — the shape mismatch (event wrapped under `payload` by
  *     buildResponse, read at the message top level by ForgeExecution.tsx) was
  *     reconciled in 1.8.0: the webview now reads under `payload`.
+ *   - `bridge:protocol-mismatch` — deliberate, and not a gap. The broker posts
+ *     it on EVERY mismatched message, and posts `bridge:reload-banner` only
+ *     once the count crosses its threshold (MessageBroker, "Version mismatch");
+ *     the banner listens for the second. A listener on the first would put a
+ *     reload prompt on screen for a single stray message, which is precisely
+ *     what the threshold exists to avoid.
  *
  * Removed in 1.9.0: the `monitor:trends` / `monitor:trends:data` pair — the
  * webview never sent the request (handler unreachable) and trend data already

@@ -164,21 +164,35 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
         </div>
       </div>
 
-      {/* Counts: records + size */}
-      <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
-        <span>{t('forge.node.records', { records: recordCount.toLocaleString() })}</span>
-        <span>~{estimatedSizeMB.toFixed(1)} MB</span>
-      </div>
-
-      {/* Fields: total vs createable */}
-      <div className="mt-0.5 text-[10px] text-text-secondary">
-        <span>
-          {t('forge.node.fieldsCloneable', {
-            total: fieldCount,
-            cloneable: createableFieldCount,
-          })}
-        </span>
-      </div>
+      {/*
+        Counts, or the fact that there are none yet.
+        A described object always reports fields, so `fieldCount === 0` means
+        this node has not been described — which is every node of a run started
+        from a template, whose graph is built locally with zeroes and which no
+        progress event ever fills in. The card used to state those zeroes as
+        fact: "0 records ~0.0 MB / 0 fields (0 cloneable)" on objects that were
+        being cloned at that moment.
+      */}
+      {fieldCount > 0 ? (
+        <>
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
+            <span>{t('forge.node.records', { records: recordCount.toLocaleString() })}</span>
+            <span>~{estimatedSizeMB.toFixed(1)} MB</span>
+          </div>
+          <div className="mt-0.5 text-[10px] text-text-secondary">
+            <span>
+              {t('forge.node.fieldsCloneable', {
+                total: fieldCount,
+                cloneable: createableFieldCount,
+              })}
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="mt-1 text-[10px] text-text-secondary" data-testid="node-counts-unknown">
+          {t('forge.node.notMeasured')}
+        </div>
+      )}
 
       {/* Progress bar */}
       {showProgress && (

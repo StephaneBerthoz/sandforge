@@ -297,3 +297,78 @@ describe('useSyncPageData', () => {
     expect(useAppStore.getState().navigationIntent).toBeNull();
   });
 });
+
+describe('each object carries its own field mappings', () => {
+  it('keeps one object’s mappings off the others', () => {
+    // The step describes one object at a time, and its mappings used to be
+    // attached to every object of the run: Contact and Opportunity were
+    // written through Account's fields and judged against them.
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleAddObject('Account');
+      result.current.handleAddObject('Contact');
+    });
+
+    act(() => {
+      result.current.setMappedObject('Account');
+    });
+    act(() => {
+      result.current.handleAddMapping('Name', 'Name');
+    });
+    act(() => {
+      result.current.setMappedObject('Contact');
+    });
+    act(() => {
+      result.current.handleAddMapping('Email', 'Email');
+    });
+
+    execution.mutate.mockClear();
+    act(() => {
+      result.current.handleSourceOrgChange('src');
+      result.current.handleTargetOrgChange('tgt');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    const sent = execution.mutate.mock.calls.at(-1)?.[0] as {
+      config: {
+        objects: Array<{ objectApiName: string; fieldMappings: Array<{ sourceField: string }> }>;
+      };
+    };
+    const byObject = Object.fromEntries(
+      sent.config.objects.map((o) => [o.objectApiName, o.fieldMappings.map((m) => m.sourceField)]),
+    );
+    expect(byObject).toEqual({ Account: ['Name'], Contact: ['Email'] });
+  });
+
+  it('leaves an object nobody mapped with no mapping at all', () => {
+    // No mapping means "copy the record as read" — which is what the writer
+    // now does, and what an object mapped through another one's fields did not.
+    const { result } = renderHook(() => useSyncPageData());
+    act(() => {
+      result.current.handleAddObject('Account');
+      result.current.handleAddObject('Contact');
+    });
+    act(() => {
+      result.current.setMappedObject('Account');
+    });
+    act(() => {
+      result.current.handleAddMapping('Name', 'Name');
+    });
+
+    execution.mutate.mockClear();
+    act(() => {
+      result.current.handleSourceOrgChange('src');
+      result.current.handleTargetOrgChange('tgt');
+    });
+    act(() => {
+      result.current.handleExecute();
+    });
+    const sent = execution.mutate.mock.calls.at(-1)?.[0] as {
+      config: { objects: Array<{ objectApiName: string; fieldMappings: unknown[] }> };
+    };
+    expect(sent.config.objects.find((o) => o.objectApiName === 'Contact')?.fieldMappings).toEqual(
+      [],
+    );
+  });
+});

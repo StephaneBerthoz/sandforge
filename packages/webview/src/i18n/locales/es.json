@@ -843,7 +843,9 @@
       "emptyTitle": "Aún no hay ejecuciones",
       "emptyDesc": "Las sincronizaciones completadas aparecen aquí con sus resultados por objeto."
     },
-    "piiWarningTitle": "PII detectada"
+    "piiWarningTitle": "PII detectada",
+    "mappingForObject": "Asignación de",
+    "mappingForObjectHint": "Cada objeto lleva las asignaciones creadas para él. Los objetos sin asignación se copian campo por campo."
   },
   "migration": {
     "title": "Migración",
@@ -1252,7 +1254,11 @@
       "deadKeys": "Dieciséis etiquetas mostraban su propia clave de traducción",
       "deadKeysDesc": "La leyenda de Autopilot, las columnas de estado y de origen del historial y un nodo en cola vuelven a leerse, en los seis idiomas.",
       "templateRoot": "Una plantilla de Forge clona el registro que usted indica",
-      "templateRootDesc": "Las plantillas integradas dicen que clonan un registro y todo lo relacionado, pero nada preguntaba cuál: la ejecución copiaba tablas enteras. Ahora la pestaña Plantilla lo pregunta."
+      "templateRootDesc": "Las plantillas integradas dicen que clonan un registro y todo lo relacionado, pero nada preguntaba cuál: la ejecución copiaba tablas enteras. Ahora la pestaña Plantilla lo pregunta.",
+      "perObjectMapping": "Asigne cada objeto, no solo el primero",
+      "perObjectMappingDesc": "Lo que asignaba se adjuntaba a todos los objetos de la ejecución, así que solo un objeto podía asignarse de verdad. Ahora cada uno conserva el suyo, y un objeto sin asignación se copia campo por campo.",
+      "describeOnce": "Un objeto se describe una vez, no dos",
+      "describeOnceDesc": "Quick Sync describía sus objetos para crear la asignación y la ejecución los describía otra vez. Cada descripción tiene su propio tiempo límite, y superarlo termina la ejecución."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -1688,7 +1694,8 @@
     "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
     "node": {
       "records": "{{records}} registros",
-      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonables)"
+      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonables)",
+      "notMeasured": "Volumen aún sin medir"
     }
   },
   "autopilot": {

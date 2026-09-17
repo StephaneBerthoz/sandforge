@@ -843,7 +843,9 @@
       "emptyTitle": "Nenhuma execução ainda",
       "emptyDesc": "Sincronizações concluídas aparecem aqui com seus resultados por objeto."
     },
-    "piiWarningTitle": "PII detectada"
+    "piiWarningTitle": "PII detectada",
+    "mappingForObject": "Mapeamento de",
+    "mappingForObjectHint": "Cada objeto carrega os mapeamentos criados para ele. Objetos sem mapeamento são copiados campo a campo."
   },
   "migration": {
     "title": "Migração",
@@ -1252,7 +1254,11 @@
       "deadKeys": "Dezesseis rótulos mostravam a própria chave de tradução",
       "deadKeysDesc": "A legenda do Autopilot, as colunas de status e de origem do histórico e um nó na fila voltam a ser legíveis, nos seis idiomas.",
       "templateRoot": "Um modelo do Forge clona o registro que você indica",
-      "templateRootDesc": "Os modelos integrados dizem que clonam um registro e tudo ao redor dele, mas nada perguntava qual: a execução copiava tabelas inteiras. Agora a aba Modelo pergunta."
+      "templateRootDesc": "Os modelos integrados dizem que clonam um registro e tudo ao redor dele, mas nada perguntava qual: a execução copiava tabelas inteiras. Agora a aba Modelo pergunta.",
+      "perObjectMapping": "Mapeie cada objeto, não apenas o primeiro",
+      "perObjectMappingDesc": "O que você mapeava era anexado a todos os objetos da execução, então só um objeto podia realmente ser mapeado. Agora cada um guarda o seu, e um objeto sem mapeamento é copiado campo a campo.",
+      "describeOnce": "Um objeto é descrito uma vez, não duas",
+      "describeOnceDesc": "O Quick Sync descrevia seus objetos para montar o mapeamento e a execução os descrevia de novo. Cada descrição tem seu próprio tempo limite, e estourá-lo encerra a execução."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1688,7 +1694,8 @@
     "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
     "node": {
       "records": "{{records}} registros",
-      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)"
+      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)",
+      "notMeasured": "Volume ainda não medido"
     }
   },
   "autopilot": {

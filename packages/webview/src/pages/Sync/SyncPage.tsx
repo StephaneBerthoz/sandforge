@@ -201,6 +201,8 @@ export const SyncPage: React.FC = () => {
     conflictStrategy,
     setConflictStrategy,
     objectEntries,
+    mappedObject,
+    setMappedObject,
     mappings,
     setMappings,
     transforms,
@@ -472,6 +474,39 @@ export const SyncPage: React.FC = () => {
           )}
           {currentStep === 1 && !fieldsLoading && (
             <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
+              {/*
+                Which object is being mapped. The step describes one object at a
+                time, and every object of the run used to be sent the mappings
+                drawn for whichever one happened to be first — so only one
+                object could be mapped at all, and the rest were written through
+                its fields.
+              */}
+              {objectEntries.length > 1 && (
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor="sync-mapped-object"
+                    className="text-[10px] uppercase tracking-widest text-text-secondary"
+                  >
+                    {t('sync.mappingForObject')}
+                  </label>
+                  <select
+                    id="sync-mapped-object"
+                    data-testid="sync-mapped-object"
+                    value={mappedObject}
+                    onChange={(e) => setMappedObject(e.target.value)}
+                    className="px-3 py-2 rounded-md text-sm bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] focus:outline-none focus:border-sync/50"
+                  >
+                    {objectEntries.map((entry) => (
+                      <option key={entry.objectApiName} value={entry.objectApiName}>
+                        {entry.objectApiName}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-text-secondary">
+                    {t('sync.mappingForObjectHint')}
+                  </p>
+                </div>
+              )}
               <FieldMapper
                 sourceFields={sourceFields.map((f) => f.apiName)}
                 targetFields={targetFields.map((f) => f.apiName)}

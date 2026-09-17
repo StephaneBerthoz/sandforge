@@ -843,7 +843,9 @@
       "emptyTitle": "Noch keine Ausführungen",
       "emptyDesc": "Abgeschlossene Syncs erscheinen hier mit ihren Ergebnissen pro Objekt."
     },
-    "piiWarningTitle": "PII erkannt"
+    "piiWarningTitle": "PII erkannt",
+    "mappingForObject": "Zuordnung für",
+    "mappingForObjectHint": "Jedes Objekt trägt die für es erstellten Zuordnungen. Objekte ohne Zuordnung werden Feld für Feld kopiert."
   },
   "migration": {
     "title": "Migration",
@@ -1252,7 +1254,11 @@
       "deadKeys": "Sechzehn Beschriftungen zeigten ihren eigenen Übersetzungsschlüssel",
       "deadKeysDesc": "Die Autopilot-Legende, die Status- und Auslöserspalten des Verlaufs und ein wartender Knoten lesen sich wieder als Text, in allen sechs Sprachen.",
       "templateRoot": "Eine Forge-Vorlage klont den Datensatz, den Sie angeben",
-      "templateRootDesc": "Die mitgelieferten Vorlagen sagen, dass sie einen Datensatz mit allem Zugehörigen klonen, aber niemand fragte nach welchem — der Lauf kopierte ganze Tabellen. Die Registerkarte Vorlage fragt jetzt danach."
+      "templateRootDesc": "Die mitgelieferten Vorlagen sagen, dass sie einen Datensatz mit allem Zugehörigen klonen, aber niemand fragte nach welchem — der Lauf kopierte ganze Tabellen. Die Registerkarte Vorlage fragt jetzt danach.",
+      "perObjectMapping": "Jedes Objekt zuordnen, nicht nur das erste",
+      "perObjectMappingDesc": "Was Sie zuordneten, hing an jedem Objekt des Laufs, sodass wirklich nur ein Objekt zugeordnet werden konnte. Jedes behält nun seine eigene Zuordnung, und ein Objekt ohne Zuordnung wird Feld für Feld kopiert.",
+      "describeOnce": "Ein Objekt wird einmal beschrieben, nicht zweimal",
+      "describeOnceDesc": "Ein Quick Sync beschrieb seine Objekte für die Zuordnung, und der Lauf beschrieb sie danach erneut. Jede Beschreibung hat ihr eigenes Zeitlimit, und eines zu überschreiten beendet den Lauf."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1688,7 +1694,8 @@
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
     "node": {
       "records": "{{records}} Datensätze",
-      "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)"
+      "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
+      "notMeasured": "Umfang noch nicht ermittelt"
     }
   },
   "autopilot": {

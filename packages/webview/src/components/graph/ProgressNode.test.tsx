@@ -213,3 +213,20 @@ describe('ProgressNode', () => {
     expect(screen.getByTestId('handle-source')).toBeDefined();
   });
 });
+
+describe('a node whose counts nobody measured', () => {
+  it('says so instead of stating zeroes', () => {
+    // A run started from a template builds its graph locally, with zeroes, and
+    // no progress event ever fills the counts in. The card used to read
+    // "0 records ~0.0 MB / 0 fields (0 cloneable)" on an object being cloned.
+    render(<ProgressNode {...makeNodeProps({ fieldCount: 0, recordCount: 0 })} />);
+    expect(screen.getByTestId('node-counts-unknown')).toBeDefined();
+    expect(screen.queryByText(/0 fields/)).toBeNull();
+  });
+
+  it('states the counts once the object has been described', () => {
+    render(<ProgressNode {...makeNodeProps({ fieldCount: 35, createableFieldCount: 20 })} />);
+    expect(screen.queryByTestId('node-counts-unknown')).toBeNull();
+    expect(screen.getByText('35 fields (20 cloneable)')).toBeDefined();
+  });
+});

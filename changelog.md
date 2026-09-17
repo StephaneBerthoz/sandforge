@@ -5,6 +5,36 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.2] - 2026-09-17
+
+### Fixed
+
+- **Each object of a sync carries the field mappings drawn for it.** The
+  mapping step describes one object at a time, and whatever was mapped there
+  was attached to every object of the run: with three objects selected,
+  Contact and Opportunity were written through Account's field names — so the
+  writer dropped every field they did not happen to share, and the field-type
+  precheck compared Account's fields against Contact's schema and refused the
+  whole run. Only one object could be mapped at all. The step now names the
+  object it is mapping and lets you pick another, each keeps its own mappings,
+  and an object you leave unmapped is copied field for field.
+- **A Forge node says when its size is unknown instead of claiming zero.** A
+  run started from a template builds its graph locally, with no counts, and no
+  progress event ever fills them in — so every card read "0 records ~0.0 MB /
+  0 fields (0 cloneable)" about objects that were being cloned at that moment.
+  A node that has not been described now says so.
+
+### Changed
+
+- **An object is described once per org, not once per step.** A Quick Sync
+  described its objects on both orgs to build the mapping, and the run then
+  described the same objects on the same orgs again seconds later to compare
+  field types: twelve describes where six would do. Each one carries its own
+  timeout, and a describe that runs out ends the run before anything is
+  written, so describing everything twice doubled the exposure to that. A
+  describe is now reused for five minutes, per org and per object; a failed
+  one is never reused.
+
 ## [1.24.1] - 2026-09-17
 
 ### Fixed

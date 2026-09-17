@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   SyncExecutionResult,
@@ -37,7 +37,15 @@ interface SyncDraftState {
   sourceOrgId: string;
   targetOrgId: string;
   objectEntries: ObjectSetEntry[];
-  mappings: FieldMapping[];
+  /**
+   * Field mappings, per object.
+   *
+   * It used to be one flat list, drawn against the first object's fields and
+   * then sent as the mapping of EVERY object of the run. A draft written by
+   * that build is dropped rather than guessed at: its list belongs to an object
+   * the draft does not name.
+   */
+  mappingsByObject: Record<string, FieldMapping[]>;
   transforms: TransformRule[];
 }
 
@@ -93,6 +101,9 @@ export interface SyncPageData {
   objectEntries: ObjectSetEntry[];
   /** Field mappings between source and target. */
   mappings: FieldMapping[];
+  /** The object the mapping step is showing, and the set of objects to choose from. */
+  mappedObject: string;
+  setMappedObject: (objectApiName: string) => void;
   /** Set field mappings directly (used by auto-match). */
   setMappings: (m: FieldMapping[]) => void;
   /** Transform rules to apply during sync. */
@@ -166,6 +177,9 @@ export const OFFERED_CONFLICT_STRATEGIES: readonly ConflictStrategy[] = [
 export const OFFERED_DIRECTIONS: readonly SyncDirection[] = ['source_to_target', 'bidirectional'];
 export const OFFERED_MODES: readonly SyncMode[] = ['full'];
 
+/** One shared empty list: a fresh `[]` per render would retrigger every memo. */
+const EMPTY_MAPPINGS: FieldMapping[] = [];
+
 /** A draft value the page can still offer, or the default it falls back to. */
 export function offeredOr<T>(offered: readonly T[], value: T, fallback: T): T {
   return offered.includes(value) ? value : fallback;
@@ -220,7 +234,7 @@ export function useSyncPageData(): SyncPageData {
     sourceOrgId: '',
     targetOrgId: '',
     objectEntries: [],
-    mappings: [],
+    mappingsByObject: {},
     transforms: [],
   };
 
@@ -257,7 +271,32 @@ export function useSyncPageData(): SyncPageData {
   const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
     initialDraft.current.objectEntries,
   );
-  const [mappings, setMappings] = useState<FieldMapping[]>(initialDraft.current.mappings);
+  /*
+   * The object the mapping step is showing. Step 1 describes one object at a
+   * time, so the mappings drawn there belong to that object; `mappings` and
+   * `setMappings` below are a window onto its entry, which keeps every caller
+   * in the page unchanged.
+   */
+  const [mappingsByObject, setMappingsByObject] = useState<Record<string, FieldMapping[]>>(
+    initialDraft.current.mappingsByObject ?? {},
+  );
+  const [mappedObject, setMappedObject] = useState<string>(
+    initialDraft.current.objectEntries[0]?.objectApiName ?? '',
+  );
+  const mappings = useMemo(
+    () => mappingsByObject[mappedObject] ?? EMPTY_MAPPINGS,
+    [mappingsByObject, mappedObject],
+  );
+  const setMappings = useCallback(
+    (next: FieldMapping[] | ((prev: FieldMapping[]) => FieldMapping[])) => {
+      setMappingsByObject((prev) => {
+        const current = prev[mappedObject] ?? EMPTY_MAPPINGS;
+        const value = typeof next === 'function' ? next(current) : next;
+        return { ...prev, [mappedObject]: value };
+      });
+    },
+    [mappedObject],
+  );
   const [transforms, setTransforms] = useState<TransformRule[]>(initialDraft.current.transforms);
   const [error, setError] = useState<string | null>(null);
 
@@ -271,7 +310,7 @@ export function useSyncPageData(): SyncPageData {
       sourceOrgId,
       targetOrgId,
       objectEntries,
-      mappings,
+      mappingsByObject,
       transforms,
     });
   }, [
@@ -282,7 +321,7 @@ export function useSyncPageData(): SyncPageData {
     sourceOrgId,
     targetOrgId,
     objectEntries,
-    mappings,
+    mappingsByObject,
     transforms,
     setDraft,
   ]);
@@ -422,31 +461,20 @@ export function useSyncPageData(): SyncPageData {
   // Fetch fields when entering field mapping step, or when the orgs or objects
   // change on it. `mutate` is read through a ref so the dependency array names
   // those triggers only.
-  /*
-   * The mapping step describes ONE object — the first of the set — so the
-   * mappings the user draws belong to that object and to no other. They used to
-   * be attached to every object of the run: with three objects selected,
-   * Contact and Opportunity were sent Account's field mappings, so the writer
-   * dropped every field they did not happen to share and the field-type
-   * precheck compared Account's fields against Contact's schema and ended the
-   * run. The object they were drawn for is remembered here; the others carry no
-   * mapping, which means "copy the record as read".
-   */
-  const [mappedObject, setMappedObject] = useState<string | undefined>(
-    () => initialDraft.current.objectEntries[0]?.objectApiName,
-  );
+  // The selection has to stay inside the object set: an object removed from
+  // step 0 must not leave step 1 describing something that is no longer there.
+  useEffect(() => {
+    if (objectEntries.length === 0) return;
+    if (objectEntries.some((e) => e.objectApiName === mappedObject)) return;
+    setMappedObject(objectEntries[0].objectApiName);
+  }, [objectEntries, mappedObject]);
+
   const describeFields = useLatestRef(fieldsMutation.mutate);
   useEffect(() => {
-    if (currentStep === 1 && sourceOrgId && targetOrgId && objectEntries.length > 0) {
-      const objectApiName = objectEntries[0].objectApiName;
-      // Mappings drawn against another object's fields cannot survive the swap.
-      setMappedObject((previous) => {
-        if (previous !== objectApiName) setMappings([]);
-        return objectApiName;
-      });
-      describeFields.current({ sourceOrgId, targetOrgId, objectApiName });
+    if (currentStep === 1 && sourceOrgId && targetOrgId && mappedObject) {
+      describeFields.current({ sourceOrgId, targetOrgId, objectApiName: mappedObject });
     }
-  }, [currentStep, sourceOrgId, targetOrgId, objectEntries, describeFields]);
+  }, [currentStep, sourceOrgId, targetOrgId, mappedObject, describeFields]);
 
   const handleSourceOrgChange = useCallback((orgId: string) => {
     setSourceOrgId(orgId);
@@ -537,7 +565,7 @@ export function useSyncPageData(): SyncPageData {
       })),
     );
     // Clear any existing mappings/transforms since template objects changed
-    setMappings([]);
+    setMappingsByObject({});
     setTransforms([]);
   }, []);
 
@@ -557,8 +585,8 @@ export function useSyncPageData(): SyncPageData {
         externalIdField: entry.externalIdField,
         batchSize: entry.batchSize,
         where: entry.where || undefined,
-        // Only the object the mapping step described; see `mappedObject`.
-        fieldMappings: entry.objectApiName === mappedObject ? mappings : [],
+        // Each object carries the mappings drawn for it, and nothing else.
+        fieldMappings: mappingsByObject[entry.objectApiName] ?? [],
         transformRules: transforms,
         excludedFields: [],
         addOnFields: [],
@@ -634,6 +662,8 @@ export function useSyncPageData(): SyncPageData {
     setConflictStrategy,
     objectEntries,
     mappings,
+    mappedObject,
+    setMappedObject,
     setMappings,
     transforms,
     handleSourceOrgChange,
