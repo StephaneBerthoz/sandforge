@@ -385,14 +385,16 @@
   },
   "scripts": {
     "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --format=cjs --platform=node --sourcemap=external --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",
-    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json && tsc -p tsconfig.smoke.json --noEmit",
     "lint": "eslint src/ cli/ tools/",
     "lint:fix": "eslint src/ cli/ tools/ --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --exclude src/bridge/handlerErrorChannels.test.ts",
     "test:watch": "vitest",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
-    "test:correlation": "vitest run src/bridge/handlerErrorChannels.test.ts"
+    "test:correlation": "vitest run src/bridge/handlerErrorChannels.test.ts",
+    "compile:smoke": "tsc -p tsconfig.smoke.json",
+    "test:smoke": "pnpm build && pnpm compile:smoke && vscode-test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.126.0",
@@ -403,9 +405,12 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20",
     "@types/vscode": "^1.95",
     "@vitest/coverage-v8": "catalog:",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3",
     "esbuild": "^0.25.0",
     "eslint": "catalog:",

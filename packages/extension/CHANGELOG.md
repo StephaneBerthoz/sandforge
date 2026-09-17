@@ -1307,6 +1307,23 @@ answer within 10000 ms for org "00D…"` reached the model with the org in it.
 
 ### Build
 
+- **The packaged extension is started, in a real VS Code, on every push.**
+  Every test so far ran against a mocked `vscode` module, so nothing proved the
+  extension activates at all: a broken activation event, or a command the
+  manifest contributes and no code registers, would have reached the
+  Marketplace on a green run. A smoke suite now downloads a real VS Code, loads
+  the built extension into it, waits for activation, checks that every
+  contributed command is registered and opens the panel through each of its
+  three entry commands. It runs as its own blocking workflow under `xvfb-run`,
+  and never inside `pnpm validate` — which would download VS Code on every
+  local run — with a repository gate holding that split in place.
+- **Accessibility rules run over every webview component.** ESLint checked
+  React and TypeScript but knew nothing about accessible markup, so a clickable
+  `div` with no keyboard handler, a control with no accessible name and a
+  `<label>` bound to nothing all passed review. The recommended
+  `eslint-plugin-jsx-a11y` set now runs over the webview as warnings — 86 of
+  them today, listed by rule and explained in CONTRIBUTING.md — so the count is
+  visible and can only be worked down.
 - **The Stryker summary shows Stryker's score.** The job summary computed its
   own: Ignored mutants counted as survivors and uncovered ones were left out,
   so the same run page said 79.15% in the log and 46.95% in the summary, next

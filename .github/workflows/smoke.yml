@@ -1,0 +1,45 @@
+name: Smoke
+
+# The extension, started in a real VS Code. Every other suite runs against a
+# mocked `vscode` module, so this is the only check that fails when the built
+# extension cannot activate, when a contributed command reaches no handler, or
+# when the panel cannot open.
+#
+# It is out of `pnpm validate` on purpose: it downloads a VS Code build and
+# needs a display, neither of which belongs in the check that runs on every
+# package.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    name: Extension host smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm version comes from the packageManager field in package.json
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # VS Code is an Electron app: on a headless runner it needs a display, and
+      # xvfb-run gives it one. Everything else the suite needs, it downloads.
+      - name: Run the smoke suite in a real VS Code
+        run: xvfb-run -a pnpm --filter sandforge run test:smoke

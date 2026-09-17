@@ -91,6 +91,17 @@ Bypass with `--no-verify` only if you really have to (don't).
   mutates the extension's execution engine. The Stryker workflow runs both
   on every push that changes the code they mutate, and nightly; each run
   fails below its config's `thresholds.break`.
+- Smoke suite in a real VS Code: `pnpm --filter sandforge test:smoke`. It
+  builds the extension, compiles `src/test/smoke/` through
+  `tsconfig.smoke.json`, downloads a VS Code the first time (into
+  `packages/extension/.vscode-test/`, gitignored) and starts it with the
+  extension installed. It answers what every other suite mocks away: the
+  extension activates, every contributed command reaches a handler, and the
+  panel opens. On a headless machine, prefix it with `xvfb-run -a`, which is
+  what the Smoke workflow does; under WSL it runs as it is. Its two tools are
+  devDependencies of `packages/extension`: `@vscode/test-cli`, and
+  `@vscode/test-electron`, which the CLI loads without declaring, so knip is
+  told to ignore it.
 - The full suite runs in ~3 minutes locally and is required green
   pre-merge.
 
@@ -115,6 +126,28 @@ Bypass with `--no-verify` only if you really have to (don't).
   the test stays green. See `docs/ADR/0002-message-contract-zero-drift.md`.
 - Shared devDependency versions come from the **pnpm catalog** in
   `pnpm-workspace.yaml` (`"vitest": "catalog:"`), bump them there, once.
+
+## Accessibility warnings
+
+`eslint-plugin-jsx-a11y` runs over `packages/webview/src/**/*.tsx` with its
+recommended rules as warnings, not errors: the panel is not clean yet, and a
+gate that fails on its first run is a gate somebody turns off. Today it reports
+**86 warnings**, most of them controls with no text label:
+
+| Rule                                            | Count |
+| ----------------------------------------------- | ----- |
+| `control-has-associated-label`                  | 58    |
+| `no-static-element-interactions`                | 8     |
+| `click-events-have-key-events`                  | 7     |
+| `no-noninteractive-element-interactions`        | 6     |
+| `no-autofocus`                                  | 2     |
+| `no-noninteractive-element-to-interactive-role` | 2     |
+| `no-noninteractive-tabindex`                    | 2     |
+| `label-has-associated-control`                  | 1     |
+
+Bring the count down as you touch the files, and make the rules errors once it
+reaches zero. `label-has-for` is off: the plugin deprecated it in favour of
+`label-has-associated-control`, which is on.
 
 ## Linting / formatting
 

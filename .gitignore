@@ -53,3 +53,7 @@ CLAUDE.md
 
 # Generated reports (audit-disposables, soak-test, stryker). Regenerate, do not commit.
 reports/
+
+# Compiled smoke suite and the VS Code the smoke run downloads.
+packages/extension/out-smoke/
+.vscode-test/

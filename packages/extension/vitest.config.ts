@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -13,6 +13,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', 'cli/**/*.test.ts'],
+    /*
+     * The smoke suite matches that glob but imports `vscode`, a module only the
+     * extension host provides. Run by vitest it fails to load; it is compiled by
+     * tsconfig.smoke.json and run by @vscode/test-cli instead.
+     */
+    exclude: [...configDefaults.exclude, 'src/test/smoke/**'],
     // Absolute for the same reason: tools that read this config without
     // applying `root` (knip resolves it from the repository) find the file too.
     setupFiles: [fileURLToPath(new URL('./src/test/setup.ts', import.meta.url))],

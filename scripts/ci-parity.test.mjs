@@ -1208,3 +1208,34 @@ test('the validate legs keep the check names the branch ruleset requires', () =>
     `no leg reports the required context validate (ubuntu-latest): ${legs.join(', ')}`,
   );
 });
+
+test('the smoke suite runs in CI, and never inside validate', () => {
+  const extensionPkg = JSON.parse(
+    readFileSync(join(root, 'packages', 'extension', 'package.json'), 'utf8'),
+  );
+  assert.ok(
+    extensionPkg.scripts?.['test:smoke'],
+    'packages/extension has no `test:smoke` script — the extension host suite is gone',
+  );
+
+  // It downloads a VS Code build and needs a display, so it belongs to a job of
+  // its own. Inside `validate` it would run on every package, on three
+  // operating systems, for every push.
+  assert.ok(
+    !pkg.scripts.validate.includes('test:smoke'),
+    '`validate` runs the smoke suite: it would download VS Code on every run',
+  );
+
+  const runners = blockingWorkflows.filter(({ yaml }) => yaml.includes('test:smoke'));
+  assert.ok(
+    runners.length > 0,
+    'no push or pull_request workflow runs test:smoke, so nothing checks the extension activates',
+  );
+  for (const { file, yaml } of runners) {
+    assert.match(
+      yaml,
+      /xvfb-run/,
+      `${file} runs the smoke suite without a display: VS Code cannot start on a headless runner`,
+    );
+  }
+});

@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 /** Message shared by both token-gate selectors (webview design-system rule). */
 const VSCODE_VAR_MSG =
@@ -65,6 +66,9 @@ export default tseslint.config(
         project: [
           './packages/extension/tsconfig.test.json',
           './packages/extension/tsconfig.scripts.json',
+          // The smoke suite runs under mocha, so it is typed by a project of
+          // its own; without it here, type-aware rules cannot read those files.
+          './packages/extension/tsconfig.smoke.json',
         ],
         tsconfigRootDir: import.meta.dirname,
       },
@@ -80,6 +84,23 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  {
+    /* Accessibility of the markup itself: a label that names nothing, a click
+       handler on a div no keyboard reaches, an image with no alternative. They
+       are warnings, not errors: the panel is not clean yet, and a gate that
+       fails on the first run is a gate somebody turns off. The count is in
+       CONTRIBUTING.md — bring it down, and make these errors once it is zero. */
+    files: ['packages/webview/src/**/*.tsx'],
+    plugins: { 'jsx-a11y': jsxA11y },
+    rules: {
+      ...Object.fromEntries(
+        Object.entries(jsxA11y.flatConfigs.recommended.rules).map(([rule]) => [rule, 'warn']),
+      ),
+      // Deprecated by the plugin itself, and still in its recommended set.
+      // label-has-associated-control, which is on above, is what replaced it.
+      'jsx-a11y/label-has-for': 'off',
     },
   },
   {

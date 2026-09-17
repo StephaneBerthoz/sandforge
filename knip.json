@@ -8,7 +8,7 @@
       "project": ["src/**/*.ts"]
     },
     "packages/extension": {
-      "entry": ["src/adapters/index.ts"],
+      "entry": ["src/adapters/index.ts", "src/test/smoke/**/*.smoke.test.ts"],
       "project": ["src/**/*.ts"]
     },
     "packages/webview": {
@@ -22,5 +22,10 @@
   },
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": ["vsce"],
-  "ignoreDependencies": ["@vscode/vsce", "@axe-core/playwright", "@playwright/test"]
+  "ignoreDependencies": [
+    "@vscode/vsce",
+    "@axe-core/playwright",
+    "@playwright/test",
+    "@vscode/test-electron"
+  ]
 }
