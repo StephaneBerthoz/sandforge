@@ -200,18 +200,33 @@ export const ForgeExecution: React.FC = () => {
     ).length;
     const queued = nodeList.filter((n) => n.status === 'idle').length;
     const failed = nodeList.filter((n) => n.status === 'error').length;
+    const skipped = nodeList.filter((n) => n.status === 'skipped').length;
     const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
-    const progress = total > 0 ? Math.round((done / total) * 100) : 0;
-    return { total, done, running, queued, failed, apiCalls, progress };
+    /*
+     * A node that was skipped or failed is finished with, so it counts toward
+     * the bar. Dividing only the "done" nodes by the total left a completed run
+     * showing 50% whenever half its objects had been skipped, with no card
+     * accounting for them.
+     */
+    const settled = done + failed + skipped;
+    const progress = total > 0 ? Math.round((settled / total) * 100) : 0;
+    return { total, done, running, queued, failed, skipped, settled, apiCalls, progress };
   }, [graph]);
 
-  // ETA calculation
+  /*
+   * Time remaining, from the rate the run has achieved so far.
+   *
+   * Measured on the nodes that have settled, not on the ones that succeeded:
+   * with `done` alone, a run whose skipped nodes were half the graph divided
+   * the elapsed time by half the work and doubled its own estimate. It is still
+   * a per-node estimate, so it moves in steps rather than smoothly.
+   */
   const etaSeconds = useMemo(() => {
-    if (kpis.done === 0 || kpis.total === 0) return null;
-    const avgTimePerNode = elapsed / kpis.done;
-    const remaining = kpis.total - kpis.done;
+    if (kpis.settled === 0 || kpis.total === 0) return null;
+    const avgTimePerNode = elapsed / kpis.settled;
+    const remaining = kpis.total - kpis.settled;
     return Math.round(avgTimePerNode * remaining);
-  }, [elapsed, kpis.done, kpis.total]);
+  }, [elapsed, kpis.settled, kpis.total]);
 
   // ---- Pause / Abort handlers ----
   const handlePauseToggle = useCallback(() => {

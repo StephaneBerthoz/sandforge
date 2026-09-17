@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PROTOCOL_VERSION } from '@sandforge/shared';
+import type { ForgeGraph } from '@sandforge/shared';
 import '../../i18n';
 import { ForgeExecution } from './ForgeExecution';
 
@@ -39,7 +40,9 @@ const mockAddLog = vi.fn();
 const mockClearLogs = vi.fn();
 const mockStoreLogs: unknown[] = [];
 
-const makeMockGraph = () => ({
+// Typed as the real graph, so a test can set any node status the union
+// allows without the fixture's literal types getting in the way.
+const makeMockGraph = (): ForgeGraph => ({
   nodes: [
     {
       objectApiName: 'Account',
@@ -498,23 +501,31 @@ describe('ForgeExecution progress for assistive technology', () => {
       };
     }
 
-    /** A run at 25% whose second object finishes within the announcement interval. */
+    /**
+     * A run at 50% whose third object finishes within the announcement interval.
+     *
+     * The graph is Account done, Contact running, Opportunity queued, Case in
+     * error — so two of its four nodes have settled before anything happens.
+     * These numbers used to be 25% and 50%: the bar counted only the nodes that
+     * succeeded, so the failed Case read as outstanding work and the run could
+     * never reach 100%.
+     */
     function runUnderway(): HTMLElement {
       vi.useFakeTimers();
       render(<ForgeExecution />);
       const region = screen.getByTestId('forge-progress-status');
-      expect(region.textContent).toBe('Forge progress: 25%');
+      expect(region.textContent).toBe('Forge progress: 50%');
       finish('Contact');
       host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
-      expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
+      expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('75');
       // Mid-run values wait for the interval.
-      expect(region.textContent).toBe('Forge progress: 25%');
+      expect(region.textContent).toBe('Forge progress: 50%');
       return region;
     }
 
     it('says 100% as soon as the run completes', () => {
       const region = runUnderway();
-      finish('Opportunity', 'Case');
+      finish('Opportunity');
       host('forge:execute:response', {});
       expect(region.textContent).toBe('Forge progress: 100%');
     });
@@ -522,7 +533,19 @@ describe('ForgeExecution progress for assistive technology', () => {
     it('says where an aborted run stopped, as soon as it stops', () => {
       const region = runUnderway();
       host('forge:execute:error', { message: 'Insert failed' });
-      expect(region.textContent).toBe('Forge progress: 50%');
+      expect(region.textContent).toBe('Forge progress: 75%');
+    });
+
+    it('counts a skipped node as settled, so a run of skips reaches 100%', () => {
+      // Back-to-back skips used to leave their nodes "queued" forever: the
+      // throttle coalesced the events and the bar never passed done/total.
+      vi.useFakeTimers();
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) => ({ ...node, status: 'skipped' as const })),
+      };
+      render(<ForgeExecution />);
+      expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100');
     });
   });
 });

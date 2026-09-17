@@ -15,8 +15,13 @@ export interface SyncTemplateObjectEntry {
   objectApiName: string;
   /** Sync operation to perform. */
   operation: SyncOperation;
-  /** External ID field for upsert matching. */
-  externalIdField: string;
+  /**
+   * External ID field an upsert matches on. Absent for an insert, which has
+   * nothing to match: it used to be required and every template filled it with
+   * `Id`, which reads as a key and is not one — the id belongs to the source
+   * org, and the target has never issued it.
+   */
+  externalIdField?: string;
   /** Batch size for Bulk API processing. */
   batchSize: number;
   /** Insertion order (0-based sequential). */
@@ -69,36 +74,31 @@ export const SYNC_ACCOUNT_HIERARCHY: SyncTemplateConfig = {
   objects: [
     {
       objectApiName: 'Account',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 0,
     },
     {
       objectApiName: 'Contact',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 1,
     },
     {
       objectApiName: 'Opportunity',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 2,
     },
     {
       objectApiName: 'Task',
       operation: 'insert',
-      externalIdField: 'Id',
       batchSize: 200,
       insertOrder: 3,
     },
     {
       objectApiName: 'Note',
       operation: 'insert',
-      externalIdField: 'Id',
       batchSize: 200,
       insertOrder: 4,
     },
@@ -125,36 +125,31 @@ export const SYNC_OPPS_PRODUCTS: SyncTemplateConfig = {
   objects: [
     {
       objectApiName: 'Pricebook2',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 0,
     },
     {
       objectApiName: 'Product2',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 1,
     },
     {
       objectApiName: 'PricebookEntry',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 2,
     },
     {
       objectApiName: 'Opportunity',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 3,
     },
     {
       objectApiName: 'OpportunityLineItem',
       operation: 'insert',
-      externalIdField: 'Id',
       batchSize: 200,
       insertOrder: 4,
     },
@@ -190,29 +185,25 @@ export const SYNC_CASES_ATTACHMENTS: SyncTemplateConfig = {
   objects: [
     {
       objectApiName: 'Account',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 0,
     },
     {
       objectApiName: 'Contact',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 1,
     },
     {
       objectApiName: 'Case',
-      operation: 'upsert',
-      externalIdField: 'Id',
+      operation: 'insert',
       batchSize: 200,
       insertOrder: 2,
     },
     {
       objectApiName: 'CaseComment',
       operation: 'insert',
-      externalIdField: 'Id',
       batchSize: 200,
       insertOrder: 3,
     },

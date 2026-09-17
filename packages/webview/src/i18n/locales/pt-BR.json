@@ -811,7 +811,10 @@
       "nextRun": "Próxima execução",
       "lastRun": "Última execução",
       "pause": "Pausar",
-      "resume": "Retomar"
+      "resume": "Retomar",
+      "result_success": "Concluído",
+      "result_partial": "Parcial",
+      "result_failure": "Com falha"
     },
     "history": {
       "title": "Histórico de sincronizações",
@@ -820,8 +823,15 @@
       "objects": "Objetos",
       "records": "Registros",
       "status": "Status",
+      "status_success": "Concluído",
+      "status_partial": "Parcial",
+      "status_failure": "Com falha",
+      "failureReason": "Motivo da falha",
       "duration": "Duração",
       "triggeredBy": "Acionado por",
+      "triggeredManual": "Manual",
+      "triggeredSchedule": "Agendamento",
+      "triggeredRerun": "Reexecução",
       "endTime": "Finalizado às",
       "objectResults": "Resultados por objeto",
       "processed": "Processados",
@@ -1176,6 +1186,7 @@
   "onboarding": {
     "welcomeTitle": "Bem-vindo ao SandForge",
     "welcomeSubtitle": "Forje suas sandboxes Salesforce com confiança",
+    "welcomeTagline": "Seu kit de ferramentas completo para gerenciamento de sandboxes",
     "step1Title": "Conecte sua Org",
     "step1Desc": "Vincule suas organizações Salesforce para começar",
     "step2Title": "Três maneiras de preencher sua sandbox",
@@ -1185,9 +1196,6 @@
     "skipOnboarding": "Pular",
     "connectOrg": "Conectar uma Org",
     "aiOptional": "Os recursos de IA são opcionais. Você pode configurá-los depois em Configurações.",
-    "bienvenueTitle": "Bem-vindo ao SandForge",
-    "bienvenueDesc": "Forje suas sandboxes Salesforce com confiança.",
-    "bienvenueTagline": "Seu kit de ferramentas completo para gerenciamento de sandboxes",
     "chooseLanguage": "Escolha seu idioma",
     "step4Title": "Primeiros passos",
     "step4Desc": "Com base no tipo da sua org, aqui está um ponto de partida recomendado",
@@ -1232,7 +1240,17 @@
       "speed": "Monitor e Forge abrem mais rápido",
       "speedDesc": "Menos chamadas ao Salesforce a cada atualização e a cada descoberta do grafo",
       "honesty": "Só é oferecido o que existe",
-      "honestyDesc": "As abas, os modos e as opções que não levavam a lugar nenhum desapareceram: o que você vê é o que é executado"
+      "honestyDesc": "As abas, os modos e as opções que não levavam a lugar nenhum desapareceram: o que você vê é o que é executado",
+      "stylesheet": "O painel volta a se parecer com ele mesmo",
+      "stylesheetDesc": "A 1.23.0 saiu sem a folha de estilos, então cada tela aparecia como HTML puro. Agora uma verificação lê os arquivos aos quais a extensão se vincula e pede cada um ao disco.",
+      "syncWrites": "Uma sincronização grava os campos que leu",
+      "syncWritesDesc": "Uma configuração sem mapeamento de campos gravava registros vazios, e o Quick Sync correspondia por uma chave que a org de destino nunca emitiu: nenhuma execução podia dar certo.",
+      "failureReason": "Uma execução que falhou diz por quê",
+      "failureReasonDesc": "O motivo fica na entrada do histórico, ao lado dos objetos que a execução já havia gravado antes de parar.",
+      "forgeProgress": "O Forge não mostra mais o progresso da execução anterior",
+      "forgeProgressDesc": "Os status dos nós são zerados no início, um objeto ignorado conta como concluído, e o tempo restante é medido pelo trabalho já resolvido.",
+      "deadKeys": "Dezesseis rótulos mostravam a própria chave de tradução",
+      "deadKeysDesc": "A legenda do Autopilot, as colunas de status e de origem do histórico e um nó na fila voltam a ser legíveis, nos seis idiomas."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1663,7 +1681,11 @@
     },
     "soqlObjectNameInvalid": "\"{{object}}\" não é um nome de API de SObject, então a cláusula WHERE não pode ser enviada com ele. Ele deve começar com uma letra e ter no máximo 80 letras, dígitos ou sublinhados.",
     "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
-    "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante."
+    "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
+    "node": {
+      "records": "{{records}} registros",
+      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1730,6 +1752,7 @@
         "relationships": "Relacionamentos"
       },
       "pending": "Pendente",
+      "queued": "Na fila",
       "extracting": "Extraindo",
       "anonymizing": "Anonimizando",
       "loading": "Carregando",

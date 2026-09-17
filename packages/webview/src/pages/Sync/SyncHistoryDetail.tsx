@@ -102,6 +102,24 @@ export const SyncHistoryDetail: React.FC = () => {
         </Card>
       </div>
 
+      {/*
+        Why the run ended. Until 1.23.1 a run that threw before it read an
+        object showed "failure" and four zeroes, with its reason only in the
+        output channel and a toast the user had already dismissed.
+      */}
+      {result.error && (
+        <Card>
+          <CardBody>
+            <h5 className="mb-1 text-xs font-semibold text-status-error">
+              {t('sync.history.failureReason')}
+            </h5>
+            <p className="text-[11px] text-text-primary" data-testid="history-failure-reason">
+              {result.error}
+            </p>
+          </CardBody>
+        </Card>
+      )}
+
       {/* Per-object results */}
       <div className="flex flex-col gap-[var(--sf-space-2)]">
         <h5 className="text-xs font-semibold text-text-primary">

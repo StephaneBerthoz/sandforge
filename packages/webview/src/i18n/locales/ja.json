@@ -808,7 +808,10 @@
       "nextRun": "次回実行",
       "lastRun": "前回実行",
       "pause": "一時停止",
-      "resume": "再開"
+      "resume": "再開",
+      "result_success": "成功",
+      "result_partial": "一部成功",
+      "result_failure": "失敗"
     },
     "history": {
       "title": "同期履歴",
@@ -817,8 +820,15 @@
       "objects": "オブジェクト",
       "records": "レコード",
       "status": "ステータス",
+      "status_success": "成功",
+      "status_partial": "一部成功",
+      "status_failure": "失敗",
+      "failureReason": "失敗の原因",
       "duration": "所要時間",
       "triggeredBy": "実行者",
+      "triggeredManual": "手動",
+      "triggeredSchedule": "スケジュール",
+      "triggeredRerun": "再実行",
       "endTime": "終了時刻",
       "objectResults": "オブジェクト別の結果",
       "processed": "処理済み",
@@ -1172,6 +1182,7 @@
   "onboarding": {
     "welcomeTitle": "SandForgeへようこそ",
     "welcomeSubtitle": "自信を持ってSalesforce Sandboxを構築しましょう",
+    "welcomeTagline": "オールインワンのSandbox管理ツールキット",
     "step1Title": "Orgを接続",
     "step1Desc": "Salesforce組織をリンクして始めましょう",
     "step2Title": "サンドボックスを満たす3つの方法",
@@ -1181,9 +1192,6 @@
     "skipOnboarding": "スキップ",
     "connectOrg": "Orgを接続",
     "aiOptional": "AI機能はオプションです。設定で後から構成できます。",
-    "bienvenueTitle": "SandForgeへようこそ",
-    "bienvenueDesc": "自信を持ってSalesforce Sandboxを構築しましょう。",
-    "bienvenueTagline": "オールインワンのSandbox管理ツールキット",
     "chooseLanguage": "言語を選択してください",
     "step4Title": "最初のステップ",
     "step4Desc": "Orgタイプに基づいた推奨スタートポイントです",
@@ -1228,7 +1236,17 @@
       "speed": "Monitor と Forge の表示が高速に",
       "speedDesc": "更新のたび、グラフ探索のたびに行っていた Salesforce への往復を削減しました",
       "honesty": "提供されるのは実際に動く機能だけ",
-      "honestyDesc": "どこにもつながらないタブ、モード、オプションを削除しました。表示されるものがそのまま実行されます"
+      "honestyDesc": "どこにもつながらないタブ、モード、オプションを削除しました。表示されるものがそのまま実行されます",
+      "stylesheet": "パネルの見た目が元に戻りました",
+      "stylesheetDesc": "1.23.0 はスタイルシートを同梱せずに公開され、すべての画面が素の HTML として表示されていました。現在は、拡張機能が参照するファイルを読み取り、その実体をディスクに問い合わせる検査が入っています。",
+      "syncWrites": "同期は読み取った項目を書き込みます",
+      "syncWritesDesc": "項目マッピングのない設定は空のレコードを書き込み、Quick Sync は対象組織が発行したことのないキーで照合していました。成功しうる実行がありませんでした。",
+      "failureReason": "失敗した実行が理由を伝えます",
+      "failureReasonDesc": "理由は履歴エントリーに残り、停止前に書き込み済みだったオブジェクトと並んで表示されます。",
+      "forgeProgress": "Forge が前回の実行の進捗を表示しなくなりました",
+      "forgeProgressDesc": "開始時にノードの状態をリセットし、スキップしたオブジェクトも完了として数え、残り時間は決着した作業から見積もります。",
+      "deadKeys": "16 個のラベルが翻訳キーそのものを表示していました",
+      "deadKeysDesc": "Autopilot の凡例、履歴のステータス列と実行契機の列、待機中のノードが、6 言語すべてで再び文章として読めます。"
     },
     "heroTitle": "実際のレコードからサンドボックスを作成",
     "heroDesc": "SandForgeを任意のOrgのレコードに向けるだけ — 関連グラフ全体をサンドボックスへ複製します。コピーするデータがない場合は、データセットを生成または再生できます。",
@@ -1659,7 +1677,11 @@
     },
     "soqlObjectNameInvalid": "「{{object}}」は SObject の API 参照名ではないため、その名前で WHERE 句を送信できません。先頭は英字で、英数字とアンダースコアを合わせて 80 文字以内にしてください。",
     "hintSoqlObjectNameInvalid": "グラフを検出するには、FROM のあとのオブジェクト名を修正してください",
-    "truncatedRead": "一部しか読み取れませんでした：{{objects}}。ソースにはクローンされた以上の行があります。残りをクローンするには、それぞれが上限を超えないフィルターで実行を分割してください。"
+    "truncatedRead": "一部しか読み取れませんでした：{{objects}}。ソースにはクローンされた以上の行があります。残りをクローンするには、それぞれが上限を超えないフィルターで実行を分割してください。",
+    "node": {
+      "records": "{{records}} 件のレコード",
+      "fieldsCloneable": "{{total}} 項目（うち {{cloneable}} 件が複製可能）"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1726,6 +1748,7 @@
         "relationships": "リレーション"
       },
       "pending": "保留中",
+      "queued": "待機中",
       "extracting": "抽出中",
       "anonymizing": "匿名化中",
       "loading": "ロード中",

@@ -1,4 +1,5 @@
 import type { FieldMapping, MappingType } from '@sandforge/shared';
+import { areFieldTypesCompatible } from './FieldTypeValidator.js';
 
 /** Source/target field metadata for auto-mapping. */
 export interface AutoMapFieldInfo {
@@ -103,12 +104,23 @@ export class AutoFieldMapper {
       };
     }
 
-    // Strategy 3: Label similarity
+    /*
+     * Strategy 3: label similarity — and the types have to fit.
+     *
+     * A shared label is not a shared type: `Active__c` (a picklist labelled
+     * "Active") and `IsActive` (a checkbox labelled "Active") score 1.0. This
+     * strategy used to emit that pair, and the field-type precheck then refused
+     * the whole run over a mapping nobody had typed — telling the user to map
+     * onto a compatible type or add a transform, on a Quick Sync that has no
+     * mapping screen at all. Strategy 4 below already required compatibility;
+     * requiring it here too means the auto-mapper can no longer produce a
+     * configuration the run will reject.
+     */
     const labelSimilarity = this.stringSimilarity(
       source.label.toLowerCase(),
       target.label.toLowerCase(),
     );
-    if (labelSimilarity >= 0.8) {
+    if (labelSimilarity >= 0.8 && this.isTypeCompatible(source.type, target.type)) {
       return {
         sourceField: source.apiName,
         targetField: target.apiName,
@@ -178,18 +190,14 @@ export class AutoFieldMapper {
   }
 
   /** Check if two Salesforce field types are compatible. */
+  /**
+   * Delegated to the table the field-type precheck enforces, so a suggestion
+   * is never one the run would refuse — and never withheld where the run would
+   * have accepted it. This class kept its own narrower table, and the two
+   * disagreed both ways; see `areFieldTypesCompatible`.
+   */
   private isTypeCompatible(sourceType: string, targetType: string): boolean {
-    if (sourceType === targetType) return true;
-
-    const textTypes = new Set(['string', 'textarea', 'richtext', 'url', 'email', 'phone']);
-    const numericTypes = new Set(['double', 'currency', 'percent', 'int', 'integer', 'long']);
-    const dateTypes = new Set(['date', 'datetime', 'time']);
-
-    if (textTypes.has(sourceType) && textTypes.has(targetType)) return true;
-    if (numericTypes.has(sourceType) && numericTypes.has(targetType)) return true;
-    if (dateTypes.has(sourceType) && dateTypes.has(targetType)) return true;
-
-    return false;
+    return areFieldTypesCompatible(sourceType, targetType);
   }
 
   /** Infer the best mapping type based on source/target types. */

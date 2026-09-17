@@ -96,6 +96,7 @@ vi.mock('../../stores/useForgeStore', () => {
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     setExecutionRequestId: (...args: unknown[]) => mockSetExecutionRequestId(...args),
+    resetNodeStatuses: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),

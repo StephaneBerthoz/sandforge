@@ -118,6 +118,17 @@ export interface SyncExecutionResult {
   totalSkipped: number;
   duration: number;
   timestamp: ISODateString;
+  /**
+   * Why the run ended, when it ended on an error. Absent on a clean run.
+   *
+   * A run that threw was stored as "failure, 0 ms, 0 objects" and nothing
+   * else: the message went to the output channel and to a toast, and the
+   * history row — the one place the user comes back to — had nothing to show
+   * but the word "failure". The only error text the detail panel could render
+   * lived on a per-object result, and a run that threw before reading an
+   * object has none.
+   */
+  error?: string;
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */

@@ -187,6 +187,18 @@ else
   echo "SKIP: VSIX payload gates (sandforge.vsix not present)"
 fi
 
+# 6e. The stylesheets and bundles the webview shell links to. 1.23.0 shipped
+# with both `<link rel="stylesheet">` tags pointing at files the build had
+# stopped producing, so every panel and the sidebar rendered with no CSS —
+# and passed every check above, because none of them read the paths the
+# extension resolves. This one does, against the artifact just packaged.
+if node scripts/check-webview-assets.mjs --vsix; then
+  :
+else
+  echo "FAIL: the webview shell links assets the build or the VSIX does not carry"
+  ERRORS=$((ERRORS + 1))
+fi
+
 # 7. VSIX size check (< 5 MB) — cross-platform using node
 if [[ -f "sandforge.vsix" ]]; then
   SIZE=$(node -p "require('fs').statSync('sandforge.vsix').size")

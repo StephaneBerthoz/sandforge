@@ -789,9 +789,19 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(progressMsg);
     }, 100);
     const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
-      // Always pass through terminal/error states so the UI can finalize.
+      /*
+       * Always pass through terminal states so the UI can finalize — and
+       * 'skipped' is terminal.
+       *
+       * The throttle coalesces and keeps only the last arguments, and the
+       * executor emits 'skipped' with no await between two nodes: back-to-back
+       * skips lost all but the last. Those nodes stayed "queued" for the whole
+       * run, progress stuck at done/total, and the webview's "every node has
+       * settled" test never fired — mission control span forever on a run that
+       * had finished.
+       */
       const status = (event as { status?: string }).status;
-      if (status === 'done' || status === 'error') {
+      if (status === 'done' || status === 'error' || status === 'skipped') {
         throttledExecProgress.flush();
         const progressMsg = buildResponse(
           this.deps,

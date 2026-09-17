@@ -5,6 +5,129 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-09-17
+
+### Fixed
+
+- **The panel had no stylesheet at all.** 1.23.0 linked
+  `webview-dist/assets/style.css` from every panel and
+  `webview-dist/assets/sidepanel.css` from the sidebar, and shipped neither:
+  the webview build emits its stylesheet under a name Vite chooses from the
+  package, and the move to Vite 6 changed that name from `style.css` to
+  `webview.css`. Both `<link>` tags resolved to nothing, so the whole product
+  rendered as unstyled HTML — browser-default buttons, the "skip to main
+  content" link visible at the top of the page, labels run together with no
+  spacing — and the sidebar lost its own stylesheet on top, because the branch
+  that gave it one tested for the old name too. The two names are now pinned by
+  the build, and a check reads the paths the extension resolves and asks the
+  file system for each one: it runs after every build, on every platform in CI,
+  and again against the packaged VSIX before a release.
+- **A sync writes the fields it read.** A configuration with no field mapping —
+  which is every configuration whose objects were added without a visit to the
+  mapping step — reached Salesforce with an empty record for every row. The
+  mapper returned an empty object instead of the record, against the contract
+  the field-type precheck states ("with no mapping, every same-named field"),
+  and the only test of it asserted the empty object. A run with no mapping now
+  copies each record as it was read.
+- **A sync no longer upserts on a key the target org has never issued.** Quick
+  Sync and ten of the built-in templates ran as "upsert on Id": no External ID
+  field was named, so the writer fell back to `Id` — a record id that belongs
+  to the source org — and the payload did not even carry it, since `Id` cannot
+  be created and so is never mapped. No such run could match a single record.
+  Quick Sync and the templates now insert, the wizard starts with no key, and
+  an upsert without an External ID field is refused before the run with the two
+  ways out. Running Quick Sync twice therefore inserts the records twice, which
+  is what it was always doing when it worked at all.
+- **The auto-mapper stops proposing a mapping the run will refuse.** It matched
+  fields on label similarity without looking at their types, so a picklist
+  labelled "Active" was mapped onto a checkbox labelled "Active" — and the
+  field-type precheck then ended the whole run over a mapping nobody had typed,
+  advising a compatible type or a transform on a Quick Sync that has no mapping
+  screen. It also kept its own compatibility table, narrower than the one the
+  precheck enforces, so it declined pairs the run would have accepted. Both now
+  read the same table.
+- **A failed run says why, where you come back to look.** A run that threw was
+  stored as "failure", four zeroes and nothing else: the reason went to the
+  output channel and to a notification, and the history row — the one place
+  that survives — had no field to hold it. The result now carries the reason and
+  the history detail shows it.
+- **A run that fails partway reports what it wrote.** The objects already
+  written were discarded when a later one failed, so a run that copied two
+  objects of three and then failed was indistinguishable from one that never
+  started: "failure, 0 objects, 0 ms". The failure now carries the per-object
+  results and the real duration.
+- **A saved draft cannot hold a setting the page no longer offers.** The Sync
+  wizard restored `direction` and `mode` from the draft without checking them.
+  A draft saved while _Target to source_ was still offered reopened on it — the
+  page showing "Source to target" while the state said otherwise — and every
+  run from that draft was refused. A draft on `incremental`, `delta` or `cdc`
+  was worse: the Mode dropdown is gone, so nothing could change it back. Both
+  now fall back to what the page offers, as the conflict strategy already did.
+- **Quick Sync no longer syncs the same object twice.** Adding a parent pushed
+  it into both the selected and the parent list, and the two were concatenated:
+  the object was described twice, copied twice and counted twice.
+- **Quick Sync stops offering a parent a sync cannot create.** Every lookup
+  target the org reported as creatable was offered, and `Account.OwnerId` points
+  at `User`: the wizard suggested adding users, and the run then tried to create
+  them — a licence and a unique username each — which ends the sync. `User`,
+  `UserRole`, `Profile`, `PermissionSet`, `RecordType`, `Group`, `Queue` and the
+  three file objects are no longer suggested.
+- **Sixteen labels showed their own translation key instead of a word.** The
+  Autopilot dependency graph's legend named its ten node statuses and
+  relationship types one level too deep, so it read
+  "autopilot.graph.legend.pending" down the list in all six languages. A
+  finished sync showed "sync.history.status_failure" in its own history table
+  and "sync.history.triggeredManual" in the column beside it, and a schedule
+  showed "sync.schedules.result_success", because those entries existed in no
+  language. A queued Autopilot node showed "autopilot.graph.queued", the one
+  status of the eight with no entry. All sixteen now read as text, and two
+  checks hold the catalogue to the code: every key-shaped literal in the
+  webview has to resolve, however it reaches `t()` — the legend's keys sat in a
+  table, which is why the existing check never saw them — and every family of
+  keys the code builds has to be filled in every language, with the families
+  whose members come from a union in the source read from that union.
+- **The welcome screen greeted you twice.** The first screen a new user sees
+  showed "Welcome to SandForge" and "Forge your Salesforce sandboxes with
+  confidence" as its header, and then repeated both, word for word, as the
+  first step's own heading.
+- **Forge stops showing the previous run's progress.** Node statuses were never
+  cleared when a run started, and they live as long as the panel: after an
+  abort or a failed run, the next run opened already part-finished — two
+  objects "done", nothing in flight — and stayed that way through the opening
+  phase, which emits no event. The elapsed clock ran while the counters sat
+  still, which is also why the remaining time read exactly the elapsed time.
+- **A skipped object no longer leaves Forge running forever.** Only "done" and
+  "error" were sent past the throttle that batches progress events, and the
+  throttle keeps just the last one: two objects skipped back to back lost the
+  first, so its node stayed "queued" for the rest of the run and the view never
+  saw every node settle. Mission control span on a run that had finished.
+- **Forge's progress and time remaining count the objects it is finished
+  with.** Both divided by the objects that had succeeded, so a skipped or
+  failed object read as outstanding work: a completed run with two skips of
+  four objects showed 50%, could never reach 100%, and doubled its own estimate
+  of the time left.
+- **A graph node's record and field counts are readable in your language.**
+  "records", "fields" and "cloneable" were written into the component in
+  English, so a French, German, Spanish, Japanese or Portuguese user read them
+  in English beside their own translated labels.
+
+### Build
+
+- **The paths the extension resolves are checked against the files the build
+  produces.** Nothing tied the two sides together, which is how 1.23.0 shipped
+  with no stylesheet: the unit tests mock `vscode` and assert the shape of the
+  HTML, the E2E suite loads the Vite build directly rather than through the
+  extension, and the VSIX payload checks looked for the locale bundles and the
+  lazy chunks. The new check reads every `webview-dist` path the providers
+  resolve, requires each to exist and carry bytes, requires the panels and the
+  sidebar to link different stylesheets — one name for both means the second
+  build pass overwrites the first — and, before a release, requires each to be
+  in the VSIX. It has its own tests, because a gate that reads source with a
+  pattern fails open: they found that it missed the shape Prettier writes when
+  the call wraps.
+- **The smoke suite no longer ships to users.** Its compiled output and the
+  test runner's config were installed on every machine that took 1.23.0.
+
 ## [1.23.0] - 2026-09-17
 
 ### Fixed

@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Handle, Position } from 'reactflow';
 import type { NodeProps } from 'reactflow';
 import { Check, Loader2, Clock, X, AlertTriangle, Minus, Shield } from 'lucide-react';
@@ -73,6 +74,7 @@ function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement
  * indicator, and an include/exclude checkbox.
  */
 export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) => {
+  const { t } = useTranslation();
   const {
     objectApiName,
     recordCount,
@@ -164,14 +166,17 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
 
       {/* Counts: records + size */}
       <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
-        <span>{recordCount.toLocaleString()} records</span>
+        <span>{t('forge.node.records', { records: recordCount.toLocaleString() })}</span>
         <span>~{estimatedSizeMB.toFixed(1)} MB</span>
       </div>
 
       {/* Fields: total vs createable */}
       <div className="mt-0.5 text-[10px] text-text-secondary">
         <span>
-          {fieldCount} fields ({createableFieldCount} cloneable)
+          {t('forge.node.fieldsCloneable', {
+            total: fieldCount,
+            cloneable: createableFieldCount,
+          })}
         </span>
       </div>
 

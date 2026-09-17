@@ -811,7 +811,10 @@
       "nextRun": "Próxima ejecución",
       "lastRun": "Última ejecución",
       "pause": "Pausar",
-      "resume": "Reanudar"
+      "resume": "Reanudar",
+      "result_success": "Correcto",
+      "result_partial": "Parcial",
+      "result_failure": "Con errores"
     },
     "history": {
       "title": "Historial de sincronizaciones",
@@ -820,8 +823,15 @@
       "objects": "Objetos",
       "records": "Registros",
       "status": "Estado",
+      "status_success": "Correcto",
+      "status_partial": "Parcial",
+      "status_failure": "Con errores",
+      "failureReason": "Motivo del error",
       "duration": "Duración",
       "triggeredBy": "Activado por",
+      "triggeredManual": "Manual",
+      "triggeredSchedule": "Programación",
+      "triggeredRerun": "Reejecución",
       "endTime": "Finalizado a las",
       "objectResults": "Resultados por objeto",
       "processed": "Procesados",
@@ -1176,6 +1186,7 @@
   "onboarding": {
     "welcomeTitle": "Bienvenido a SandForge",
     "welcomeSubtitle": "Forje sus sandboxes Salesforce con confianza",
+    "welcomeTagline": "Su kit de herramientas todo en uno para la gestión de sandboxes",
     "step1Title": "Conecte su Org",
     "step1Desc": "Vincule sus organizaciones Salesforce para comenzar",
     "step2Title": "Tres formas de rellenar su sandbox",
@@ -1185,9 +1196,6 @@
     "skipOnboarding": "Omitir",
     "connectOrg": "Conectar una Org",
     "aiOptional": "Las funciones de IA son opcionales. Puede configurarlas más tarde en Configuración.",
-    "bienvenueTitle": "Bienvenido a SandForge",
-    "bienvenueDesc": "Forje sus sandboxes Salesforce con confianza.",
-    "bienvenueTagline": "Su kit de herramientas todo en uno para la gestión de sandboxes",
     "chooseLanguage": "Elija su idioma",
     "step4Title": "Primeros pasos",
     "step4Desc": "Según su tipo de org, aquí hay un punto de partida recomendado",
@@ -1232,7 +1240,17 @@
       "speed": "Monitor y Forge se abren más rápido",
       "speedDesc": "Menos llamadas a Salesforce en cada actualización y en cada descubrimiento del grafo",
       "honesty": "Solo se ofrece lo que existe",
-      "honestyDesc": "Las pestañas, los modos y las opciones que no llevaban a ninguna parte han desaparecido: lo que ve es lo que se ejecuta"
+      "honestyDesc": "Las pestañas, los modos y las opciones que no llevaban a ninguna parte han desaparecido: lo que ve es lo que se ejecuta",
+      "stylesheet": "El panel vuelve a parecerse a sí mismo",
+      "stylesheetDesc": "La 1.23.0 salió sin su hoja de estilos, así que cada pantalla se mostraba como HTML sin formato. Ahora una comprobación lee los archivos a los que se enlaza la extensión y pide cada uno al disco.",
+      "syncWrites": "Una sincronización escribe los campos que ha leído",
+      "syncWritesDesc": "Una configuración sin asignación de campos escribía registros vacíos, y Quick Sync comparaba con una clave que la org de destino nunca había emitido: ninguna ejecución podía funcionar.",
+      "failureReason": "Una ejecución con errores dice por qué",
+      "failureReasonDesc": "El motivo se conserva en la entrada del historial, junto a los objetos que la ejecución ya había escrito antes de detenerse.",
+      "forgeProgress": "Forge ya no muestra el progreso de la ejecución anterior",
+      "forgeProgressDesc": "Los estados de los nodos se reinician al empezar, un objeto omitido cuenta como terminado, y el tiempo restante se mide sobre el trabajo ya resuelto.",
+      "deadKeys": "Dieciséis etiquetas mostraban su propia clave de traducción",
+      "deadKeysDesc": "La leyenda de Autopilot, las columnas de estado y de origen del historial y un nodo en cola vuelven a leerse, en los seis idiomas."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -1663,7 +1681,11 @@
     },
     "soqlObjectNameInvalid": "«{{object}}» no es un nombre de API de SObject, así que la cláusula WHERE no puede enviarse con él. Debe empezar por una letra y tener como máximo 80 letras, dígitos o guiones bajos.",
     "hintSoqlObjectNameInvalid": "Corrija el nombre del objeto después de FROM para descubrir el grafo",
-    "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto."
+    "truncatedRead": "Leído solo en parte: {{objects}}. El origen tiene más filas de las que se clonaron: divida la ejecución con filtros que queden cada uno por debajo del límite para clonar el resto.",
+    "node": {
+      "records": "{{records}} registros",
+      "fieldsCloneable": "{{total}} campos ({{cloneable}} clonables)"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1730,6 +1752,7 @@
         "relationships": "Relaciones"
       },
       "pending": "Pendiente",
+      "queued": "En cola",
       "extracting": "Extrayendo",
       "anonymizing": "Anonimizando",
       "loading": "Cargando",

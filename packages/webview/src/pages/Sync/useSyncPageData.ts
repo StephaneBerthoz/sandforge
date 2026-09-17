@@ -152,6 +152,26 @@ export const OFFERED_CONFLICT_STRATEGIES: readonly ConflictStrategy[] = [
 ];
 
 /**
+ * The directions and modes a run accepts, and what a draft holding anything
+ * else reopens on.
+ *
+ * `target_to_source` wrote into the org you meant to read from and is refused
+ * by the bridge; the three partial modes only ever replayed a full sync and are
+ * refused too. Both options are gone from the page — and the Mode dropdown is
+ * gone entirely — so a draft saved while they were offered reopened on a value
+ * with no option to change it, and every run from that draft was refused with
+ * no way out but clearing the draft. `conflictStrategy` was already sanitised
+ * this way; direction and mode were not.
+ */
+export const OFFERED_DIRECTIONS: readonly SyncDirection[] = ['source_to_target', 'bidirectional'];
+export const OFFERED_MODES: readonly SyncMode[] = ['full'];
+
+/** A draft value the page can still offer, or the default it falls back to. */
+export function offeredOr<T>(offered: readonly T[], value: T, fallback: T): T {
+  return offered.includes(value) ? value : fallback;
+}
+
+/**
  * The transform settings TransformBuilder types into, all of them text. They
  * are listed so a key from the outside cannot reach the rule's config, and
  * `length` is left out: it is the only numeric setting and is read apart.
@@ -225,12 +245,14 @@ export function useSyncPageData(): SyncPageData {
   const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
   const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
   const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
-  const [direction, setDirection] = useState<SyncDirection>(initialDraft.current.direction);
-  const [mode, setMode] = useState<SyncMode>(initialDraft.current.mode);
+  const [direction, setDirection] = useState<SyncDirection>(
+    offeredOr(OFFERED_DIRECTIONS, initialDraft.current.direction, 'source_to_target'),
+  );
+  const [mode, setMode] = useState<SyncMode>(
+    offeredOr(OFFERED_MODES, initialDraft.current.mode, 'full'),
+  );
   const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(
-    OFFERED_CONFLICT_STRATEGIES.includes(initialDraft.current.conflictStrategy)
-      ? initialDraft.current.conflictStrategy
-      : 'source_wins',
+    offeredOr(OFFERED_CONFLICT_STRATEGIES, initialDraft.current.conflictStrategy, 'source_wins'),
   );
   const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
     initialDraft.current.objectEntries,
@@ -400,14 +422,29 @@ export function useSyncPageData(): SyncPageData {
   // Fetch fields when entering field mapping step, or when the orgs or objects
   // change on it. `mutate` is read through a ref so the dependency array names
   // those triggers only.
+  /*
+   * The mapping step describes ONE object — the first of the set — so the
+   * mappings the user draws belong to that object and to no other. They used to
+   * be attached to every object of the run: with three objects selected,
+   * Contact and Opportunity were sent Account's field mappings, so the writer
+   * dropped every field they did not happen to share and the field-type
+   * precheck compared Account's fields against Contact's schema and ended the
+   * run. The object they were drawn for is remembered here; the others carry no
+   * mapping, which means "copy the record as read".
+   */
+  const [mappedObject, setMappedObject] = useState<string | undefined>(
+    () => initialDraft.current.objectEntries[0]?.objectApiName,
+  );
   const describeFields = useLatestRef(fieldsMutation.mutate);
   useEffect(() => {
     if (currentStep === 1 && sourceOrgId && targetOrgId && objectEntries.length > 0) {
-      describeFields.current({
-        sourceOrgId,
-        targetOrgId,
-        objectApiName: objectEntries[0].objectApiName,
+      const objectApiName = objectEntries[0].objectApiName;
+      // Mappings drawn against another object's fields cannot survive the swap.
+      setMappedObject((previous) => {
+        if (previous !== objectApiName) setMappings([]);
+        return objectApiName;
       });
+      describeFields.current({ sourceOrgId, targetOrgId, objectApiName });
     }
   }, [currentStep, sourceOrgId, targetOrgId, objectEntries, describeFields]);
 
@@ -423,8 +460,11 @@ export function useSyncPageData(): SyncPageData {
       ...prev,
       {
         objectApiName: apiName,
-        operation: 'upsert' as SyncOperation,
-        externalIdField: 'Id',
+        // Insert, and no key: an upsert on `Id` cannot match across orgs — the
+        // id belongs to the source — and the bridge now refuses it. The box
+        // starts empty, and naming a real External ID field enables upsert.
+        operation: 'insert' as SyncOperation,
+        externalIdField: '',
         batchSize: 200,
         where: '',
       },
@@ -489,7 +529,9 @@ export function useSyncPageData(): SyncPageData {
       template.objects.map((o) => ({
         objectApiName: o.objectApiName,
         operation: o.operation,
-        externalIdField: o.externalIdField,
+        // The editor row always has the box; a template without a key leaves
+        // it empty, and the bridge reads an empty box as "no key".
+        externalIdField: o.externalIdField ?? '',
         batchSize: o.batchSize,
         where: '',
       })),
@@ -515,7 +557,8 @@ export function useSyncPageData(): SyncPageData {
         externalIdField: entry.externalIdField,
         batchSize: entry.batchSize,
         where: entry.where || undefined,
-        fieldMappings: mappings,
+        // Only the object the mapping step described; see `mappedObject`.
+        fieldMappings: entry.objectApiName === mappedObject ? mappings : [],
         transformRules: transforms,
         excludedFields: [],
         addOnFields: [],

@@ -160,10 +160,12 @@ describe('FieldMappingService', () => {
       });
     });
 
-    it('should return empty object for empty mappings', () => {
+    it('copies the record as read when there is no mapping', () => {
+      // This test used to assert `{}`, and so locked the defect in place: a
+      // sync whose objects were added but never mapped wrote empty records.
       const record = { Name: 'Acme' };
       const result = service.apply(record, []);
-      expect(result).toEqual({});
+      expect(result).toEqual(record);
     });
   });
 
@@ -217,5 +219,23 @@ describe('FieldMappingService', () => {
       const result = service.applyAddOns(record, addOns);
       expect(result.Priority__c).toBe(5);
     });
+  });
+});
+
+describe('FieldMappingService.apply with no mapping', () => {
+  it('copies the record as read instead of emptying it', () => {
+    // A wizard config whose objects were added but never mapped reached the
+    // writer with `fieldMappings: []`, and every row was written as `{}`.
+    const service = new FieldMappingService();
+    const record = { Name: 'Acme', AnnualRevenue: 42, Custom__c: null };
+    expect(service.apply(record, [])).toEqual(record);
+  });
+
+  it('returns a copy, so the writer cannot mutate what was read', () => {
+    const service = new FieldMappingService();
+    const record = { Name: 'Acme' };
+    const applied = service.apply(record, []);
+    applied.Name = 'changed';
+    expect(record.Name).toBe('Acme');
   });
 });

@@ -157,3 +157,28 @@ describe('AutoFieldMapper', () => {
     });
   });
 });
+
+describe('a label match never outruns the field-type precheck', () => {
+  const mapper = new AutoFieldMapper();
+
+  it('refuses to map a picklist onto a checkbox that shares its label', () => {
+    // `Active__c` (picklist, "Active") and `IsActive` (boolean, "Active") score
+    // 1.0 on label. The mapper used to emit the pair and the run then refused
+    // itself over a mapping nobody typed — on a Quick Sync with no mapping UI.
+    const suggestions = mapper.suggest(
+      [f('Active__c', 'Active', 'picklist')],
+      [f('IsActive', 'Active', 'boolean')],
+    );
+    expect(suggestions.map((s) => s.reason)).not.toContain('label_match');
+  });
+
+  it('still maps a label match when the types fit', () => {
+    const suggestions = mapper.suggest(
+      [f('Active__c', 'Active', 'picklist')],
+      [f('Etat__c', 'Active', 'string')],
+    );
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].reason).toBe('label_match');
+    expect(suggestions[0].targetField).toBe('Etat__c');
+  });
+});

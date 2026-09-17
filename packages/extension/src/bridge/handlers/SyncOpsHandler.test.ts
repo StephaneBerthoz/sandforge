@@ -140,7 +140,7 @@ function validSyncConfig(): Record<string, unknown> {
     objects: [
       {
         objectApiName: 'Account',
-        operation: 'upsert',
+        operation: 'insert',
         externalIdField: 'Ext_Id__c',
         batchSize: 200,
         fieldMappings: [],

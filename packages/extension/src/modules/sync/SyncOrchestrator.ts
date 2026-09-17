@@ -12,6 +12,7 @@ import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
 import type { IncrementalTracker } from './IncrementalTracker';
 import type { CoreServices } from '../../services.js';
+import { SyncRunFailure } from './SyncRunFailure.js';
 
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
@@ -102,7 +103,30 @@ export class SyncOrchestrator {
 
     let partitionIndex = 0;
     for (const objectConfig of sortedObjects) {
-      const result = await this.syncObject(config, objectConfig);
+      let result: SyncObjectResult;
+      try {
+        result = await this.syncObject(config, objectConfig);
+      } catch (err: unknown) {
+        /*
+         * The run stops here, but what the objects before this one wrote is
+         * still reported. Letting the error travel bare discarded the lot: the
+         * handler's catch built a result with `objectResults: []`, `duration: 0`
+         * and four zeroes, so a run that wrote two objects of three and then
+         * failed on the third was stored — and shown in the history panel — as
+         * "failure, 0 objects, 0 ms", with no way to tell it from a run that
+         * never started.
+         */
+        objectResults.push({
+          ...createEmptyResult(objectConfig),
+          failed: 1,
+          errors: [err instanceof Error ? err.message : String(err)],
+        });
+        throw new SyncRunFailure(
+          err instanceof Error ? err.message : String(err),
+          buildResult(config.id, operationId, objectResults, startTime, 'failure'),
+          err,
+        );
+      }
       objectResults.push(result);
 
       if (grappeActive) {

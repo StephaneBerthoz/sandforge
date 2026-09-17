@@ -12,9 +12,12 @@ const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'ut
  *
  * Rollup cannot emit multiple IIFE inputs with inlineDynamicImports, so the
  * build runs TWICE (see the package.json build script):
- *   vite build                  → assets/index.js      (full panel bundle, entry src/main.tsx)
- *   vite build --mode sidepanel → assets/sidepanel.js  (sidebar-only bundle, entry src/main.sidepanel.tsx)
+ *   vite build                  → assets/index.js + assets/style.css
+ *                                 (full panel bundle, entry src/main.tsx)
+ *   vite build --mode sidepanel → assets/sidepanel.js + assets/sidepanel.css
+ *                                 (sidebar-only bundle, entry src/main.sidepanel.tsx)
  * The sidepanel pass uses emptyOutDir:false so it doesn't wipe the first pass.
+ * Those four names are what the extension links to — see `assetFileNames`.
  */
 export default defineConfig(({ mode }) => {
   const isSidepanel = mode === 'sidepanel';
@@ -32,12 +35,30 @@ export default defineConfig(({ mode }) => {
       },
       rollupOptions: {
         output: {
-          /* The sidebar graph excludes page-only CSS (reactflow …), so its
-             stylesheet differs from the panels' — emit it under its own name. */
-          assetFileNames: (assetInfo) =>
-            isSidepanel && assetInfo.name === 'style.css'
-              ? 'assets/sidepanel.css'
-              : 'assets/[name].[ext]',
+          /*
+           * The stylesheet names are a CONTRACT with the extension: the HTML
+           * shell links `assets/style.css` from a panel and
+           * `assets/sidepanel.css` from the sidebar
+           * (providers/WebviewPanelManager.ts, providers/SidebarViewProvider.ts).
+           * They are pinned here, by extension rather than by the name Vite
+           * chose, because that name is not ours: Vite 5 called the lib-mode
+           * stylesheet `style.css` and Vite 6 calls it after the package
+           * (`webview.css`). The old branch tested for `style.css` exactly, so
+           * the upgrade silently (a) stopped giving the sidebar its own file
+           * and (b) emitted a name neither `<link>` asks for — every webview
+           * of 1.23.0 loaded with no CSS at all. The two names must also
+           * differ: both passes write into the same `dist`, and the second
+           * would overwrite the first. `scripts/check-webview-assets.mjs`
+           * checks that every path the extension requests is a file the build
+           * produced.
+           */
+          assetFileNames: (assetInfo) => {
+            const name = assetInfo.names?.[0] ?? assetInfo.name ?? '';
+            if (name.endsWith('.css')) {
+              return isSidepanel ? 'assets/sidepanel.css' : 'assets/style.css';
+            }
+            return 'assets/[name].[ext]';
+          },
           /* Inline everything — webview CSP blocks dynamic imports */
           inlineDynamicImports: true,
         },

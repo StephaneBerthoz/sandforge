@@ -57,3 +57,9 @@ CLAUDE.md
 cli/
 tools/
 examples/
+# The smoke suite and its runner. `test/` above covers the TypeScript sources;
+# these are the compiled output and the @vscode/test-cli config, which landed in
+# the 1.23.0 VSIX and were installed on every user's machine.
+out-smoke/
+.vscode-test.mjs
+.vscode-test/

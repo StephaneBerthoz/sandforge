@@ -130,6 +130,8 @@ export interface ForgeState {
   setPhase: (phase: ForgePhase) => void;
   /** Update a node's status and optionally its progress. */
   updateNodeStatus: (objectName: string, status: ForgeNodeStatus, progress?: number) => void;
+  /** Put every node back to idle, so a new run does not inherit the last one's statuses. */
+  resetNodeStatuses: () => void;
   /** Toggle whether a node is included in execution. */
   toggleNodeIncluded: (objectName: string) => void;
   /**
@@ -200,6 +202,34 @@ export const useForgeStore = create<ForgeState>((set) => ({
         graph: {
           ...state.graph,
           nodes: updateGraphNodeStatus(state.graph.nodes, objectName, status, progress),
+        },
+      };
+    });
+  },
+
+  /*
+   * The store outlives a run: it is not persisted, but it lives as long as the
+   * panel does. Nothing cleared the node statuses when a run started, so after
+   * an abort or a failed run the next one opened on the previous statuses —
+   * two nodes "done", two "queued", 50%, nothing in flight — and stayed there
+   * through the whole opening phase, which emits no event. The elapsed clock
+   * ran while the counters sat still, which is also why the remaining-time
+   * estimate (elapsed x remaining / done) read exactly the elapsed time.
+   */
+  resetNodeStatuses(): void {
+    set((state) => {
+      if (!state.graph) return state;
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) => ({
+            ...n,
+            status: 'idle' as ForgeNodeStatus,
+            progress: 0,
+            successCount: 0,
+            failureCount: 0,
+            errors: [],
+          })),
         },
       };
     });

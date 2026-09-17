@@ -120,7 +120,7 @@ function validSyncConfig(id: string, name: string): Record<string, unknown> {
     objects: [
       {
         objectApiName: 'Account',
-        operation: 'upsert',
+        operation: 'insert',
         fieldMappings: [],
         transformRules: [],
         excludedFields: [],
@@ -1826,7 +1826,7 @@ describe('ExtensionHandlers', () => {
             objects: [
               {
                 objectApiName: 'Account',
-                operation: 'upsert',
+                operation: 'insert',
                 externalIdField: 'Ext_Id__c',
                 fieldMappings: [],
                 transformRules: [],
@@ -1865,7 +1865,7 @@ describe('ExtensionHandlers', () => {
             objects: [
               {
                 objectApiName: 'Account',
-                operation: 'upsert',
+                operation: 'insert',
                 externalIdField: 'Ext_Id__c',
                 fieldMappings: [],
                 transformRules: [],

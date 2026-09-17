@@ -125,7 +125,28 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
     orderBy: orderByClauseSchema.optional(),
     batchSize: z.number().int().positive().max(MAX_BATCH_SIZE).optional(),
   })
-  .strip();
+  .strip()
+  /*
+   * An upsert needs a key the target org can match on, and `Id` is not one.
+   *
+   * The writer fell back to `Id` whenever no External ID field was named, so
+   * every Quick Sync and most built-in templates ran as "upsert on Id" — a
+   * source-org record id the target has never issued, on a payload that does
+   * not even carry it (`Id` is not createable, so the auto-mapper never maps
+   * it). The run reached Salesforce and failed there, or wrote nothing, and
+   * the reason never surfaced. Refused here instead, with the two ways out.
+   */
+  .refine(
+    (object) => object.operation !== 'upsert' || (object.externalIdField ?? 'Id') !== 'Id',
+    (object) => ({
+      path: ['externalIdField'],
+      message:
+        `An upsert of "${object.objectApiName}" needs an External ID field: matching on Id cannot ` +
+        `work, because the id belongs to the source org and the target has never issued it. ` +
+        `Name an External ID field both orgs share, or set the operation to insert. ` +
+        `The sync was not started.`,
+    }),
+  );
 
 /**
  * An Apex hook a sync config used to carry. A sync moves data and never runs

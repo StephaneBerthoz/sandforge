@@ -131,6 +131,9 @@ export const ForgeReview: React.FC = () => {
    */
   const handleExecute = useCallback(() => {
     if (!graph || !config) return;
+    // Clear the previous run's node statuses first: they live as long as the
+    // panel, so a run after an abort opened already half "done" and sat there.
+    useForgeStore.getState().resetNodeStatuses();
     const requestId = sendBridgeMessage<{ graph: ForgeGraph; config: ForgeConfig }>(
       'forge:execute',
       { graph, config },

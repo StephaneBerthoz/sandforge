@@ -30,7 +30,16 @@ const QUICK_SYNC_DEFAULTS = {
   direction: 'source_to_target' as const,
   mode: 'full' as const,
   conflictStrategy: 'source_wins' as const,
-  operation: 'upsert' as const,
+  /*
+   * Insert, not upsert: Quick Sync asks for no External ID field, so the
+   * writer fell back to matching on `Id` — a source-org id the target has
+   * never issued, on a payload that does not carry `Id` at all. Every Quick
+   * Sync was an upsert that could not match. Running it twice now inserts the
+   * records twice, which is the honest behaviour for a flow whose job is to
+   * populate an empty sandbox; an upsert needs a key, and the wizard is where
+   * you name one.
+   */
+  operation: 'insert' as const,
   batchSize: 200,
 };
 
@@ -210,7 +219,11 @@ export class QuickSyncHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      const allObjects = [...payload.selectedObjects, ...(payload.parentObjects ?? [])];
+      // `addParentObject` pushes a parent into BOTH lists, so concatenating them
+      // described, previewed, synced and counted the same object twice.
+      const allObjects = [
+        ...new Set([...payload.selectedObjects, ...(payload.parentObjects ?? [])]),
+      ];
       const recordCounts: RecordCountResult[] = [];
 
       for (const objectApiName of allObjects) {
@@ -267,7 +280,10 @@ export class QuickSyncHandler implements DomainHandler {
       );
 
       // Build per-object configs with auto-field mapping
-      const allObjects = [...validatedConfig.selectedObjects, ...validatedConfig.parentObjects];
+      // Deduplicated for the same reason as in handlePreview above.
+      const allObjects = [
+        ...new Set([...validatedConfig.selectedObjects, ...validatedConfig.parentObjects]),
+      ];
       const objectConfigs: Array<{
         objectApiName: string;
         operation: string;

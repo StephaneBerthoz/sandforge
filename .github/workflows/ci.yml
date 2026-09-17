@@ -47,6 +47,14 @@ jobs:
       - name: Validate (typecheck + test + build)
         run: pnpm build:shared && pnpm typecheck && pnpm test && pnpm build
 
+      # After the build, and on every OS: it reads the paths the extension
+      # resolves and asks the file system for them. 1.23.0 shipped with both
+      # `<link rel="stylesheet">` tags pointing at files the build had stopped
+      # producing, so every webview rendered with no CSS, and nothing here
+      # noticed. Not in the static-gates step below — it needs the build.
+      - name: Webview assets the extension links to
+        run: pnpm check:webview-assets
+
       # Static analysis gates are deterministic; run once, not per-OS.
       # Keep this list in sync with the `validate` script in package.json —
       # it drifted once already: four gates (test:docs, test:gates,

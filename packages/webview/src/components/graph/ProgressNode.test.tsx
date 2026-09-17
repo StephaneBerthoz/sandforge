@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ProgressNode } from './ProgressNode';
 import type { ProgressNodeData } from './ProgressNode';
 import type { NodeProps } from 'reactflow';
+import en from '../../i18n/locales/en.json';
 
 /** Helper to build minimal NodeProps for ProgressNode. */
 function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<ProgressNodeData> {
@@ -36,6 +37,27 @@ function makeNodeProps(overrides: Partial<ProgressNodeData> = {}): NodeProps<Pro
 }
 
 /* React Flow requires a parent ReactFlow context for Handles; mock the module. */
+/**
+ * Real interpolation, against the real English catalogue: the node's counts used
+ * to be three hardcoded English words ("records", "fields", "cloneable") shown
+ * inside a French UI, so the assertions below have to read what a user reads,
+ * not a key.
+ */
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, unknown>) => {
+      const template = key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+          en as unknown,
+        );
+      if (typeof template !== 'string') return key;
+      return template.replace(/\{\{(\w+)\}\}/g, (_, name) => String(options?.[name] ?? ''));
+    },
+  }),
+}));
+
 vi.mock('reactflow', () => ({
   Handle: ({ type, position }: { type: string; position: string }) => (
     <div data-testid={`handle-${type}`} data-position={position} />

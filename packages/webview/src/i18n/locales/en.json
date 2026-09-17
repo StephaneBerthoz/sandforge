@@ -811,7 +811,10 @@
       "lastRun": "Last run",
       "pause": "Pause",
       "resume": "Resume",
-      "builderTitle": "Schedule Builder"
+      "builderTitle": "Schedule Builder",
+      "result_success": "Succeeded",
+      "result_partial": "Partial",
+      "result_failure": "Failed"
     },
     "history": {
       "title": "Sync history",
@@ -820,8 +823,15 @@
       "objects": "Objects",
       "records": "Records",
       "status": "Status",
+      "status_success": "Succeeded",
+      "status_partial": "Partial",
+      "status_failure": "Failed",
+      "failureReason": "Why it failed",
       "duration": "Duration",
       "triggeredBy": "Triggered by",
+      "triggeredManual": "Manual",
+      "triggeredSchedule": "Schedule",
+      "triggeredRerun": "Re-run",
       "endTime": "Ended at",
       "objectResults": "Per-object results",
       "processed": "Processed",
@@ -1176,6 +1186,7 @@
   "onboarding": {
     "welcomeTitle": "Welcome to SandForge",
     "welcomeSubtitle": "Forge your Salesforce sandboxes with confidence",
+    "welcomeTagline": "Your all-in-one sandbox management toolkit",
     "step1Title": "Connect Your Org",
     "step1Desc": "Link your Salesforce organizations to get started",
     "step2Title": "Three ways to populate your sandbox",
@@ -1185,9 +1196,6 @@
     "skipOnboarding": "Skip",
     "connectOrg": "Connect an Org",
     "aiOptional": "AI features are optional. You can configure them later in Settings.",
-    "bienvenueTitle": "Welcome to SandForge",
-    "bienvenueDesc": "Forge your Salesforce sandboxes with confidence.",
-    "bienvenueTagline": "Your all-in-one sandbox management toolkit",
     "chooseLanguage": "Choose your language",
     "step4Title": "First Steps",
     "step4Desc": "Based on your org type, here is a recommended starting point",
@@ -1232,7 +1240,17 @@
       "speed": "Monitor and Forge open faster",
       "speedDesc": "Fewer round trips to Salesforce on each refresh and each graph discovery",
       "honesty": "Only what ships is offered",
-      "honestyDesc": "Tabs, modes and options that led nowhere are gone, so what you see is what runs"
+      "honestyDesc": "Tabs, modes and options that led nowhere are gone, so what you see is what runs",
+      "stylesheet": "The panel looks like itself again",
+      "stylesheetDesc": "1.23.0 shipped without its stylesheet, so every screen rendered as bare HTML. A check now reads the files the extension links to and asks the disk for each one.",
+      "syncWrites": "A sync writes the fields it read",
+      "syncWritesDesc": "A configuration with no field mapping wrote empty records, and Quick Sync matched on a key the target org had never issued — so no run could succeed.",
+      "failureReason": "A failed run tells you why",
+      "failureReasonDesc": "The reason is kept on the history entry, next to the objects the run had already written before it stopped.",
+      "forgeProgress": "Forge no longer shows the last run\\u2019s progress",
+      "forgeProgressDesc": "Node statuses are cleared when a run starts, a skipped object counts as finished, and the time remaining is measured on the work that settled.",
+      "deadKeys": "Sixteen labels showed their own translation key",
+      "deadKeysDesc": "The Autopilot legend, the sync history status and trigger columns and a queued node read as text again, in all six languages."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1663,7 +1681,11 @@
     },
     "soqlObjectNameInvalid": "\"{{object}}\" is not an SObject API name, so the WHERE clause cannot be sent under it. It must start with a letter and hold at most 80 letters, digits or underscores.",
     "hintSoqlObjectNameInvalid": "Fix the object name after FROM to discover the graph",
-    "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest."
+    "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
+    "node": {
+      "records": "{{records}} records",
+      "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1730,6 +1752,7 @@
         "relationships": "Relationships"
       },
       "pending": "Pending",
+      "queued": "Queued",
       "extracting": "Extracting",
       "anonymizing": "Anonymizing",
       "loading": "Loading",

@@ -811,7 +811,10 @@
       "nextRun": "Nächste Ausführung",
       "lastRun": "Letzte Ausführung",
       "pause": "Pausieren",
-      "resume": "Fortsetzen"
+      "resume": "Fortsetzen",
+      "result_success": "Erfolgreich",
+      "result_partial": "Teilweise",
+      "result_failure": "Fehlgeschlagen"
     },
     "history": {
       "title": "Sync-Verlauf",
@@ -820,8 +823,15 @@
       "objects": "Objekte",
       "records": "Datensätze",
       "status": "Status",
+      "status_success": "Erfolgreich",
+      "status_partial": "Teilweise",
+      "status_failure": "Fehlgeschlagen",
+      "failureReason": "Ursache des Fehlers",
       "duration": "Dauer",
       "triggeredBy": "Ausgelöst von",
+      "triggeredManual": "Manuell",
+      "triggeredSchedule": "Zeitplan",
+      "triggeredRerun": "Neuer Lauf",
       "endTime": "Beendet um",
       "objectResults": "Ergebnisse pro Objekt",
       "processed": "Verarbeitet",
@@ -1176,6 +1186,7 @@
   "onboarding": {
     "welcomeTitle": "Willkommen bei SandForge",
     "welcomeSubtitle": "Schmieden Sie Ihre Salesforce-Sandboxes mit Zuversicht",
+    "welcomeTagline": "Ihr All-in-One-Toolkit für die Sandbox-Verwaltung",
     "step1Title": "Verbinden Sie Ihre Org",
     "step1Desc": "Verknüpfen Sie Ihre Salesforce-Organisationen, um zu beginnen",
     "step2Title": "Drei Wege, Ihre Sandbox zu füllen",
@@ -1185,9 +1196,6 @@
     "skipOnboarding": "Überspringen",
     "connectOrg": "Eine Org verbinden",
     "aiOptional": "KI-Funktionen sind optional. Sie können diese später in den Einstellungen konfigurieren.",
-    "bienvenueTitle": "Willkommen bei SandForge",
-    "bienvenueDesc": "Schmieden Sie Ihre Salesforce-Sandboxes mit Zuversicht.",
-    "bienvenueTagline": "Ihr All-in-One-Toolkit für die Sandbox-Verwaltung",
     "chooseLanguage": "Wählen Sie Ihre Sprache",
     "step4Title": "Erste Schritte",
     "step4Desc": "Basierend auf Ihrem Org-Typ, hier ein empfohlener Startpunkt",
@@ -1232,7 +1240,17 @@
       "speed": "Monitor und Forge öffnen schneller",
       "speedDesc": "Weniger Aufrufe an Salesforce bei jeder Aktualisierung und jeder Graphsuche",
       "honesty": "Angeboten wird nur, was es gibt",
-      "honestyDesc": "Registerkarten, Modi und Optionen, die ins Leere führten, sind entfernt: Was Sie sehen, läuft auch"
+      "honestyDesc": "Registerkarten, Modi und Optionen, die ins Leere führten, sind entfernt: Was Sie sehen, läuft auch",
+      "stylesheet": "Das Panel sieht wieder aus wie es soll",
+      "stylesheetDesc": "Die 1.23.0 ging ohne ihr Stylesheet hinaus, sodass jeder Bildschirm als nacktes HTML erschien. Eine Prüfung liest jetzt die Dateien, auf die die Erweiterung verweist, und fragt für jede die Festplatte.",
+      "syncWrites": "Eine Synchronisierung schreibt die Felder, die sie gelesen hat",
+      "syncWritesDesc": "Eine Konfiguration ohne Feldzuordnung schrieb leere Datensätze, und Quick Sync verglich über einen Schlüssel, den die Ziel-Org nie ausgegeben hatte — kein Lauf konnte gelingen.",
+      "failureReason": "Ein fehlgeschlagener Lauf sagt, warum",
+      "failureReasonDesc": "Der Grund bleibt am Verlaufseintrag, neben den Objekten, die der Lauf vor dem Abbruch bereits geschrieben hatte.",
+      "forgeProgress": "Forge zeigt nicht mehr den Fortschritt des letzten Laufs",
+      "forgeProgressDesc": "Die Knotenstatus werden beim Start zurückgesetzt, ein übersprungenes Objekt zählt als fertig, und die Restzeit wird an der erledigten Arbeit gemessen.",
+      "deadKeys": "Sechzehn Beschriftungen zeigten ihren eigenen Übersetzungsschlüssel",
+      "deadKeysDesc": "Die Autopilot-Legende, die Status- und Auslöserspalten des Verlaufs und ein wartender Knoten lesen sich wieder als Text, in allen sechs Sprachen."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1663,7 +1681,11 @@
     },
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
-    "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen."
+    "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
+    "node": {
+      "records": "{{records}} Datensätze",
+      "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1730,6 +1752,7 @@
         "relationships": "Beziehungen"
       },
       "pending": "Ausstehend",
+      "queued": "In der Warteschlange",
       "extracting": "Extrahierung",
       "anonymizing": "Anonymisierung",
       "loading": "Laden",

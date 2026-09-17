@@ -11,6 +11,17 @@ export class FieldMappingService {
    * Each mapping type controls how the source field value is transferred.
    */
   apply(record: Record<string, unknown>, mappings: FieldMapping[]): Record<string, unknown> {
+    /*
+     * No mapping means "copy the record as it was read". Returning an empty
+     * object instead wrote EMPTY records: a sync configured without a visit to
+     * the mapping step — which is every run of a wizard config whose objects
+     * were added but never mapped — reached Salesforce with `{}` per row. The
+     * field-type precheck already documents this contract ("with no mapping,
+     * every same-named field"), and the only end-to-end test of the
+     * orchestrator stubbed this service, so nothing read what it returned.
+     */
+    if (mappings.length === 0) return { ...record };
+
     const result: Record<string, unknown> = {};
 
     for (const mapping of mappings) {

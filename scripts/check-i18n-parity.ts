@@ -814,8 +814,21 @@ const BASELINE_CENSUS = { recorded: '2026-09-10', count: 0 } as const;
  */
 const DYNAMIC_TAIL_PREFIXES: readonly string[] = ['home', 'sidePanel.relativeTime'];
 
-/** `a.b.` — the literal head of a key whose rest is only known at runtime. */
-const KEY_PREFIX = /^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*\.$/;
+/**
+ * `a.b.` — the literal head of a key whose rest is only known at runtime.
+ *
+ * A trailing underscore counts as well as a trailing dot: a family is as often
+ * written flat as nested, `t(`sync.history.status_${status}`)` beside
+ * `t(`sync.operations.${op}`)`. Requiring the dot left every flat family
+ * unexempted, so its entries read as unreferenced and the only way to land
+ * them was the baseline — which is why `sync.history.status_*` and
+ * `sync.schedules.result_*` were never added at all, and a finished run showed
+ * "sync.history.status_failure" in its own history table. The head still has
+ * to come from a real `t()` call in production code, so the amnesty is earned
+ * the same way; what each family owes its members is checked separately, by
+ * `scripts/i18n-key-literals.test.mjs`.
+ */
+const KEY_PREFIX = /^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*[._]$/;
 /** `.a.b` — the literal tail of a key whose head is only known at runtime. */
 const KEY_TAIL = /^(?:\.[a-zA-Z0-9_]+)+$/;
 

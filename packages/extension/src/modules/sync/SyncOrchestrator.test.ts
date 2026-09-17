@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
+import { SyncRunFailure } from './SyncRunFailure';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
@@ -300,5 +301,45 @@ describe('SyncOrchestrator', () => {
       expect(deps.countSource).not.toHaveBeenCalled();
       expect(deps.onGrappeEvent).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('a run that fails partway reports what it wrote', () => {
+  it('carries the finished objects and the real duration on the failure', async () => {
+    // The objects already written used to be discarded: a run that copied one
+    // object and then failed on the next was stored as "failure, 0 objects,
+    // 0 ms", indistinguishable from one that never started.
+    const deps = createMockDeps();
+    deps.querySource = vi
+      .fn()
+      .mockResolvedValueOnce([{ Name: 'Acme' }])
+      .mockRejectedValueOnce(new Error('target session expired'));
+    deps.dataSync = {
+      sync: vi.fn().mockResolvedValue(createSuccessResult('Account')),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+    const orchestrator = new SyncOrchestrator(deps);
+
+    const config = createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', insertOrder: 0 }),
+        createObjectConfig({ objectApiName: 'Contact', insertOrder: 1 }),
+      ],
+    });
+
+    const failure = await orchestrator.execute(config).then(
+      () => undefined,
+      (err: unknown) => err as SyncRunFailure,
+    );
+
+    expect(failure).toBeInstanceOf(SyncRunFailure);
+    expect(failure?.message).toBe('target session expired');
+    expect(failure?.result.status).toBe('failure');
+    expect(failure?.result.objectResults.map((r) => r.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+    ]);
+    // The object that failed carries the reason, and the one before it its counts.
+    expect(failure?.result.objectResults[1].errors).toEqual(['target session expired']);
+    expect(failure?.result.totalSuccess).toBe(1);
   });
 });

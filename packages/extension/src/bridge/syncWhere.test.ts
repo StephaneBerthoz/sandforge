@@ -54,7 +54,7 @@ const HONEST_WHERE = [
 function createConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
   return {
     objectApiName: 'Account',
-    operation: 'upsert',
+    operation: 'insert',
     fieldMappings: [],
     transformRules: [],
     excludedFields: [],

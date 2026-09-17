@@ -77,7 +77,7 @@ describe('RelationshipDetector', () => {
     expect(suggestions).toHaveLength(0);
   });
 
-  it('detects multiple parent suggestions from polymorphic fields', () => {
+  it('keeps the syncable targets of a polymorphic field and drops the rest', () => {
     const suggestions = detector.detect(
       'Opportunity',
       opportunityFields,
@@ -85,7 +85,43 @@ describe('RelationshipDetector', () => {
       ['Account', 'User', 'Group'],
     );
 
-    // AccountId -> Account, OwnerId -> User and Group
-    expect(suggestions.length).toBeGreaterThanOrEqual(3);
+    // This test used to require all three — `OwnerId -> User` and
+    // `OwnerId -> Group` included — and so asked the detector to suggest
+    // parents a sync cannot create. Only `AccountId -> Account` is a parent a
+    // run can actually write.
+    expect(suggestions.map((s) => s.parentObject)).toEqual(['Account']);
+  });
+});
+
+describe('parents a sync cannot write are not offered', () => {
+  it('leaves User out, even though the org reports it createable', () => {
+    // `Account.OwnerId` points at `User`. Suggesting it sent the user into a
+    // run that tried to create users — a licence and a unique username each.
+    const detector = new RelationshipDetector();
+    const suggestions = detector.detect(
+      'Account',
+      [{ name: 'OwnerId', type: 'reference', referenceTo: ['User'], relationshipName: 'Owner' }],
+      [],
+      ['User', 'Contact'],
+    );
+    expect(suggestions.map((s) => s.parentObject)).not.toContain('User');
+  });
+
+  it('still offers a parent a sync can write', () => {
+    const detector = new RelationshipDetector();
+    const suggestions = detector.detect(
+      'Contact',
+      [
+        {
+          name: 'AccountId',
+          type: 'reference',
+          referenceTo: ['Account'],
+          relationshipName: 'Account',
+        },
+      ],
+      [],
+      ['Account'],
+    );
+    expect(suggestions.map((s) => s.parentObject)).toEqual(['Account']);
   });
 });

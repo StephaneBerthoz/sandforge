@@ -23,7 +23,7 @@ function validSyncConfig(): Record<string, unknown> {
     objects: [
       {
         objectApiName: 'Account',
-        operation: 'upsert',
+        operation: 'insert',
         batchSize: 200,
         fieldMappings: [],
         transformRules: [],

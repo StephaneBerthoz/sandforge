@@ -116,6 +116,25 @@ const LOSSY_CONVERSIONS: Array<{ source: string; target: string; reason: string 
  * Validates field type compatibility between source and target schemas,
  * and validates record values against target field constraints.
  */
+/**
+ * Whether a value of `sourceType` can be written to a field of `targetType`.
+ *
+ * The one table, shared with the auto-mapper. It used to keep its own, narrower
+ * one — text, numeric and date families only — so the two disagreed in both
+ * directions: the mapper proposed a picklist onto a checkbox, which this table
+ * refuses and which ended the whole run, and it declined a picklist onto a text
+ * field, which this table allows. A mapping suggestion the run will refuse is
+ * worse than no suggestion, so they now answer the same question with the same
+ * data.
+ */
+export function areFieldTypesCompatible(sourceType: string, targetType: string): boolean {
+  const source = sourceType.toLowerCase();
+  const target = targetType.toLowerCase();
+  if (source === target) return true;
+  const allowed = COMPATIBLE_TYPES[source];
+  return allowed ? allowed.has(target) : target === 'string';
+}
+
 export class FieldTypeValidator {
   /**
    * Validate type compatibility for a set of field mappings.
@@ -245,8 +264,7 @@ export class FieldTypeValidator {
       };
     }
 
-    const allowed = COMPATIBLE_TYPES[normalizedSource];
-    const compatible = allowed ? allowed.has(normalizedTarget) : normalizedTarget === 'string';
+    const compatible = areFieldTypesCompatible(normalizedSource, normalizedTarget);
 
     const lossy = LOSSY_CONVERSIONS.find(
       (l) => l.source === normalizedSource && l.target === normalizedTarget,

@@ -50,6 +50,7 @@ import {
   isSyncFileObject,
 } from '../validatePayload.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
+import { SyncRunFailure } from '../../modules/sync/SyncRunFailure.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
@@ -1069,17 +1070,23 @@ export class SyncOpsHandler implements DomainHandler {
       // Failure-status result (instead of a rejection) so scheduled executions
       // can persist lastResult='failure' without an unhandled rejection in the
       // BackgroundOperationRegistry's monitored promise.
+      // A run that failed partway through carries what it had already written
+      // (SyncRunFailure). Without it every failure read as "0 objects, 0 ms".
+      const partial = err instanceof SyncRunFailure ? err.result : undefined;
       const failureResult: SyncExecutionResult = {
+        ...(partial ?? {
+          objectResults: [],
+          totalProcessed: 0,
+          totalSuccess: 0,
+          totalFailed: 0,
+          totalSkipped: 0,
+          duration: 0,
+        }),
         configId: config.id,
         operationId,
         status: 'failure',
-        objectResults: [],
-        totalProcessed: 0,
-        totalSuccess: 0,
-        totalFailed: 0,
-        totalSkipped: 0,
-        duration: 0,
         timestamp: new Date().toISOString(),
+        error: extractErrorMessage(err),
       };
 
       // Persist the failed execution too (same contract as the success path

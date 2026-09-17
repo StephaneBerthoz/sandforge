@@ -47,7 +47,22 @@ function assertRequiredFields(template: SyncTemplateConfig): void {
   for (const obj of template.objects) {
     expect(obj.objectApiName).toBeTruthy();
     expect(obj.operation).toBeTruthy();
-    expect(obj.externalIdField).toBeTruthy();
+    /*
+     * A key only where a key is used, and never `Id`.
+     *
+     * This used to require one on every object, whatever the operation, and so
+     * every template filled it with `Id` — which reads as a key and is not
+     * one: the id belongs to the source org, the target has never issued it,
+     * and the payload does not carry it. Ten of these templates therefore ran
+     * as an upsert that could match nothing. The bridge now refuses that
+     * configuration, so the rule the templates owe is this one.
+     */
+    if (obj.operation === 'upsert') {
+      expect(obj.externalIdField).toBeTruthy();
+      expect(obj.externalIdField).not.toBe('Id');
+    } else {
+      expect(obj.externalIdField).toBeUndefined();
+    }
     expect(obj.batchSize).toBeGreaterThan(0);
     expect(typeof obj.insertOrder).toBe('number');
   }

@@ -13,20 +13,20 @@ interface LegendItem {
 
 /** Node status legend entries. */
 const NODE_STATUSES: LegendItem[] = [
-  { labelKey: 'autopilot.graph.legend.pending', colorClass: 'bg-gray-500' },
-  { labelKey: 'autopilot.graph.legend.extracting', colorClass: 'bg-blue-500' },
-  { labelKey: 'autopilot.graph.legend.anonymizing', colorClass: 'bg-purple-500' },
-  { labelKey: 'autopilot.graph.legend.loading', colorClass: 'bg-green-500' },
-  { labelKey: 'autopilot.graph.legend.completed', colorClass: 'bg-green-600' },
-  { labelKey: 'autopilot.graph.legend.failed', colorClass: 'bg-red-500' },
+  { labelKey: 'autopilot.graph.pending', colorClass: 'bg-gray-500' },
+  { labelKey: 'autopilot.graph.extracting', colorClass: 'bg-blue-500' },
+  { labelKey: 'autopilot.graph.anonymizing', colorClass: 'bg-purple-500' },
+  { labelKey: 'autopilot.graph.loading', colorClass: 'bg-green-500' },
+  { labelKey: 'autopilot.graph.completed', colorClass: 'bg-green-600' },
+  { labelKey: 'autopilot.graph.failed', colorClass: 'bg-red-500' },
 ];
 
 /** Edge type legend entries. */
 const EDGE_TYPES: LegendItem[] = [
-  { labelKey: 'autopilot.graph.legend.masterDetail', colorClass: 'bg-amber-500' },
-  { labelKey: 'autopilot.graph.legend.lookup', colorClass: 'bg-blue-500', dashed: true },
-  { labelKey: 'autopilot.graph.legend.hierarchical', colorClass: 'bg-cyan-500', dashed: true },
-  { labelKey: 'autopilot.graph.legend.polymorphic', colorClass: 'bg-[#a78bfa]' },
+  { labelKey: 'autopilot.graph.masterDetail', colorClass: 'bg-amber-500' },
+  { labelKey: 'autopilot.graph.lookup', colorClass: 'bg-blue-500', dashed: true },
+  { labelKey: 'autopilot.graph.hierarchical', colorClass: 'bg-cyan-500', dashed: true },
+  { labelKey: 'autopilot.graph.polymorphic', colorClass: 'bg-[#a78bfa]' },
 ];
 
 /**

@@ -219,15 +219,15 @@ function WelcomePageView(
         {/* Step 0: Bienvenue */}
         {step === 0 && (
           <div data-testid="welcome-step-bienvenue" className="text-center">
+            {/*
+              The step leads with the tagline, not with its own title: the
+              header above already says "Welcome to SandForge" and the same
+              subtitle, and step 0 used to repeat both word for word — the
+              first screen a new user sees greeted them twice.
+            */}
             <div className="text-6xl mb-4">{'\uD83D\uDD25'}</div>
-            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
-              {t('onboarding.bienvenueTitle')}
-            </h2>
-            <p className="mb-2" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
-              {t('onboarding.bienvenueDesc')}
-            </p>
-            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-secondary)' }}>
-              {t('onboarding.bienvenueTagline')}
+            <p className="mb-6 text-sm" style={{ color: 'var(--sf-text-secondary)' }}>
+              {t('onboarding.welcomeTagline')}
             </p>
             {/* Primary use case — what SandForge is for */}
             <div
