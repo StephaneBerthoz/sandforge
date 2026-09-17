@@ -55,7 +55,7 @@
     "autoprefixer": "^10",
     "eslint": "catalog:",
     "jsdom": "^24",
-    "postcss": "^8",
+    "postcss": "^8.5.28",
     "tailwindcss": "^3",
     "typescript": "catalog:",
     "vite": "^5",
