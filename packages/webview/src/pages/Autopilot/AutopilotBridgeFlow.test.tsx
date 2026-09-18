@@ -281,6 +281,40 @@ describe('Autopilot bridge flow', () => {
     expect(accountNode?.status).toBe('completed');
     expect(accountNode?.successCount).toBe(100);
 
+    /*
+     * And the panel headed "live stats" is live. These two numbers used to be
+     * written exactly twice — zeroed at the start, filled in by
+     * `autopilot:completed` — so a run showed "0 / 180 records, 0 API calls"
+     * for its whole length while the executor was emitting the real figures
+     * into nothing.
+     */
+    expect(useAutopilotStore.getState().liveStats.recordsProcessed).toBe(100);
+
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'completed',
+        wave: 1,
+        recordCount: 50,
+        apiCallsUsed: 3,
+      },
+      executeRequest.id,
+    );
+    expect(useAutopilotStore.getState().liveStats.recordsProcessed).toBe(150);
+    expect(useAutopilotStore.getState().liveStats.apiCallsUsed).toBe(3);
+
+    // Reconciled at the end of a run, every node is sent its terminal status a
+    // second time — summing the nodes rather than accumulating is what keeps
+    // that from counting twice.
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      { nodeId: 'Contact', objectName: 'Contact', status: 'completed', wave: 1, recordCount: 50 },
+      executeRequest.id,
+    );
+    expect(useAutopilotStore.getState().liveStats.recordsProcessed).toBe(150);
+
     // ── Pause / resume / skip ──────────────────────────────────────────
     fireEvent.click(screen.getByTestId('control-pause-resume'));
     expect(lastRequestOfType('autopilot:pause')).toBeDefined();

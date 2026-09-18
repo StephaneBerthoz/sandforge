@@ -62,6 +62,7 @@ export const AutopilotPage: React.FC = () => {
         wave: number;
         recordCount?: number;
         failureCount?: number;
+        apiCallsUsed?: number;
         error?: string;
       };
     }
@@ -80,7 +81,29 @@ export const AutopilotPage: React.FC = () => {
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);
     }
-    store.updateLiveStats({ currentWave: msg.payload.wave });
+    /*
+     * Total what the run has done so far, rather than waiting for the end.
+     *
+     * These two numbers used to be written exactly twice: zeroed when the run
+     * started and filled in by `autopilot:completed`. In between, a run of two
+     * waves showed "0 / 243 records" and "0 / 131 API calls" for its whole
+     * length, under a panel headed "live stats". Records are summed from the
+     * nodes rather than accumulated, so a status a node reaches twice — the
+     * handler reconciles every node once the run ends — cannot count twice.
+     */
+    const settled = useAutopilotStore.getState().graph?.nodes ?? [];
+    const recordsProcessed = settled.reduce(
+      // `successCount` is where the store records what a node wrote.
+      (sum, node) => sum + (node.status === 'completed' ? (node.successCount ?? 0) : 0),
+      0,
+    );
+    store.updateLiveStats({
+      currentWave: msg.payload.wave,
+      recordsProcessed,
+      ...(msg.payload.apiCallsUsed !== undefined
+        ? { apiCallsUsed: store.liveStats.apiCallsUsed + msg.payload.apiCallsUsed }
+        : {}),
+    });
   });
 
   useMessageListener<

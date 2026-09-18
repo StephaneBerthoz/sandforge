@@ -1264,7 +1264,9 @@
       "forgeCounts": "Forge fills in the counts as it reads them",
       "forgeCountsDesc": "A run started from a template showed no record or field counts on its graph, for the whole run. They now arrive as each object is read.",
       "uncopyable": "Users and metadata are no longer offered for copying",
-      "uncopyableDesc": "Salesforce reports User, UserRole and RecordType as creatable, so runs tried to copy them — a user costs a licence and a unique username. One rule now covers every module."
+      "uncopyableDesc": "Salesforce reports User, UserRole and RecordType as creatable, so runs tried to copy them — a user costs a licence and a unique username. One rule now covers every module.",
+      "liveStats": "Autopilot's live stats are live",
+      "liveStatsDesc": "The records and API-call counters sat at zero for the whole run and jumped to their final value at the end. Each object now reports what it wrote as it finishes."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

@@ -1264,7 +1264,9 @@
       "forgeCounts": "Forge trägt die Zahlen ein, während es liest",
       "forgeCountsDesc": "Ein aus einer Vorlage gestarteter Lauf zeigte im Graphen den ganzen Lauf über keine Datensatz- oder Feldzahlen. Sie kommen jetzt an, sobald das jeweilige Objekt gelesen ist.",
       "uncopyable": "Benutzer und Metadaten werden nicht mehr zum Kopieren angeboten",
-      "uncopyableDesc": "Salesforce meldet User, UserRole und RecordType als anlegbar, also versuchten Läufe sie zu kopieren — ein Benutzer kostet eine Lizenz und einen eindeutigen Namen. Eine Regel gilt nun für alle Module."
+      "uncopyableDesc": "Salesforce meldet User, UserRole und RecordType als anlegbar, also versuchten Läufe sie zu kopieren — ein Benutzer kostet eine Lizenz und einen eindeutigen Namen. Eine Regel gilt nun für alle Module.",
+      "liveStats": "Die Live-Statistik von Autopilot ist live",
+      "liveStatsDesc": "Die Zähler für Datensätze und API-Aufrufe standen den ganzen Lauf über auf null und sprangen am Ende auf ihren Endwert. Jedes Objekt meldet jetzt beim Abschluss, was es geschrieben hat."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

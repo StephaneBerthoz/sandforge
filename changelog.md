@@ -5,6 +5,26 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.2] - 2026-09-18
+
+### Fixed
+
+- **Autopilot's live stats are live.** The panel headed "Live Stats" wrote its
+  two counters exactly twice: zeroed when a run started, and filled in by the
+  message that says the run has finished. In between it showed "0 / 243
+  records" and "0 / 131 API calls" for the whole length of the run. Nothing was
+  stuck — the numbers had nowhere to come from. Every node of every wave was
+  marked as processing before execution began, the run then happened in
+  silence, and every node was marked done once it was over. The executor had
+  been emitting a `node-completed` event per object the whole time, carrying
+  the records it wrote and the API calls it took, and nothing had ever
+  subscribed to it: the event stream went into the void. Each node is now
+  forwarded to the page as it settles, a failed node reports the records it
+  wrote before it failed, and the records total is summed from the nodes rather
+  than accumulated — so the reconciliation pass at the end of a run, which
+  sends every node its terminal status a second time, cannot count anything
+  twice.
+
 ## [1.25.1] - 2026-09-18
 
 ### Fixed

@@ -15,6 +15,8 @@ import type {
   ComplianceProfile,
   ComplianceReport,
   GrappeConfig,
+  AutopilotNodeCompletedEvent,
+  AutopilotNodeFailedEvent,
 } from '@sandforge/shared';
 import type { SchemaScanner, AutopilotConnection, SchemaScanResult } from './SchemaScanner.js';
 import type {
@@ -230,6 +232,17 @@ export class AutopilotOrchestrator {
     graph: AutopilotGraph,
     rules: AnonymizationRule[],
     recordCounts: Map<string, number>,
+    /**
+     * Called as each node settles, while the run is still going.
+     *
+     * The executor has always emitted these — `node-completed` carries the
+     * records written and the API calls it took — and nothing ever subscribed.
+     * The whole stream went into the void, so the panel called "live stats"
+     * marked every node as processing before the run began, sat in silence for
+     * its whole length, and filled in every number at the end. A run of two
+     * waves showed "0 / 243 records, 0 / 131 API calls" throughout.
+     */
+    onNodeSettled?: (event: AutopilotNodeCompletedEvent | AutopilotNodeFailedEvent) => void,
   ): Promise<ExecutionResult> {
     const totalRecords = Array.from(recordCounts.values()).reduce((s, c) => s + c, 0);
     const grappeActive = this.isGrappeActive(totalRecords);
@@ -251,6 +264,17 @@ export class AutopilotOrchestrator {
     this.emitEvent({ type: 'execution-started', timestamp: new Date().toISOString() });
     // One executor per execution: pause/skip state is per-run, never shared.
     const executor = this.deps.createExecutor();
+    /*
+     * `on` hands back its own unsubscribe, and both are called in the `finally`
+     * below. The executor is per-run and goes out of scope there, but these two
+     * listeners close over the caller's message and its broker, so they are let
+     * go explicitly rather than left to the garbage collector's judgement.
+     */
+    const noUnsubscribe = (): void => {};
+    const offCompleted = onNodeSettled
+      ? executor.on('node-completed', onNodeSettled)
+      : noUnsubscribe;
+    const offFailed = onNodeSettled ? executor.on('node-failed', onNodeSettled) : noUnsubscribe;
     for (const skipped of this.pendingSkips) {
       executor.skip(skipped);
     }
@@ -261,6 +285,8 @@ export class AutopilotOrchestrator {
       result = await executor.execute(plan, graph.edges, rules, recordCounts);
     } finally {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
+      offCompleted();
+      offFailed();
     }
     // Deliberately after the try, not inside it: a crashed execution rethrows,
     // and neither the completion event nor the grappe:completed below may fire

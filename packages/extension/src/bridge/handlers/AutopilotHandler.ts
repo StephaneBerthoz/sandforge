@@ -345,11 +345,47 @@ export class AutopilotHandler implements DomainHandler {
         }
       }
 
+      /*
+       * Forward each node as it settles, while the run is still going.
+       *
+       * The loop above marks every node of every wave as processing before
+       * anything starts, and the loop below marks them all done once
+       * everything has finished — so between the two the panel called "live
+       * stats" sat in silence for the length of the run, showing 0 records
+       * written of 243 and 0 API calls of 131. The executor was emitting the
+       * real numbers the whole time and nothing subscribed.
+       *
+       * The reconciliation loop below is kept: it is the authority on which
+       * nodes completed, failed or were skipped, and re-sending a terminal
+       * status a node already reached changes nothing on the page.
+       */
+      const waveOf = new Map<string, number>();
+      for (const wave of plan.waves) {
+        for (const objectApiName of wave.objects) waveOf.set(String(objectApiName), wave.order);
+      }
+
       const result = await this.orchestrator.executePlan(
         plan,
         graph,
         rules,
         scanResult.recordCounts,
+        (event) => {
+          const name = String(event.objectApiName);
+          if (event.type === 'node-completed') {
+            this.sendNodeProgress(msg, name, 'completed', waveOf.get(name) ?? 0, {
+              recordCount: event.successCount,
+              failureCount: event.failureCount,
+              apiCallsUsed: event.apiCallsUsed,
+            });
+          } else {
+            this.sendNodeProgress(msg, name, 'failed', waveOf.get(name) ?? 0, {
+              // The records written before it failed are real work, and the
+              // reconciliation loop below reports none of them.
+              recordCount: event.partialSuccessCount,
+              error: event.errors.join('; ') || `Execution failed for ${name}`,
+            });
+          }
+        },
       );
 
       // Send node-progress 'completed' or 'failed' per node based on execution result
@@ -416,7 +452,13 @@ export class AutopilotHandler implements DomainHandler {
     objectName: string,
     status: 'processing' | 'completed' | 'failed',
     wave: number,
-    extra?: { recordCount?: number; failureCount?: number; error?: string },
+    extra?: {
+      recordCount?: number;
+      failureCount?: number;
+      error?: string;
+      /** API calls this node cost, so the page can total them as the run goes. */
+      apiCallsUsed?: number;
+    },
   ): void {
     const progressMsg = buildResponse(this.deps, requestMsg, 'autopilot:node-progress', {
       nodeId: objectName,

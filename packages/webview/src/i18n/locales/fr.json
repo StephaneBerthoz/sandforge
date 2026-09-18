@@ -1264,7 +1264,9 @@
       "forgeCounts": "Forge remplit les compteurs au fil de la lecture",
       "forgeCountsDesc": "Un run lancé depuis un modèle n'affichait aucun compteur d'enregistrements ni de champs sur son graphe, pendant tout le run. Ils arrivent maintenant à mesure que chaque objet est lu.",
       "uncopyable": "Les utilisateurs et les métadonnées ne sont plus proposés à la copie",
-      "uncopyableDesc": "Salesforce déclare User, UserRole et RecordType comme créables, donc les runs tentaient de les copier — un utilisateur coûte une licence et un nom unique. Une seule règle couvre désormais tous les modules."
+      "uncopyableDesc": "Salesforce déclare User, UserRole et RecordType comme créables, donc les runs tentaient de les copier — un utilisateur coûte une licence et un nom unique. Une seule règle couvre désormais tous les modules.",
+      "liveStats": "Les stats en direct d'Autopilot le sont vraiment",
+      "liveStatsDesc": "Les compteurs d'enregistrements et d'appels API restaient à zéro pendant tout le run et sautaient à leur valeur finale à la fin. Chaque objet rapporte maintenant ce qu'il a écrit dès qu'il termine."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
