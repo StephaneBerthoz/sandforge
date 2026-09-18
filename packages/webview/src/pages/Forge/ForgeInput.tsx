@@ -227,6 +227,12 @@ export const ForgeInput: React.FC = () => {
                         }
                       }}
                       placeholder={t('forge.recordIdPlaceholder')}
+                      // A placeholder is not a name: it disappears on the first
+                      // keystroke and screen readers are not required to read
+                      // it. The Home hero's record input has carried the same
+                      // label through `t()` since it shipped; this one, the
+                      // flagship path's own field, had none.
+                      aria-label={t('forge.recordIdPlaceholder')}
                       aria-invalid={recordIdInvalid}
                       aria-describedby={recordIdInvalid ? 'forge-record-id-error' : undefined}
                       className={cn(

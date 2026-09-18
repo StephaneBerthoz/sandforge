@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Forge record field has a name a screen reader can read.** It carried a
+  placeholder and nothing else — a placeholder disappears on the first
+  keystroke and assistive technology is not required to announce it. The Home
+  page's record field has had the same label since it shipped; the flagship
+  path's own field had none.
 - **A clone tells Salesforce that it means to duplicate.** A sandbox is a copy
   of the org it was made from, so the records a clone writes look exactly like
   records already there — which is what a duplicate rule exists to stop. Run
