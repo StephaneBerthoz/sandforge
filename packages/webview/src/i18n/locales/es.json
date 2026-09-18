@@ -1262,7 +1262,9 @@
       "orgsCrash": "La página Organizaciones vuelve a abrirse",
       "orgsCrashDesc": "Una org guardada por una versión anterior podía bloquear la página al cargarse. Ahora las orgs almacenadas reciben la forma esperada al leerlas.",
       "forgeCounts": "Forge rellena los recuentos a medida que lee",
-      "forgeCountsDesc": "Una ejecución iniciada desde una plantilla no mostraba recuentos de registros ni de campos en su grafo durante toda la ejecución. Ahora llegan según se lee cada objeto."
+      "forgeCountsDesc": "Una ejecución iniciada desde una plantilla no mostraba recuentos de registros ni de campos en su grafo durante toda la ejecución. Ahora llegan según se lee cada objeto.",
+      "uncopyable": "Los usuarios y los metadatos ya no se ofrecen para copiar",
+      "uncopyableDesc": "Salesforce declara User, UserRole y RecordType como creables, así que las ejecuciones intentaban copiarlos: un usuario cuesta una licencia y un nombre único. Ahora una sola regla cubre todos los módulos."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

@@ -35,6 +35,7 @@ import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -148,6 +149,10 @@ export class SeedCloneHandler implements DomainHandler {
 
       const objects = result.sobjects
         .filter((s: { createable: boolean; queryable: boolean }) => s.createable && s.queryable)
+        // `createable` says the API accepts an insert, not that a copy can make
+        // one: a user costs a licence and a unique username, a record type is
+        // metadata. Offering one sends the user into a run that cannot finish.
+        .filter((s: { name: string }) => !isUncopyableObject(s.name))
         .map((s: { name: string; label: string }) => ({
           apiName: s.name,
           label: s.label,

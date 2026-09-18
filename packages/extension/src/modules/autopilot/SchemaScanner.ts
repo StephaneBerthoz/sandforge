@@ -6,6 +6,7 @@
 
 import type { ApiName } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Abstraction over Salesforce describe API for testability. */
 export interface AutopilotConnection {
@@ -132,11 +133,36 @@ export class SchemaScanner {
       const globalResult = await sourceConn.describeGlobal();
       rootObjects = globalResult.sobjects
         .filter((s) => s.queryable && s.createable)
+        /*
+         * `createable` is the platform's answer to "can the API create one",
+         * and for `User` it is yes — at the cost of a licence and a globally
+         * unique username. A run put 39 of them in its first wave and called
+         * insert on each. `RecordType`, `Profile` and the sharing groups are
+         * metadata, deployed rather than inserted. None of them can be copied,
+         * and a node that fails in wave one leaves every later wave remapping
+         * foreign keys onto records that were never created.
+         */
         .filter((s) => includeStandardObjects || s.custom)
         .map((s) => s.name);
     } else {
       rootObjects = [...selectedObjects];
     }
+
+    /*
+     * Applied to a selection as well as to a discovery, because the rule is
+     * about what a copy can do and not about how the name got into the list.
+     * A saved configuration, a template, or a picker written before this
+     * existed can all carry one, and filtering only the discovered half would
+     * have left the run that started this — 39 `User` records in wave one —
+     * reachable from a saved config.
+     *
+     * `createable` is the platform's answer to "can the API create one", and
+     * for `User` it is yes: at the cost of a licence and a globally unique
+     * username. `RecordType`, `Profile` and the sharing groups are metadata,
+     * deployed rather than inserted. A node that fails in wave one leaves every
+     * later wave remapping foreign keys onto records that were never created.
+     */
+    rootObjects = rootObjects.filter((name) => !isUncopyableObject(name));
 
     // Step 2: Describe all root objects on source
     const objectDescribes = await this.describeAll(sourceConn, rootObjects);

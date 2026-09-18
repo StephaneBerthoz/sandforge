@@ -1262,7 +1262,9 @@
       "orgsCrash": "Die Seite Organisationen öffnet wieder",
       "orgsCrashDesc": "Eine von einer älteren Version gespeicherte Org konnte die Seite beim Laden zum Absturz bringen. Gespeicherte Orgs erhalten beim Lesen nun die erwartete Form.",
       "forgeCounts": "Forge trägt die Zahlen ein, während es liest",
-      "forgeCountsDesc": "Ein aus einer Vorlage gestarteter Lauf zeigte im Graphen den ganzen Lauf über keine Datensatz- oder Feldzahlen. Sie kommen jetzt an, sobald das jeweilige Objekt gelesen ist."
+      "forgeCountsDesc": "Ein aus einer Vorlage gestarteter Lauf zeigte im Graphen den ganzen Lauf über keine Datensatz- oder Feldzahlen. Sie kommen jetzt an, sobald das jeweilige Objekt gelesen ist.",
+      "uncopyable": "Benutzer und Metadaten werden nicht mehr zum Kopieren angeboten",
+      "uncopyableDesc": "Salesforce meldet User, UserRole und RecordType als anlegbar, also versuchten Läufe sie zu kopieren — ein Benutzer kostet eine Lizenz und einen eindeutigen Namen. Eine Regel gilt nun für alle Module."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

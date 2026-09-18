@@ -74,6 +74,12 @@ export * from './constants/seed-templates.js';
 export * from './constants/faker-methods.js';
 export * from './constants/faker-field-defaults.js';
 export * from './constants/sync-templates.js';
+export {
+  isProvisioningObject,
+  isFileBodiedObject,
+  isUncopyableObject,
+  UNCOPYABLE_OBJECT_NAMES,
+} from './constants/uncopyable-objects.js';
 
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';

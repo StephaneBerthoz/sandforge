@@ -1,4 +1,5 @@
 import type { RelationshipSuggestion } from '@sandforge/shared';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Field metadata needed for relationship detection (subset of jsforce describe). */
 export interface DescribeFieldInfo {
@@ -17,31 +18,6 @@ export interface DescribeFieldInfo {
  * These fields represent required relationships where the parent must exist.
  */
 const KNOWN_MASTER_DETAIL_FIELDS = new Set(['OpportunityId', 'CaseId', 'ContractId', 'OrderId']);
-
-/**
- * Parents a sync must never offer to copy, lower-cased.
- *
- * Every lookup was offered as long as the org exposed the parent as createable
- * and queryable, and `Account.OwnerId` points at `User` — which is createable.
- * So the wizard suggested adding `User` as a parent, and the run then tried to
- * create users: each one costs a licence and a globally unique username, and
- * the attempt ends the whole sync. `Profile`, `RecordType`, `UserRole` and the
- * sharing groups are metadata a sync does not move either, and the file objects
- * are refused at the bridge, so suggesting one sent the user straight into a
- * run that could not finish.
- */
-const UNSYNCABLE_PARENTS: ReadonlySet<string> = new Set([
-  'user',
-  'userrole',
-  'profile',
-  'permissionset',
-  'recordtype',
-  'group',
-  'queue',
-  'attachment',
-  'contentversion',
-  'document',
-]);
 
 /**
  * Detects parent object dependencies by analyzing reference/lookup fields
@@ -84,7 +60,7 @@ export class RelationshipDetector {
         // Skip unavailable objects
         if (!availableSet.has(parentObj)) continue;
         // Skip the ones a sync cannot write, whatever the org says about them
-        if (UNSYNCABLE_PARENTS.has(parentObj.toLowerCase())) continue;
+        if (isUncopyableObject(parentObj)) continue;
 
         const relationshipType = this.inferRelationshipType(field.name);
 

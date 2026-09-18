@@ -48,6 +48,7 @@ import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Record count threshold above which streaming pipeline is used per object. */
 const STREAMING_THRESHOLD = 10_000;
@@ -435,6 +436,8 @@ export class SeedOpsHandler implements DomainHandler {
 
       const objects = result.sobjects
         .filter((s: { createable: boolean }) => s.createable)
+        // See SeedCloneHandler: `createable` is not "a copy can make one".
+        .filter((s: { name: string }) => !isUncopyableObject(s.name))
         .map((s: { name: string; label: string }) => ({
           apiName: s.name,
           label: s.label,

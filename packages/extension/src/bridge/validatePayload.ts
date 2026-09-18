@@ -15,6 +15,7 @@ import {
 } from '../core/common/soqlValidator.js';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /**
  * Generic webview-payload validation (defense-in-depth against a compromised
@@ -86,16 +87,15 @@ const MAX_BATCH_SIZE = 10_000;
 // ── sync:* payload schemas ────────────────────────────────────────────────
 
 /**
- * Objects whose content is a file held in a base64 body. Sync has no stage
- * that moves one: Bulk API 2.0 rejects base64, so a run carrying one of these
- * failed past the bulk threshold after the REST path had already written.
- * Matched case-insensitively, as Salesforce matches object names.
+ * Whether `objectApiName` is one no copy can carry.
+ *
+ * Kept as a named export because the sync boundary and the object picker both
+ * call it, and re-exported rather than redefined: the list lived here, in
+ * `RelationshipDetector` and nowhere else, so Autopilot and Seed asked
+ * Salesforce `createable` and were told yes about `User`.
  */
-const SYNC_FILE_OBJECTS = new Set(['attachment', 'contentversion', 'document']);
-
-/** Whether `objectApiName` is an object whose content is a file, which Sync cannot transfer. */
 export function isSyncFileObject(objectApiName: string): boolean {
-  return SYNC_FILE_OBJECTS.has(objectApiName.toLowerCase());
+  return isUncopyableObject(objectApiName);
 }
 
 /**

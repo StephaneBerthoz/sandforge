@@ -5,6 +5,26 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.1] - 2026-09-18
+
+### Fixed
+
+- **No module offers to copy an object the platform will not create.** Every
+  module that picks objects asked Salesforce the same question — "is it
+  queryable and createable?" — and got the same misleading answer. `User` is
+  createable, so an Autopilot run put 39 of them in its first wave and called
+  insert on each: a user costs a licence and a globally unique username, so the
+  node fails, and every later wave is left remapping foreign keys onto records
+  that were never created. `UserRole` and `RecordType` were in the same wave;
+  `Profile`, `PermissionSet` and the sharing groups are metadata, deployed
+  rather than inserted. Sync had learnt this and kept a private list, and the
+  file objects it cannot carry were a second private list beside it — so the
+  scanner in Autopilot and the two object pickers in Seed, written later, knew
+  neither. There is now one rule, in the shared package, with its two reasons
+  kept apart, and all five callers ask it. The Autopilot scanner applies it to
+  an explicit selection as well as to what it discovers, since a saved
+  configuration can carry a name a picker would no longer offer.
+
 ## [1.25.0] - 2026-09-18
 
 ### Fixed

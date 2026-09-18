@@ -353,3 +353,43 @@ describe('SchemaScanner', () => {
     expect(result.objectDescribes.has('Restricted')).toBe(false);
   });
 });
+
+describe('objects no copy can create', () => {
+  const scanner = new SchemaScanner();
+
+  /** `describeGlobal` answering that User and friends are createable, as it does. */
+  const uncopyables = ['User', 'UserRole', 'RecordType', 'Attachment'];
+
+  function orgWithUsers() {
+    return mockConn({
+      globalSObjects: [
+        mockGlobalSObject('Account', { custom: false }),
+        ...uncopyables.map((name) => mockGlobalSObject(name, { custom: false })),
+      ],
+      describes: Object.fromEntries(
+        ['Account', ...uncopyables].map((name) => [name, mockDescribe(name, [], false)]),
+      ),
+    });
+  }
+
+  it('leaves them out of a discovered object set', async () => {
+    // Salesforce says User is createable — at the cost of a licence and a
+    // globally unique username. A run put 39 of them in its first wave.
+    const result = await scanner.scan(orgWithUsers(), orgWithUsers(), [], true);
+
+    expect([...result.objectDescribes.keys()]).toEqual(['Account']);
+  });
+
+  it('leaves them out of an explicit selection too', async () => {
+    // A saved configuration or a picker written before this existed can carry
+    // one, so filtering only the discovered half would leave it reachable.
+    const result = await scanner.scan(
+      orgWithUsers(),
+      orgWithUsers(),
+      ['Account', 'User', 'RecordType'],
+      true,
+    );
+
+    expect([...result.objectDescribes.keys()]).toEqual(['Account']);
+  });
+});
