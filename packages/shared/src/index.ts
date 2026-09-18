@@ -86,6 +86,11 @@ export {
   isUncopyableObject,
   UNCOPYABLE_OBJECT_NAMES,
 } from './constants/uncopyable-objects.js';
+export {
+  EXCLUSIVE_FIELD_GROUPS,
+  exclusiveFieldsToDrop,
+  type ExclusiveFieldGroup,
+} from './constants/exclusive-fields.js';
 
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';

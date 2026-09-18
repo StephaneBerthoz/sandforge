@@ -16,7 +16,7 @@
 
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
-import { isUncopyableObject } from '@sandforge/shared';
+import { exclusiveFieldsToDrop, isUncopyableObject } from '@sandforge/shared';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -87,6 +87,8 @@ export function intersect(a: Set<string>, b: Set<string>): Set<string> {
 
 /** Inputs for {@link cleanNodeRecords}. */
 export interface CleanNodeRecordsInput {
+  /** SObject these records belong to — used for per-object platform rules. */
+  objectApiName: string;
   /** Raw records queried from the source org. */
   records: Record<string, unknown>[];
   /** Source-org field metadata for the node. */
@@ -120,6 +122,7 @@ export interface CleanNodeRecordsInput {
  */
 export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] {
   const {
+    objectApiName,
     records,
     fieldInfos,
     remapper,
@@ -264,6 +267,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         continue;
       }
       cleaned[key] = value;
+    }
+    // Two fields the describe calls createable that the platform accepts
+    // one of. Nothing in the metadata says so, so this is the only place
+    // that can know it.
+    for (const field of exclusiveFieldsToDrop(objectApiName, cleaned)) {
+      delete cleaned[field];
     }
     return { source: r, cleaned, nullifiedFks };
   });

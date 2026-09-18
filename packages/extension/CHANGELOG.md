@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two fields the platform accepts one of no longer travel together.** A
+  describe calls both `UnitPrice` and `TotalPrice` createable, because each one
+  is — just not at the same time, and no metadata expresses that. Cloning an
+  Opportunity that carried products failed on every one of its line items with
+  `FIELD_INTEGRITY_EXCEPTION: only one of unit price or total price may be
+specified`. The unit price is the one kept, since the total is the unit price
+  times the quantity and the reverse does not hold. This unblocks the write but
+  does not on its own make a product-carrying Opportunity clone: the line item
+  then needs its `PricebookEntry`, which the fifty-node discovery cap can leave
+  out of the graph.
 - **`--owner-map` works in the case it exists for.** The flag remaps `OwnerId`
   from a source user to a target one, and its own help text says it is for
   records authored by users who do not exist on the target sandbox. That is

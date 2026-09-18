@@ -864,6 +864,7 @@ export class ForgeExecutor {
       });
 
       const cleanedRecords = cleanNodeRecords({
+        objectApiName: node.objectApiName,
         records,
         fieldInfos,
         remapper,

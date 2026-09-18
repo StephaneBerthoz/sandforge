@@ -29,6 +29,7 @@ const FIELDS: FieldInfo[] = [
 
 function makeInput(overrides?: Partial<CleanNodeRecordsInput>): CleanNodeRecordsInput {
   return {
+    objectApiName: 'Contact',
     records: [],
     fieldInfos: FIELDS,
     remapper: new IdRemapper(),
@@ -106,6 +107,40 @@ describe('cleanNodeRecords', () => {
       }),
     );
     expect(out.cleaned.OwnerId).toBe('005FINAL');
+  });
+
+  it('sends one of two mutually exclusive fields, keeping the authoritative one', () => {
+    const fields: FieldInfo[] = [
+      { name: 'Quantity', queryable: true, createable: true, isReference: false },
+      { name: 'UnitPrice', queryable: true, createable: true, isReference: false },
+      { name: 'TotalPrice', queryable: true, createable: true, isReference: false },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'OpportunityLineItem',
+        records: [{ Quantity: 2, UnitPrice: 7.85, TotalPrice: 15.7 }],
+        fieldInfos: fields,
+        creatableFields: new Set(['Quantity', 'UnitPrice', 'TotalPrice']),
+      }),
+    );
+    // TotalPrice is UnitPrice x Quantity, so the unit price is the one that
+    // reproduces the other.
+    expect(out.cleaned).toEqual({ Quantity: 2, UnitPrice: 7.85 });
+  });
+
+  it('keeps a lone total price when no unit price travels with it', () => {
+    const fields: FieldInfo[] = [
+      { name: 'TotalPrice', queryable: true, createable: true, isReference: false },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        objectApiName: 'OpportunityLineItem',
+        records: [{ TotalPrice: 15.7 }],
+        fieldInfos: fields,
+        creatableFields: new Set(['TotalPrice']),
+      }),
+    );
+    expect(out.cleaned).toEqual({ TotalPrice: 15.7 });
   });
 
   it('applies an owner mapping whose User was never cloned', () => {
