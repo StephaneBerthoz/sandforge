@@ -1258,7 +1258,11 @@
       "perObjectMapping": "Mapeie cada objeto, não apenas o primeiro",
       "perObjectMappingDesc": "O que você mapeava era anexado a todos os objetos da execução, então só um objeto podia realmente ser mapeado. Agora cada um guarda o seu, e um objeto sem mapeamento é copiado campo a campo.",
       "describeOnce": "Um objeto é descrito uma vez, não duas",
-      "describeOnceDesc": "O Quick Sync descrevia seus objetos para montar o mapeamento e a execução os descrevia de novo. Cada descrição tem seu próprio tempo limite, e estourá-lo encerra a execução."
+      "describeOnceDesc": "O Quick Sync descrevia seus objetos para montar o mapeamento e a execução os descrevia de novo. Cada descrição tem seu próprio tempo limite, e estourá-lo encerra a execução.",
+      "orgsCrash": "A página Organizações abre novamente",
+      "orgsCrashDesc": "Uma org salva por uma versão antiga podia travar a página ao carregar. Agora as orgs armazenadas recebem o formato esperado ao serem lidas.",
+      "forgeCounts": "O Forge preenche as contagens conforme lê",
+      "forgeCountsDesc": "Uma execução iniciada a partir de um modelo não mostrava contagens de registros nem de campos no grafo durante toda a execução. Agora elas chegam conforme cada objeto é lido."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",

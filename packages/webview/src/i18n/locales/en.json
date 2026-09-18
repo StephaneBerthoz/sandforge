@@ -1258,7 +1258,11 @@
       "perObjectMapping": "Map every object, not just the first",
       "perObjectMappingDesc": "Whatever you mapped was attached to every object of the run, so only one object could really be mapped. Each now keeps its own, and an object you leave unmapped is copied field for field.",
       "describeOnce": "An object is described once, not twice",
-      "describeOnceDesc": "A Quick Sync described its objects to build the mapping and the run described them all over again. Each describe carries its own timeout, and running out of one ends the run."
+      "describeOnceDesc": "A Quick Sync described its objects to build the mapping and the run described them all over again. Each describe carries its own timeout, and running out of one ends the run.",
+      "orgsCrash": "The Organizations page opens again",
+      "orgsCrashDesc": "An org saved by an older build could crash the page as it loaded. Stored orgs are now given the shape the app expects as they are read.",
+      "forgeCounts": "Forge fills in the counts as it reads them",
+      "forgeCountsDesc": "A run started from a template showed no record or field counts on its graph, for the whole run. They now arrive as each object is read."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

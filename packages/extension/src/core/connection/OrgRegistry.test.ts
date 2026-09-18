@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
-import { OrgRegistry } from './OrgRegistry';
+import { OrgRegistry, healStoredOrg } from './OrgRegistry';
 import { OrgManager } from './OrgManager';
 import { ConfigStore } from '../storage/ConfigStore';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
@@ -312,5 +312,44 @@ describe('OrgRegistry', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe('an org stored by an older build', () => {
+  it('gains the fields its type promises', () => {
+    // `getByCategory` parses JSON with no shape check, and entries written
+    // before `tags` and `appearance` existed are missing them. One such entry
+    // reached the webview with `tags: undefined` and crashed the Organizations
+    // page — the first page most people open — into its error boundary.
+    const stored = {
+      id: 'org-1',
+      alias: 'Legacy',
+      username: 'a@b.com',
+      orgType: 'Sandbox',
+    } as unknown as SalesforceOrg;
+
+    const healed = healStoredOrg(stored);
+
+    expect(healed.tags).toEqual([]);
+    expect(healed.appearance).toEqual({ color: '#4a9eff', icon: 'cloud', position: 0 });
+    expect(healed.alias).toBe('Legacy');
+  });
+
+  it('leaves an entry that already has them alone', () => {
+    const stored = {
+      id: 'org-1',
+      tags: ['UAT'],
+      appearance: { color: '#fff', icon: 'star', position: 3 },
+    } as unknown as SalesforceOrg;
+
+    expect(healStoredOrg(stored)).toMatchObject({
+      tags: ['UAT'],
+      appearance: { color: '#fff', icon: 'star', position: 3 },
+    });
+  });
+
+  it('refuses a tags field that is not a list', () => {
+    const stored = { id: 'org-1', tags: 'UAT' } as unknown as SalesforceOrg;
+    expect(healStoredOrg(stored).tags).toEqual([]);
   });
 });

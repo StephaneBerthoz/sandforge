@@ -53,6 +53,7 @@ export const ForgeExecution: React.FC = () => {
   }, []);
   const graph = useForgeStore((s) => s.graph);
   const updateNodeStatus = useForgeStore((s) => s.updateNodeStatus);
+  const updateNodeCounts = useForgeStore((s) => s.updateNodeCounts);
   const setPhase = useForgeStore((s) => s.setPhase);
   const addLogToStore = useForgeStore((s) => s.addLog);
   const clearLogs = useForgeStore((s) => s.clearLogs);
@@ -163,6 +164,13 @@ export const ForgeExecution: React.FC = () => {
       const progress = typeof payload.progress === 'number' ? payload.progress : undefined;
 
       updateNodeStatus(objectName, status, progress);
+      // Counts ride the same event when the executor has them; a status change
+      // that knows none leaves the node's own alone.
+      updateNodeCounts(objectName, {
+        recordCount: payload.recordCount as number | undefined,
+        fieldCount: payload.fieldCount as number | undefined,
+        createableFieldCount: payload.createableFieldCount as number | undefined,
+      });
 
       const level: LogEntry['level'] = status === 'error' ? 'error' : 'info';
       const logMessage =
@@ -188,7 +196,16 @@ export const ForgeExecution: React.FC = () => {
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [graph, updateNodeStatus, setPhase, addLog, setResult, t, executionRequestId]);
+  }, [
+    graph,
+    updateNodeStatus,
+    updateNodeCounts,
+    setPhase,
+    addLog,
+    setResult,
+    t,
+    executionRequestId,
+  ]);
 
   // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
   const kpis = useMemo(() => {

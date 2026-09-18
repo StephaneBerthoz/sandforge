@@ -132,6 +132,11 @@ export interface ForgeState {
   updateNodeStatus: (objectName: string, status: ForgeNodeStatus, progress?: number) => void;
   /** Put every node back to idle, so a new run does not inherit the last one's statuses. */
   resetNodeStatuses: () => void;
+  /** Record what a node turned out to hold, once the run has read it. */
+  updateNodeCounts: (
+    objectName: string,
+    counts: { recordCount?: number; fieldCount?: number; createableFieldCount?: number },
+  ) => void;
   /** Toggle whether a node is included in execution. */
   toggleNodeIncluded: (objectName: string) => void;
   /**
@@ -230,6 +235,30 @@ export const useForgeStore = create<ForgeState>((set) => ({
             failureCount: 0,
             errors: [],
           })),
+        },
+      };
+    });
+  },
+
+  /*
+   * A graph built from a template starts every count at zero and nothing ever
+   * filled them in, so the cards claimed "0 records, 0 fields" about objects
+   * being cloned. The executor knows them once it has read the node; only the
+   * counts it sends are written, so a status-only event leaves them alone.
+   */
+  updateNodeCounts(objectName, counts): void {
+    set((state) => {
+      if (!state.graph) return state;
+      const given = Object.fromEntries(
+        Object.entries(counts).filter(([, value]) => typeof value === 'number'),
+      );
+      if (Object.keys(given).length === 0) return state;
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
+            n.objectApiName === objectName ? { ...n, ...given } : n,
+          ),
         },
       };
     });

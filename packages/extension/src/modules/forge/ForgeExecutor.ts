@@ -312,6 +312,19 @@ export interface ForgeProgressEvent {
   progress: number;
   /** Human-readable status message. */
   message: string;
+  /**
+   * What the node turned out to hold, once the run has read it.
+   *
+   * A graph built from a template is assembled locally, with every count at
+   * zero, on the promise that "the real record counts arrive later via the
+   * executor's per-node query". They never did: this event carried four fields
+   * and none of them was a count, so the cards read "0 records, 0 fields" about
+   * objects that were being cloned at that moment. Absent on events that do not
+   * know — a status change is not a measurement.
+   */
+  recordCount?: number;
+  fieldCount?: number;
+  createableFieldCount?: number;
 }
 
 /** Sample of a record that failed insertion, with the platform errors. */

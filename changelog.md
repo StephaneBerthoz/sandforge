@@ -5,6 +5,55 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-09-18
+
+### Fixed
+
+- **The Organizations page no longer crashes on an org stored by an older
+  build.** Orgs are read back from storage as parsed JSON with no shape check,
+  and entries written before `tags` and `appearance` existed are missing them —
+  which the code that writes them has said in a comment for as long as it has
+  guarded against it. Nothing guarded the read, so such an entry reached the
+  panel with `tags: undefined`, the org card called `.map` on it, and the first
+  page most people open went to its error boundary. A stored org is given the
+  shape its type promises as it is read, which is the one place every reader
+  goes through.
+- **A Forge node card fills in its counts as the run reads them.** A graph built
+  from a template is assembled locally with every count at zero, on the stated
+  promise that the real ones arrive with the run. They never did: the progress
+  event carried a name, a status, a percentage and a message, and nothing else,
+  so the cards said "0 records, 0 fields" about objects being cloned at that
+  moment — and, since 1.24.2, "size not measured" for the whole run. The event
+  now carries what the node turned out to hold, and an event that knows no
+  counts leaves the node's own alone.
+
+### Build
+
+- **Every panel is opened, in two languages, and has to say something.** The
+  suite drove one page — Home — and checked it for raw translation keys in five
+  of the catalogue's thirty-five sections. All seventeen routes the panel router
+  can mount are now opened in English and in French, and each has to render
+  without reaching its error boundary, render something rather than nothing, and
+  render no catalogue key as its own text. It reads each route's first screen,
+  which is what fourteen of them had never had looked at — the Organizations
+  crash above is what it found on its first run. It does not reach a page's
+  populated state, and says so where it is written: the raw keys that shipped in
+  1.23.0 all lived in one, and `scripts/i18n-key-literals.test.mjs` is what
+  catches those. A key is a literal, so the source is the complete check there
+  and the render is the partial one — the opposite of the contrast rule, and the
+  file explains which side holds the whole answer.
+- **The manifest and the code are held to the same names.** `contributes` is a
+  set of strings the editor resolves at runtime and the compiler never sees, so
+  renaming one side fails nothing and the editor quietly shows an empty view, a
+  blank walkthrough step, a raw `%placeholder%` in the Settings editor or
+  "Unknown module" in a full-width panel — the shape of the defect that shipped
+  1.23.0 without a stylesheet. Six pairs are now checked on every push: every
+  `%key%` resolves and no bundle entry is unused, every walkthrough step points
+  at a file that exists, every completion event names a contributed command, the
+  view and its container and the provider are one name, every module a command
+  opens is a route the webview can mount, and every setting the code reads is
+  one the manifest declares. Each rule was made to fail before it was kept.
+
 ## [1.24.2] - 2026-09-17
 
 ### Fixed

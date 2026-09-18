@@ -543,3 +543,40 @@ describe('useForgeStore', () => {
     });
   });
 });
+
+describe('counts the run discovers', () => {
+  it('fills in what a template graph could not know', () => {
+    // A graph built from a template starts every count at zero, and nothing
+    // ever filled them in: the cards said "0 records, 0 fields" about objects
+    // being cloned at that moment.
+    const store = useForgeStore.getState();
+    store.setGraph({
+      nodes: [{ objectApiName: 'Account', recordCount: 0, fieldCount: 0, createableFieldCount: 0 }],
+      edges: [],
+    } as never);
+
+    useForgeStore.getState().updateNodeCounts('Account', {
+      recordCount: 120,
+      fieldCount: 35,
+      createableFieldCount: 20,
+    });
+
+    const node = useForgeStore.getState().graph?.nodes[0];
+    expect(node).toMatchObject({ recordCount: 120, fieldCount: 35, createableFieldCount: 20 });
+  });
+
+  it('leaves a node alone when the event carries no count', () => {
+    const store = useForgeStore.getState();
+    store.setGraph({
+      nodes: [{ objectApiName: 'Account', recordCount: 7, fieldCount: 3, createableFieldCount: 2 }],
+      edges: [],
+    } as never);
+
+    useForgeStore.getState().updateNodeCounts('Account', {});
+
+    expect(useForgeStore.getState().graph?.nodes[0]).toMatchObject({
+      recordCount: 7,
+      fieldCount: 3,
+    });
+  });
+});

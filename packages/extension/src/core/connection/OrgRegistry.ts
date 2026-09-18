@@ -36,6 +36,29 @@ const VAULT_READ_TIMEOUT_MS = 10_000;
  * Metadata is stored in ConfigStore, credentials in SecretVault.
  * On startup, loadAll() populates OrgManager from ConfigStore.
  */
+/**
+ * Give a stored org the shape its type promises.
+ *
+ * `getByCategory` returns JSON parsed with no shape check, and entries written
+ * by older builds are missing fields the type declares as required —
+ * `saveOrg` has said so in a comment for as long as it has guarded against it.
+ * Nothing guarded the read, so such an entry reached the webview with
+ * `tags: undefined`, and the Organizations page — the first page most people
+ * open — read it without a guard and crashed into its error boundary. The org
+ * list is untrusted input; this is where it stops being one.
+ */
+export function healStoredOrg(org: SalesforceOrg): SalesforceOrg {
+  return {
+    ...org,
+    tags: Array.isArray(org.tags) ? org.tags : [],
+    appearance: {
+      color: org.appearance?.color ?? '#4a9eff',
+      icon: org.appearance?.icon ?? 'cloud',
+      position: org.appearance?.position ?? 0,
+    },
+  };
+}
+
 export class OrgRegistry {
   constructor(
     private configStore: ConfigStore,
@@ -61,7 +84,7 @@ export class OrgRegistry {
 
     for (const [key, value] of Object.entries(entries)) {
       if (!key.startsWith(ORG_KEY_PREFIX)) continue;
-      const org = value as SalesforceOrg;
+      const org = healStoredOrg(value as SalesforceOrg);
       const identity = org.orgId ?? org.id;
       const entryId = key.slice(ORG_KEY_PREFIX.length);
 

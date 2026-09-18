@@ -1258,7 +1258,11 @@
       "perObjectMapping": "Jedes Objekt zuordnen, nicht nur das erste",
       "perObjectMappingDesc": "Was Sie zuordneten, hing an jedem Objekt des Laufs, sodass wirklich nur ein Objekt zugeordnet werden konnte. Jedes behält nun seine eigene Zuordnung, und ein Objekt ohne Zuordnung wird Feld für Feld kopiert.",
       "describeOnce": "Ein Objekt wird einmal beschrieben, nicht zweimal",
-      "describeOnceDesc": "Ein Quick Sync beschrieb seine Objekte für die Zuordnung, und der Lauf beschrieb sie danach erneut. Jede Beschreibung hat ihr eigenes Zeitlimit, und eines zu überschreiten beendet den Lauf."
+      "describeOnceDesc": "Ein Quick Sync beschrieb seine Objekte für die Zuordnung, und der Lauf beschrieb sie danach erneut. Jede Beschreibung hat ihr eigenes Zeitlimit, und eines zu überschreiten beendet den Lauf.",
+      "orgsCrash": "Die Seite Organisationen öffnet wieder",
+      "orgsCrashDesc": "Eine von einer älteren Version gespeicherte Org konnte die Seite beim Laden zum Absturz bringen. Gespeicherte Orgs erhalten beim Lesen nun die erwartete Form.",
+      "forgeCounts": "Forge trägt die Zahlen ein, während es liest",
+      "forgeCountsDesc": "Ein aus einer Vorlage gestarteter Lauf zeigte im Graphen den ganzen Lauf über keine Datensatz- oder Feldzahlen. Sie kommen jetzt an, sobald das jeweilige Objekt gelesen ist."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

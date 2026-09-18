@@ -12,6 +12,14 @@ export interface MockOrg {
   instanceUrl: string;
   orgType: string;
   status: string;
+  /**
+   * `SalesforceOrg` requires it, and the Organizations page reads it without a
+   * guard (`orgTypeLabel`), so a fixture without it is a shape the product
+   * never sends — and the page it crashed was the one this fixture exists to
+   * open. The degraded shape, which older stored entries really do have, is
+   * covered where it enters: `OrgRegistry.loadAll`.
+   */
+  tags: string[];
 }
 
 /** Standard dev sandbox org for source scenarios. */
@@ -22,6 +30,7 @@ export const DEV_SANDBOX: MockOrg = {
   instanceUrl: 'https://dev.salesforce.com',
   orgType: 'Sandbox',
   status: 'connected',
+  tags: [],
 };
 
 /** Standard QA sandbox org for target scenarios. */
@@ -32,6 +41,7 @@ export const QA_SANDBOX: MockOrg = {
   instanceUrl: 'https://qa.salesforce.com',
   orgType: 'Sandbox',
   status: 'connected',
+  tags: [],
 };
 
 /** Default pair of connected orgs used by most module specs. */

@@ -35,6 +35,7 @@ interface PostedEnvelope {
 }
 
 const mockUpdateNodeStatus = vi.fn();
+const mockUpdateNodeCounts = vi.fn();
 const mockSetPhase = vi.fn();
 const mockAddLog = vi.fn();
 const mockClearLogs = vi.fn();
@@ -138,6 +139,7 @@ vi.mock('../../stores/useForgeStore', () => {
           return mockExecutionRequestId;
         },
         updateNodeStatus: mockUpdateNodeStatus,
+        updateNodeCounts: mockUpdateNodeCounts,
         setPhase: mockSetPhase,
         addLog: (...args: unknown[]) => {
           mockAddLog(...args);
@@ -150,6 +152,7 @@ vi.mock('../../stores/useForgeStore', () => {
       getState: () => ({
         graph: mockGraph,
         updateNodeStatus: mockUpdateNodeStatus,
+        updateNodeCounts: mockUpdateNodeCounts,
         setPhase: mockSetPhase,
         addLog: mockAddLog,
         clearLogs: mockClearLogs,

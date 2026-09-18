@@ -1258,7 +1258,11 @@
       "perObjectMapping": "Mappez chaque objet, pas seulement le premier",
       "perObjectMappingDesc": "Ce que vous mappiez était rattaché à tous les objets du run : un seul objet pouvait donc réellement être mappé. Chacun garde désormais le sien, et un objet laissé sans mapping est copié champ pour champ.",
       "describeOnce": "Un objet n'est décrit qu'une fois",
-      "describeOnceDesc": "Quick Sync décrivait ses objets pour construire le mapping, puis le run les décrivait à nouveau. Chaque describe a son propre délai, et en dépasser un met fin au run."
+      "describeOnceDesc": "Quick Sync décrivait ses objets pour construire le mapping, puis le run les décrivait à nouveau. Chaque describe a son propre délai, et en dépasser un met fin au run.",
+      "orgsCrash": "La page Organisations s'ouvre de nouveau",
+      "orgsCrashDesc": "Un org enregistré par une ancienne version pouvait faire planter la page au chargement. Les orgs stockés reçoivent désormais la forme attendue à la lecture.",
+      "forgeCounts": "Forge remplit les compteurs au fil de la lecture",
+      "forgeCountsDesc": "Un run lancé depuis un modèle n'affichait aucun compteur d'enregistrements ni de champs sur son graphe, pendant tout le run. Ils arrivent maintenant à mesure que chaque objet est lu."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

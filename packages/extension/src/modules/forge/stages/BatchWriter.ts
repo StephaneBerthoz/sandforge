@@ -175,6 +175,11 @@ export class BatchWriter {
       objectName: node.objectApiName,
       status: 'running',
       progress: 0,
+      // The counts the graph could not know: for a template run they are the
+      // only ones it will ever get.
+      recordCount: records.length,
+      fieldCount: fieldInfos.length,
+      createableFieldCount: creatableFields.size,
       message: `Inserting ${records.length} ${node.objectApiName} records in ${batchCount} batch(es)...`,
     });
 
