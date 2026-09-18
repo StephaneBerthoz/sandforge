@@ -154,6 +154,14 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       for (const field of fieldInfos) {
         if (!field.isReference) continue;
         if (field.name === 'RecordTypeId') continue;
+        // A lookup at something no clone creates is not an orphan waiting
+        // for its parent: no wave will ever produce that parent, so pass 2
+        // can only report it as unresolved for ever. Run for real, a single
+        // Opportunity produced three such reports — OwnerId, CreatedById and
+        // LastModifiedById, all pointing at a User — for a record that was
+        // written correctly. Left out of the list, the field is dropped
+        // below and the platform fills it in.
+        if (uncopyableLookups.has(field.name)) continue;
         const value = r[field.name];
         if (typeof value !== 'string' || !value) continue;
         if (remapper.get(value)) continue;

@@ -5,6 +5,28 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.4] - 2026-09-18
+
+### Fixed
+
+- **`--owner-map` works in the case it exists for.** The flag remaps `OwnerId`
+  from a source user to a target one, and its own help text says it is for
+  records authored by users who do not exist on the target sandbox. That is
+  exactly when it did nothing. Orphan foreign keys are nullified before the
+  owner mapping is read, and a `User` is never cloned, so `OwnerId` was always
+  an orphan: by the time the mapping looked, the field held `null` and there
+  was nothing to match. The record was written with no owner at all. The
+  covering test had seeded the remapper with the source user, which the real
+  path never does.
+- **Pass 2 stops reporting failures for records that were written correctly.**
+  A lookup at an object no module clones is not an orphan waiting for its
+  parent — no wave will ever produce one — so queueing it for the second pass
+  can only ever end in "referenced parent was not cloned". Run between two real
+  sandboxes, one Opportunity produced three such reports, for `OwnerId`,
+  `CreatedById` and `LastModifiedById`, on a record that had inserted cleanly
+  and whose owner the platform had filled in as intended. The same run now
+  reports no errors at all.
+
 ## [1.25.3] - 2026-09-18
 
 ### Fixed

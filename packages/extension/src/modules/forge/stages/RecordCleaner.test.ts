@@ -108,6 +108,63 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned.OwnerId).toBe('005FINAL');
   });
 
+  it('applies an owner mapping whose User was never cloned', () => {
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'OwnerId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['User'],
+      },
+    ];
+    // No remapper entry: the case the flag exists for. A User is never
+    // cloned, so its source ID is never in the remapper, and the mapping
+    // has nothing but the source value to key on.
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', OwnerId: '005SOURCE' }],
+        fieldInfos: fields,
+        ownerMappings: { '005SOURCE': '005TARGET' },
+        creatableFields: new Set(['Id', 'OwnerId']),
+      }),
+    );
+    expect(out.cleaned.OwnerId).toBe('005TARGET');
+  });
+
+  it('does not queue a lookup at an uncopyable object for pass 2', () => {
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'OwnerId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['User'],
+      },
+      {
+        name: 'AccountId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account'],
+      },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', OwnerId: '005SOURCE', AccountId: '001ORPHAN' }],
+        fieldInfos: fields,
+        creatableFields: new Set(['OwnerId', 'AccountId']),
+      }),
+    );
+    // Account can be cloned by a later wave, so its orphan FK is a real
+    // debt. No wave will ever produce a User, so pass 2 must not be told
+    // to wait for one.
+    expect(out.nullifiedFks.map((f) => f.field)).toEqual(['AccountId']);
+    expect(out.cleaned.OwnerId).toBeUndefined();
+  });
+
   it('strips non-createable fields, exclusions and null values', () => {
     const [out] = cleanNodeRecords(
       makeInput({
