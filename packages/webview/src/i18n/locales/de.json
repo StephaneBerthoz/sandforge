@@ -1268,7 +1268,9 @@
       "liveStats": "Die Live-Statistik von Autopilot ist live",
       "liveStatsDesc": "Die Zähler für Datensätze und API-Aufrufe standen den ganzen Lauf über auf null und sprangen am Ende auf ihren Endwert. Jedes Objekt meldet jetzt beim Abschluss, was es geschrieben hat.",
       "cloneDuplicates": "Ein Klon kann in eine Sandbox schreiben, die der Quelle bereits gleicht",
-      "cloneDuplicatesDesc": "Jeder Klon eines Accounts wurde von einer Dublettenregel abgewiesen, bevor irgendetwas geschrieben wurde, und der ganze Graph darunter übersprungen. Ein Klon sagt Salesforce nun, dass er absichtlich dupliziert; ein eindeutiger Index weist weiterhin ab, und das ist richtig."
+      "cloneDuplicatesDesc": "Jeder Klon eines Accounts wurde von einer Dublettenregel abgewiesen, bevor irgendetwas geschrieben wurde, und der ganze Graph darunter übersprungen. Ein Klon sagt Salesforce nun, dass er absichtlich dupliziert; ein eindeutiger Index weist weiterhin ab, und das ist richtig.",
+      "ownerMap": "Ein geklonter Datensatz behält den Besitzer, den Sie zugeordnet haben",
+      "ownerMapDesc": "Die Option, die einen Besitzer auf einen Zielbenutzer umschreibt, tat genau in dem Fall nichts, für den es sie gibt: Datensätze von jemandem, den es auf der Ziel-Sandbox nicht gibt. Der Datensatz kam ganz ohne Besitzer an. Jetzt kommt er mit dem an, den Sie angefordert haben."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

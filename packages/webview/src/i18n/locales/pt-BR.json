@@ -1268,7 +1268,9 @@
       "liveStats": "As estatísticas ao vivo do Autopilot são mesmo ao vivo",
       "liveStatsDesc": "Os contadores de registros e de chamadas de API ficavam em zero durante toda a execução e saltavam para o valor final no fim. Agora cada objeto informa o que gravou assim que termina.",
       "cloneDuplicates": "Um clone consegue gravar em uma sandbox que já se parece com a origem",
-      "cloneDuplicatesDesc": "Todo clone de uma conta era recusado por uma regra de duplicidade antes de gravar qualquer coisa, e todo o grafo abaixo era ignorado. O clone agora avisa ao Salesforce que duplica de propósito; um índice único continua recusando, e isso está certo."
+      "cloneDuplicatesDesc": "Todo clone de uma conta era recusado por uma regra de duplicidade antes de gravar qualquer coisa, e todo o grafo abaixo era ignorado. O clone agora avisa ao Salesforce que duplica de propósito; um índice único continua recusando, e isso está certo.",
+      "ownerMap": "Um registro clonado mantém o proprietário que você mapeou",
+      "ownerMapDesc": "A opção que reatribui um proprietário para um usuário de destino não fazia nada no único caso para o qual existe: registros criados por alguém que não está na sandbox de destino. O registro chegava sem proprietário nenhum. Agora chega com o que você pediu."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
