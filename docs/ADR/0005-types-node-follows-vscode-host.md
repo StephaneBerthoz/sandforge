@@ -5,8 +5,10 @@
 
 ## Context
 
-The repository runs on Node 22: `.nvmrc`, the root `engines.node` and CI all
-say so, and the latest `@types/node` is several majors ahead. The extension's
+The repository runs on Node 24: `.nvmrc`, the root `engines.node` and CI all
+say so, and the latest `@types/node` is several majors ahead. (It said Node 22
+when this was written; the repository moved to 24 in 1.25.3, which changes
+nothing here — the question below is about the editor's Node, not this one.) The extension's
 `@types/node` stayed at `^20`, with nothing recording why, so it read as a
 forgotten upgrade.
 
@@ -18,8 +20,7 @@ in the VS Code extension host, whose Node is the one Electron embeds, and
 call an API that host lacks, and `tsc` would not object.
 
 The documented CLI (`packages/extension/cli`) is run through `tsx` on the
-machine's own Node, 22 or later. Node 20 types under-promise there and never
-break it.
+machine's own Node, 24. Node 20 types under-promise there and never break it.
 
 ## Decision
 

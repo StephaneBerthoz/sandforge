@@ -58,6 +58,36 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const COMBINING_MARK = /\p{Mn}/u;
 const FOREIGN_LATIN = /[ƀ-ɏḀ-ỿ]/u;
 
+/**
+ * A letter from a script the language is not written in.
+ *
+ * Han, kana, Hangul, Cyrillic, Greek, Hebrew and Arabic — none of which
+ * belongs in English, French, German, Spanish or Portuguese. One Han character
+ * reached a French string ("c'est正 correct") while these very bundles were
+ * being written, and every check passed it: the two rules above look for
+ * combining marks and for Latin letters from the wrong block, and a Han
+ * character is neither. It renders, it is visible, and only a reader of that
+ * language can tell. Japanese is exempt by construction — the check runs on
+ * the five Latin-script bundles.
+ */
+const FOREIGN_SCRIPT =
+  /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\u0400-\u04ff\u0370-\u03ff\u0590-\u05ff\u0600-\u06ff]/u;
+
+/** The bundles written in the Latin alphabet, by the language code in their name. */
+const LATIN_SCRIPT_LANGS = new Set(['en', 'fr', 'de', 'es', 'pt-BR', 'pt-br']);
+
+/** The language a bundle file is for, from its name. */
+export function bundleLanguage(file) {
+  const name = file.split(/[\\/]/).pop() ?? '';
+  // The two references carry no language in their name; they are English.
+  if (name === 'package.nls.json' || name === 'bundle.l10n.json') return 'en';
+  const stem = name
+    .replace(/^package\.nls\./, '')
+    .replace(/^bundle\.l10n\./, '')
+    .replace(/\.json$/, '');
+  return /^[a-zA-Z]{2}(?:-[a-zA-Z]{2,4})?$/.test(stem) ? stem : '';
+}
+
 /** The first character in `text` no bundle may hold, or null. */
 export function strayCharacter(text) {
   const match = COMBINING_MARK.exec(text) ?? FOREIGN_LATIN.exec(text);
@@ -206,6 +236,33 @@ test('no translated bundle leaves an English sentence as it is', () => {
   }
 
   assert.deepEqual(offenders, []);
+});
+
+test('a bundle written in the Latin alphabet holds no letter from another script', () => {
+  const offenders = [];
+  for (const file of bundles()) {
+    const language = bundleLanguage(file);
+    if (!LATIN_SCRIPT_LANGS.has(language)) continue;
+    const content = JSON.parse(readFileSync(join(repoRoot, file), 'utf8'));
+    for (const [key, value] of leaves(content)) {
+      const stray = FOREIGN_SCRIPT.exec(value);
+      if (stray) {
+        const around = value.slice(Math.max(0, stray.index - 12), stray.index + 12);
+        offenders.push(`${file} › ${key}: ${codePoint(stray[0])} in "${around}"`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('the language of a bundle is read from its name', () => {
+  assert.equal(bundleLanguage('packages/webview/src/i18n/locales/fr.json'), 'fr');
+  assert.equal(bundleLanguage('packages/webview/src/i18n/locales/pt-BR.json'), 'pt-BR');
+  assert.equal(bundleLanguage('packages/extension/package.nls.de.json'), 'de');
+  assert.equal(bundleLanguage('packages/extension/l10n/bundle.l10n.ja.json'), 'ja');
+  // The two English references carry no language in their name.
+  assert.equal(bundleLanguage('packages/extension/package.nls.json'), 'en');
+  assert.equal(bundleLanguage('packages/extension/l10n/bundle.l10n.json'), 'en');
 });
 
 test('every named exception still exists, so none outlives what it excuses', () => {

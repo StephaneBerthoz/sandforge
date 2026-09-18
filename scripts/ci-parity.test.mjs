@@ -1156,28 +1156,44 @@ test('the E2E port is refused unless it is a port, and an empty one means unset'
   }
 });
 
-test('CI validates on the lowest Node the engines allow and on the one development uses', () => {
-  // Every leg ran the declared minimum, and nothing ran the version the work
-  // is written on — so a difference between the two only ever surfaced on a
-  // developer's machine, or after the release.
+test('CI validates on the Node the repository declares', () => {
+  /*
+   * The repository ran its gates on Node 22 while development, the Salesforce
+   * CLI and the machine's default were all on 24 — a split with no reason
+   * behind it. ADR 0005 pins the extension's `@types/node` to the VS Code
+   * host's Node, which is a different question and unaffected: the extension
+   * runs in the editor's Node, not in this one.
+   *
+   * A second `node` dimension on the matrix is what this must not become:
+   * GitHub names a leg after every matrix value, so it would rename
+   * `validate (ubuntu-latest)` — the check the master ruleset requires by name
+   * — and leave every pull request waiting on a context never reported again.
+   */
   const yaml = workflow('ci.yml');
   const engines = Number(pkg.engines.node.match(/(\d+)/)?.[1]);
+  assert.ok(engines >= 24, `engines.node declares ${engines}, older than the Node in use`);
+
   const validate = jobOf(yaml, 'validate');
   assert.match(
     validate,
     new RegExp(`node-version:\\s*${engines}\\b`),
     `the validate matrix does not run Node ${engines}, the declared minimum`,
   );
-  const newer = jobOf(yaml, 'validate-node-24');
-  const version = Number(newer.match(/node-version:\s*(\d+)/)?.[1]);
-  assert.ok(version > engines, 'the Node 24 job runs the minimum Node, or nothing it names');
-  assert.match(newer, /pnpm build:shared && pnpm typecheck && pnpm test && pnpm build/);
-  // Node 22 is what every gate decides on; the newer Node only reports.
-  assert.match(
-    newer,
-    /^    continue-on-error:\s*true\s*$/m,
-    'a failure on the newer Node fails the run, though Node 22 is the version gates decide on',
+
+  // Every other workflow decides on the same Node, and `.nvmrc` names it too.
+  assert.equal(
+    readFileSync(join(WORKFLOW_DIR, '..', '..', '.nvmrc'), 'utf8').trim(),
+    String(engines),
   );
+  for (const entry of workflows) {
+    for (const version of entry.yaml.matchAll(/node-version:\s*(\d+)/g)) {
+      assert.equal(
+        Number(version[1]),
+        engines,
+        `${entry.file} runs Node ${version[1]} while the repository declares ${engines}`,
+      );
+    }
+  }
 });
 
 test('the validate legs keep the check names the branch ruleset requires', () => {

@@ -9,6 +9,7 @@ import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { PIIDetector } from '../core/precheck/PIIDetector';
+import { duplicateRuleHeaders } from '@sandforge/shared';
 import {
   FORGE_QUERY_MAX_PAGES,
   FORGE_QUERY_MAX_RECORDS,
@@ -323,9 +324,19 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           // found: any future writer through these deps is bounded by default.
           insertRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            /*
+             * A clone is a deliberate duplicate. The target sandbox is a copy
+             * of the org the records come from, so a duplicate rule fires on
+             * every one of them: run against a real pair of orgs, the root
+             * Account was refused with DUPLICATES_DETECTED before a single
+             * record was written, and the whole graph under it was skipped.
+             * The header tells Salesforce to save anyway, and applies to
+             * duplicate RULES only — a unique index still refuses, which is
+             * right. What guards a production org is the production guard.
+             */
             const results = await conn
               .sobject(objectName)
-              .create(records, { allowRecursive: true });
+              .create(records, { allowRecursive: true, headers: duplicateRuleHeaders(true) });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r) => ({
               id: r.id ?? '',
@@ -337,7 +348,10 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const results = await conn
               .sobject(objectName)
-              .update(records as unknown as { Id: string }[], { allowRecursive: true });
+              .update(records as unknown as { Id: string }[], {
+                allowRecursive: true,
+                headers: duplicateRuleHeaders(true),
+              });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r, i) => ({
               id: r.id ?? (records[i]['Id'] as string) ?? '',

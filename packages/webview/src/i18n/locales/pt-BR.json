@@ -1266,7 +1266,9 @@
       "uncopyable": "Usuários e metadados não são mais oferecidos para cópia",
       "uncopyableDesc": "O Salesforce informa User, UserRole e RecordType como criáveis, então as execuções tentavam copiá-los — um usuário custa uma licença e um nome único. Agora uma única regra vale para todos os módulos.",
       "liveStats": "As estatísticas ao vivo do Autopilot são mesmo ao vivo",
-      "liveStatsDesc": "Os contadores de registros e de chamadas de API ficavam em zero durante toda a execução e saltavam para o valor final no fim. Agora cada objeto informa o que gravou assim que termina."
+      "liveStatsDesc": "Os contadores de registros e de chamadas de API ficavam em zero durante toda a execução e saltavam para o valor final no fim. Agora cada objeto informa o que gravou assim que termina.",
+      "cloneDuplicates": "Um clone consegue gravar em uma sandbox que já se parece com a origem",
+      "cloneDuplicatesDesc": "Todo clone de uma conta era recusado por uma regra de duplicidade antes de gravar qualquer coisa, e todo o grafo abaixo era ignorado. O clone agora avisa ao Salesforce que duplica de propósito; um índice único continua recusando, e isso está certo."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",

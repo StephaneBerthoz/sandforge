@@ -75,6 +75,12 @@ export * from './constants/faker-methods.js';
 export * from './constants/faker-field-defaults.js';
 export * from './constants/sync-templates.js';
 export {
+  ALLOW_DUPLICATE_RULE_HEADER,
+  duplicateRuleHeaders,
+  DUPLICATE_RULE_ERROR,
+  isDuplicateRuleError,
+} from './constants/duplicate-rules.js';
+export {
   isProvisioningObject,
   isFileBodiedObject,
   isUncopyableObject,

@@ -67,9 +67,9 @@ Bypass with `--no-verify` only if you really have to (don't).
   history for secrets. The branch ruleset decides which of these a merge
   waits for; a red one also stops a release, which requires a green
   `ci.yml` run. Format Check and Knip run from their own
-  workflows. A separate job validates on Node 24, the version
-  development runs on; it reports and does not block, since `engines`
-  promises Node 22.13 and up and every gate runs on 22.
+  workflows. All of them run Node 24, which is what `engines` promises and
+  what development uses; the repository ran its gates on 22 until 1.25.3
+  for no reason anyone had written down.
 
 ## Tests
 

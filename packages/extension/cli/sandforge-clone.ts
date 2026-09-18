@@ -28,7 +28,7 @@ import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 import type { ForgeConfig } from '@sandforge/shared';
-import { forgeConfigSchemaStrict } from '@sandforge/shared';
+import { forgeConfigSchemaStrict, duplicateRuleHeaders } from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
   GraphDiscoveryDeps,
@@ -323,11 +323,43 @@ function loadOrg(alias: string): SfOrg {
       `Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`,
     );
   }
-  const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
-    encoding: 'utf8',
-    maxBuffer: 50 * 1024 * 1024,
-    shell: process.platform === 'win32',
-  });
+  /*
+   * Two commands, because they answer two different questions.
+   *
+   * `sf org display` gives the org's CURRENT instance URL — after a sandbox
+   * refresh or a My Domain change the stored one points elsewhere, and even a
+   * live token is rejected there. But its `accessToken` is the stored one,
+   * dumped as-is: an org the CLI lists as "Connected" can hand out a token
+   * Salesforce refuses. `sf org auth show-access-token` is the only command
+   * that refreshes through the stored OAuth session.
+   *
+   * The extension learnt this on a live org in 2026-08 and says so at length
+   * in `core/connection/ConnectionHelper.ts` ("Refresh credentials via the SF
+   * CLI"). This script kept the display token, so every run of it ended in
+   * INVALID_AUTH_HEADER before reading a single object — which is what a first
+   * run against a real org found, the documented example in the header above
+   * having never been executed.
+   */
+  const run = (args: string[]): string =>
+    execFileSync('sf', args, {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      shell: process.platform === 'win32',
+    });
+
+  const json = run(['org', 'display', '--target-org', alias, '--json']);
+  let liveToken: string | undefined;
+  try {
+    const shown = JSON.parse(run(['org', 'auth', 'show-access-token', '-o', alias, '--json'])) as {
+      result?: { accessToken?: string } | string;
+    };
+    // The command answers with a bare string on some CLI versions.
+    liveToken =
+      typeof shown.result === 'string' ? shown.result : (shown.result?.accessToken ?? undefined);
+  } catch {
+    // Older CLI without the command: fall back to the stored token below.
+    liveToken = undefined;
+  }
   const parsed = JSON.parse(json) as {
     result?: { accessToken?: string; instanceUrl?: string; username?: string };
   };
@@ -338,7 +370,7 @@ function loadOrg(alias: string): SfOrg {
     alias,
     username: parsed.result.username ?? '',
     instanceUrl: parsed.result.instanceUrl,
-    accessToken: parsed.result.accessToken,
+    accessToken: liveToken ?? parsed.result.accessToken,
   };
 }
 
@@ -474,7 +506,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.sobject(name).create(records);
+      // A clone is a deliberate duplicate; see `duplicateRuleHeaders`. Without
+      // this header every root Account of a real UAT → DEV run was refused
+      // with DUPLICATES_DETECTED, and its whole graph skipped behind it.
+      const r = await c.sobject(name).create(records, { headers: duplicateRuleHeaders(true) });
       const arr = Array.isArray(r) ? r : [r];
       return arr.map((x) => ({
         id: x.id ?? '',
@@ -528,7 +563,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.sobject(name).upsert(records, externalIdField);
+      const r = await c
+        .sobject(name)
+        .upsert(records, externalIdField, { headers: duplicateRuleHeaders(true) });
       const arr = Array.isArray(r) ? r : [r];
       return arr.map((x) => ({
         id: x.id ?? '',

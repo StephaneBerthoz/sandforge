@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -142,37 +142,6 @@ jobs:
             packages/webview/test-results/results.json
           retention-days: 7
 
-  # 22 is the minimum `engines` declares; 24 is what development runs on, and
-  # nothing in CI had ever executed it. This is a job of its own rather than a
-  # `node` dimension on the matrix above: GitHub names a matrix leg after every
-  # matrix value, so a second dimension would rename `validate (ubuntu-latest)`,
-  # the check the master ruleset requires by name, and leave every pull request
-  # waiting on a context that is never reported again. It reports without
-  # deciding, since 22 is the version every gate runs on.
-  validate-node-24:
-    name: validate (ubuntu-latest, node 24)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Validate on Node 24 (typecheck + test + build)
-        run: pnpm build:shared && pnpm typecheck && pnpm test && pnpm build
-
   # The VSIX payload, size, locale and listing gates all live in
   # pre-publish-check.sh, and until now the release workflow was the only thing
   # that ran it — so release day was the first moment anything looked at what
@@ -194,7 +163,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: 'pnpm'
 
       - name: Install dependencies

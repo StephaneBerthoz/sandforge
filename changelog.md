@@ -5,6 +5,50 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.3] - 2026-09-18
+
+### Fixed
+
+- **A clone tells Salesforce that it means to duplicate.** A sandbox is a copy
+  of the org it was made from, so the records a clone writes look exactly like
+  records already there — which is what a duplicate rule exists to stop. Run
+  between a real pair of orgs, every clone of an Account was refused with
+  `DUPLICATES_DETECTED` before writing anything, and the whole graph below the
+  root was skipped behind it; all seventeen accounts of the source were already
+  in the target, so this was the main case and not an edge one. The writers now
+  send the header Salesforce provides for it. A unique index
+  (`DUPLICATE_VALUE`) still refuses the write, which is right: that is a
+  constraint, not a rule. What protects a production org is the production
+  guard.
+- **A lookup at something no clone creates is dropped instead of failing the
+  record.** `OwnerId` points at a `User`, which no module copies any more, so
+  the second pass reported "cycle FK could not be resolved — referenced parent
+  was not cloned" and lost the record. Dropped, the platform fills the field
+  in: the owner becomes the running user, which is what seeding a sandbox
+  wants. An explicit owner mapping still wins, `RecordTypeId` is untouched
+  because it has its own translation by name, and `referenceFallback: 'keep'`
+  is left alone — it answers a different question, about an FK whose target was
+  in the graph and was not cloned.
+- **The headless clone CLI can authenticate.** It read its token from
+  `sf org display`, which returns the stored one as-is; the extension's own
+  connection helper has said since August that only
+  `sf org auth show-access-token` refreshes, having been caught by it on a live
+  org. Every run of the CLI therefore ended in `INVALID_AUTH_HEADER` before
+  reading a single object — the example in its own header had never been
+  executed. The instance URL still comes from `sf org display`, which is the
+  one that knows where the org currently lives.
+
+### Changed
+
+- **The repository runs on Node 24.** `.nvmrc`, `engines.node` and all seven
+  workflows said 22 while development, the Salesforce CLI and the machine's
+  default were on 24 — a split with nothing written down behind it, and one
+  that made the CLI above unable to find `sf` at all. The separate "validate on
+  Node 24" job is gone, being the main one now, and the parity gate checks that
+  `.nvmrc`, `engines` and every workflow name the same number. ADR 0005 is
+  unaffected: it pins the extension's `@types/node` to the Node the VS Code
+  host embeds, which is a different question from the one this answers.
+
 ## [1.25.2] - 2026-09-18
 
 ### Fixed

@@ -255,3 +255,70 @@ describe('intersect', () => {
     );
   });
 });
+
+describe('lookups at objects no clone creates', () => {
+  const ownerField: FieldInfo[] = [
+    { name: 'Id', queryable: true, createable: false, isReference: false },
+    {
+      name: 'OwnerId',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['User'],
+    },
+  ];
+
+  it('drops OwnerId so the platform fills it in', () => {
+    // A source-org User id written into a target org points at nobody. On a
+    // real UAT → DEV run this is what made the second pass report "cycle FK
+    // could not be resolved" and lose the record. Dropped, Salesforce sets the
+    // owner to the running user — which is what seeding a sandbox wants.
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', OwnerId: '005SOURCEONLY' }],
+        fieldInfos: ownerField,
+        referenceFallback: 'nullify',
+        creatableFields: new Set(['OwnerId']),
+      }),
+    );
+
+    expect('OwnerId' in out.cleaned).toBe(false);
+  });
+
+  it('keeps it when the caller asked to carry ids across as they are', () => {
+    // `keep` answers a different question — an FK whose target was in the
+    // graph and was not cloned — and is meaningful when both orgs are one.
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', OwnerId: '005SOURCEONLY' }],
+        fieldInfos: ownerField,
+        referenceFallback: 'keep',
+        creatableFields: new Set(['OwnerId']),
+      }),
+    );
+
+    expect(out.cleaned.OwnerId).toBe('005SOURCEONLY');
+  });
+
+  it('leaves a lookup at an object a clone can create alone', () => {
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '003A', AccountId: '001SOURCE' }],
+        fieldInfos: [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          {
+            name: 'AccountId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Account'],
+          },
+        ],
+        referenceFallback: 'keep',
+        creatableFields: new Set(['AccountId']),
+      }),
+    );
+
+    expect(out.cleaned.AccountId).toBe('001SOURCE');
+  });
+});

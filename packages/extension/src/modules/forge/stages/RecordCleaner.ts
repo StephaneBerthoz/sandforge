@@ -16,6 +16,7 @@
 
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -130,6 +131,20 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     picklistValuesByField,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
+  /**
+   * Lookups whose every target is an object no clone creates. Computed once
+   * per node rather than per record.
+   */
+  const uncopyableLookups = new Set(
+    fieldInfos
+      .filter(
+        (f) =>
+          f.isReference &&
+          (f.referenceTo?.length ?? 0) > 0 &&
+          (f.referenceTo ?? []).every((target) => isUncopyableObject(target)),
+      )
+      .map((f) => f.name),
+  );
 
   return records.map((r) => {
     // Identify orphan FKs from the ORIGINAL record (pre-remap) so we
@@ -163,8 +178,13 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // Only applies to OwnerId — the generic remapper doesn't see User
     // FKs because Users aren't in the cloned graph.
     const sourceOwner = remapped['OwnerId'];
+    // Whether an explicit owner mapping resolved this record's owner. The
+    // lookup below has to ask this rather than re-read the source value: the
+    // mapping is keyed on what the remapper produced, not on what was read.
+    let ownerResolved = false;
     if (typeof sourceOwner === 'string' && ownerMappings[sourceOwner]) {
       remapped['OwnerId'] = ownerMappings[sourceOwner];
+      ownerResolved = true;
     }
     // Coerce IsPersonAccount: jsforce sometimes returns boolean,
     // sometimes the SOAP-normalized string 'true'. Strict === true
@@ -186,6 +206,36 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         continue;
       }
       if (!creatableFields.has(key)) continue;
+      /*
+       * A lookup that can only ever point at something a clone never creates
+       * — `OwnerId` at a `User`, and the other provisioning and metadata
+       * objects — is dropped rather than carried. It cannot be remapped by
+       * construction, and carrying it sends the target org an id from the
+       * source: on a real run, `OwnerId` is what made the second pass report
+       * "cycle FK could not be resolved" and lose the record. Dropped, the
+       * platform fills it in — `OwnerId` becomes the running user, which is
+       * what seeding a sandbox wants. An explicit owner mapping is applied
+       * above and survives, because by then the value is a target id.
+       *
+       * `referenceFallback: 'keep'` is left alone: it is a caller saying to
+       * carry ids across as they are, which is meaningful when the two orgs
+       * are the same one. This rule answers a different question — a lookup
+       * whose target can never be in the graph, rather than one whose target
+       * was in it and was not cloned — and conflating the two is what broke
+       * three of that option's tests when it did not make the distinction.
+       */
+      if (
+        // `RecordTypeId` names an object no clone creates, and has its own
+        // resolution all the same: RecordTypeMapper looks the type up by name
+        // in the target org. The nullify loop above exempts it for the same
+        // reason, and this rule forgot to until three of its tests said so.
+        key !== 'RecordTypeId' &&
+        referenceFallback !== 'keep' &&
+        uncopyableLookups.has(key) &&
+        !(key === 'OwnerId' && ownerResolved)
+      ) {
+        continue;
+      }
       // Person Account `__pc` fields are not valid on Business Accounts.
       if (key.endsWith('__pc') && !isPersonAccount) continue;
       // Person Account `Name` is auto-computed from FirstName/LastName.
