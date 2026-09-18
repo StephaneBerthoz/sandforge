@@ -914,6 +914,89 @@ describe('GraphDiscoveryService', () => {
       // DEFAULT_MAX_NODES is 50 — the cap should be the actual limiter, not depth
       expect(graph.nodes.length).toBe(50);
     });
+
+    it('reaches a required parent that optional children would have crowded out', async () => {
+      // The shape that failed against a live org: the root carries more
+      // children than the cap holds, and the object the write actually needs
+      // sits behind a required lookup on one of them.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          const children = [
+            {
+              childSObject: 'LineItem',
+              field: 'AccountId',
+              relationshipName: 'LineItems',
+              isCascadeDelete: false,
+            },
+          ];
+          for (let i = 0; i < 60; i++) {
+            children.push({
+              childSObject: `Filler${i}`,
+              field: 'AccountId',
+              relationshipName: `Fillers${i}`,
+              isCascadeDelete: false,
+            });
+          }
+          return { name: objectName, fields: [], childRelationships: children };
+        }
+        if (objectName === 'LineItem') {
+          return {
+            name: objectName,
+            fields: [
+              {
+                name: 'EntryId',
+                type: 'reference',
+                referenceTo: ['Entry'],
+                relationshipName: 'Entry',
+                isMasterDetail: false,
+                nillable: false,
+              },
+            ],
+            childRelationships: [],
+          };
+        }
+        return { name: objectName, fields: [], childRelationships: [] };
+      });
+
+      const graph = await service.discover(createConfig({ depth: 'full' }));
+      const names = graph.nodes.map((n) => n.objectApiName);
+
+      expect(names).toContain('LineItem');
+      // By the time LineItem is described the sixty fillers have taken the
+      // cap. Its required parent is admitted past them anyway, because a
+      // line item without one cannot be written at all.
+      expect(names).toContain('Entry');
+    });
+
+    it('does not let required parents lift the budget without bound', async () => {
+      // Two hundred required lookups on the root alone. Each one may raise
+      // the budget by one; the ceiling is what stops the graph anyway.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          const fields = [];
+          for (let i = 0; i < 200; i++) {
+            fields.push({
+              name: `Required${i}Id`,
+              type: 'reference',
+              referenceTo: [`Required${i}`],
+              relationshipName: `Required${i}`,
+              isMasterDetail: false,
+              nillable: false,
+            });
+          }
+          return { name: objectName, fields, childRelationships: [] };
+        }
+        return { name: objectName, fields: [], childRelationships: [] };
+      });
+
+      const graph = await service.discover(createConfig({ depth: 'full' }));
+
+      // maxNodes 50, ceiling factor 2: the budget rises to 100 and no further.
+      expect(graph.nodes.length).toBeLessThanOrEqual(100);
+      expect(graph.nodes.length).toBeGreaterThan(50);
+      // And the user is told the graph is incomplete.
+      expect(graph.truncated).toBe(true);
+    });
   });
 
   describe('abort signal', () => {

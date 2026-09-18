@@ -27,6 +27,13 @@ export interface FieldDescribe {
   relationshipName: string | null;
   /** Whether this is a master-detail relationship. */
   isMasterDetail: boolean;
+  /**
+   * Whether the field accepts null. `false` means the platform refuses a
+   * record that does not carry it, which makes the object it points at a
+   * dependency rather than a nicety. Optional so a caller that cannot say
+   * keeps the previous behaviour: unknown is treated as nullable.
+   */
+  nillable?: boolean;
 }
 
 /** Child relationship descriptor from the parent object describe. */
@@ -103,6 +110,24 @@ const SECONDS_PER_RECORD = 0.01;
 
 /** Default maximum number of nodes to discover. */
 const DEFAULT_MAX_NODES = 50;
+
+/**
+ * How far past the node cap discovery may go to reach a required parent.
+ *
+ * The cap bounds how much work a discovery does, and it is right to bound
+ * optional breadth: an object's children are a nicety, and fifty of them is
+ * already more than a person reads. A parent behind a non-nullable lookup is
+ * not optional — the child cannot be written without it, so leaving it out
+ * buys nothing and costs the whole write. Run for real, an Opportunity's
+ * fifty-odd child relationships filled the cap before discovery ever reached
+ * `PricebookEntry`, and every line item was then refused with
+ * `FIELD_INTEGRITY_EXCEPTION: must specify pricebook entry id`.
+ *
+ * So required parents raise the budget by one each, and this bounds how far
+ * that can go: a graph still stops, it just stops after the things it needs
+ * rather than before them.
+ */
+const REQUIRED_PARENT_CEILING_FACTOR = 2;
 
 /**
  * Yield to the event loop. `setImmediate` is Node-only — fall back to
@@ -215,6 +240,12 @@ export class GraphDiscoveryService {
     }
     const maxDepth = this.resolveMaxDepth(config);
     const maxNodes = options?.maxNodes ?? DEFAULT_MAX_NODES;
+    /**
+     * The cap as it currently stands. It starts at `maxNodes` and rises by
+     * one for each required parent admitted past it, never above the ceiling.
+     */
+    let nodeBudget = maxNodes;
+    const nodeCeiling = maxNodes * REQUIRED_PARENT_CEILING_FACTOR;
 
     const visitedObjects = new Set<string>();
     const nodes: ForgeGraphNode[] = [];
@@ -259,7 +290,7 @@ export class GraphDiscoveryService {
       // Cap wave at the smaller of the concurrent-describe limit, remaining
       // headroom under maxNodes, and queue length. Without this, we
       // over-process and overshoot the user-supplied node cap.
-      const remaining = maxNodes - nodes.length;
+      const remaining = nodeBudget - nodes.length;
       if (remaining <= 0) break;
       const waveLimit = Math.min(CONCURRENT_DESCRIBE_LIMIT, remaining, queue.length);
       const wave = queue.splice(0, waveLimit);
@@ -397,6 +428,9 @@ export class GraphDiscoveryService {
         if (depth < maxDepth) {
           for (const field of describe.fields) {
             if (field.referenceTo.length === 0) continue;
+            // A lookup the platform will not let the record omit. The object
+            // behind it has to be in the graph or the child cannot be written.
+            const required = field.nillable === false;
             for (const targetObject of field.referenceTo) {
               addEdge({
                 sourceObject: targetObject,
@@ -405,10 +439,18 @@ export class GraphDiscoveryService {
                 type: field.isMasterDetail ? 'master-detail' : 'lookup',
               });
               if (!visitedObjects.has(targetObject) && !isForgeExcludedObject(targetObject)) {
-                visitedObjects.add(targetObject);
-                if (nodes.length + queue.length < maxNodes) {
-                  queue.push([targetObject, depth + 1]);
+                if (nodes.length + queue.length < nodeBudget) {
+                  visitedObjects.add(targetObject);
+                  // Ahead of the optional breadth already queued: reaching a
+                  // dependency late is the same as not reaching it.
+                  if (required) queue.unshift([targetObject, depth + 1]);
+                  else queue.push([targetObject, depth + 1]);
+                } else if (required && nodeBudget < nodeCeiling) {
+                  visitedObjects.add(targetObject);
+                  nodeBudget++;
+                  queue.unshift([targetObject, depth + 1]);
                 } else {
+                  visitedObjects.add(targetObject);
                   skippedDueToCap++;
                 }
               }
@@ -426,7 +468,7 @@ export class GraphDiscoveryService {
               !isForgeExcludedObject(child.childSObject)
             ) {
               visitedObjects.add(child.childSObject);
-              if (nodes.length + queue.length < maxNodes) {
+              if (nodes.length + queue.length < nodeBudget) {
                 queue.push([child.childSObject, depth + 1]);
               } else {
                 skippedDueToCap++;

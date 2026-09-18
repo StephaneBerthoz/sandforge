@@ -5,6 +5,47 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.5] - 2026-09-18
+
+### Fixed
+
+- **An object whose ids only a descendant knows is no longer read as empty.**
+  Execution puts parents before children, which is right for writing and wrong
+  for reading: a price book is reached through an opportunity's line items, not
+  the other way round, so its turn came before anything had read a row that
+  pointed at it. It answered "no parent in cache and not the root", queried
+  nothing, and every child lookup at it was left dangling. Such a node is now
+  asked once more at the end of the pass, when the cache holds what the rest of
+  the run found. Asked twice and still unreachable, it reports exactly as
+  before, and a node whose parent failed is still skipped. Run between two real
+  sandboxes this is what stopped the price book of a cloned opportunity from
+  being skipped.
+
+### Changed
+
+- **Discovery reaches a required parent before it runs out of room.** The
+  fifty-object cap bounds how much of an org a discovery walks, and bounding
+  optional breadth is right — an object's child relationships are a nicety, and
+  fifty of them is more than anyone reads. A parent behind a lookup the
+  platform refuses to leave null is not optional: the child cannot be written
+  without it. Those are now queued ahead of the optional breadth and admitted
+  past the cap, up to twice it, so a graph still stops — after the things it
+  needs rather than before them.
+- **The clone CLI takes `--max-nodes`.** Fifty objects is short of what a CRM
+  graph needs before it has everything a write depends on, and there was no way
+  to say so. The summary already prints `TRUNCATED` when the cap bit; now there
+  is something to do about it.
+
+### Known limitation
+
+A clone of an Opportunity that carries products still does not complete. Its
+line items need a `PricebookEntry`, which needs a `Product2`, and that lookup is
+required at insert — so it cannot be nullified and repaired by the second pass
+the way an optional one is. Reading is now ordered outwards from the root while
+writing stays ordered parents-first, and the two orders disagree for an
+ancestor of a descendant. Separating the read pass from the write pass is the
+fix, and it is a change to how execution is staged rather than a patch.
+
 ## [1.25.4] - 2026-09-18
 
 ### Fixed

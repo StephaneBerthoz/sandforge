@@ -20,6 +20,7 @@ import {
 import { OrphanExpander } from './stages/OrphanExpander.js';
 import { cleanNodeRecords, describeTargetFieldSets, intersect } from './stages/RecordCleaner.js';
 import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
+import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 
 /**
@@ -407,6 +408,11 @@ interface ExecutionState {
   readonly truncatedObjects: Set<string>;
   /** Nullified cycle FKs queued for the pass-2 UPDATE. */
   readonly pendingFkUpdates: PendingFkUpdate[];
+  /**
+   * Nodes that were out of scope when their turn came, to be asked again
+   * once the rest of the graph has filled the scope cache.
+   */
+  readonly deferredNodes: ForgeGraphNode[];
   successCount: number;
   failedCount: number;
   skippedCount: number;
@@ -524,6 +530,7 @@ export class ForgeExecutor {
       errors: [],
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
+      deferredNodes: [],
       successCount: 0,
       failedCount: 0,
       skippedCount: 0,
@@ -652,7 +659,39 @@ export class ForgeExecutor {
         }
       }
 
-      await this.executeNode(node, state);
+      await this.executeNode(node, state, config.isScoped === true);
+    }
+
+    // A node can be an ancestor whose IDs are only knowable from a
+    // descendant — an Opportunity's price book entry is reached through its
+    // line items, not the other way round — and the execution order puts
+    // parents first, so its turn came before anything could say which rows
+    // it needed. Asked once more now that the pass has filled the cache, it
+    // answers; asked and still out of scope, it reports as it always did.
+    // One retry, not a loop: a second unscoped verdict means nothing read in
+    // this run refers to the object at all.
+    const deferred = state.deferredNodes.splice(0, state.deferredNodes.length);
+    for (const node of deferred) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      // The retry does not relax the rule the first pass applied: a node
+      // whose parent failed is still skipped, or the run writes children of
+      // records that were never created.
+      if (getParentObjects(node.objectApiName, graph).some((p) => state.failedObjects.has(p))) {
+        state.skippedCount++;
+        state.failedObjects.add(node.objectApiName);
+        onProgress({
+          objectName: node.objectApiName,
+          status: 'skipped',
+          progress: 100,
+          message: `Skipped ${node.objectApiName} (parent failed)`,
+        });
+        continue;
+      }
+      await this.executeNode(node, state, false);
     }
 
     // Pass 2 — patch nullified cycle FKs whose targets are now cloned.
@@ -696,7 +735,11 @@ export class ForgeExecutor {
    * Owns the node-level `try/catch`: any stage failure marks the node as
    * failed (children skip) and surfaces in the error report.
    */
-  private async executeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+  private async executeNode(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    allowDefer = false,
+  ): Promise<void> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
     try {
       // Step 1: Scanning — describe fields to build SOQL and filter sets
@@ -722,6 +765,10 @@ export class ForgeExecutor {
         maxRecordsPerObject: config.maxRecordsPerObject,
       });
       if (query.kind === 'skip') {
+        if (allowDefer && query.reason === UNSCOPED_NO_PARENT_REASON) {
+          state.deferredNodes.push(node);
+          return;
+        }
         state.skippedCount++;
         state.errors.push({
           objectApiName: node.objectApiName,

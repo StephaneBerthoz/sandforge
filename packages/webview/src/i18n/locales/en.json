@@ -1270,7 +1270,9 @@
       "cloneDuplicates": "A clone can write into a sandbox that already looks like the source",
       "cloneDuplicatesDesc": "Every clone of an Account was refused by a duplicate rule before writing anything, and the whole graph below it was skipped. A clone now tells Salesforce it means to duplicate; a unique index still refuses, which is right.",
       "ownerMap": "A cloned record keeps the owner you mapped it to",
-      "ownerMapDesc": "The flag that remaps an owner onto a target user did nothing in the one case it exists for — records authored by someone who is not on the target sandbox. The record arrived with no owner at all. It now arrives with the one you asked for."
+      "ownerMapDesc": "The flag that remaps an owner onto a target user did nothing in the one case it exists for — records authored by someone who is not on the target sandbox. The record arrived with no owner at all. It now arrives with the one you asked for.",
+      "deferredScope": "A clone reaches the records it depends on",
+      "deferredScopeDesc": "An object reached only through one of its own children — a price book behind an opportunity's line items — was read as empty and its lookups left dangling. It is now asked again once the rest of the run has found what points at it."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

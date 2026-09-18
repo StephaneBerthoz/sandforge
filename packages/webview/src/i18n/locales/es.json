@@ -1270,7 +1270,9 @@
       "cloneDuplicates": "Un clon puede escribir en una sandbox que ya se parece al origen",
       "cloneDuplicatesDesc": "Cada clon de una cuenta era rechazado por una regla de duplicados antes de escribir nada, y todo el grafo por debajo se omitía. El clon ahora avisa a Salesforce de que duplica a propósito; un índice único sigue rechazando, y eso es correcto.",
       "ownerMap": "Un registro clonado conserva el propietario que le asignaste",
-      "ownerMapDesc": "La opción que reasigna un propietario a un usuario de destino no hacía nada en el único caso para el que existe: registros creados por alguien que no está en la sandbox de destino. El registro llegaba sin propietario alguno. Ahora llega con el que pediste."
+      "ownerMapDesc": "La opción que reasigna un propietario a un usuario de destino no hacía nada en el único caso para el que existe: registros creados por alguien que no está en la sandbox de destino. El registro llegaba sin propietario alguno. Ahora llega con el que pediste.",
+      "deferredScope": "El clon alcanza los registros de los que depende",
+      "deferredScopeDesc": "Un objeto al que solo se llega a través de uno de sus propios hijos — un catálogo de precios detrás de las líneas de una oportunidad — se leía vacío y sus referencias quedaban colgando. Ahora se vuelve a consultar cuando el resto de la ejecución ha encontrado lo que apunta a él."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

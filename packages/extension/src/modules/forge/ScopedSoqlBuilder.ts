@@ -98,6 +98,17 @@ const ZERO_RESULT_WHERE = 'Id = NULL';
  * (`Id = NULL`) and the result is flagged `scoped: false` so the executor
  * can decide whether to skip the node entirely.
  */
+/**
+ * The verdict for a node that is neither the root nor reachable from anything
+ * read so far.
+ *
+ * It is not a permanent answer: a node can be an ancestor whose IDs only
+ * become known once a descendant has been read, so the executor defers a node
+ * with this verdict and asks again at the end of the pass. Named rather than
+ * matched as a string so the two files cannot drift apart.
+ */
+export const UNSCOPED_NO_PARENT_REASON = 'no parent in cache and not the root';
+
 export class ScopedSoqlBuilder {
   /** Build a scope-aware SOQL query for one graph node. */
   build(opts: ScopedSoqlBuildOpts): ScopedSoqlResult {
@@ -162,7 +173,7 @@ export class ScopedSoqlBuilder {
         statements: [`${prefix}${ZERO_RESULT_WHERE}`],
         scoped: false,
         scope: 'unscoped',
-        reason: 'no parent in cache and not the root',
+        reason: UNSCOPED_NO_PARENT_REASON,
         parentObjectsUsed: [],
         scopeIdCount: 0,
       };

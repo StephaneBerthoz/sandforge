@@ -235,6 +235,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
                     referenceTo: f.referenceTo,
                     relationshipName: f.relationshipName,
                     isMasterDetail: f.cascadeDelete,
+                    nillable: f.nillable,
                   })),
                   childRelationships: described.childRelationships.map((cr) => ({
                     childSObject: cr.childSObject,

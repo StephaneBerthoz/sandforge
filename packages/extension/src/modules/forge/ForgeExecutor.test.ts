@@ -608,6 +608,76 @@ describe('ForgeExecutor', () => {
       expect(product2Skipped?.message).toContain('out of scope');
     });
 
+    it('reads an ancestor whose ids only a descendant knows', async () => {
+      // Entry is a parent of LineItem, so the execution order puts it before
+      // the root's child — and at that point nothing has read a row that
+      // points at it. Its turn comes again once LineItem has been read.
+      const graph = makeGraph(
+        [makeNode('Opportunity'), makeNode('Entry'), makeNode('LineItem')],
+        [
+          {
+            sourceObject: 'Opportunity',
+            targetObject: 'LineItem',
+            relationshipName: 'LineItems',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Entry',
+            targetObject: 'LineItem',
+            relationshipName: 'Entry',
+            type: 'lookup',
+          },
+        ],
+      );
+      vi.mocked(deps.describeFields).mockImplementation(async (_org, objectApiName) => {
+        if (objectApiName === 'LineItem') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            {
+              name: 'OpportunityId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Opportunity'],
+            },
+            {
+              name: 'EntryId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Entry'],
+            },
+          ];
+        }
+        return [{ name: 'Id', queryable: true, createable: false, isReference: false }];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_org, soql) => {
+        if (soql.includes('FROM LineItem')) {
+          return [
+            { Id: '00kXX0000000001AAA', OpportunityId: ROOT_ID, EntryId: '01uXX0000000001AAA' },
+          ];
+        }
+        if (soql.includes('FROM Entry')) return [{ Id: '01uXX0000000001AAA' }];
+        return [{ Id: ROOT_ID }];
+      });
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Opportunity',
+      });
+
+      const entryQueries = vi
+        .mocked(deps.queryRecords)
+        .mock.calls.filter(([, soql]) => soql.includes('FROM Entry'));
+      expect(entryQueries).toHaveLength(1);
+      expect(entryQueries[0][1]).toContain("'01uXX0000000001AAA'");
+      const entrySkipped = progressEvents.find(
+        (e) => e.objectName === 'Entry' && e.status === 'skipped',
+      );
+      expect(entrySkipped).toBeUndefined();
+      expect(summary.errors.find((e) => e.objectApiName === 'Entry')).toBeUndefined();
+    });
+
     it('should propagate FK values from root to seed parent cache for multi-hop scope', async () => {
       const graph = makeGraph(
         [makeNode('Case'), makeNode('Account')],

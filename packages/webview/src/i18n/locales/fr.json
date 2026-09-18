@@ -1270,7 +1270,9 @@
       "cloneDuplicates": "Un clone peut écrire dans une sandbox qui ressemble déjà à la source",
       "cloneDuplicatesDesc": "Tout clone de compte était refusé par une règle de doublon avant d'écrire quoi que ce soit, et toute la descendance était ignorée. Le clone annonce désormais à Salesforce qu'il duplique volontairement ; un index unique refuse toujours, et c'est correct.",
       "ownerMap": "Un enregistrement cloné garde le propriétaire que vous lui avez assigné",
-      "ownerMapDesc": "L'option qui réaffecte un propriétaire vers un utilisateur cible ne faisait rien dans le seul cas où elle sert : des enregistrements créés par quelqu'un qui n'existe pas sur la sandbox cible. L'enregistrement arrivait sans aucun propriétaire. Il arrive désormais avec celui que vous avez demandé."
+      "ownerMapDesc": "L'option qui réaffecte un propriétaire vers un utilisateur cible ne faisait rien dans le seul cas où elle sert : des enregistrements créés par quelqu'un qui n'existe pas sur la sandbox cible. L'enregistrement arrivait sans aucun propriétaire. Il arrive désormais avec celui que vous avez demandé.",
+      "deferredScope": "Le clone atteint les enregistrements dont il dépend",
+      "deferredScopeDesc": "Un objet qu'on n'atteint qu'à travers l'un de ses propres enfants — un catalogue de prix derrière les lignes d'une opportunité — était lu comme vide et ses références restaient pendantes. Il est désormais réinterrogé une fois que le reste de l'exécution a trouvé ce qui le référence."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

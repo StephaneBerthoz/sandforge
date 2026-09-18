@@ -48,6 +48,8 @@ interface CliArgs {
   target: string;
   depth: 'direct' | 'full' | 'custom';
   customDepth: number;
+  /** Discovery node cap; undefined leaves the service default in place. */
+  maxNodes: number | undefined;
   maxRecordsPerObject: number | undefined;
   anonymize: boolean;
   dryRun: boolean;
@@ -96,6 +98,10 @@ Options:
   --depth <mode>         direct | full | custom    (default: custom)
   --custom-depth <n>     traversal depth when --depth=custom    (default: 5)
   --max <n>              max records cloned per object          (default: unlimited)
+  --max-nodes <n>        objects discovery may reach            (default: 50)
+                         Raise it when the summary says TRUNCATED and the run
+                         fails on a dependency, e.g. an Opportunity's line
+                         items needing their PricebookEntry.
   --anonymize            anonymize PII fields                   (default: off)
   --dry-run              skip writes, surface scoped queries    (default: off)
   --upsert               use external Id upsert when available  (default: insert)
@@ -174,6 +180,7 @@ function parseArgs(argv: string[]): CliArgs {
   const depthRaw = get('--depth', 'custom') ?? 'custom';
   const customDepthRaw = get('--custom-depth', '5');
   const maxRaw = get('--max');
+  const maxNodesRaw = get('--max-nodes');
   // Repeatable flags: scan all positions for matches.
   const collectRepeated = (flag: string): string[] => {
     const out: string[] = [];
@@ -260,6 +267,15 @@ function parseArgs(argv: string[]): CliArgs {
   }
   const customDepth = customDepthRaw ? Number(customDepthRaw) : 5;
   const maxRecordsPerObject = maxRaw ? Number(maxRaw) : undefined;
+  // Discovery stops at fifty objects by default, which a CRM graph exceeds
+  // long before it has reached everything a write needs: an Opportunity's
+  // line items cannot be written without the price book entries behind them,
+  // and those sit past the cap on any org with a real catalogue.
+  const maxNodes = maxNodesRaw ? Number(maxNodesRaw) : undefined;
+  if (maxNodes !== undefined && (!Number.isInteger(maxNodes) || maxNodes < 1)) {
+    process.stderr.write('--max-nodes takes a whole number of objects, 1 or more.\n');
+    process.exit(2);
+  }
 
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
@@ -296,6 +312,7 @@ function parseArgs(argv: string[]): CliArgs {
     target,
     depth: checked.data.depth,
     customDepth,
+    maxNodes,
     maxRecordsPerObject,
     anonymize: has('--anonymize'),
     dryRun: has('--dry-run'),
@@ -482,7 +499,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   console.log('discovery…');
-  const graph = await new GraphDiscoveryService(discoveryDeps).discover(config);
+  const graph = await new GraphDiscoveryService(discoveryDeps).discover(
+    config,
+    args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
+  );
   const plan = new ForgePlanGenerator().generate(graph);
   console.log(
     `graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`,
