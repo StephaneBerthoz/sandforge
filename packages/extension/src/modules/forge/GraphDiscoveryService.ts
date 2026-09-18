@@ -246,6 +246,11 @@ export class GraphDiscoveryService {
      */
     let nodeBudget = maxNodes;
     const nodeCeiling = maxNodes * REQUIRED_PARENT_CEILING_FACTOR;
+    /**
+     * Objects the cap turned away. They stay visited so the walk does not
+     * revisit them for nothing, and a later required lookup can take one back.
+     */
+    const cappedOutObjects = new Set<string>();
 
     const visitedObjects = new Set<string>();
     const nodes: ForgeGraphNode[] = [];
@@ -438,19 +443,33 @@ export class GraphDiscoveryService {
                 relationshipName: field.relationshipName ?? field.name,
                 type: field.isMasterDetail ? 'master-detail' : 'lookup',
               });
-              if (!visitedObjects.has(targetObject) && !isForgeExcludedObject(targetObject)) {
+              // An object the cap turned away is still marked visited, so
+              // without this it can never come back — and the first thing to
+              // meet it is usually an optional child relationship, long
+              // before the one lookup that cannot do without it. Run for
+              // real, `Product2` was turned away that way and every price
+              // book entry was then refused for want of a product.
+              const turnedAwayEarlier = cappedOutObjects.has(targetObject);
+              const firstSighting = !visitedObjects.has(targetObject);
+              if (
+                (firstSighting || (required && turnedAwayEarlier)) &&
+                !isForgeExcludedObject(targetObject)
+              ) {
                 if (nodes.length + queue.length < nodeBudget) {
                   visitedObjects.add(targetObject);
+                  cappedOutObjects.delete(targetObject);
                   // Ahead of the optional breadth already queued: reaching a
                   // dependency late is the same as not reaching it.
                   if (required) queue.unshift([targetObject, depth + 1]);
                   else queue.push([targetObject, depth + 1]);
                 } else if (required && nodeBudget < nodeCeiling) {
                   visitedObjects.add(targetObject);
+                  cappedOutObjects.delete(targetObject);
                   nodeBudget++;
                   queue.unshift([targetObject, depth + 1]);
                 } else {
                   visitedObjects.add(targetObject);
+                  cappedOutObjects.add(targetObject);
                   skippedDueToCap++;
                 }
               }
@@ -471,6 +490,10 @@ export class GraphDiscoveryService {
               if (nodes.length + queue.length < nodeBudget) {
                 queue.push([child.childSObject, depth + 1]);
               } else {
+                // Noted rather than forgotten: this is usually where an
+                // object is first met, and a required lookup later on is
+                // what takes it back.
+                cappedOutObjects.add(child.childSObject);
                 skippedDueToCap++;
               }
             }

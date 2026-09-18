@@ -5,6 +5,74 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.0] - 2026-09-19
+
+A record-scoped clone now reads and writes in two separate passes, which is
+what it takes to carry an object reached only through one of its own children.
+Everything here came out of running clones between two real Salesforce
+sandboxes and following each failure to the next one.
+
+### Added
+
+- **The clone CLI can say what is in the graph.** `--list-objects` prints every
+  object discovery reached, with its row count and its depth, and stops before
+  reading anything. It answers the question a missing object raises — was it
+  ever in the graph? — which nothing answered before.
+
+### Changed
+
+- **Reading and writing are two passes, not one.** They need opposite orders.
+  Reading has to start at the root and work outwards, because an object's scope
+  is only known through the ids of something already read. Writing has to go
+  parents-first, because a lookup the platform will not let a record omit
+  cannot be filled in afterwards. One pass could satisfy one of them: a product
+  behind a price book entry behind an opportunity's line items was read late
+  and written late, and the entries were refused for want of it. Every row is
+  now in hand before the first is written, so each pass takes the order it
+  needs. A full-table run keeps its single pass — it has no scope to resolve,
+  and two would hold every row of every object in memory for nothing.
+- **Discovery no longer loses a required parent to the node cap.** An object
+  the cap turns away stays marked as seen, so the first thing to meet it — an
+  optional child relationship, usually — settled its fate for the whole walk,
+  long before the one lookup that cannot do without it. A lookup the platform
+  refuses to leave null now takes such an object back, and is queued ahead of
+  the optional breadth. The budget rises by one per rescued parent and stops at
+  twice the cap, so a graph still ends: after the things it needs rather than
+  before them. `nillable` now travels through all three describe adapters —
+  dropped in the CLI's own, the rule could never fire for a headless run.
+- **A parent the target already held no longer takes its children down with
+  it.** A failed parent skips its whole subtree, which is right when the parent
+  is missing and wrong when it is simply already there: `DUPLICATE_VALUE` is a
+  unique index refusing a row that exists, so nothing below it is orphaned. A
+  `ProductSellingModel` the target already had cost every price book entry
+  behind it, and every opportunity line item behind those. Such a node is still
+  reported as failed, because its rows were not written; it is no longer
+  counted as a failed parent, because nothing is missing.
+
+### Fixed
+
+- **The side panel stops saying no org is connected while it is still
+  asking.** VS Code recreates the view every time the panel is hidden and
+  shown, so its org list starts empty each time, and "No org connected" was
+  what a user with every org connected saw, several times a session. It now
+  says it is loading until the extension has answered.
+- **The module you are on is the one that looks selected.** Eleven rows shared
+  one appearance and none of them ever changed, so clicking through the panel
+  gave no sense of place at all. The current row now carries the surface and
+  the `aria-current` that say so.
+- **The org list closes on Escape and on a click elsewhere.** It opened on its
+  own trigger and closed only on a second click of it, so it sat over the
+  content while people clicked past it.
+- **A favourite can be removed from the Favourites list.** The star was only on
+  the Modules row, so removing one meant scrolling down to find the same module
+  a second time. The two rows are also the same height and the same corner
+  radius now — they were neither, forty pixels apart.
+- **A long module name truncates instead of pushing the star off the row.**
+  `min-w-0` and `truncate` on rows that had neither: "Eingefrorener Datensatz"
+  is twenty-three characters in a column about a hundred and twenty wide.
+- **Every row in the side panel shows a keyboard focus ring.** It had twelve
+  buttons and no focus style on any of them.
+
 ## [1.25.5] - 2026-09-18
 
 ### Fixed

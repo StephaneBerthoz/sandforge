@@ -1272,7 +1272,9 @@
       "ownerMap": "Um registro clonado mantém o proprietário que você mapeou",
       "ownerMapDesc": "A opção que reatribui um proprietário para um usuário de destino não fazia nada no único caso para o qual existe: registros criados por alguém que não está na sandbox de destino. O registro chegava sem proprietário nenhum. Agora chega com o que você pediu.",
       "deferredScope": "O clone alcança os registros dos quais depende",
-      "deferredScopeDesc": "Um objeto alcançado apenas por meio de um de seus próprios filhos — um catálogo de preços atrás dos itens de uma oportunidade — era lido como vazio e suas referências ficavam soltas. Agora ele é consultado de novo assim que o restante da execução encontra o que aponta para ele."
+      "deferredScopeDesc": "Um objeto alcançado apenas por meio de um de seus próprios filhos — um catálogo de preços atrás dos itens de uma oportunidade — era lido como vazio e suas referências ficavam soltas. Agora ele é consultado de novo assim que o restante da execução encontra o que aponta para ele.",
+      "sidePanelPlace": "O painel lateral sabe onde você está",
+      "sidePanelPlaceDesc": "O módulo atual agora aparece selecionado, a lista de orgs fecha com Esc ou um clique fora, um favorito pode ser removido da própria lista de favoritos, e o painel não diz mais que nenhuma org está conectada enquanto ainda está perguntando."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1859,6 +1861,7 @@
     "newOrg": "Nova organização...",
     "openInBrowser": "Abrir no navegador",
     "noOrgHint": "Nenhuma org ainda — conecte uma abaixo",
+    "loadingOrgs": "Carregando orgs…",
     "showMetrics": "Mostrar métricas",
     "hideMetrics": "Ocultar métricas",
     "orgType": {

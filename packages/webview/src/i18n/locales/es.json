@@ -1272,7 +1272,9 @@
       "ownerMap": "Un registro clonado conserva el propietario que le asignaste",
       "ownerMapDesc": "La opción que reasigna un propietario a un usuario de destino no hacía nada en el único caso para el que existe: registros creados por alguien que no está en la sandbox de destino. El registro llegaba sin propietario alguno. Ahora llega con el que pediste.",
       "deferredScope": "El clon alcanza los registros de los que depende",
-      "deferredScopeDesc": "Un objeto al que solo se llega a través de uno de sus propios hijos — un catálogo de precios detrás de las líneas de una oportunidad — se leía vacío y sus referencias quedaban colgando. Ahora se vuelve a consultar cuando el resto de la ejecución ha encontrado lo que apunta a él."
+      "deferredScopeDesc": "Un objeto al que solo se llega a través de uno de sus propios hijos — un catálogo de precios detrás de las líneas de una oportunidad — se leía vacío y sus referencias quedaban colgando. Ahora se vuelve a consultar cuando el resto de la ejecución ha encontrado lo que apunta a él.",
+      "sidePanelPlace": "El panel lateral sabe dónde estás",
+      "sidePanelPlaceDesc": "El módulo actual por fin se ve seleccionado, la lista de orgs se cierra con Escape o un clic fuera, un favorito se puede quitar desde la propia lista de favoritos, y el panel ya no dice que no hay ninguna org conectada mientras sigue preguntando."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -1859,6 +1861,7 @@
     "newOrg": "Nueva organización...",
     "openInBrowser": "Abrir en el navegador",
     "noOrgHint": "Aún sin org — conecte una abajo",
+    "loadingOrgs": "Cargando orgs…",
     "showMetrics": "Mostrar métricas",
     "hideMetrics": "Ocultar métricas",
     "orgType": {

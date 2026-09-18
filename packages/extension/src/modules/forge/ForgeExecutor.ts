@@ -11,14 +11,19 @@ import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
 import {
   buildNodeQuery,
-  getParentObjects,
   queryNodeRecords,
   seedOwnIds,
   seedScopeCache,
+  getParentObjects,
   sortNodesForExecution,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
-import { cleanNodeRecords, describeTargetFieldSets, intersect } from './stages/RecordCleaner.js';
+import {
+  cleanNodeRecords,
+  describeTargetFieldSets,
+  intersect,
+  type TargetFieldSets,
+} from './stages/RecordCleaner.js';
 import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
@@ -384,6 +389,31 @@ export interface ExecutionSummary {
  * stages receive the slices they need; the executor stays the single owner
  * of counters, error reports and ID mappings.
  */
+/**
+ * What reading a node produced, held between the read pass and the write one.
+ *
+ * A record-scoped run reads outwards from the root and writes parents first,
+ * and those two orders disagree: an object reached only through one of its own
+ * children — a product behind a price book entry behind an opportunity's line
+ * items — is read late and has to be written early. Holding the rows between
+ * the passes is what lets each order be the one it needs to be.
+ */
+interface PrereadNode {
+  /** Source-org field metadata for the node. */
+  fieldInfos: FieldInfo[];
+  /** Field names createable on the source org. */
+  createableSet: Set<string>;
+  /** The rows read from the source org. */
+  records: Record<string, unknown>[];
+  /**
+   * A target describe started alongside the source query, or null when the
+   * write does not follow straight away.
+   */
+  targetSetsPending: Promise<
+    { ok: true; sets: TargetFieldSets } | { ok: false; error: unknown }
+  > | null;
+}
+
 interface ExecutionState {
   /** Normalized stage configuration resolved from `ExecuteOptions`. */
   readonly config: ForgeStageConfig;
@@ -413,6 +443,8 @@ interface ExecutionState {
    * once the rest of the graph has filled the scope cache.
    */
   readonly deferredNodes: ForgeGraphNode[];
+  /** Rows read from the source, keyed by object, awaiting their write. */
+  readonly preread: Map<string, PrereadNode>;
   successCount: number;
   failedCount: number;
   skippedCount: number;
@@ -531,6 +563,7 @@ export class ForgeExecutor {
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
       deferredNodes: [],
+      preread: new Map<string, PrereadNode>(),
       successCount: 0,
       failedCount: 0,
       skippedCount: 0,
@@ -544,6 +577,26 @@ export class ForgeExecutor {
       graph,
       config.isScoped ? config.rootObjectApiName : undefined,
     );
+
+    /**
+     * A record-scoped run reads and writes in two separate passes.
+     *
+     * Reading has to start at the root and work outwards, because that is the
+     * only direction in which the scope is known: an object is read through
+     * the ids of something already read. Writing has to go the other way,
+     * parents before children, because a lookup the platform will not let a
+     * record omit cannot be filled in afterwards. Those two orders disagree
+     * for any object reached only through one of its own children — a product
+     * behind a price book entry behind an opportunity's line items — and one
+     * pass can only satisfy one of them. Run for real against two sandboxes,
+     * that disagreement is what left every line item of a cloned opportunity
+     * refused for want of a price book entry that was written too late.
+     *
+     * A full-table run has no scope to resolve, so it keeps the single pass:
+     * two would hold every row of every object in memory to no purpose.
+     */
+    const twoPhase = config.isScoped === true;
+    const writeOrder = twoPhase ? sortNodesForExecution(graph) : sortedNodes;
 
     // Pre-flight: skip nodes the target org refuses to accept inserts on
     // (read-only system entities like Case History or audit-log variants).
@@ -659,7 +712,11 @@ export class ForgeExecutor {
         }
       }
 
-      await this.executeNode(node, state, config.isScoped === true);
+      if (twoPhase) {
+        await this.readNode(node, state, true, false);
+      } else if (await this.readNode(node, state, false, true)) {
+        await this.writeNode(node, state);
+      }
     }
 
     // A node can be an ancestor whose IDs are only knowable from a
@@ -691,7 +748,39 @@ export class ForgeExecutor {
         });
         continue;
       }
-      await this.executeNode(node, state, false);
+      if (twoPhase) {
+        await this.readNode(node, state, false, false);
+      } else if (await this.readNode(node, state, false, true)) {
+        await this.writeNode(node, state);
+      }
+    }
+
+    // The write pass. Every row is in hand, so the order is free to be the
+    // one writing needs: parents first, the root no longer pulled to the
+    // front because nothing is being scoped any more.
+    if (twoPhase) {
+      for (const node of writeOrder) {
+        if (this.isAborted) {
+          throw new ForgeAbortedError(
+            'Forge execution was aborted by user request. Remaining objects were not processed.',
+          );
+        }
+        // Nodes excluded, out of scope, resolved as reference data or read in
+        // a dry run left nothing to write and have already reported.
+        if (!state.preread.has(node.objectApiName)) continue;
+        if (getParentObjects(node.objectApiName, graph).some((o) => state.failedObjects.has(o))) {
+          state.skippedCount++;
+          state.failedObjects.add(node.objectApiName);
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'skipped',
+            progress: 100,
+            message: `Skipped ${node.objectApiName} (parent failed)`,
+          });
+          continue;
+        }
+        await this.writeNode(node, state);
+      }
     }
 
     // Pass 2 — patch nullified cycle FKs whose targets are now cloned.
@@ -728,18 +817,24 @@ export class ForgeExecutor {
   }
 
   /**
-   * Run one node through the stage pipeline: scope query → reference-data
-   * mapping / dry-run short-circuits → target describe → orphan expansion →
-   * clean → RecordType translation → anonymization → batch write.
+   * Read one node from the source org: describe its fields, resolve its
+   * scope, query its rows, and seed the scope cache with what they point at.
    *
-   * Owns the node-level `try/catch`: any stage failure marks the node as
-   * failed (children skip) and surfaces in the error report.
+   * Returns true when the node has rows the write stage should carry. The
+   * branches that finish here — out of scope, reference data resolved by
+   * name, a dry run — return false having already reported themselves.
+   *
+   * `prefetchTargetDescribe` starts the target-org describe alongside the
+   * source query, which saves a round-trip when the write follows straight
+   * away. A two-phase run leaves it off: every node would describe at once,
+   * against an org that has not been asked for a single row yet.
    */
-  private async executeNode(
+  private async readNode(
     node: ForgeGraphNode,
     state: ExecutionState,
-    allowDefer = false,
-  ): Promise<void> {
+    allowDefer: boolean,
+    prefetchTargetDescribe: boolean,
+  ): Promise<boolean> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
     try {
       // Step 1: Scanning — describe fields to build SOQL and filter sets
@@ -767,7 +862,7 @@ export class ForgeExecutor {
       if (query.kind === 'skip') {
         if (allowDefer && query.reason === UNSCOPED_NO_PARENT_REASON) {
           state.deferredNodes.push(node);
-          return;
+          return false;
         }
         state.skippedCount++;
         state.errors.push({
@@ -783,7 +878,7 @@ export class ForgeExecutor {
           progress: 100,
           message: `Skipped ${node.objectApiName} (out of scope: ${query.reason})`,
         });
-        return;
+        return false;
       }
 
       // The target describe does not depend on the source rows, so it runs
@@ -791,7 +886,10 @@ export class ForgeExecutor {
       // per node. It is settled into a value here and read below, so a failed
       // describe cannot surface as an unhandled rejection when the query fails
       // first. Only started on the path that writes.
-      const writes = !config.dryRun && !config.referenceDataObjects.has(node.objectApiName);
+      const writes =
+        prefetchTargetDescribe &&
+        !config.dryRun &&
+        !config.referenceDataObjects.has(node.objectApiName);
       const targetSetsPending = writes
         ? describeTargetFieldSets(this.deps.describeFields, targetOrgId, node.objectApiName).then(
             (sets) => ({ ok: true as const, sets }),
@@ -840,7 +938,7 @@ export class ForgeExecutor {
           progress: 100,
           message: `Mapped ${node.objectApiName} via reference-data lookup: ${refResolve.mappings.length} resolved, ${refResolve.unmatched.length} unmatched`,
         });
-        return;
+        return false;
       }
 
       if (state.scopeCache) {
@@ -855,9 +953,54 @@ export class ForgeExecutor {
           message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted`,
         });
         state.successCount += records.length;
-        return;
+        return false;
       }
 
+      state.preread.set(node.objectApiName, {
+        fieldInfos,
+        createableSet,
+        records,
+        targetSetsPending,
+      });
+      return true;
+    } catch (err) {
+      // An abort is a control-flow signal, not a node failure. Recording it as
+      // one and continuing is what let a cancelled run carry on writing.
+      if (err instanceof ForgeAbortedError) {
+        throw err;
+      }
+      state.failedObjects.add(node.objectApiName);
+      state.failedCount += node.recordCount;
+      state.errors.push({
+        objectApiName: node.objectApiName,
+        stage: 'query',
+        failedCount: node.recordCount,
+        attemptedCount: node.recordCount,
+        samples: [
+          { recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] },
+        ],
+      });
+      onProgress({
+        objectName: node.objectApiName,
+        status: 'error',
+        progress: 100,
+        message: `Error on ${node.objectApiName}: ${extractErrorMessage(err)}`,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Write one node the read stage has already pulled: describe the target
+   * org, expand orphan parents, clean, translate record types, anonymize and
+   * insert.
+   */
+  private async writeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+    const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
+    const read = state.preread.get(node.objectApiName);
+    if (!read) return;
+    const { fieldInfos, createableSet, records, targetSetsPending } = read;
+    try {
       // Step 2: describe the *target* org (schema-drift defense) — the only
       // way to detect missing fields/picklist drift before insert.
       let targetCreatableSet: Set<string> | null = null;
@@ -972,7 +1115,15 @@ export class ForgeExecutor {
       // (their FKs would orphan-nullify and silently corrupt the clone).
       const total = nodeSuccess + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
-      if (nodeFailure > 0 && (nodeSuccess === 0 || failureRate > 0.5)) {
+      // A node whose every failure was the target already holding the row has
+      // not orphaned anything: what its children point at is there, it simply
+      // was not this run that put it there. Marking it failed took whole
+      // subtrees down for nothing — a `ProductSellingModel` the target
+      // already had cost every price book entry and every line item behind
+      // them. Reported as failed, because the rows were not written; not
+      // counted as a failed parent, because nothing is missing.
+      const onlyAlreadyExists = nodeFailure > 0 && writeResult.alreadyExistsCount === nodeFailure;
+      if (nodeFailure > 0 && !onlyAlreadyExists && (nodeSuccess === 0 || failureRate > 0.5)) {
         state.failedObjects.add(node.objectApiName);
         onProgress({
           objectName: node.objectApiName,

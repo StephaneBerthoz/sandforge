@@ -47,3 +47,21 @@ export const DUPLICATE_RULE_ERROR = 'DUPLICATES_DETECTED';
 export function isDuplicateRuleError(message: string): boolean {
   return message.includes(DUPLICATE_RULE_ERROR);
 }
+
+/**
+ * Salesforce's marker for a row a unique index refused: the target already
+ * holds it.
+ *
+ * Unlike a duplicate RULE this cannot be waved through, and should not be —
+ * the record is there. What follows from it is the point: a parent that failed
+ * only this way has not orphaned anything, because the thing its children
+ * point at exists. Run between two real sandboxes, a `ProductSellingModel`
+ * the target already had took every `PricebookEntry` down with it, and every
+ * opportunity line item behind those.
+ */
+export const ALREADY_EXISTS_ERROR = 'DUPLICATE_VALUE';
+
+/** Whether `message` is the target refusing a row it already holds. */
+export function isAlreadyExistsError(message: string): boolean {
+  return message.includes(ALREADY_EXISTS_ERROR);
+}

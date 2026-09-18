@@ -1272,7 +1272,9 @@
       "ownerMap": "A cloned record keeps the owner you mapped it to",
       "ownerMapDesc": "The flag that remaps an owner onto a target user did nothing in the one case it exists for — records authored by someone who is not on the target sandbox. The record arrived with no owner at all. It now arrives with the one you asked for.",
       "deferredScope": "A clone reaches the records it depends on",
-      "deferredScopeDesc": "An object reached only through one of its own children — a price book behind an opportunity's line items — was read as empty and its lookups left dangling. It is now asked again once the rest of the run has found what points at it."
+      "deferredScopeDesc": "An object reached only through one of its own children — a price book behind an opportunity's line items — was read as empty and its lookups left dangling. It is now asked again once the rest of the run has found what points at it.",
+      "sidePanelPlace": "The side panel knows where you are",
+      "sidePanelPlaceDesc": "The module you are on now looks selected, the org list closes on Escape or a click elsewhere, a favourite can be removed from the Favourites list, and the panel no longer says no org is connected while it is still asking."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1859,6 +1861,7 @@
     "newOrg": "New organization...",
     "openInBrowser": "Open in browser",
     "noOrgHint": "No org yet — connect one below",
+    "loadingOrgs": "Loading orgs…",
     "showMetrics": "Show metrics",
     "hideMetrics": "Hide metrics",
     "orgType": {

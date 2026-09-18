@@ -79,6 +79,8 @@ export {
   duplicateRuleHeaders,
   DUPLICATE_RULE_ERROR,
   isDuplicateRuleError,
+  ALREADY_EXISTS_ERROR,
+  isAlreadyExistsError,
 } from './constants/duplicate-rules.js';
 export {
   isProvisioningObject,

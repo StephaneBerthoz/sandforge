@@ -133,11 +133,11 @@ Bypass with `--no-verify` only if you really have to (don't).
 `eslint-plugin-jsx-a11y` runs over `packages/webview/src/**/*.tsx` with its
 recommended rules as warnings, not errors: the panel is not clean yet, and a
 gate that fails on its first run is a gate somebody turns off. Today it reports
-**86 warnings**, most of them controls with no text label:
+**28 warnings**, nearly all of them handlers on elements a keyboard does not
+reach on its own:
 
 | Rule                                            | Count |
 | ----------------------------------------------- | ----- |
-| `control-has-associated-label`                  | 58    |
 | `no-static-element-interactions`                | 8     |
 | `click-events-have-key-events`                  | 7     |
 | `no-noninteractive-element-interactions`        | 6     |
@@ -147,8 +147,19 @@ gate that fails on its first run is a gate somebody turns off. Today it reports
 | `label-has-associated-control`                  | 1     |
 
 Bring the count down as you touch the files, and make the rules errors once it
-reaches zero. `label-has-for` is off: the plugin deprecated it in favour of
-`label-has-associated-control`, which is on.
+reaches zero.
+
+Two rules are off, for different reasons. `label-has-for` the plugin itself
+deprecated, in favour of `label-has-associated-control`, which is on.
+`control-has-associated-label` is off because it cannot see what the panel
+does: controls are written as `<label><span>{t(key)}</span><input/></label>`,
+where the accessible name comes from the label that wraps the control. That is
+valid HTML and it is what a screen reader reads, but the rule inspects only the
+control's own children, so it reported 58 of them. Following it would mean an
+`aria-label` on each — a second name, overriding the visible one and drifting
+from it at the next translation. What the rule claims to check is checked for
+real by `packages/webview/e2e/axe-accessibility.spec.ts`, which runs the WCAG
+2.1 AA rule set over every page in four VS Code themes.
 
 ## Linting / formatting
 

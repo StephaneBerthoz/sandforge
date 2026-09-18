@@ -101,6 +101,17 @@ export default tseslint.config(
       // Deprecated by the plugin itself, and still in its recommended set.
       // label-has-associated-control, which is on above, is what replaced it.
       'jsx-a11y/label-has-for': 'off',
+      // Off because it cannot see the thing the panel actually does. The
+      // pattern throughout is `<label><span>{t(key)}</span><input/></label>`,
+      // where the control's accessible name comes from the label that wraps
+      // it — valid HTML, and what a screen reader reads. This rule only
+      // inspects the control's own children, so it reported 58 of them, and
+      // taking its advice would mean an `aria-label` on each: a second name
+      // that overrides the visible one and drifts away from it at the next
+      // translation. What it claims to check is checked for real by
+      // `e2e/axe-accessibility.spec.ts`, which runs the WCAG 2.1 AA rule set
+      // over every page in four VS Code themes.
+      'jsx-a11y/control-has-associated-label': 'off',
     },
   },
   {

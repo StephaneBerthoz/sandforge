@@ -18,6 +18,7 @@ import type {
   ForgeProgressEvent,
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
+import { isAlreadyExistsError } from '@sandforge/shared';
 import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
@@ -129,6 +130,11 @@ export interface BatchWriteResult {
   successCount: number;
   /** Records that failed (including API-truncated results). */
   failureCount: number;
+  /**
+   * Of those failures, the rows the target already held. A node whose every
+   * failure is one of these has not orphaned its children.
+   */
+  alreadyExistsCount: number;
   /** Up to 3 sampled failures (truncated to keep payloads UI-friendly). */
   errorSamples: ExecutionErrorSample[];
   /** Nullified cycle FKs of successfully inserted records — pass-2 input. */
@@ -185,6 +191,7 @@ export class BatchWriter {
 
     let nodeSuccess = 0;
     let nodeFailure = 0;
+    let nodeAlreadyExists = 0;
     let recordOffset = 0;
     const nodeErrorSamples: ExecutionErrorSample[] = [];
     const pendingFkUpdates: PendingFkUpdate[] = [];
@@ -249,6 +256,10 @@ export class BatchWriter {
           }
         } else {
           nodeFailure++;
+          // Counted apart because it says something different from a failure:
+          // the target already holds the row, so nothing downstream of it is
+          // orphaned. See `isAlreadyExistsError`.
+          if (result.errors.every((m) => isAlreadyExistsError(m))) nodeAlreadyExists++;
           if (nodeErrorSamples.length < 3) {
             nodeErrorSamples.push({
               recordSummary: summarizeRecordForError(batch[i]),
@@ -286,6 +297,7 @@ export class BatchWriter {
     return {
       successCount: nodeSuccess,
       failureCount: nodeFailure,
+      alreadyExistsCount: nodeAlreadyExists,
       errorSamples: nodeErrorSamples,
       pendingFkUpdates,
     };

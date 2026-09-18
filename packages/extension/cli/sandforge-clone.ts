@@ -53,6 +53,8 @@ interface CliArgs {
   maxRecordsPerObject: number | undefined;
   anonymize: boolean;
   dryRun: boolean;
+  /** Print the objects discovery reached and stop, without reading a row. */
+  listObjects: boolean;
   /** Enable upsert path on objects with externalId fields (skips DUPLICATE_VALUE on re-runs). */
   upsert: boolean;
   /** Single-hop orphan parent expansion when a required FK is out-of-graph. */
@@ -98,6 +100,9 @@ Options:
   --depth <mode>         direct | full | custom    (default: custom)
   --custom-depth <n>     traversal depth when --depth=custom    (default: 5)
   --max <n>              max records cloned per object          (default: unlimited)
+  --list-objects         print the objects discovery reached, then stop
+                         Answers "why was my object not cloned?" — an object
+                         absent from this list was never in the graph.
   --max-nodes <n>        objects discovery may reach            (default: 50)
                          Raise it when the summary says TRUNCATED and the run
                          fails on a dependency, e.g. an Opportunity's line
@@ -316,6 +321,7 @@ function parseArgs(argv: string[]): CliArgs {
     maxRecordsPerObject,
     anonymize: has('--anonymize'),
     dryRun: has('--dry-run'),
+    listObjects: has('--list-objects'),
     upsert: has('--upsert'),
     expandOrphans: has('--expand-orphans'),
     skipPreflight: has('--skip-preflight'),
@@ -413,6 +419,10 @@ export function adaptDescribe(raw: DescribeSObjectResult): ObjectDescribe {
       // lookup for the same object pair, and the plan breaks a cycle by
       // nulling a lookup only when the cycle has one.
       isMasterDetail: f.cascadeDelete === true,
+      // Not decoration either: discovery admits a parent behind a lookup the
+      // platform refuses to leave null even when the node cap is spent.
+      // Dropped here, that rule could never fire for a CLI run.
+      nillable: f.nillable !== false,
     })),
     childRelationships: raw.childRelationships.map((c) => ({
       childSObject: c.childSObject,
@@ -507,6 +517,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   console.log(
     `graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`,
   );
+
+  if (args.listObjects) {
+    // The question a user asks when an object they expected is missing from a
+    // clone: is it in the graph at all? Nothing answered it before, and the
+    // answer decides whether to raise --max-nodes or to look elsewhere.
+    const rows = [...graph.nodes]
+      .sort((a, b) => a.objectApiName.localeCompare(b.objectApiName))
+      .map(
+        (n) =>
+          `  ${n.objectApiName.padEnd(42)}${String(n.recordCount).padStart(8)}` +
+          `  depth ${n.level}${n.included ? '' : '  (excluded)'}`,
+      );
+    console.log(`\nobjects in the graph (${graph.nodes.length}):`);
+    console.log(rows.join('\n'));
+    if (graph.truncated) {
+      console.log(
+        '\nThe graph was truncated: discovery stopped before it had walked ' +
+          'everything. Raise --max-nodes if an object you need is missing.',
+      );
+    }
+    return;
+  }
 
   console.log('record-type mapping…');
   const recordTypeMappings = await loadRecordTypes(

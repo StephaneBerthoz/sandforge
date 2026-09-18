@@ -1272,7 +1272,9 @@
       "ownerMap": "Ein geklonter Datensatz behält den Besitzer, den Sie zugeordnet haben",
       "ownerMapDesc": "Die Option, die einen Besitzer auf einen Zielbenutzer umschreibt, tat genau in dem Fall nichts, für den es sie gibt: Datensätze von jemandem, den es auf der Ziel-Sandbox nicht gibt. Der Datensatz kam ganz ohne Besitzer an. Jetzt kommt er mit dem an, den Sie angefordert haben.",
       "deferredScope": "Ein Klon erreicht die Datensätze, von denen er abhängt",
-      "deferredScopeDesc": "Ein Objekt, das nur über eines seiner eigenen Kinder erreichbar ist — ein Preisbuch hinter den Positionen einer Opportunity — wurde als leer gelesen, und seine Verweise blieben offen. Es wird nun erneut abgefragt, sobald der restliche Lauf gefunden hat, was darauf zeigt."
+      "deferredScopeDesc": "Ein Objekt, das nur über eines seiner eigenen Kinder erreichbar ist — ein Preisbuch hinter den Positionen einer Opportunity — wurde als leer gelesen, und seine Verweise blieben offen. Es wird nun erneut abgefragt, sobald der restliche Lauf gefunden hat, was darauf zeigt.",
+      "sidePanelPlace": "Das Seitenpanel weiß, wo Sie sind",
+      "sidePanelPlaceDesc": "Das aktuelle Modul sieht nun ausgewählt aus, die Org-Liste schließt mit Escape oder einem Klick daneben, ein Favorit lässt sich aus der Favoritenliste entfernen, und das Panel behauptet nicht mehr, keine Org sei verbunden, während es noch fragt."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1859,6 +1861,7 @@
     "newOrg": "Neue Organisation...",
     "openInBrowser": "Im Browser öffnen",
     "noOrgHint": "Noch keine Org — verbinden Sie unten eine",
+    "loadingOrgs": "Orgs werden geladen…",
     "showMetrics": "Metriken anzeigen",
     "hideMetrics": "Metriken ausblenden",
     "orgType": {

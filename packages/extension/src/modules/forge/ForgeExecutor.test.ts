@@ -284,6 +284,43 @@ describe('ForgeExecutor', () => {
       expect(summary.failedCount).toBe(2); // Account records
     });
 
+    it('does not skip children of a parent the target already held', async () => {
+      // DUPLICATE_VALUE is a unique index refusing a row that is there. The
+      // child's lookup resolves to something real, so the subtree is not
+      // orphaned and must not be dropped.
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return [
+            { id: '', success: false, errors: ['DUPLICATE_VALUE: duplicate value found'] },
+            { id: '', success: false, errors: ['DUPLICATE_VALUE: duplicate value found'] },
+          ];
+        }
+        return [
+          { id: '003NEW1', success: true, errors: [] },
+          { id: '003NEW2', success: true, errors: [] },
+        ];
+      });
+
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact')],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.skippedCount).toBe(0);
+      // The rows were still not written, and the run still says so.
+      expect(summary.failedCount).toBe(2);
+      expect(vi.mocked(deps.insertRecords).mock.calls.some((c) => c[1] === 'Contact')).toBe(true);
+    });
+
     describe('a parent that mostly failed', () => {
       const accountToContact: ForgeGraphEdge = {
         sourceObject: 'Account',
@@ -559,6 +596,25 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  it('describes the target org while the source query is still running', async () => {
+    // A full-table run writes each node as it reads it, so the target
+    // describe is started alongside the query: one round-trip less of
+    // waiting per object.
+    const graph = makeGraph([makeNode('Case')]);
+    let targetDescribedBeforeQueryReturned = false;
+    vi.mocked(deps.queryRecords).mockImplementation(async () => {
+      targetDescribedBeforeQueryReturned = vi
+        .mocked(deps.describeFields)
+        .mock.calls.some((c) => c[0] === 'tgt');
+      return [{ Id: '500XX00000000001AAA', Name: 'X' }];
+    });
+
+    await executor.execute(graph, 'src', 'tgt', onProgress);
+
+    expect(targetDescribedBeforeQueryReturned).toBe(true);
+    expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+  });
+
   describe('record-scoped mode', () => {
     const ROOT_ID = '500XX00000000001AAA';
 
@@ -827,11 +883,15 @@ describe('ForgeExecutor', () => {
       expect(taskWrites.map((r) => r.Subject)).toEqual(['Call', 'Mail', 'Mail']);
     });
 
-    it('describes the target org while the source query is still running', async () => {
+    it('does not describe the target org while it is still reading the source', async () => {
+      // A scoped run reads every node before it writes any, so describing the
+      // target alongside each query would fire the whole graph's describes at
+      // an org that is not being written to yet. The describe moves to the
+      // write pass, where it is needed.
       const graph = makeGraph([makeNode('Case')]);
-      let targetDescribedBeforeQueryReturned = false;
+      let targetDescribedDuringRead = false;
       vi.mocked(deps.queryRecords).mockImplementation(async () => {
-        targetDescribedBeforeQueryReturned = vi
+        targetDescribedDuringRead = vi
           .mocked(deps.describeFields)
           .mock.calls.some((c) => c[0] === 'tgt');
         return [{ Id: ROOT_ID, Name: 'X' }];
@@ -842,7 +902,9 @@ describe('ForgeExecutor', () => {
         rootObjectApiName: 'Case',
       });
 
-      expect(targetDescribedBeforeQueryReturned).toBe(true);
+      expect(targetDescribedDuringRead).toBe(false);
+      // The describe still happens, and the record is still written.
+      expect(vi.mocked(deps.describeFields).mock.calls.some((c) => c[0] === 'tgt')).toBe(true);
       expect(deps.insertRecords).toHaveBeenCalledTimes(1);
     });
 

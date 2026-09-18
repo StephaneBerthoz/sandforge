@@ -1272,7 +1272,9 @@
       "ownerMap": "Un enregistrement cloné garde le propriétaire que vous lui avez assigné",
       "ownerMapDesc": "L'option qui réaffecte un propriétaire vers un utilisateur cible ne faisait rien dans le seul cas où elle sert : des enregistrements créés par quelqu'un qui n'existe pas sur la sandbox cible. L'enregistrement arrivait sans aucun propriétaire. Il arrive désormais avec celui que vous avez demandé.",
       "deferredScope": "Le clone atteint les enregistrements dont il dépend",
-      "deferredScopeDesc": "Un objet qu'on n'atteint qu'à travers l'un de ses propres enfants — un catalogue de prix derrière les lignes d'une opportunité — était lu comme vide et ses références restaient pendantes. Il est désormais réinterrogé une fois que le reste de l'exécution a trouvé ce qui le référence."
+      "deferredScopeDesc": "Un objet qu'on n'atteint qu'à travers l'un de ses propres enfants — un catalogue de prix derrière les lignes d'une opportunité — était lu comme vide et ses références restaient pendantes. Il est désormais réinterrogé une fois que le reste de l'exécution a trouvé ce qui le référence.",
+      "sidePanelPlace": "Le panneau latéral sait où vous êtes",
+      "sidePanelPlaceDesc": "Le module courant paraît enfin sélectionné, la liste des orgs se ferme avec Échap ou un clic ailleurs, un favori se retire depuis la liste des favoris, et le panneau ne dit plus qu'aucune org n'est connectée pendant qu'il interroge encore."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
@@ -1859,6 +1861,7 @@
     "newOrg": "Nouvelle organisation...",
     "openInBrowser": "Ouvrir dans le navigateur",
     "noOrgHint": "Aucune org — connectez-en une ci-dessous",
+    "loadingOrgs": "Chargement des orgs…",
     "showMetrics": "Afficher les métriques",
     "hideMetrics": "Masquer les métriques",
     "orgType": {

@@ -162,6 +162,21 @@ export const SidePanel: React.FC = () => {
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  /**
+   * Whether the extension has answered with the org list yet.
+   *
+   * The view is recreated every time VS Code hides and shows the side panel,
+   * so the list starts empty on each one. Rendering "No org connected" while
+   * the answer is still in flight told users, several times a session, that
+   * nothing was connected when everything was.
+   */
+  const [orgsLoaded, setOrgsLoaded] = useState(false);
+  /**
+   * The module this panel last sent the user to. Navigation is a one-way
+   * message, so this is what the sidebar knows; without it no row ever looked
+   * selected and eleven identical rows gave no sense of place at all.
+   */
+  const [activeRoute, setActiveRoute] = useState<string | null>(null);
 
   /** Sorted orgs: connected first, then alphabetical by alias/username within each group. */
   const sortedOrgs = useMemo(() => {
@@ -186,6 +201,31 @@ export const SidePanel: React.FC = () => {
     window.addEventListener('resize', checkHeight);
     return () => window.removeEventListener('resize', checkHeight);
   }, []);
+
+  /**
+   * Escape and a click elsewhere close the org list.
+   *
+   * It opened on a click of its own trigger and closed only on a second one.
+   * Anywhere else in the product that is how a menu gets stuck: people click
+   * away, the list stays over the content, and the panel looks broken.
+   */
+  useEffect(() => {
+    if (!orgDropdownOpen) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOrgDropdownOpen(false);
+    };
+    const onPointerDown = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-org-switcher]')) return;
+      setOrgDropdownOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [orgDropdownOpen]);
 
   // Collapsible Quick Metrics
   const [metricsExpanded, setMetricsExpanded] = useState(true);
@@ -220,6 +260,7 @@ export const SidePanel: React.FC = () => {
         };
       };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
+        setOrgsLoaded(true);
         useOrgStore.getState().setOrgs(msg.payload.orgs);
         // The payload also carries the extension-side selection — adopt it
         // when this document has none (the view is recreated on hide/show).
@@ -243,6 +284,7 @@ export const SidePanel: React.FC = () => {
 
   /** Send navigation message to extension host via vscode API. */
   const navigate = (route: string): void => {
+    setActiveRoute(route);
     vscodeApi.postMessage({ type: 'sidebar:navigate', payload: { route } });
   };
 
@@ -264,7 +306,7 @@ export const SidePanel: React.FC = () => {
       data-testid="sidepanel-root"
     >
       {/* Branding */}
-      <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-subtle">
+      <div className="flex items-center gap-2.5 px-3 py-3 border-b border-subtle">
         <div className="relative">
           <Flame className="w-5 h-5 text-hue-orange" />
           <div className="absolute -inset-1 bg-hue-orange/10 rounded-full blur-sm -z-10" />
@@ -273,15 +315,19 @@ export const SidePanel: React.FC = () => {
       </div>
 
       {/* Org Switcher */}
-      <div className="px-3 pt-3 relative">
+      <div className="px-3 pt-3 relative" data-org-switcher>
         <button
           className={cn(
             'w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5',
             'bg-surface-1 border border-subtle',
             'hover:bg-surface-2 hover:border-active transition-all text-left',
+            'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+            'focus-visible:outline-[var(--sf-accent)]',
             'group',
           )}
           onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
+          aria-expanded={orgDropdownOpen}
+          aria-haspopup="listbox"
           data-testid="sidepanel-org"
         >
           <span
@@ -300,15 +346,17 @@ export const SidePanel: React.FC = () => {
             <span className="text-xs font-semibold truncate block">
               {selectedOrg
                 ? selectedOrg.alias || selectedOrg.username
-                : connectedCount > 0
-                  ? t('sidePanel.selectOrg', 'Select an org')
-                  : t('sidePanel.noOrg', 'No org connected')}
+                : !orgsLoaded
+                  ? t('sidePanel.loadingOrgs', 'Loading orgs…')
+                  : connectedCount > 0
+                    ? t('sidePanel.selectOrg', 'Select an org')
+                    : t('sidePanel.noOrg', 'No org connected')}
             </span>
           </div>
           {selectedOrg && (
             <span
               className={cn(
-                'text-[9px] font-bold px-1.5 py-0.5 rounded-md border shrink-0 uppercase',
+                'text-[10px] font-bold px-1.5 py-0.5 rounded-md border shrink-0 uppercase',
                 ORG_TYPE_STYLES[selectedOrg.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
               )}
             >
@@ -370,7 +418,7 @@ export const SidePanel: React.FC = () => {
                         </div>
                         <span
                           className={cn(
-                            'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
+                            'text-[10px] font-bold px-1.5 py-0.5 rounded-md border shrink-0',
                             ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
                           )}
                         >
@@ -403,7 +451,9 @@ export const SidePanel: React.FC = () => {
               </div>
             ) : (
               <div className="px-3 py-3 text-xs text-text-secondary text-center">
-                {t('sidePanel.noOrgHint', 'No org yet — connect one below')}
+                {orgsLoaded
+                  ? t('sidePanel.noOrgHint', 'No org yet — connect one below')
+                  : t('sidePanel.loadingOrgs', 'Loading orgs…')}
               </div>
             )}
             <button
@@ -464,7 +514,7 @@ export const SidePanel: React.FC = () => {
         <div className="px-3 pt-3">
           <button
             className={cn(
-              'w-full flex items-center gap-3 rounded-xl px-3.5 py-3 group',
+              'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
               // A flat tint: text on a gradient has no single background to be read against.
               'bg-orange-500/10 border border-orange-500/20',
               'hover:bg-orange-500/15',
@@ -495,7 +545,7 @@ export const SidePanel: React.FC = () => {
         <div className="px-3 pt-2">
           <button
             className={cn(
-              'w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5',
+              'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
               'bg-orange-500/10 border border-orange-500/20',
               'hover:bg-orange-500/20 transition-all text-left',
             )}
@@ -521,19 +571,43 @@ export const SidePanel: React.FC = () => {
             data-testid="sidepanel-favorites"
           >
             {MODULE_ITEMS.filter((item) => favorites.includes(item.id)).map((item) => (
-              <button
-                key={item.id}
-                className={cn(
-                  'flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left w-full',
-                  'text-text-secondary hover:text-text-primary hover:bg-surface-1',
-                  'transition-colors',
-                )}
-                onClick={() => navigate(item.id)}
-                data-testid={`sidepanel-fav-${item.id}`}
-              >
-                <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-                <span className="text-xs font-medium">{t(item.labelKey)}</span>
-              </button>
+              // The same geometry as the Modules row below. They were a
+              // different height and a different corner radius, forty pixels
+              // apart, for the same module.
+              <div key={item.id} className="flex items-center group">
+                <button
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
+                    'transition-all duration-150',
+                    'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+                    'focus-visible:outline-[var(--sf-accent)]',
+                    activeRoute === item.id
+                      ? 'text-text-primary bg-surface-1 shadow-sm'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
+                  )}
+                  onClick={() => navigate(item.id)}
+                  aria-current={activeRoute === item.id ? 'page' : undefined}
+                  data-testid={`sidepanel-fav-${item.id}`}
+                >
+                  <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
+                  <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
+                </button>
+                {/* Removing a favourite meant scrolling down to find the same
+                    row again in Modules. */}
+                <button
+                  className={cn(
+                    'p-1 rounded-md transition-all duration-150 text-hue-amber',
+                    'hover:bg-surface-1',
+                    'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+                    'focus-visible:outline-[var(--sf-accent)]',
+                  )}
+                  onClick={() => toggleFavorite(item.id)}
+                  data-testid={`sidepanel-fav-star-${item.id}`}
+                  title={t('sidePanel.unfavorite', 'Remove from favorites')}
+                >
+                  <Star className="w-3 h-3 fill-current" />
+                </button>
+              </div>
             ))}
           </nav>
         </div>
@@ -553,16 +627,23 @@ export const SidePanel: React.FC = () => {
             <div key={item.id} className="flex items-center group">
               <button
                 className={cn(
-                  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1',
-                  'text-text-secondary hover:text-text-primary',
-                  'hover:bg-surface-1 hover:shadow-sm',
+                  // min-w-0 so a long label truncates instead of pushing the
+                  // star out of the row: "Eingefrorener Datensatz" is 23
+                  // characters in a column about 125 wide.
+                  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left flex-1 min-w-0',
                   'transition-all duration-150',
+                  'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+                  'focus-visible:outline-[var(--sf-accent)]',
+                  activeRoute === item.id
+                    ? 'text-text-primary bg-surface-1 shadow-sm'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
                 )}
                 onClick={() => navigate(item.id)}
+                aria-current={activeRoute === item.id ? 'page' : undefined}
                 data-testid={`sidepanel-nav-${item.id}`}
               >
                 <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
-                <span className="text-xs font-medium">{t(item.labelKey)}</span>
+                <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
               </button>
               <button
                 className={cn(
@@ -603,16 +684,20 @@ export const SidePanel: React.FC = () => {
             <button
               key={item.id}
               className={cn(
-                'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left w-full',
-                'text-text-secondary hover:text-text-primary',
-                'hover:bg-surface-1 hover:shadow-sm',
+                'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left w-full min-w-0',
                 'transition-all duration-150',
+                'focus-visible:outline-2 focus-visible:outline-offset-[-2px]',
+                'focus-visible:outline-[var(--sf-accent)]',
+                activeRoute === item.id
+                  ? 'text-text-primary bg-surface-1 shadow-sm'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-1 hover:shadow-sm',
               )}
               onClick={() => navigate(item.id)}
+              aria-current={activeRoute === item.id ? 'page' : undefined}
               data-testid={`sidepanel-nav-${item.id}`}
             >
               <span className="shrink-0">{item.icon}</span>
-              <span className="text-xs font-medium">{t(item.labelKey)}</span>
+              <span className="text-xs font-medium truncate">{t(item.labelKey)}</span>
             </button>
           ))}
         </nav>

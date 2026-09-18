@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { SidePanel } from './SidePanel';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
@@ -64,8 +64,23 @@ describe('SidePanel', () => {
     expect(screen.getByTestId('sidepanel-root')).toBeInTheDocument();
   });
 
-  it('renders no org connected when no orgs', () => {
+  it('says it is loading until the extension has answered', () => {
+    // The view is recreated every time VS Code hides and shows the panel, so
+    // the list starts empty each time. "No org connected" then stated
+    // something false, several times a session, to a user whose orgs were all
+    // connected.
     render(<SidePanel />);
+    expect(screen.getByTestId('sidepanel-org')).toHaveTextContent('Loading orgs');
+    expect(screen.getByTestId('sidepanel-org')).not.toHaveTextContent('No org connected');
+  });
+
+  it('renders no org connected once the answer is an empty list', () => {
+    render(<SidePanel />);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', { data: { type: 'org:list:response', payload: { orgs: [] } } }),
+      );
+    });
     expect(screen.getByTestId('sidepanel-org')).toHaveTextContent('No org connected');
   });
 
