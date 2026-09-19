@@ -315,8 +315,10 @@ describe('SidePanel', () => {
     const orgButton = screen.getByTestId('sidepanel-org');
     const dot = orgButton.querySelector('span.rounded-full');
     // Should have red indicator classes, not green
-    expect(dot?.className).toContain('bg-red-500');
-    expect(dot?.className).not.toContain('bg-green-500');
+    // The severity token, not a raw palette hue: the hardcoded one did not
+    // follow a light theme and the design system has a scale for this.
+    expect(dot?.className).toContain('bg-status-error');
+    expect(dot?.className).not.toContain('bg-status-success');
   });
 
   // Collapsible Quick Metrics

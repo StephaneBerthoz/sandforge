@@ -1274,7 +1274,9 @@
       "deferredScope": "O clone alcança os registros dos quais depende",
       "deferredScopeDesc": "Um objeto alcançado apenas por meio de um de seus próprios filhos — um catálogo de preços atrás dos itens de uma oportunidade — era lido como vazio e suas referências ficavam soltas. Agora ele é consultado de novo assim que o restante da execução encontra o que aponta para ele.",
       "sidePanelPlace": "O painel lateral sabe onde você está",
-      "sidePanelPlaceDesc": "O módulo atual agora aparece selecionado, a lista de orgs fecha com Esc ou um clique fora, um favorito pode ser removido da própria lista de favoritos, e o painel não diz mais que nenhuma org está conectada enquanto ainda está perguntando."
+      "sidePanelPlaceDesc": "O módulo atual agora aparece selecionado, a lista de orgs fecha com Esc ou um clique fora, um favorito pode ser removido da própria lista de favoritos, e o painel não diz mais que nenhuma org está conectada enquanto ainda está perguntando.",
+      "scopedRead": "O clone só lê o que consegue gravar",
+      "scopedReadDesc": "Uma entrada de catálogo alcançada pelo produto podia pertencer a um catálogo que a execução nunca cria; lida, ia até a inserção e era recusada ali. Uma leitura com escopo agora precisa ficar dentro dos pais realmente lidos."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1695,6 +1697,14 @@
       "cycleFkUnresolved": {
         "explanation": "O campo '{{fieldName}}' aponta para um pai que não foi clonado (ID de origem {{sourceRefId}}), então o registro foi criado sem esse vínculo.",
         "action": "Aumente a profundidade para incluir o pai, ou preencha o campo manualmente depois."
+      },
+      "standardPriceMissing": {
+        "explanation": "O Salesforce não dá preço a um produto em um catálogo personalizado enquanto esse produto não tiver preço no padrão, e essa entrada padrão não está na org de destino.",
+        "action": "Crie um preço padrão para esses produtos na org de destino e rode o clone de novo."
+      },
+      "recordTypeUnavailable": {
+        "explanation": "O tipo de registro existe na org de destino e foi correspondido corretamente, mas não está disponível para o usuário com que o clone roda.",
+        "action": "Atribua o tipo de registro ao perfil desse usuário na org de destino, ou exclua o campo RecordTypeId para este objeto."
       },
       "outOfScope": {
         "explanation": "Nenhum dos registros pai deste objeto faz parte da clonagem, e ele não é o objeto raiz, então nenhum de seus registros foi clonado.",

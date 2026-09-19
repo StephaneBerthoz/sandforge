@@ -5,6 +5,45 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.26.1] - 2026-09-19
+
+### Fixed
+
+- **A scoped read stops pulling rows the write is bound to refuse.** Scope is
+  an OR across the parents in hand, which is right for finding the closure of a
+  record and wrong for what comes of it: a price book entry reached through its
+  product satisfies that OR while belonging to a price book nothing in the run
+  will create. Read, carried all the way to the insert, and refused there for a
+  required `Pricebook2Id` pointing outside the graph. Each lookup the platform
+  will not let a row omit, whose target this run has actually read, now has to
+  land inside what was read. A target with nothing cached is left alone — there
+  is nothing to restrict against, and an empty list would select no rows at
+  all. The root is never narrowed, whatever it points at.
+- **The side panel's status dot follows the theme.** The connected, refreshing
+  and expired states were raw palette hues with a hardcoded glow, and so was
+  the Forge card's whole surface. They now use the severity and identity scales
+  the rest of the product goes through, which are mixed against the editor's
+  own foreground and hold their contrast on a light theme.
+
+### Changed
+
+- **Two platform errors say what to do about them.** `STANDARD_PRICE_NOT_DEFINED`
+  now explains that Salesforce will not price a product in a custom price book
+  until it has a price in the standard one. And an `INVALID_CROSS_REFERENCE_KEY`
+  on a record type is told apart from the rest: there the mapping is right and
+  the target org simply does not let the running user use that record type —
+  the platform's own wording sends people looking in the wrong place.
+- **`control-has-associated-label` is off, and the accessibility count with it
+  drops from 86 warnings to 28.** The rule cannot see what the panel does:
+  controls are written as `<label><span>{t(key)}</span><input/></label>`, where
+  the accessible name comes from the label that wraps the control. That is
+  valid HTML and it is what a screen reader reads, but the rule inspects only
+  the control's own children, so it reported 58 of them. Following it would
+  have meant an `aria-label` on each — a second name, overriding the visible
+  one and drifting from it at the next translation. What it claims to check is
+  checked for real by the axe suite, which runs the WCAG 2.1 AA rule set over
+  every page in four VS Code themes, and passes.
+
 ## [1.26.0] - 2026-09-19
 
 A record-scoped clone now reads and writes in two separate passes, which is

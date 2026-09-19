@@ -38,10 +38,22 @@ type HintKeys = readonly [explanationKey: string, actionKey: string];
 const RULES: Rule[] = [
   {
     match: /^([A-Z_]+):\s*(.*?)(?:\.|$)/,
-    build: (_raw, m) => {
+    build: (raw, m) => {
       const code = m[1];
       const detail = m[2];
       switch (code) {
+        // Salesforce refuses a price in a custom price book until the product
+        // has one in the standard book. Met against a real org, and the code
+        // on its own says nothing about what to do next.
+        case 'STANDARD_PRICE_NOT_DEFINED':
+          return mapping(
+            [
+              'forge.error.standardPriceMissing.explanation',
+              'forge.error.standardPriceMissing.action',
+            ],
+            code,
+            'warning',
+          );
         case 'DUPLICATE_VALUE':
           return mapping(
             ['forge.error.duplicateValue.explanation', 'forge.error.duplicateValue.action'],
@@ -49,14 +61,27 @@ const RULES: Rule[] = [
             'warning',
           );
         case 'INVALID_CROSS_REFERENCE_KEY':
-          return mapping(
-            [
-              'forge.error.invalidCrossReferenceKey.explanation',
-              'forge.error.invalidCrossReferenceKey.action',
-            ],
-            code,
-            'info',
-          );
+          // One code, two very different situations. On a record type the
+          // mapping is right and the target org simply does not let the
+          // running user use it — nothing about the clone can fix that, and
+          // the platform's wording sends people looking in the wrong place.
+          return /ecord ?[Tt]ype/.test(raw)
+            ? mapping(
+                [
+                  'forge.error.recordTypeUnavailable.explanation',
+                  'forge.error.recordTypeUnavailable.action',
+                ],
+                'RECORD_TYPE_UNAVAILABLE',
+                'warning',
+              )
+            : mapping(
+                [
+                  'forge.error.invalidCrossReferenceKey.explanation',
+                  'forge.error.invalidCrossReferenceKey.action',
+                ],
+                code,
+                'info',
+              );
         case 'REQUIRED_FIELD_MISSING':
           return mapping(
             [

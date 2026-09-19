@@ -1274,7 +1274,9 @@
       "deferredScope": "El clon alcanza los registros de los que depende",
       "deferredScopeDesc": "Un objeto al que solo se llega a través de uno de sus propios hijos — un catálogo de precios detrás de las líneas de una oportunidad — se leía vacío y sus referencias quedaban colgando. Ahora se vuelve a consultar cuando el resto de la ejecución ha encontrado lo que apunta a él.",
       "sidePanelPlace": "El panel lateral sabe dónde estás",
-      "sidePanelPlaceDesc": "El módulo actual por fin se ve seleccionado, la lista de orgs se cierra con Escape o un clic fuera, un favorito se puede quitar desde la propia lista de favoritos, y el panel ya no dice que no hay ninguna org conectada mientras sigue preguntando."
+      "sidePanelPlaceDesc": "El módulo actual por fin se ve seleccionado, la lista de orgs se cierra con Escape o un clic fuera, un favorito se puede quitar desde la propia lista de favoritos, y el panel ya no dice que no hay ninguna org conectada mientras sigue preguntando.",
+      "scopedRead": "El clon solo lee lo que puede escribir",
+      "scopedReadDesc": "Una entrada de catálogo alcanzada por su producto podía pertenecer a un catálogo que la ejecución nunca crea; leída, llegaba hasta la inserción y allí era rechazada. Una lectura con ámbito debe quedarse ahora dentro de los padres realmente leídos."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",
@@ -1695,6 +1697,14 @@
       "cycleFkUnresolved": {
         "explanation": "El campo '{{fieldName}}' apunta a un padre que no se clonó (ID de origen {{sourceRefId}}), así que el registro se creó sin ese vínculo.",
         "action": "Aumente la profundidad para incluir el padre, o complete el campo a mano después."
+      },
+      "standardPriceMissing": {
+        "explanation": "Salesforce no pone precio a un producto en un catálogo personalizado mientras ese producto no tenga precio en el estándar, y esa entrada estándar no está en la org de destino.",
+        "action": "Añade un precio estándar para estos productos en la org de destino y vuelve a lanzar el clon."
+      },
+      "recordTypeUnavailable": {
+        "explanation": "El tipo de registro existe en la org de destino y la correspondencia es correcta, pero no está disponible para el usuario con el que se ejecuta el clon.",
+        "action": "Asigna el tipo de registro al perfil de ese usuario en la org de destino, o excluye el campo RecordTypeId para este objeto."
       },
       "outOfScope": {
         "explanation": "Ninguno de los registros padre de este objeto forma parte de la clonación y no es el objeto raíz, así que no se clonó ninguno de sus registros.",

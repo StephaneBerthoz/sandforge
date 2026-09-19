@@ -1274,7 +1274,9 @@
       "deferredScope": "A clone reaches the records it depends on",
       "deferredScopeDesc": "An object reached only through one of its own children — a price book behind an opportunity's line items — was read as empty and its lookups left dangling. It is now asked again once the rest of the run has found what points at it.",
       "sidePanelPlace": "The side panel knows where you are",
-      "sidePanelPlaceDesc": "The module you are on now looks selected, the org list closes on Escape or a click elsewhere, a favourite can be removed from the Favourites list, and the panel no longer says no org is connected while it is still asking."
+      "sidePanelPlaceDesc": "The module you are on now looks selected, the org list closes on Escape or a click elsewhere, a favourite can be removed from the Favourites list, and the panel no longer says no org is connected while it is still asking.",
+      "scopedRead": "A clone reads only what it can write",
+      "scopedReadDesc": "A price book entry reached through its product could belong to a price book the run never creates; read, it travelled all the way to the insert and was refused there. A scoped read now has to stay inside the parents the run has actually read."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1695,6 +1697,14 @@
       "cycleFkUnresolved": {
         "explanation": "Field '{{fieldName}}' points to a parent that was not cloned (source ID {{sourceRefId}}), so the record was created without that link.",
         "action": "Raise the depth so the parent is part of the clone, or set the field by hand afterwards."
+      },
+      "standardPriceMissing": {
+        "explanation": "Salesforce will not price a product in a custom price book until that product has a price in the standard one, and the standard entry is not in the target org.",
+        "action": "Add a standard price for these products in the target org, then run the clone again."
+      },
+      "recordTypeUnavailable": {
+        "explanation": "The record type exists in the target org and was matched correctly, but it is not available to the user the clone runs as.",
+        "action": "Assign the record type to that user's profile in the target org, or exclude the RecordTypeId field for this object."
       },
       "outOfScope": {
         "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",

@@ -123,6 +123,8 @@ describe('forge.error hint keys', () => {
     "Cycle FK 'PrimaryContactId' could not be resolved — referenced parent (source 003ABC123) was not cloned",
     "Cycle FK 'ParentId' could not be resolved",
     'no parent in cache and not the root',
+    'STANDARD_PRICE_NOT_DEFINED: Before creating a custom price, create a standard price.',
+    "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
   ];
 
   /** Walk a dotted key through a locale object. */

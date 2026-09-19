@@ -99,6 +99,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
         name: f.name,
         type: 'reference',
         referenceTo: f.referenceTo ?? [],
+        nillable: f.nillable,
       }));
     const scopeResult = input.scopedBuilder.build({
       node: input.node,

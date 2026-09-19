@@ -577,4 +577,71 @@ describe('ScopedSoqlBuilder', () => {
       ).toThrow(/Invalid Salesforce API name/);
     });
   });
+
+  it('keeps a scoped read inside the required parents the run has read', () => {
+    // A price book entry reached through its product satisfies the scope
+    // while belonging to a price book nothing in this run creates. Read, it
+    // travels all the way to the insert and is refused there for a required
+    // Pricebook2Id pointing outside the graph.
+    const cache = new RecordScopeCache();
+    cache.add('Product2', ['01t1', '01t2']);
+    cache.add('Pricebook2', ['01s1']);
+
+    const result = new ScopedSoqlBuilder().build({
+      node: { objectApiName: 'PricebookEntry' } as never,
+      fields: [
+        { name: 'Product2Id', type: 'reference', referenceTo: ['Product2'], nillable: false },
+        { name: 'Pricebook2Id', type: 'reference', referenceTo: ['Pricebook2'], nillable: false },
+      ],
+      selectFields: ['Id'],
+      edges: [
+        {
+          sourceObject: 'Product2',
+          targetObject: 'PricebookEntry',
+          relationshipName: 'PricebookEntries',
+          type: 'lookup',
+        },
+      ],
+      cache,
+      rootObjectApiName: 'Opportunity',
+      rootRecordId: '0061',
+    });
+
+    expect(result.scoped).toBe(true);
+    const soql = result.statements.join(' | ');
+    // The scope still finds the entries through the product...
+    expect(soql).toContain("Product2Id IN ('01t1', '01t2')");
+    // ...and they must also sit in a price book this run read.
+    expect(soql).toContain("AND (Pricebook2Id IN ('01s1'))");
+  });
+
+  it('does not restrict on a required parent the run has not read', () => {
+    // Nothing cached for the target means nothing to restrict against, and an
+    // empty IN list would select no rows at all.
+    const cache = new RecordScopeCache();
+    cache.add('Product2', ['01t1']);
+
+    const result = new ScopedSoqlBuilder().build({
+      node: { objectApiName: 'PricebookEntry' } as never,
+      fields: [
+        { name: 'Product2Id', type: 'reference', referenceTo: ['Product2'], nillable: false },
+        { name: 'Pricebook2Id', type: 'reference', referenceTo: ['Pricebook2'], nillable: false },
+      ],
+      selectFields: ['Id'],
+      edges: [
+        {
+          sourceObject: 'Product2',
+          targetObject: 'PricebookEntry',
+          relationshipName: 'PricebookEntries',
+          type: 'lookup',
+        },
+      ],
+      cache,
+      rootObjectApiName: 'Opportunity',
+      rootRecordId: '0061',
+    });
+
+    expect(result.statements.join(' | ')).not.toContain('Pricebook2Id IN ()');
+    expect(result.statements.join(' | ')).not.toContain('Pricebook2Id');
+  });
 });

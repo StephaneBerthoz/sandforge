@@ -13,6 +13,11 @@ export interface ScopableField {
   type: string;
   /** Objects this field references (one for monomorphic, many for polymorphic). */
   referenceTo: string[];
+  /**
+   * Whether the field accepts null. `false` means a row that does not carry
+   * it cannot be written, which makes it worth filtering a read by.
+   */
+  nillable?: boolean;
 }
 
 /** How the SOQL was scoped to the record-graph closure. */
@@ -168,6 +173,39 @@ export class ScopedSoqlBuilder {
       }
     }
 
+    /**
+     * Rows the write is bound to refuse are not worth reading.
+     *
+     * Scope is an OR across the parents in hand, which is right for finding
+     * the closure and wrong for what comes of it: a price book entry reached
+     * through its product satisfies the OR while belonging to a price book
+     * nothing in this run will create. Run for real, that is what came back —
+     * entries whose required `Pricebook2Id` pointed outside the graph, read,
+     * carried all the way to the insert and refused there.
+     *
+     * So each lookup the platform will not let the row omit, whose target
+     * this run has actually read, is required to land inside what was read.
+     * A target with nothing cached is left alone: there is nothing to
+     * restrict against, and an empty IN list would select no rows at all.
+     * Only this branch is narrowed — the root must be read whatever it points
+     * at, and self-cached ids already came from a row that was read.
+     */
+    const requiredTerms: string[] = [];
+    for (const field of opts.fields) {
+      if (field.type !== 'reference' || field.nillable !== false) continue;
+      const ids = new Set<string>();
+      for (const target of field.referenceTo) {
+        const cached = opts.cache.get(target);
+        if (cached) for (const id of cached) ids.add(id);
+      }
+      if (ids.size === 0) continue;
+      const values = [...ids].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+      requiredTerms.push(`${assertSoqlIdentifier(field.name)} IN (${values})`);
+    }
+    const requiredSuffix = requiredTerms.map((term) => ` AND (${term})`).join('');
+    const scopedSuffix = `${requiredSuffix}${extraSuffix}`;
+    const requiredReason = requiredTerms.length > 0 ? ' + required parents in scope' : '';
+
     if (fkClauses.length === 0) {
       return {
         statements: [`${prefix}${ZERO_RESULT_WHERE}`],
@@ -186,15 +224,15 @@ export class ScopedSoqlBuilder {
       statements: packInClauses(
         {
           prefix,
-          suffix: extraSuffix,
-          wrap: extraSuffix !== '',
+          suffix: scopedSuffix,
+          wrap: scopedSuffix !== '',
           objectApiName: opts.node.objectApiName,
         },
         fkClauses,
       ),
       scoped: true,
       scope: 'parent-fk',
-      reason: `via ${parentObjectsUsed.join(', ')}${reasonSuffix}`,
+      reason: `via ${parentObjectsUsed.join(', ')}${reasonSuffix}${requiredReason}`,
       parentObjectsUsed,
       scopeIdCount: totalScopeIds,
     };

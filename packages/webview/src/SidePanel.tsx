@@ -332,14 +332,16 @@ export const SidePanel: React.FC = () => {
         >
           <span
             className={cn(
-              'h-2.5 w-2.5 rounded-full shrink-0 ring-2',
+              'h-2.5 w-2.5 rounded-full shrink-0',
               selectedOrg?.status === 'connected'
-                ? 'bg-green-500 ring-green-500/20 shadow-[0_0_6px_rgba(34,197,94,0.4)]'
+                ? 'bg-status-success ring-2 ring-status-success/20'
                 : selectedOrg?.status === 'refreshing'
-                  ? 'bg-yellow-500 ring-yellow-500/20'
+                  ? 'bg-status-warning ring-2 ring-status-warning/20'
                   : selectedOrg
-                    ? 'bg-red-500 ring-red-500/20'
-                    : 'bg-gray-500 ring-gray-500/20',
+                    ? 'bg-status-error ring-2 ring-status-error/20'
+                    : // No ring when nothing is selected: there is no severity to
+                      // halo, and `text-secondary` has no ring tint in the scale.
+                      'bg-text-secondary',
             )}
           />
           <div className="flex-1 min-w-0">
@@ -407,7 +409,7 @@ export const SidePanel: React.FC = () => {
                         <span
                           className={cn(
                             'h-1.5 w-1.5 rounded-full shrink-0',
-                            isOrgConnected ? 'bg-green-500' : 'bg-gray-500',
+                            isOrgConnected ? 'bg-status-success' : 'bg-text-secondary',
                           )}
                         />
                         <div className="flex-1 min-w-0">
@@ -516,16 +518,15 @@ export const SidePanel: React.FC = () => {
             className={cn(
               'w-full flex items-center gap-3 rounded-lg px-3 py-3 group',
               // A flat tint: text on a gradient has no single background to be read against.
-              'bg-orange-500/10 border border-orange-500/20',
-              'hover:bg-orange-500/15',
-              'hover:border-orange-500/40 hover:shadow-[0_0_16px_rgba(249,115,22,0.12)]',
+              'bg-forge/10 border border-forge/20',
+              'hover:bg-forge/15 hover:border-forge/40',
               'transition-all duration-200',
             )}
             onClick={() => navigate('forge')}
             data-testid="sidepanel-forge"
           >
             <div className="relative shrink-0">
-              <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-forge/15 flex items-center justify-center">
                 <Flame className="w-5 h-5 text-hue-orange" />
               </div>
               <div className="absolute -inset-0.5 bg-hue-orange/10 rounded-lg blur-sm -z-10 group-hover:bg-hue-orange/20 transition-colors" />
@@ -546,8 +547,8 @@ export const SidePanel: React.FC = () => {
           <button
             className={cn(
               'w-full flex items-center gap-2 rounded-lg px-2.5 py-2',
-              'bg-orange-500/10 border border-orange-500/20',
-              'hover:bg-orange-500/20 transition-all text-left',
+              'bg-forge/10 border border-forge/20',
+              'hover:bg-forge/20 transition-all text-left',
             )}
             onClick={() => navigate('forge')}
             data-testid="sidepanel-forge-compact"

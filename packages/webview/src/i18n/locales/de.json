@@ -1274,7 +1274,9 @@
       "deferredScope": "Ein Klon erreicht die Datensätze, von denen er abhängt",
       "deferredScopeDesc": "Ein Objekt, das nur über eines seiner eigenen Kinder erreichbar ist — ein Preisbuch hinter den Positionen einer Opportunity — wurde als leer gelesen, und seine Verweise blieben offen. Es wird nun erneut abgefragt, sobald der restliche Lauf gefunden hat, was darauf zeigt.",
       "sidePanelPlace": "Das Seitenpanel weiß, wo Sie sind",
-      "sidePanelPlaceDesc": "Das aktuelle Modul sieht nun ausgewählt aus, die Org-Liste schließt mit Escape oder einem Klick daneben, ein Favorit lässt sich aus der Favoritenliste entfernen, und das Panel behauptet nicht mehr, keine Org sei verbunden, während es noch fragt."
+      "sidePanelPlaceDesc": "Das aktuelle Modul sieht nun ausgewählt aus, die Org-Liste schließt mit Escape oder einem Klick daneben, ein Favorit lässt sich aus der Favoritenliste entfernen, und das Panel behauptet nicht mehr, keine Org sei verbunden, während es noch fragt.",
+      "scopedRead": "Ein Klon liest nur, was er schreiben kann",
+      "scopedReadDesc": "Ein Preisbucheintrag, der über sein Produkt erreicht wurde, konnte zu einem Preisbuch gehören, das der Lauf nie anlegt; gelesen, lief er bis zum Insert und wurde dort abgewiesen. Ein Scoped Read muss nun innerhalb der tatsächlich gelesenen Eltern bleiben."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1695,6 +1697,14 @@
       "cycleFkUnresolved": {
         "explanation": "Das Feld '{{fieldName}}' verweist auf ein übergeordnetes Objekt, das nicht geklont wurde (Quell-ID {{sourceRefId}}); der Datensatz wurde ohne diese Verknüpfung angelegt.",
         "action": "Erhöhen Sie die Tiefe, damit das übergeordnete Objekt mitgeklont wird, oder setzen Sie das Feld danach von Hand."
+      },
+      "standardPriceMissing": {
+        "explanation": "Salesforce vergibt keinen Preis für ein Produkt in einem benutzerdefinierten Preisbuch, solange das Produkt keinen Preis im Standardpreisbuch hat, und dieser Standardeintrag fehlt in der Ziel-Org.",
+        "action": "Legen Sie in der Ziel-Org einen Standardpreis für diese Produkte an und starten Sie den Klon erneut."
+      },
+      "recordTypeUnavailable": {
+        "explanation": "Der Datensatztyp existiert in der Ziel-Org und wurde korrekt zugeordnet, steht dem Benutzer, unter dem der Klon läuft, aber nicht zur Verfügung.",
+        "action": "Weisen Sie den Datensatztyp dem Profil dieses Benutzers in der Ziel-Org zu, oder schließen Sie das Feld RecordTypeId für dieses Objekt aus."
       },
       "outOfScope": {
         "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
