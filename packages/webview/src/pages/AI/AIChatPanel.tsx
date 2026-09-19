@@ -169,43 +169,38 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               </p>
             )}
             {conversations.map((conv) => (
+              // Two buttons side by side rather than one div pretending to
+              // be a button with a second div inside it pretending to be
+              // another. A native button brings its own focus, its own
+              // Enter and Space, and its own role — all of which were being
+              // rebuilt here by hand, and none of which a screen reader was
+              // being told about.
               <div
                 key={conv.id}
-                tabIndex={0}
-                className={`flex items-center justify-between w-full px-2 py-1.5 text-xs rounded text-left transition-colors ${
+                className={`flex items-center justify-between w-full rounded transition-colors ${
                   conv.id === activeConversationId
                     ? 'bg-[var(--sf-bg-active)] text-[var(--sf-text-active)]'
                     : 'text-text-primary hover:bg-[var(--sf-bg-hover)]'
                 }`}
-                onClick={() => onSelectConversation?.(conv.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelectConversation?.(conv.id);
-                  }
-                }}
-                data-testid={`conversation-item-${conv.id}`}
               >
-                <span className="truncate flex-1">{conv.title}</span>
-                <span
-                  className="shrink-0 ml-1 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteConversation?.(conv.id);
-                  }}
+                <button
+                  type="button"
+                  className="truncate flex-1 min-w-0 px-2 py-1.5 text-xs text-left"
+                  onClick={() => onSelectConversation?.(conv.id)}
+                  aria-current={conv.id === activeConversationId ? 'true' : undefined}
+                  data-testid={`conversation-item-${conv.id}`}
+                >
+                  {conv.title}
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 mr-1 px-1 py-1.5 text-xs"
+                  onClick={() => onDeleteConversation?.(conv.id)}
                   data-testid={`delete-conversation-${conv.id}`}
-                  tabIndex={0}
                   aria-label={t('common.delete', 'Delete')}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onDeleteConversation?.(conv.id);
-                    }
-                  }}
                 >
                   x
-                </span>
+                </button>
               </div>
             ))}
           </div>

@@ -1278,7 +1278,9 @@
       "scopedRead": "A clone reads only what it can write",
       "scopedReadDesc": "A price book entry reached through its product could belong to a price book the run never creates; read, it travelled all the way to the insert and was refused there. A scoped read now has to stay inside the parents the run has actually read.",
       "fullProductClone": "An opportunity with products clones completely",
-      "fullProductCloneDesc": "Account, price book, products, prices and line items, with the amounts that follow. The path had never worked: the standard price book was copied instead of matched, its prices were missed, and the line items were written before the entries they point at."
+      "fullProductCloneDesc": "Account, price book, products, prices and line items, with the amounts that follow. The path had never worked: the standard price book was copied instead of matched, its prices were missed, and the line items were written before the entries they point at.",
+      "keyboardEverywhere": "Every control in the panel answers the keyboard",
+      "keyboardEverywhereDesc": "Conversations in the AI panel are real buttons now, the graph controls stopped listening for the mouse, and the accessibility rules that were warnings while the count came down from 86 to zero are errors."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

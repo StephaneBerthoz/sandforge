@@ -49,6 +49,7 @@ export const Dialog: React.FC<DialogProps> = ({
   }, [onClose]);
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- a native <dialog> opened with showModal() closes on Escape by itself; this only adds the mouse shortcut of clicking the backdrop.
     <dialog
       ref={dialogRef}
       className={cn(

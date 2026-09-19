@@ -1278,7 +1278,9 @@
       "scopedRead": "Ein Klon liest nur, was er schreiben kann",
       "scopedReadDesc": "Ein Preisbucheintrag, der über sein Produkt erreicht wurde, konnte zu einem Preisbuch gehören, das der Lauf nie anlegt; gelesen, lief er bis zum Insert und wurde dort abgewiesen. Ein Scoped Read muss nun innerhalb der tatsächlich gelesenen Eltern bleiben.",
       "fullProductClone": "Eine Opportunity mit Produkten wird vollständig geklont",
-      "fullProductCloneDesc": "Account, Preisbuch, Produkte, Preise und Positionen, samt der Beträge, die sich daraus ergeben. Dieser Weg hatte nie funktioniert: Das Standardpreisbuch wurde kopiert statt zugeordnet, seine Preise fehlten, und die Positionen wurden vor den Einträgen geschrieben, auf die sie zeigen."
+      "fullProductCloneDesc": "Account, Preisbuch, Produkte, Preise und Positionen, samt der Beträge, die sich daraus ergeben. Dieser Weg hatte nie funktioniert: Das Standardpreisbuch wurde kopiert statt zugeordnet, seine Preise fehlten, und die Positionen wurden vor den Einträgen geschrieben, auf die sie zeigen.",
+      "keyboardEverywhere": "Jedes Bedienelement im Panel antwortet auf die Tastatur",
+      "keyboardEverywhereDesc": "Unterhaltungen im KI-Panel sind jetzt echte Schaltflächen, die Graph-Steuerung lauscht nicht mehr auf die Maus, und die Barrierefreiheitsregeln — Warnungen, solange die Zahl von 86 auf null fiel — sind nun Fehler."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

@@ -243,6 +243,7 @@ export function DataTable<T extends Record<string, unknown>>({
         <table
           className="w-full border-collapse"
           style={{ fontSize: 'var(--sf-font-size)' }}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table that implements the grid keyboard pattern is what the grid role is for — see handleTableKeyDown below.
           role="grid"
         >
           {renderHeader()}
@@ -265,6 +266,7 @@ export function DataTable<T extends Record<string, unknown>>({
               }}
             >
               <table className="w-full border-collapse" style={{ fontSize: 'var(--sf-font-size)' }}>
+                {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the grid role the table carries promises arrow-key navigation, and this is where it is implemented. */}
                 <tbody ref={tbodyRef} onKeyDown={handleTableKeyDown}>
                   {virtualizer.getVirtualItems().map((virtualItem) => {
                     const row = sortedData[virtualItem.index];
@@ -336,6 +338,7 @@ export function DataTable<T extends Record<string, unknown>>({
       <table
         className="w-full border-collapse"
         style={{ fontSize: 'var(--sf-font-size)' }}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table that implements the grid keyboard pattern is what the grid role is for — see handleTableKeyDown above.
         role="grid"
       >
         {renderHeader()}

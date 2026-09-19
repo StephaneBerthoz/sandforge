@@ -279,6 +279,7 @@ export const CommandPalette: React.FC = () => {
                 {/* Autofocus is safe here: the palette only mounts on an
                     explicit Ctrl+K, so typing is what the user just asked for. */}
                 <Command.Input
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- the palette only mounts on an explicit Ctrl+K, so the caret landing in its search box is exactly what was asked for.
                   autoFocus
                   value={search}
                   onValueChange={setSearch}

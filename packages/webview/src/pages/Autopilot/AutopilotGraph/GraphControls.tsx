@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { useReactFlow } from 'reactflow';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
@@ -15,7 +15,6 @@ export const GraphControls: React.FC<{
 }> = ({ minimapVisible, onToggleMinimap }) => {
   const { t } = useTranslation();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
-  const [isHovered, setIsHovered] = useState(false);
 
   const handleZoomIn = useCallback(() => {
     void zoomIn({ duration: 200 });
@@ -33,11 +32,14 @@ export const GraphControls: React.FC<{
     'flex h-8 w-8 items-center justify-center rounded text-text-secondary hover:bg-[var(--sf-bg-hover)] hover:text-text-primary transition-colors';
 
   return (
+    // `group` rather than a hover handler: the state it kept drove one glyph
+    // and nothing else, so CSS can have it. That also takes the mouse
+    // listeners off a plain div, which is what made this container look
+    // interactive to anything reading the markup. `border-subtle` replaces a
+    // raw grey that did not survive a light theme.
     <div
       data-testid="graph-controls"
-      className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-gray-600 bg-[var(--sf-bg-primary)] p-1 shadow-lg"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      className="group absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-subtle bg-[var(--sf-bg-primary)] p-1 shadow-lg"
     >
       <button
         data-testid="zoom-in-btn"
@@ -74,7 +76,8 @@ export const GraphControls: React.FC<{
         title={t('autopilot.graph.controls.minimap')}
         aria-label={t('autopilot.graph.controls.minimap')}
       >
-        {isHovered ? '\u25A3' : '\u25A1'}
+        <span className="group-hover:hidden">{'\u25A1'}</span>
+        <span className="hidden group-hover:inline">{'\u25A3'}</span>
       </button>
     </div>
   );

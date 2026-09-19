@@ -121,6 +121,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   );
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- a keyboard-only listener on a wrapper whose children are real buttons: it delegates Escape and the arrows to them, and adds no mouse behaviour of its own.
     <div ref={containerRef} className={cn('relative', className)} onKeyDown={handleKeyDown}>
       {/* Trigger button */}
       <button

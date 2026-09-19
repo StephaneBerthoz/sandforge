@@ -47,6 +47,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   }, []);
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- this wraps the control it describes rather than being one. It listens for focus and blur alongside the mouse, which is the keyboard path the rule asks for.
     <span
       className="relative inline-flex"
       onMouseEnter={show}

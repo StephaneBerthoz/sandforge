@@ -1278,7 +1278,9 @@
       "scopedRead": "Le clone ne lit plus que ce qu'il peut écrire",
       "scopedReadDesc": "Une entrée de catalogue atteinte par son produit pouvait appartenir à un catalogue que l'exécution ne crée jamais ; lue, elle allait jusqu'à l'insertion pour y être refusée. Une lecture scopée doit désormais rester dans les parents réellement lus.",
       "fullProductClone": "Une opportunité avec produits se clone entièrement",
-      "fullProductCloneDesc": "Compte, catalogue, produits, prix et lignes, avec les montants qui en découlent. Ce chemin n'avait jamais fonctionné : le catalogue standard était copié au lieu d'être apparié, ses prix n'étaient pas repris, et les lignes s'écrivaient avant les entrées qu'elles référencent."
+      "fullProductCloneDesc": "Compte, catalogue, produits, prix et lignes, avec les montants qui en découlent. Ce chemin n'avait jamais fonctionné : le catalogue standard était copié au lieu d'être apparié, ses prix n'étaient pas repris, et les lignes s'écrivaient avant les entrées qu'elles référencent.",
+      "keyboardEverywhere": "Chaque contrôle du panneau répond au clavier",
+      "keyboardEverywhereDesc": "Les conversations du panneau IA sont de vrais boutons, les contrôles du graphe n'écoutent plus la souris, et les règles d'accessibilité — qui étaient des avertissements tant que le compte descendait de 86 à zéro — sont désormais des erreurs."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

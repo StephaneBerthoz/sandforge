@@ -88,15 +88,18 @@ export default tseslint.config(
   },
   {
     /* Accessibility of the markup itself: a label that names nothing, a click
-       handler on a div no keyboard reaches, an image with no alternative. They
-       are warnings, not errors: the panel is not clean yet, and a gate that
-       fails on the first run is a gate somebody turns off. The count is in
-       CONTRIBUTING.md — bring it down, and make these errors once it is zero. */
+       handler on a div no keyboard reaches, an image with no alternative.
+       Errors now, which is what the count reaching zero was for. Every
+       exception left in the panel is written out where it sits, and names the
+       keyboard path that makes it one. */
     files: ['packages/webview/src/**/*.tsx'],
+    // Not test files: what they render is a stand-in for a real component —
+    // a bare div standing where a chart goes — and nobody navigates it.
+    ignores: ['packages/webview/src/**/*.test.tsx'],
     plugins: { 'jsx-a11y': jsxA11y },
     rules: {
       ...Object.fromEntries(
-        Object.entries(jsxA11y.flatConfigs.recommended.rules).map(([rule]) => [rule, 'warn']),
+        Object.entries(jsxA11y.flatConfigs.recommended.rules).map(([rule]) => [rule, 'error']),
       ),
       // Deprecated by the plugin itself, and still in its recommended set.
       // label-has-associated-control, which is on above, is what replaced it.
@@ -112,6 +115,11 @@ export default tseslint.config(
       // `e2e/axe-accessibility.spec.ts`, which runs the WCAG 2.1 AA rule set
       // over every page in four VS Code themes.
       'jsx-a11y/control-has-associated-label': 'off',
+      // Same blind spot, smaller: the rule looks two elements deep for the
+      // label's text, and a label that wraps a radio plus an icon, a title
+      // and a description puts its text three or four deep. The control and
+      // the text are both there; only the nesting is beyond the default.
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 5 }],
     },
   },
   {

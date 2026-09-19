@@ -190,6 +190,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
   useFocusTrap(dialogRef, onClose, { initialFocus: '[data-testid="close-report-modal"]' });
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- useFocusTrap above closes this on Escape; the backdrop click is the mouse shortcut for the same thing.
     <div
       ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"

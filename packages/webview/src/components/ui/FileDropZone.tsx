@@ -101,6 +101,7 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
 
   return (
     <div className="flex flex-col gap-2" data-testid="file-drop-zone">
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag and drop is a mouse gesture; its keyboard equivalent is the Browse button this zone contains, and making the zone itself a control nests one inside another. */}
       <div
         className={cn(
           'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
@@ -111,6 +112,13 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        // No role and no tabIndex here on purpose. Making the zone itself a
+        // button looked like an improvement and was the opposite: it contains
+        // the Browse button and the file input, and an interactive control
+        // wrapping other interactive controls is a `nested-interactive`
+        // violation — axe refused it. Dropping a file is a mouse gesture
+        // whose keyboard equivalent is the Browse button inside, which is
+        // where it belongs.
         data-testid="drop-area"
       >
         <div className="flex flex-col items-center gap-3">

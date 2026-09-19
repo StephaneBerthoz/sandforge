@@ -128,38 +128,43 @@ Bypass with `--no-verify` only if you really have to (don't).
 - Shared devDependency versions come from the **pnpm catalog** in
   `pnpm-workspace.yaml` (`"vitest": "catalog:"`), bump them there, once.
 
-## Accessibility warnings
+## Accessibility
 
 `eslint-plugin-jsx-a11y` runs over `packages/webview/src/**/*.tsx` with its
-recommended rules as warnings, not errors: the panel is not clean yet, and a
-gate that fails on its first run is a gate somebody turns off. Today it reports
-**28 warnings**, nearly all of them handlers on elements a keyboard does not
-reach on its own:
+recommended rules **as errors**. They were warnings while the count came down
+from 86 to zero; a gate that fails on its first run is a gate somebody turns
+off, and this one no longer fails.
 
-| Rule                                            | Count |
-| ----------------------------------------------- | ----- |
-| `no-static-element-interactions`                | 8     |
-| `click-events-have-key-events`                  | 7     |
-| `no-noninteractive-element-interactions`        | 6     |
-| `no-autofocus`                                  | 2     |
-| `no-noninteractive-element-to-interactive-role` | 2     |
-| `no-noninteractive-tabindex`                    | 2     |
-| `label-has-associated-control`                  | 1     |
+Test files are out of scope: what they render stands in for a real component —
+a bare div where a chart goes — and nobody navigates it.
 
-Bring the count down as you touch the files, and make the rules errors once it
-reaches zero.
+Two rules are configured rather than taken as they come.
 
-Two rules are off, for different reasons. `label-has-for` the plugin itself
-deprecated, in favour of `label-has-associated-control`, which is on.
-`control-has-associated-label` is off because it cannot see what the panel
-does: controls are written as `<label><span>{t(key)}</span><input/></label>`,
-where the accessible name comes from the label that wraps the control. That is
-valid HTML and it is what a screen reader reads, but the rule inspects only the
-control's own children, so it reported 58 of them. Following it would mean an
-`aria-label` on each — a second name, overriding the visible one and drifting
-from it at the next translation. What the rule claims to check is checked for
-real by `packages/webview/e2e/axe-accessibility.spec.ts`, which runs the WCAG
-2.1 AA rule set over every page in four VS Code themes.
+- `label-has-associated-control` runs with `depth: 5`. It looks two elements
+  deep for the label's text by default, and a label that wraps a radio plus an
+  icon, a title and a description puts its text three or four deep.
+- `control-has-associated-label` is **off**, because it cannot see what the
+  panel does: controls are written as
+  `<label><span>{t(key)}</span><input/></label>`, where the accessible name
+  comes from the label that wraps the control. That is valid HTML and it is
+  what a screen reader reads, but the rule inspects only the control's own
+  children, so it reported 58 of them. Following it would have meant an
+  `aria-label` on each — a second name, overriding the visible one and drifting
+  from it at the next translation.
+- `label-has-for` is off because the plugin deprecated it, in favour of
+  `label-has-associated-control`.
+
+**What actually checks accessibility** is
+`packages/webview/e2e/axe-accessibility.spec.ts`: the WCAG 2.1 AA rule set over
+every page in four VS Code themes, plus rendered contrast. Run it before
+shipping a change to the UI — `pnpm validate` does not, and an `aria-controls`
+pointing at an element that does not exist got through that way once.
+
+A handful of sites carry an `eslint-disable-next-line` with a reason written
+next to it. They are all the same shape: a mouse shortcut on a surface whose
+keyboard equivalent is elsewhere — Escape on a modal backdrop, focus and blur
+on a tooltip wrapper. If you add one, name the keyboard path that makes it a
+shortcut rather than the only way in. If you cannot, it is not an exception.
 
 ## Linting / formatting
 

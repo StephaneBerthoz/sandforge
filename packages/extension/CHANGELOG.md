@@ -5,6 +5,49 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.1] - 2026-09-19
+
+The accessibility count reaches zero, and the rules that were warnings while it
+came down are errors now.
+
+### Fixed
+
+- **A conversation in the AI panel is two buttons, not a div pretending to be
+  one.** It carried a `tabIndex`, a click handler and a hand-rolled Enter and
+  Space, with a second div inside it doing the same for delete — and told a
+  screen reader none of it. Two native buttons side by side bring their own
+  focus, their own keys and their own role.
+- **The Autopilot graph controls stopped listening for the mouse.** The state
+  those listeners kept drove one glyph and nothing else, so CSS has it now.
+  That also takes the mouse handlers off a plain container, which is what made
+  it look interactive to anything reading the markup. Its border was a raw grey
+  that did not survive a light theme; it goes through the token like the rest.
+
+### Changed
+
+- **`eslint-plugin-jsx-a11y` runs as errors.** The count went from 86 warnings
+  to zero. Most of the distance was two rules that could not see what the panel
+  does — one reported 58 correct controls as unlabelled, the other could not
+  find a label's text four elements deep — and the rest were real: hand-rolled
+  controls, hover handlers on containers, a dangling `aria-controls`. What is
+  left is a handful of sites carrying an exception with its reason written next
+  to it, each naming the keyboard path that makes a mouse gesture a shortcut
+  rather than the only way in: Escape on a modal backdrop, focus and blur on a
+  tooltip, the Browse button inside a drop zone.
+- **Test files are out of the accessibility rules' scope.** What they render
+  stands in for a real component — a bare div where a chart goes — and nobody
+  navigates it.
+
+### Note
+
+Two changes in this release were made, tried against the rendered page, and
+withdrawn. Making the CSV drop zone a control of its own read like an
+improvement and put one interactive element inside another, which axe refuses.
+An `aria-controls` added to a tab bar pointed at a panel that bar does not
+render, which axe calls critical. Both were caught by running the browser, not
+by the linter that had asked for them; `pnpm validate` does not run it, and
+`CONTRIBUTING.md` now says to.
+
 ## [1.27.0] - 2026-09-19
 
 An Opportunity that carries products now clones completely — account, price

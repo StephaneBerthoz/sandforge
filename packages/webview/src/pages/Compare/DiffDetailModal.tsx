@@ -41,6 +41,7 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
   useFocusTrap(dialogRef, onClose, { initialFocus: '[data-testid="close-diff-modal"]' });
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- useFocusTrap above closes this on Escape; the backdrop click is the mouse shortcut for the same thing.
     <div
       ref={dialogRef}
       data-testid="diff-detail-modal"

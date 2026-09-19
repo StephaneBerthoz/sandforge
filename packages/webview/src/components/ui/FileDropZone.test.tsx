@@ -65,3 +65,14 @@ describe('FileDropZone', () => {
     expect(onFileSelected).not.toHaveBeenCalled();
   });
 });
+
+describe('FileDropZone — the drop area is not itself a control', () => {
+  it('leaves the role and the tab order to the Browse button it contains', () => {
+    // It wraps that button and the file input. A control around other
+    // controls is a `nested-interactive` violation, which axe refuses.
+    render(<FileDropZone onFileSelected={vi.fn()} />);
+    const area = screen.getByTestId('drop-area');
+    expect(area.getAttribute('role')).toBeNull();
+    expect(area.getAttribute('tabindex')).toBeNull();
+  });
+});

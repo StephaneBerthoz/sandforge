@@ -398,6 +398,7 @@ const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
   useFocusTrap(dialogRef, onClose);
 
   return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- useFocusTrap above closes this on Escape; the backdrop click is the mouse shortcut for the same thing.
     <div
       ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -407,6 +408,7 @@ const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
       aria-labelledby={titleId}
       tabIndex={-1}
     >
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- not an action: it stops a click inside the dialog from reaching the backdrop and closing it. There is nothing for a keyboard to do here. */}
       <div
         className="w-[400px] rounded-xl border border-subtle bg-surface-1 p-4 shadow-lg"
         onClick={(e) => e.stopPropagation()}
@@ -423,6 +425,7 @@ const GeneratePipelineDialog: React.FC<GeneratePipelineDialogProps> = ({
           onKeyDown={(e) => {
             if (e.key === 'Enter') onSubmit();
           }}
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- the dialog opens on an explicit action and this is its only field; focus starts where the work is.
           autoFocus
         />
         <div className="flex justify-end gap-2 mt-3">
