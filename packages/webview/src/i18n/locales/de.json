@@ -1276,7 +1276,9 @@
       "sidePanelPlace": "Das Seitenpanel weiß, wo Sie sind",
       "sidePanelPlaceDesc": "Das aktuelle Modul sieht nun ausgewählt aus, die Org-Liste schließt mit Escape oder einem Klick daneben, ein Favorit lässt sich aus der Favoritenliste entfernen, und das Panel behauptet nicht mehr, keine Org sei verbunden, während es noch fragt.",
       "scopedRead": "Ein Klon liest nur, was er schreiben kann",
-      "scopedReadDesc": "Ein Preisbucheintrag, der über sein Produkt erreicht wurde, konnte zu einem Preisbuch gehören, das der Lauf nie anlegt; gelesen, lief er bis zum Insert und wurde dort abgewiesen. Ein Scoped Read muss nun innerhalb der tatsächlich gelesenen Eltern bleiben."
+      "scopedReadDesc": "Ein Preisbucheintrag, der über sein Produkt erreicht wurde, konnte zu einem Preisbuch gehören, das der Lauf nie anlegt; gelesen, lief er bis zum Insert und wurde dort abgewiesen. Ein Scoped Read muss nun innerhalb der tatsächlich gelesenen Eltern bleiben.",
+      "fullProductClone": "Eine Opportunity mit Produkten wird vollständig geklont",
+      "fullProductCloneDesc": "Account, Preisbuch, Produkte, Preise und Positionen, samt der Beträge, die sich daraus ergeben. Dieser Weg hatte nie funktioniert: Das Standardpreisbuch wurde kopiert statt zugeordnet, seine Preise fehlten, und die Positionen wurden vor den Einträgen geschrieben, auf die sie zeigen."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

@@ -114,3 +114,55 @@ describe('PageTabs', () => {
     expect(screen.getByTestId('page-tabs').className).toContain('w-full');
   });
 });
+
+describe('PageTabs — keyboard', () => {
+  const keyTabs = [
+    { id: 'a', label: 'A' },
+    { id: 'b', label: 'B' },
+    { id: 'c', label: 'C' },
+  ];
+
+  it('moves on ArrowRight and wraps at the end', () => {
+    const onTabChange = vi.fn();
+    const { rerender } = render(
+      <PageTabs tabs={keyTabs} activeTab="a" onTabChange={onTabChange} />,
+    );
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowRight' });
+    expect(onTabChange).toHaveBeenLastCalledWith('b');
+
+    rerender(<PageTabs tabs={keyTabs} activeTab="c" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowRight' });
+    expect(onTabChange).toHaveBeenLastCalledWith('a');
+  });
+
+  it('moves on ArrowLeft', () => {
+    const onTabChange = vi.fn();
+    render(<PageTabs tabs={keyTabs} activeTab="b" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowLeft' });
+    expect(onTabChange).toHaveBeenLastCalledWith('a');
+  });
+
+  it('Home and End jump to the ends', () => {
+    const onTabChange = vi.fn();
+    render(<PageTabs tabs={keyTabs} activeTab="b" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'Home' });
+    expect(onTabChange).toHaveBeenLastCalledWith('a');
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'End' });
+    expect(onTabChange).toHaveBeenLastCalledWith('c');
+  });
+
+  it('names the panel each tab governs, and keeps one tab in the tab order', () => {
+    render(<PageTabs tabs={keyTabs} activeTab="b" onTabChange={vi.fn()} />);
+    const active = screen.getByTestId('page-tab-b');
+    expect(active.getAttribute('aria-controls')).toBe('page-tabpanel-b');
+    expect(active.getAttribute('tabindex')).toBe('0');
+    expect(screen.getByTestId('page-tab-a').getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('ignores keys outside the pattern', () => {
+    const onTabChange = vi.fn();
+    render(<PageTabs tabs={keyTabs} activeTab="a" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'x' });
+    expect(onTabChange).not.toHaveBeenCalled();
+  });
+});

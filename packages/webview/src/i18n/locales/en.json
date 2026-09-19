@@ -1276,7 +1276,9 @@
       "sidePanelPlace": "The side panel knows where you are",
       "sidePanelPlaceDesc": "The module you are on now looks selected, the org list closes on Escape or a click elsewhere, a favourite can be removed from the Favourites list, and the panel no longer says no org is connected while it is still asking.",
       "scopedRead": "A clone reads only what it can write",
-      "scopedReadDesc": "A price book entry reached through its product could belong to a price book the run never creates; read, it travelled all the way to the insert and was refused there. A scoped read now has to stay inside the parents the run has actually read."
+      "scopedReadDesc": "A price book entry reached through its product could belong to a price book the run never creates; read, it travelled all the way to the insert and was refused there. A scoped read now has to stay inside the parents the run has actually read.",
+      "fullProductClone": "An opportunity with products clones completely",
+      "fullProductCloneDesc": "Account, price book, products, prices and line items, with the amounts that follow. The path had never worked: the standard price book was copied instead of matched, its prices were missed, and the line items were written before the entries they point at."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

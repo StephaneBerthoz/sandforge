@@ -138,6 +138,16 @@ export interface ForgeGraphEdge {
   relationshipName: string;
   /** Type of the Salesforce relationship */
   type: 'master-detail' | 'lookup';
+  /**
+   * Whether the child cannot be written without this parent.
+   *
+   * A lookup that may be left null can be nullified at insert and repaired by
+   * the second pass, so the order of the two objects does not matter much.
+   * One that may not has to be written first or the child is refused outright
+   * and there is nothing left for the second pass to repair. Optional: an
+   * edge that does not say is treated as the forgiving kind.
+   */
+  required?: boolean;
 }
 
 /**

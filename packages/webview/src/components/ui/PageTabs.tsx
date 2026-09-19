@@ -32,6 +32,37 @@ export interface PageTabsProps {
  * an accent underline on the active tab.
  */
 export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange, className }) => {
+  /**
+   * Arrow keys walk the tabs, as `role="tablist"` promises they will.
+   *
+   * The sibling `Tabs` component makes the same promise and now keeps it the
+   * same way; the two disagreed, and neither moved on an arrow key.
+   */
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (tabs.length === 0) return;
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    let next: (typeof tabs)[number] | undefined;
+    if (step !== 0) {
+      const at = tabs.findIndex((t) => t.id === activeTab);
+      const from = at === -1 ? 0 : at;
+      next = tabs[(from + step + tabs.length) % tabs.length];
+    } else if (event.key === 'Home') {
+      next = tabs[0];
+    } else if (event.key === 'End') {
+      next = tabs[tabs.length - 1];
+    }
+    if (!next) return;
+
+    event.preventDefault();
+    onTabChange(next.id);
+    // By position, not by a selector built from a caller-supplied id: see the
+    // same handler in `Tabs.tsx`.
+    const at = tabs.findIndex((t) => t.id === next.id);
+    const list = event.currentTarget.parentElement;
+    const buttons = list?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    buttons?.[at]?.focus();
+  };
+
   return (
     <div
       className={cn(
@@ -50,7 +81,13 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
             key={tab.id}
             role="tab"
             aria-selected={isActive}
+            // The sibling component supplies this and this one did not, so a
+            // screen reader could not tell which panel the tab governed.
+            aria-controls={`page-tabpanel-${tab.id}`}
             id={`page-tab-btn-${tab.id}`}
+            // Roving: one stop in the page's tab order, arrows for the rest.
+            tabIndex={isActive ? 0 : -1}
+            onKeyDown={handleKeyDown}
             className={cn(
               'relative flex items-center gap-[var(--sf-space-2)]',
               'px-[var(--sf-space-4)] py-[var(--sf-space-3)]',

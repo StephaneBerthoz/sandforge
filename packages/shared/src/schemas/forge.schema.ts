@@ -201,6 +201,7 @@ export const forgeGraphEdgeSchema = z.object({
   targetObject: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
   relationshipName: z.string().min(1).max(80),
   type: forgeEdgeTypeSchema,
+  required: z.boolean().optional(),
 });
 
 /**

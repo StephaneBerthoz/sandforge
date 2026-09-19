@@ -51,3 +51,54 @@ describe('Tabs', () => {
     );
   });
 });
+
+describe('Tabs — keyboard', () => {
+  const tabs = [
+    { id: 'one', label: 'One' },
+    { id: 'two', label: 'Two', disabled: true },
+    { id: 'three', label: 'Three' },
+  ];
+
+  it('moves to the next enabled tab on ArrowRight, stepping over a disabled one', () => {
+    const onTabChange = vi.fn();
+    render(<Tabs tabs={tabs} activeTab="one" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowRight' });
+    expect(onTabChange).toHaveBeenCalledWith('three');
+  });
+
+  it('wraps at the end', () => {
+    const onTabChange = vi.fn();
+    render(<Tabs tabs={tabs} activeTab="three" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowRight' });
+    expect(onTabChange).toHaveBeenCalledWith('one');
+  });
+
+  it('goes back on ArrowLeft', () => {
+    const onTabChange = vi.fn();
+    render(<Tabs tabs={tabs} activeTab="one" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowLeft' });
+    expect(onTabChange).toHaveBeenCalledWith('three');
+  });
+
+  it('Home and End jump to the ends', () => {
+    const onTabChange = vi.fn();
+    render(<Tabs tabs={tabs} activeTab="three" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'Home' });
+    expect(onTabChange).toHaveBeenLastCalledWith('one');
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'End' });
+    expect(onTabChange).toHaveBeenLastCalledWith('three');
+  });
+
+  it('keeps one tab in the page tab order and takes the others out', () => {
+    render(<Tabs tabs={tabs} activeTab="three" />);
+    expect(screen.getByRole('tab', { name: 'Three' }).getAttribute('tabindex')).toBe('0');
+    expect(screen.getByRole('tab', { name: 'One' }).getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('ignores a key that is not part of the pattern', () => {
+    const onTabChange = vi.fn();
+    render(<Tabs tabs={tabs} activeTab="one" onTabChange={onTabChange} />);
+    fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'a' });
+    expect(onTabChange).not.toHaveBeenCalled();
+  });
+});

@@ -16,6 +16,7 @@ import {
   seedScopeCache,
   getParentObjects,
   sortNodesForExecution,
+  sortNodesForWriting,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
 import {
@@ -26,6 +27,16 @@ import {
 } from './stages/RecordCleaner.js';
 import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import {
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_OBJECT,
+  STANDARD_PRICEBOOK_SOQL,
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  isPricebookEntry,
+  splitStandardPricebookEntries,
+  dedupePricebookEntries,
+} from '@sandforge/shared';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 
 /**
@@ -445,6 +456,11 @@ interface ExecutionState {
   readonly deferredNodes: ForgeGraphNode[];
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
+  /**
+   * The source org's standard price book, once looked up. `null` when the run
+   * carries no price book entries, or when the lookup found nothing.
+   */
+  standardPricebookId: string | null;
   successCount: number;
   failedCount: number;
   skippedCount: number;
@@ -564,6 +580,7 @@ export class ForgeExecutor {
       pendingFkUpdates: [],
       deferredNodes: [],
       preread: new Map<string, PrereadNode>(),
+      standardPricebookId: null,
       successCount: 0,
       failedCount: 0,
       skippedCount: 0,
@@ -596,7 +613,47 @@ export class ForgeExecutor {
      * two would hold every row of every object in memory to no purpose.
      */
     const twoPhase = config.isScoped === true;
-    const writeOrder = twoPhase ? sortNodesForExecution(graph) : sortedNodes;
+    const writeOrder = twoPhase ? sortNodesForWriting(graph) : sortedNodes;
+
+    // The standard price book, when the run carries prices at all. See
+    // `standard-pricebook.ts`: the platform refuses a custom price for a
+    // product that has no standard one, and neither describe nor graph says
+    // so. Best effort — a failure here costs the ordering, not the run.
+    if (graph.nodes.some((n) => isPricebookEntry(n.objectApiName))) {
+      try {
+        const [sourceBook, targetBook] = await Promise.all([
+          this.deps.queryRecords(sourceOrgId, STANDARD_PRICEBOOK_SOQL),
+          this.deps.queryRecords(targetOrgId, STANDARD_PRICEBOOK_SOQL),
+        ]);
+        const sourceId = sourceBook[0]?.['Id'];
+        const targetId = targetBook[0]?.['Id'];
+        process.stderr.write(`[DBG] std books src=${String(sourceId)} tgt=${String(targetId)}
+`);
+        if (typeof sourceId === 'string' && typeof targetId === 'string') {
+          state.standardPricebookId = sourceId;
+          // Never cloned — every org has exactly one and it cannot be
+          // created. Registered so entries pointing at it remap.
+          state.remapper.add(sourceId, targetId);
+          // Put it in scope so the standard entries of the products in scope
+          // are read alongside the custom ones, instead of being filtered out
+          // as belonging to a book outside the graph.
+          state.scopeCache?.add(PRICEBOOK_OBJECT, [sourceId]);
+        }
+      } catch (err) {
+        state.errors.push({
+          objectApiName: PRICEBOOK_ENTRY_OBJECT,
+          stage: 'scope',
+          failedCount: 0,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: '(standard price book lookup)',
+              messages: [extractErrorMessage(err)],
+            },
+          ],
+        });
+      }
+    }
 
     // Pre-flight: skip nodes the target org refuses to accept inserts on
     // (read-only system entities like Case History or audit-log variants).
@@ -780,6 +837,27 @@ export class ForgeExecutor {
           continue;
         }
         await this.writeNode(node, state);
+
+        // Settle what this node's write has just made resolvable, before the
+        // next one reads it. An opportunity's price book is nullified at
+        // insert, and its line items are refused for want of it — waiting
+        // until the end of the run is waiting until after they were written.
+        if (state.pendingFkUpdates.length > 0 && !config.dryRun) {
+          const owed = state.pendingFkUpdates.splice(0, state.pendingFkUpdates.length);
+          const stillPending: PendingFkUpdate[] = [];
+          const settled = await patchCycleFkUpdates({
+            pendingFkUpdates: owed,
+            remapper: state.remapper,
+            updateRecords: this.deps.updateRecords,
+            targetOrgId,
+            enabled: true,
+            onProgress,
+            deferUnresolved: true,
+            stillPending,
+          });
+          if (settled) state.errors.push(settled);
+          state.pendingFkUpdates.push(...stillPending);
+        }
       }
     }
 
@@ -897,6 +975,10 @@ export class ForgeExecutor {
           )
         : null;
 
+      if (isPricebookEntry(node.objectApiName) && query.kind === 'query') {
+        process.stderr.write(`[DBG] PBE soql: ${query.statements.join(' ;; ').slice(0, 600)}
+`);
+      }
       const records = await queryNodeRecords(query, (soql) =>
         this.deps.queryRecords(sourceOrgId, soql, () =>
           state.truncatedObjects.add(node.objectApiName),
@@ -939,6 +1021,36 @@ export class ForgeExecutor {
           message: `Mapped ${node.objectApiName} via reference-data lookup: ${refResolve.mappings.length} resolved, ${refResolve.unmatched.length} unmatched`,
         });
         return false;
+      }
+
+      // The standard price book is matched, never cloned: every org has
+      // exactly one, it cannot be created, and the two were registered with
+      // each other before anything was read. Left in, it was inserted like
+      // any other book — a second "Standard Price Book" in the target on
+      // every run, and a remapper entry that overwrote the match, so the
+      // standard entries went to the copy and the platform refused them.
+      if (node.objectApiName === PRICEBOOK_OBJECT && state.standardPricebookId) {
+        const standardId = state.standardPricebookId;
+        const kept = records.filter((r) => r['Id'] !== standardId);
+        if (kept.length !== records.length) {
+          records.length = 0;
+          records.push(...kept);
+        }
+      }
+
+      // A price book entry is usually read by id — the line items that point
+      // at it put it in scope — so the standard entry of the same product is
+      // never among the rows, and the platform will not take the custom price
+      // without it. Ask for them by name, for exactly the products in hand.
+      if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
+        await this.addStandardPricebookEntries(node, state, records, fieldInfos);
+        // A book holds one entry per product, and the target enforces that on
+        // insert whatever `IsActive` says. The source can still hold two.
+        const deduped = dedupePricebookEntries(records);
+        if (deduped.length !== records.length) {
+          records.length = 0;
+          records.push(...deduped);
+        }
       }
 
       if (state.scopeCache) {
@@ -987,6 +1099,83 @@ export class ForgeExecutor {
         message: `Error on ${node.objectApiName}: ${extractErrorMessage(err)}`,
       });
       return false;
+    }
+  }
+
+  /**
+   * Add the standard price book entries for the products these rows price.
+   *
+   * Salesforce refuses a custom price for a product with no standard one, and
+   * nothing in the graph says so: `PricebookEntry` is an ordinary child of
+   * two parents, and the refusal arrives at the insert as
+   * `STANDARD_PRICE_NOT_DEFINED`. The rows already in hand are the ones some
+   * line item points at, all of them in custom books, so the standard entries
+   * have to be asked for on their own.
+   *
+   * Mutates `records` in place — the caller has already settled what it read,
+   * and these belong to the same node. Rows already present are not fetched
+   * twice, and a failure here leaves the run as it was: the custom prices
+   * will be refused, which is what happened before this existed.
+   */
+  private async addStandardPricebookEntries(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    records: Record<string, unknown>[],
+    fieldInfos: FieldInfo[],
+  ): Promise<void> {
+    const standardId = state.standardPricebookId;
+    if (!standardId) return;
+    const productIds = new Set<string>();
+    const seen = new Set<string>();
+    for (const record of records) {
+      const id = record['Id'];
+      if (typeof id === 'string') seen.add(id);
+      if (record[PRICEBOOK_ENTRY_BOOK_FIELD] === standardId) continue;
+      const productId = record['Product2Id'];
+      if (typeof productId === 'string' && productId) productIds.add(productId);
+    }
+    if (productIds.size === 0) return;
+
+    const fields = fieldInfos.filter((f) => f.queryable).map((f) => f.name);
+    const selectList = (fields.length > 0 ? fields : ['Id'])
+      .map((f) => assertSoqlIdentifier(f))
+      .join(', ');
+    const inList = [...productIds].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+    const soql =
+      `SELECT ${selectList} FROM ${assertSoqlIdentifier(node.objectApiName)} ` +
+      `WHERE ${PRICEBOOK_ENTRY_BOOK_FIELD} = '${sanitizeSoqlValue(standardId)}' ` +
+      `AND Product2Id IN (${inList})`;
+
+    try {
+      const standardRows = await this.deps.queryRecords(state.sourceOrgId, soql);
+      let added = 0;
+      for (const row of standardRows) {
+        const id = row['Id'];
+        if (typeof id === 'string' && seen.has(id)) continue;
+        records.push(row);
+        added++;
+      }
+      if (added > 0) {
+        state.onProgress({
+          objectName: node.objectApiName,
+          status: 'scanning',
+          progress: 50,
+          message: `Added ${added} standard price book entr${added === 1 ? 'y' : 'ies'} the custom prices depend on`,
+        });
+      }
+    } catch (err) {
+      state.errors.push({
+        objectApiName: node.objectApiName,
+        stage: 'scope',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: '(standard price book entries)',
+            messages: [extractErrorMessage(err)],
+          },
+        ],
+      });
     }
   }
 
@@ -1081,19 +1270,67 @@ export class ForgeExecutor {
         recordsToInsert = this.deps.anonymize(recordsToInsert, node.objectApiName);
       }
 
-      // Step 3: Running — batch and insert into target
-      const writeResult = await state.batchWriter.writeNode({
-        node,
-        records: recordsToInsert,
-        cleanedRecords,
-        fieldInfos,
-        creatableFields: effectiveCreatableSet,
-        upsertMode: config.upsertMode,
-        targetOrgId,
-        remapper,
-        waitIfPaused: () => this.waitIfPaused(),
-        onProgress,
-      });
+      // Step 3: Running — batch and insert into target.
+      //
+      // Price book entries go in two rounds, standard book first: Salesforce
+      // refuses a custom price for a product that has no standard one, and
+      // one request cannot be relied on to settle its own rows in order. The
+      // two arrays are index-aligned all the way from `cleanNodeRecords`
+      // (record-type translation and anonymization both map in place), so the
+      // split is made on positions and applied to both.
+      const rounds: Array<{ records: Record<string, unknown>[]; cleaned: typeof cleanedRecords }> =
+        [];
+      if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
+        const positions = cleanedRecords.map((_, index) => index);
+        const { standard, custom } = splitStandardPricebookEntries(
+          positions.map((index) => ({
+            index,
+            [PRICEBOOK_ENTRY_BOOK_FIELD]: cleanedRecords[index].source[
+              PRICEBOOK_ENTRY_BOOK_FIELD
+            ] as unknown,
+          })),
+          state.standardPricebookId,
+        );
+        for (const group of [standard, custom]) {
+          if (group.length === 0) continue;
+          rounds.push({
+            records: group.map((g) => recordsToInsert[g.index as number]),
+            cleaned: group.map((g) => cleanedRecords[g.index as number]),
+          });
+        }
+      }
+      if (rounds.length === 0) {
+        rounds.push({ records: recordsToInsert, cleaned: cleanedRecords });
+      }
+
+      const writeResult = {
+        successCount: 0,
+        failureCount: 0,
+        alreadyExistsCount: 0,
+        errorSamples: [] as ExecutionErrorSample[],
+        pendingFkUpdates: [] as PendingFkUpdate[],
+      };
+      for (const round of rounds) {
+        const partial = await state.batchWriter.writeNode({
+          node,
+          records: round.records,
+          cleanedRecords: round.cleaned,
+          fieldInfos,
+          creatableFields: effectiveCreatableSet,
+          upsertMode: config.upsertMode,
+          targetOrgId,
+          remapper,
+          waitIfPaused: () => this.waitIfPaused(),
+          onProgress,
+        });
+        writeResult.successCount += partial.successCount;
+        writeResult.failureCount += partial.failureCount;
+        writeResult.alreadyExistsCount += partial.alreadyExistsCount;
+        writeResult.pendingFkUpdates.push(...partial.pendingFkUpdates);
+        for (const sample of partial.errorSamples) {
+          if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
+        }
+      }
       const nodeSuccess = writeResult.successCount;
       const nodeFailure = writeResult.failureCount;
       state.successCount += nodeSuccess;

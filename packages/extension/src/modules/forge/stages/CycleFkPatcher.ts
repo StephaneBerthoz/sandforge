@@ -44,6 +44,19 @@ export interface CycleFkPatchInput {
   enabled: boolean;
   /** Progress sink for the synthetic `__pass2__` event. */
   onProgress: (event: ForgeProgressEvent) => void;
+  /**
+   * Patch what can be patched now and hand the rest back, silently.
+   *
+   * The pass runs once at the end of a clone, which is too late for a field a
+   * *sibling* insert reads: an opportunity's price book is nullified at
+   * insert, and its line items are refused because the opportunity has no
+   * price book yet. Called this way after each node, it settles what the run
+   * has learned so far and says nothing about the rest, which is still owed
+   * and may well resolve later.
+   */
+  deferUnresolved?: boolean;
+  /** Collects the updates that could not be resolved, when deferring. */
+  stillPending?: PendingFkUpdate[];
 }
 
 /**
@@ -66,6 +79,10 @@ export async function patchCycleFkUpdates(
   for (const upd of pendingFkUpdates) {
     const newRefId = remapper.get(upd.sourceRefId);
     if (!newRefId) {
+      if (input.deferUnresolved) {
+        input.stillPending?.push(upd);
+        continue;
+      }
       if (unresolved.length < 3) {
         unresolved.push({
           recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
@@ -142,6 +159,10 @@ export async function patchCycleFkUpdates(
     }
   }
   const totalAttempted = resolvedCount + unresolved.length;
+  if (input.deferUnresolved && resolvedCount === 0 && pass2Failed === 0) {
+    // Nothing was owed yet; saying so on every node would be noise.
+    return null;
+  }
   onProgress({
     objectName: '__pass2__',
     status: pass2Failed + unresolved.length > 0 ? 'error' : 'done',

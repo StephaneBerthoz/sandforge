@@ -1276,7 +1276,9 @@
       "sidePanelPlace": "El panel lateral sabe dónde estás",
       "sidePanelPlaceDesc": "El módulo actual por fin se ve seleccionado, la lista de orgs se cierra con Escape o un clic fuera, un favorito se puede quitar desde la propia lista de favoritos, y el panel ya no dice que no hay ninguna org conectada mientras sigue preguntando.",
       "scopedRead": "El clon solo lee lo que puede escribir",
-      "scopedReadDesc": "Una entrada de catálogo alcanzada por su producto podía pertenecer a un catálogo que la ejecución nunca crea; leída, llegaba hasta la inserción y allí era rechazada. Una lectura con ámbito debe quedarse ahora dentro de los padres realmente leídos."
+      "scopedReadDesc": "Una entrada de catálogo alcanzada por su producto podía pertenecer a un catálogo que la ejecución nunca crea; leída, llegaba hasta la inserción y allí era rechazada. Una lectura con ámbito debe quedarse ahora dentro de los padres realmente leídos.",
+      "fullProductClone": "Una oportunidad con productos se clona entera",
+      "fullProductCloneDesc": "Cuenta, catálogo, productos, precios y líneas, con los importes que se derivan. Ese camino nunca había funcionado: el catálogo estándar se copiaba en vez de emparejarse, sus precios se perdían, y las líneas se escribían antes que las entradas a las que apuntan."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

@@ -89,6 +89,21 @@ export {
   UNCOPYABLE_OBJECT_NAMES,
 } from './constants/uncopyable-objects.js';
 export {
+  PLATFORM_REQUIRED_FIELDS,
+  isPlatformRequiredField,
+  isRequiredLookup,
+} from './constants/platform-required-fields.js';
+export {
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_OBJECT,
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  STANDARD_PRICEBOOK_SOQL,
+  isPricebookEntry,
+  splitStandardPricebookEntries,
+  dedupePricebookEntries,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+} from './constants/standard-pricebook.js';
+export {
   EXCLUSIVE_FIELD_GROUPS,
   exclusiveFieldsToDrop,
   type ExclusiveFieldGroup,

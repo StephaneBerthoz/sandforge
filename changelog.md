@@ -5,6 +5,64 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-09-19
+
+An Opportunity that carries products now clones completely — account, price
+book, products, prices and line items, with the amounts that follow from them.
+That path had never worked. Getting there took five separate defects, each
+found by running the clone against two real Salesforce sandboxes and following
+the failure to the next one.
+
+### Added
+
+- **The standard price book is matched, and the prices that depend on it are
+  carried.** Salesforce will not price a product in a custom price book until
+  that product has a price in the standard one, and nothing in any describe
+  says so: `PricebookEntry` looks like an ordinary child of two parents, and
+  the refusal arrives at the insert as `STANDARD_PRICE_NOT_DEFINED`. The
+  standard book is now found on both sides by `IsStandard` — never by name,
+  which is localised — and registered as a match rather than cloned. The
+  standard entries of the products in scope are read alongside the custom ones
+  and written first.
+
+### Fixed
+
+- **The standard price book is no longer cloned into a copy of itself.** Every
+  org has exactly one and it cannot be created, so it was inserted like any
+  other book: a second "Standard Price Book" in the target on every run, and a
+  mapping that overwrote the real one, which sent the standard prices to the
+  copy where the platform refused them.
+- **A price book is sent one entry per product.** A book holds at most one, and
+  the target enforces that on insert whatever `IsActive` says — while a source
+  org can hold two, one retired and one live, and one did. The second was
+  refused, and with it went the mapping every line item needed.
+- **Write order follows the lookups a record cannot be written without.**
+  Kahn's algorithm cannot order the members of a cycle, so it appends them in
+  whatever order the map happens to hold, and a graph of a real org is full of
+  cycles made of optional lookups. That is survivable for a lookup that can be
+  nullified and repaired by the second pass, and fatal for one that cannot:
+  the insert is refused outright and there is nothing left to repair. The
+  order is now settled on the required edges alone, which do not form cycles
+  in practice, with the rest breaking ties. The same clone used to fail or
+  succeed from one run to the next depending on the order the org answered
+  describes in.
+- **Some fields are required although the describe calls them nullable.**
+  `OpportunityLineItem.PricebookEntryId` reads `nillable: true` against a live
+  org and an insert without it is refused. Three such fields are now named
+  outright, and the ordering above believes them over the metadata.
+- **A foreign key is settled as soon as it can be, not only at the end of the
+  run.** The second pass repairs the lookups nullified at insert, and it ran
+  once, after everything was written — too late for a field a _sibling_ insert
+  reads. An opportunity's price book was nullified, and its line items were
+  refused because the opportunity had no price book yet. What a write makes
+  resolvable is now settled before the next one reads it.
+- **Two tab bars answer the arrow keys.** Both carried `role="tablist"`, which
+  promises that Left and Right move between the tabs and that only one of them
+  sits in the page's tab order. Neither kept it: every tab was a separate stop
+  and the arrows did nothing. Home and End jump to the ends, disabled tabs are
+  stepped over, and the two components — which also disagreed about announcing
+  the panel each tab governs — now behave the same way.
+
 ## [1.26.1] - 2026-09-19
 
 ### Fixed

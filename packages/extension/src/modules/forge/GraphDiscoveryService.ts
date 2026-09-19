@@ -3,6 +3,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 import { isForgeExcludedObject } from './excludedObjects.js';
+import { isRequiredLookup } from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 
 /** Describe result for an object returned by the org connection. */
@@ -435,13 +436,17 @@ export class GraphDiscoveryService {
             if (field.referenceTo.length === 0) continue;
             // A lookup the platform will not let the record omit. The object
             // behind it has to be in the graph or the child cannot be written.
-            const required = field.nillable === false;
+            // Not always what the describe says: a handful of standard
+            // objects are enforced in the platform's own code and read as
+            // nullable — see `platform-required-fields.ts`.
+            const required = isRequiredLookup(objectName, field.name, field.nillable);
             for (const targetObject of field.referenceTo) {
               addEdge({
                 sourceObject: targetObject,
                 targetObject: objectName,
                 relationshipName: field.relationshipName ?? field.name,
                 type: field.isMasterDetail ? 'master-detail' : 'lookup',
+                required,
               });
               // An object the cap turned away is still marked visited, so
               // without this it can never come back — and the first thing to

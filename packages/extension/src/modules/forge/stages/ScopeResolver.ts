@@ -30,6 +30,40 @@ export function sortNodesForExecution(
 }
 
 /**
+ * Order nodes for writing: every parent a child cannot do without comes
+ * first.
+ *
+ * Kahn's algorithm cannot order the members of a cycle, so it appends them in
+ * whatever order the map holds — and a graph of a real org is full of cycles
+ * made of optional lookups. That is survivable for a lookup, which is
+ * nullified at insert and repaired by the second pass, and fatal for one the
+ * platform will not let the record omit: the insert is refused outright and
+ * there is nothing left to repair. Run between two sandboxes, that is what
+ * kept every line item of a cloned opportunity out of the target — it landed
+ * in the same cycle bucket as the price book entry it could not be written
+ * without, and went first.
+ *
+ * So the order is settled on the required edges alone, which in practice do
+ * not form cycles, and the optional ones only break ties. A graph with no
+ * required edges sorts exactly as before.
+ */
+export function sortNodesForWriting(graph: ForgeGraph): ForgeGraphNode[] {
+  const requiredEdges = graph.edges.filter((e) => e.required === true);
+  if (requiredEdges.length === 0) return topologicalSort(graph);
+  const byRequired = topologicalSort(graph, requiredEdges);
+  const rank = new Map<string, number>();
+  byRequired.forEach((node, index) => rank.set(node.objectApiName, index));
+  // Within what the required edges leave free, keep the full order so an
+  // optional parent still tends to come before its child.
+  const full = topologicalSort(graph);
+  return [...full].sort(
+    (a, b) =>
+      (rank.get(a.objectApiName) ?? 0) - (rank.get(b.objectApiName) ?? 0) ||
+      full.indexOf(a) - full.indexOf(b),
+  );
+}
+
+/**
  * Get the parent object names for a given object based on graph edges.
  * A parent is an object that appears as sourceObject in an edge
  * where the given object is the targetObject.
@@ -272,7 +306,8 @@ function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): F
  * then their outgoing edges are removed, revealing the next layer.
  * If cycles exist, remaining nodes are appended at the end.
  */
-function topologicalSort(graph: ForgeGraph): ForgeGraphNode[] {
+function topologicalSort(graph: ForgeGraph, edges?: readonly ForgeGraphEdge[]): ForgeGraphNode[] {
+  const graphEdges = edges ?? graph.edges;
   const nodeMap = new Map<string, ForgeGraphNode>();
   for (const node of graph.nodes) {
     nodeMap.set(node.objectApiName, node);
@@ -286,7 +321,7 @@ function topologicalSort(graph: ForgeGraph): ForgeGraphNode[] {
   for (const node of graph.nodes) {
     inDegree.set(node.objectApiName, 0);
   }
-  for (const edge of graph.edges) {
+  for (const edge of graphEdges) {
     if (inDegree.has(edge.targetObject)) {
       inDegree.set(edge.targetObject, (inDegree.get(edge.targetObject) ?? 0) + 1);
     }
