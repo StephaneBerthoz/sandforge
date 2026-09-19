@@ -151,10 +151,12 @@ describe('PageTabs — keyboard', () => {
     expect(onTabChange).toHaveBeenLastCalledWith('c');
   });
 
-  it('names the panel each tab governs, and keeps one tab in the tab order', () => {
+  it('keeps one tab in the tab order and names no panel it does not render', () => {
     render(<PageTabs tabs={keyTabs} activeTab="b" onTabChange={vi.fn()} />);
     const active = screen.getByTestId('page-tab-b');
-    expect(active.getAttribute('aria-controls')).toBe('page-tabpanel-b');
+    // An aria-controls pointing at an element that does not exist is a
+    // critical axe violation; this bar does not render the panel.
+    expect(active.getAttribute('aria-controls')).toBeNull();
     expect(active.getAttribute('tabindex')).toBe('0');
     expect(screen.getByTestId('page-tab-a').getAttribute('tabindex')).toBe('-1');
   });

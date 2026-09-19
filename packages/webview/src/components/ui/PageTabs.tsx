@@ -81,9 +81,11 @@ export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange
             key={tab.id}
             role="tab"
             aria-selected={isActive}
-            // The sibling component supplies this and this one did not, so a
-            // screen reader could not tell which panel the tab governed.
-            aria-controls={`page-tabpanel-${tab.id}`}
+            // No `aria-controls` here on purpose. The sibling `Tabs` renders
+            // its panels and can name them; this bar is rendered on its own
+            // and the page puts its content elsewhere, with no matching id.
+            // An `aria-controls` pointing at nothing is worse than none —
+            // axe calls it critical, and it is right to.
             id={`page-tab-btn-${tab.id}`}
             // Roving: one stop in the page's tab order, arrows for the rest.
             tabIndex={isActive ? 0 : -1}
