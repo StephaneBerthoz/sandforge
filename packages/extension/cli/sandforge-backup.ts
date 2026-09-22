@@ -26,7 +26,7 @@
  * pnpm build:shared.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import {
   mkdir as mkdirAsync,
   readFile as readFileAsync,
@@ -36,10 +36,9 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadOrg } from './sfSession.js';
+import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore } from '../src/modules/dataops/BackupRecordStore.js';
-import { ConfigStore } from '../src/core/storage/ConfigStore.js';
-import type { ConfigEntry, ConfigStoreBackend } from '../src/core/storage/ConfigStoreBackend.js';
 
 const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
 
@@ -134,28 +133,6 @@ export function parseArgs(argv: string[]): CliArgs {
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
-}
-
-/**
- * The product's own `ConfigStore`, kept in a JSON file.
- *
- * Not a hand-written stand-in: the handler reads snapshot metadata back
- * through `getKeysByPrefix` and `getByCategory`, so a stand-in would have to
- * reproduce those and would be the thing under test instead of the store.
- * Only the backend — the two calls that load and save the whole map — is
- * local here, where the extension hands over a VS Code memento.
- */
-export function fileConfigStore(path: string): ConfigStore {
-  const backend: ConfigStoreBackend = {
-    getData: () =>
-      existsSync(path)
-        ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, ConfigEntry>)
-        : {},
-    setData: (data) => writeFileSync(path, JSON.stringify(data, null, 2), 'utf8'),
-  };
-  const store = new ConfigStore(backend);
-  store.initialize();
-  return store;
 }
 
 /** Ask on the terminal, unless the answer was given on the command line. */
