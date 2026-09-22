@@ -416,3 +416,161 @@ describe('SeedOrchestrator', () => {
     });
   });
 });
+
+describe('SeedOrchestrator — a parent that wrote nothing', () => {
+  /** A template of Account then Contact, the Contact pointing at the Account. */
+  function accountThenContact() {
+    return {
+      id: 'tpl',
+      name: 'two objects',
+      description: '',
+      version: 1,
+      strategy: 'faker' as const,
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      objects: [
+        {
+          objectApiName: 'Account',
+          recordCount: 2,
+          fieldRules: [
+            {
+              fieldApiName: 'Name',
+              ruleType: 'faker' as const,
+              config: { fakerMethod: 'company.name' },
+            },
+          ],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+        {
+          objectApiName: 'Contact',
+          recordCount: 2,
+          fieldRules: [
+            {
+              fieldApiName: 'AccountId',
+              ruleType: 'reference' as const,
+              config: { referenceObject: 'Account' },
+            },
+          ],
+          excludedFields: [],
+          insertOrder: 1,
+          batchSize: 200,
+        },
+      ],
+    };
+  }
+
+  it('does not write children of an object that wrote none', async () => {
+    // Against a real org one missing field cost all fifty accounts, and the
+    // run went on to write a hundred contacts and two hundred opportunities,
+    // every one attached to nothing.
+    const insert = vi.fn(async (_orgId: string, objectApiName: string) =>
+      objectApiName === 'Account'
+        ? { successIds: [], errors: ['No such column'] }
+        : { successIds: ['003A', '003B'], errors: [] },
+    );
+    const orchestrator = new SeedOrchestrator({ ...createMockDeps(), insert });
+
+    const result = await orchestrator.execute(accountThenContact() as never, 'org');
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(insert.mock.calls[0][1]).toBe('Account');
+    const contact = result.objectResults.find((r) => r.objectApiName === 'Contact');
+    expect(contact?.recordsCreated).toBe(0);
+    expect(contact?.errors[0]).toContain('Account');
+  });
+
+  it('writes the children when the parent wrote something', async () => {
+    const insert = vi.fn(async () => ({ successIds: ['001A', '001B'], errors: [] }));
+    const orchestrator = new SeedOrchestrator({ ...createMockDeps(), insert });
+
+    const result = await orchestrator.execute(accountThenContact() as never, 'org');
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(result.objectResults.every((r) => r.recordsCreated === 2)).toBe(true);
+  });
+});
+
+describe('SeedOrchestrator — a field the org does not have', () => {
+  function oneObject(rules: Array<{ fieldApiName: string; ruleType: 'faker'; config: object }>) {
+    return {
+      id: 'tpl',
+      name: 'one object',
+      description: '',
+      version: 1,
+      strategy: 'faker' as const,
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      objects: [
+        {
+          objectApiName: 'Account',
+          recordCount: 2,
+          fieldRules: rules,
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+      ],
+    };
+  }
+
+  const nameRule = {
+    fieldApiName: 'Name',
+    ruleType: 'faker' as const,
+    config: { fakerMethod: 'company.name' },
+  };
+  const missingRule = {
+    fieldApiName: 'AnnualRevenue',
+    ruleType: 'faker' as const,
+    config: { fakerMethod: 'number' },
+  };
+
+  it('writes the records without the field, and says which one it dropped', async () => {
+    // A real org did not expose AnnualRevenue and every record of the object
+    // was refused with "No such column".
+    const mapFields = vi.fn().mockResolvedValue([{ Name: 'Acme' }, { Name: 'Globex' }]);
+    const orchestrator = new SeedOrchestrator({
+      ...createMockDeps(),
+      fieldMapper: { mapFields } as never,
+      describeCreateableFields: async () => new Set(['Name']),
+    });
+
+    const result = await orchestrator.execute(oneObject([nameRule, missingRule]) as never, 'org');
+
+    expect(
+      mapFields.mock.calls[0][0].fieldRules.map((r: { fieldApiName: string }) => r.fieldApiName),
+    ).toEqual(['Name']);
+    expect(result.objectResults[0].recordsCreated).toBe(2);
+    expect(result.objectResults[0].errors.join(' ')).toContain('AnnualRevenue');
+  });
+
+  it('skips an object when the org has none of the fields it names', async () => {
+    const insert = vi.fn();
+    const orchestrator = new SeedOrchestrator({
+      ...createMockDeps(),
+      insert: insert as never,
+      describeCreateableFields: async () => new Set(['SomethingElse']),
+    });
+
+    const result = await orchestrator.execute(oneObject([missingRule]) as never, 'org');
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(result.objectResults[0].recordsCreated).toBe(0);
+    expect(result.objectResults[0].errors[0]).toContain('AnnualRevenue');
+  });
+
+  it('carries on when nothing can describe the org', async () => {
+    const orchestrator = new SeedOrchestrator({
+      ...createMockDeps(),
+      describeCreateableFields: async () => {
+        throw new Error('no describe today');
+      },
+    });
+
+    const result = await orchestrator.execute(oneObject([nameRule]) as never, 'org');
+    expect(result.objectResults[0].recordsCreated).toBe(2);
+  });
+});

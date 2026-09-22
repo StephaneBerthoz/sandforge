@@ -1282,7 +1282,9 @@
       "keyboardEverywhere": "Cada control del panel responde al teclado",
       "keyboardEverywhereDesc": "Las conversaciones del panel de IA son botones de verdad, los controles del grafo dejaron de escuchar el ratón, y las reglas de accesibilidad — avisos mientras la cuenta bajaba de 86 a cero — ahora son errores.",
       "syncFinishes": "Un sync puede terminar un trabajo",
-      "syncFinishesDesc": "Ejecutado por primera vez entre dos orgs reales, Sync no escribía ni un registro: enviaba todos los campos leídos, no avisaba de que sus filas se parecen a propósito a las ya existentes, y un lookup ausente en el destino costaba el registro entero. Los tres están corregidos."
+      "syncFinishesDesc": "Ejecutado por primera vez entre dos orgs reales, Sync no escribía ni un registro: enviaba todos los campos leídos, no avisaba de que sus filas se parecen a propósito a las ya existentes, y un lookup ausente en el destino costaba el registro entero. Los tres están corregidos.",
+      "seedFills": "Un seed llena la org en vez de solo decirlo",
+      "seedFillsDesc": "Ejecutado por primera vez contra una org real, Seed no escribía nada y anunciaba éxito, y luego llenaba la org de registros colgados de nada. Ahora rechaza una plantilla que no puede escribir nada, se detiene antes de los hijos de un objeto que no pudo escribir, y descarta un campo que la org no tiene en vez de perder el objeto entero."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

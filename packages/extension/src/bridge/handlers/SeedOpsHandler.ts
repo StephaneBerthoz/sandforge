@@ -4,7 +4,11 @@ import type {
   SeedExecutionResult,
   SeedExecuteRequest,
 } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import {
+  duplicateRuleHeaders,
+  sanitizeSoqlObjectName,
+  orgTypeToGuardTier,
+} from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -759,7 +763,14 @@ export class SeedOpsHandler implements DomainHandler {
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
           const retryResult = await retryOp.execute(async () => {
-            return conn.sobject(objectApiName).create(batch) as Promise<
+            // Seeded rows are invented and land in an org that may already
+            // hold rows like them — a duplicate rule stops exactly that. Forge
+            // learnt it in 1.25.3 and Sync in 1.28.0; a hundred seeded
+            // contacts were refused here for want of the same header. A
+            // unique index still refuses, which is right.
+            return conn
+              .sobject(objectApiName)
+              .create(batch, { headers: duplicateRuleHeaders(true) }) as Promise<
               Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
             >;
           });
@@ -805,8 +816,28 @@ export class SeedOpsHandler implements DomainHandler {
 
       const grappeConfig = readGrappeConfig(this.deps.services);
 
+      // One describe of the org per object, kept for the run. A template names
+      // fields an org may not have: without this, one missing field refuses
+      // every record of the object. See `describeCreateableFields`.
+      const creatableByObject = new Map<string, ReadonlySet<string>>();
+      const describeCreateableFields = async (
+        objectApiName: string,
+      ): Promise<ReadonlySet<string>> => {
+        const cached = creatableByObject.get(objectApiName);
+        if (cached) return cached;
+        const described = await conn.describe(objectApiName);
+        const names = new Set(
+          (described.fields as Array<{ name: string; createable?: boolean }>)
+            .filter((f) => f.createable === true)
+            .map((f) => f.name),
+        );
+        creatableByObject.set(objectApiName, names);
+        return names;
+      };
+
       const seedDeps = {
         validator,
+        describeCreateableFields,
         planBuilder,
         fieldMapper,
         referenceLinker,

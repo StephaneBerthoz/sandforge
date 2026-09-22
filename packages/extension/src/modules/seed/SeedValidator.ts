@@ -97,6 +97,18 @@ function validateObjectConfig(
     });
   }
 
+  // A request to write records with no fields cannot be satisfied:
+  // `FieldMapper.mapFields` answers an empty list for it, and the run then
+  // reports "success, 0 created" — a silent no-op, which is the worst of the
+  // answers available. Run against a real org, asking for five accounts this
+  // way wrote nothing and said it had succeeded.
+  if (obj.recordCount > 0 && obj.fieldRules.length === 0) {
+    errors.push({
+      field: `${prefix}.fieldRules`,
+      message: `${obj.objectApiName} asks for ${obj.recordCount} record(s) and names no field to fill: add at least one field rule`,
+    });
+  }
+
   if (obj.recordCount > 100000) {
     warnings.push({
       field: `${prefix}.recordCount`,

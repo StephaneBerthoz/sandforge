@@ -70,6 +70,21 @@ export interface SeedOrchestratorDependencies {
    */
   onProgress?: (event: SeedProgressEvent) => void;
   /**
+   * The fields the org will accept on a write, per object.
+   *
+   * A template names fields; an org may not have them. `AnnualRevenue` is a
+   * standard Account field and a real org did not expose it, so every one of
+   * the fifty accounts a built-in template asked for was refused with "No such
+   * column" — and, before the guard above, a hundred contacts and two hundred
+   * opportunities were then written attached to nothing.
+   *
+   * A rule for a field the org does not have is dropped and named in the
+   * result, which writes the records the template was for. Optional: without
+   * it the run behaves as it did, and an object left with no rule at all is
+   * still refused rather than written empty.
+   */
+  describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -172,27 +187,105 @@ export class SeedOrchestrator {
     const objectResults: SeedObjectResult[] = [];
     const plannedRecords = template.objects.reduce((sum, o) => sum + o.recordCount, 0);
 
+    // Objects that were asked for records and wrote none. What points at one
+    // of them cannot be attached to anything.
+    const wroteNothing = new Set<string>();
+
     for (const obj of sortedObjects) {
+      // A seed that carries on past a parent it could not write fills the org
+      // with records attached to nothing — worse than a run that stops,
+      // because it looks like it worked. Run against a real org, one missing
+      // field on Account cost all fifty of them and Seed went on to write a
+      // hundred contacts and two hundred opportunities, every one an orphan.
+      const missingParents = referencedObjects(obj).filter((name) => wroteNothing.has(name));
+      if (missingParents.length > 0) {
+        objectResults.push({
+          objectApiName: obj.objectApiName,
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [
+            `Skipped: ${missingParents.join(', ')} wrote no records, so there is nothing for ` +
+              `${obj.objectApiName} to point at.`,
+          ],
+        });
+        wroteNothing.add(obj.objectApiName);
+        continue;
+      }
+
       this.reportProgress(obj.objectApiName, objectResults, plannedRecords);
+
+      const { config: usable, dropped } = await this.dropRulesTheOrgCannotTake(obj);
+      if (usable.fieldRules.length === 0 && obj.fieldRules.length > 0) {
+        objectResults.push({
+          objectApiName: obj.objectApiName,
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [
+            `Skipped: this org has none of the fields the template names ` +
+              `(${dropped.join(', ')}).`,
+          ],
+        });
+        wroteNothing.add(obj.objectApiName);
+        continue;
+      }
+
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
-      const records = await this.deps.fieldMapper.mapFields(obj, existingIds, (aiFallback) => {
+      const records = await this.deps.fieldMapper.mapFields(usable, existingIds, (aiFallback) => {
         fallback.aiFallback = aiFallback;
       });
       const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
 
       existingIds.set(obj.objectApiName, insertResult.successIds);
+      if (obj.recordCount > 0 && insertResult.successIds.length === 0) {
+        wroteNothing.add(obj.objectApiName);
+      }
 
       objectResults.push({
         objectApiName: obj.objectApiName,
         recordsCreated: insertResult.successIds.length,
         recordsFailed: insertResult.errors.length,
         createdIds: insertResult.successIds,
-        errors: insertResult.errors,
+        errors:
+          dropped.length > 0
+            ? [
+                ...insertResult.errors,
+                `Written without ${dropped.join(', ')}: this org does not have ${dropped.length === 1 ? 'that field' : 'those fields'}.`,
+              ]
+            : insertResult.errors,
         ...fallback,
       });
     }
 
     return buildSuccessResult(template.id, operationId, objectResults, startTime, this.deps.now());
+  }
+
+  /**
+   * The object's rules, less the ones naming a field this org does not have.
+   *
+   * A reference rule fills a lookup and is left alone: the field it writes is
+   * named by the rule, and a describe that cannot see it is a reason to let
+   * the platform answer rather than to guess.
+   */
+  private async dropRulesTheOrgCannotTake(
+    obj: SeedTemplate['objects'][number],
+  ): Promise<{ config: SeedTemplate['objects'][number]; dropped: string[] }> {
+    if (!this.deps.describeCreateableFields) return { config: obj, dropped: [] };
+    let creatable: ReadonlySet<string>;
+    try {
+      creatable = await this.deps.describeCreateableFields(obj.objectApiName);
+    } catch {
+      return { config: obj, dropped: [] };
+    }
+    const kept = obj.fieldRules.filter(
+      (rule) => rule.ruleType === 'reference' || creatable.has(rule.fieldApiName),
+    );
+    if (kept.length === obj.fieldRules.length) return { config: obj, dropped: [] };
+    const dropped = obj.fieldRules
+      .filter((rule) => !kept.includes(rule))
+      .map((rule) => rule.fieldApiName);
+    return { config: { ...obj, fieldRules: kept }, dropped };
   }
 
   /** Grappe (partitioned) execution — splits work into partitions with progress tracking. */
@@ -367,4 +460,20 @@ function buildFailureResult(
     duration: 0,
     timestamp,
   };
+}
+
+/**
+ * The objects this one's reference rules point at.
+ *
+ * A `reference` rule names the object its value is drawn from; without those
+ * ids there is nothing to fill the field with.
+ */
+function referencedObjects(obj: SeedTemplate['objects'][number]): string[] {
+  const names = new Set<string>();
+  for (const rule of obj.fieldRules) {
+    if (rule.ruleType !== 'reference') continue;
+    const target = rule.config.referenceObject;
+    if (typeof target === 'string' && target) names.add(target);
+  }
+  return [...names];
 }

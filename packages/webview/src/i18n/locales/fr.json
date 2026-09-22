@@ -1282,7 +1282,9 @@
       "keyboardEverywhere": "Chaque contrôle du panneau répond au clavier",
       "keyboardEverywhereDesc": "Les conversations du panneau IA sont de vrais boutons, les contrôles du graphe n'écoutent plus la souris, et les règles d'accessibilité — qui étaient des avertissements tant que le compte descendait de 86 à zéro — sont désormais des erreurs.",
       "syncFinishes": "Un sync peut aller au bout d'un job",
-      "syncFinishesDesc": "Exécuté pour la première fois entre deux vraies orgs, Sync n'écrivait pas un seul enregistrement : il envoyait tous les champs lus, n'annonçait pas que ses lignes ressemblaient volontairement à celles déjà présentes, et un lookup absent de la cible coûtait l'enregistrement entier. Les trois sont corrigés."
+      "syncFinishesDesc": "Exécuté pour la première fois entre deux vraies orgs, Sync n'écrivait pas un seul enregistrement : il envoyait tous les champs lus, n'annonçait pas que ses lignes ressemblaient volontairement à celles déjà présentes, et un lookup absent de la cible coûtait l'enregistrement entier. Les trois sont corrigés.",
+      "seedFills": "Un seed remplit l'org au lieu de seulement le prétendre",
+      "seedFillsDesc": "Exécuté pour la première fois contre une vraie org, Seed n'écrivait rien et annonçait une réussite, puis remplissait l'org d'enregistrements rattachés à rien. Il refuse désormais un modèle qui ne peut rien écrire, s'arrête avant les enfants d'un objet qu'il n'a pas pu écrire, et retire un champ absent de l'org plutôt que d'y perdre l'objet entier."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

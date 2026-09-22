@@ -145,7 +145,11 @@ describe('SeedValidator', () => {
           {
             objectApiName: 'Account',
             recordCount: 10,
-            fieldRules: [],
+            // A rule, because an object with none writes nothing: this test is
+            // about the reference resolving, not about an empty object.
+            fieldRules: [
+              { fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company.name' } },
+            ],
             excludedFields: [],
             insertOrder: 0,
             batchSize: 200,
@@ -427,5 +431,54 @@ describe('SeedValidator', () => {
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
     });
+  });
+});
+
+describe('SeedValidator — an object that can only write nothing', () => {
+  it('refuses an object that asks for records and names no field', () => {
+    // FieldMapper answers an empty list for it, so the run reported
+    // "success, 0 created" — asking a real org for five accounts wrote
+    // nothing and said it had worked.
+    const result = new SeedValidator().validate(
+      createValidTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 5,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+      }),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field.endsWith('.fieldRules'))).toBe(true);
+    expect(result.errors.find((e) => e.field.endsWith('.fieldRules'))?.message).toContain(
+      'Account',
+    );
+  });
+
+  it('says nothing about an object that asks for no records', () => {
+    // A zero count is already refused on its own terms; naming no field for
+    // it as well would be two complaints about one mistake.
+    const result = new SeedValidator().validate(
+      createValidTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 0,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+      }),
+    );
+
+    expect(result.errors.some((e) => e.field.endsWith('.fieldRules'))).toBe(false);
   });
 });

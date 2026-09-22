@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-09-22
+
+Seed had never been run against a real org either. Run for the first time, it
+wrote nothing and called it a success, then — once it could write — filled the
+org with three hundred and twenty-six records attached to nothing. Four
+defects, each found by fixing the one before it.
+
+### Added
+
+- **`sandforge-seed`, a headless Seed runner.** The third of these, for the
+  same reason as the first two. `--object Account:5` builds its field rules
+  from the org's own describe, through the mapping the panel offers, so what it
+  writes is what the panel would write.
+
+### Fixed
+
+- **A seed that can only write nothing is refused instead of reported as a
+  success.** An object with no field rule produces no records — the field
+  mapper answers an empty list for it — and nothing upstream said so, so asking
+  a real org for five accounts wrote none and announced that it had worked. The
+  validator now refuses an object that asks for records and names no field to
+  fill.
+- **A seed stops before writing children of an object that wrote none.** One
+  field a real org did not have cost all fifty accounts of a built-in template,
+  and the run went on to write a hundred contacts and two hundred opportunities
+  — every one of them attached to nothing, which is worse than a run that
+  stops, because it looks like it worked. Forge has had this guard since it
+  shipped.
+- **A field rule naming a field the org does not have costs the field, not the
+  object.** `AnnualRevenue` is a standard Account field and a real org did not
+  expose it; every record of the object was refused with "No such column". The
+  rules are now settled against a describe of the org, the records the template
+  was for are written, and the result names what was dropped. An object left
+  with no usable rule at all is still refused rather than written empty.
+- **A seed tells Salesforce its rows are meant to resemble the ones already
+  there.** A hundred seeded contacts were refused with "You're creating a
+  duplicate record". Forge learnt this in 1.25.3 and Sync in 1.28.0; Seed is
+  the third module to have needed the same header, from the same shared
+  constant.
+
 ## [1.28.0] - 2026-09-22
 
 Sync had never been run against a real pair of orgs. Run for the first time,
