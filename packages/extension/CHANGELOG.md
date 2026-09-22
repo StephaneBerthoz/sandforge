@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-09-22
+
+DataOps is the first module that largely worked when it was first run against
+a real org — its restore already dropped the fields an org will not take,
+which is the lesson the three before it had each been missing. It had two
+defects, and the first of them is the worst kind a backup can have.
+
+### Added
+
+- **`sandforge-backup`, a headless DataOps runner.** It takes a snapshot,
+  lists what has been taken, and restores one. A restore never deletes: it
+  upserts on `Id`, so it overwrites the fields of records that are there and
+  recreates ones that are gone — and it asks before it writes unless told not
+  to.
+
+### Fixed
+
+- **A snapshot that stopped at a bound says so.** A backup reads up to two
+  thousand records of an object, five hundred against a production org, and
+  reported the result as a complete snapshot either way. A partial backup that
+  looks complete is the worst failure available to this module: it is what a
+  user relies on before doing something destructive, and they find out what it
+  was missing at the moment they need it. The read now says when a bound cut
+  it short, the run warns, and the snapshot carries it so the listing is still
+  honest tomorrow. Measured against a live org: an object holding 656 records
+  was snapshotted at 500 and announced as complete.
+- **Retention no longer reports a written snapshot as a failed one.** Pruning
+  old backups runs after the records are on disk, so a failure in it was
+  answered with `operation:failed` for a backup that had in fact succeeded —
+  and a user told their backup failed takes it again, or carries on without
+  the one they already have. It is housekeeping now: it warns, and retries on
+  the next backup of that org.
+
+### Changed
+
+- **`queryAll` has a form that reports the bound.** The old one answers with an
+  array and nothing else, so a caller cannot tell a complete read from a
+  truncated one. Its nineteen callers are untouched; `queryAllBounded` is what
+  the backup uses.
+
 ## [1.30.0] - 2026-09-22
 
 Autopilot had never been run against a real pair of orgs. Run for the first

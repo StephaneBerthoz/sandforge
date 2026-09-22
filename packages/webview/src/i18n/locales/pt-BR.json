@@ -1286,7 +1286,9 @@
       "seedFills": "Um seed preenche a org em vez de só dizer que preencheu",
       "seedFillsDesc": "Executado pela primeira vez contra uma org real, o Seed não gravava nada e anunciava sucesso, e depois enchia a org de registros presos a nada. Agora recusa um modelo que não consegue gravar nada, para antes dos filhos de um objeto que não conseguiu gravar, e descarta um campo que a org não tem em vez de perder o objeto inteiro.",
       "autopilotCopies": "O Autopilot copia o que você pediu — e grava",
-      "autopilotCopiesDesc": "Um pedido de dois objetos devolvia vinte e não gravava nenhum registro: entrava em usuários, perfis e objetos de histórico, mandava todos os campos lidos e punha ids de origem nos lookups do destino. Tudo corrigido, e agora uma trava impede que o próximo módulo esqueça a dispensa das regras de duplicidade."
+      "autopilotCopiesDesc": "Um pedido de dois objetos devolvia vinte e não gravava nenhum registro: entrava em usuários, perfis e objetos de histórico, mandava todos os campos lidos e punha ids de origem nos lookups do destino. Tudo corrigido, e agora uma trava impede que o próximo módulo esqueça a dispensa das regras de duplicidade.",
+      "backupPartial": "Um backup diz quando é só uma parte",
+      "backupPartialDesc": "Ele lê até dois mil registros por objeto — quinhentos contra uma org de produção — e anunciava um snapshot completo nos dois casos. Medido contra uma org real: 656 registros salvos em 500 e declarados completos. Agora avisa do corte, e o snapshot guarda isso."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",

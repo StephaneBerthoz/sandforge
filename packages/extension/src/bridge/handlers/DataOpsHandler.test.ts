@@ -28,6 +28,10 @@ function createMockDeps(): HandlerDeps {
     configStore: {
       get: vi.fn(),
       set: vi.fn(),
+      // Answered, not left undefined: retention reads it after every backup,
+      // and a store that throws there is a different test from the one each
+      // case here is written for.
+      getKeysByPrefix: vi.fn(() => [] as string[]),
     } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
@@ -1412,5 +1416,34 @@ describe('DataOpsHandler', () => {
       const msg = inboundRequest({ id: `req-${type}`, type, timestamp: Date.now() });
       expect(await handler.handle(msg)).toBe(false);
     }
+  });
+});
+
+describe('DataOpsHandler — housekeeping after a written snapshot', () => {
+  it('reports the backup as done when retention fails', async () => {
+    // Pruning runs after the records are on disk. Told the snapshot failed, a
+    // user takes it again or carries on without the one they already have.
+    const deps = createMockDeps();
+    vi.mocked(deps.configStore.getKeysByPrefix).mockImplementation(() => {
+      throw new Error('storage is unhappy');
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+      query: vi.fn().mockResolvedValue({ records: [] }),
+    } as never);
+    const handler = new DataOpsHandler(deps);
+
+    await handler.handle({
+      id: 'op-retention',
+      type: 'backup:execute',
+      payload: { orgId: 'org-1', objects: ['Account'] },
+    } as never);
+
+    const posted = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map((c) => (c[0] as { type?: string }).type);
+    expect(posted).toContain('dataops:backup:response');
+    expect(posted.some((t) => t === 'dataops:error')).toBe(false);
   });
 });

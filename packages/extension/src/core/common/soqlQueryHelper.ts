@@ -24,6 +24,30 @@ export async function queryAll<T extends Record<string, unknown>>(
   soql: string,
   maxRecords: number = DEFAULT_MAX_RECORDS,
 ): Promise<T[]> {
+  return (await queryAllBounded<T>(conn, soql, maxRecords)).records;
+}
+
+/**
+ * The same read, saying whether a bound cut it short.
+ *
+ * `queryAll` answers with an array and nothing else, so a caller cannot tell
+ * a complete read from one that stopped at the cap — or at a `LIMIT` the
+ * caller itself put in the statement, which is how DataOps took a backup of
+ * the first two thousand rows of an object and called it done. For a backup
+ * that is the worst of the failures available: it is the thing a user relies
+ * on before doing something destructive, and a partial one looks exactly like
+ * a complete one.
+ *
+ * `truncated` is true when the page walk stopped with more to come, or when
+ * the rows reached the cap exactly — the statement's own `LIMIT` lands there,
+ * and a read that stopped precisely on a bound is not one anybody should
+ * assume is complete.
+ */
+export async function queryAllBounded<T extends Record<string, unknown>>(
+  conn: Connection,
+  soql: string,
+  maxRecords: number = DEFAULT_MAX_RECORDS,
+): Promise<{ records: T[]; truncated: boolean }> {
   let result: QueryResult<T> = await conn.query<T>(soql);
   const records: T[] = [...result.records];
 
@@ -32,11 +56,14 @@ export async function queryAll<T extends Record<string, unknown>>(
     records.push(...result.records);
   }
 
+  // More pages were waiting when the walk stopped.
+  const stoppedEarly = !result.done && Boolean(result.nextRecordsUrl);
+
   if (records.length > maxRecords) {
-    return records.slice(0, maxRecords);
+    return { records: records.slice(0, maxRecords), truncated: true };
   }
 
-  return records;
+  return { records, truncated: stoppedEarly || records.length === maxRecords };
 }
 
 /**

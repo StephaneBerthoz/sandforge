@@ -1286,7 +1286,9 @@
       "seedFills": "Ein Seed füllt die Org, statt es nur zu behaupten",
       "seedFillsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, schrieb Seed nichts und meldete Erfolg, und füllte die Org dann mit Datensätzen, die an nichts hängen. Jetzt lehnt er eine Vorlage ab, die nichts schreiben kann, hält vor den Kindern eines nicht geschriebenen Objekts an und lässt ein fehlendes Feld weg, statt das Objekt daran zu verlieren.",
       "autopilotCopies": "Autopilot kopiert, worum Sie gebeten haben — und schreibt es",
-      "autopilotCopiesDesc": "Eine Anfrage über zwei Objekte lieferte zwanzig und schrieb keinen Datensatz: Sie lief in Benutzer, Profile und Verlaufsobjekte, schickte jedes gelesene Feld und setzte Quell-IDs in die Lookups des Ziels. Alles behoben, und ein Gate hält das nächste Modul davon ab, die Dublettenregel-Freigabe zu vergessen."
+      "autopilotCopiesDesc": "Eine Anfrage über zwei Objekte lieferte zwanzig und schrieb keinen Datensatz: Sie lief in Benutzer, Profile und Verlaufsobjekte, schickte jedes gelesene Feld und setzte Quell-IDs in die Lookups des Ziels. Alles behoben, und ein Gate hält das nächste Modul davon ab, die Dublettenregel-Freigabe zu vergessen.",
+      "backupPartial": "Ein Backup sagt, wenn es nur ein Teil ist",
+      "backupPartialDesc": "Es liest bis zu zweitausend Datensätze je Objekt — fünfhundert gegen eine Produktions-Org — und meldete in beiden Fällen einen vollständigen Snapshot. An einer echten Org gemessen: 656 Datensätze bei 500 gesichert und als fertig gemeldet. Es sagt nun, wenn eine Grenze es abgeschnitten hat, und der Snapshot behält das."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

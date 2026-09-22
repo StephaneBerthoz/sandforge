@@ -1286,7 +1286,9 @@
       "seedFills": "Un seed llena la org en vez de solo decirlo",
       "seedFillsDesc": "Ejecutado por primera vez contra una org real, Seed no escribía nada y anunciaba éxito, y luego llenaba la org de registros colgados de nada. Ahora rechaza una plantilla que no puede escribir nada, se detiene antes de los hijos de un objeto que no pudo escribir, y descarta un campo que la org no tiene en vez de perder el objeto entero.",
       "autopilotCopies": "Autopilot copia lo que pediste, y lo escribe",
-      "autopilotCopiesDesc": "Una petición de dos objetos devolvía veinte y no escribía ni un registro: entraba en usuarios, perfiles y objetos de historial, enviaba todos los campos leídos y ponía ids de origen en las búsquedas del destino. Todo corregido, y ahora una verja impide que el siguiente módulo olvide la exención de reglas de duplicados."
+      "autopilotCopiesDesc": "Una petición de dos objetos devolvía veinte y no escribía ni un registro: entraba en usuarios, perfiles y objetos de historial, enviaba todos los campos leídos y ponía ids de origen en las búsquedas del destino. Todo corregido, y ahora una verja impide que el siguiente módulo olvide la exención de reglas de duplicados.",
+      "backupPartial": "Una copia dice cuándo es solo parcial",
+      "backupPartialDesc": "Lee hasta dos mil registros por objeto — quinientos contra una org de producción — y anunciaba una instantánea completa en ambos casos. Medido contra una org real: 656 registros copiados a 500 y declarados completos. Ahora avisa del corte, y la instantánea lo conserva."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

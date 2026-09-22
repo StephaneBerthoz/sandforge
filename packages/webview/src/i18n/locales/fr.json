@@ -1286,7 +1286,9 @@
       "seedFills": "Un seed remplit l'org au lieu de seulement le prétendre",
       "seedFillsDesc": "Exécuté pour la première fois contre une vraie org, Seed n'écrivait rien et annonçait une réussite, puis remplissait l'org d'enregistrements rattachés à rien. Il refuse désormais un modèle qui ne peut rien écrire, s'arrête avant les enfants d'un objet qu'il n'a pas pu écrire, et retire un champ absent de l'org plutôt que d'y perdre l'objet entier.",
       "autopilotCopies": "Autopilot copie ce que vous avez demandé, et l'écrit",
-      "autopilotCopiesDesc": "Une demande de deux objets en rendait vingt et n'écrivait aucun enregistrement : il entrait dans les utilisateurs, les profils et les objets d'historique, envoyait tous les champs lus, et posait des identifiants source dans les lookups de la cible. Tout est corrigé, et une porte empêche désormais le prochain module d'oublier la dérogation aux règles de doublon."
+      "autopilotCopiesDesc": "Une demande de deux objets en rendait vingt et n'écrivait aucun enregistrement : il entrait dans les utilisateurs, les profils et les objets d'historique, envoyait tous les champs lus, et posait des identifiants source dans les lookups de la cible. Tout est corrigé, et une porte empêche désormais le prochain module d'oublier la dérogation aux règles de doublon.",
+      "backupPartial": "Une sauvegarde dit quand elle n'est que partielle",
+      "backupPartialDesc": "Elle lit jusqu'à deux mille enregistrements par objet — cinq cents contre une org de production — et annonçait un instantané complet dans les deux cas. Mesuré sur une org réelle : 656 enregistrements sauvegardés à 500 et déclarés complets. Elle signale désormais la coupure, et l'instantané la conserve pour que la liste reste honnête."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

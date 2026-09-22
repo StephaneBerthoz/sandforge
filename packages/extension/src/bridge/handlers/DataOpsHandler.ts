@@ -20,7 +20,7 @@ import {
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { queryAll } from '../../core/common/soqlQueryHelper.js';
+import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
@@ -321,6 +321,8 @@ export class DataOpsHandler implements DomainHandler {
         objectApiName: string;
         recordCount: number;
         records: Record<string, unknown>[];
+        /** Whether a bound cut this object's read short. */
+        truncated: boolean;
       }> = [];
 
       const description = `Backup ${payload.objects.length} object(s)`;
@@ -354,14 +356,31 @@ export class DataOpsHandler implements DomainHandler {
         }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
-        const records = await queryAll<Record<string, unknown>>(
+        const read = await queryAllBounded<Record<string, unknown>>(
           conn,
           `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
             `LIMIT ${queryLimits.defaultQueryLimit}`,
+          queryLimits.defaultQueryLimit,
         );
+        const records = read.records;
         checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
 
-        results.push({ objectApiName, recordCount: records.length, records });
+        // A snapshot that stopped at a bound is still a snapshot, and taking
+        // it is still better than taking none — but it is not the thing the
+        // user thinks they have. Said here, carried in the metadata below, and
+        // read back by the listing, so it is still true tomorrow.
+        if (read.truncated) {
+          this.deps.log(
+            `[WARN] backup of ${safeObj} stopped at ${records.length} record(s): the object holds more.`,
+          );
+        }
+
+        results.push({
+          objectApiName,
+          recordCount: records.length,
+          records,
+          truncated: read.truncated,
+        });
         processedObjects++;
 
         sendOperationProgress(
@@ -381,7 +400,11 @@ export class DataOpsHandler implements DomainHandler {
         objects: results.map((r) => ({
           objectApiName: r.objectApiName,
           recordCount: r.recordCount,
+          truncated: r.truncated,
         })),
+        // True when any object stopped at a bound, so the listing can say so
+        // without reading every object of every snapshot.
+        partial: results.some((r) => r.truncated),
         timestamp: new Date().toISOString(),
         totalRecords: results.reduce((sum, r) => sum + r.recordCount, 0),
       };
@@ -398,8 +421,20 @@ export class DataOpsHandler implements DomainHandler {
         }
       }
 
-      // `sandforge.backup.maxCount` retention: prune oldest backups for this org.
-      this.pruneBackups(payload.orgId);
+      // `sandforge.backup.maxCount` retention: prune oldest backups for this
+      // org. Housekeeping, and it runs after the snapshot is written — so a
+      // failure in it must not be reported as a failed backup. Told the
+      // snapshot failed, a user takes it again or, worse, carries on without
+      // the one they already have; the records are on disk either way and the
+      // listing finds them. Only the pruning is lost, and it retries on the
+      // next backup of this org.
+      try {
+        this.pruneBackups(payload.orgId);
+      } catch (pruneErr: unknown) {
+        this.deps.log(
+          `[WARN] backup retention failed after the snapshot was written: ${extractErrorMessage(pruneErr)}`,
+        );
+      }
 
       sendOperationCompleted(this.deps, operationId, {
         objects: results.map((r) => ({

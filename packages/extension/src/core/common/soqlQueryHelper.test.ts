@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Connection, QueryResult } from 'jsforce';
-import { queryAll, queryWithFieldsFallback } from './soqlQueryHelper';
+import { queryAll, queryAllBounded, queryWithFieldsFallback } from './soqlQueryHelper';
 
 type TestRecord = Record<string, unknown>;
 
@@ -394,5 +394,75 @@ describe('soqlQueryHelper', () => {
         ),
       ).rejects.toThrow('NO_ACCESS');
     });
+  });
+});
+
+describe('queryAllBounded — saying when a bound cut the read', () => {
+  it('says so when pages were still waiting', async () => {
+    const conn = {
+      query: vi.fn().mockResolvedValue({
+        records: [{ Id: '1' }, { Id: '2' }],
+        done: false,
+        nextRecordsUrl: '/more',
+      }),
+      queryMore: vi.fn(),
+    } as unknown as Connection;
+
+    const read = await queryAllBounded(conn, 'SELECT Id FROM Account', 2);
+
+    expect(read.records).toHaveLength(2);
+    expect(read.truncated).toBe(true);
+  });
+
+  it('says so when the rows land exactly on the cap', async () => {
+    // A statement carrying its own `LIMIT 2000` stops there with `done: true`,
+    // and that is precisely how a backup of the first two thousand rows of an
+    // object was reported as complete.
+    const conn = {
+      query: vi.fn().mockResolvedValue({ records: [{ Id: '1' }, { Id: '2' }], done: true }),
+      queryMore: vi.fn(),
+    } as unknown as Connection;
+
+    const read = await queryAllBounded(conn, 'SELECT Id FROM Account LIMIT 2', 2);
+
+    expect(read.truncated).toBe(true);
+  });
+
+  it('says nothing when the read finished on its own', async () => {
+    const conn = {
+      query: vi.fn().mockResolvedValue({ records: [{ Id: '1' }], done: true }),
+      queryMore: vi.fn(),
+    } as unknown as Connection;
+
+    const read = await queryAllBounded(conn, 'SELECT Id FROM Account', 2000);
+
+    expect(read.truncated).toBe(false);
+  });
+
+  it('follows the pages and stops at the cap', async () => {
+    const conn = {
+      query: vi
+        .fn()
+        .mockResolvedValue({ records: [{ Id: '1' }], done: false, nextRecordsUrl: '/more' }),
+      queryMore: vi.fn().mockResolvedValue({
+        records: [{ Id: '2' }, { Id: '3' }],
+        done: false,
+        nextRecordsUrl: '/more2',
+      }),
+    } as unknown as Connection;
+
+    const read = await queryAllBounded(conn, 'SELECT Id FROM Account', 2);
+
+    expect(read.records).toHaveLength(2);
+    expect(read.truncated).toBe(true);
+  });
+
+  it('leaves queryAll answering exactly as it did', async () => {
+    const conn = {
+      query: vi.fn().mockResolvedValue({ records: [{ Id: '1' }], done: true }),
+      queryMore: vi.fn(),
+    } as unknown as Connection;
+
+    await expect(queryAll(conn, 'SELECT Id FROM Account')).resolves.toEqual([{ Id: '1' }]);
   });
 });
