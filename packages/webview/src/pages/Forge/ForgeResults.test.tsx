@@ -402,6 +402,79 @@ describe('ForgeResults', () => {
     expect(screen.getAllByTestId('forge-id-mapping-row')).toHaveLength(count);
   });
 
+  /* ---- Records the target already held ---- */
+
+  it('reads the inserted count the run reported rather than the graph it never updates', () => {
+    mockResult = { ...makeMockResult(), createdCount: 12 } as typeof mockResult;
+    render(<ForgeResults />);
+
+    expect(screen.getAllByTestId('kpi-value')[0].textContent).toBe('12');
+  });
+
+  it('shows the records linked to existing ones next to the inserted ones, not inside them', () => {
+    mockResult = {
+      ...makeMockResult(),
+      createdCount: 12,
+      linkedExistingCount: 3,
+    } as typeof mockResult;
+    render(<ForgeResults />);
+
+    const cards = screen.getAllByTestId('kpi-card');
+    expect(cards).toHaveLength(7);
+    const values = screen.getAllByTestId('kpi-value').map((v) => v.textContent);
+    expect(values[0]).toBe('12');
+    expect(values[1]).toBe('3');
+    expect(cards[1].textContent).toContain('Linked to existing');
+    // (12 created + 3 linked) of 35
+    expect(values[4]).toBe('43%');
+  });
+
+  it('lists per object what was linked and what could not be identified', () => {
+    mockResult = {
+      ...makeMockResult(),
+      linkedExistingCount: 2,
+      existingRecords: [
+        { objectApiName: 'Account', linked: 2, unidentified: 0 },
+        { objectApiName: 'AccountContactRelation', linked: 0, unidentified: 1 },
+      ],
+    } as typeof mockResult;
+    render(<ForgeResults />);
+
+    const rows = screen.getAllByTestId('forge-results-existing-row').map((r) => r.textContent);
+    expect(rows).toEqual([
+      'Account — 2 linked, not created',
+      'AccountContactRelation — 1 not identified — counted as failed, and their children lost the link',
+    ]);
+  });
+
+  it('shows no notice and no extra card for a run the target held nothing of', () => {
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-existing')).toBeNull();
+    expect(screen.getAllByTestId('kpi-card')).toHaveLength(6);
+  });
+
+  it('marks the Id-map rows that point at a record the target already held', () => {
+    mockResult = {
+      ...makeMockResult(),
+      idRemapTable: {
+        '001SRC000000001': '001TGT000000001',
+        '001SRC000000002': '001TGT000000002',
+      },
+      idRemapExisting: ['001SRC000000002'],
+    } as typeof mockResult;
+    render(<ForgeResults />);
+
+    const rows = screen.getAllByTestId('forge-id-mapping-row');
+    expect(rows[0].querySelector('[data-testid="forge-id-mapping-existing"]')).toBeNull();
+    expect(rows[1].querySelector('[data-testid="forge-id-mapping-existing"]')?.textContent).toBe(
+      'existing',
+    );
+    expect(screen.getByTestId('forge-id-mapping').textContent).toContain(
+      '1 of them were already in the target org: linked, not created.',
+    );
+  });
+
   it('warns about an object whose source read was cut short', () => {
     // Everything past the 50 000-record / 500-page bound was never read, and
     // the run reports success either way.

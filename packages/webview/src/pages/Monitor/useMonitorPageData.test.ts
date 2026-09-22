@@ -17,6 +17,9 @@ let mockMonitorQueryState = {
   refetch: mockRefetch,
 };
 
+/** What `monitor:alerts` answers: every org's alerts, as the extension keeps them. */
+let mockAlertsPayload: { alerts: unknown[]; history?: unknown[] } = { alerts: [] };
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'monitor:refresh') {
@@ -26,7 +29,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
       return { ...mockMonitorQueryState };
     }
     if (type === 'monitor:alerts') {
-      return { data: { alerts: [] }, loading: false, error: null, refetch: vi.fn() };
+      return { data: mockAlertsPayload, loading: false, error: null, refetch: vi.fn() };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -422,6 +425,40 @@ describe('useMonitorPageData', () => {
   // `[]` is the extension's verdict ("scanned, nothing found"). No payload,
   // or a payload without the field, is no verdict at all, and must not be
   // flattened into `[]` where the page would read it as a clean scan.
+  describe('alerts of the org on screen', () => {
+    afterEach(() => {
+      mockAlertsPayload = { alerts: [] };
+    });
+
+    const alert = (id: string, orgId: string) => ({
+      id,
+      definitionId: 'alert-storage-critical',
+      severity: 'critical',
+      status: 'active',
+      message: 'Data Storage Critical: DataStorageMB is 2 (threshold: 1)',
+      currentValue: 2,
+      threshold: 1,
+      orgId,
+      triggeredAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    it("shows the selected org's alerts and history, not another org's", () => {
+      // The extension answers with every org's alerts, and an alert's message
+      // does not name its org. Run against two real sandboxes, a storage alert
+      // raised on one appeared on the other's Monitor page as its own.
+      mockAlertsPayload = {
+        alerts: [alert('a-own', 'org-1'), alert('a-other', 'org-2')],
+        history: [alert('h-other', 'org-2'), alert('h-own', 'org-1')],
+      };
+
+      const { result } = renderHook(() => useMonitorPageData());
+
+      expect(result.current.alerts.map((a) => a.id)).toEqual(['a-own']);
+      expect(result.current.alertHistory.map((a) => a.id)).toEqual(['h-own']);
+      expect(result.current.activeAlertsCount).toBe(1);
+    });
+  });
+
   describe('job insights verdict', () => {
     it('reports no verdict before any payload arrives', () => {
       const { result } = renderHook(() => useMonitorPageData());

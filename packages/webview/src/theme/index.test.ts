@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cn, vsCodeTokens, safetyTierColors, moduleColors } from './index';
+import { cn, vsCodeTokens } from './index';
 
 describe('cn', () => {
   it('should merge simple classes', () => {
@@ -24,8 +24,8 @@ describe('cn', () => {
   });
 
   it('should handle object syntax', () => {
-    const result = cn({ 'text-red-500': true, 'text-blue-500': false });
-    expect(result).toBe('text-red-500');
+    const result = cn({ 'text-status-error': true, 'text-status-info': false });
+    expect(result).toBe('text-status-error');
   });
 });
 
@@ -47,39 +47,12 @@ describe('vsCodeTokens', () => {
   it('should have status tokens', () => {
     expect(vsCodeTokens.error).toContain('--vscode-errorForeground');
     expect(vsCodeTokens.warning).toContain('--vscode-editorWarning-foreground');
-  });
-});
-
-describe('safetyTierColors', () => {
-  it('should define all four tiers', () => {
-    expect(Object.keys(safetyTierColors)).toEqual(['critical', 'high', 'medium', 'low']);
+    expect(vsCodeTokens.success).toContain('--vscode-testing-iconPassed');
   });
 
-  it('should have bg, fg, border, label for each tier', () => {
-    for (const tier of Object.values(safetyTierColors)) {
-      expect(tier).toHaveProperty('bg');
-      expect(tier).toHaveProperty('fg');
-      expect(tier).toHaveProperty('border');
-      expect(tier).toHaveProperty('label');
-    }
-  });
-});
-
-describe('moduleColors', () => {
-  it('should define colors for all seven modules including forge', () => {
-    expect(Object.keys(moduleColors)).toEqual([
-      'forge',
-      'grappe',
-      'monitor',
-      'compare',
-      'dataops',
-      'automation',
-    ]);
-  });
-
-  it('should have hex color values', () => {
-    for (const color of Object.values(moduleColors)) {
-      expect(color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+  it('resolves every colour through a VS Code variable, a hex only as its fallback', () => {
+    for (const [name, value] of Object.entries(vsCodeTokens)) {
+      expect(value, name).toMatch(/^var\(--vscode-[\w-]+, #[0-9a-fA-F]{3,8}\)$/);
     }
   });
 });

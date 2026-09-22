@@ -59,6 +59,24 @@ export interface ExtractedDataset {
   asOf: string;
   /** RecordType map captured at extraction time. */
   recordTypeMap: RecordTypeMapEntry[];
+  /**
+   * Objects read without the `asOf` bound, because they carry no
+   * `CreatedDate` to bound on.
+   *
+   * The bound is what makes this dataset frozen. An object that cannot take
+   * it is read as it stands, and named here rather than left to look like the
+   * rest — a caller that has to state what its dataset is frozen to needs to
+   * know which part of it is not.
+   */
+  unboundedObjects: string[];
+  /**
+   * Per object, the fields holding a file's bytes (`base64`). The rules
+   * cannot pseudonymize what they cannot read: a file with no approved
+   * `keep` rule leaves its object out of the frozen dataset.
+   */
+  fileFields: Record<string, string[]>;
+  /** The source org's standard price book, when the dataset carries prices. */
+  standardPricebookSourceId?: string;
 }
 
 /** A pseudonymized record of the frozen dataset. */
@@ -107,6 +125,18 @@ export interface FrozenDataset {
   recordTypes: Record<string, FrozenRecordTypeRef[]>;
   /** PersonContact sidecar consumed by the load phase. */
   personContactSidecar: PersonContactLink[];
+  /**
+   * The referenceId of the standard price book. Every org has exactly one and
+   * none can be created, so the load matches it to the target's own.
+   */
+  standardPricebook?: string;
+  /**
+   * Objects left out because they carry files the rules do not keep: bytes
+   * cannot be pseudonymized, and a record emptied of its file cannot be
+   * loaded — run for real, a quote document came back as an Apex exception.
+   * Set by the anonymizer, for the manifest; not written with the data.
+   */
+  filesLeftOut?: string[];
 }
 
 /**
@@ -116,11 +146,27 @@ export interface FrozenDataset {
  * between orgs (mojibake included).
  */
 export interface RecordTypeIdResolver {
+  /**
+   * The target id for a DeveloperName: one the running user can create
+   * records with, `null` when the target has no such record type, or the
+   * record type marked unavailable when it exists but is not the user's.
+   */
   resolveByDeveloperName(
     orgId: string,
     sobjectType: string,
     developerName: string,
-  ): Promise<string | null>;
+  ): Promise<string | null | UnavailableRecordType>;
+}
+
+/**
+ * A record type the target has and the running user cannot create records
+ * with: it exists, it is active, it resolves by DeveloperName — and it is not
+ * assigned to that user, so Salesforce refuses every insert that names it
+ * ("this ID value isn't valid for the user").
+ */
+export interface UnavailableRecordType {
+  unavailable: true;
+  id: string;
 }
 
 /**

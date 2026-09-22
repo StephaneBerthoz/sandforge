@@ -30,28 +30,32 @@ export interface ObjectNodeData {
   isSelected: boolean;
 }
 
-/** Map of node statuses to their corresponding Tailwind color classes. */
+/**
+ * Map of node statuses to their corresponding Tailwind color classes. A phase
+ * of the run has an identity hue, an outcome its severity, and a node that is
+ * waiting or skipped the neutral foregrounds.
+ */
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-gray-500',
+  pending: 'bg-text-secondary',
   queued: 'bg-text-secondary',
-  extracting: 'bg-blue-500',
-  anonymizing: 'bg-purple-500',
-  loading: 'bg-green-500',
-  completed: 'bg-green-600',
-  failed: 'bg-red-500',
-  skipped: 'bg-gray-300',
+  extracting: 'bg-hue-blue',
+  anonymizing: 'bg-hue-purple',
+  loading: 'bg-hue-green',
+  completed: 'bg-status-success',
+  failed: 'bg-status-error',
+  skipped: 'bg-text-muted',
 };
 
 /** Map of node statuses to border color classes. */
 const STATUS_BORDER_COLORS: Record<string, string> = {
-  pending: 'border-gray-500/40',
+  pending: 'border-subtle',
   queued: 'border-subtle',
-  extracting: 'border-blue-500/60',
-  anonymizing: 'border-purple-500/60',
-  loading: 'border-green-500/60',
-  completed: 'border-green-600/60',
-  failed: 'border-red-500/60',
-  skipped: 'border-gray-300/40',
+  extracting: 'border-hue-blue/60',
+  anonymizing: 'border-hue-purple/60',
+  loading: 'border-hue-green/60',
+  completed: 'border-status-success/60',
+  failed: 'border-status-error/60',
+  skipped: 'border-text-muted',
 };
 
 /** Statuses that trigger a pulse animation on the node. */
@@ -123,7 +127,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
       </div>
 
       {/* Progress bar */}
-      <div className="mb-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-700">
+      <div className="mb-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
         <div
           data-testid="progress-bar"
           className={cn('h-full rounded-full transition-all duration-300', barColor)}

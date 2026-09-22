@@ -14,10 +14,13 @@ import type { Config } from 'tailwindcss';
  * theme guarantees is meant to be read on its own background. The share is the
  * largest that still clears 4.5:1 on every measured theme but Solarized Light
  * (src/styles/testing/vscodeThemes.ts names them), on the bare surfaces and on
- * the tints the product lays under the text (a badge's `bg-red-500/10`), which
- * is why the four differ: `info` is nearly legible on its own, `success` is not
- * legible at all. design-system.test.ts recomputes each ratio from those themes;
- * the scans in e2e/axe-accessibility.spec.ts measure what Chromium paints.
+ * the tints the product lays under the text (a badge's `bg-status-error/10`,
+ * over a flagged row's `bg-status-warning/5`), which is why the four differ:
+ * `info` is nearly legible on its own, `success` is not legible at all. The
+ * tints are drawn from these same tokens, so on a light theme a tint darkens
+ * with the text written on it, and the shares are sized for that as well.
+ * design-system.test.ts recomputes each ratio from those themes; the scans in
+ * e2e/axe-accessibility.spec.ts measure what Chromium paints.
  *
  * SHAPE. Tailwind cannot parse `var(--sf-warning)` as a colour, so it dropped
  * `bg-status-warning/10` and `border-status-warning/40` on the floor without a
@@ -49,11 +52,11 @@ const config: Config = {
         // Severity — see the `status` note above the config.
         status: {
           error:
-            'color-mix(in srgb, color-mix(in srgb, var(--sf-error) 45%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
+            'color-mix(in srgb, color-mix(in srgb, var(--sf-error) 43%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
           warning:
-            'color-mix(in srgb, color-mix(in srgb, var(--sf-warning) 55%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
+            'color-mix(in srgb, color-mix(in srgb, var(--sf-warning) 51%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
           success:
-            'color-mix(in srgb, color-mix(in srgb, var(--sf-success) 40%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
+            'color-mix(in srgb, color-mix(in srgb, var(--sf-success) 37%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
           info: 'color-mix(in srgb, color-mix(in srgb, var(--sf-info) 80%, var(--sf-text-primary)) calc(<alpha-value> * 100%), transparent)',
         },
         // Identity colours (a module's accent, a syntax colour, the Forge mark):

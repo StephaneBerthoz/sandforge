@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PipelineOrchestrator } from './PipelineOrchestrator';
 import type {
   PipelineOrchestratorDependencies,
   PipelineEventHandler,
 } from './PipelineOrchestrator';
-import type { PipelineDefinition, PipelineStepResult } from '@sandforge/shared';
+import { StepExecutor } from './StepExecutor';
+import type { StepContext } from './StepExecutor';
+import type { PipelineDefinition, PipelineStep, PipelineStepResult } from '@sandforge/shared';
 
 function createMockDeps(): PipelineOrchestratorDependencies {
   return {
@@ -55,6 +57,7 @@ function createMockDeps(): PipelineOrchestratorDependencies {
             duration: 10,
           };
         }),
+      check: vi.fn<(step: unknown) => string | undefined>().mockReturnValue(undefined),
       getExecutor: vi.fn(),
       registerHandler: vi.fn(),
     } as unknown as PipelineOrchestratorDependencies['stepExecutor'],
@@ -344,6 +347,222 @@ describe('PipelineOrchestrator', () => {
     it('should not throw when removing handler that was never added', () => {
       const handler = vi.fn();
       expect(() => orchestrator.off('started', handler)).not.toThrow();
+    });
+  });
+
+  describe('a pipeline with a step that cannot run', () => {
+    const refusal =
+      'Step "Load Target" is a seed step, and this step type cannot run in a pipeline yet.';
+
+    function refuseSeedSteps(): void {
+      vi.mocked(deps.stepExecutor.check).mockImplementation((step: PipelineStep) =>
+        step.type === 'seed' ? refusal : undefined,
+      );
+    }
+
+    it('does not start: no step runs, and the run is recorded failed with the reason', async () => {
+      refuseSeedSteps();
+      const started = vi.fn();
+      const failed = vi.fn();
+      orchestrator.on('started', started);
+      orchestrator.on('failed', failed);
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            { id: 'step-1', name: 'Wait', type: 'delay', config: {}, continueOnError: false },
+            { id: 'step-2', name: 'Load Target', type: 'seed', config: {}, continueOnError: false },
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(deps.stepExecutor.execute).not.toHaveBeenCalled();
+      expect(run.status).toBe('failed');
+      expect(run.error).toBe(`Pipeline did not start: ${refusal}`);
+      // One result per refused step; the delay before it was never reached.
+      expect(run.stepResults).toEqual([
+        {
+          stepId: 'step-2',
+          stepName: 'Load Target',
+          stepType: 'seed',
+          status: 'failed',
+          error: refusal,
+        },
+      ]);
+      expect(deps.history.record).toHaveBeenCalledWith(run);
+      expect(started).not.toHaveBeenCalled();
+      expect(failed).toHaveBeenCalledWith('failed', { runId: run.id, error: run.error });
+    });
+
+    it('names every refused step, not only the first', async () => {
+      vi.mocked(deps.stepExecutor.check).mockImplementation((step: PipelineStep) =>
+        step.type === 'delay' ? undefined : `refused ${step.name}.`,
+      );
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            { id: 'a', name: 'Backup', type: 'backup', config: {}, continueOnError: false },
+            { id: 'b', name: 'Wait', type: 'delay', config: {}, continueOnError: false },
+            { id: 'c', name: 'Notify', type: 'notification', config: {}, continueOnError: false },
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(run.stepResults.map((result) => [result.stepId, result.status])).toEqual([
+        ['a', 'failed'],
+        ['c', 'failed'],
+      ]);
+      expect(run.error).toBe('Pipeline did not start: refused Backup. refused Notify.');
+    });
+
+    it('does not let continueOnError walk past a refused step to a completed run', async () => {
+      refuseSeedSteps();
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            { id: 'step-1', name: 'Load Target', type: 'seed', config: {}, continueOnError: true },
+            { id: 'step-2', name: 'Wait', type: 'delay', config: {}, continueOnError: false },
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(run.status).toBe('failed');
+      expect(deps.stepExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('is refused by the real executor for every step type it has no handler for', async () => {
+      deps.stepExecutor = new StepExecutor();
+      orchestrator = new PipelineOrchestrator(deps);
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            {
+              id: 'step-1',
+              name: 'Wait',
+              type: 'delay',
+              config: { seconds: 0 },
+              continueOnError: false,
+            },
+            { id: 'step-2', name: 'Copy', type: 'sync', config: {}, continueOnError: true },
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(run.status).toBe('failed');
+      expect(run.stepResults).toHaveLength(1);
+      expect(run.stepResults[0]).toMatchObject({ stepId: 'step-2', status: 'failed' });
+      expect(run.error).toContain('cannot run in a pipeline yet');
+    });
+  });
+
+  describe('stopping a run while a Delay waits', () => {
+    const twoDelays = (): PipelineDefinition =>
+      createPipeline({
+        steps: [
+          {
+            id: 'long',
+            name: 'Long wait',
+            type: 'delay',
+            config: { seconds: 60 },
+            continueOnError: false,
+          },
+          {
+            id: 'after',
+            name: 'Short wait',
+            type: 'delay',
+            config: { seconds: 0 },
+            continueOnError: false,
+          },
+        ],
+      });
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      deps.stepExecutor = new StepExecutor();
+      orchestrator = new PipelineOrchestrator(deps);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Start `pipeline` and report, without waiting on it, whether it has settled. */
+    function start(
+      pipeline: PipelineDefinition,
+      signal?: AbortSignal,
+    ): { settled: () => boolean; run: ReturnType<PipelineOrchestrator['execute']> } {
+      let done = false;
+      const run = orchestrator.execute(pipeline, {}, 'manual', signal).then((result) => {
+        done = true;
+        return result;
+      });
+      return { settled: () => done, run };
+    }
+
+    it('stops the wait and every step after it when the caller aborts', async () => {
+      const aborter = new AbortController();
+      const { settled, run } = start(twoDelays(), aborter.signal);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      aborter.abort();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Settled with 59 s of the wait still on the clock.
+      expect(settled()).toBe(true);
+      const finished = await run;
+      expect(finished.status).toBe('cancelled');
+      expect(finished.stepResults.map((result) => [result.stepId, result.status])).toEqual([
+        ['long', 'failed'],
+      ]);
+    });
+
+    it('stops the wait in progress when the run is cancelled', async () => {
+      const { settled, run } = start(twoDelays());
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const [active] = orchestrator.getActiveRuns();
+      orchestrator.cancel(active.id);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settled()).toBe(true);
+      const finished = await run;
+      expect(finished.status).toBe('cancelled');
+      expect(finished.stepResults).toHaveLength(1);
+    });
+
+    it('runs no step when the caller has already given up', async () => {
+      const aborter = new AbortController();
+      aborter.abort();
+
+      const finished = await orchestrator.execute(twoDelays(), {}, 'manual', aborter.signal);
+
+      expect(finished.status).toBe('cancelled');
+      expect(finished.stepResults).toEqual([]);
+    });
+
+    it('hands each step the signal that stops it', async () => {
+      const execute = vi.spyOn(deps.stepExecutor, 'execute');
+      const { run } = start(twoDelays());
+
+      await vi.runAllTimersAsync();
+      expect((await run).status).toBe('completed');
+
+      const contexts = execute.mock.calls.map(([, context]) => context as StepContext);
+      expect(contexts).toHaveLength(2);
+      for (const context of contexts) {
+        expect(context.signal).toBeInstanceOf(AbortSignal);
+      }
     });
   });
 });

@@ -2,14 +2,15 @@
 
 Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, run them, and read back what each run did.
 
-> **Coming soon: the steps do not do the work their names promise.** A pipeline
-> runs, the canvas reports each step's status and timing, and the run is written
-> to the history -- but every step type except **Delay** and **Condition** goes
-> to a pass-through handler that returns success without opening a connection.
-> No Seed, Sync, Backup, Restore, Anonymize or Delete step has ever moved a
-> record. Until step handlers ship, Automation is a design surface: use it to
-> compose and store pipelines, not to run work. Each section below says which
-> part is real.
+> **Coming soon: only Delay steps run.** A pipeline that holds any other step
+> type -- Seed, Sync, Backup, Restore, Anonymize, Delete, Condition and the rest
+> -- is refused before its first step: nothing runs, and the run is written to
+> the history as failed, with the reason. No step moves a record. The palette
+> shows the other step types disabled, and a pipeline that holds one, from the
+> Marketplace, the AI generator or an earlier save, is marked on the canvas and
+> cannot be run. Until step handlers ship, Automation is a design surface: use
+> it to compose and store pipelines, not to run work. Each section below says
+> which part is real.
 
 ## Quick Start
 
@@ -17,7 +18,7 @@ Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, r
 2. Click **Create Pipeline** to start a new pipeline
 3. Drag steps from the Step Palette onto the Pipeline Canvas
 4. Configure each step
-5. Click **Run** to walk the pipeline: the canvas switches to the execution view and reports per-step status and timing (see the banner above -- the steps themselves are inert)
+5. Click **Run** once every step can run -- for now, Delay steps with their seconds set: the canvas shows the execution view while the run lasts, and the run is written to the history. While a step cannot run, the Run button is disabled and a note under the header names the step and the reason
 
 ## Features
 
@@ -26,7 +27,7 @@ Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, r
 The visual builder for composing automation workflows:
 
 - **Drag-and-drop canvas** -- Arrange steps visually with connections between them
-- **Step Palette** -- A sidebar listing all available step types. Click to add a step to the canvas.
+- **Step Palette** -- A sidebar listing all 15 step types. Click to add a step to the canvas; a type that cannot run yet is shown disabled, with the reason.
 - **Step Config Panel** -- Select a step on the canvas to configure its parameters (object, query, batch size, etc.)
 - **Pipeline Execution View** -- When running, the canvas switches to show real-time execution status per step
 - **AI Pipeline Generator** -- Describe what you want in natural language and let the AI build the pipeline for you
@@ -40,13 +41,20 @@ The visual builder for composing automation workflows:
 - **Control Flow** -- Condition, Loop, Parallel, Delay, Approval, Script
 - **Notification** -- Notification
 
-Two of them do something today. **Delay** waits for its configured duration, and
-**Condition** evaluates its field/operator/value against the run's variables. The
-other thirteen are accepted, configured, drawn, and reported as succeeded, and
-execute nothing -- including **Parallel**, which runs no branch in parallel
-because it runs no branch at all, **Approval**, which holds nothing back and is
-walked through like any other step, and **Notification**, which sends no message:
-the extension talks to no chat, mail or incident tool.
+One of them runs from this page today: **Delay**, which waits the seconds set in
+its config panel, from 0 up to 24 days. A Delay step with no seconds set cannot
+run, and a run cut short stops its wait where it is.
+
+The extension also evaluates a **Condition** step that carries a condition,
+against the run's variables. Nothing on the page sets a step's condition,
+though, and a run started here carries no variables, so the palette offers
+Condition disabled with the others.
+
+The other thirteen have no handler. They can still be drawn and configured, but
+a pipeline that holds one is refused before its first step and recorded as
+failed -- including **Parallel**, which would run no branch, **Approval**, which
+would hold nothing back, and **Notification**, which would send no message: the
+extension talks to no chat, mail or incident tool.
 
 ### Triggers
 
@@ -77,7 +85,10 @@ A calendar view showing scheduled pipeline runs:
 
 Every run that completes or fails is written to extension storage when it
 ends, and the tab, which asks for the history again each time a run answers,
-lists them newest first. A run cut off by the pipeline timeout, or stopped by an
+lists them newest first. A pipeline refused before its first step is written as
+failed, with one error per step that cannot run, and the page says why under
+its header. A run cut off by the pipeline timeout is stopped where it is -- a
+Delay stops waiting and no later step starts -- and, like a run stopped by an
 error before it returns, leaves no entry. The tab shows for each run:
 
 - Its status, trigger, start time and duration
@@ -100,8 +111,9 @@ Browse and install pre-configured pipeline templates:
 - One-click install to add a template to your workspace
 
 A template is a composition, not a capability: its steps are the same step types
-listed above, so an installed template runs green without moving a record. The
-tab says so above the list.
+listed above, and every built-in template holds at least one that cannot run, so
+an installed template cannot be run yet. Each card names the step types that
+cannot run, and the tab says so above the list.
 
 ### Saved Pipelines
 
@@ -112,8 +124,8 @@ tab says so above the list.
 
 ## Tips
 
-- Start with a short pipeline (Seed, Compare, Notification) to learn the canvas
-- Use the AI Pipeline Generator to scaffold a complex workflow from a natural language description
+- Start with a short pipeline of Delay steps to learn the canvas and the history
+- Use the AI Pipeline Generator to sketch a workflow from a natural language description; its steps are marked when they cannot run
 - Browse the Marketplace for templates that match your use case before building from scratch
-- Read Execution History for the shape of a run -- the order steps ran in, and how long each took
-- Remember that a green run proves the pipeline walked end to end, not that any data moved
+- Read Execution History for each run's status, duration, step count and errors
+- Remember that no pipeline moves data yet: a run is made of Delay steps, and anything else is refused before it starts

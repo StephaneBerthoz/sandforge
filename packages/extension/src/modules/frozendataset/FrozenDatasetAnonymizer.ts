@@ -51,7 +51,26 @@ export interface AnonymizeOptions {
 export class FrozenDatasetAnonymizer {
   /** Transform the extraction into a frozen dataset. */
   anonymize(options: AnonymizeOptions): FrozenDataset {
-    const { extracted, rules, pseudonymizer } = options;
+    const { rules, pseudonymizer } = options;
+
+    // A file the rules do not keep cannot be pseudonymized, and its record
+    // is useless without it: the object is left out, before any link to it
+    // is rewritten, so nothing points at a record that is not there.
+    const filesLeftOut = Object.entries(options.extracted.fileFields ?? {})
+      .filter(([objectApiName, fields]) =>
+        fields.some((field) => resolveGenerator(rules, objectApiName, field) !== 'keep'),
+      )
+      .map(([objectApiName]) => objectApiName)
+      .filter((objectApiName) =>
+        options.extracted.objects.some(
+          (o) => o.objectApiName === objectApiName && o.records.length > 0,
+        ),
+      )
+      .sort();
+    const extracted: ExtractedDataset = {
+      ...options.extracted,
+      objects: options.extracted.objects.filter((o) => !filesLeftOut.includes(o.objectApiName)),
+    };
 
     // sourceId → referenceId across ALL objects (link rewriting needs the
     // full map before any per-record pass).
@@ -89,11 +108,16 @@ export class FrozenDatasetAnonymizer {
       objects.push({ objectApiName: objectData.objectApiName, records });
     }
 
+    const standardPricebook = extracted.standardPricebookSourceId
+      ? refBySourceId.get(extracted.standardPricebookSourceId)
+      : undefined;
     return {
       datasetVersion: options.datasetVersion,
       objects,
       recordTypes,
       personContactSidecar: buildPersonContactSidecar(extracted, refBySourceId),
+      ...(standardPricebook ? { standardPricebook } : {}),
+      ...(filesLeftOut.length > 0 ? { filesLeftOut } : {}),
     };
   }
 

@@ -48,6 +48,7 @@ vi.mock('../../modules/seed/CloneReferenceLinker.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -181,6 +182,142 @@ describe('SeedCloneHandler', () => {
         status: 'success',
         totalInserted: 1,
         totalFailed: 0,
+      });
+    });
+
+    describe('before and after the write', () => {
+      /** Fake ids: the source Account, the one the target holds, a closed record type. */
+      const SOURCE_ACCOUNT = '001Fk00000ZzYxWIAV';
+      const EXISTING_ACCOUNT = '001Fk00000AbCdEIAV';
+      const PARTNER_RT = '012Fk00000RtDeFIAV';
+
+      /** Target describes: Account with a Partner type the running user cannot use; Contact under it. */
+      function targetWithRecordTypes(): void {
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async (name: string) =>
+            name === 'Account'
+              ? {
+                  keyPrefix: '001',
+                  fields: [
+                    { name: 'RecordTypeId', type: 'reference', referenceTo: ['RecordType'] },
+                  ],
+                  recordTypeInfos: [
+                    {
+                      active: true,
+                      available: false,
+                      defaultRecordTypeMapping: false,
+                      developerName: 'Partner',
+                      master: false,
+                      name: 'Partner',
+                      recordTypeId: PARTNER_RT,
+                      urls: {},
+                    },
+                  ],
+                }
+              : {
+                  keyPrefix: '003',
+                  fields: [{ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }],
+                  recordTypeInfos: [],
+                },
+          ),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      }
+
+      it('holds back an object whose record type the running user cannot use, writing none of it', async () => {
+        targetWithRecordTypes();
+        fetcher.fetchRecords.mockResolvedValue([
+          { Id: SOURCE_ACCOUNT, Name: 'Acme', RecordTypeId: PARTNER_RT },
+        ]);
+
+        await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+        expect(writer.insert).not.toHaveBeenCalled();
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(response.payload as unknown).toMatchObject({
+          status: 'failure',
+          totalInserted: 0,
+          totalFailed: 1,
+          objectResults: [
+            {
+              objectApiName: 'Account',
+              failedCount: 1,
+              errors: [
+                {
+                  sourceId: SOURCE_ACCOUNT,
+                  message:
+                    'RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner, which the ' +
+                    'running user cannot use in the target org. Give the running user access to ' +
+                    'record type Partner on Account, or map it to one they have.',
+                },
+              ],
+            },
+          ],
+        });
+      });
+
+      it('links the children of a record the target already holds, and counts it apart', async () => {
+        targetWithRecordTypes();
+        linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'Account'
+            ? [{ Id: SOURCE_ACCOUNT, Name: 'Acme' }]
+            : [{ Id: '003Fk00000MnOpQIAV', LastName: 'Doe', AccountId: SOURCE_ACCOUNT }],
+        );
+        writer.insert.mockImplementation(async (name: string) =>
+          name === 'Account'
+            ? [
+                {
+                  success: false,
+                  errors: [
+                    'DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: 001Fk00000AbCdE',
+                  ],
+                  existingId: EXISTING_ACCOUNT,
+                },
+              ]
+            : [{ id: '003Fk00000NeWcTIAV', success: true, errors: [] }],
+        );
+
+        await handler.handle(
+          buildMsg(
+            'seed:clone:execute',
+            clonePayload({
+              objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }],
+            }),
+          ),
+        );
+
+        expect(writer.insert).toHaveBeenLastCalledWith(
+          'Contact',
+          [{ LastName: 'Doe', AccountId: EXISTING_ACCOUNT }],
+          200,
+        );
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(response.payload as unknown).toMatchObject({
+          status: 'success',
+          totalInserted: 1,
+          totalLinked: 1,
+          totalFailed: 0,
+          objectResults: [
+            {
+              objectApiName: 'Account',
+              insertedCount: 0,
+              linkedCount: 1,
+              failedCount: 0,
+              idMappings: [{ sourceId: SOURCE_ACCOUNT, targetId: EXISTING_ACCOUNT }],
+            },
+            { objectApiName: 'Contact', insertedCount: 1, linkedCount: 0 },
+          ],
+        });
+      });
+
+      it('tells the writer the key prefix a duplicate of each object must carry', async () => {
+        targetWithRecordTypes();
+
+        await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+        const writerDeps = vi.mocked(BulkDataWriter).mock.calls[0][0];
+        expect(writerDeps.keyPrefixOf?.('Account')).toBe('001');
       });
     });
 

@@ -188,7 +188,7 @@ describe('OrgDropdown status without colour', () => {
     };
 
     const connected = classesFor('connected');
-    expect(connected).toEqual(expect.arrayContaining(['rounded-full', 'bg-green-500']));
+    expect(connected).toEqual(expect.arrayContaining(['rounded-full', 'bg-status-success']));
     expect(connected).not.toContain('rotate-45');
     expect(connected).not.toContain('border-2');
 
@@ -203,7 +203,7 @@ describe('OrgDropdown status without colour', () => {
         'text-status-warning',
       ]),
     );
-    expect(refreshing).not.toContain('bg-yellow-500');
+    expect(refreshing).not.toContain('bg-status-warning');
 
     for (const status of ['expired', 'error'] as const) {
       const diamond = classesFor(status);

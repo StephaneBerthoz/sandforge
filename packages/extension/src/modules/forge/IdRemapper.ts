@@ -7,10 +7,36 @@
  */
 export class IdRemapper {
   private readonly map = new Map<string, string>();
+  /**
+   * Source ids whose target is a record the target org already held, not one
+   * this run created. Children link to it all the same; the run summary is
+   * what has to tell the two apart.
+   */
+  private readonly existing = new Set<string>();
 
   /** Register a mapping from old ID to new ID. */
   add(oldId: string, newId: string): void {
     this.map.set(oldId, newId);
+    this.existing.delete(oldId);
+  }
+
+  /**
+   * Register a source record the target org refused because it already holds
+   * it, mapped onto that existing record so its children link to it.
+   */
+  addExisting(oldId: string, existingId: string): void {
+    this.map.set(oldId, existingId);
+    this.existing.add(oldId);
+  }
+
+  /** Whether `oldId` maps onto a record the target already held. */
+  isExisting(oldId: string): boolean {
+    return this.existing.has(oldId);
+  }
+
+  /** Source ids mapped onto records the target already held, in registration order. */
+  existingSourceIds(): string[] {
+    return [...this.existing];
   }
 
   /** Get the new ID for an old ID. Returns undefined if not mapped. */
@@ -46,6 +72,7 @@ export class IdRemapper {
   /** Clear all mappings. */
   clear(): void {
     this.map.clear();
+    this.existing.clear();
   }
 
   /** Serialize all mappings to a plain object for checkpoint persistence. */

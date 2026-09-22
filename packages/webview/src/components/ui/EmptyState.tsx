@@ -39,7 +39,11 @@ export interface EmptyStateProps {
   onTourClick?: () => void;
 }
 
-/** Inline SVG illustrations per module (simple geometric shapes). */
+/**
+ * Inline SVG illustrations per module (simple geometric shapes). Each draws in
+ * currentColor under the module's identity hue token, so the line work follows
+ * the theme: the fixed hexes it replaced were picked for a dark editor.
+ */
 const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
   seed: (
     <svg
@@ -48,12 +52,13 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-green"
       data-testid="illustration-seed"
     >
-      <circle cx="32" cy="32" r="28" stroke="#10B981" strokeWidth="2" strokeDasharray="4 4" />
-      <path d="M32 16c0 16-12 20-12 28h24c0-8-12-12-12-28z" fill="#10B981" fillOpacity="0.2" />
-      <path d="M32 16v28" stroke="#10B981" strokeWidth="2" />
-      <circle cx="32" cy="48" r="4" fill="#10B981" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <path d="M32 16c0 16-12 20-12 28h24c0-8-12-12-12-28z" fill="currentColor" fillOpacity="0.2" />
+      <path d="M32 16v28" stroke="currentColor" strokeWidth="2" />
+      <circle cx="32" cy="48" r="4" fill="currentColor" />
     </svg>
   ),
   sync: (
@@ -63,11 +68,12 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-blue"
       data-testid="illustration-sync"
     >
-      <circle cx="32" cy="32" r="28" stroke="#3B82F6" strokeWidth="2" strokeDasharray="4 4" />
-      <path d="M20 28l12-8v6h12v4H32v6l-12-8z" fill="#3B82F6" fillOpacity="0.3" />
-      <path d="M44 36l-12 8v-6H20v-4h12v-6l12 8z" fill="#3B82F6" fillOpacity="0.3" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <path d="M20 28l12-8v6h12v4H32v6l-12-8z" fill="currentColor" fillOpacity="0.3" />
+      <path d="M44 36l-12 8v-6H20v-4h12v-6l12 8z" fill="currentColor" fillOpacity="0.3" />
     </svg>
   ),
   monitor: (
@@ -77,11 +83,17 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-amber"
       data-testid="illustration-monitor"
     >
-      <circle cx="32" cy="32" r="28" stroke="#F59E0B" strokeWidth="2" strokeDasharray="4 4" />
-      <rect x="18" y="22" width="28" height="20" rx="3" stroke="#F59E0B" strokeWidth="2" />
-      <polyline points="22,38 28,30 34,34 42,26" stroke="#F59E0B" strokeWidth="2" fill="none" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <rect x="18" y="22" width="28" height="20" rx="3" stroke="currentColor" strokeWidth="2" />
+      <polyline
+        points="22,38 28,30 34,34 42,26"
+        stroke="currentColor"
+        strokeWidth="2"
+        fill="none"
+      />
     </svg>
   ),
   compare: (
@@ -91,12 +103,13 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-purple"
       data-testid="illustration-compare"
     >
-      <circle cx="32" cy="32" r="28" stroke="#8B5CF6" strokeWidth="2" strokeDasharray="4 4" />
-      <rect x="14" y="20" width="16" height="24" rx="2" stroke="#8B5CF6" strokeWidth="2" />
-      <rect x="34" y="20" width="16" height="24" rx="2" stroke="#8B5CF6" strokeWidth="2" />
-      <path d="M30 32h4" stroke="#8B5CF6" strokeWidth="2" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <rect x="14" y="20" width="16" height="24" rx="2" stroke="currentColor" strokeWidth="2" />
+      <rect x="34" y="20" width="16" height="24" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M30 32h4" stroke="currentColor" strokeWidth="2" />
     </svg>
   ),
   dataops: (
@@ -106,12 +119,13 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-rose"
       data-testid="illustration-dataops"
     >
-      <circle cx="32" cy="32" r="28" stroke="#EF4444" strokeWidth="2" strokeDasharray="4 4" />
-      <ellipse cx="32" cy="24" rx="14" ry="6" stroke="#EF4444" strokeWidth="2" />
-      <path d="M18 24v16c0 3.3 6.3 6 14 6s14-2.7 14-6V24" stroke="#EF4444" strokeWidth="2" />
-      <path d="M18 32c0 3.3 6.3 6 14 6s14-2.7 14-6" stroke="#EF4444" strokeWidth="2" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <ellipse cx="32" cy="24" rx="14" ry="6" stroke="currentColor" strokeWidth="2" />
+      <path d="M18 24v16c0 3.3 6.3 6 14 6s14-2.7 14-6V24" stroke="currentColor" strokeWidth="2" />
+      <path d="M18 32c0 3.3 6.3 6 14 6s14-2.7 14-6" stroke="currentColor" strokeWidth="2" />
     </svg>
   ),
   automation: (
@@ -121,13 +135,14 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-orange"
       data-testid="illustration-automation"
     >
-      <circle cx="32" cy="32" r="28" stroke="#F97316" strokeWidth="2" strokeDasharray="4 4" />
-      <circle cx="20" cy="20" r="6" stroke="#F97316" strokeWidth="2" />
-      <circle cx="44" cy="20" r="6" stroke="#F97316" strokeWidth="2" />
-      <circle cx="32" cy="44" r="6" stroke="#F97316" strokeWidth="2" />
-      <path d="M24 24l4 16M40 24l-4 16" stroke="#F97316" strokeWidth="2" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <circle cx="20" cy="20" r="6" stroke="currentColor" strokeWidth="2" />
+      <circle cx="44" cy="20" r="6" stroke="currentColor" strokeWidth="2" />
+      <circle cx="32" cy="44" r="6" stroke="currentColor" strokeWidth="2" />
+      <path d="M24 24l4 16M40 24l-4 16" stroke="currentColor" strokeWidth="2" />
     </svg>
   ),
   forge: (
@@ -137,29 +152,30 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-amber"
       data-testid="illustration-forge"
     >
-      <circle cx="32" cy="32" r="28" stroke="#E8A838" strokeWidth="2" strokeDasharray="4 4" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
       <rect
         x="20"
         y="36"
         width="24"
         height="6"
         rx="1"
-        stroke="#E8A838"
+        stroke="currentColor"
         strokeWidth="2"
-        fill="#E8A838"
+        fill="currentColor"
         fillOpacity="0.15"
       />
-      <path d="M28 36V22l4-4 4 4v14" stroke="#E8A838" strokeWidth="2" />
-      <path d="M26 22h12" stroke="#E8A838" strokeWidth="2" />
+      <path d="M28 36V22l4-4 4 4v14" stroke="currentColor" strokeWidth="2" />
+      <path d="M26 22h12" stroke="currentColor" strokeWidth="2" />
       <circle
         cx="32"
         cy="48"
         r="3"
-        fill="#E8A838"
+        fill="currentColor"
         fillOpacity="0.3"
-        stroke="#E8A838"
+        stroke="currentColor"
         strokeWidth="1.5"
       />
     </svg>
@@ -171,16 +187,17 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       viewBox="0 0 64 64"
       fill="none"
       aria-hidden="true"
+      className="text-hue-cyan"
       data-testid="illustration-autopilot"
     >
-      <circle cx="32" cy="32" r="28" stroke="#06B6D4" strokeWidth="2" strokeDasharray="4 4" />
-      <circle cx="32" cy="32" r="12" stroke="#06B6D4" strokeWidth="2" />
-      <path d="M32 20v6M32 38v6M20 32h6M38 32h6" stroke="#06B6D4" strokeWidth="2" />
+      <circle cx="32" cy="32" r="28" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <circle cx="32" cy="32" r="12" stroke="currentColor" strokeWidth="2" />
+      <path d="M32 20v6M32 38v6M20 32h6M38 32h6" stroke="currentColor" strokeWidth="2" />
       <path
         d="M32 28l3 4-3 4-3-4z"
-        fill="#06B6D4"
+        fill="currentColor"
         fillOpacity="0.3"
-        stroke="#06B6D4"
+        stroke="currentColor"
         strokeWidth="1.5"
       />
     </svg>

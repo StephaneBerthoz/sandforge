@@ -6,20 +6,25 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatNumber } from '../../utils/formatters';
+import { cn } from '../../theme';
 import type { StorageObjectEntry } from '@sandforge/shared';
 
-/** Color palette for the donut chart slices. */
-const SLICE_COLORS = [
-  '#3B82F6',
-  '#10B981',
-  '#F59E0B',
-  '#8B5CF6',
-  '#EF4444',
-  '#06B6D4',
-  '#EC4899',
-  '#14B8A6',
-  '#F97316',
-  '#6366F1',
+/**
+ * One identity hue per donut slice, as the slice's fill and as the dot on its
+ * table row. The classes override the fill Recharts sets as an attribute, so a
+ * slice follows the theme like the rest of the panel.
+ */
+const SLICE_HUES = [
+  { fill: 'fill-hue-blue', dot: 'bg-hue-blue' },
+  { fill: 'fill-hue-green', dot: 'bg-hue-green' },
+  { fill: 'fill-hue-amber', dot: 'bg-hue-amber' },
+  { fill: 'fill-hue-purple', dot: 'bg-hue-purple' },
+  { fill: 'fill-hue-rose', dot: 'bg-hue-rose' },
+  { fill: 'fill-hue-cyan', dot: 'bg-hue-cyan' },
+  { fill: 'fill-hue-fuchsia', dot: 'bg-hue-fuchsia' },
+  { fill: 'fill-hue-teal', dot: 'bg-hue-teal' },
+  { fill: 'fill-hue-orange', dot: 'bg-hue-orange' },
+  { fill: 'fill-hue-indigo', dot: 'bg-hue-indigo' },
 ];
 
 /** Response shape from monitor:storage. */
@@ -110,7 +115,10 @@ export const StorageBreakdownPanel: React.FC = () => {
               paddingAngle={2}
             >
               {chartData.map((_entry, index) => (
-                <Cell key={`cell-${index}`} fill={SLICE_COLORS[index % SLICE_COLORS.length]} />
+                <Cell
+                  key={`cell-${index}`}
+                  className={SLICE_HUES[index % SLICE_HUES.length].fill}
+                />
               ))}
             </Pie>
             <Tooltip
@@ -137,8 +145,10 @@ export const StorageBreakdownPanel: React.FC = () => {
               data-testid={`storage-row-${obj.objectName}`}
             >
               <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: idx < 10 ? SLICE_COLORS[idx] : '#6B7280' }}
+                className={cn(
+                  'w-2.5 h-2.5 rounded-full shrink-0',
+                  idx < SLICE_HUES.length ? SLICE_HUES[idx].dot : 'bg-text-secondary',
+                )}
               />
               <span className="text-text-primary flex-1 truncate font-medium">{obj.label}</span>
               <span className="text-text-secondary tabular-nums w-20 text-right">

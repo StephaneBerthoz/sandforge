@@ -4,8 +4,9 @@
  * Splits a node's cleaned records into batches (REST/Bulk strategy),
  * dispatches them to the target org via insert — or upsert on an external
  * Id field when `upsertMode: 'auto'` applies — registers the new
- * source→target ID mappings, collects per-record failure samples, and
- * queues nullified cycle FKs for the pass-2 UPDATE.
+ * source→target ID mappings, links rows the target refused because it
+ * already holds them to the record it named, collects per-record failure
+ * samples, and queues nullified cycle FKs for the pass-2 UPDATE.
  *
  * Pause/abort is honored between batches through the `waitIfPaused`
  * checkpoint injected by the executor.
@@ -19,6 +20,7 @@ import type {
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { isAlreadyExistsError } from '@sandforge/shared';
+import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
@@ -116,7 +118,16 @@ export interface WriteNodeInput {
   upsertMode: 'auto' | 'off';
   /** ID of the target Salesforce org. */
   targetOrgId: string;
-  /** Source→target ID mappings accumulated so far (mutated on success). */
+  /**
+   * Key prefix of the node's object in the target org, when the describe
+   * gave one. An id a refusal names must carry it to be linked to: a unique
+   * index is per object, so an id of anything else is not the record.
+   */
+  targetKeyPrefix?: string | null;
+  /**
+   * Source→target ID mappings accumulated so far — mutated on success, and
+   * for a row the target already held.
+   */
   remapper: IdRemapper;
   /** Pause/abort checkpoint — called between batch iterations. */
   waitIfPaused: () => Promise<void>;
@@ -128,6 +139,12 @@ export interface WriteNodeInput {
 export interface BatchWriteResult {
   /** Records successfully inserted/upserted. */
   successCount: number;
+  /**
+   * Records the target refused because it already holds them, and named:
+   * mapped onto that record so their children link to it, and never written
+   * to. Neither created nor failed.
+   */
+  linkedExistingCount: number;
   /** Records that failed (including API-truncated results). */
   failureCount: number;
   /**
@@ -135,6 +152,13 @@ export interface BatchWriteResult {
    * failure is one of these has not orphaned its children.
    */
   alreadyExistsCount: number;
+  /**
+   * Of those failures, the rows refused as duplicates without one record the
+   * run could trust — `<unknown>` in place of the id, several matches. Their
+   * children lose the lookup, as every duplicate's did before a refusal was
+   * read for the record it names.
+   */
+  unidentifiedExistingCount: number;
   /** Up to 3 sampled failures (truncated to keep payloads UI-friendly). */
   errorSamples: ExecutionErrorSample[];
   /** Nullified cycle FKs of successfully inserted records — pass-2 input. */
@@ -190,8 +214,10 @@ export class BatchWriter {
     });
 
     let nodeSuccess = 0;
+    let nodeLinked = 0;
     let nodeFailure = 0;
     let nodeAlreadyExists = 0;
+    let nodeUnidentified = 0;
     let recordOffset = 0;
     const nodeErrorSamples: ExecutionErrorSample[] = [];
     const pendingFkUpdates: PendingFkUpdate[] = [];
@@ -255,7 +281,19 @@ export class BatchWriter {
             }
           }
         } else {
+          const existing = existingRecordOf(result, input.targetKeyPrefix);
+          if (existing.kind === 'linked') {
+            // The target refused the row because it holds it, and said which
+            // record that is. The children link to it; nothing is written to
+            // it — no update, and no pass-2 patch of its lookups, which would
+            // overwrite a record this run did not create.
+            nodeLinked++;
+            const oldId = cleanedRecords[recordOffset + i]?.source['Id'];
+            if (typeof oldId === 'string') remapper.addExisting(oldId, existing.id);
+            continue;
+          }
           nodeFailure++;
+          if (existing.kind === 'unidentified') nodeUnidentified++;
           // Counted apart because it says something different from a failure:
           // the target already holds the row, so nothing downstream of it is
           // orphaned. See `isAlreadyExistsError`.
@@ -296,8 +334,10 @@ export class BatchWriter {
 
     return {
       successCount: nodeSuccess,
+      linkedExistingCount: nodeLinked,
       failureCount: nodeFailure,
       alreadyExistsCount: nodeAlreadyExists,
+      unidentifiedExistingCount: nodeUnidentified,
       errorSamples: nodeErrorSamples,
       pendingFkUpdates,
     };

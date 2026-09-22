@@ -247,7 +247,20 @@
       "storage": "Armazenamento",
       "failedJobs": "Jobs com falha",
       "recentErrorLogs": "Logs de erro recentes",
-      "lastChecked": "Última verificação"
+      "lastChecked": "Última verificação",
+      "overall": {
+        "healthy": "Saudável",
+        "degraded": "Degradado",
+        "critical": "Crítico",
+        "unknown": "Desconhecido"
+      },
+      "signal": {
+        "ok": "OK",
+        "warning": "Atenção",
+        "critical": "Crítico",
+        "unknown": "Não lido"
+      },
+      "notRead": "não lido"
     },
     "fileStorage": "Armazenamento de arquivos",
     "noTrends": "Ainda não há dados suficientes para as tendências",
@@ -308,7 +321,6 @@
     "catSecurity": "Segurança",
     "catConfiguration": "Configuração",
     "catContent": "Conteúdo",
-    "catOther": "Outros",
     "emptyState": {
       "title": "Detecte diferenças entre duas orgs",
       "description": "Compare metadados, permissões e drift entre uma org de origem e uma de destino — saiba exatamente o que muda antes de implantar.",
@@ -541,6 +553,7 @@
         "title": "Resultados da clonagem",
         "summary": "Registros de origem",
         "inserted": "Inseridos",
+        "linked": "Vinculados a existentes",
         "failed": "Falhados",
         "duration": "Duração",
         "idMapping": "Mapeamento de IDs",
@@ -1053,12 +1066,22 @@
     "noMarketplaceTemplates": "Nenhum modelo disponível",
     "noMarketplaceTemplatesDesc": "Modelos da comunidade aparecerão aqui",
     "installTemplate": "Instalar",
+    "runFailed": "A execução do pipeline falhou: {{reason}}",
+    "runnability": {
+      "cannotRun": "Ainda não executável",
+      "typeCannotRun": "Este tipo de etapa ainda não pode ser executado em um pipeline.",
+      "conditionCannotRun": "Uma etapa Condição ainda não pode ser executada em um pipeline: nada aqui define sua condição, e uma execução não traz variáveis para ela testar.",
+      "delayNeedsSeconds": "Defina quantos segundos esta etapa Atraso espera (de 0 a 24 dias).",
+      "paletteNote": "Por enquanto, só as etapas Atraso podem ser executadas em um pipeline. Os demais tipos de etapa ainda não podem ser adicionados.",
+      "pipelineBlocked": "Este pipeline não pode ser executado. Remova ou corrija estas etapas primeiro:",
+      "templateBlocked": "Ainda não pode ser executado como pipeline. Estes tipos de etapa não podem ser executados: {{types}}."
+    },
     "soon": {
-      "steps": "Só as etapas Atraso e Condição fazem algo quando um pipeline é executado. Seed, Sync, Backup, Restauração, Anonimização, Exclusão e os demais tipos de etapa informam sucesso sem tocar em nenhuma org."
+      "steps": "Por enquanto, só as etapas Atraso são executadas em um pipeline. Seed, Sync, Backup, Restauração, Anonimização, Exclusão, Condição e os demais tipos de etapa ainda não podem ser executados em um pipeline: um pipeline que contenha uma delas não é iniciado."
     },
     "emptyState": {
       "title": "Crie seu primeiro pipeline",
-      "description": "Monte pipelines em uma tela visual e salve-os. Por enquanto, só as etapas Atraso e Condição fazem algo quando um pipeline é executado.",
+      "description": "Monte pipelines em uma tela visual e salve-os. Por enquanto, só as etapas Atraso podem ser executadas em um pipeline.",
       "cta": "Selecionar uma org"
     }
   },
@@ -1288,7 +1311,13 @@
       "autopilotCopies": "O Autopilot copia o que você pediu — e grava",
       "autopilotCopiesDesc": "Um pedido de dois objetos devolvia vinte e não gravava nenhum registro: entrava em usuários, perfis e objetos de histórico, mandava todos os campos lidos e punha ids de origem nos lookups do destino. Tudo corrigido, e agora uma trava impede que o próximo módulo esqueça a dispensa das regras de duplicidade.",
       "backupPartial": "Um backup diz quando é só uma parte",
-      "backupPartialDesc": "Ele lê até dois mil registros por objeto — quinhentos contra uma org de produção — e anunciava um snapshot completo nos dois casos. Medido contra uma org real: 656 registros salvos em 500 e declarados completos. Agora avisa do corte, e o snapshot guarda isso."
+      "backupPartialDesc": "Ele lê até dois mil registros por objeto — quinhentos contra uma org de produção — e anunciava um snapshot completo nos dois casos. Medido contra uma org real: 656 registros salvos em 500 e declarados completos. Agora avisa do corte, e o snapshot guarda isso.",
+      "frozenLoads": "Um conjunto congelado carrega de ponta a ponta",
+      "frozenLoadsDesc": "Executado pela primeira vez contra uma org real, o Frozen Dataset não conseguia selecionar nenhuma raiz, e sua primeira carga gravava um registro de vinte e oito. Agora ele lê o que um dossiê precisa — os preços para os quais seus pedidos apontam e os preços padrão por trás deles —, carrega oitenta e oito registros, recarrega-os de forma limpa e passa em sua própria verificação.",
+      "automationHonest": "Nenhuma etapa de pipeline relata um trabalho que não fez",
+      "automationHonestDesc": "Treze dos quinze tipos de etapa não tinham nada por trás e retornavam sucesso, e o Delay esperava zero segundo. Um pipeline com uma etapa que não pode ser executada agora é marcado como tal e recusado antes de começar, em vez de ser registrado como concluído.",
+      "monitorReads": "Monitor e Compare mostram o que a org contém",
+      "monitorReadsDesc": "Executados pela primeira vez contra orgs reais: o armazenamento falhava em todas as orgs, os objetos personalizados eram contados quarenta e um por cinco, os alertas de uma org apareciam em outra e o Compare lia uma parte diferente dos conjuntos de permissões de cada org. Agora eles leem o que mostram, e um sinal de saúde que não pode ser lido diz isso em vez de relatar uma org saudável."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1317,7 +1346,7 @@
     "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental, delta e CDC não estão implementados)\n- Mapeamento automático de campos com pontuações de confiança\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Snapshots: os objetos das duas orgs, capturados ao vivo quando você abre a aba\n- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantação: em breve, nada é implantado a partir de um diff ainda",
     "dataopsContent": "Operações de dados na org selecionada:\n- Backup: um snapshot completo de Account e Contact, guardado no armazenamento da extensão\n- Restauração: devolve um backup, inteiro, à org de onde ele foi tirado\n- Anonimização: mascara os campos no lugar com um modelo integrado como GDPR, CCPA ou HIPAA; é irreversível, então faça um backup antes\n- Conformidade, Limpeza e Qualidade: em breve, nada roda por trás dessas abas ainda",
-    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Só Atraso e Condição fazem algo por enquanto: as outras 13 informam sucesso sem tocar em nenhuma org\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Etapas de Condição com 11 operadores\n- Histórico de execução: status, duração total, número de etapas e erros de cada execução\n- Modelos de pipeline do Marketplace",
+    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Por enquanto só as etapas Atraso podem ser executadas: um pipeline que contenha qualquer um dos outros 14 tipos é recusado antes de começar\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Histórico de execução: status, duração total, número de etapas e erros de cada execução\n- Modelos de pipeline do Marketplace",
     "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: os IDs são remapeados na escrita; um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
     "frozenContent": "O Dataset congelado extrai um conjunto de dados de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Pseudonimização determinística, com um sal guardado fora do repositório\n- Uma verificação de quatro pontos precisa passar antes de o dataset ser gravado\n- Carga: somente sandboxes como destino, com um Piloto opcional sobre uma única pasta raiz antes da carga completa, e uma verificação depois da carga",
     "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",
@@ -1480,6 +1509,7 @@
     "before": "Antes",
     "after": "Depois",
     "inserted": "Inseridos",
+    "linkedExisting": "Vinculados a existentes",
     "skipped": "Ignorados",
     "idRemaps": "Remapeamentos de ID",
     "successRate": "Taxa de sucesso",
@@ -1608,9 +1638,11 @@
     "soqlAliasRefused": "Esta consulta não pode ser executada. A cláusula FROM declara um alias sobre uma relação que não parte do objeto após FROM: verifique o alias antes do ponto.",
     "idMapping": {
       "title": "Mapeamento de Ids",
-      "subtitle": "{{count}} registros criados. Id de origem à esquerda, novo Id na org de destino à direita.",
+      "subtitle": "{{count}} registros. Id de origem à esquerda, seu Id na org de destino à direita.",
       "sourceId": "Id de origem",
-      "targetId": "Novo Id"
+      "targetId": "Id de destino",
+      "existingNote": "{{count}} deles já estavam na org de destino: vinculados, não criados.",
+      "existingBadge": "existente"
     },
     "apiCalls": "Chamadas de API",
     "preview": {
@@ -1722,6 +1754,10 @@
         "explanation": "O tipo de registro existe na org de destino e foi correspondido corretamente, mas não está disponível para o usuário com que o clone roda.",
         "action": "Atribua o tipo de registro ao perfil desse usuário na org de destino, ou exclua o campo RecordTypeId para este objeto."
       },
+      "recordTypeHeldBack": {
+        "explanation": "O usuário com que o clone roda não pode usar este tipo de registro na org de destino, então o objeto foi retido antes que qualquer um de seus registros fosse gravado, e os objetos que dependem dele foram ignorados.",
+        "action": "Na org de destino, dê a esse usuário acesso ao tipo de registro, ou ative-o se estiver inativo, ou exclua o campo RecordTypeId para este objeto para que seus registros recebam o tipo de registro padrão do usuário."
+      },
       "outOfScope": {
         "explanation": "Nenhum dos registros pai deste objeto faz parte da clonagem, e ele não é o objeto raiz, então nenhum de seus registros foi clonado.",
         "action": "Aumente a profundidade se precisar de registros deste objeto na clonagem."
@@ -1734,6 +1770,12 @@
     "soqlObjectNameInvalid": "\"{{object}}\" não é um nome de API de SObject, então a cláusula WHERE não pode ser enviada com ele. Ele deve começar com uma letra e ter no máximo 80 letras, dígitos ou sublinhados.",
     "hintSoqlObjectNameInvalid": "Corrija o nome do objeto após FROM para descobrir o grafo",
     "truncatedRead": "Lido apenas em parte: {{objects}}. A origem tem mais linhas do que foram clonadas — divida a execução com filtros que fiquem, cada um, abaixo do limite para clonar o restante.",
+    "existingRecords": {
+      "title": "Já na org de destino",
+      "hint": "A org de destino recusou estes registros porque já os contém. Quando o Salesforce indicou o registro, o clone se vincula a ele e nunca o altera.",
+      "linked": "{{count}} vinculado(s), não criado(s)",
+      "unidentified": "{{count}} não identificado(s) — contados como falha, e seus registros filhos perderam o vínculo"
+    },
     "node": {
       "records": "{{records}} registros",
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)",
@@ -2022,7 +2064,13 @@
       "placeholder": "Placeholder",
       "skippedList": "Registros ignorados (anti-duplicado nativo)",
       "errors": "Erros",
-      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos — PersonContact: {{personContact}} restaurados"
+      "postLoad": "Pass 2: {{pass2}} vínculos de ciclo resolvidos — PersonContact: {{personContact}} restaurados",
+      "statuses": "Status aplicados após a inserção: {{restored}} — recusados: {{refused}}"
+    },
+    "coverage": {
+      "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",
+      "unbounded": "Lidos sem o limite de data, por não terem CreatedDate: {{objects}}",
+      "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}"
     }
   },
   "grappe": {

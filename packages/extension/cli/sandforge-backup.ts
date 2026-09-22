@@ -13,7 +13,9 @@
  * prints what the panel would have received.
  *
  * A restore is an upsert on `Id`: it overwrites the fields of records that are
- * there and recreates ones that are gone. It never deletes. `--restore` still
+ * there, and first brings back from the recycle bin the ones deleted since the
+ * snapshot. A record no longer in the bin cannot come back with its Id, and
+ * the restore says so. It never deletes. `--restore` still
  * asks before it writes unless `--yes` is given.
  *
  * Usage:
@@ -60,7 +62,8 @@ Options:
   --help                 this text
 
 A restore never deletes: it upserts on Id, so it overwrites the fields of
-records that are there and recreates ones that are gone.
+records that are there, after bringing back from the recycle bin the ones
+deleted since the snapshot.
 
 Exit codes: 0 the run finished, 1 it could not start, 2 a bad command line.
 `;

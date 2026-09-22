@@ -36,6 +36,13 @@ import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenc
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isUncopyableObject } from '@sandforge/shared';
+import {
+  carriesRecordType,
+  findUnavailableRecordTypes,
+  parseRecordTypeInfos,
+  recordTypeBlockedMessage,
+  type RecordTypeAvailability,
+} from '../../core/metadata/recordTypeAvailability.js';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -345,7 +352,18 @@ export class SeedCloneHandler implements DomainHandler {
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
       failure.batchSize = defaultBatchSize;
+      /**
+       * What the target describe says about each object beyond its fields:
+       * the key prefix a duplicate's id must carry before the clone links to
+       * it, and the record types the running user may use. Filled by the
+       * describe below, which the run makes anyway.
+       */
+      const targetObjects = new Map<
+        string,
+        { keyPrefix: string | null; recordTypes: RecordTypeAvailability[] }
+      >();
       const writer = new BulkDataWriter({
+        keyPrefixOf: (objectName) => targetObjects.get(objectName)?.keyPrefix,
         connection: targetConn,
         bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
         bulkManager: bulkManagerOf(this.deps),
@@ -376,6 +394,10 @@ export class SeedCloneHandler implements DomainHandler {
         const describe = await targetConn.describe(name);
         checkApiLimits(targetConn.limitInfo, `seed:clone:execute describe ${name}`);
         describeMap.set(name, describe as DescribeSObjectResultLike);
+        targetObjects.set(name, {
+          keyPrefix: describe.keyPrefix ?? null,
+          recordTypes: parseRecordTypeInfos(describe.recordTypeInfos),
+        });
       }
       const insertOrder = linker.resolveInsertOrder(
         objectNames,
@@ -424,6 +446,39 @@ export class SeedCloneHandler implements DomainHandler {
           prepareRecordForWrite(record, describeMap.get(objectApiName), objectSet, globalIdMap),
         );
 
+        // A clone copies `RecordTypeId` as it read it, and a type closed to
+        // the running user in the target refuses every record carrying it with
+        // an INVALID_CROSS_REFERENCE_KEY that names the id and not the reason.
+        // A clone leaves a reference it cannot resolve for Salesforce to
+        // refuse rather than change it, so there is no default to fall back
+        // on: the object is held back whole, before any of it is written, with
+        // what to change in the target.
+        const heldBack = findUnavailableRecordTypes(
+          objectApiName,
+          writeRecords,
+          targetObjects.get(objectApiName)?.recordTypes ?? [],
+        );
+        if (heldBack.length > 0) {
+          objectLevelFailures++;
+          objectResults.push({
+            objectApiName,
+            sourceCount: sourceRecords.length,
+            insertedCount: 0,
+            failedCount: sourceRecords.length,
+            idMappings: [],
+            // Keyed on the first record of each type: the error table needs a
+            // distinct row key, and the message counts the rest.
+            errors: heldBack.map((use) => {
+              const first = sourceRecords.find((_, i) => carriesRecordType(writeRecords[i], [use]));
+              return {
+                sourceId: typeof first?.['Id'] === 'string' ? first['Id'] : use.recordTypeId,
+                message: recordTypeBlockedMessage(use),
+              };
+            }),
+          });
+          continue;
+        }
+
         const outcomes =
           parsed.upsert && parsed.externalIdField
             ? await writer.upsert(
@@ -439,6 +494,7 @@ export class SeedCloneHandler implements DomainHandler {
           sourceCount: sourceRecords.length,
           insertedCount: 0,
           failedCount: 0,
+          linkedCount: 0,
           idMappings: [],
           errors: [],
         };
@@ -450,6 +506,14 @@ export class SeedCloneHandler implements DomainHandler {
             if (sourceId && outcome.id) {
               globalIdMap.set(sourceId, outcome.id);
               objectResult.idMappings.push({ sourceId, targetId: outcome.id });
+            }
+          } else if (outcome.existingId) {
+            // Refused because the target holds it, and named: the children
+            // link to that record, which the clone never writes to.
+            objectResult.linkedCount = (objectResult.linkedCount ?? 0) + 1;
+            if (sourceId) {
+              globalIdMap.set(sourceId, outcome.existingId);
+              objectResult.idMappings.push({ sourceId, targetId: outcome.existingId });
             }
           } else {
             objectResult.failedCount++;
@@ -464,17 +528,19 @@ export class SeedCloneHandler implements DomainHandler {
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
+      const totalLinked = objectResults.reduce((sum, r) => sum + (r.linkedCount ?? 0), 0);
       const totalFailed = objectResults.reduce((sum, r) => sum + r.failedCount, 0);
       const result: CloneExecutionResult = {
         status:
           totalFailed === 0 && objectLevelFailures === 0
             ? 'success'
-            : totalInserted > 0
+            : totalInserted + totalLinked > 0
               ? 'partial'
               : 'failure',
         objectResults,
         totalSourceRecords,
         totalInserted,
+        totalLinked,
         totalFailed,
         durationMs: Date.now() - startedAt,
       };

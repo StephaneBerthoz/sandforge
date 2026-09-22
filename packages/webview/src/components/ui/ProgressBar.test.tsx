@@ -95,7 +95,7 @@ describe('ProgressBar', () => {
     render(<ProgressBar value={50} variant="success" ariaLabel="Upload" />);
     const bar = screen.getByRole('progressbar');
     const inner = bar.firstChild as HTMLElement;
-    expect(inner.className).toContain('bg-emerald-500');
+    expect(inner.className).toContain('bg-status-success');
   });
 
   it('paints the fill in the colour a caller gives it', () => {

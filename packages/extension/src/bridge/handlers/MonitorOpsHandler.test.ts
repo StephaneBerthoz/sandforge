@@ -26,9 +26,15 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: mockCheckApiLimits,
 }));
 
+/**
+ * Limits under the names a v62.0 `/limits` answers with. This table used to
+ * carry `DailyBulkApiRequests`, `DailySoqlQueries` and
+ * `DailyStandardVolumePlatformMessages`, names no org returns, which is how the
+ * API usage panel could look for them without a test noticing.
+ */
 const FAKE_LIMITS: Record<string, { Max: number; Remaining: number }> = {
   DailyApiRequests: { Max: 15000, Remaining: 14000 },
-  DailyBulkApiRequests: { Max: 10000, Remaining: 9500 },
+  DailyBulkApiBatches: { Max: 15000, Remaining: 14250 },
   DailyBulkV2QueryJobs: { Max: 10000, Remaining: 9000 },
   DailyBulkV2QueryFileStorageMB: { Max: 100, Remaining: 90 },
   DailyStreamingApiEvents: { Max: 10000, Remaining: 9500 },
@@ -37,12 +43,11 @@ const FAKE_LIMITS: Record<string, { Max: number; Remaining: number }> = {
   DailyAsyncApexExecutions: { Max: 250000, Remaining: 240000 },
   HourlyAsyncReportRuns: { Max: 1200, Remaining: 1100 },
   HourlyTimeBasedWorkflow: { Max: 1000, Remaining: 950 },
-  DailySoqlQueries: { Max: 100, Remaining: 90 },
   DailyWorkflowEmails: { Max: 1000, Remaining: 800 },
   MassEmail: { Max: 5000, Remaining: 4500 },
   SingleEmail: { Max: 5000, Remaining: 4800 },
   HourlyPublishedPlatformEvents: { Max: 50000, Remaining: 49000 },
-  DailyStandardVolumePlatformMessages: { Max: 100000, Remaining: 95000 },
+  DailyStandardVolumePlatformEvents: { Max: 100000, Remaining: 95000 },
 };
 
 /**
@@ -320,7 +325,7 @@ describe('MonitorOpsHandler', () => {
       expect(categoryNames).toContain('HourlyPublishedPlatformEvents');
     });
 
-    it('api-usage response has 16 categories total', async () => {
+    it('api-usage response has one category per limit it names', async () => {
       const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-limits-count',
         type: 'monitor:api-usage',
@@ -334,7 +339,124 @@ describe('MonitorOpsHandler', () => {
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         payload: { categories: Array<{ category: string }> };
       };
-      expect(response.payload.categories).toHaveLength(16);
+      expect(response.payload.categories).toHaveLength(15);
+    });
+
+    it('shows the Bulk API batches and standard-volume platform events an org reports', async () => {
+      // Under the names the org answers with. Run against real orgs, the panel
+      // listed 13 categories: it asked for DailyBulkApiRequests, the name the
+      // Bulk API batch limit had before API 49.0, and never showed the limit
+      // every Bulk API load counts against.
+      await handler.handle(
+        inboundRequest({
+          id: 'req-limits-bulk',
+          type: 'monitor:api-usage',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-limits' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { categories: Array<{ category: string; used: number; max: number }> };
+      };
+      expect(response.payload.categories).toContainEqual(
+        expect.objectContaining({ category: 'DailyBulkApiBatches', used: 750, max: 15000 }),
+      );
+      expect(response.payload.categories.map((c) => c.category)).toContain(
+        'DailyStandardVolumePlatformEvents',
+      );
+    });
+  });
+
+  describe('monitor:storage', () => {
+    /**
+     * An org as it answers the two reads a storage breakdown needs. Its
+     * EntityDefinition refuses RecordCount the way every org does: the column
+     * does not exist, and a mock that returned rows for it is how a query that
+     * failed on every real org passed every test.
+     */
+    function orgWithRecordCounts(counts: Array<{ name: string; count: number }>) {
+      const labels: Record<string, string> = {
+        Account: 'Compte',
+        Contact: 'Contact',
+        Invoice__c: 'Facture',
+      };
+      mockQueryAll.mockImplementation((_conn: unknown, soql: string) => {
+        if (/FROM EntityDefinition/.test(soql) && /\bRecordCount\b/.test(soql)) {
+          return Promise.reject(
+            new Error("INVALID_FIELD: No such column 'RecordCount' on entity 'EntityDefinition'."),
+          );
+        }
+        const names = [...soql.matchAll(/'([A-Za-z0-9_]+)'/g)].map((m) => m[1]);
+        return Promise.resolve(
+          names
+            .filter((name) => labels[name] !== undefined)
+            .map((name) => ({ QualifiedApiName: name, Label: labels[name] })),
+        );
+      });
+      const request = vi.fn((url: string) =>
+        /\/limits\/recordCount$/.test(url)
+          ? Promise.resolve({ sObjects: counts })
+          : Promise.reject(new Error(`NOT_FOUND: ${url}`)),
+      );
+      mockGetJsforceConnection.mockResolvedValue({ request, limitInfo: undefined });
+      return request;
+    }
+
+    async function askForStorage(): Promise<
+      BaseMessage & {
+        payload: {
+          objects: Array<{ objectName: string; label: string; recordCount: number }>;
+          totalRecords: number;
+          message?: string;
+        };
+      }
+    > {
+      await handler.handle(
+        inboundRequest({
+          id: 'req-storage-counts',
+          type: 'monitor:storage',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        }),
+      );
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls[0][0] as Awaited<ReturnType<typeof askForStorage>>;
+    }
+
+    it("lists the objects holding the most records, with the org's own counts and labels", async () => {
+      orgWithRecordCounts([
+        { name: 'Contact', count: 1200 },
+        { name: 'Account', count: 5400 },
+        { name: 'Invoice__c', count: 300 },
+        { name: 'Lead', count: 0 },
+      ]);
+
+      const response = await askForStorage();
+
+      expect(response.type).toBe('monitor:storage:response');
+      expect(response.payload.objects).toEqual([
+        { objectName: 'Account', label: 'Compte', recordCount: 5400 },
+        { objectName: 'Contact', label: 'Contact', recordCount: 1200 },
+        { objectName: 'Invoice__c', label: 'Facture', recordCount: 300 },
+      ]);
+    });
+
+    it('lists twenty objects and totals every object the org counted', async () => {
+      // The panel heads the list with "N total records". A sum of the twenty
+      // rows it shows would be a total of nothing the org has.
+      const counts = Array.from({ length: 25 }, (_, i) => ({ name: `Obj${i}__c`, count: 100 + i }));
+      orgWithRecordCounts(counts);
+
+      const response = await askForStorage();
+
+      expect(response.payload.objects).toHaveLength(20);
+      expect(response.payload.objects[0]).toMatchObject({
+        objectName: 'Obj24__c',
+        recordCount: 124,
+      });
+      expect(response.payload.totalRecords).toBe(counts.reduce((sum, o) => sum + o.count, 0));
     });
   });
 
@@ -713,6 +835,73 @@ describe('MonitorOpsHandler', () => {
       expect(response.payload.orgHealthStatus).toBeDefined();
       expect(response.payload.orgHealthStatus?.orgId).toBe('org-health');
       expect(response.payload.orgHealthStatus?.overall).toBeDefined();
+    });
+  });
+
+  describe('org info of a refresh', () => {
+    it("takes the instance and the edition from the org's Organization row", async () => {
+      // The identity URL answers with the keys below and nothing else: no
+      // instance_name, no last_login_date. Read from there, the instance was
+      // blank on every real org the Monitor was pointed at.
+      const identity = {
+        id: 'https://login.salesforce.com/id/00D000000000001AAA/005000000000001AAA',
+        user_id: '005000000000001AAA',
+        organization_id: '00D000000000001AAA',
+        username: 'admin@example.com',
+        display_name: 'Admin',
+        urls: {},
+        active: true,
+        user_type: 'STANDARD',
+        language: 'en_US',
+        locale: 'en_US',
+        utcOffset: 0,
+        last_modified_date: '2026-01-01T00:00:00.000+0000',
+      };
+      const organization: Record<string, unknown> = {
+        Name: 'Acme Corp',
+        Id: '00D000000000001AAA',
+        OrganizationType: 'Enterprise Edition',
+        InstanceName: 'EU42S',
+        IsSandbox: true,
+        NamespacePrefix: null,
+        CreatedDate: '2026-01-01T00:00:00.000+0000',
+      };
+      mockGetJsforceConnection.mockResolvedValue({
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        identity: vi.fn().mockResolvedValue(identity),
+        query: vi.fn().mockResolvedValue({ totalSize: 3, done: true, records: [] }),
+        version: '62.0',
+        limitInfo: undefined,
+      });
+      // The row answers the columns the SELECT names, as the org does.
+      mockQueryAll.mockImplementation((_conn: unknown, soql: string) => {
+        if (!/FROM Organization/.test(soql)) return Promise.resolve([]);
+        const columns = (/SELECT (.+?) FROM/.exec(soql)?.[1] ?? '').split(',').map((c) => c.trim());
+        return Promise.resolve([Object.fromEntries(columns.map((c) => [c, organization[c]]))]);
+      });
+      // What an SFDX import stores as the edition: the org's name.
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'SRC',
+        orgType: 'Sandbox',
+        metadata: { edition: 'Acme Corp' },
+      });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-org-info',
+          type: 'monitor:refresh',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-info-row' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { orgInfo?: { instanceName: string; edition: string } };
+      };
+      expect(response.type).toBe('monitor:data');
+      expect(response.payload.orgInfo?.instanceName).toBe('EU42S');
+      expect(response.payload.orgInfo?.edition).toBe('Enterprise Edition');
     });
   });
 

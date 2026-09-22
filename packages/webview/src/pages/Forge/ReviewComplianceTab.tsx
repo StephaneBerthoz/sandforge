@@ -113,10 +113,10 @@ export const ReviewComplianceTab: React.FC = () => {
             <span
               className={`text-[10px] px-2 py-0.5 rounded ${
                 complianceReport.overallStatus === 'pass'
-                  ? 'bg-green-500/10 text-status-success'
+                  ? 'bg-status-success/10 text-status-success'
                   : complianceReport.overallStatus === 'partial'
-                    ? 'bg-orange-500/10 text-status-warning'
-                    : 'bg-red-500/10 text-status-error'
+                    ? 'bg-status-warning/10 text-status-warning'
+                    : 'bg-status-error/10 text-status-error'
               }`}
             >
               {complianceReport.overallStatus.toUpperCase()}

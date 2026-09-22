@@ -159,11 +159,14 @@ export class AutomationHandler implements DomainHandler {
       let result;
       try {
         // `sandforge.pipeline.timeout` (manifest default 300 000 ms) bounds the
-        // wall-clock duration of a pipeline run.
+        // wall-clock duration of a pipeline run. Its signal stops the run when
+        // the budget is spent: the run is reported failed at that moment, and
+        // steps still running after it would be work nobody is told about.
         const pipelineTimeout =
           this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
-        result = await new TimeoutManager(pipelineTimeout).withTimeout('pipeline:execute', () =>
-          orchestrator.execute(pipeline, variables, 'manual'),
+        result = await new TimeoutManager(pipelineTimeout).withTimeout(
+          'pipeline:execute',
+          (signal) => orchestrator.execute(pipeline, variables, 'manual', signal),
         );
       } finally {
         // Release the event-emitter listener so the closure doesn't pin the
@@ -376,15 +379,24 @@ export class AutomationHandler implements DomainHandler {
       } else {
         templates = this.pipelineMarketplace.getTemplates();
       }
+      // The step types travel with each card so the page can say, before
+      // Install, which templates hold a step that cannot run in a pipeline yet.
       const response = buildResponse(this.deps, msg, 'marketplace:list:response', {
         success: true,
         templates: templates.map(
-          (t: { id: string; name: string; description: string; category: string }) => ({
+          (t: {
+            id: string;
+            name: string;
+            description: string;
+            category: string;
+            steps: ReadonlyArray<{ type: string }>;
+          }) => ({
             id: t.id,
             name: t.name,
             description: t.description,
             category: t.category,
             author: 'SandForge',
+            stepTypes: t.steps.map((step) => step.type),
           }),
         ),
       });

@@ -4,7 +4,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
-import { ControlNotPassedError, FrozenDatasetWriter } from './FrozenDatasetWriter.js';
+import {
+  ControlNotPassedError,
+  FrozenDatasetWriter,
+  PLATFORM_RECORDS_FILE_NAME,
+} from './FrozenDatasetWriter.js';
 import { buildFrozenManifest } from './manifest.js';
 import { NonReidentificationControl } from './NonReidentificationControl.js';
 import { parsePseudonymRules } from './rulesFile.js';
@@ -43,6 +47,8 @@ const rules = parsePseudonymRules({
 function runPipeline() {
   const extracted: ExtractedDataset = {
     asOf: '2026-08-01T00:00:00Z',
+    unboundedObjects: [],
+    fileFields: {},
     recordTypeMap: [
       {
         id: to18('012A000000bbbbB'),
@@ -137,6 +143,43 @@ describe('FrozenDatasetWriter', () => {
     expect(sidecar).toEqual([
       { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
     ]);
+  });
+
+  it('writes a dataset whole: an object an earlier version carried is gone', async () => {
+    // The loader reads every file of data/: one left by an earlier version
+    // would be loaded as part of this one.
+    const dir = makeTmpDir();
+    const { frozen, control, manifest } = runPipeline();
+    const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
+    const target = path.join(dir, 'dataset');
+    fs.mkdirSync(path.join(target, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'data', 'QuoteDocument.json'), '{"records":[]}\n');
+    fs.writeFileSync(path.join(target, 'data', 'notes.txt'), 'not ours to remove\n');
+
+    await writer.write(target, frozen, manifest, control);
+
+    expect(fs.readdirSync(path.join(target, 'data')).sort()).toEqual([
+      'Account.json',
+      'Contact.json',
+      'notes.txt',
+    ]);
+  });
+
+  it('names the standard price book for the load to match', async () => {
+    const dir = makeTmpDir();
+    const { frozen, control, manifest } = runPipeline();
+    const writer = new FrozenDatasetWriter(new SasPathGuard(path.join(dir, 'fake-repo')));
+
+    const result = await writer.write(
+      path.join(dir, 'dataset'),
+      { ...frozen, standardPricebook: 'Pricebook2-000001' },
+      manifest,
+      control,
+    );
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(result.dir, PLATFORM_RECORDS_FILE_NAME), 'utf8')),
+    ).toEqual({ standardPricebook: 'Pricebook2-000001' });
   });
 
   it('keeps data files compact, and the manifest readable', async () => {

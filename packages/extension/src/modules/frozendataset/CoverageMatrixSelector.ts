@@ -17,9 +17,9 @@
  *      candidate.
  *
  * Health per dossier goes through the injected {@link DossierHealthChecker}
- * (backed by the existing Forge graph discovery — see
- * ForgeGraphHealthChecker): a combination whose candidates are all "lame"
- * is reported as uncovered, never silently kept.
+ * (judged on the candidate's own records — see ScopedDossierHealthChecker):
+ * a combination whose candidates are all "lame" is reported as uncovered,
+ * with the reason the last one was turned away, never silently kept.
  *
  * The volumetry budget (default 2 500 records) is verified MECHANICALLY
  * after selection: beyond it, selection refuses with
@@ -68,7 +68,7 @@ export interface DossierHealth {
   reason?: string;
 }
 
-/** Injected per-dossier health check (graph completeness). */
+/** Injected per-dossier health check. */
 export interface DossierHealthChecker {
   check(rootRecordId: string): Promise<DossierHealth>;
 }
@@ -224,13 +224,10 @@ export class CoverageMatrixSelector {
       for (const c of combination) {
         axisValuesRecord[c.axis] = c.value;
       }
-      if (retained) {
-        roots.push({ rootRecordId: retained, combinationKey, axisValues: axisValuesRecord });
+      if (retained.id) {
+        roots.push({ rootRecordId: retained.id, combinationKey, axisValues: axisValuesRecord });
       } else {
-        uncovered.push({
-          combinationKey,
-          reason: `no healthy candidate among the ${candidateLimit} probed`,
-        });
+        uncovered.push({ combinationKey, reason: uncoveredReason(retained, candidateLimit) });
       }
     }
 
@@ -242,9 +239,9 @@ export class CoverageMatrixSelector {
         candidateLimit,
         config.tokens,
       );
-      if (retained) {
+      if (retained.id) {
         roots.push({
-          rootRecordId: retained,
+          rootRecordId: retained.id,
           combinationKey: `edge:${edgeCase.name}`,
           axisValues: {},
           edgeCase: edgeCase.name,
@@ -252,13 +249,20 @@ export class CoverageMatrixSelector {
       } else {
         uncovered.push({
           combinationKey: `edge:${edgeCase.name}`,
-          reason: 'no healthy candidate matching the edge-case marker',
+          reason:
+            retained.probed === 0
+              ? 'no record matches the edge-case marker'
+              : uncoveredReason(retained, candidateLimit),
         });
       }
     }
 
     // 4. Mechanical volumetry budget verification — refuse beyond budget.
-    const measured = await this.deps.measureVolumetry(roots.map((r) => r.rootRecordId));
+    // Nothing retained is nothing to measure: asked to measure an empty list,
+    // the extraction had no root to start from and failed, and the selection
+    // died with a discovery error instead of saying what it found.
+    const measured =
+      roots.length === 0 ? {} : await this.deps.measureVolumetry(roots.map((r) => r.rootRecordId));
     const total = Object.values(measured).reduce((sum, n) => sum + n, 0);
     if (total > budgetMax) {
       throw new VolumetryBudgetExceededError(measured, total, budgetMax);
@@ -309,25 +313,49 @@ export class CoverageMatrixSelector {
     where: string,
     limit: number,
     tokens: Record<string, string> | undefined,
-  ): Promise<string | null> {
+  ): Promise<PickResult> {
     const template =
       where === ''
         ? `SELECT Id FROM ${rootObject} ORDER BY Id ASC LIMIT ${Math.max(1, Math.floor(limit))}`
         : `SELECT Id FROM ${rootObject} WHERE ${where} ` +
           `ORDER BY Id ASC LIMIT ${Math.max(1, Math.floor(limit))}`;
     const rows = await this.deps.query(renderQueryTemplate(template, tokens ?? {}));
+    let probed = 0;
+    let lastReason: string | undefined;
     for (const row of rows) {
       const id = row.Id;
       if (typeof id !== 'string' || id === '') {
         continue;
       }
+      probed++;
       const health = await this.deps.checkHealth.check(id);
       if (health.healthy) {
-        return id;
+        return { id, probed };
       }
+      lastReason = health.reason;
     }
-    return null;
+    return { id: null, probed, lastReason };
   }
+}
+
+/** What probing one combination came to. */
+interface PickResult {
+  /** The retained root, or null when none was healthy. */
+  id: string | null;
+  /** Candidates actually probed. */
+  probed: number;
+  /** Why the last candidate probed was turned away. */
+  lastReason?: string;
+}
+
+/**
+ * Why a combination went uncovered, in terms a person can act on: the count
+ * alone said that candidates failed, never what they failed on.
+ */
+function uncoveredReason(pick: PickResult, limit: number): string {
+  if (pick.probed === 0) return 'no candidate record';
+  const base = `no healthy candidate among the ${pick.probed} probed (limit ${limit})`;
+  return pick.lastReason ? `${base} — last: ${pick.lastReason}` : base;
 }
 
 /** Cartesian product of axis values, in deterministic axis order. */

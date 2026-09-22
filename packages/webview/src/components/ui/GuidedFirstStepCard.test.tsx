@@ -37,12 +37,12 @@ describe('GuidedFirstStepCard', () => {
   it('should render seed variant with green border', () => {
     render(<GuidedFirstStepCard {...defaultProps} variant="seed" />);
     const card = screen.getByTestId('guided-first-step-card');
-    expect(card.className).toContain('border-l-green-500');
+    expect(card.className).toContain('border-l-hue-green');
   });
 
   it('should render sync variant with blue border', () => {
     render(<GuidedFirstStepCard {...defaultProps} variant="sync" />);
     const card = screen.getByTestId('guided-first-step-card');
-    expect(card.className).toContain('border-l-blue-500');
+    expect(card.className).toContain('border-l-hue-blue');
   });
 });

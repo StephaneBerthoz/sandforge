@@ -52,11 +52,11 @@ const manifest = () => readJson(...EXT, 'package.json');
  *
  * The listing's one paragraph sold "automate pipelines, with streaming
  * execution for large datasets" while no pipeline step touches an org —
- * `delay` waits and `condition` reads the run's variables, and the other
- * thirteen report success without running — and Seed and Sync write their
- * batches one after the other. An English denylist would have passed on all
- * five translations, which said the same thing in their own words, so each
- * locale carries its own.
+ * `delay` waits and `condition` reads the run's variables, and a pipeline
+ * holding any of the other thirteen is refused before it starts — and Seed and
+ * Sync write their batches one after the other. An English denylist would have
+ * passed on all five translations, which said the same thing in their own
+ * words, so each locale carries its own.
  */
 const DESCRIPTION_OVERCLAIM = {
   en: /automate pipelines|streaming execution/i,
@@ -67,13 +67,21 @@ const DESCRIPTION_OVERCLAIM = {
   'pt-br': /automatiza|execução em streaming|streaming/i,
 };
 
-test('anchor: a pipeline step still reports success without touching the org', () => {
+/** The step types that would make a pipeline act on an org, were one to run. */
+const ORG_STEP_TYPES = ['seed', 'sync', 'backup', 'restore', 'anonymize', 'delete', 'compare'];
+
+test('anchor: no step that acts on an org runs in a pipeline yet', () => {
   const executor = read(...EXT, 'src', 'modules', 'automation', 'StepExecutor.ts');
-  assert.match(
-    executor,
-    /passThrough/,
-    'StepExecutor no longer passes steps through — if every step type acts now, the description ' +
-      'may promise automation again, and this rule has to go with it',
+  const defaults = /private registerDefaults\(\): void \{([\s\S]*?)\n {2}\}/.exec(executor);
+  assert.ok(defaults, 'registerDefaults moved — re-point this anchor');
+  const handled = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
+  // Positive control: an anchor that reads no handler would pass on anything.
+  assert.ok(handled.length > 0, 'the anchor reads no handler in registerDefaults');
+  assert.deepEqual(
+    handled.filter((type) => ORG_STEP_TYPES.includes(type)),
+    [],
+    'a step that acts on an org runs in a pipeline now — the description may promise ' +
+      'automation again, and this rule has to go with it',
   );
 });
 

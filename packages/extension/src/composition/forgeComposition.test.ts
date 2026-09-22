@@ -167,6 +167,165 @@ describe('initForgeComposition', () => {
     }
   });
 
+  it('links the children of an Account the target refused as a duplicate to the record it named', async () => {
+    // The target already holds both Accounts: its unique index refuses each,
+    // naming the record, the way sObject Collections answers.
+    const existing: Record<string, string> = {
+      'Account 1': '001000000000771',
+      'Account 2': '001000000000772',
+    };
+    const created = new Map<string, Array<Record<string, unknown>>>();
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      return {
+        ...connection,
+        describe: vi.fn(async (objectApiName: string) => ({
+          ...((await connection.describe(objectApiName)) as object),
+          keyPrefix: PREFIX[objectApiName],
+        })),
+        sobject: (objectApiName: string) => ({
+          create: vi.fn(async (records: Array<Record<string, unknown>>) => {
+            created.set(objectApiName, records);
+            return records.map((record, i) =>
+              objectApiName === 'Account'
+                ? {
+                    success: false,
+                    errors: [
+                      {
+                        statusCode: 'DUPLICATE_VALUE',
+                        message: `duplicate value found: Name duplicates value on record with id: ${existing[String(record['Name'])]}`,
+                        fields: [],
+                      },
+                    ],
+                  }
+                : { id: sfId(objectApiName, 900 + i), success: true, errors: [] },
+            );
+          }),
+        }),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const result = await orchestrator.execute(graph, SOQL_CONFIG);
+
+    expect(created.get('Contact')?.map((c) => c['AccountId'])).toEqual([
+      '001000000000771AAA',
+      '001000000000772AAA',
+    ]);
+    expect(result.linkedExistingCount).toBe(2);
+    expect(result.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 2, unidentified: 0 },
+    ]);
+    expect(result.idRemapExisting).toEqual([sfId('Account', 1), sfId('Account', 2)]);
+    expect(result.status).toBe('success');
+    // The key prefix came from the describe the run already held.
+    for (const [key, count] of describeCalls) {
+      expect({ key, count }).toEqual({ key, count: 1 });
+    }
+  });
+
+  describe('a record type closed to the running user in the target', () => {
+    const SOURCE_RT = '012000000000001AAA';
+    const TARGET_RT = '012000000000009AAA';
+    const MAPPINGS = {
+      recordTypeMappings: [{ sourceId: SOURCE_RT, targetId: TARGET_RT, developerName: 'Partner' }],
+    };
+
+    /**
+     * Account carries a Partner record type in both orgs; the target says
+     * whether the running user may use it, as `isOpen` answers at the time.
+     */
+    function partnerAccounts(isOpen: () => boolean, created: string[]): void {
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = fakeConnection(orgId);
+        return {
+          ...connection,
+          describe: vi.fn(async (objectApiName: string) => {
+            const described = (await connection.describe(objectApiName)) as {
+              fields: unknown[];
+            };
+            if (objectApiName !== 'Account') return described;
+            return {
+              ...described,
+              keyPrefix: '001',
+              fields: [...described.fields, field('RecordTypeId', 'reference', ['RecordType'])],
+              recordTypeInfos: [
+                {
+                  active: true,
+                  available: isOpen(),
+                  defaultRecordTypeMapping: false,
+                  developerName: 'Partner',
+                  master: false,
+                  name: 'Partner',
+                  recordTypeId: TARGET_RT,
+                  urls: {},
+                },
+              ],
+            };
+          }),
+          query: vi.fn(async (soql: string) => {
+            const page = (await connection.query(soql)) as {
+              records: Array<Record<string, unknown>>;
+            };
+            if (!/\bFROM\s+Account\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+            return {
+              ...page,
+              records: page.records.map((r) => ({ ...r, RecordTypeId: SOURCE_RT })),
+            };
+          }),
+          sobject: (objectApiName: string) => ({
+            create: vi.fn(async (records: unknown[]) => {
+              created.push(objectApiName);
+              return records.map((_, i) => ({
+                id: sfId(objectApiName, 900 + i),
+                success: true,
+                errors: [],
+              }));
+            }),
+          }),
+        } as unknown as Connection;
+      });
+    }
+
+    it('holds back the object from the describe the run already read', async () => {
+      const created: string[] = [];
+      partnerAccounts(() => false, created);
+      const { orchestrator } = await compose();
+
+      const graph = await orchestrator.discover(SOQL_CONFIG);
+      const result = await orchestrator.execute(graph, SOQL_CONFIG, MAPPINGS);
+
+      expect(created).not.toContain('Account');
+      const held = result.errors?.find((e) => e.objectApiName === 'Account');
+      expect(held?.stage).toBe('scope');
+      expect(held?.samples[0].messages[0]).toMatch(
+        /^RECORD_TYPE_UNAVAILABLE: 2 Account records use record type Partner, which the running user cannot use/,
+      );
+      for (const [key, count] of describeCalls) {
+        expect({ key, count }).toEqual({ key, count: 1 });
+      }
+    });
+
+    it('reads the target again on the run after, so access granted in between is seen', async () => {
+      let open = false;
+      const created: string[] = [];
+      partnerAccounts(() => open, created);
+      const { orchestrator } = await compose();
+      const graph = await orchestrator.discover(SOQL_CONFIG);
+      await orchestrator.execute(graph, SOQL_CONFIG, MAPPINGS);
+      expect(created).not.toContain('Account');
+
+      // The user does what the run said: the target now lets them use Partner.
+      open = true;
+      const retry = await orchestrator.execute(graph, SOQL_CONFIG, MAPPINGS);
+
+      expect(created).toContain('Account');
+      expect(retry.errors?.find((e) => e.objectApiName === 'Account')).toBeUndefined();
+      expect(describeCalls.get('tgt::Account')).toBe(2);
+    });
+  });
+
   it('names an object whose source read a bound stopped in the run result', async () => {
     // The source keeps a Contact cursor open forever: the page bound is what
     // ends the read, and only the composition sees that it did.

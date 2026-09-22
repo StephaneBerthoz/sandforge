@@ -53,6 +53,8 @@ vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { DataSync } from '../../modules/sync/DataSync.js';
+import type { DataSyncDeps } from '../../modules/sync/DataSync.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
@@ -2227,6 +2229,65 @@ describe('SyncOpsHandler', () => {
       expect(errors[0].payload.message).toContain('source org');
       expect(errors[0].payload.message).not.toContain('toLowerCase');
       expect(execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the record types a sync may send', () => {
+    it('reads them from the target describe it already makes for the fields, once per object', async () => {
+      const describe = vi.fn().mockResolvedValue({
+        fields: [
+          { name: 'Name', type: 'string', createable: true, length: 80 },
+          { name: 'RecordTypeId', type: 'reference', createable: true, length: 18 },
+        ],
+        recordTypeInfos: [
+          {
+            active: true,
+            available: false,
+            defaultRecordTypeMapping: false,
+            developerName: 'Partner',
+            master: false,
+            name: 'Partner',
+            recordTypeId: '012Fk00000RtDeFIAV',
+            urls: {},
+          },
+        ],
+      });
+      mockGetConn.mockResolvedValue({
+        describe,
+        query: vi.fn(async () => ({ totalSize: 0, done: true, records: [] })),
+        queryMore: vi.fn(),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return { execute: vi.fn().mockResolvedValue({ status: 'success', objectResults: [] }) };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-record-types',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+
+      const dataSyncDeps = vi.mocked(DataSync).mock.calls[0][0] as DataSyncDeps;
+      const callsBefore = describe.mock.calls.length;
+      const first = await dataSyncDeps.describeTargetFields!('Account');
+      const second = await dataSyncDeps.describeTargetFields!('Account');
+
+      expect(first.recordTypes?.map((r) => [r.developerName, r.available])).toEqual([
+        ['Partner', false],
+      ]);
+      expect([...first.creatable].sort()).toEqual(['Name', 'RecordTypeId']);
+      expect(second).toBe(first);
+      expect(describe.mock.calls.length - callsBefore).toBe(1);
     });
   });
 });

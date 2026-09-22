@@ -40,7 +40,13 @@ export interface CloneObjectResult {
   insertedCount: number;
   /** Number of records that failed to insert */
   failedCount: number;
-  /** Mapping of source record IDs to target record IDs */
+  /**
+   * Records the target refused because it already holds them, and named: the
+   * clone links the children to that record and never writes to it. Neither
+   * inserted nor failed. Optional for results produced before it existed.
+   */
+  linkedCount?: number;
+  /** Mapping of source record IDs to target record IDs, linked records included */
   idMappings: Array<{ sourceId: string; targetId: string }>;
   /** Errors encountered during insertion */
   errors: Array<{ sourceId: string; message: string }>;
@@ -58,6 +64,8 @@ export interface CloneExecutionResult {
   totalSourceRecords: number;
   /** Total records successfully inserted in target org */
   totalInserted: number;
+  /** Total records linked to one the target already held. Optional for older results. */
+  totalLinked?: number;
   /** Total records that failed to insert */
   totalFailed: number;
   /** Total duration in milliseconds */

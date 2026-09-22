@@ -154,6 +154,55 @@ describe('AlertEngine', () => {
       expect(second).not.toBeNull();
       expect(onNotify).toHaveBeenCalledTimes(2);
     });
+
+    it("does not let one org's alert silence the same alert for another org", () => {
+      // One engine serves every org of the window. A cooldown kept per
+      // definition meant a breach in one org hid the same breach in the next
+      // org refreshed, for the whole cooldown.
+      engine.addDefinition(createDefinition({ cooldownMinutes: 5 }));
+
+      engine.evaluate('api_usage', 90, 'org-1');
+      const other = engine.evaluate('api_usage', 95, 'org-2');
+
+      expect(other).not.toBeNull();
+      expect(other?.orgId).toBe('org-2');
+    });
+  });
+
+  describe('alert ids across sessions', () => {
+    it('never gives a new alert the id of one restored from an earlier session', () => {
+      // Every session counted from alert-1, and restored alerts keep their
+      // ids. Run twice against real orgs, the second session's first alert
+      // replaced the first session's still-breached one, and the history,
+      // which skips ids it holds already, never recorded the new one.
+      engine.addDefinition(createDefinition({ id: 'def-1', metric: 'api_usage' }));
+      const earlier = engine.evaluate('api_usage', 90, 'org-1');
+      expect(earlier).not.toBeNull();
+
+      const nextSession = new AlertEngine(vi.fn());
+      nextSession.addDefinition(createDefinition({ id: 'def-2', metric: 'storage' }));
+      nextSession.restoreAlerts(earlier ? [earlier] : []);
+      const later = nextSession.evaluate('storage', 95, 'org-2');
+
+      expect(later?.id).not.toBe(earlier?.id);
+      expect(nextSession.getActiveAlerts().map((a) => a.definitionId)).toEqual(['def-1', 'def-2']);
+    });
+
+    it('keeps the cooldown of a restored alert, so a restart does not raise it twice', () => {
+      engine.addDefinition(createDefinition({ cooldownMinutes: 5 }));
+      const earlier = engine.evaluate('api_usage', 90, 'org-1');
+
+      vi.advanceTimersByTime(60 * 1000);
+      const nextSession = new AlertEngine(vi.fn());
+      nextSession.addDefinition(createDefinition({ cooldownMinutes: 5 }));
+      nextSession.restoreAlerts(earlier ? [earlier] : []);
+
+      expect(nextSession.evaluate('api_usage', 91, 'org-1')).toBeNull();
+      expect(nextSession.getActiveAlerts()).toHaveLength(1);
+
+      vi.advanceTimersByTime(4 * 60 * 1000);
+      expect(nextSession.evaluate('api_usage', 92, 'org-1')).not.toBeNull();
+    });
   });
 
   describe('getActiveAlerts', () => {

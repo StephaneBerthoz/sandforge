@@ -30,6 +30,10 @@ import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SyncOrchestrator } from '../src/modules/sync/SyncOrchestrator.js';
 import { DataSync } from '../src/modules/sync/DataSync.js';
+import {
+  targetWriteFieldsOf,
+  type TargetWriteFields,
+} from '../src/modules/sync/targetWriteFields.js';
 import { MetadataSync } from '../src/modules/sync/MetadataSync.js';
 import { ConflictResolver } from '../src/modules/sync/ConflictResolver.js';
 import { FieldMappingService } from '../src/modules/sync/FieldMapping.js';
@@ -249,10 +253,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const config = buildConfig(args);
 
   // One describe of the target per object, kept for the run.
-  const targetFieldsByObject = new Map<
-    string,
-    { creatable: ReadonlySet<string>; references: ReadonlySet<string> }
-  >();
+  const targetFieldsByObject = new Map<string, TargetWriteFields>();
   const controller = new AbortController();
   const writer = new BulkDataWriter({
     connection: targetConn,
@@ -303,11 +304,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         const cached = targetFieldsByObject.get(objectApiName);
         if (cached) return cached;
         const described = await targetConn.sobject(objectApiName).describe();
-        const writable = described.fields.filter((f) => f.createable);
-        const answer = {
-          creatable: new Set(writable.map((f) => f.name)),
-          references: new Set(writable.filter((f) => f.type === 'reference').map((f) => f.name)),
-        };
+        // Fields and record types from the one describe, as the panel reads them.
+        const answer = targetWriteFieldsOf(described);
         targetFieldsByObject.set(objectApiName, answer);
         return answer;
       },

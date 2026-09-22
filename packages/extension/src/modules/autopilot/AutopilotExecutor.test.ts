@@ -645,3 +645,109 @@ describe('AutopilotExecutor — what the target will take', () => {
     expect(result.totalSuccess).toBe(1);
   });
 });
+
+describe('AutopilotExecutor — a record type the running user cannot use', () => {
+  /** Fake record type ids of the target org. */
+  const CUSTOMER = '012Fk00000RtAbCIAV';
+  const PARTNER = '012Fk00000RtDeFIAV';
+
+  /** The target's Account types for the running user: Partner is closed to them. */
+  const ACCOUNT_TYPES = [
+    {
+      recordTypeId: CUSTOMER,
+      developerName: 'Customer',
+      name: 'Customer',
+      available: true,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: true,
+    },
+    {
+      recordTypeId: PARTNER,
+      developerName: 'Partner',
+      name: 'Partner',
+      available: false,
+      active: true,
+      master: false,
+      defaultRecordTypeMapping: false,
+    },
+  ];
+
+  /** One Account in the plan, 40 records to copy. */
+  async function run(deps: AutopilotExecutorDeps) {
+    const executor = new AutopilotExecutor(deps);
+    const failed: AutopilotNodeFailedEvent[] = [];
+    executor.on('node-failed', (e) => failed.push(e));
+    const result = await executor.execute(
+      makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 40),
+      [],
+      [],
+      new Map([['Account', 40]]),
+    );
+    return { result, failed };
+  }
+
+  it('holds the object back before its first page when some of its records use a closed type', async () => {
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
+      describeRecordTypes: async () => ACCOUNT_TYPES,
+      countRecordTypes: async () =>
+        new Map([
+          [PARTNER, 12],
+          [CUSTOMER, 28],
+        ]),
+    });
+
+    const { result, failed } = await run(deps);
+
+    expect(deps.query).not.toHaveBeenCalled();
+    expect(deps.insert).not.toHaveBeenCalled();
+    expect(result.failedObjects).toEqual(['Account']);
+    expect(result.totalFailure).toBe(40);
+    expect(failed[0].errors).toEqual([
+      'RECORD_TYPE_UNAVAILABLE: 12 Account records use record type Partner, which the running ' +
+        'user cannot use in the target org. Give the running user access to record type Partner ' +
+        'on Account, or map it to one they have.',
+    ]);
+  });
+
+  it('does not count the records when every type in the target is open to the running user', async () => {
+    const countRecordTypes = vi.fn(async () => new Map([[CUSTOMER, 40]]));
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
+      describeRecordTypes: async () => ACCOUNT_TYPES.filter((t) => t.available),
+      countRecordTypes,
+    });
+
+    const { result } = await run(deps);
+
+    expect(countRecordTypes).not.toHaveBeenCalled();
+    expect(result.failedObjects).toEqual([]);
+  });
+
+  it('writes the object when none of its records uses the closed type', async () => {
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
+      describeRecordTypes: async () => ACCOUNT_TYPES,
+      countRecordTypes: async () => new Map([[CUSTOMER, 40]]),
+    });
+
+    await run(deps);
+
+    expect(deps.query).toHaveBeenCalled();
+  });
+
+  it('leaves record types alone when the target does not let the run send RecordTypeId', async () => {
+    const countRecordTypes = vi.fn(async () => new Map([[PARTNER, 40]]));
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set(['Name']),
+      describeRecordTypes: async () => ACCOUNT_TYPES,
+      countRecordTypes,
+    });
+
+    const { result } = await run(deps);
+
+    expect(countRecordTypes).not.toHaveBeenCalled();
+    expect(result.failedObjects).toEqual([]);
+  });
+});

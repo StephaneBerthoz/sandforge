@@ -253,7 +253,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
 
       const result: ForgeExecutionResult = {
         forgeId: `forge-${Date.now()}`,
-        status: determineStatus(summary.successCount, summary.failedCount),
+        status: determineStatus(summary.successCount + summary.linkedCount, summary.failedCount),
         graph,
         duration: Date.now() - startTime,
         timestamp: new Date().toISOString(),
@@ -261,6 +261,12 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         // The executor has always returned this table; projecting only its
         // count is what left a finished run unable to say where anything went.
         idRemapTable: summary.remapTable,
+        // Which of those entries point at a record the target already held:
+        // the table alone reads them as records this run created.
+        idRemapExisting: summary.existingSourceIds,
+        createdCount: summary.successCount,
+        linkedExistingCount: summary.linkedCount,
+        existingRecords: summary.existingRecords,
         errors: summary.errors,
         // A read cut short by a bound is not an error and not a success: the
         // clone is short by an unknown number of rows, and only the summary
@@ -280,15 +286,19 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
 
 /**
  * Determine the overall execution status from success/failure counts.
+ *
+ * @param settledCount - Records created, plus records linked to the one the
+ *   target already held: a run that linked what it could not create has done
+ *   part of its job, not none of it.
  */
 function determineStatus(
-  successCount: number,
+  settledCount: number,
   failedCount: number,
 ): 'success' | 'partial' | 'failure' {
   if (failedCount === 0) {
     return 'success';
   }
-  if (successCount > 0) {
+  if (settledCount > 0) {
     return 'partial';
   }
   return 'failure';

@@ -12,12 +12,12 @@ type SortDirection = 'asc' | 'desc';
 
 /** Status badge color mapping. */
 const statusColors: Record<string, string> = {
-  idle: 'bg-gray-500/10 text-text-primary',
-  running: 'bg-blue-500/10 text-status-info',
-  done: 'bg-green-500/10 text-status-success',
-  failed: 'bg-red-500/10 text-status-error',
-  queued: 'bg-yellow-500/10 text-status-warning',
-  skipped: 'bg-gray-500/10 text-text-primary',
+  idle: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  running: 'bg-status-info/10 text-status-info',
+  done: 'bg-status-success/10 text-status-success',
+  failed: 'bg-status-error/10 text-status-error',
+  queued: 'bg-status-warning/10 text-status-warning',
+  skipped: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
 };
 
 /**

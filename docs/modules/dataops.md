@@ -47,6 +47,9 @@ What a restore does, in order:
 - Refuses a backup taken from a different org than the one selected
 - Passes through Production Guard like every other write path: a blocked
   operation stops, and `safety.requireProdConfirmation` asks first
+- Brings back from the recycle bin the records of the backup deleted since it
+  was taken, so they return with their `Id` and what pointed at them; a record
+  no longer in the recycle bin cannot, and is reported as refused
 - Upserts on `Id` in batches of 200, per object, reporting progress per object
 - Drops the fields _nobody_ may write — a backup is a verbatim
   `SELECT FIELDS(ALL)` snapshot, so it always carries `CreatedDate`,

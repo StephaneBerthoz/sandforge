@@ -210,6 +210,84 @@ describe('autopilotComposition', () => {
     expect(target.create).toHaveBeenCalledWith([{ Name: 'Acme' }], expect.anything());
   });
 
+  describe('a record type closed to the running user in the target', () => {
+    const PARTNER = '012Fk00000RtDeFIAV';
+
+    /** One Partner Account to copy, into a target that says whether Partner is open. */
+    async function partnerAccountRun(isOpen: () => boolean) {
+      const { handlers, getOrchestrator } = createFakeHandlers();
+      await initAutopilotComposition({ handlers, log: vi.fn() });
+      const orchestrator = getOrchestrator();
+
+      const source = fakeOrg(1, [{ Id: 'src1', Name: 'Acme', RecordTypeId: PARTNER }], 'tgt1');
+      source.query.mockImplementation((soql: string) =>
+        Promise.resolve(
+          soql.includes('GROUP BY RecordTypeId')
+            ? { totalSize: 1, done: true, records: [{ RecordTypeId: PARTNER, n: 1 }] }
+            : soql.includes('COUNT()')
+              ? { totalSize: 1, done: true, records: [] }
+              : {
+                  totalSize: 1,
+                  done: true,
+                  records: [{ Id: 'src1', Name: 'Acme', RecordTypeId: PARTNER }],
+                },
+        ),
+      );
+      const target = fakeOrg(0, [], 'tgt1');
+      const targetDescribe = vi.fn().mockImplementation(async () => ({
+        ...mockObjectDescribe('Account'),
+        fields: [
+          { name: 'Name', createable: true },
+          { name: 'RecordTypeId', createable: true },
+        ],
+        recordTypeInfos: [
+          {
+            active: true,
+            available: isOpen(),
+            defaultRecordTypeMapping: false,
+            developerName: 'Partner',
+            master: false,
+            name: 'Partner',
+            recordTypeId: PARTNER,
+            urls: {},
+          },
+        ],
+      }));
+      (target.conn as unknown as { describe: typeof targetDescribe }).describe = targetDescribe;
+      const run = () => runOneAccountFlow(orchestrator, source.conn, target.conn);
+      return { run, source, target, targetDescribe };
+    }
+
+    it('holds back the object, reading it from the describe the run makes anyway', async () => {
+      const { run, source, target, targetDescribe } = await partnerAccountRun(() => false);
+
+      const result = await run();
+
+      expect(target.create).not.toHaveBeenCalled();
+      expect(result.completedObjects).not.toContain('Account');
+      expect(source.query).toHaveBeenCalledWith(
+        'SELECT RecordTypeId, COUNT(Id) n FROM Account GROUP BY RecordTypeId',
+      );
+      // The fields and the record types came from one describe of the target.
+      expect(targetDescribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads the target again on the run after, so access granted in between is seen', async () => {
+      let open = false;
+      const { run, target, targetDescribe } = await partnerAccountRun(() => open);
+      await run();
+      expect(target.create).not.toHaveBeenCalled();
+
+      // The user does what the run said: the target now lets them use Partner.
+      open = true;
+      const retry = await run();
+
+      expect(retry.completedObjects).toContain('Account');
+      expect(target.create).toHaveBeenCalledTimes(1);
+      expect(targetDescribe).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('uses the connections of the latest scan per execution ("latest wins")', async () => {
     const { handlers, getOrchestrator } = createFakeHandlers();
     await initAutopilotComposition({ handlers, log: vi.fn() });

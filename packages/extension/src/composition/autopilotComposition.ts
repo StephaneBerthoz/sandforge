@@ -5,6 +5,12 @@ import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { GrappeConfig } from '@sandforge/shared';
 import type { GrappeEventEnvelope } from '../bridge/handlers/HandlerTypes';
+import {
+  parseRecordTypeCounts,
+  parseRecordTypeInfos,
+  recordTypeCountSoql,
+  type RecordTypeAvailability,
+} from '../core/metadata/recordTypeAvailability';
 
 /** Inputs required to wire the Autopilot orchestrator. */
 export interface AutopilotCompositionDeps {
@@ -94,7 +100,40 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           }
         }
 
-        const creatableByObject = new Map<string, ReadonlySet<string>>();
+        /**
+         * One describe of the target per object: the fields the run may send
+         * and the record types the running user may use are both read from
+         * it. Kept per target connection, so a run against another org — the
+         * record types above all — never reads the last org's answer.
+         */
+        type TargetDescribe = {
+          creatable: ReadonlySet<string>;
+          recordTypes: RecordTypeAvailability[];
+        };
+        const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
+        const describeTarget = async (
+          target: Connection,
+          objectApiName: string,
+        ): Promise<TargetDescribe> => {
+          let byObject = describedByTarget.get(target);
+          if (!byObject) {
+            byObject = new Map();
+            describedByTarget.set(target, byObject);
+          }
+          const cached = byObject.get(objectApiName);
+          if (cached) return cached;
+          const described = await target.describe(objectApiName);
+          const answer: TargetDescribe = {
+            creatable: new Set(
+              (described.fields as Array<{ name: string; createable?: boolean }>)
+                .filter((f) => f.createable === true)
+                .map((f) => f.name),
+            ),
+            recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
+          };
+          byObject.set(objectApiName, answer);
+          return answer;
+        };
         const anonymizer = new SmartAnonymizer();
 
         const orchestrator = new AutopilotOrchestrator({
@@ -166,19 +205,30 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               remapper: new RecordIdRemapper(),
               // What the target will take. Without it a run sends every field
               // it read and the platform refuses every record — see
-              // `describeCreateableFields`. The cache is per composition, so
-              // successive runs against the same org describe once.
-              describeCreateableFields: async (objectApiName: string) => {
-                const cached = creatableByObject.get(objectApiName);
-                if (cached) return cached;
-                const described = await target.describe(objectApiName);
-                const names = new Set(
-                  (described.fields as Array<{ name: string; createable?: boolean }>)
-                    .filter((f) => f.createable === true)
-                    .map((f) => f.name),
+              // `describeCreateableFields`. Successive runs against the same
+              // connection describe once.
+              describeCreateableFields: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).creatable,
+              // From the same describe: no request of its own. A record type
+              // closed to the running user is what the run tells the user to
+              // change in the target, so that answer is not kept past this
+              // run: the next one reads the target again and sees the change.
+              describeRecordTypes: async (objectApiName: string) => {
+                const { recordTypes } = await describeTarget(target, objectApiName);
+                if (recordTypes.some((type) => !type.available && !type.master)) {
+                  describedByTarget.get(target)?.delete(objectApiName);
+                }
+                return recordTypes;
+              },
+              // Asked only when the target has a record type the running user
+              // cannot use: the run reads a page at a time and has to know
+              // every type its records carry before the first page is written.
+              countRecordTypes: async (objectApiName: string) => {
+                const safeObj = sanitizeSoqlObjectName(objectApiName);
+                const counted = await source.query<Record<string, unknown>>(
+                  recordTypeCountSoql(safeObj),
                 );
-                creatableByObject.set(objectApiName, names);
-                return names;
+                return parseRecordTypeCounts(counted.records);
               },
             });
           },

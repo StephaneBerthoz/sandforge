@@ -247,7 +247,20 @@
       "storage": "Speicher",
       "failedJobs": "Fehlgeschlagene Jobs",
       "recentErrorLogs": "Aktuelle Fehlerprotokolle",
-      "lastChecked": "Zuletzt geprüft"
+      "lastChecked": "Zuletzt geprüft",
+      "overall": {
+        "healthy": "Gesund",
+        "degraded": "Beeinträchtigt",
+        "critical": "Kritisch",
+        "unknown": "Unbekannt"
+      },
+      "signal": {
+        "ok": "OK",
+        "warning": "Warnung",
+        "critical": "Kritisch",
+        "unknown": "Nicht gelesen"
+      },
+      "notRead": "nicht gelesen"
     },
     "fileStorage": "Dateispeicher",
     "noTrends": "Noch nicht genügend Daten für Trends",
@@ -308,7 +321,6 @@
     "catSecurity": "Sicherheit",
     "catConfiguration": "Konfiguration",
     "catContent": "Inhalte",
-    "catOther": "Sonstige",
     "emptyState": {
       "title": "Erkennen Sie Unterschiede zwischen zwei Orgs",
       "description": "Vergleichen Sie Metadaten, Berechtigungen und Drift zwischen Quell- und Ziel-Org — wissen Sie vor dem Deployment genau, was sich ändert.",
@@ -541,6 +553,7 @@
         "title": "Klon-Ergebnisse",
         "summary": "Quelldatensätze",
         "inserted": "Eingefügt",
+        "linked": "Mit Vorhandenem verknüpft",
         "failed": "Fehlgeschlagen",
         "duration": "Dauer",
         "idMapping": "ID-Zuordnung",
@@ -1053,12 +1066,22 @@
     "noMarketplaceTemplates": "Keine Vorlagen verfügbar",
     "noMarketplaceTemplatesDesc": "Community-Vorlagen erscheinen hier",
     "installTemplate": "Installieren",
+    "runFailed": "Die Pipeline-Ausführung ist fehlgeschlagen: {{reason}}",
+    "runnability": {
+      "cannotRun": "Noch nicht ausführbar",
+      "typeCannotRun": "Dieser Schritttyp kann noch nicht in einer Pipeline laufen.",
+      "conditionCannotRun": "Ein Bedingungsschritt kann noch nicht in einer Pipeline laufen: Hier lässt sich seine Bedingung nicht festlegen, und eine Ausführung bringt keine Variablen mit, die er prüfen könnte.",
+      "delayNeedsSeconds": "Legen Sie fest, wie viele Sekunden dieser Verzögerungsschritt wartet (0 Sekunden bis 24 Tage).",
+      "paletteNote": "Derzeit können nur Verzögerungsschritte in einer Pipeline laufen. Die übrigen Schritttypen lassen sich noch nicht hinzufügen.",
+      "pipelineBlocked": "Diese Pipeline kann nicht laufen. Entfernen oder korrigieren Sie zuerst diese Schritte:",
+      "templateBlocked": "Kann noch nicht als Pipeline laufen. Diese Schritttypen können nicht laufen: {{types}}."
+    },
     "soon": {
-      "steps": "Nur Verzögerungs- und Bedingungsschritte bewirken etwas, wenn eine Pipeline läuft. Seed, Sync, Sicherung, Wiederherstellung, Anonymisierung, Löschung und die übrigen Schritttypen melden Erfolg, ohne eine Org zu berühren."
+      "steps": "Derzeit laufen in einer Pipeline nur Verzögerungsschritte. Seed, Sync, Sicherung, Wiederherstellung, Anonymisierung, Löschung, Bedingung und die übrigen Schritttypen können noch nicht in einer Pipeline laufen: Eine Pipeline, die einen davon enthält, startet nicht."
     },
     "emptyState": {
       "title": "Erstellen Sie Ihre erste Pipeline",
-      "description": "Stellen Sie Pipelines auf einer visuellen Arbeitsfläche zusammen und speichern Sie sie. Bisher bewirken nur Verzögerungs- und Bedingungsschritte etwas, wenn eine Pipeline läuft.",
+      "description": "Stellen Sie Pipelines auf einer visuellen Arbeitsfläche zusammen und speichern Sie sie. Bisher können nur Verzögerungsschritte in einer Pipeline laufen.",
       "cta": "Org auswählen"
     }
   },
@@ -1288,7 +1311,13 @@
       "autopilotCopies": "Autopilot kopiert, worum Sie gebeten haben — und schreibt es",
       "autopilotCopiesDesc": "Eine Anfrage über zwei Objekte lieferte zwanzig und schrieb keinen Datensatz: Sie lief in Benutzer, Profile und Verlaufsobjekte, schickte jedes gelesene Feld und setzte Quell-IDs in die Lookups des Ziels. Alles behoben, und ein Gate hält das nächste Modul davon ab, die Dublettenregel-Freigabe zu vergessen.",
       "backupPartial": "Ein Backup sagt, wenn es nur ein Teil ist",
-      "backupPartialDesc": "Es liest bis zu zweitausend Datensätze je Objekt — fünfhundert gegen eine Produktions-Org — und meldete in beiden Fällen einen vollständigen Snapshot. An einer echten Org gemessen: 656 Datensätze bei 500 gesichert und als fertig gemeldet. Es sagt nun, wenn eine Grenze es abgeschnitten hat, und der Snapshot behält das."
+      "backupPartialDesc": "Es liest bis zu zweitausend Datensätze je Objekt — fünfhundert gegen eine Produktions-Org — und meldete in beiden Fällen einen vollständigen Snapshot. An einer echten Org gemessen: 656 Datensätze bei 500 gesichert und als fertig gemeldet. Es sagt nun, wenn eine Grenze es abgeschnitten hat, und der Snapshot behält das.",
+      "frozenLoads": "Ein eingefrorener Datensatz lädt vollständig",
+      "frozenLoadsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, konnte Frozen Dataset keine einzige Wurzel auswählen, und sein erstes Laden schrieb einen von achtundzwanzig Datensätzen. Jetzt liest es, was ein Vorgang braucht — die Preise, auf die seine Aufträge zeigen, und die Standardpreise dahinter —, lädt achtundachtzig Datensätze, lädt sie sauber neu und besteht seine eigene Prüfung.",
+      "automationHonest": "Kein Pipeline-Schritt meldet Arbeit, die er nicht getan hat",
+      "automationHonestDesc": "Dreizehn der fünfzehn Schritttypen hatten nichts dahinter und meldeten Erfolg, und Delay wartete null Sekunden. Eine Pipeline mit einem nicht ausführbaren Schritt wird jetzt als solche gekennzeichnet und vor dem Start abgelehnt, statt als erledigt protokolliert zu werden.",
+      "monitorReads": "Monitor und Compare zeigen, was die Org enthält",
+      "monitorReadsDesc": "Zum ersten Mal gegen echte Orgs ausgeführt: Der Speicher schlug in jeder Org fehl, benutzerdefinierte Objekte wurden einundvierzig statt fünf gezählt, die Warnungen einer Org erschienen bei einer anderen, und Compare las von jeder Org einen anderen Ausschnitt der Berechtigungssätze. Jetzt lesen sie, was sie anzeigen, und ein nicht lesbares Gesundheitssignal sagt das, statt eine gesunde Org zu melden."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1317,7 +1346,7 @@
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Demnächst, aus einem Diff wird noch nichts bereitgestellt",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Compliance, Bereinigung und Qualität: Demnächst, hinter diesen Tabs läuft noch nichts",
-    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Nur Verzögerung und Bedingung bewirken bisher etwas: Die übrigen 13 melden Erfolg, ohne eine Org zu berühren\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Bedingungsschritte mit 11 Operatoren\n- Ausführungsverlauf: Status, Gesamtdauer, Anzahl der Schritte und Fehler je Ausführung\n- Pipeline-Vorlagen aus dem Marketplace",
+    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Bisher können nur Verzögerungsschritte laufen: Eine Pipeline mit einem der übrigen 14 Typen wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer, Anzahl der Schritte und Fehler je Ausführung\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
@@ -1480,6 +1509,7 @@
     "before": "Vorher",
     "after": "Nachher",
     "inserted": "Eingefügt",
+    "linkedExisting": "Mit Vorhandenem verknüpft",
     "skipped": "Übersprungen",
     "idRemaps": "ID-Neuzuordnungen",
     "successRate": "Erfolgsrate",
@@ -1608,9 +1638,11 @@
     "soqlAliasRefused": "Diese Abfrage kann nicht ausgeführt werden. Die FROM-Klausel deklariert einen Alias über eine Beziehung, die nicht beim Objekt nach FROM beginnt — prüfen Sie den Alias vor dem Punkt.",
     "idMapping": {
       "title": "Datensatz-Id-Zuordnung",
-      "subtitle": "{{count}} Datensätze erstellt. Quell-Id links, neue Id in der Ziel-Org rechts.",
+      "subtitle": "{{count}} Datensätze. Quell-Id links, ihre Id in der Ziel-Org rechts.",
       "sourceId": "Quell-Id",
-      "targetId": "Neue Id"
+      "targetId": "Ziel-Id",
+      "existingNote": "Davon {{count}} bereits in der Ziel-Org: verknüpft, nicht erstellt.",
+      "existingBadge": "vorhanden"
     },
     "apiCalls": "API-Aufrufe",
     "preview": {
@@ -1722,6 +1754,10 @@
         "explanation": "Der Datensatztyp existiert in der Ziel-Org und wurde korrekt zugeordnet, steht dem Benutzer, unter dem der Klon läuft, aber nicht zur Verfügung.",
         "action": "Weisen Sie den Datensatztyp dem Profil dieses Benutzers in der Ziel-Org zu, oder schließen Sie das Feld RecordTypeId für dieses Objekt aus."
       },
+      "recordTypeHeldBack": {
+        "explanation": "Der Benutzer, unter dem der Klon läuft, kann diesen Datensatztyp in der Ziel-Org nicht verwenden. Das Objekt wurde daher zurückgehalten, bevor einer seiner Datensätze geschrieben wurde, und die davon abhängigen Objekte wurden übersprungen.",
+        "action": "Geben Sie diesem Benutzer in der Ziel-Org Zugriff auf den Datensatztyp, oder aktivieren Sie ihn, falls er inaktiv ist — oder schließen Sie das Feld RecordTypeId für dieses Objekt aus, damit seine Datensätze den Standard-Datensatztyp des Benutzers erhalten."
+      },
       "outOfScope": {
         "explanation": "Keiner der übergeordneten Datensätze dieses Objekts ist im Klon, und es ist nicht das Stammobjekt; daher wurde keiner seiner Datensätze geklont.",
         "action": "Erhöhen Sie die Tiefe, wenn Datensätze dieses Objekts mitgeklont werden sollen."
@@ -1734,6 +1770,12 @@
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
+    "existingRecords": {
+      "title": "Bereits in der Ziel-Org",
+      "hint": "Die Ziel-Org hat diese Datensätze abgelehnt, weil sie sie bereits enthält. Wo Salesforce den Datensatz benannt hat, verknüpft der Klon damit und ändert ihn nie.",
+      "linked": "{{count}} verknüpft, nicht erstellt",
+      "unidentified": "{{count}} nicht identifiziert — als fehlgeschlagen gezählt, ihre untergeordneten Datensätze haben die Verknüpfung verloren"
+    },
     "node": {
       "records": "{{records}} Datensätze",
       "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
@@ -2022,7 +2064,13 @@
       "placeholder": "Platzhalter",
       "skippedList": "Übersprungene Datensätze (native Duplikaterkennung)",
       "errors": "Fehler",
-      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt"
+      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt",
+      "statuses": "Nach dem Einfügen gesetzte Status: {{restored}} — abgelehnt: {{refused}}"
+    },
+    "coverage": {
+      "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
+      "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",
+      "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}"
     }
   },
   "grappe": {

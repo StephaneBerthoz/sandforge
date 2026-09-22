@@ -27,6 +27,8 @@ const rules = parsePseudonymRules({
 function makeExtracted(): ExtractedDataset {
   return {
     asOf: '2026-08-01T00:00:00Z',
+    unboundedObjects: [],
+    fileFields: {},
     recordTypeMap: [
       { id: RT_BUSINESS, sobjectType: 'Account', developerName: 'Business', name: 'Professionnel' },
       {
@@ -242,5 +244,96 @@ describe('FrozenDatasetAnonymizer', () => {
       frozen.objects[1].records[0].fields.LastName,
     );
     expect(frozen.objects[0].records[0].fields.Name).not.toBe('Dupont');
+  });
+});
+
+describe('FrozenDatasetAnonymizer — records the platform owns, and files', () => {
+  const anonymizer = new FrozenDatasetAnonymizer();
+  const QUOTE_ID = to18('0Q0A000000qqqqQ');
+  const DOCUMENT_ID = to18('0QDA00000dddddD');
+  const STANDARD_BOOK = to18('01sA00000000STD');
+
+  function withQuoteDocument(): ExtractedDataset {
+    const extracted = makeExtracted();
+    extracted.fileFields = { QuoteDocument: ['Document'] };
+    extracted.objects.push(
+      {
+        objectApiName: 'Quote',
+        records: [{ referenceId: 'Quote-000001', sourceId: QUOTE_ID, fields: { Id: QUOTE_ID } }],
+      },
+      {
+        objectApiName: 'QuoteDocument',
+        records: [
+          {
+            referenceId: 'QuoteDocument-000001',
+            sourceId: DOCUMENT_ID,
+            fields: { Id: DOCUMENT_ID, QuoteId: QUOTE_ID, Document: 'JVBERi0xLjQK' },
+          },
+        ],
+      },
+    );
+    // Something pointing at the document, to see where the link goes.
+    extracted.objects[1].records[0].fields.LastDocument__c = DOCUMENT_ID;
+    return extracted;
+  }
+
+  it('names the standard price book by its referenceId', () => {
+    const extracted = makeExtracted();
+    extracted.standardPricebookSourceId = STANDARD_BOOK;
+    extracted.objects.push({
+      objectApiName: 'Pricebook2',
+      records: [
+        {
+          referenceId: 'Pricebook2-000001',
+          sourceId: STANDARD_BOOK,
+          fields: { Id: STANDARD_BOOK },
+        },
+      ],
+    });
+
+    const frozen = anonymizer.anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.standardPricebook).toBe('Pricebook2-000001');
+  });
+
+  it('leaves out an object whose file the rules do not keep, and every link to it', () => {
+    // Bytes cannot be pseudonymized; emptied, the record cannot be loaded —
+    // run for real, a quote document came back as an Apex exception.
+    const frozen = anonymizer.anonymize({
+      extracted: withQuoteDocument(),
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.filesLeftOut).toEqual(['QuoteDocument']);
+    expect(frozen.objects.map((o) => o.objectApiName)).not.toContain('QuoteDocument');
+    // The link is swept like any id that points outside the dataset.
+    const contact = frozen.objects.find((o) => o.objectApiName === 'Contact')?.records[0];
+    expect(contact?.fields.LastDocument__c).toBe('');
+  });
+
+  it('keeps a file a person approved keeping', () => {
+    const approving = parsePseudonymRules({
+      rulesVersion: '1.0.0',
+      rules: { 'QuoteDocument.Document': { generator: 'keep', approved: true } },
+    });
+
+    const frozen = anonymizer.anonymize({
+      extracted: withQuoteDocument(),
+      rules: approving,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.filesLeftOut).toBeUndefined();
+    const document = frozen.objects.find((o) => o.objectApiName === 'QuoteDocument')?.records[0];
+    expect(document?.fields.Document).toBe('JVBERi0xLjQK');
+    expect(document?.fields.QuoteId).toBe('Quote-000001');
   });
 });

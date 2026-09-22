@@ -198,13 +198,13 @@ describe('ProgressNode', () => {
   it('should apply green border when done', () => {
     render(<ProgressNode {...makeNodeProps({ status: 'done' })} />);
     const node = screen.getByTestId('progress-node');
-    expect(node.className).toContain('border-green-500');
+    expect(node.className).toContain('border-status-success');
   });
 
   it('should apply red border when error', () => {
     render(<ProgressNode {...makeNodeProps({ status: 'error' })} />);
     const node = screen.getByTestId('progress-node');
-    expect(node.className).toContain('border-red-500');
+    expect(node.className).toContain('border-status-error');
   });
 
   it('should render top and bottom handles', () => {

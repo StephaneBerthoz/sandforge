@@ -17,8 +17,8 @@ export class AlertEngine {
   private readonly onNotify: AlertNotifyFn;
   private readonly definitions: Map<string, AlertDefinition> = new Map();
   private readonly activeAlerts: Map<string, AlertInstance> = new Map();
+  /** When each definition last fired, per org (`<definitionId>:<orgId>`). */
   private readonly lastTriggered: Map<string, number> = new Map();
-  private idCounter = 0;
 
   constructor(onNotify: AlertNotifyFn) {
     this.onNotify = onNotify;
@@ -53,13 +53,17 @@ export class AlertEngine {
         continue;
       }
 
-      if (this.isInCooldown(def.id)) {
+      // Per org: one engine serves every org of the window, and a cooldown
+      // kept per definition let a breach in one org hide the same breach in
+      // the next org refreshed.
+      const cooldownKey = `${def.id}:${orgId}`;
+      if (this.isInCooldown(def, cooldownKey)) {
         continue;
       }
 
       const alert = this.createAlert(def, value, orgId);
       this.activeAlerts.set(alert.id, alert);
-      this.lastTriggered.set(def.id, Date.now());
+      this.lastTriggered.set(cooldownKey, Date.now());
       this.onNotify(alert);
       return alert;
     }
@@ -104,6 +108,13 @@ export class AlertEngine {
     for (const alert of alerts) {
       if (alert.status === 'active' || alert.status === 'acknowledged') {
         this.activeAlerts.set(alert.id, alert);
+        // Its cooldown carries over, as it would have had the session gone
+        // on: without it every restart raised each open alert a second time.
+        const key = `${alert.definitionId}:${alert.orgId}`;
+        const triggeredAt = Date.parse(alert.triggeredAt);
+        if (!Number.isNaN(triggeredAt) && triggeredAt > (this.lastTriggered.get(key) ?? 0)) {
+          this.lastTriggered.set(key, triggeredAt);
+        }
       }
     }
   }
@@ -116,13 +127,9 @@ export class AlertEngine {
     }
   }
 
-  private isInCooldown(definitionId: string): boolean {
-    const lastTime = this.lastTriggered.get(definitionId);
+  private isInCooldown(def: AlertDefinition, cooldownKey: string): boolean {
+    const lastTime = this.lastTriggered.get(cooldownKey);
     if (lastTime === undefined) {
-      return false;
-    }
-    const def = this.definitions.get(definitionId);
-    if (!def) {
       return false;
     }
     const cooldownMs = def.cooldownMinutes * 60 * 1000;
@@ -130,9 +137,11 @@ export class AlertEngine {
   }
 
   private createAlert(def: AlertDefinition, value: number, orgId: string): AlertInstance {
-    this.idCounter++;
     return {
-      id: `alert-${this.idCounter}`,
+      // Unique across sessions, not a count from 1: restored alerts keep their
+      // ids, and a new alert-1 replaced the restored one in the active list
+      // and was skipped by the history as a duplicate.
+      id: `alert-${globalThis.crypto.randomUUID()}`,
       definitionId: def.id,
       severity: def.severity,
       status: 'active' as AlertStatus,

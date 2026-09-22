@@ -17,6 +17,7 @@ import { Card, CardBody } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { useFrozenMutation } from './useFrozenBridge';
+import { FrozenCoverageNotes } from './FrozenCoverageNotes';
 
 /** Draft row for one coverage axis. */
 interface AxisDraft {
@@ -438,6 +439,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 keyExtractor={(row) => row.combinationKey as string}
                 emptyMessage={t('frozen.selection.empty')}
               />
+              <FrozenCoverageNotes graph={selection.graph} testId="frozen-selection-coverage" />
               {selection.uncovered.length > 0 && (
                 <div data-testid="frozen-selection-uncovered">
                   <span className="text-xs font-medium text-status-warning">
@@ -476,12 +478,20 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
           </div>
           {extractMutation.error && <ErrorBanner message={extractMutation.error} />}
           {extractMutation.data && (
-            <p className="text-xs text-text-secondary" data-testid="frozen-extract-summary">
-              {t('frozen.extract.summary', {
-                count: extractMutation.data.recordCount,
-                files: extractMutation.data.files.length,
-              })}
-            </p>
+            <>
+              <p className="text-xs text-text-secondary" data-testid="frozen-extract-summary">
+                {t('frozen.extract.summary', {
+                  count: extractMutation.data.recordCount,
+                  files: extractMutation.data.files.length,
+                })}
+              </p>
+              <FrozenCoverageNotes
+                graph={extractMutation.data.manifest.coverage}
+                unboundedObjects={extractMutation.data.manifest.coverage?.unboundedObjects}
+                filesLeftOut={extractMutation.data.manifest.coverage?.filesLeftOut}
+                testId="frozen-extract-coverage"
+              />
+            </>
           )}
           {controlReport && (
             <div className="flex flex-col gap-2" data-testid="frozen-control-result">

@@ -71,7 +71,7 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
                 <span className="text-text-secondary">{f.name}</span>
                 <span className="text-text-primary font-mono truncate flex items-center gap-1">
                   {isPiiField(f.name) && (
-                    <span className="shrink-0 text-[9px] px-1 py-px rounded bg-red-500/10 text-status-error font-sans">
+                    <span className="shrink-0 text-[9px] px-1 py-px rounded bg-status-error/10 text-status-error font-sans">
                       PII
                     </span>
                   )}
@@ -132,7 +132,7 @@ export const ForgeLivePreviewPanel: React.FC<ForgeLivePreviewPanelProps> = ({
       {/* PII warning banner */}
       {piiFieldCount > 0 && !anonymize && (
         <div
-          className="rounded-md border border-red-500/30 bg-red-500/10 p-2.5 flex items-center gap-2"
+          className="rounded-md border border-status-error/30 bg-status-error/10 p-2.5 flex items-center gap-2"
           data-testid="forge-pii-warning"
         >
           <AlertTriangle size={16} className="text-status-error shrink-0" />

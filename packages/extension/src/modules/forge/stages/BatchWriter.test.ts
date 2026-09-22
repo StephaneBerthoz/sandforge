@@ -144,6 +144,119 @@ describe('BatchWriter', () => {
     expect(result.errorSamples[0].messages[0]).toContain('API truncated batch: 1/2');
   });
 
+  describe('a row the target already holds', () => {
+    /** Fake Account ids: the source record, and the one the target already holds. */
+    const SOURCE_ID = '001Fk00000QrStUIAV';
+    const EXISTING_15 = '001Fk00000AbCdE';
+    const EXISTING_18 = '001Fk00000AbCdEIAV';
+
+    /** One Account refused the way `toSaveOutcome` reads a unique index refusal. */
+    function refusedWith(errors: string[], duplicateMatchIds?: string[]): WriterDeps {
+      return makeDeps(async () => [
+        { id: '', success: false, errors, ...(duplicateMatchIds ? { duplicateMatchIds } : {}) },
+      ]);
+    }
+
+    function accountInput(overrides?: Partial<WriteNodeInput>): WriteNodeInput {
+      return makeInput([{ Id: SOURCE_ID, Name: 'Acme' }], {
+        records: [{ Name: 'Acme' }],
+        cleanedRecords: [
+          {
+            source: { Id: SOURCE_ID, Name: 'Acme' },
+            cleaned: { Name: 'Acme' },
+            nullifiedFks: [
+              { field: 'ParentId', sourceRefId: '001Fk00000ZzYxWIAV', targetObjects: ['Account'] },
+            ],
+          },
+        ],
+        targetKeyPrefix: '001',
+        ...overrides,
+      });
+    }
+
+    it('links the row to the record a unique index names, and counts it apart', async () => {
+      const deps = refusedWith([
+        `DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: ${EXISTING_15}`,
+      ]);
+      const input = accountInput();
+
+      const result = await new BatchWriter(deps).writeNode(input);
+
+      expect(input.remapper.get(SOURCE_ID)).toBe(EXISTING_18);
+      expect(input.remapper.isExisting(SOURCE_ID)).toBe(true);
+      expect(result).toMatchObject({
+        successCount: 0,
+        linkedExistingCount: 1,
+        failureCount: 0,
+        unidentifiedExistingCount: 0,
+        errorSamples: [],
+      });
+    });
+
+    it('never queues a pass-2 update against a record the run did not create', async () => {
+      const deps = refusedWith([
+        `DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: ${EXISTING_15}`,
+      ]);
+
+      const result = await new BatchWriter(deps).writeNode(accountInput());
+
+      expect(result.pendingFkUpdates).toEqual([]);
+    });
+
+    it('links the row to the single record a blocking duplicate rule matched', async () => {
+      const deps = refusedWith(['DUPLICATES_DETECTED: Use one of these records?'], [EXISTING_18]);
+      const input = accountInput();
+
+      const result = await new BatchWriter(deps).writeNode(input);
+
+      expect(input.remapper.get(SOURCE_ID)).toBe(EXISTING_18);
+      expect(result.linkedExistingCount).toBe(1);
+    });
+
+    it('counts a duplicate Salesforce does not name as a failure it could not identify', async () => {
+      const deps = refusedWith([
+        'DUPLICATE_VALUE: duplicate value found: <unknown> duplicates value on record with id: <unknown>',
+      ]);
+      const input = accountInput();
+
+      const result = await new BatchWriter(deps).writeNode(input);
+
+      expect(input.remapper.get(SOURCE_ID)).toBeUndefined();
+      expect(result).toMatchObject({
+        linkedExistingCount: 0,
+        failureCount: 1,
+        alreadyExistsCount: 1,
+        unidentifiedExistingCount: 1,
+      });
+      expect(result.errorSamples).toHaveLength(1);
+    });
+
+    it('does not link to an id of another object', async () => {
+      const deps = refusedWith([
+        'DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: 003Fk00000MnOpQ',
+      ]);
+      const input = accountInput();
+
+      const result = await new BatchWriter(deps).writeNode(input);
+
+      expect(input.remapper.get(SOURCE_ID)).toBeUndefined();
+      expect(result.unidentifiedExistingCount).toBe(1);
+    });
+
+    it('leaves a row refused for another reason as it was', async () => {
+      const deps = refusedWith(['FIELD_CUSTOM_VALIDATION_EXCEPTION: Region is required']);
+
+      const result = await new BatchWriter(deps).writeNode(accountInput());
+
+      expect(result).toMatchObject({
+        failureCount: 1,
+        alreadyExistsCount: 0,
+        unidentifiedExistingCount: 0,
+        linkedExistingCount: 0,
+      });
+    });
+  });
+
   it('caps error samples at 3 per node', async () => {
     const deps = makeDeps(async (_orgId, _obj, recs) =>
       recs.map(() => ({ id: '', success: false, errors: ['FAIL'] })),

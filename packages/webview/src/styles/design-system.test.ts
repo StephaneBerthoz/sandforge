@@ -402,16 +402,46 @@ describe('theme-resolved colours', () => {
   });
 });
 
-/* ===================== the fixed -400 palette ===================== */
+/* ===================== fixed colours ===================== */
 
 /**
- * A `-400` hue is the shade picked to read on a dark editor, and it is the one
- * that fails on a light one: `text-amber-400` reads 1.57:1 on Light Modern's
- * widget background. Severity text goes through `status`, a module's or a
- * syntax colour's identity through `hue`, neutral text through `text-text-*`.
+ * A fixed palette shade is picked for one background and fails on the other:
+ * `text-amber-400` reads 1.57:1 on Light Modern's widget background, and a
+ * `-700` fill under `-100` text painted the same dark pill on every theme
+ * instead of following it. Every shade from `-50` to `-950` is refused, and no
+ * file of the product is excepted: severity goes through `status`, a module's
+ * or a syntax colour's identity through `hue`, neutral text through
+ * `text-text-*`, surfaces and borders through `surface-*` and `subtle`.
+ * eslint.config.mjs refuses the same classes where they are written.
  */
-const PALETTE_400 =
-  /(?<![\w-])(?:text|bg|border(?:-[xytrbl])?|ring|fill|stroke|from|via|to|outline|divide|decoration|placeholder|caret|accent|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-400(?![\w-])/g;
+const PALETTE =
+  /(?<![\w-])(?:text|bg|border(?:-[xytrblse])?|ring(?:-offset)?|fill|stroke|from|via|to|outline|divide|decoration|placeholder|caret|accent|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:50|100|200|300|400|500|600|700|800|900|950)(?![\w-])/g;
+
+/**
+ * A fixed palette class joined from its parts at runtime. The probes and the
+ * model's fixtures in this file write such classes on purpose, and the lint
+ * rule reads this file's strings too.
+ */
+const paletteClass = (prefix: string, hue: string, shade: number): string =>
+  `${prefix}-${hue}-${shade}`;
+
+/** A hex colour inside a string of the source: a class, an inline style, an SVG attribute. */
+const HEX_COLOUR = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
+
+/** What stands right before a hex written as the fallback of a `var()`, `_` included for a class. */
+const VAR_FALLBACK = /var\(--[\w-]+\s*,[\s_]*$/;
+
+/**
+ * The files whose hex colours stay, each with the reason the colour is not the
+ * theme's to choose. Anywhere else a hex cannot follow the theme either: it
+ * goes through a token, or survives only as the fallback of a `var()`.
+ */
+const HEX_ALLOWLIST: Readonly<Record<string, string>> = {
+  'pages/OrgManager/OrgEditDialog.tsx':
+    'the colours a user picks for an org: data the org keeps, shown as it was chosen',
+  'components/EasterEgg/MojitoOverlay.tsx':
+    'a decorative illustration on its own dark backdrop, painted the same on every theme',
+};
 
 /** The product's own TypeScript: no tests, no test infrastructure under `testing/`. */
 function productionSources(): string[] {
@@ -423,32 +453,69 @@ function productionSources(): string[] {
   );
 }
 
-describe('fixed palette gate', () => {
-  it('uses no -400 palette class anywhere in the product', () => {
+/** Every hex colour the product writes outside a `var()` fallback, as `file:line #hex`. */
+function rawHexColours(): string[] {
+  const found: string[] = [];
+  for (const file of productionSources()) {
+    const source = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const relative = path.relative(SRC_ROOT, file).split(path.sep).join('/');
+    eachNode(source, (node) => {
+      if (!isClassChunk(node)) return;
+      for (const match of node.text.matchAll(HEX_COLOUR)) {
+        if (VAR_FALLBACK.test(node.text.slice(0, match.index ?? 0))) continue;
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        found.push(`${relative}:${line + 1} ${match[0]}`);
+      }
+    });
+  }
+  return found;
+}
+
+describe('fixed colour gate', () => {
+  it('uses no fixed palette shade anywhere in the product', () => {
     const offenders: string[] = [];
     for (const file of productionSources()) {
       const content = fs.readFileSync(file, 'utf8');
-      for (const match of content.matchAll(PALETTE_400)) {
+      for (const match of content.matchAll(PALETTE)) {
         offenders.push(`${match[0]} (${path.relative(SRC_ROOT, file)})`);
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it('is rejected by the lint rule in pages and in design-system primitives alike', async () => {
+  it('writes a hex colour only as a var() fallback, outside the allowlisted files', () => {
+    const allowed = new Set(Object.keys(HEX_ALLOWLIST));
+    const outside = rawHexColours().filter((hit) => !allowed.has(hit.slice(0, hit.indexOf(':'))));
+    expect(outside).toEqual([]);
+  });
+
+  it('allowlists only files that still write a hex colour', () => {
+    const writing = new Set(rawHexColours().map((hit) => hit.slice(0, hit.indexOf(':'))));
+    expect(Object.keys(HEX_ALLOWLIST).filter((file) => !writing.has(file))).toEqual([]);
+  });
+
+  it('is rejected by the lint rule in pages and in design-system primitives alike, at every shade', async () => {
     const { ESLint } = await import('eslint');
     const repoRoot = path.resolve(SRC_ROOT, '..', '..', '..');
     const eslint = new ESLint({ cwd: repoRoot });
-    // The shade is joined on at runtime, or this file would trip the rule it probes.
-    const shade = 400;
     const offending = [
-      `export const accent = 'text-red-${shade}';`,
-      `export const Tip = () => <span className="p-1 hover:bg-amber-${shade}/20">x</span>;`,
-      'export const Row = ({ on }: { on: boolean }) => <i className={`h-2 ${on ? "p-1" : ""} ring-blue-' +
-        shade +
+      `export const accent = '${paletteClass('text', 'red', 400)}';`,
+      `export const Tip = () => <span className="p-1 hover:${paletteClass('bg', 'amber', 500)}/20">x</span>;`,
+      'export const Row = ({ on }: { on: boolean }) => <i className={`h-2 ${on ? "p-1" : ""} ' +
+        paletteClass('ring', 'blue', 950) +
         '`} />;',
+      `export const Edge = { stroke: '${paletteClass('stroke', 'violet', 50)}', rail: '${paletteClass('border-l', 'emerald', 700)}' };`,
+      `export const Focus = 'focus:${paletteClass('ring-offset', 'sky', 300)}';`,
     ].join('\n');
-    const clean = "export const accent = 'text-status-error bg-hue-amber/20 text-red-500';\n";
+    // Near misses: a width, a size, an offset, a module accent and the tokens themselves.
+    const clean =
+      "export const accent = 'text-status-error bg-hue-amber/20 border-2 text-2xl ring-offset-2 bg-forge/20';\n";
 
     const restricted = async (code: string, file: string): Promise<number> => {
       const [result] = await eslint.lintText(code, {
@@ -457,8 +524,8 @@ describe('fixed palette gate', () => {
       return result.messages.filter((m) => m.ruleId === 'no-restricted-syntax').length;
     };
 
-    expect(await restricted(offending, 'pages/Probe/Probe.tsx')).toBe(3);
-    expect(await restricted(offending, 'components/ui/Probe.tsx')).toBe(3);
+    expect(await restricted(offending, 'pages/Probe/Probe.tsx')).toBe(6);
+    expect(await restricted(offending, 'components/ui/Probe.tsx')).toBe(6);
     expect(await restricted(clean, 'pages/Probe/Probe.tsx')).toBe(0);
   }, 30_000);
 });
@@ -3060,11 +3127,13 @@ describe('the static colour model', () => {
       );
 
     it('measures a badge on every tint stacked under it, through a lookup map', async () => {
+      const tint = `${paletteClass('bg', 'orange', 500)}/20`;
+      const ink = paletteClass('text', 'orange', 700);
       const { failures } = await report({
         'Panel.tsx': [
-          "const stage: Record<string, string> = { insert: 'bg-orange-500/20 text-orange-700' };",
+          `const stage: Record<string, string> = { insert: '${tint} ${ink}' };`,
           'export const Panel = ({ kind }: { kind: string }) => (',
-          '  <div className="bg-orange-500/20">',
+          `  <div className="${tint}">`,
           '    <span className={stage[kind]}>insert</span>',
           '  </div>',
           ');',
@@ -3077,7 +3146,7 @@ describe('the static colour model', () => {
       expect(failures).toContainEqual(
         expect.stringMatching(
           new RegExp(
-            `^Panel\\.tsx:4 text-orange-700 on bg-orange-500/20 \\(Panel\\.tsx:4\\) over bg-orange-500/20 \\(Panel\\.tsx:3\\): .*Light Modern = ${stacked}:1`,
+            `^Panel\\.tsx:4 ${ink} on ${tint} \\(Panel\\.tsx:4\\) over ${tint} \\(Panel\\.tsx:3\\): .*Light Modern = ${stacked}:1`,
           ),
         ),
       );
@@ -3096,8 +3165,8 @@ describe('the static colour model', () => {
         'Page.tsx': [
           "import { Callout } from './Callout';",
           'export const Page = () => (',
-          '  <Callout tone="bg-amber-500/30">',
-          '    <p className="text-amber-600">hello</p>',
+          `  <Callout tone="${paletteClass('bg', 'amber', 500)}/30">`,
+          `    <p className="${paletteClass('text', 'amber', 600)}">hello</p>`,
           '  </Callout>',
           ');',
         ].join('\n'),
@@ -3158,7 +3227,7 @@ describe('the static colour model', () => {
           'export const State = ({ open, status }: { open: boolean; status: string }) => (',
           '  <div>',
           '    <span className="opacity-50 text-text-primary">faded</span>',
-          '    <button className="text-status-error hover:bg-red-500/40">hover</button>',
+          `    <button className="text-status-error hover:${paletteClass('bg', 'red', 500)}/40">hover</button>`,
           '    <svg><text className="fill-text-muted">axis</text></svg>',
           "    <div className={open ? 'bg-[var(--sf-button-bg)]' : 'bg-transparent'}>",
           "      <span className={open ? 'text-[var(--sf-button-fg)]' : 'text-text-primary'}>ok</span>",

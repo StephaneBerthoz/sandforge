@@ -18,7 +18,7 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
-import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
+import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from '../../theme/orgStyles';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -71,7 +71,7 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
     <span
       className={cn(
         'h-2 w-2 rounded-full shrink-0',
-        org.status === 'connected' ? 'bg-green-500' : 'bg-gray-500',
+        org.status === 'connected' ? 'bg-status-success' : 'bg-text-secondary',
       )}
     />
     <div className="flex-1 min-w-0">
@@ -83,7 +83,7 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
     <span
       className={cn(
         'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
-        ORG_TYPE_STYLES[org.orgType] ?? 'bg-gray-500/10 text-text-primary border-gray-500/30',
+        ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
       )}
     >
       {org.orgType === 'Production' ? 'PROD' : org.orgType.toUpperCase()}
@@ -302,7 +302,7 @@ export const MonitorPage: React.FC = () => {
         <div className="flex items-center gap-2 flex-1 min-w-[8rem]">
           {currentOrg && (
             <>
-              <span className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0 animate-pulse" />
+              <span className="h-2.5 w-2.5 rounded-full bg-status-success shrink-0 animate-pulse" />
               {/* The org under observation is what this dashboard is about, so it carries the page's only h1. */}
               <h1 className="text-base font-semibold text-text-primary truncate">
                 {currentOrg.alias || currentOrg.username}
@@ -354,7 +354,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Connection lost warning ── */}
       {connectionLost && (
         <div
-          className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-md"
+          className="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-md"
           data-testid="connection-lost-warning"
         >
           <WifiOff className="h-4 w-4 text-status-warning shrink-0" />
@@ -373,7 +373,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Error retry banner ── */}
       {error && !connectionLost && (
         <div
-          className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md"
+          className="flex items-center gap-2 p-3 bg-status-error/10 border border-status-error/20 rounded-md"
           data-testid="monitor-error"
         >
           <AlertTriangle className="h-4 w-4 text-status-error shrink-0" />
@@ -397,7 +397,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Error details (expandable) ── */}
       {showErrorDetails && Object.keys(sectionErrors).length > 0 && (
         <div
-          className="rounded-md border border-red-500/10 bg-surface-1 p-3 text-xs text-status-error"
+          className="rounded-md border border-status-error/10 bg-surface-1 p-3 text-xs text-status-error"
           data-testid="error-details-panel"
         >
           {Object.entries(sectionErrors).map(([section, msg]) => (
@@ -471,7 +471,7 @@ export const MonitorPage: React.FC = () => {
             <div
               key={`critical-${insight.type}-${idx}`}
               data-testid="monitor-job-insight-critical"
-              className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
+              className="flex items-center gap-3 rounded-lg border border-status-error/30 bg-status-error/5 px-4 py-2"
             >
               <AlertTriangle className="w-4 h-4 text-status-error shrink-0" />
               <div className="flex-1 min-w-0">
@@ -495,7 +495,7 @@ export const MonitorPage: React.FC = () => {
             <p
               role="alert"
               data-testid="monitor-open-apex-jobs-error"
-              className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs text-status-error"
+              className="rounded-lg border border-status-error/30 bg-status-error/5 px-4 py-2 text-xs text-status-error"
             >
               {openApexJobsError}
             </p>
@@ -504,7 +504,7 @@ export const MonitorPage: React.FC = () => {
             <div
               key={`warning-${insight.type}-${idx}`}
               data-testid="monitor-job-insight-warning"
-              className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2"
+              className="flex items-center gap-3 rounded-lg border border-status-warning/30 bg-status-warning/5 px-4 py-2"
             >
               <Clock className="w-4 h-4 text-status-warning shrink-0" />
               <div className="flex-1 min-w-0">
@@ -560,7 +560,7 @@ export const MonitorPage: React.FC = () => {
           {/* ── Live Operations ── */}
           {liveOperations.length > 0 && (
             <div
-              className="rounded-lg border border-blue-500/20 bg-surface-1 p-4"
+              className="rounded-lg border border-status-info/20 bg-surface-1 p-4"
               data-testid="live-ops-section"
             >
               <LiveOperationsPanel
@@ -617,7 +617,7 @@ export const MonitorPage: React.FC = () => {
             anomalyScan.data.anomalies &&
             anomalyScan.data.anomalies.length > 0 && (
               <div
-                className="rounded-lg border border-amber-500/30 bg-surface-1 p-4"
+                className="rounded-lg border border-status-warning/30 bg-surface-1 p-4"
                 data-testid="anomaly-scan-results"
               >
                 <SectionHeader

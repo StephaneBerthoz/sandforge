@@ -7,13 +7,18 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 /** Org health status payload from the monitor:data response. */
 export interface OrgHealthStatus {
   orgId: string;
-  overall: 'healthy' | 'degraded' | 'critical';
-  apiLimitsStatus: 'ok' | 'warning' | 'critical';
-  storageStatus: 'ok' | 'warning' | 'critical';
-  failedJobs: number;
-  recentErrorLogs: number;
+  overall: 'healthy' | 'degraded' | 'critical' | 'unknown';
+  apiLimitsStatus: SignalStatus;
+  storageStatus: SignalStatus;
+  /** Null when the jobs could not be read — not the same as none failed. */
+  failedJobs: number | null;
+  /** Null when the logs could not be read — not the same as none found. */
+  recentErrorLogs: number | null;
   lastChecked: string;
 }
+
+/** One signal's status; `unknown` when the monitor could not read it. */
+type SignalStatus = 'ok' | 'warning' | 'critical' | 'unknown';
 
 /** Props for the HealthCheckPanel component. */
 interface HealthCheckPanelProps {
@@ -28,9 +33,7 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 /** Returns badge variant based on health or status value. */
-function statusVariant(
-  status: 'ok' | 'warning' | 'critical' | 'healthy' | 'degraded',
-): BadgeVariant {
+function statusVariant(status: SignalStatus | OrgHealthStatus['overall']): BadgeVariant {
   switch (status) {
     case 'ok':
     case 'healthy':
@@ -42,18 +45,6 @@ function statusVariant(
       return 'error';
     default:
       return 'default';
-  }
-}
-
-/** Returns human-readable label for overall health status. */
-function overallLabel(status: 'healthy' | 'degraded' | 'critical'): string {
-  switch (status) {
-    case 'healthy':
-      return 'Healthy';
-    case 'degraded':
-      return 'Degraded';
-    case 'critical':
-      return 'Critical';
   }
 }
 
@@ -102,10 +93,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
             {t('monitor.healthCheck.title', 'Org Health Check')}
           </h3>
           <Badge variant={statusVariant(orgHealthStatus.overall)}>
-            {t(
-              `monitor.healthCheck.${orgHealthStatus.overall}`,
-              overallLabel(orgHealthStatus.overall),
-            )}
+            {t(`monitor.healthCheck.overall.${orgHealthStatus.overall}`)}
           </Badge>
         </div>
 
@@ -117,7 +105,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
               {t('monitor.healthCheck.apiLimits', 'API Limits')}
             </span>
             <Badge variant={statusVariant(orgHealthStatus.apiLimitsStatus)}>
-              {orgHealthStatus.apiLimitsStatus}
+              {t(`monitor.healthCheck.signal.${orgHealthStatus.apiLimitsStatus}`)}
             </Badge>
           </div>
 
@@ -127,7 +115,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
               {t('monitor.healthCheck.storage', 'Storage')}
             </span>
             <Badge variant={statusVariant(orgHealthStatus.storageStatus)}>
-              {orgHealthStatus.storageStatus}
+              {t(`monitor.healthCheck.signal.${orgHealthStatus.storageStatus}`)}
             </Badge>
           </div>
 
@@ -137,7 +125,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
               {t('monitor.healthCheck.failedJobs', 'Failed Jobs')}
             </span>
             <span className="text-sm font-semibold tabular-nums text-text-primary">
-              {orgHealthStatus.failedJobs}
+              {orgHealthStatus.failedJobs ?? t('monitor.healthCheck.notRead')}
             </span>
           </div>
 
@@ -146,11 +134,11 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
             <span className="text-[10px] text-text-secondary font-medium uppercase tracking-wider">
               {t('monitor.healthCheck.recentErrorLogs', 'Recent Error Logs')}
             </span>
-            {orgHealthStatus.recentErrorLogs > 0 ? (
+            {(orgHealthStatus.recentErrorLogs ?? 0) > 0 ? (
               <Badge variant="error">{orgHealthStatus.recentErrorLogs}</Badge>
             ) : (
               <span className="text-sm font-semibold tabular-nums text-text-primary">
-                {orgHealthStatus.recentErrorLogs}
+                {orgHealthStatus.recentErrorLogs ?? t('monitor.healthCheck.notRead')}
               </span>
             )}
           </div>

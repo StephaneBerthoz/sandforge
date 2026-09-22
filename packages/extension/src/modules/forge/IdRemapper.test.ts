@@ -25,6 +25,42 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('records the target already held', () => {
+    it('remaps children onto an existing record like onto a created one', () => {
+      remapper.addExisting('001OLD', '001EXISTING');
+
+      expect(remapper.get('001OLD')).toBe('001EXISTING');
+      expect(remapper.remapRecord({ AccountId: '001OLD' }, ['AccountId']).AccountId).toBe(
+        '001EXISTING',
+      );
+    });
+
+    it('tells an existing record apart from one the run created', () => {
+      remapper.add('001A', '001CREATED');
+      remapper.addExisting('001B', '001EXISTING');
+
+      expect(remapper.isExisting('001A')).toBe(false);
+      expect(remapper.isExisting('001B')).toBe(true);
+      expect(remapper.existingSourceIds()).toEqual(['001B']);
+      expect(remapper.count).toBe(2);
+    });
+
+    it('stops calling a record existing once the run created it after all', () => {
+      remapper.addExisting('001B', '001EXISTING');
+      remapper.add('001B', '001CREATED');
+
+      expect(remapper.isExisting('001B')).toBe(false);
+      expect(remapper.existingSourceIds()).toEqual([]);
+    });
+
+    it('forgets existing records on clear', () => {
+      remapper.addExisting('001B', '001EXISTING');
+      remapper.clear();
+
+      expect(remapper.existingSourceIds()).toEqual([]);
+    });
+  });
+
   describe('remapRecord', () => {
     it('should remap lookup fields that exist in the map', () => {
       remapper.add('001PARENT', '001NEWPARENT');

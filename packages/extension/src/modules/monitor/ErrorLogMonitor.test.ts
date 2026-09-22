@@ -61,13 +61,59 @@ describe('ErrorLogMonitor', () => {
       expect(monitor.getRecentErrors('org-1')).toHaveLength(4);
     });
 
-    it('should use last known timestamp for subsequent fetches', async () => {
-      await monitor.fetch('org-1');
-      vi.mocked(queryErrors).mockClear();
+    it('reads the last 24 hours on every fetch, not from the last error seen', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-02T09:00:00Z'));
+      try {
+        await monitor.fetch('org-1');
+        vi.mocked(queryErrors).mockClear();
 
-      await monitor.fetch('org-1');
-      const secondCallArg = vi.mocked(queryErrors).mock.calls[0][1];
-      expect(secondCallArg).toBe('2026-01-01T10:15:00Z');
+        await monitor.fetch('org-1');
+        const secondCallArg = vi.mocked(queryErrors).mock.calls[0][1];
+        expect(secondCallArg).toBe('2026-01-01T09:00:00.000Z');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('lists the same errors on every fetch while no new one is logged', async () => {
+      // The org's answer: newest first, strictly after `since`, as the ApexLog
+      // query in MonitorOpsFactory asks. Each fetch used to start at the last
+      // entry of the previous one, which that order makes the oldest, and `>`
+      // left it out: the panel's count went 3, 2, 1, 0 on successive loads of
+      // an org whose logs had not changed.
+      const logs: ErrorLogEntry[] = [
+        {
+          id: 'l3',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-01-02T08:30:00Z',
+        },
+        {
+          id: 'l2',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-01-02T08:20:00Z',
+        },
+        {
+          id: 'l1',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-01-02T08:10:00Z',
+        },
+      ];
+      const org = new ErrorLogMonitor((_orgId, since) =>
+        Promise.resolve(logs.filter((l) => Date.parse(l.timestamp) > Date.parse(since))),
+      );
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-02T09:00:00Z'));
+      try {
+        const counts: number[] = [];
+        for (let i = 0; i < 4; i++) counts.push((await org.fetch('org-1')).length);
+        expect(counts).toEqual([3, 3, 3, 3]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should use a default timestamp for the first fetch', async () => {

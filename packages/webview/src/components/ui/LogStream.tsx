@@ -51,13 +51,14 @@ const levelColorClasses: Record<LogEntry['level'], string> = {
  * The level badge: its tint and the colour written on it, as one pair. The
  * description foreground falls under AA on a tint, so info and debug write in
  * the editor foreground there. `bg-text-secondary/20` compiled to nothing: a
- * bare var() token has no alpha.
+ * bare var() token has no alpha, so the neutral tint is mixed from the
+ * description foreground in place.
  */
 const levelBadgeClasses: Record<LogEntry['level'], string> = {
-  info: 'bg-gray-500/10 text-text-primary',
-  warn: 'bg-yellow-500/10 text-status-warning',
-  error: 'bg-red-500/10 text-status-error',
-  debug: 'bg-gray-500/10 text-text-primary',
+  info: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  warn: 'bg-status-warning/10 text-status-warning',
+  error: 'bg-status-error/10 text-status-error',
+  debug: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
 };
 
 /** Format a Unix-ms timestamp as HH:mm:ss. */

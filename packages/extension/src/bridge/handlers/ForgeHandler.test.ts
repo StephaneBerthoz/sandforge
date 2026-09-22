@@ -9,7 +9,10 @@ import type {
   ForgeTemplate,
   ForgePlan,
 } from '@sandforge/shared';
-import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
+import { ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
+import type { ForgeExecutorDeps } from '../../modules/forge/ForgeExecutor.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
@@ -75,7 +78,7 @@ function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
   return {
     inputMode: 'record',
     // 15-char strict Salesforce ID — forgeConfigSchema enforces the regex
-    recordId: '001AP00000j2CEg',
+    recordId: '001000000000123',
     depth: 'direct',
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',
@@ -489,6 +492,146 @@ describe('ForgeHandler', () => {
     });
   });
 
+  describe('forge:execute before-write checks, through a real run', () => {
+    /** Fake ids: the root Account, its record type in each org, and the record the target holds. */
+    const ROOT_ID = '001000000000123';
+    const SOURCE_RT = '012Fk00000RtGhIIAV';
+    const TARGET_RT = '012Fk00000RtDeFIAV';
+    const EXISTING_15 = '001Fk00000AbCdE';
+
+    // The connection double answers with a real table; the suites after this
+    // one run with no connection at all.
+    afterEach(() => {
+      mockGetConn.mockReset();
+    });
+
+    /** Both orgs answer the record type query with a Partner type on Account. */
+    function recordTypeConnections(): void {
+      mockGetConn.mockImplementation(async (orgId: string) => {
+        const id = orgId === 'src-org' ? SOURCE_RT : TARGET_RT;
+        const rows = [
+          { Id: id, Name: 'Partner', DeveloperName: 'Partner', SobjectType: 'Account' },
+        ];
+        return {
+          query: vi.fn().mockResolvedValue({ records: rows, done: true, totalSize: 1 }),
+          queryMore: vi.fn(),
+        } as never;
+      });
+    }
+
+    /** An executor over fakes, with the target's record types and inserts supplied per test. */
+    function realRun(
+      available: boolean,
+      insertRecords: ForgeExecutorDeps['insertRecords'],
+    ): ForgeExecutorDeps {
+      const executorDeps: ForgeExecutorDeps = {
+        queryRecords: vi.fn(async () => [{ Id: ROOT_ID, Name: 'Acme', RecordTypeId: SOURCE_RT }]),
+        insertRecords: vi.fn(insertRecords),
+        describeFields: vi.fn(async () => [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Name', queryable: true, createable: true, isReference: false },
+          {
+            name: 'RecordTypeId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['RecordType'],
+          },
+        ]),
+        describeObject: vi.fn(async () => ({
+          keyPrefix: '001',
+          recordTypes: [
+            {
+              recordTypeId: TARGET_RT,
+              developerName: 'Partner',
+              name: 'Partner',
+              available,
+              active: true,
+              master: false,
+              defaultRecordTypeMapping: false,
+            },
+          ],
+        })),
+      };
+      const real = new ForgeOrchestrator({
+        discoveryService: {} as ForgeOrchestratorDeps['discoveryService'],
+        executor: new ForgeExecutor(executorDeps),
+      });
+      handler.setForgeOrchestrator(real);
+      return executorDeps;
+    }
+
+    /** The result the handler posted back. */
+    function postedResult(): ForgeExecutionResult | undefined {
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          (call) => call[0] as BaseMessage & { payload?: { result?: ForgeExecutionResult } },
+        )
+        .find((m) => m.type === 'forge:execute:response');
+      return response?.payload?.result;
+    }
+
+    it('answers with the object held back and why when its record type is closed to the running user', async () => {
+      recordTypeConnections();
+      const executorDeps = realRun(false, async (_o, _n, records) =>
+        records.map(() => ({ id: '001Fk00000NeWaSIAV', success: true, errors: [] })),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(executorDeps.insertRecords).not.toHaveBeenCalled();
+      const result = postedResult();
+      expect(result?.status).toBe('failure');
+      expect(result?.errors).toEqual([
+        {
+          objectApiName: 'Account',
+          stage: 'scope',
+          failedCount: 1,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: 'RecordType=Partner (1 record)',
+              messages: [
+                'RECORD_TYPE_UNAVAILABLE: 1 Account record uses record type Partner, which the ' +
+                  'running user cannot use in the target org. Give the running user access to ' +
+                  'record type Partner on Account, or map it to one they have.',
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('answers with the record linked, not failed, when the target already holds it', async () => {
+      recordTypeConnections();
+      realRun(true, async (_o, _n, records) =>
+        records.map(() => ({
+          id: '',
+          success: false,
+          errors: [
+            `DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: ${EXISTING_15}`,
+          ],
+        })),
+      );
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      const result = postedResult();
+      expect(result?.status).toBe('success');
+      expect(result?.linkedExistingCount).toBe(1);
+      expect(result?.existingRecords).toEqual([
+        { objectApiName: 'Account', linked: 1, unidentified: 0 },
+      ]);
+      expect(result?.idRemapTable).toEqual({ [ROOT_ID]: '001Fk00000AbCdEIAV' });
+      expect(result?.idRemapExisting).toEqual([ROOT_ID]);
+    });
+  });
+
   describe('forge:execute', () => {
     it('calls orchestrator.execute and posts result with correlationId', async () => {
       const graph = createMockGraph();
@@ -846,6 +989,22 @@ describe('ForgeHandler', () => {
 
       vi.mocked(orchestrator.execute).mockResolvedValueOnce(
         createMockResult({ status: 'failure', idRemapCount: 0 }),
+      );
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(createMockResult());
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(duplicateErrors()).toBe(0);
+    });
+
+    it('lets the user re-run a run that only linked records the target already held', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(
+        createMockResult({ status: 'success', idRemapCount: 3, linkedExistingCount: 3 }),
       );
       await handler.handle(buildMsg('forge:execute', { graph, config }));
 

@@ -30,6 +30,12 @@ describe('isExcludedFromCopy', () => {
     expect(isExcludedFromCopy('vlocity_cmt__CatalogProductRelationship__c')).toBe(true);
   });
 
+  it('excludes the app usage tag the platform manages itself', () => {
+    // Written onto a quote by a copy, it was refused: "you can't modify
+    // quotes with an app usage assignment".
+    expect(isExcludedFromCopy('AppUsageAssignment')).toBe(true);
+  });
+
   it('keeps the data objects a clone is for', () => {
     for (const name of ['Account', 'Contact', 'Case', 'Asset', 'Invoice__c', 'Vlocity__c']) {
       expect(isExcludedFromCopy(name)).toBe(false);

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DataSync } from './DataSync';
+import { targetWriteFieldsOf } from './targetWriteFields';
 import type { DataSyncDeps, OperationOutcome } from './DataSync';
 import type { SyncObjectConfig } from '@sandforge/shared';
 
@@ -261,13 +262,13 @@ describe('DataSync — a lookup the target does not have', () => {
   const crossRef = {
     id: '',
     success: false,
-    errors: ['insufficient access rights on cross-reference id: 003AP00001VjQOS'],
+    errors: ['insufficient access rights on cross-reference id: 003000000000042AAA'],
   };
 
   function describeWithLookup() {
     return async () => ({
-      creatable: new Set(['Name', 'ACC_ContactCle__c']),
-      references: new Set(['ACC_ContactCle__c']),
+      creatable: new Set(['Name', 'Key_Contact__c']),
+      references: new Set(['Key_Contact__c']),
     });
   }
 
@@ -280,7 +281,7 @@ describe('DataSync — a lookup the target does not have', () => {
 
     const result = await sync.sync(
       createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
     );
 
     expect(insert).toHaveBeenCalledTimes(2);
@@ -299,10 +300,10 @@ describe('DataSync — a lookup the target does not have', () => {
 
     const result = await sync.sync(
       createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
     );
 
-    expect(result.errors.join(' ')).toContain('ACC_ContactCle__c');
+    expect(result.errors.join(' ')).toContain('Key_Contact__c');
   });
 
   it('does not try again for a failure that is not a cross-reference', async () => {
@@ -313,7 +314,7 @@ describe('DataSync — a lookup the target does not have', () => {
 
     const result = await sync.sync(
       createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
     );
 
     expect(insert).toHaveBeenCalledTimes(1);
@@ -326,7 +327,7 @@ describe('DataSync — a lookup the target does not have', () => {
 
     const result = await sync.sync(
       createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }],
     );
 
     expect(insert).toHaveBeenCalledTimes(2);
@@ -343,5 +344,133 @@ describe('DataSync — a lookup the target does not have', () => {
 
     // Nothing to strip means nothing to try again.
     expect(insert).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DataSync — a record type the running user cannot use', () => {
+  /** Fake record type ids of the target org. */
+  const CUSTOMER = '012Fk00000RtAbCIAV';
+  const PARTNER = '012Fk00000RtDeFIAV';
+
+  /** The target's Account, as the running user sees it: Partner exists and is closed to them. */
+  function describeWithRecordTypes() {
+    return async () =>
+      targetWriteFieldsOf({
+        fields: [
+          { name: 'Name', createable: true, type: 'string' },
+          { name: 'RecordTypeId', createable: true, type: 'reference' },
+        ],
+        recordTypeInfos: [
+          {
+            active: true,
+            available: true,
+            defaultRecordTypeMapping: true,
+            developerName: 'Customer',
+            master: false,
+            name: 'Customer',
+            recordTypeId: CUSTOMER,
+            urls: {},
+          },
+          {
+            active: true,
+            available: false,
+            defaultRecordTypeMapping: false,
+            developerName: 'Partner',
+            master: false,
+            name: 'Partner',
+            recordTypeId: PARTNER,
+            urls: {},
+          },
+        ],
+      });
+  }
+
+  /** An insert that writes every record it is given. */
+  function writesAll() {
+    return vi
+      .fn()
+      .mockImplementation(async (_o: string, records: unknown[]) =>
+        records.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] })),
+      );
+  }
+
+  it('writes the records without the closed record type instead of losing them', async () => {
+    const insert = writesAll();
+    const sync = new DataSync(
+      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [
+        { Name: 'Acme', RecordTypeId: PARTNER },
+        { Name: 'Globex', RecordTypeId: CUSTOMER },
+        { Name: 'Initech', RecordTypeId: PARTNER },
+      ],
+    );
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(insert.mock.calls[0][1]).toEqual([
+      { Name: 'Acme' },
+      { Name: 'Globex', RecordTypeId: CUSTOMER },
+      { Name: 'Initech' },
+    ]);
+    expect(result.success).toBe(3);
+    expect(result.failed).toBe(0);
+  });
+
+  it('names the record type it set aside, how many records, the default they took and what to grant', async () => {
+    const insert = writesAll();
+    const sync = new DataSync(
+      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [
+        { Name: 'Acme', RecordTypeId: PARTNER },
+        { Name: 'Initech', RecordTypeId: PARTNER },
+      ],
+    );
+
+    expect(result.errors).toEqual([
+      '2 Account records written without record type Partner, which the running user cannot ' +
+        "use in the target org: a new record took the running user's default record type " +
+        '(Customer), an existing one kept its own. Give the running user access to record type ' +
+        'Partner on Account to keep it.',
+    ]);
+  });
+
+  it('counts in the note only the records that were written', async () => {
+    const insert = vi.fn().mockResolvedValue([
+      { id: '001NEW0', success: true, errors: [] },
+      { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+    ]);
+    const sync = new DataSync(
+      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', RecordTypeId: PARTNER }, { RecordTypeId: PARTNER }],
+    );
+
+    expect(result.errors[0]).toBe('REQUIRED_FIELD_MISSING: Name');
+    expect(result.errors[1]).toMatch(/^1 Account record written without record type Partner/);
+  });
+
+  it('sends the record type as it is when the running user may use it', async () => {
+    const insert = vi.fn().mockResolvedValue([{ id: '001NEW0', success: true, errors: [] }]);
+    const sync = new DataSync(
+      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Globex', RecordTypeId: CUSTOMER }],
+    );
+
+    expect(insert.mock.calls[0][1]).toEqual([{ Name: 'Globex', RecordTypeId: CUSTOMER }]);
+    expect(result.errors).toEqual([]);
   });
 });

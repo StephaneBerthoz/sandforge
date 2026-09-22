@@ -35,7 +35,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
 
   return (
     <div
-      className="flex items-center gap-3 p-3 rounded-lg border border-amber-600/40 bg-amber-500/10"
+      className="flex items-center gap-3 p-3 rounded-lg border border-status-warning/40 bg-status-warning/10"
       data-testid="sandbox-banner"
       role="status"
     >

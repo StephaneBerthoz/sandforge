@@ -1921,4 +1921,425 @@ describe('ForgeExecutor', () => {
       expect(check.mock.calls).toEqual([['tgt', 'Account']]);
     });
   });
+
+  describe('records the target already holds', () => {
+    /** Fake ids: two source Accounts, the Accounts the target holds, and a Contact. */
+    const ACCOUNT_SRC_1 = '001Fk00000ZzYxWIAV';
+    const ACCOUNT_SRC_2 = '001Fk00000QrStUIAV';
+    const EXISTING_15 = '001Fk00000AbCdE';
+    const EXISTING_18 = '001Fk00000AbCdEIAV';
+    const CONTACT_SRC = '003Fk00000MnOpQIAV';
+
+    const accountToContact: ForgeGraphEdge = {
+      sourceObject: 'Account',
+      targetObject: 'Contact',
+      relationshipName: 'Contacts',
+      type: 'lookup',
+    };
+
+    /** Account has a unique external key; Contact looks it up through AccountId. */
+    function describeAccountAndContact(): void {
+      vi.mocked(deps.describeFields).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Account'
+          ? [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              { name: 'Name', queryable: true, createable: true, isReference: false },
+            ]
+          : [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              { name: 'LastName', queryable: true, createable: true, isReference: false },
+              {
+                name: 'AccountId',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['Account'],
+              },
+            ],
+      );
+      deps.describeObject = vi.fn(async (_orgId: string, objectName: string) => ({
+        keyPrefix: objectName === 'Account' ? '001' : '003',
+        recordTypes: [],
+      }));
+      executor = new ForgeExecutor(deps);
+    }
+
+    /** The Accounts are refused with `accountErrors`; the Contacts are created. */
+    function refuseAccounts(accountErrors: string[]): void {
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName, records) =>
+        records.map((_, i) =>
+          objectName === 'Account'
+            ? { id: '', success: false, errors: accountErrors }
+            : { id: `003Fk0000000${i}NEW`, success: true, errors: [] },
+        ),
+      );
+    }
+
+    it('links the children of a parent the target refused as a duplicate to the record it named', async () => {
+      describeAccountAndContact();
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account')
+          ? [{ Id: ACCOUNT_SRC_1, Name: 'Acme' }]
+          : [{ Id: CONTACT_SRC, LastName: 'Doe', AccountId: ACCOUNT_SRC_1 }],
+      );
+      refuseAccounts([
+        `DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: ${EXISTING_15}`,
+      ]);
+      const graph = makeGraph(
+        [makeNode('Account', { recordCount: 1 }), makeNode('Contact', { recordCount: 1 })],
+        [accountToContact],
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      const contactPayload = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Contact')?.[2];
+      expect(contactPayload).toEqual([{ LastName: 'Doe', AccountId: EXISTING_18 }]);
+      expect(summary).toMatchObject({
+        successCount: 1,
+        linkedCount: 1,
+        failedCount: 0,
+        existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
+        existingSourceIds: [ACCOUNT_SRC_1],
+      });
+      expect(summary.remapTable[ACCOUNT_SRC_1]).toBe(EXISTING_18);
+      expect(summary.errors).toEqual([]);
+      const accountDone = progressEvents.filter((e) => e.objectName === 'Account').pop();
+      expect(accountDone?.status).toBe('done');
+      expect(accountDone?.message).toContain('1 linked to records already in the target');
+    });
+
+    it('keeps the lookup of a record-scoped child instead of blanking it', async () => {
+      // Scoped runs nullify a lookup whose parent has no target id. Before the
+      // refusal was read, a parent the target already held had none.
+      describeAccountAndContact();
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account')
+          ? [{ Id: ACCOUNT_SRC_1, Name: 'Acme' }]
+          : [{ Id: CONTACT_SRC, LastName: 'Doe', AccountId: ACCOUNT_SRC_1 }],
+      );
+      refuseAccounts([
+        `DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: ${EXISTING_15}`,
+      ]);
+      const graph = makeGraph(
+        [makeNode('Account', { recordCount: 1 }), makeNode('Contact', { recordCount: 1 })],
+        [accountToContact],
+      );
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT_SRC_1,
+        rootObjectApiName: 'Account',
+      });
+
+      const contactPayload = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Contact')?.[2];
+      expect(contactPayload?.[0].AccountId).toBe(EXISTING_18);
+    });
+
+    it('says which duplicates it could not identify, and still writes their children without the link', async () => {
+      describeAccountAndContact();
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account')
+          ? [
+              { Id: ACCOUNT_SRC_1, Name: 'Acme' },
+              { Id: ACCOUNT_SRC_2, Name: 'Globex' },
+            ]
+          : [{ Id: CONTACT_SRC, LastName: 'Doe', AccountId: ACCOUNT_SRC_1 }],
+      );
+      refuseAccounts([
+        'DUPLICATE_VALUE: duplicate value found: <unknown> duplicates value on record with id: <unknown>',
+      ]);
+      const graph = makeGraph(
+        [makeNode('Account', { recordCount: 2 }), makeNode('Contact', { recordCount: 1 })],
+        [accountToContact],
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary).toMatchObject({
+        linkedCount: 0,
+        failedCount: 2,
+        skippedCount: 0,
+        existingRecords: [{ objectApiName: 'Account', linked: 0, unidentified: 2 }],
+        existingSourceIds: [],
+      });
+      const accountDone = progressEvents.filter((e) => e.objectName === 'Account').pop();
+      expect(accountDone?.message).toContain('their children lose the link');
+      expect(vi.mocked(deps.insertRecords).mock.calls.some((c) => c[1] === 'Contact')).toBe(true);
+    });
+
+    it('does not link to a record of another object', async () => {
+      describeAccountAndContact();
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account') ? [{ Id: ACCOUNT_SRC_1, Name: 'Acme' }] : [],
+      );
+      refuseAccounts([
+        'DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: 003Fk00000MnOpQ',
+      ]);
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Account', { recordCount: 1 })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary.remapTable).toEqual({});
+      expect(summary.existingRecords).toEqual([
+        { objectApiName: 'Account', linked: 0, unidentified: 1 },
+      ]);
+    });
+
+    it('links an orphan parent the target already holds rather than losing the child', async () => {
+      const PARENT_SRC = '001Fk00000ZzYxWIAV';
+      vi.mocked(deps.describeFields).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Account'
+          ? [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              { name: 'Name', queryable: true, createable: true, isReference: false },
+            ]
+          : [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              { name: 'Name', queryable: true, createable: true, isReference: false },
+              {
+                name: 'AccountId',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['Account'],
+                nillable: false,
+              },
+            ],
+      );
+      deps.describeObject = vi.fn(async () => ({ keyPrefix: '001', recordTypes: [] }));
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account')
+          ? [{ Id: PARENT_SRC, Name: 'Acme' }]
+          : [{ Id: '02iFk00000AsSeTIAV', Name: 'Pump', AccountId: PARENT_SRC }],
+      );
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName, records) =>
+        records.map(() =>
+          objectName === 'Account'
+            ? {
+                id: '',
+                success: false,
+                errors: [
+                  `DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: ${EXISTING_15}`,
+                ],
+              }
+            : { id: '02iFk00000NeWaSIAV', success: true, errors: [] },
+        ),
+      );
+      executor = new ForgeExecutor(deps);
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Asset', { recordCount: 1 })]),
+        'src',
+        'tgt',
+        onProgress,
+        { expandOrphanParents: true },
+      );
+
+      const assetPayload = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Asset')?.[2];
+      expect(assetPayload?.[0].AccountId).toBe(EXISTING_18);
+      expect(summary.existingSourceIds).toEqual([PARENT_SRC]);
+    });
+  });
+
+  describe('record type availability', () => {
+    const ROOT_ID = '500Fk00000CaSeAIAV';
+    const SOURCE_RT = '012Fk00000RtGhIIAV';
+    const PARTNER_RT = '012Fk00000RtDeFIAV';
+    const CUSTOMER_RT = '012Fk00000RtAbCIAV';
+
+    /** The target's Case record types, as the running user sees them. */
+    const CASE_RECORD_TYPES = [
+      {
+        recordTypeId: CUSTOMER_RT,
+        developerName: 'Customer_Case',
+        name: 'Customer Case',
+        available: true,
+        active: true,
+        master: false,
+        defaultRecordTypeMapping: true,
+      },
+      {
+        recordTypeId: PARTNER_RT,
+        developerName: 'Partner_Case',
+        name: 'Partner Case',
+        available: false,
+        active: true,
+        master: false,
+        defaultRecordTypeMapping: false,
+      },
+    ];
+
+    const caseToComment: ForgeGraphEdge = {
+      sourceObject: 'Case',
+      targetObject: 'CaseComment',
+      relationshipName: 'CaseComments',
+      type: 'master-detail',
+    };
+
+    function describeCaseWithRecordTypes(): void {
+      vi.mocked(deps.describeFields).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Case'
+          ? [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              { name: 'Subject', queryable: true, createable: true, isReference: false },
+              {
+                name: 'RecordTypeId',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['RecordType'],
+              },
+            ]
+          : [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              {
+                name: 'ParentId',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['Case'],
+              },
+            ],
+      );
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Case ')
+          ? [
+              { Id: ROOT_ID, Subject: 'A', RecordTypeId: SOURCE_RT },
+              { Id: '500Fk00000CaSeBIAV', Subject: 'B', RecordTypeId: SOURCE_RT },
+            ]
+          : [{ Id: '00aFk00000CoMmTIAV', ParentId: ROOT_ID }],
+      );
+      deps.describeObject = vi.fn(async (_orgId: string, objectName: string) => ({
+        keyPrefix: objectName === 'Case' ? '500' : '00a',
+        recordTypes: objectName === 'Case' ? CASE_RECORD_TYPES : [],
+      }));
+      executor = new ForgeExecutor(deps);
+    }
+
+    it('holds back an object whose mapped record type the running user cannot use, before writing any of it', async () => {
+      describeCaseWithRecordTypes();
+      const graph = makeGraph([makeNode('Case'), makeNode('CaseComment')], [caseToComment]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [
+          { sourceId: SOURCE_RT, targetId: PARTNER_RT, developerName: 'Partner_Case' },
+        ],
+      });
+
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(summary.errors).toContainEqual({
+        objectApiName: 'Case',
+        stage: 'scope',
+        failedCount: 2,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'RecordType=Partner_Case (2 records)',
+            messages: [
+              'RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case (Partner Case), ' +
+                'which the running user cannot use in the target org. Give the running user access ' +
+                'to record type Partner_Case on Case, or map it to one they have.',
+            ],
+          },
+        ],
+      });
+      expect(summary.failedCount).toBe(2);
+      const caseEnd = progressEvents.filter((e) => e.objectName === 'Case').pop();
+      expect(caseEnd?.status).toBe('error');
+      expect(caseEnd?.message).toContain('Held back Case');
+      expect(
+        progressEvents.find((e) => e.objectName === 'CaseComment' && e.status === 'skipped')
+          ?.message,
+      ).toContain('parent failed');
+    });
+
+    it('writes the object when every record type it uses is open to the running user', async () => {
+      describeCaseWithRecordTypes();
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objectName, records) =>
+        records.map((_, i) => ({ id: `500Fk0000000${i}NEW`, success: true, errors: [] })),
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Case')]),
+        'src',
+        'tgt',
+        onProgress,
+        {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Case',
+          recordTypeMappings: [
+            { sourceId: SOURCE_RT, targetId: CUSTOMER_RT, developerName: 'Customer_Case' },
+          ],
+        },
+      );
+
+      expect(summary.successCount).toBe(2);
+      const written = vi.mocked(deps.insertRecords).mock.calls[0]![2];
+      expect(written.map((r) => r.RecordTypeId)).toEqual([CUSTOMER_RT, CUSTOMER_RT]);
+    });
+
+    it('lets the platform choose when the run excludes RecordTypeId for the object', async () => {
+      describeCaseWithRecordTypes();
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objectName, records) =>
+        records.map((_, i) => ({ id: `500Fk0000000${i}NEW`, success: true, errors: [] })),
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Case')]),
+        'src',
+        'tgt',
+        onProgress,
+        {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Case',
+          recordTypeMappings: [
+            { sourceId: SOURCE_RT, targetId: PARTNER_RT, developerName: 'Partner_Case' },
+          ],
+          fieldExclusions: { Case: ['RecordTypeId'] },
+        },
+      );
+
+      expect(summary.successCount).toBe(2);
+      const written = vi.mocked(deps.insertRecords).mock.calls[0]![2];
+      expect(written.every((r) => !('RecordTypeId' in r))).toBe(true);
+    });
+
+    it('writes as before when the run cannot read the target record types', async () => {
+      describeCaseWithRecordTypes();
+      deps.describeObject = vi.fn(async () => {
+        throw new Error('describe blocked');
+      });
+      executor = new ForgeExecutor(deps);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objectName, records) =>
+        records.map((_, i) => ({ id: `500Fk0000000${i}NEW`, success: true, errors: [] })),
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('Case')]),
+        'src',
+        'tgt',
+        onProgress,
+        {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Case',
+          recordTypeMappings: [
+            { sourceId: SOURCE_RT, targetId: PARTNER_RT, developerName: 'Partner_Case' },
+          ],
+        },
+      );
+
+      expect(summary.successCount).toBe(2);
+    });
+  });
 });

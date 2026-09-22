@@ -41,9 +41,9 @@ export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
-  done: 'bg-green-500/10 text-status-success',
-  error: 'bg-red-500/10 text-status-error',
-  skipped: 'bg-yellow-500/10 text-status-warning',
+  done: 'bg-status-success/10 text-status-success',
+  error: 'bg-status-error/10 text-status-error',
+  skipped: 'bg-status-warning/10 text-status-warning',
 };
 
 /** Props for the ForgeResults component. */
@@ -80,7 +80,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showLogs, setShowLogs] = useState(false);
 
-  const inserted = useMemo(() => nodes.reduce((sum, n) => sum + n.successCount, 0), [nodes]);
+  // What the run created, as the executor counted it. A run never fills in the
+  // graph's own per-node counts, so after a real one they add up to zero; a
+  // result recorded before the count was carried still falls back on them.
+  const inserted = useMemo(
+    () => result?.createdCount ?? nodes.reduce((sum, n) => sum + n.successCount, 0),
+    [result?.createdCount, nodes],
+  );
+
+  /** Records the target already held and named: linked to, neither created nor failed. */
+  const linked = result?.linkedExistingCount ?? 0;
 
   const skipped = useMemo(
     () => nodes.filter((n) => n.status === 'skipped').reduce((sum, n) => sum + n.recordCount, 0),
@@ -95,11 +104,22 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [result?.idRemapTable],
   );
 
+  /** Source ids whose target is a record the target org already held. */
+  const existingSourceIds = useMemo(
+    () => new Set(result?.idRemapExisting ?? []),
+    [result?.idRemapExisting],
+  );
+
+  /** Per object, the rows the target refused because it already held them. */
+  const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
+
+  // A record linked to the one the target already held is in the target, and
+  // its children point at it: for the rate, it made it.
   const successRate = useMemo(() => {
     const total = result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0);
     if (total === 0) return 100;
-    return Math.round((inserted / total) * 100);
-  }, [result, nodes, inserted]);
+    return Math.round(((inserted + linked) / total) * 100);
+  }, [result, nodes, inserted, linked]);
 
   const anonymizedFieldCount = useMemo(
     () => nodes.reduce((sum, n) => sum + n.anonymizeFields.length, 0),
@@ -150,6 +170,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       '# Forge Execution Report',
       '',
       `- Inserted: ${String(inserted)}`,
+      `- Linked to existing: ${String(linked)}`,
       `- Skipped: ${String(skipped)}`,
       `- ID Remaps: ${String(idRemaps)}`,
       `- Success Rate: ${String(successRate)}%`,
@@ -167,8 +188,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       );
     }
 
+    if (existingRecords.length > 0) {
+      lines.push('', '## Already in the Target', '', '| Object | Linked | Not identified |');
+      lines.push('|--------|--------|----------------|');
+      for (const e of existingRecords) {
+        lines.push(`| ${e.objectApiName} | ${String(e.linked)} | ${String(e.unidentified)} |`);
+      }
+    }
+
     return lines.join('\n');
-  }, [inserted, skipped, idRemaps, successRate, nodes]);
+  }, [inserted, linked, skipped, idRemaps, successRate, nodes, existingRecords]);
 
   /** Copy a markdown report summary to the clipboard. */
   const handleCopyReport = useCallback(async () => {
@@ -232,9 +261,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3',
+          linked > 0 ? 'lg:grid-cols-7' : 'lg:grid-cols-6',
+        )}
       >
         <KPICard icon="check" label={t('forge.inserted')} value={inserted} variant="success" />
+        {/* Shown only when the target held some: a card reading zero on every
+            ordinary run would be noise. */}
+        {linked > 0 && (
+          <KPICard icon="link" label={t('forge.linkedExisting')} value={linked} variant="success" />
+        )}
         <KPICard
           icon="debug-step-over"
           label={t('forge.skipped')}
@@ -415,6 +452,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </h3>
           <p className="text-xs text-text-secondary mb-2">
             {t('forge.idMapping.subtitle', { count: idRemapRows.length })}
+            {existingSourceIds.size > 0 &&
+              ` ${t('forge.idMapping.existingNote', { count: existingSourceIds.size })}`}
           </p>
           {idRemapRows.length > ID_REMAP_VIRTUALIZE_THRESHOLD ? (
             <div data-testid="forge-id-mapping-virtual">
@@ -434,6 +473,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     </span>
                     <span className="w-1/2 py-1 font-mono text-text-primary truncate">
                       {targetId}
+                      {existingSourceIds.has(sourceId) && <ExistingBadge />}
                     </span>
                   </div>
                 )}
@@ -452,13 +492,44 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   {idRemapRows.map(([sourceId, targetId]) => (
                     <tr key={sourceId} data-testid="forge-id-mapping-row">
                       <td className="py-1 pr-3 font-mono text-text-secondary">{sourceId}</td>
-                      <td className="py-1 font-mono text-text-primary">{targetId}</td>
+                      <td className="py-1 font-mono text-text-primary">
+                        {targetId}
+                        {existingSourceIds.has(sourceId) && <ExistingBadge />}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Rows the target refused because it already held them. Linked ones are
+          neither created nor failed, and a duplicate Salesforce did not name
+          is a failure whose children lost their lookup — both need saying,
+          and the per-object table has no word for either. */}
+      {existingRecords.length > 0 && (
+        <div
+          className="rounded border border-subtle px-4 py-2 text-xs text-text-secondary"
+          role="status"
+          data-testid="forge-results-existing"
+        >
+          <p className="font-medium text-text-primary">{t('forge.existingRecords.title')}</p>
+          <p className="mt-0.5">{t('forge.existingRecords.hint')}</p>
+          <ul className="mt-1 space-y-0.5">
+            {existingRecords.map((e) => (
+              <li key={e.objectApiName} data-testid="forge-results-existing-row">
+                <span className="font-mono text-text-primary">{e.objectApiName}</span>
+                {e.linked > 0 && ` — ${t('forge.existingRecords.linked', { count: e.linked })}`}
+                {e.unidentified > 0 && (
+                  <span className="text-status-warning">
+                    {` — ${t('forge.existingRecords.unidentified', { count: e.unidentified })}`}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -564,11 +635,27 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   );
 };
 
+/**
+ * Marks an Id-map row whose target is a record the target org already held:
+ * the map alone reads every row as a record this run created.
+ */
+const ExistingBadge: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <span
+      data-testid="forge-id-mapping-existing"
+      className="ml-2 inline-block rounded-full bg-surface-2 px-1.5 font-sans text-text-secondary"
+    >
+      {t('forge.idMapping.existingBadge')}
+    </span>
+  );
+};
+
 /** Stage label colour and i18n key. */
 const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls: string }> = {
-  insert: { labelKey: 'forge.stage.insert', cls: 'bg-red-500/10 text-status-error' },
-  query: { labelKey: 'forge.stage.query', cls: 'bg-orange-500/10 text-hue-orange' },
-  scope: { labelKey: 'forge.stage.scope', cls: 'bg-yellow-500/10 text-status-warning' },
+  insert: { labelKey: 'forge.stage.insert', cls: 'bg-status-error/10 text-status-error' },
+  query: { labelKey: 'forge.stage.query', cls: 'bg-hue-orange/10 text-hue-orange' },
+  scope: { labelKey: 'forge.stage.scope', cls: 'bg-status-warning/10 text-status-warning' },
 };
 
 /**
@@ -603,9 +690,9 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
       animate="visible"
       data-testid="forge-errors-panel"
       // The border marks the panel: a tint here sat under every stage badge's own.
-      className="rounded-lg border border-red-500/30"
+      className="rounded-lg border border-status-error/30"
     >
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-red-500/20">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-status-error/20">
         <AlertTriangle size={16} className="text-status-error" />
         <h3 className="text-sm font-semibold text-text-primary">
           {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
@@ -615,7 +702,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           {t('forge.records', { defaultValue: 'records' })}
         </span>
       </div>
-      <ul className="divide-y divide-red-500/10">
+      <ul className="divide-y divide-status-error/10">
         {errors.map((err) => {
           const key = `${err.objectApiName}__${err.stage}`;
           const isOpen = expanded.has(key);
@@ -651,7 +738,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                   {err.samples.map((sample, idx) => (
                     <div
                       key={idx}
-                      className="rounded border border-red-500/20 bg-surface-1 px-3 py-2"
+                      className="rounded border border-status-error/20 bg-surface-1 px-3 py-2"
                     >
                       <div className="font-mono text-text-secondary mb-1 break-all">
                         {sample.recordSummary}
@@ -668,11 +755,11 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                                   className={cn(
                                     'ml-4 px-2 py-1 rounded border text-text-primary',
                                     translated.severity === 'error' &&
-                                      'border-red-500/30 bg-red-500/5',
+                                      'border-status-error/30 bg-status-error/5',
                                     translated.severity === 'warning' &&
-                                      'border-yellow-500/30 bg-yellow-500/5',
+                                      'border-status-warning/30 bg-status-warning/5',
                                     translated.severity === 'info' &&
-                                      'border-blue-500/30 bg-blue-500/5',
+                                      'border-status-info/30 bg-status-info/5',
                                   )}
                                 >
                                   <div className="flex items-start gap-1.5">

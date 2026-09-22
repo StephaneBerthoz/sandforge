@@ -515,6 +515,9 @@ export const frozenProjectConfigPayloadSchema = z.object({
   budgetMaxRecords: z.number().int().positive().max(100_000).optional(),
   candidatesPerCombination: z.number().int().positive().max(20).optional(),
   expectedObjects: z.array(sfApiNameSchema).max(100).optional(),
+  // Same bounds as Forge's cap: the two drive the same discovery.
+  maxNodes: z.number().int().min(10).max(500).optional(),
+  excludedObjects: z.array(sfApiNameSchema).max(200).optional(),
   excludedFields: z.record(sfApiNameSchema, z.array(sfApiNameSchema).max(500)).optional(),
   sasDir: z.string().min(1).max(500).optional(),
   datasetDir: z.string().min(1).max(500).optional(),

@@ -239,6 +239,13 @@ export const forgeExecutionErrorSchema = z.object({
   samples: z.array(forgeExecutionErrorSampleSchema),
 });
 
+/** Zod schema for ForgeExistingRecords */
+export const forgeExistingRecordsSchema = z.object({
+  objectApiName: z.string().min(1),
+  linked: z.number().int().nonnegative(),
+  unidentified: z.number().int().nonnegative(),
+});
+
 /** Zod schema for ForgeExecutionResult */
 export const forgeExecutionResultSchema = z.object({
   forgeId: z.string().min(1),
@@ -249,6 +256,9 @@ export const forgeExecutionResultSchema = z.object({
   idRemapCount: z.number().int().nonnegative(),
   errors: z.array(forgeExecutionErrorSchema).optional(),
   truncatedObjects: z.array(z.string()).optional(),
+  createdCount: z.number().int().nonnegative().optional(),
+  linkedExistingCount: z.number().int().nonnegative().optional(),
+  existingRecords: z.array(forgeExistingRecordsSchema).optional(),
 });
 
 // ─── Template Schema ────────────────────────────────────────────────────────

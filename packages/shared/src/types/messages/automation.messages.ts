@@ -136,6 +136,8 @@ export interface MarketplaceListResponse extends BaseMessage {
       description: string;
       category: string;
       author: string;
+      /** The type of each step, so a card can say which of them cannot run in a pipeline yet. */
+      stepTypes?: string[];
     }>;
     error?: string;
   };

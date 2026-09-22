@@ -5,6 +5,9 @@ import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
+import { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
+import type { PipelineOrchestratorDependencies } from '../../modules/automation/PipelineOrchestrator.js';
+import { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
 
 /**
  * Creates minimal mock deps for AutomationHandler tests.
@@ -61,6 +64,87 @@ function servicesReturning(run: Record<string, unknown>): HandlerDeps['services'
       execute: vi.fn().mockResolvedValue(run),
     })),
   } as unknown as HandlerDeps['services'];
+}
+
+/** What a run built by {@link realServices} reported when it ended. */
+interface RunEnd {
+  status: string;
+  executed: number;
+}
+
+/**
+ * Composition-root services that build the real orchestrator, as services.ts
+ * does, so a run walks the real StepExecutor the handler constructs.
+ * `ends` collects each run's final status and how many step executions it made.
+ */
+function realServices(timeoutMs = 300_000): {
+  services: HandlerDeps['services'];
+  ends: RunEnd[];
+} {
+  const ends: RunEnd[] = [];
+  const services = {
+    getSandforgeSetting: vi.fn(() => timeoutMs),
+    automationOrchestrator: vi.fn((orchestratorDeps: PipelineOrchestratorDependencies) => {
+      const execute = vi.spyOn(orchestratorDeps.stepExecutor, 'execute');
+      const orchestrator = new PipelineOrchestrator(orchestratorDeps);
+      const record = (_event: unknown, data: unknown): void => {
+        const { status } = data as { status?: string };
+        ends.push({ status: status ?? 'failed', executed: execute.mock.calls.length });
+      };
+      orchestrator.on('completed', record);
+      orchestrator.on('failed', record);
+      return orchestrator;
+    }),
+  } as unknown as HandlerDeps['services'];
+  return { services, ends };
+}
+
+/** A pipeline definition as the webview sends it on `pipeline:execute`. */
+function pipelinePayload(steps: Array<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    id: 'pipe-9',
+    name: 'Refresh QA',
+    description: '',
+    version: 1,
+    steps: steps.map((step, index) => ({
+      id: `s${index + 1}`,
+      name: `Step ${index + 1}`,
+      config: {},
+      continueOnError: false,
+      ...step,
+    })),
+    triggers: [],
+    variables: [],
+    tags: [],
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+  };
+}
+
+/** Every message the handler posted, by type. */
+function posted(deps: HandlerDeps, type: string): Array<BaseMessage & { payload: never }> {
+  const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+  return postToWebview.mock.calls
+    .map(([message]) => message as BaseMessage & { payload: never })
+    .filter((message) => message.type === type);
+}
+
+/** The run `pipeline:run:response` carried back. */
+function runResponse(deps: HandlerDeps): {
+  status: string;
+  error?: string;
+  stepResults: Array<Record<string, unknown>>;
+} {
+  const [response] = posted(deps, 'pipeline:run:response');
+  expect(response).toBeDefined();
+  return response.payload;
+}
+
+/** The single entry the History tab would read. */
+function onlyHistoryEntry(deps: HandlerDeps): Record<string, unknown> {
+  const entries = Object.values(deps.configStore.getByCategory('pipeline-history'));
+  expect(entries).toHaveLength(1);
+  return entries[0] as Record<string, unknown>;
 }
 
 /** A finished run as PipelineOrchestrator.execute resolves it. */
@@ -157,6 +241,7 @@ describe('AutomationHandler', () => {
           name: 'Test Template',
           description: 'Desc',
           category: 'test',
+          steps: [{ type: 'seed' }, { type: 'delay' }],
         },
       ]),
       search: vi.fn(),
@@ -178,12 +263,42 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
       correlationId?: string;
-      payload: { success: boolean; templates: unknown[] };
+      payload: { success: boolean; templates: Array<{ stepTypes: string[] }> };
     };
     expect(response.type).toBe('marketplace:list:response');
     expect(response.correlationId).toBe('req-auto-3');
     expect(response.payload.success).toBe(true);
     expect(response.payload.templates).toHaveLength(1);
+    // The card has to be able to say, before Install, which steps cannot run.
+    expect(response.payload.templates[0].stepTypes).toEqual(['seed', 'delay']);
+  });
+
+  it('gives every built-in Marketplace card the step types of its template', async () => {
+    const marketplace = new PipelineMarketplace();
+    handler.setPipelineMarketplace(marketplace);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-auto-cards',
+        type: 'marketplace:list',
+        timestamp: Date.now(),
+        payload: {},
+      } as unknown as BaseMessage),
+    );
+
+    const [response] = posted(deps, 'marketplace:list:response') as unknown as Array<{
+      payload: { templates: Array<{ id: string; stepTypes: string[] }> };
+    }>;
+    const cards = response.payload.templates;
+    expect(cards).toHaveLength(marketplace.getTemplates().length);
+    for (const card of cards) {
+      expect(card.stepTypes).toEqual(marketplace.getById(card.id)?.steps.map((step) => step.type));
+    }
+    expect(cards.find((card) => card.id === 'tpl-nightly-backup')?.stepTypes).toEqual([
+      'backup',
+      'backup',
+      'precheck',
+    ]);
   });
 
   it('handles marketplace:install error path with correlationId', async () => {
@@ -480,6 +595,170 @@ describe('AutomationHandler', () => {
     const [prompt] = provider.mock.calls[0];
     expect(prompt).toContain('Module: automation');
     expect(prompt).toContain('Operation: pipeline:execute');
+  });
+
+  describe('a run on the real executor', () => {
+    /** Send `pipeline:execute` for `steps` and wait for the handler to answer. */
+    async function run(steps: Array<Record<string, unknown>>, id = 'run-real'): Promise<void> {
+      await handler.handle(
+        inboundRequest({
+          id,
+          type: 'pipeline:execute',
+          timestamp: Date.now(),
+          payload: { pipeline: pipelinePayload(steps), variables: {} },
+        } as unknown as BaseMessage),
+      );
+    }
+
+    beforeEach(() => {
+      deps.configStore = createMemoryConfigStore();
+    });
+
+    it.each([
+      'seed',
+      'sync',
+      'backup',
+      'restore',
+      'anonymize',
+      'delete',
+      'compare',
+      'precheck',
+      'script',
+      'notification',
+      'approval',
+      'loop',
+      'parallel',
+      // Names the predefined templates and the AI draft use, outside the union.
+      'dataops:backup',
+      'dataops',
+    ])(
+      'refuses a pipeline holding a %s step before any step runs, and History records it failed',
+      async (type) => {
+        const { services, ends } = realServices();
+        deps.services = services;
+
+        // `continueOnError` on the refused step: it must not buy a completed run.
+        await run([
+          { type: 'delay', config: { seconds: 0 } },
+          { type, name: 'Do the work', continueOnError: true },
+        ]);
+
+        const result = runResponse(deps);
+        expect(result.status).toBe('failed');
+        expect(result.stepResults).toEqual([
+          expect.objectContaining({
+            stepId: 's2',
+            status: 'failed',
+            error: `Step "Do the work" is a ${type} step, and this step type cannot run in a pipeline yet.`,
+          }),
+        ]);
+        expect(result.error).toMatch(/^Pipeline did not start: /);
+        expect(ends).toEqual([{ status: 'failed', executed: 0 }]);
+
+        expect(posted(deps, 'operation:failed')).toHaveLength(1);
+        expect(posted(deps, 'operation:completed')).toHaveLength(0);
+
+        const entry = onlyHistoryEntry(deps);
+        expect(entry['status']).toBe('failed');
+        expect(entry['stepCount']).toBe(1);
+        expect(entry['errorCount']).toBe(1);
+      },
+    );
+
+    it('does not send a refused pipeline to the model: SandForge wrote the reason itself', async () => {
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+      deps.services = realServices().services;
+
+      await run([{ type: 'seed' }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(runResponse(deps).status).toBe('failed');
+      expect(provider).not.toHaveBeenCalled();
+
+      // Positive control: an org's error on the same deps still reaches it.
+      deps.services = servicesReturning({
+        id: 'run-org',
+        status: 'failed',
+        error: 'SOMETHING_WE_HAVE_NEVER_SEEN: odd',
+        stepResults: [],
+      });
+      await run([{ type: 'delay', config: { seconds: 0 } }], 'run-org');
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    });
+
+    it('waits the seconds a Delay step was given, and History records the run completed', async () => {
+      deps.services = realServices().services;
+
+      await run([{ type: 'delay', config: { seconds: 0.02 } }]);
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('completed');
+      expect(result.stepResults[0]).toMatchObject({
+        status: 'completed',
+        output: { delayed: 20 },
+      });
+      expect(onlyHistoryEntry(deps)['status']).toBe('completed');
+      expect(posted(deps, 'operation:completed')).toHaveLength(1);
+    });
+
+    it('refuses a Delay step with no duration rather than calling a 0 ms wait done', async () => {
+      deps.services = realServices().services;
+
+      await run([{ type: 'delay', name: 'Pause' }]);
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('failed');
+      expect(result.stepResults).toEqual([
+        expect.objectContaining({
+          status: 'failed',
+          error: 'Delay step "Pause" has no duration: set how many seconds it waits.',
+        }),
+      ]);
+      expect(onlyHistoryEntry(deps)['status']).toBe('failed');
+    });
+
+    it('refuses a Condition step the page built, since nothing there gives it a condition', async () => {
+      deps.services = realServices().services;
+
+      await run([{ type: 'condition', name: 'Gate' }]);
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('failed');
+      expect(result.stepResults[0]).toMatchObject({
+        status: 'failed',
+        error: 'Condition step "Gate" has no condition to evaluate.',
+      });
+    });
+
+    it('stops a Delay in progress when the pipeline timeout is spent, and runs nothing after it', async () => {
+      const { services, ends } = realServices(30);
+      deps.services = services;
+
+      await run([
+        { type: 'delay', config: { seconds: 60 } },
+        { type: 'delay', config: { seconds: 0 } },
+      ]);
+
+      // The handler gave up at 30 ms and said so…
+      const [failure] = posted(deps, 'operation:failed') as unknown as Array<{
+        payload: { error: string; retryable: boolean };
+      }>;
+      expect(failure.payload.error).toContain('timed out after 30ms');
+      expect(failure.payload.retryable).toBe(true);
+      expect(posted(deps, 'pipeline:run:response')).toHaveLength(0);
+
+      // …and the run it gave up on stops too, instead of waiting out its 60 s
+      // and walking on to the next step unobserved.
+      await vi.waitFor(() => expect(ends).toEqual([{ status: 'cancelled', executed: 1 }]));
+    });
   });
 
   describe('payload validation', () => {

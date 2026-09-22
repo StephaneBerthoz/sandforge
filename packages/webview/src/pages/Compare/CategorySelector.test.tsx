@@ -20,20 +20,29 @@ describe('CategorySelector', () => {
     for (const type of ALL_COMPONENT_TYPES) {
       expect(screen.getByTestId(`cat-${type}`)).toBeDefined();
     }
-    expect(ALL_COMPONENT_TYPES.length).toBe(20);
+    expect(ALL_COMPONENT_TYPES.length).toBe(18);
   });
 
-  it('should render 8 category groups', () => {
+  it('offers no category the Metadata API cannot list', () => {
+    // The extension lists each ticked category with listMetadata. Run against
+    // real orgs, CustomSetting and Other came back INVALID_TYPE ("Unknown
+    // type") and took the whole comparison down with them, so "Select all"
+    // could never produce a diff. A custom setting is a CustomObject.
+    expect(ALL_COMPONENT_TYPES).not.toContain('CustomSetting');
+    expect(ALL_COMPONENT_TYPES).not.toContain('Other');
+  });
+
+  it('should render 7 category groups', () => {
     render(<CategorySelector {...defaultProps} />);
     for (const group of CATEGORY_GROUPS) {
       expect(screen.getByTestId(`cat-group-${group.label}`)).toBeDefined();
     }
-    expect(CATEGORY_GROUPS.length).toBe(8);
+    expect(CATEGORY_GROUPS.length).toBe(7);
   });
 
   it('should show selected count', () => {
     render(<CategorySelector {...defaultProps} selected={['ApexClass', 'Flow']} />);
-    expect(screen.getByText(/2\/20/)).toBeDefined();
+    expect(screen.getByText(/2\/18/)).toBeDefined();
   });
 
   it('should call onChange when toggling a type on', () => {

@@ -25,9 +25,17 @@ export class ErrorLogMonitor {
     this.queryErrors = queryErrors;
   }
 
-  /** Fetch recent error log entries from Salesforce */
+  /**
+   * Fetch the error log entries of the last 24 hours from Salesforce.
+   *
+   * The whole window, every time. Each fetch used to start at the last entry
+   * of the previous one; the query returns them newest first, which made that
+   * the oldest, and `StartTime >` left it out. Every load of the panel listed
+   * one error fewer than the one before, down to "No recent errors detected",
+   * then started over.
+   */
   async fetch(orgId: string): Promise<ErrorLogEntry[]> {
-    const since = this.getLastTimestamp(orgId);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const errors = await this.queryErrors(orgId, since);
     this.errorCache.set(orgId, errors);
     return errors;
@@ -47,14 +55,5 @@ export class ErrorLogMonitor {
       grouped.set(error.errorType, count + 1);
     }
     return grouped;
-  }
-
-  private getLastTimestamp(orgId: string): string {
-    const cached = this.errorCache.get(orgId);
-    if (cached && cached.length > 0) {
-      return cached[cached.length - 1].timestamp;
-    }
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return oneDayAgo.toISOString();
   }
 }

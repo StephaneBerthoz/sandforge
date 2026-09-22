@@ -1,22 +1,23 @@
 /**
  * Keeps the Automation surfaces honest about what a pipeline step does.
  *
- * `StepExecutor` gives Delay and Condition real handlers and sends every other
- * step type to a pass-through that returns success without opening a
- * connection. Around that sit the places that describe steps: the predefined
- * catalogue the host serves on `pipeline:templates`, the Marketplace
- * catalogue, the step registry's own descriptions, and the config fields the
- * Step Config Panel renders. Each of them has, at some point, promised work
- * the executor does not do — a "Dry Run" that validates "without committing",
- * a notification "via email, Slack, or other channels", an approval that
- * "pauses and waits", a box asking which channel to notify.
+ * `StepExecutor` gives Delay and Condition real handlers and refuses every
+ * other step type: a pipeline that holds one does not start. (Until the
+ * refusal, those types went to a pass-through that returned success without
+ * opening a connection.) Around that sit the places that describe steps: the
+ * predefined catalogue the host serves on `pipeline:templates`, the
+ * Marketplace catalogue, the step registry's own descriptions, and the config
+ * fields the Step Config Panel renders. Each of them has, at some point,
+ * promised work the executor does not do — a "Dry Run" that validates "without
+ * committing", a notification "via email, Slack, or other channels", an
+ * approval that "pauses and waits", a box asking which channel to notify.
  *
  * A banner on the page cannot fix a template card: the card is read on its
  * own, and its own words are what a reader takes. So this gate reads the
- * sources, not the prose, and refuses the claims while the executor behind
- * them is a pass-through. Give a step type a real handler and the assertions
- * about it stop applying — `passThroughStepTypes` is read from the executor,
- * so the gate follows the code rather than a copy of it.
+ * sources, not the prose, and refuses the claims while the executor refuses
+ * the steps behind them. Give a step type a real handler and the assertions
+ * about it stop applying — `refusedStepTypes` is read from the executor, so
+ * the gate follows the code rather than a copy of it.
  *
  * Its sibling `automation-scheduler-claims.test.mjs` does the same for the
  * docs about triggers and the scheduler.
@@ -42,12 +43,22 @@ const stepExecutor = read(extensionSrc, 'modules', 'automation', 'StepExecutor.t
 const stepLibrary = read(extensionSrc, 'modules', 'automation', 'StepLibrary.ts');
 const automationPage = read(webviewSrc, 'pages', 'Automation', 'AutomationPage.tsx');
 const stepConfigPanel = read(webviewSrc, 'pages', 'Automation', 'StepConfigPanel.tsx');
+const automationTypes = read(repoRoot, 'packages', 'shared', 'src', 'types', 'automation.types.ts');
 
-/** The step types `StepExecutor` sends to its pass-through handler. */
-function passThroughStepTypes() {
-  const list = stepExecutor.match(/const passThrough: PipelineStepType\[\] = \[([^\]]*)\]/);
-  assert.ok(list, 'no `passThrough` list found in StepExecutor.ts — has the executor changed?');
-  return [...list[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+/**
+ * The step types `StepExecutor` refuses: every member of the `PipelineStepType`
+ * union its `registerDefaults` gives no handler.
+ */
+function refusedStepTypes() {
+  const union = automationTypes.match(/export type PipelineStepType =([^;]+);/);
+  assert.ok(union, 'PipelineStepType union not found in automation.types.ts');
+  const all = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  const defaults = stepExecutor.match(/private registerDefaults\(\): void \{([\s\S]*?)\n {2}\}/);
+  assert.ok(defaults, 'no `registerDefaults` found in StepExecutor.ts — has the executor changed?');
+  const handled = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
+  // Positive control: a parse that sees no handler would call every type refused.
+  assert.ok(handled.length > 0, 'registerDefaults was read as registering no handler');
+  return all.filter((type) => !handled.includes(type));
 }
 
 /**
@@ -78,7 +89,7 @@ const DRY_RUN = /dry.?run|without commit/i;
 
 /**
  * Named delivery channels. A pipeline reaches none of them: the `notification`
- * step is a pass-through, and the extension has no Slack, Teams, email or
+ * step is refused, and the extension has no Slack, Teams, email or
  * incident-tool client at all.
  */
 const DELIVERY_CHANNEL = /\bslack|\bteams\b|\bemail|\bsms\b|pagerduty|datadog|\bjira\b|\bwebhook/i;
@@ -131,9 +142,8 @@ test('no template offers a dry run', () => {
 });
 
 test('no notification step names a channel nothing sends to', () => {
-  const passThrough = passThroughStepTypes();
   assert.ok(
-    passThrough.includes('notification'),
+    refusedStepTypes().includes('notification'),
     'the notification step has a handler now — check what it sends before deleting this test',
   );
 
@@ -174,11 +184,11 @@ function templateDescriptions(source) {
 const TELLS_SOMEONE = /\bnotif(?:y|ies|ied)\b|\balert/i;
 
 test('no template card promises to tell anyone', () => {
-  // The notification step is a pass-through, so a card that ends on "notify
-  // the team" or "alert when" describes the one part of its pipeline no run
+  // The notification step is refused, so a card that ends on "notify the
+  // team" or "alert when" describes the one part of its pipeline no run
   // reaches, and the card is read on its own, away from the banner.
   assert.ok(
-    passThroughStepTypes().includes('notification'),
+    refusedStepTypes().includes('notification'),
     'the notification step has a handler now — check what it sends before deleting this test',
   );
   for (const [file, source] of [
@@ -201,7 +211,7 @@ test('no step config asks where to deliver something nothing delivers', () => {
   // The palette description and the marketplace configs were made honest, but
   // the panel is the surface a user types into: a "Channel" box on a step that
   // sends nothing collects an address no code reads.
-  for (const type of passThroughStepTypes()) {
+  for (const type of refusedStepTypes()) {
     const entry = stepLibraryEntry(type);
     const schema = entry.match(/configSchema: \{([\s\S]*?)\}\s*,?\s*$/);
     for (const [, key] of schema ? schema[1].matchAll(/(\w+):\s*\{/g) : []) {
@@ -225,7 +235,7 @@ test('no step config asks where to deliver something nothing delivers', () => {
 
 test('the approval step does not claim to hold a run', () => {
   assert.ok(
-    passThroughStepTypes().includes('approval'),
+    refusedStepTypes().includes('approval'),
     'approval has a handler now — re-read this gate before deleting it',
   );
   const approval = stepLibrary.match(/type: 'approval',[\s\S]*?description: '([^']*)'/);
@@ -268,9 +278,9 @@ test('the Marketplace says its steps do not do the work yet', () => {
       marketplaceView,
     );
 
-  const passThrough = passThroughStepTypes();
-  const inert = templateSteps(marketplace).filter((step) => passThrough.includes(step.type));
-  assert.ok(inert.length > 0, 'no marketplace step is a pass-through — has the executor changed?');
+  const refused = refusedStepTypes();
+  const inert = templateSteps(marketplace).filter((step) => refused.includes(step.type));
+  assert.ok(inert.length > 0, 'no marketplace step is refused — has the executor changed?');
 
   if (notice) return;
   for (const step of inert) {

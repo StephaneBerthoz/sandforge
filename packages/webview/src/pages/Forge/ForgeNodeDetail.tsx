@@ -18,12 +18,12 @@ export interface ForgeNodeDetailProps {
 
 /** Status badge color map. */
 const statusColors: Record<ForgeGraphNode['status'], string> = {
-  idle: 'bg-gray-500/10 text-text-primary',
-  scanning: 'bg-blue-500/10 text-status-info',
-  running: 'bg-amber-500/10 text-status-warning',
-  done: 'bg-green-500/10 text-status-success',
-  error: 'bg-red-500/10 text-status-error',
-  skipped: 'bg-gray-500/10 text-text-primary',
+  idle: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
+  scanning: 'bg-status-info/10 text-status-info',
+  running: 'bg-status-warning/10 text-status-warning',
+  done: 'bg-status-success/10 text-status-success',
+  error: 'bg-status-error/10 text-status-error',
+  skipped: 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
 };
 
 /** Sample anonymization preview data. */
@@ -180,7 +180,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             {node.errors.map((err, idx) => (
               <li
                 key={idx}
-                className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-xs text-status-error"
+                className="flex items-start gap-1.5 rounded bg-status-error/10 px-2 py-1.5 text-xs text-status-error"
               >
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                 <span>{err}</span>

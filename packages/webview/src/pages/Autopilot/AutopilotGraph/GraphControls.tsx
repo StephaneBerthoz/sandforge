@@ -59,7 +59,7 @@ export const GraphControls: React.FC<{
       >
         &#x2212;
       </button>
-      <div className="mx-1 border-t border-gray-600" />
+      <div className="mx-1 border-t border-subtle" />
       <button
         data-testid="fit-view-btn"
         className={buttonClass}

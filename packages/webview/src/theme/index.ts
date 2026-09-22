@@ -48,24 +48,6 @@ export const vsCodeTokens = {
   warningBg: 'var(--vscode-inputValidation-warningBackground, #352a05)',
   info: 'var(--vscode-editorInfo-foreground, #3794ff)',
   infoBg: 'var(--vscode-inputValidation-infoBackground, #063b49)',
-  success: '#4ec9b0',
-  successBg: '#1a3a2a',
-} as const;
-
-/** Safety tier color configuration for org indicators. */
-export const safetyTierColors = {
-  critical: { bg: '#991b1b', fg: '#fecaca', border: '#f87171', label: '#ef4444' },
-  high: { bg: '#92400e', fg: '#fef3c7', border: '#f59e0b', label: '#f59e0b' },
-  medium: { bg: '#1e40af', fg: '#dbeafe', border: '#3b82f6', label: '#3b82f6' },
-  low: { bg: '#065f46', fg: '#d1fae5', border: '#10b981', label: '#10b981' },
-} as const;
-
-/** Module color map for consistent UI theming per module. */
-export const moduleColors = {
-  forge: '#F97316',
-  grappe: '#6366F1',
-  monitor: '#EAB308',
-  compare: '#A855F7',
-  dataops: '#06B6D4',
-  automation: '#F43F5E',
+  // VS Code names no success background, so there is no successBg to follow.
+  success: 'var(--vscode-testing-iconPassed, #4ec9b0)',
 } as const;

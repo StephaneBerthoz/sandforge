@@ -9,17 +9,20 @@ const VSCODE_VAR_MSG =
   'Hardcoded var(--vscode-*) is forbidden outside the design system. Use token classes (bg-surface-*, text-text-*, border-subtle) or var(--sf-*) — see src/styles/design-system.css.';
 
 /**
- * Fixed `-400` palette classes read on a dark editor and fail AA on a light
- * one. Severity goes through `*-status-*`, identity colours through `*-hue-*`,
- * neutral text through `text-text-*` (tailwind.config.ts).
+ * A fixed palette shade, `-50` to `-950`, is picked for one background: a
+ * `-400` reads on a dark editor and fails AA on a light one, a `-700` fill does
+ * the reverse. Severity goes through `*-status-*`, identity colours through
+ * `*-hue-*`, neutrals through `text-text-*`, `bg-surface-*` and `border-subtle`
+ * (tailwind.config.ts). src/styles/design-system.test.ts holds the same line
+ * over the product's sources.
  */
-const PALETTE_400 =
-  '(^|[^\\w-])(text|bg|border(-[xytrbl])?|ring|fill|stroke|from|via|to|outline|divide|decoration|placeholder|caret|accent|shadow)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-400($|[^\\w-])';
-const PALETTE_400_MSG =
-  'Fixed -400 palette classes fail contrast on light themes. Use text-status-*, text-hue-* or text-text-* — see tailwind.config.ts.';
-const PALETTE_400_SELECTORS = [
-  { selector: `Literal[value=/${PALETTE_400}/]`, message: PALETTE_400_MSG },
-  { selector: `TemplateElement[value.raw=/${PALETTE_400}/]`, message: PALETTE_400_MSG },
+const PALETTE =
+  '(^|[^\\w-])(text|bg|border(-[xytrblse])?|ring(-offset)?|fill|stroke|from|via|to|outline|divide|decoration|placeholder|caret|accent|shadow)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)($|[^\\w-])';
+const PALETTE_MSG =
+  'Fixed palette shades (-50 to -950) fail contrast on the themes they were not picked for. Use *-status-* for severity, *-hue-* for identity colours, text-text-*, bg-surface-* or border-subtle for neutrals; a tint keeps its modifier (bg-status-error/10) — see tailwind.config.ts.';
+const PALETTE_SELECTORS = [
+  { selector: `Literal[value=/${PALETTE}/]`, message: PALETTE_MSG },
+  { selector: `TemplateElement[value.raw=/${PALETTE}/]`, message: PALETTE_MSG },
 ];
 
 export default tseslint.config(
@@ -140,7 +143,7 @@ export default tseslint.config(
           selector: 'TemplateElement[value.raw=/var\\(--vscode-/]',
           message: VSCODE_VAR_MSG,
         },
-        ...PALETTE_400_SELECTORS,
+        ...PALETTE_SELECTORS,
       ],
     },
   },
@@ -153,6 +156,6 @@ export default tseslint.config(
       'packages/webview/src/styles/**/*',
       'packages/webview/src/theme/**/*',
     ],
-    rules: { 'no-restricted-syntax': ['error', ...PALETTE_400_SELECTORS] },
+    rules: { 'no-restricted-syntax': ['error', ...PALETTE_SELECTORS] },
   },
 );

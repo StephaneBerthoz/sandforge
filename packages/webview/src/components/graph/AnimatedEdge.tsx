@@ -57,26 +57,24 @@ export const AnimatedEdge: React.FC<EdgeProps<AnimatedEdgeData>> = ({
   const isMasterDetail = relationshipType === 'master-detail';
   const strokeWidth = isMasterDetail ? 2 : 1;
   const strokeDasharray = isMasterDetail ? undefined : '5,5';
-  const strokeColor = '#F97316';
-  const defaultColor = 'rgba(255,255,255,0.3)';
 
   return (
     <g data-testid="animated-edge">
       <style>{animationStyle}</style>
       {/* Invisible wider path for easier mouse interaction */}
       <path d={edgePath} fill="none" stroke="transparent" strokeWidth={10} />
-      {/* Visible path */}
+      {/* Visible path, in the Forge mark unless the edge's own style names a
+          stroke, which wins over the class. */}
       <path
         id={id}
         d={edgePath}
         fill="none"
-        stroke={style?.stroke ?? defaultColor}
+        className="stroke-hue-forge"
         strokeWidth={strokeWidth}
         strokeDasharray={strokeDasharray ?? '20,20'}
         style={{
           animation: `${EDGE_ANIMATION_NAME} 1s linear infinite`,
           ...style,
-          stroke: style?.stroke ?? strokeColor,
         }}
       />
       {/* Label */}

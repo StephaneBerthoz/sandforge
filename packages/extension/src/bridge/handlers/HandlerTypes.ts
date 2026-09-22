@@ -594,6 +594,9 @@ const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   /^Backup \S+ was taken from org /,
   // The pipeline runner's fallback when a failed run carries no error.
   /^Pipeline failed$/,
+  // A pipeline refused before its first step: a step type that cannot run in
+  // a pipeline yet, or a Delay or Condition step with nothing to act on.
+  /^Pipeline did not start: /,
   // ConnectionHelper, before any call reaches the org: an unknown org, a
   // missing session, a malformed CLI username. The first two carry the org Id.
   /^Org not found: /,

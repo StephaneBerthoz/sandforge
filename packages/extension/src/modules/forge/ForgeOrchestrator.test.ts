@@ -51,12 +51,15 @@ function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
 function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSummary {
   return {
     successCount: 10,
+    linkedCount: 0,
     failedCount: 0,
     skippedCount: 0,
     remapCount: 5,
     errors: [],
     truncatedObjects: [],
     remapTable: {},
+    existingRecords: [],
+    existingSourceIds: [],
     ...overrides,
   };
 }
@@ -213,6 +216,39 @@ describe('ForgeOrchestrator', () => {
 
       const result = await orchestrator.execute(createMockGraph(), createMockConfig());
       expect(result.status).toBe('failure');
+    });
+
+    it('calls a run partial, not failed, when it linked what it could not create', async () => {
+      vi.mocked(deps.executor.execute).mockResolvedValue(
+        createMockSummary({ successCount: 0, linkedCount: 4, failedCount: 2 }),
+      );
+
+      const result = await orchestrator.execute(createMockGraph(), createMockConfig());
+      expect(result.status).toBe('partial');
+    });
+
+    it('carries the records the target already held into the result, apart from the created ones', async () => {
+      vi.mocked(deps.executor.execute).mockResolvedValue(
+        createMockSummary({
+          successCount: 6,
+          linkedCount: 2,
+          remapTable: {
+            '001SRC000000001': '001TGT000000001',
+            '001SRC000000002': '001TGT000000002',
+          },
+          existingRecords: [{ objectApiName: 'Account', linked: 2, unidentified: 1 }],
+          existingSourceIds: ['001SRC000000002'],
+        }),
+      );
+
+      const result = await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      expect(result.createdCount).toBe(6);
+      expect(result.linkedExistingCount).toBe(2);
+      expect(result.existingRecords).toEqual([
+        { objectApiName: 'Account', linked: 2, unidentified: 1 },
+      ]);
+      expect(result.idRemapExisting).toEqual(['001SRC000000002']);
     });
 
     it('should include idRemapCount from executor summary', async () => {

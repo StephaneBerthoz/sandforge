@@ -38,6 +38,13 @@ import {
   dedupePricebookEntries,
 } from '@sandforge/shared';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
+import {
+  findUnavailableRecordTypes,
+  recordTypeBlockedMessage,
+  recordTypeBlockedReason,
+  type RecordTypeAvailability,
+  type UnavailableRecordTypeUse,
+} from '../../core/metadata/recordTypeAvailability.js';
 
 /**
  * Raised when the user aborts a forge run.
@@ -60,8 +67,22 @@ export interface InsertResult {
   id: string;
   /** Whether the insert succeeded. */
   success: boolean;
-  /** Error messages if the insert failed. */
+  /** Error messages if the insert failed, `STATUS_CODE: message` when Salesforce gave a code. */
   errors: string[];
+  /**
+   * Records of the same object a duplicate rule matched when it refused the
+   * row. Only the structured error carries them, so a writer that has it
+   * passes them on; see `toSaveOutcome`.
+   */
+  duplicateMatchIds?: string[];
+}
+
+/** What the target org's describe of an object says about writing to it. */
+export interface TargetObjectInfo {
+  /** Key prefix of the object's ids; `null` when the describe gives none. */
+  keyPrefix: string | null;
+  /** The object's record types, as the user the run writes as sees them. */
+  recordTypes: RecordTypeAvailability[];
 }
 
 /** Result of a single record update operation. */
@@ -310,6 +331,18 @@ export interface ForgeExecutorDeps {
    * with a helpful error rather than failing record-by-record at runtime.
    */
   isObjectCreatable?: (orgId: string, objectName: string) => Promise<boolean>;
+  /**
+   * The key prefix and record types of an object, from the describe the run
+   * already holds for it — a writer that would have to describe again for
+   * this should leave it out.
+   *
+   * The key prefix is what makes sure an id a duplicate refusal names belongs
+   * to the object written before children are linked to it; the record types
+   * say which ones the running user may not use, so the object is held back
+   * before a single record of it is refused. Optional: without it an id is
+   * checked for form alone and record types are left to the platform.
+   */
+  describeObject?: (orgId: string, objectName: string) => Promise<TargetObjectInfo>;
   /** Optional batch strategy for splitting inserts into batches. */
   batchStrategy?: ForgeBatchStrategyService;
   /** Optional anonymization function applied before insert. */
@@ -366,10 +399,31 @@ export interface ExecutionObjectError {
   samples: ExecutionErrorSample[];
 }
 
+/**
+ * The rows of one object the target refused because it already held them.
+ * Reported apart from created and failed rows: a linked row is neither.
+ */
+export interface ExistingRecordReport {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows mapped onto the record the refusal named; their children link to it. */
+  linked: number;
+  /**
+   * Rows refused as duplicates without one record to trust. Counted as
+   * failed, and their children lose the lookup.
+   */
+  unidentified: number;
+}
+
 /** Summary returned after execution completes. */
 export interface ExecutionSummary {
   /** Number of successfully inserted records. */
   successCount: number;
+  /**
+   * Records the target already held and named when it refused them: linked
+   * to, never written. Counted in neither `successCount` nor `failedCount`.
+   */
+  linkedCount: number;
   /** Number of records that failed to insert. */
   failedCount: number;
   /** Number of skipped objects. */
@@ -393,6 +447,13 @@ export interface ExecutionSummary {
    * checkpoint state for resume.
    */
   remapTable: Record<string, string>;
+  /**
+   * Per object, the rows the target refused because it already held them —
+   * linked, or not identified. Empty when the target held none.
+   */
+  existingRecords: ExistingRecordReport[];
+  /** Source ids whose `remapTable` entry is a record the target already held. */
+  existingSourceIds: string[];
 }
 
 /**
@@ -461,7 +522,10 @@ interface ExecutionState {
    * carries no price book entries, or when the lookup found nothing.
    */
   standardPricebookId: string | null;
+  /** Rows the target already held, per object, in the order they were written. */
+  readonly existingRecords: ExistingRecordReport[];
   successCount: number;
+  linkedCount: number;
   failedCount: number;
   skippedCount: number;
 }
@@ -581,7 +645,9 @@ export class ForgeExecutor {
       deferredNodes: [],
       preread: new Map<string, PrereadNode>(),
       standardPricebookId: null,
+      existingRecords: [],
       successCount: 0,
+      linkedCount: 0,
       failedCount: 0,
       skippedCount: 0,
     };
@@ -627,8 +693,6 @@ export class ForgeExecutor {
         ]);
         const sourceId = sourceBook[0]?.['Id'];
         const targetId = targetBook[0]?.['Id'];
-        process.stderr.write(`[DBG] std books src=${String(sourceId)} tgt=${String(targetId)}
-`);
         if (typeof sourceId === 'string' && typeof targetId === 'string') {
           state.standardPricebookId = sourceId;
           // Never cloned — every org has exactly one and it cannot be
@@ -881,6 +945,7 @@ export class ForgeExecutor {
 
     return {
       successCount: state.successCount,
+      linkedCount: state.linkedCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
       remapCount: state.remapper.count,
@@ -891,6 +956,8 @@ export class ForgeExecutor {
       // toJSON returns a plain object (Record) so it serializes cleanly
       // through the bridge envelope.
       remapTable: state.remapper.toJSON(),
+      existingRecords: state.existingRecords,
+      existingSourceIds: state.remapper.existingSourceIds(),
     };
   }
 
@@ -975,10 +1042,6 @@ export class ForgeExecutor {
           )
         : null;
 
-      if (isPricebookEntry(node.objectApiName) && query.kind === 'query') {
-        process.stderr.write(`[DBG] PBE soql: ${query.statements.join(' ;; ').slice(0, 600)}
-`);
-      }
       const records = await queryNodeRecords(query, (soql) =>
         this.deps.queryRecords(sourceOrgId, soql, () =>
           state.truncatedObjects.add(node.objectApiName),
@@ -1180,9 +1243,56 @@ export class ForgeExecutor {
   }
 
   /**
+   * The key prefix and record types of the node's object in the target org,
+   * or `null` when the run has no way to read them. Best effort: a describe
+   * that failed has already been reported by the field-set check.
+   */
+  private async describeTargetObject(
+    targetOrgId: string,
+    objectApiName: string,
+  ): Promise<TargetObjectInfo | null> {
+    if (!this.deps.describeObject) return null;
+    try {
+      return await this.deps.describeObject(targetOrgId, objectApiName);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The record types among those the node's records will be sent with that
+   * the running user may not use in the target org.
+   *
+   * Read from the values as they will be sent — translated by the record
+   * type mapping — and only when `RecordTypeId` is sent at all: a field
+   * neither org lets the user write is dropped, and excluding or renaming it
+   * is how a user hands the choice to the platform, which then gives the
+   * running user's default.
+   */
+  private recordTypesHeldBack(
+    node: ForgeGraphNode,
+    records: Record<string, unknown>[],
+    target: TargetObjectInfo | null,
+    creatable: ReadonlySet<string>,
+    state: ExecutionState,
+  ): UnavailableRecordTypeUse[] {
+    const { config } = state;
+    if (!target || target.recordTypes.length === 0) return [];
+    if (!creatable.has('RecordTypeId')) return [];
+    if ((config.fieldExclusions[node.objectApiName] ?? []).includes('RecordTypeId')) return [];
+    if (config.fieldMappings[node.objectApiName]?.['RecordTypeId']) return [];
+    let sent: Record<string, unknown>[] = records.map((r) => ({ RecordTypeId: r['RecordTypeId'] }));
+    if (state.recordTypeMapper && config.recordTypeMappings) {
+      sent = state.recordTypeMapper.apply(sent, config.recordTypeMappings);
+    }
+    return findUnavailableRecordTypes(node.objectApiName, sent, target.recordTypes);
+  }
+
+  /**
    * Write one node the read stage has already pulled: describe the target
-   * org, expand orphan parents, clean, translate record types, anonymize and
-   * insert.
+   * org, hold the node back when its record types are closed to the running
+   * user, expand orphan parents, clean, translate record types, anonymize
+   * and insert.
    */
   private async writeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
@@ -1224,6 +1334,52 @@ export class ForgeExecutor {
       const effectiveCreatableSet = targetCreatableSet
         ? intersect(createableSet, targetCreatableSet)
         : createableSet;
+
+      // Read from the describe the field sets came from: no second request.
+      const targetObject = await this.describeTargetObject(targetOrgId, node.objectApiName);
+
+      // A record type can be active in the target and still be closed to the
+      // user the run writes as. Found out at the insert, every record of it
+      // was refused with an INVALID_CROSS_REFERENCE_KEY that names the id and
+      // not the reason, and the objects under it were written against parents
+      // that were not there. Held back here instead, whole, before anything
+      // is written for it — orphan parents included — with the change to make
+      // in the target. Forge maps record types and never drops one, so there
+      // is no default to fall back to without the user choosing it: excluding
+      // `RecordTypeId` for the object is that choice.
+      const heldBack = this.recordTypesHeldBack(
+        node,
+        records,
+        targetObject,
+        effectiveCreatableSet,
+        state,
+      );
+      if (heldBack.length > 0) {
+        state.failedObjects.add(node.objectApiName);
+        state.failedCount += records.length;
+        state.errors.push({
+          objectApiName: node.objectApiName,
+          stage: 'scope',
+          failedCount: records.length,
+          attemptedCount: 0,
+          // One sample per record type: an object has few, and each needs its
+          // own change in the target.
+          samples: heldBack.map((use) => ({
+            recordSummary: `RecordType=${use.developerName} (${use.recordCount} record${use.recordCount === 1 ? '' : 's'})`,
+            messages: [recordTypeBlockedMessage(use)],
+          })),
+        });
+        onProgress({
+          objectName: node.objectApiName,
+          status: 'error',
+          progress: 100,
+          message:
+            `Held back ${node.objectApiName}, nothing written: ` +
+            heldBack.map(recordTypeBlockedReason).join(' ') +
+            ' Objects that depend on it will be skipped.',
+        });
+        return;
+      }
 
       // Single-hop orphan parent expansion. Runs before the
       // clean stage so expanded parents land in the remapper and children
@@ -1305,8 +1461,10 @@ export class ForgeExecutor {
 
       const writeResult = {
         successCount: 0,
+        linkedExistingCount: 0,
         failureCount: 0,
         alreadyExistsCount: 0,
+        unidentifiedExistingCount: 0,
         errorSamples: [] as ExecutionErrorSample[],
         pendingFkUpdates: [] as PendingFkUpdate[],
       };
@@ -1319,30 +1477,43 @@ export class ForgeExecutor {
           creatableFields: effectiveCreatableSet,
           upsertMode: config.upsertMode,
           targetOrgId,
+          targetKeyPrefix: targetObject?.keyPrefix,
           remapper,
           waitIfPaused: () => this.waitIfPaused(),
           onProgress,
         });
         writeResult.successCount += partial.successCount;
+        writeResult.linkedExistingCount += partial.linkedExistingCount;
         writeResult.failureCount += partial.failureCount;
         writeResult.alreadyExistsCount += partial.alreadyExistsCount;
+        writeResult.unidentifiedExistingCount += partial.unidentifiedExistingCount;
         writeResult.pendingFkUpdates.push(...partial.pendingFkUpdates);
         for (const sample of partial.errorSamples) {
           if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
         }
       }
       const nodeSuccess = writeResult.successCount;
+      const nodeLinked = writeResult.linkedExistingCount;
       const nodeFailure = writeResult.failureCount;
+      const nodeUnidentified = writeResult.unidentifiedExistingCount;
       state.successCount += nodeSuccess;
+      state.linkedCount += nodeLinked;
       state.failedCount += nodeFailure;
       state.pendingFkUpdates.push(...writeResult.pendingFkUpdates);
+      if (nodeLinked > 0 || nodeUnidentified > 0) {
+        state.existingRecords.push({
+          objectApiName: node.objectApiName,
+          linked: nodeLinked,
+          unidentified: nodeUnidentified,
+        });
+      }
 
       if (nodeFailure > 0) {
         state.errors.push({
           objectApiName: node.objectApiName,
           stage: 'insert',
           failedCount: nodeFailure,
-          attemptedCount: nodeSuccess + nodeFailure,
+          attemptedCount: nodeSuccess + nodeLinked + nodeFailure,
           samples: writeResult.errorSamples,
         });
       }
@@ -1350,7 +1521,10 @@ export class ForgeExecutor {
       // Fail-fast on partial-but-mostly-failure: if >50% of records
       // failed, mark the node as failed so downstream children skip
       // (their FKs would orphan-nullify and silently corrupt the clone).
-      const total = nodeSuccess + nodeFailure;
+      // A row linked to the record the target already held is not a failure:
+      // its children have a parent to point at.
+      const settled = nodeSuccess + nodeLinked;
+      const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
       // not orphaned anything: what its children point at is there, it simply
@@ -1360,23 +1534,32 @@ export class ForgeExecutor {
       // them. Reported as failed, because the rows were not written; not
       // counted as a failed parent, because nothing is missing.
       const onlyAlreadyExists = nodeFailure > 0 && writeResult.alreadyExistsCount === nodeFailure;
-      if (nodeFailure > 0 && !onlyAlreadyExists && (nodeSuccess === 0 || failureRate > 0.5)) {
+      if (nodeFailure > 0 && !onlyAlreadyExists && (settled === 0 || failureRate > 0.5)) {
         state.failedObjects.add(node.objectApiName);
         onProgress({
           objectName: node.objectApiName,
           status: 'error',
           progress: 100,
           message:
-            nodeSuccess === 0
+            settled === 0
               ? `Failed all ${node.objectApiName} records`
               : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — children will be skipped`,
         });
       } else {
+        // The rows the target already held are named apart: linked is neither
+        // written nor failed, and a duplicate the run could not identify is a
+        // failure whose children lose their lookup — worth saying on its own.
+        const linked =
+          nodeLinked > 0 ? `, ${nodeLinked} linked to records already in the target` : '';
+        const unidentified =
+          nodeUnidentified > 0
+            ? ` (${nodeUnidentified} already in the target without Salesforce naming the record — their children lose the link)`
+            : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded, ${nodeFailure} failed`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${linked}, ${nodeFailure} failed${unidentified}`,
         });
       }
     } catch (err) {

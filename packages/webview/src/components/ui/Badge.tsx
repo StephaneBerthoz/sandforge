@@ -19,12 +19,18 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   className?: string;
 }
 
+/**
+ * A severity badge fills with its status token and writes in the editor
+ * background, which the token is sized to read against on every measured theme
+ * but Solarized Light (tailwind.config.ts). The fixed -700 fills with -100 text
+ * they replace painted the same pill on every theme instead of following it.
+ */
 const variantClasses: Record<BadgeVariant, string> = {
   default: 'bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]',
-  success: 'bg-emerald-700 text-emerald-100',
-  warning: 'bg-amber-700 text-amber-100',
-  error: 'bg-red-700 text-red-100',
-  info: 'bg-blue-700 text-blue-100',
+  success: 'bg-status-success text-[var(--sf-bg-primary)]',
+  warning: 'bg-status-warning text-[var(--sf-bg-primary)]',
+  error: 'bg-status-error text-[var(--sf-bg-primary)]',
+  info: 'bg-status-info text-[var(--sf-bg-primary)]',
 };
 
 /** Small badge/label for counts or status indicators. */

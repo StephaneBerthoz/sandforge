@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { PipelineStep, PipelineStepType } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { stepBlocker } from './stepRunnability';
 
 /** PipelineCanvas component props. */
 export interface PipelineCanvasProps {
@@ -13,22 +14,27 @@ export interface PipelineCanvasProps {
   onConnectSteps?: (fromStepId: string, toStepId: string) => void;
 }
 
+/**
+ * The dot beside a step's name, in an identity hue per type. The type is also
+ * written in the badge next to it, so types a shade apart before (backup and
+ * restore, script and delay) may share a hue.
+ */
 const STEP_COLORS: Partial<Record<PipelineStepType, string>> = {
-  seed: 'bg-emerald-800',
-  sync: 'bg-blue-800',
-  backup: 'bg-purple-800',
-  restore: 'bg-purple-700',
-  anonymize: 'bg-amber-800',
-  delete: 'bg-red-800',
-  compare: 'bg-cyan-800',
-  precheck: 'bg-teal-800',
-  script: 'bg-gray-700',
-  notification: 'bg-yellow-800',
-  approval: 'bg-orange-800',
-  delay: 'bg-gray-600',
-  condition: 'bg-indigo-800',
-  loop: 'bg-violet-800',
-  parallel: 'bg-pink-800',
+  seed: 'bg-hue-green',
+  sync: 'bg-hue-blue',
+  backup: 'bg-hue-purple',
+  restore: 'bg-hue-purple',
+  anonymize: 'bg-hue-amber',
+  delete: 'bg-hue-rose',
+  compare: 'bg-hue-cyan',
+  precheck: 'bg-hue-teal',
+  script: 'bg-text-secondary',
+  notification: 'bg-hue-yellow',
+  approval: 'bg-hue-orange',
+  delay: 'bg-text-secondary',
+  condition: 'bg-hue-indigo',
+  loop: 'bg-hue-purple',
+  parallel: 'bg-hue-fuchsia',
 };
 
 /** Visual pipeline canvas showing steps as connected nodes. */
@@ -56,7 +62,10 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
     <div className="flex flex-col gap-2 p-2" data-testid="pipeline-canvas">
       {steps.map((step, index) => {
         const isSelected = step.id === selectedStepId;
-        const colorClass = STEP_COLORS[step.type] ?? 'bg-gray-700';
+        const colorClass = STEP_COLORS[step.type] ?? 'bg-text-secondary';
+        // A saved pipeline, a Marketplace template or an AI draft can hold a
+        // step the palette would not add: it is marked where it sits.
+        const blocker = stepBlocker(step);
 
         return (
           <div key={step.id} className="flex items-center gap-2">
@@ -79,6 +88,15 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               <Badge variant="default">{step.type}</Badge>
               {step.continueOnError && (
                 <Badge variant="warning">{t('automation.continueOnError')}</Badge>
+              )}
+              {blocker !== undefined && (
+                <Badge
+                  variant="warning"
+                  title={t(`automation.runnability.${blocker}`)}
+                  data-testid={`canvas-blocked-${step.id}`}
+                >
+                  {t('automation.runnability.cannotRun')}
+                </Badge>
               )}
               {onRemoveStep && (
                 <button

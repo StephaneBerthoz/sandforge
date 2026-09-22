@@ -61,6 +61,11 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
   'AcceptedEventRelation',
   'OpenActivity',
   'ActivityHistory',
+  // A tag the platform puts on records created through an app such as
+  // Revenue Lifecycle Management. Written by a copy onto a quote, it is
+  // refused — "you can't modify quotes with an app usage assignment" — and
+  // the platform assigns it itself to what it manages.
+  'AppUsageAssignment',
 ]);
 
 /** History, feed, sharing and change-event variants of any object. */

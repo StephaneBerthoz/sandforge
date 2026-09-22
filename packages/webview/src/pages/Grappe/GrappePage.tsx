@@ -38,7 +38,7 @@ export const GrappePage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+          <div className="p-2.5 rounded-xl bg-hue-indigo/10 border border-hue-indigo/20">
             <Network className="w-6 h-6 text-hue-indigo" />
           </div>
           <div>
@@ -126,7 +126,7 @@ export const GrappePage: React.FC = () => {
                 <ProgressBar
                   value={overallProgress}
                   ariaLabel={t('a11y.runProgress', { name: t('nav.grappe', 'Grappe') })}
-                  barClassName="bg-gradient-to-r from-indigo-500 to-violet-500"
+                  barClassName="bg-gradient-to-r from-hue-indigo to-hue-purple"
                 />
               </div>
               <div className="flex items-center justify-between mt-2">
@@ -153,7 +153,7 @@ export const GrappePage: React.FC = () => {
                         size="sm"
                         className="flex-1"
                         ariaLabel={p.grappeId}
-                        barClassName="bg-indigo-500"
+                        barClassName="bg-hue-indigo"
                       />
                       <span className="text-[10px] tabular-nums text-text-secondary w-8 text-right">
                         {p.percentage}%
@@ -167,9 +167,9 @@ export const GrappePage: React.FC = () => {
         </div>
       ) : (
         /* Empty State */
-        <Card className="border border-dashed border-indigo-500/30 bg-indigo-500/5">
+        <Card className="border border-dashed border-hue-indigo/30 bg-hue-indigo/5">
           <CardBody className="flex flex-col items-center gap-4 py-12">
-            <div className="p-4 rounded-2xl bg-indigo-500/10">
+            <div className="p-4 rounded-2xl bg-hue-indigo/10">
               <Network className="w-10 h-10 text-hue-indigo" />
             </div>
             <div className="text-center">
@@ -210,7 +210,7 @@ export const GrappePage: React.FC = () => {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="p-2 rounded-lg bg-indigo-500/10">
+              <div className="p-2 rounded-lg bg-hue-indigo/10">
                 <Layers className="w-5 h-5 text-hue-indigo" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
@@ -224,7 +224,7 @@ export const GrappePage: React.FC = () => {
               </span>
             </div>
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="p-2 rounded-lg bg-cyan-500/10">
+              <div className="p-2 rounded-lg bg-hue-cyan/10">
                 <Cpu className="w-5 h-5 text-hue-cyan" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
@@ -238,7 +238,7 @@ export const GrappePage: React.FC = () => {
               </span>
             </div>
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="p-2 rounded-lg bg-green-500/10">
+              <div className="p-2 rounded-lg bg-hue-green/10">
                 <Gauge className="w-5 h-5 text-hue-green" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">

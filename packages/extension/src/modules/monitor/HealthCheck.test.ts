@@ -101,39 +101,61 @@ describe('HealthCheck', () => {
     });
 
     it('reports no count for a signal whose data could not be read', async () => {
+      // None read is not zero found.
       const providers: HealthSignalProvider[] = [
-        vi.fn().mockResolvedValue(createSignal({ name: 'activeJobs', score: 100 })),
+        vi
+          .fn()
+          .mockResolvedValue(createSignal({ name: 'activeJobs', status: 'unknown', score: 0 })),
       ];
 
       const result = await new HealthCheck(providers).computeHealth('org-1');
 
-      expect(result.failedJobs).toBe(0);
-      expect(result.recentErrorLogs).toBe(0);
+      expect(result.failedJobs).toBeNull();
+      expect(result.recentErrorLogs).toBeNull();
     });
 
-    it('should default to ok when signal is not provided', async () => {
+    it('says unknown for a signal no provider gave', async () => {
       const providers: HealthSignalProvider[] = [
         vi.fn().mockResolvedValue(createSignal({ name: 'other', score: 100 })),
       ];
 
-      const health = new HealthCheck(providers);
-      const result = await health.computeHealth('org-1');
+      const result = await new HealthCheck(providers).computeHealth('org-1');
 
-      expect(result.apiLimitsStatus).toBe('ok');
-      expect(result.storageStatus).toBe('ok');
+      expect(result.apiLimitsStatus).toBe('unknown');
+      expect(result.storageStatus).toBe('unknown');
     });
 
-    it('should handle empty providers list', async () => {
-      const health = new HealthCheck([]);
-      const result = await health.computeHealth('org-1');
+    it('is unknown, not healthy, when nothing could be read', async () => {
+      // An org the monitor could not read at all used to come out
+      // "healthy, 100".
+      const providers: HealthSignalProvider[] = [
+        vi.fn().mockResolvedValue(createSignal({ name: 'apiLimits', status: 'unknown', score: 0 })),
+        vi.fn().mockResolvedValue(createSignal({ name: 'storage', status: 'unknown', score: 0 })),
+      ];
 
-      expect(result.overall).toBe('healthy');
+      expect((await new HealthCheck(providers).computeHealth('org-1')).overall).toBe('unknown');
+      expect((await new HealthCheck([]).computeHealth('org-1')).overall).toBe('unknown');
+    });
+
+    it('judges the org on the signals that were read', async () => {
+      const providers: HealthSignalProvider[] = [
+        vi.fn().mockResolvedValue(createSignal({ name: 'apiLimits', score: 40 })),
+        vi.fn().mockResolvedValue(createSignal({ name: 'storage', status: 'unknown', score: 0 })),
+      ];
+
+      expect((await new HealthCheck(providers).computeHealth('org-1')).overall).toBe('critical');
     });
   });
 
   describe('computeScore', () => {
-    it('should return 100 for empty signals', () => {
-      expect(HealthCheck.computeScore([])).toBe(100);
+    it('has no score when no signal was read', () => {
+      expect(HealthCheck.computeScore([])).toBeNull();
+      expect(HealthCheck.computeScore([createSignal({ status: 'unknown', score: 0 })])).toBeNull();
+    });
+
+    it('leaves out the signals that could not be read', () => {
+      const signals = [createSignal({ score: 60 }), createSignal({ status: 'unknown', score: 0 })];
+      expect(HealthCheck.computeScore(signals)).toBe(60);
     });
 
     it('should return the average score', () => {

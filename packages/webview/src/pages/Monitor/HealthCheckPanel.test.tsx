@@ -53,3 +53,35 @@ describe('HealthCheckPanel', () => {
     expect(screen.getByText('3')).toBeDefined();
   });
 });
+
+describe('HealthCheckPanel — what could not be read', () => {
+  it('says unknown, not healthy, and marks the counts not read', () => {
+    // An org the monitor could not read used to come out "healthy, 100",
+    // with zero failed jobs and zero errors.
+    render(
+      <HealthCheckPanel
+        orgHealthStatus={createHealthStatus({
+          overall: 'unknown',
+          apiLimitsStatus: 'unknown',
+          storageStatus: 'unknown',
+          failedJobs: null,
+          recentErrorLogs: null,
+        })}
+      />,
+    );
+    expect(screen.getByText('Unknown')).toBeDefined();
+    expect(screen.getAllByText('Not read')).toHaveLength(2);
+    expect(screen.getAllByText('not read')).toHaveLength(2);
+  });
+
+  it('names each signal through the catalogue, not as a raw code', () => {
+    // The badges printed `ok` and `warning` as they came, in every language.
+    render(
+      <HealthCheckPanel
+        orgHealthStatus={createHealthStatus({ overall: 'degraded', apiLimitsStatus: 'warning' })}
+      />,
+    );
+    expect(screen.getByText('Warning')).toBeDefined();
+    expect(screen.queryByText('warning')).toBeNull();
+  });
+});

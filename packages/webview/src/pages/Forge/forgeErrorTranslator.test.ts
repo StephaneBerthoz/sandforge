@@ -76,6 +76,18 @@ describe('translateForgeError', () => {
     expect(result?.vars?.sourceRefId).toBe('003ABC123');
   });
 
+  it('explains an object the run held back over a record type the running user cannot use', () => {
+    const result = translateForgeError(
+      'RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case (Partner Case), ' +
+        'which the running user cannot use in the target org. Give the running user access to ' +
+        'record type Partner_Case on Case, or map it to one they have.',
+    );
+    expect(result?.code).toBe('RECORD_TYPE_UNAVAILABLE');
+    expect(result?.severity).toBe('error');
+    expect(result?.explanationKey).toBe('forge.error.recordTypeHeldBack.explanation');
+    expect(result?.actionKey).toBe('forge.error.recordTypeHeldBack.action');
+  });
+
   it('translates out-of-scope messages as info', () => {
     const result = translateForgeError('no parent in cache and not the root');
     expect(result?.code).toBe('OUT_OF_SCOPE');
@@ -125,6 +137,7 @@ describe('forge.error hint keys', () => {
     'no parent in cache and not the root',
     'STANDARD_PRICE_NOT_DEFINED: Before creating a custom price, create a standard price.',
     "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for the user",
+    'RECORD_TYPE_UNAVAILABLE: 1 Case record uses record type Partner_Case, which the running user cannot use in the target org.',
   ];
 
   /** Walk a dotted key through a locale object. */

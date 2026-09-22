@@ -42,8 +42,8 @@ const borderByStatus: Record<ForgeNodeStatus, string> = {
   idle: 'border-subtle',
   scanning: 'border-forge',
   running: 'border-forge animate-pulse',
-  done: 'border-green-500',
-  error: 'border-red-500',
+  done: 'border-status-success',
+  error: 'border-status-error',
   skipped: 'border-text-muted',
 };
 
@@ -154,7 +154,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
                 'text-[9px] font-bold px-1 rounded',
                 edgeType === 'master-detail'
                   ? 'bg-forge/20 text-hue-forge'
-                  : 'bg-gray-500/10 text-text-primary',
+                  : 'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)] text-text-primary',
               )}
             >
               {edgeType === 'master-detail' ? 'MD' : 'LK'}

@@ -13,6 +13,12 @@ import { SasPathGuard } from './SasPathGuard.js';
 import { serializeManifest, type FrozenManifest } from './manifest.js';
 import type { FrozenDataset } from './types.js';
 
+/**
+ * Records every org has and none can create, named by their referenceId so
+ * the load can match them to the target's own: today, the standard price book.
+ */
+export const PLATFORM_RECORDS_FILE_NAME = 'platform-records.json';
+
 /** Thrown when a write is attempted with a failed control gate. */
 export class ControlNotPassedError extends Error {
   constructor(report: NonReidentificationReport) {
@@ -67,6 +73,14 @@ export class FrozenDatasetWriter {
     const dir = this.guard.assertOutsideRepo(outputDir);
     const dataDir = this.guard.assertOutsideRepo(path.join(dir, 'data'));
     await fs.mkdir(dataDir, { recursive: true });
+    // A dataset is written whole. The loader reads every file of this
+    // directory, so a file an earlier version left for an object this one no
+    // longer carries would be loaded as part of it.
+    for (const name of await fs.readdir(dataDir)) {
+      if (name.endsWith('.json')) {
+        await fs.rm(this.guard.assertOutsideRepo(path.join(dataDir, name)));
+      }
+    }
 
     const files: string[] = [];
     // Data files are read back by the loader, never by hand: compact JSON,
@@ -89,6 +103,9 @@ export class FrozenDatasetWriter {
     }
     await writeJson(path.join(dir, 'record-types.json'), dataset.recordTypes);
     await writeJson(path.join(dir, 'personcontact-sidecar.json'), dataset.personContactSidecar);
+    await writeJson(path.join(dir, PLATFORM_RECORDS_FILE_NAME), {
+      ...(dataset.standardPricebook ? { standardPricebook: dataset.standardPricebook } : {}),
+    });
 
     return { dir, files };
   }

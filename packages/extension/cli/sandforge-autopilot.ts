@@ -37,6 +37,12 @@ import { ExecutionPlanGenerator } from '../src/modules/autopilot/ExecutionPlanGe
 import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
 import { AutopilotExecutor } from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
+import {
+  parseRecordTypeCounts,
+  parseRecordTypeInfos,
+  recordTypeCountSoql,
+  type RecordTypeAvailability,
+} from '../src/core/metadata/recordTypeAvailability.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -150,8 +156,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const targetConn = makeConn(loadOrg(args.target));
 
   // One describe of the target per object, shared across the executors a run
-  // creates.
-  const creatableByObject = new Map<string, ReadonlySet<string>>();
+  // creates: the fields it may send and the record types the running user
+  // may use are both read from it.
+  const targetByObject = new Map<
+    string,
+    { creatable: ReadonlySet<string>; recordTypes: RecordTypeAvailability[] }
+  >();
+  const describeTarget = async (objectApiName: string) => {
+    const cached = targetByObject.get(objectApiName);
+    if (cached) return cached;
+    const described = await targetConn.sobject(objectApiName).describe();
+    const answer = {
+      creatable: new Set(described.fields.filter((f) => f.createable).map((f) => f.name)),
+      recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
+    };
+    targetByObject.set(objectApiName, answer);
+    return answer;
+  };
   const anonymizer = new SmartAnonymizer();
   const orchestrator = new AutopilotOrchestrator({
     schemaScanner: new SchemaScanner(),
@@ -199,13 +220,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         },
         anonymizer,
         remapper: new RecordIdRemapper(),
-        describeCreateableFields: async (objectApiName) => {
-          const cached = creatableByObject.get(objectApiName);
-          if (cached) return cached;
-          const described = await targetConn.sobject(objectApiName).describe();
-          const names = new Set(described.fields.filter((f) => f.createable).map((f) => f.name));
-          creatableByObject.set(objectApiName, names);
-          return names;
+        describeCreateableFields: async (objectApiName) =>
+          (await describeTarget(objectApiName)).creatable,
+        describeRecordTypes: async (objectApiName) =>
+          (await describeTarget(objectApiName)).recordTypes,
+        // The same count the panel asks, for the same reason: every record
+        // type an object carries has to be known before its first page.
+        countRecordTypes: async (objectApiName) => {
+          const counted = await sourceConn.query<Record<string, unknown>>(
+            recordTypeCountSoql(objectApiName),
+          );
+          return parseRecordTypeCounts(counted.records);
         },
       }),
     grappeAdapter: new AutopilotGrappeAdapter(),

@@ -122,8 +122,46 @@ describe('CoverageMatrixSelector', () => {
     expect(result.uncovered).toEqual([
       {
         combinationKey: 'prestation=MRH|logiciel=Autre',
-        reason: 'no healthy candidate among the 3 probed',
+        reason:
+          'no healthy candidate among the 1 probed (limit 3) — last: lame dossier (incomplete graph)',
       },
+    ]);
+  });
+
+  it('says what an empty selection found instead of measuring nothing', async () => {
+    // Every candidate lame: asked to measure an empty list, the extraction
+    // had no root to start from, and the whole selection died on that error.
+    let measuredWith: string[] | undefined;
+    const selector = new CoverageMatrixSelector({
+      query: buildQuery(org),
+      checkHealth: healthChecker(new Set(['D1', 'D2', 'D3', 'D4', 'D5', 'D9'])),
+      measureVolumetry: async (rootIds) => {
+        measuredWith = rootIds;
+        return {};
+      },
+      now: () => NOW,
+    });
+    const result = await selector.select(baseConfig);
+
+    expect(measuredWith).toBeUndefined();
+    expect(result.roots).toEqual([]);
+    expect(result.volumetry).toEqual({ measured: {}, total: 0, budgetMax: 2500 });
+    expect(result.uncovered).toHaveLength(5);
+    for (const u of result.uncovered) {
+      expect(u.reason).toContain('lame dossier (incomplete graph)');
+    }
+  });
+
+  it('tells an edge case with no marked record from one whose records are lame', async () => {
+    const selector = new CoverageMatrixSelector({
+      query: buildQuery({ ...org, candidates: org.candidates.slice(0, 4) }),
+      checkHealth: healthChecker(new Set()),
+      measureVolumetry: volumetry(1),
+      now: () => NOW,
+    });
+    const result = await selector.select(baseConfig);
+    expect(result.uncovered).toEqual([
+      { combinationKey: 'edge:litige', reason: 'no record matches the edge-case marker' },
     ]);
   });
 

@@ -10,16 +10,32 @@ import type {
 } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import {
+  duplicateRuleMatchIds,
+  existingRecordOf,
+  formatSaveError,
+} from '../../core/common/existingRecordMatch.js';
 import type { OperationOutcome } from './DataSync.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
 const STREAMING_THRESHOLD = 10_000;
 
 /** Minimal shape of a jsforce per-record DML result. */
-type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
+type JsforceResult = {
+  success: boolean;
+  id?: string;
+  errors?: Array<{ statusCode?: string; message: string }>;
+};
 
 /** Dependencies required by BulkDataWriter. */
 export interface BulkDataWriterDeps {
+  /**
+   * Key prefix of an object in the target org, when the caller holds its
+   * describe. A duplicate's id must carry it before an outcome names it as
+   * the record the target already holds; without it the id is checked for
+   * form alone.
+   */
+  keyPrefixOf?: (objectName: string) => string | null | undefined;
   /** jsforce connection to the target org. */
   connection: Connection;
   /** Selects REST vs Bulk API based on record count. */
@@ -92,6 +108,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      objectName,
       records,
       batchSize,
       (batch) =>
@@ -124,6 +141,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      objectName,
       records,
       batchSize,
       (batch) =>
@@ -154,6 +172,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      objectName,
       records,
       batchSize,
       (batch) =>
@@ -186,6 +205,7 @@ export class BulkDataWriter {
     if (bulked) return bulked;
 
     return this.executeRestBatches(
+      objectName,
       recordIds,
       batchSize,
       (batch) =>
@@ -228,11 +248,13 @@ export class BulkDataWriter {
       // assumption, which misattributed failures after partial job errors.
       records,
     );
-    return (streamResult.outcomes ?? []).map((outcome) => ({
-      id: outcome.id,
-      success: outcome.success,
-      errors: outcome.success ? [] : [outcome.error ?? 'Streaming error'],
-    }));
+    return (streamResult.outcomes ?? []).map((outcome) =>
+      this.withExistingRecord(objectName, {
+        id: outcome.id,
+        success: outcome.success,
+        errors: outcome.success ? [] : [outcome.error ?? 'Streaming error'],
+      }),
+    );
   }
 
   /**
@@ -264,11 +286,24 @@ export class BulkDataWriter {
     // Real per-record outcomes: input-aligned, real Salesforce IDs (the old
     // code fabricated `bulk-${i}` IDs and assumed the first successCount
     // records had succeeded).
-    return bulkResult.outcomes.map((outcome) => ({
-      id: outcome.id,
-      success: outcome.success,
-      errors: outcome.success ? [] : [outcome.error ?? 'Bulk error'],
-    }));
+    return bulkResult.outcomes.map((outcome) =>
+      this.withExistingRecord(objectName, {
+        id: outcome.id,
+        success: outcome.success,
+        errors: outcome.success ? [] : [outcome.error ?? 'Bulk error'],
+      }),
+    );
+  }
+
+  /**
+   * `outcome`, with the record the target already holds when its refusal
+   * names one. Bulk API writes the whole refusal into `sf__Error`, code and
+   * id included, so its text is all there is to read.
+   */
+  private withExistingRecord(objectName: string, outcome: OperationOutcome): OperationOutcome {
+    if (outcome.success) return outcome;
+    const existing = existingRecordOf(outcome, this.deps.keyPrefixOf?.(objectName));
+    return existing.kind === 'linked' ? { ...outcome, existingId: existing.id } : outcome;
   }
 
   /**
@@ -277,6 +312,7 @@ export class BulkDataWriter {
    * retries marks every item in it as failed with the last error message.
    */
   private async executeRestBatches<T>(
+    objectName: string,
     items: T[],
     batchSize: number,
     call: (batch: T[]) => Promise<JsforceResult[]>,
@@ -290,11 +326,7 @@ export class BulkDataWriter {
         for (const r of Array.isArray(retryResult.result)
           ? retryResult.result
           : [retryResult.result]) {
-          outcomes.push({
-            id: r.id,
-            success: r.success,
-            errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-          });
+          outcomes.push(this.restOutcome(objectName, r));
         }
       } else {
         outcomes.push(
@@ -306,5 +338,31 @@ export class BulkDataWriter {
       }
     }
     return outcomes;
+  }
+
+  /**
+   * One REST result as an outcome. The first error is the one reported, now
+   * with its status code — the code is what says a row already exists — and
+   * every error, with the records a duplicate rule matched, decides whether
+   * the target named the record it already holds.
+   */
+  private restOutcome(objectName: string, r: JsforceResult): OperationOutcome {
+    if (r.success) return { id: r.id, success: true, errors: [] };
+    const errors: unknown[] = r.errors ?? [];
+    const formatted = errors.map(formatSaveError);
+    const outcome: OperationOutcome = {
+      id: r.id,
+      success: false,
+      errors: [formatted[0] ?? 'Unknown error'],
+    };
+    const existing = existingRecordOf(
+      {
+        success: false,
+        errors: formatted,
+        duplicateMatchIds: errors.flatMap((e) => duplicateRuleMatchIds(e, objectName)),
+      },
+      this.deps.keyPrefixOf?.(objectName),
+    );
+    return existing.kind === 'linked' ? { ...outcome, existingId: existing.id } : outcome;
   }
 }

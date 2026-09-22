@@ -62,8 +62,8 @@ describe('ConflictResolutionPanel', () => {
     const pickSource = screen.getByTestId('pick-source-Name');
     fireEvent.click(pickSource);
 
-    // The button should now have the selected styling (border-blue-500)
-    expect(pickSource.className).toContain('border-blue-500');
+    // The button should now have the selected styling (border-status-info)
+    expect(pickSource.className).toContain('border-status-info');
   });
 
   it('should update local state when selecting target for a field', () => {
@@ -72,7 +72,7 @@ describe('ConflictResolutionPanel', () => {
     const pickTarget = screen.getByTestId('pick-target-Industry');
     fireEvent.click(pickTarget);
 
-    expect(pickTarget.className).toContain('border-green-500');
+    expect(pickTarget.className).toContain('border-status-success');
   });
 
   it('should disable Apply button until all fields have a resolution', () => {

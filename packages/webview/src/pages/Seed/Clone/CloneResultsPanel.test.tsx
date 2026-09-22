@@ -148,6 +148,29 @@ describe('CloneResultsPanel', () => {
     expect(counts.textContent).toContain('80');
   });
 
+  it('counts the records linked to ones the target already held apart from the inserted ones', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      totalInserted: 150,
+      totalLinked: 50,
+      objectResults: [
+        { ...mockSuccessResult.objectResults[0], insertedCount: 0, linkedCount: 50 },
+        mockSuccessResult.objectResults[1],
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    const counts = screen.getByTestId('clone-results-counts');
+    expect(counts.textContent).toContain('Inserted: 150');
+    expect(screen.getByTestId('clone-results-linked').textContent).toBe('Linked to existing: 50');
+  });
+
+  it('shows no linked count for a clone the target held nothing of', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    expect(screen.queryByTestId('clone-results-linked')).toBeNull();
+  });
+
   it('should call onDone when clicking Done button', () => {
     const onDone = vi.fn();
     render(<CloneResultsPanel result={mockSuccessResult} onDone={onDone} />);

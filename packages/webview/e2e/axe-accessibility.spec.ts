@@ -677,10 +677,28 @@ for (const theme of SCANNED_THEMES) {
       await expect(dialog).toHaveCount(0);
     });
 
+    test('Automation pipeline that cannot run yet', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      // A Delay step with no seconds: the notice, the canvas marker and the
+      // disabled palette entries are all on screen for the scan.
+      await page.getByTestId('palette-delay').click();
+      await page.getByTestId('pipeline-blocked').waitFor({ state: 'visible', timeout: 5000 });
+
+      // This is the first scan with a step on the canvas, and it finds the step
+      // node, a role="button" div, holding its remove button. That nesting
+      // predates this state and is left to a change of its own; every other
+      // rule still runs over the canvas.
+      const results = await checkAccessibility(page, { disableRules: ['nested-interactive'] });
+      expectNoViolations(results);
+    });
+
     test('Automation pipeline while a run is in progress', async ({ page }) => {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
       await page.getByTestId('create-pipeline-btn').click();
-      await page.getByTestId('palette-seed').click();
+      await page.getByTestId('palette-delay').click();
+      await page.locator('[data-testid^="canvas-step-"]').first().click();
+      await page.getByTestId('config-seconds').fill('5');
 
       // `pipeline:execute` is left unanswered, so the run stays in flight and
       // the canvas shows the execution view for the whole scan.

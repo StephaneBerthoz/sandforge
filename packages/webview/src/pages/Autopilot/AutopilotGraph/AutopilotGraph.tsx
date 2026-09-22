@@ -30,6 +30,22 @@ const nodeTypes = { objectNode: ObjectNode };
 const edgeTypes = { relationEdge: RelationEdge };
 
 /**
+ * The minimap draws each node in the token its card and the legend use. A
+ * class, not `nodeColor`: the minimap sets that as a fill attribute, which
+ * takes a colour but not a Tailwind token, and a class rule wins over it.
+ */
+const MINIMAP_NODE_FILLS: Record<string, string> = {
+  pending: 'fill-text-secondary',
+  queued: 'fill-text-secondary',
+  extracting: 'fill-hue-blue',
+  anonymizing: 'fill-hue-purple',
+  loading: 'fill-hue-green',
+  completed: 'fill-status-success',
+  failed: 'fill-status-error',
+  skipped: 'fill-text-muted',
+};
+
+/**
  * Convert an AutopilotNode from the store into a ReactFlow Node.
  * Uses a simple level-based layout: Y = level * LEVEL_Y_SPACING, X = index * NODE_X_SPACING.
  */
@@ -156,22 +172,12 @@ export const AutopilotGraph: React.FC = () => {
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
-          <Background color="#333" gap={20} />
+          <Background color="var(--sf-border)" gap={20} />
           {minimapVisible && (
             <MiniMap
-              nodeColor={(node) => {
+              nodeClassName={(node) => {
                 const status = (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
-                const colors: Record<string, string> = {
-                  pending: '#6b7280',
-                  queued: '#9ca3af',
-                  extracting: '#3b82f6',
-                  anonymizing: '#a855f7',
-                  loading: '#22c55e',
-                  completed: '#16a34a',
-                  failed: '#ef4444',
-                  skipped: '#d1d5db',
-                };
-                return colors[status] ?? '#6b7280';
+                return MINIMAP_NODE_FILLS[status] ?? MINIMAP_NODE_FILLS.pending;
               }}
               maskColor="rgba(0,0,0,0.6)"
               className="!bg-[var(--sf-bg-primary)]"

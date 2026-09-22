@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { getBezierPath } from 'reactflow';
 import type { EdgeProps } from 'reactflow';
+import { cn } from '../../../theme';
 
 /** Data payload for the RelationEdge custom ReactFlow edge. */
 export interface RelationEdgeData {
@@ -30,7 +31,7 @@ const DiamondMarkerDef: React.FC = () => (
       markerHeight={12}
       orient="auto-start-reverse"
     >
-      <path d="M6 0 L12 6 L6 12 L0 6 Z" fill="#a78bfa" />
+      <path d="M6 0 L12 6 L6 12 L0 6 Z" className="fill-hue-purple" />
     </marker>
   </defs>
 );
@@ -41,33 +42,36 @@ const DiamondMarkerDef: React.FC = () => (
  * - lookup: dashed line (blue)
  * - hierarchical: curved dotted line (cyan)
  * - polymorphic: solid line with diamond marker (purple)
+ *
+ * The stroke is a class naming the identity hue token GraphLegend shows for the
+ * type: the hex strokes it replaced were picked for a dark editor.
  */
 function getEdgeStyle(
   relationshipType: string,
   isActive: boolean,
-): { strokeDasharray?: string; strokeWidth: number; stroke: string; markerEnd?: string } {
+): { strokeDasharray?: string; strokeWidth: number; strokeClass: string; markerEnd?: string } {
   const base = {
     strokeWidth: 2,
-    stroke: '#6b7280',
+    strokeClass: 'stroke-text-secondary',
     strokeDasharray: undefined as string | undefined,
     markerEnd: undefined as string | undefined,
   };
 
   switch (relationshipType) {
     case 'master_detail':
-      base.stroke = '#f59e0b';
+      base.strokeClass = 'stroke-hue-amber';
       base.strokeWidth = 3;
       break;
     case 'lookup':
-      base.stroke = '#3b82f6';
+      base.strokeClass = 'stroke-hue-blue';
       base.strokeDasharray = '6 4';
       break;
     case 'hierarchical':
-      base.stroke = '#06b6d4';
+      base.strokeClass = 'stroke-hue-cyan';
       base.strokeDasharray = '2 4';
       break;
     case 'polymorphic':
-      base.stroke = '#a78bfa';
+      base.strokeClass = 'stroke-hue-purple';
       base.markerEnd = `url(#${DIAMOND_MARKER_ID})`;
       break;
   }
@@ -122,11 +126,10 @@ export const RelationEdge: React.FC<EdgeProps<RelationEdgeData>> = ({
         id={id}
         d={edgePath}
         fill="none"
-        stroke={style.stroke}
         strokeWidth={style.strokeWidth}
         strokeDasharray={style.strokeDasharray}
         markerEnd={style.markerEnd}
-        className={isActive ? 'animate-[dash_1s_linear_infinite]' : ''}
+        className={cn(style.strokeClass, isActive && 'animate-[dash_1s_linear_infinite]')}
       />
     </g>
   );

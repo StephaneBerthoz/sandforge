@@ -118,7 +118,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
       {/* Large clone warning */}
       {totalRecords > LARGE_CLONE_THRESHOLD && (
         <div
-          className="p-3 rounded border border-amber-600 bg-amber-500/10 text-xs text-status-warning"
+          className="p-3 rounded border border-status-warning bg-status-warning/10 text-xs text-status-warning"
           role="alert"
           data-testid="clone-large-warning"
         >

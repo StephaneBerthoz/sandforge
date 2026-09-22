@@ -11,22 +11,22 @@ interface LegendItem {
   dashed?: boolean;
 }
 
-/** Node status legend entries. */
+/** Node status legend entries: the tokens ObjectNode and the minimap paint with. */
 const NODE_STATUSES: LegendItem[] = [
-  { labelKey: 'autopilot.graph.pending', colorClass: 'bg-gray-500' },
-  { labelKey: 'autopilot.graph.extracting', colorClass: 'bg-blue-500' },
-  { labelKey: 'autopilot.graph.anonymizing', colorClass: 'bg-purple-500' },
-  { labelKey: 'autopilot.graph.loading', colorClass: 'bg-green-500' },
-  { labelKey: 'autopilot.graph.completed', colorClass: 'bg-green-600' },
-  { labelKey: 'autopilot.graph.failed', colorClass: 'bg-red-500' },
+  { labelKey: 'autopilot.graph.pending', colorClass: 'bg-text-secondary' },
+  { labelKey: 'autopilot.graph.extracting', colorClass: 'bg-hue-blue' },
+  { labelKey: 'autopilot.graph.anonymizing', colorClass: 'bg-hue-purple' },
+  { labelKey: 'autopilot.graph.loading', colorClass: 'bg-hue-green' },
+  { labelKey: 'autopilot.graph.completed', colorClass: 'bg-status-success' },
+  { labelKey: 'autopilot.graph.failed', colorClass: 'bg-status-error' },
 ];
 
-/** Edge type legend entries. */
+/** Edge type legend entries: the tokens RelationEdge strokes with. */
 const EDGE_TYPES: LegendItem[] = [
-  { labelKey: 'autopilot.graph.masterDetail', colorClass: 'bg-amber-500' },
-  { labelKey: 'autopilot.graph.lookup', colorClass: 'bg-blue-500', dashed: true },
-  { labelKey: 'autopilot.graph.hierarchical', colorClass: 'bg-cyan-500', dashed: true },
-  { labelKey: 'autopilot.graph.polymorphic', colorClass: 'bg-[#a78bfa]' },
+  { labelKey: 'autopilot.graph.masterDetail', colorClass: 'bg-hue-amber' },
+  { labelKey: 'autopilot.graph.lookup', colorClass: 'bg-hue-blue', dashed: true },
+  { labelKey: 'autopilot.graph.hierarchical', colorClass: 'bg-hue-cyan', dashed: true },
+  { labelKey: 'autopilot.graph.polymorphic', colorClass: 'bg-hue-purple' },
 ];
 
 /**
@@ -39,7 +39,7 @@ export const GraphLegend: React.FC = () => {
   return (
     <div
       data-testid="graph-legend"
-      className="absolute bottom-3 left-3 z-10 rounded-md border border-gray-600 bg-[var(--sf-bg-primary)] p-3 text-xs shadow-lg"
+      className="absolute bottom-3 left-3 z-10 rounded-md border border-subtle bg-[var(--sf-bg-primary)] p-3 text-xs shadow-lg"
     >
       {/* Node statuses */}
       <div className="mb-2 font-semibold text-[var(--sf-text-primary)]">

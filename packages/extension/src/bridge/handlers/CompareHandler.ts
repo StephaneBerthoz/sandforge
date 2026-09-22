@@ -11,6 +11,19 @@ import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHe
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 
+/**
+ * The types listMetadata answers only folder by folder, each with the type
+ * that lists its folders (the unfiled folder among them). Asked without a
+ * folder it answers with nothing: run against two sandboxes holding 191
+ * reports, 17 dashboards and 80 email templates each, the diff listed none of
+ * them and so found no difference in any.
+ */
+const FOLDER_TYPES: Partial<Record<string, string>> = {
+  Report: 'ReportFolder',
+  Dashboard: 'DashboardFolder',
+  EmailTemplate: 'EmailTemplateFolder',
+};
+
 /** Message types handled by CompareHandler. */
 const COMPARE_TYPES = new Set([
   'compare:execute',
@@ -95,12 +108,23 @@ export class CompareHandler implements DomainHandler {
       ) => {
         const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
         const components = new Map<string, string>();
-        const listResult = (await conn.metadata.list([{ type: componentType }])) as Array<{
-          fullName: string;
-        }>;
-        checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
-        for (const item of Array.isArray(listResult) ? listResult : []) {
-          components.set(item.fullName, JSON.stringify(item));
+        const list = async (queries: Array<{ type: string; folder?: string }>) => {
+          const listResult = (await conn.metadata.list(queries)) as Array<{ fullName: string }>;
+          checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
+          return Array.isArray(listResult) ? listResult : [];
+        };
+        const folderType = FOLDER_TYPES[componentType];
+        const queries = folderType
+          ? (await list([{ type: folderType }])).map((f) => ({
+              type: componentType,
+              folder: f.fullName,
+            }))
+          : [{ type: componentType }];
+        // listMetadata takes three queries per call.
+        for (let i = 0; i < queries.length; i += 3) {
+          for (const item of await list(queries.slice(i, i + 3))) {
+            components.set(item.fullName, JSON.stringify(item));
+          }
         }
         return components;
       };
@@ -205,16 +229,18 @@ export class CompareHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      const sourceOrg = this.deps.orgManager.getOrg(payload.sourceOrgId);
-      const orgTier = resolveOrgTier(
-        sourceOrg?.orgType === 'Sandbox' || sourceOrg?.orgType === 'Scratch',
-      );
-      const limits = getQueryLimits(orgTier);
-
+      // Every row of both orgs, as queryAll pages through them. A LIMIT with no
+      // ORDER BY hands back a different slice of each org: run against two
+      // sandboxes holding 283 and 282 permission sets, a hundred of each came
+      // back and the tab listed 9 and 9 on one side only, where the orgs
+      // differ by 3 and 2.
       const fetchPermissions = async (
         conn: Awaited<ReturnType<typeof getJsforceConnection>>,
         label: string,
       ) => {
+        // Not the ones profiles own: each is named after its profile's Id in
+        // that org (X00e…), so the same profile goes by two names across two
+        // orgs. The profiles are compared by name below.
         const permSets = await queryAll<{
           Id: string;
           Name: string;
@@ -222,13 +248,13 @@ export class CompareHandler implements DomainHandler {
           IsOwnedByProfile: boolean;
         }>(
           conn,
-          `SELECT Id, Name, Label, IsOwnedByProfile FROM PermissionSet LIMIT ${limits.permissionSetLimit}`,
+          'SELECT Id, Name, Label, IsOwnedByProfile FROM PermissionSet WHERE IsOwnedByProfile = false',
         );
         checkApiLimits(conn.limitInfo, `compare:permissions ${label}`);
 
         const profiles = await queryAll<{ Id: string; Name: string }>(
           conn,
-          `SELECT Id, Name FROM Profile LIMIT ${limits.permissionSetLimit}`,
+          'SELECT Id, Name FROM Profile',
         );
         checkApiLimits(conn.limitInfo, `compare:permissions profiles ${label}`);
 

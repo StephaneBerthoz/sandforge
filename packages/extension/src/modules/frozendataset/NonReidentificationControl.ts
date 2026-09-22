@@ -107,7 +107,12 @@ export class NonReidentificationControl {
       'no-residual-id': [],
     };
 
+    // Objects the anonymizer left out whole — files the rules do not keep —
+    // are absent on purpose: the manifest names them, and nothing of theirs
+    // reached the dataset for the other checks to examine.
+    const leftOut = new Set(frozen.filesLeftOut ?? []);
     for (const objectData of extracted.objects) {
+      if (leftOut.has(objectData.objectApiName)) continue;
       for (const sourceRecord of objectData.records) {
         const target = frozenByRef.get(sourceRecord.referenceId);
         if (!target) {

@@ -154,6 +154,107 @@ describe('BulkDataWriter', () => {
       });
     });
 
+    it('reports a REST refusal with its status code and the record the target already holds', async () => {
+      const h = createHarness();
+      h.deps.keyPrefixOf = () => '001';
+      h.sobject.create.mockResolvedValue([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATE_VALUE',
+              message:
+                'duplicate value found: Code__c duplicates value on record with id: 001Fk00000AbCdE',
+              fields: [],
+            },
+          ],
+        },
+      ]);
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(outcomes[0]).toEqual({
+        id: undefined,
+        success: false,
+        errors: [
+          'DUPLICATE_VALUE: duplicate value found: Code__c duplicates value on record with id: 001Fk00000AbCdE',
+        ],
+        existingId: '001Fk00000AbCdEIAV',
+      });
+    });
+
+    it('names the single record a blocking duplicate rule matched', async () => {
+      const h = createHarness();
+      h.sobject.create.mockResolvedValue([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATES_DETECTED',
+              message: 'Use one of these records?',
+              fields: [],
+              duplicateResult: {
+                allowSave: false,
+                matchResults: [
+                  {
+                    entityType: 'Account',
+                    matchRecords: [
+                      {
+                        matchConfidence: 100,
+                        record: { attributes: { type: 'Account' }, Id: '001Fk00000AbCdEIAV' },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ]);
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(outcomes[0].existingId).toBe('001Fk00000AbCdEIAV');
+    });
+
+    it('names no record whose id belongs to another object', async () => {
+      const h = createHarness();
+      h.deps.keyPrefixOf = () => '001';
+      h.sobject.create.mockResolvedValue([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATE_VALUE',
+              message:
+                'duplicate value found: Code__c duplicates value on record with id: 003Fk00000MnOpQ',
+            },
+          ],
+        },
+      ]);
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(outcomes[0].existingId).toBeUndefined();
+    });
+
+    it('keeps the status code of a refusal ahead of its message', async () => {
+      // The code reads the same in every org; the message is in the org's
+      // language. Kept to the message, a French org's duplicate never
+      // matched `DUPLICATE_VALUE`.
+      const h = createHarness();
+      h.sobject.create.mockResolvedValue([
+        {
+          success: false,
+          errors: [{ statusCode: 'DUPLICATE_VALUE', message: 'valeur en double trouvée' }],
+        },
+      ]);
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(outcomes[0].errors).toEqual(['DUPLICATE_VALUE: valeur en double trouvée']);
+    });
+
     it('falls back to "Unknown error" when a failed result carries no error array', async () => {
       const h = createHarness();
       h.sobject.create.mockResolvedValue([{ success: false }]);
@@ -276,6 +377,32 @@ describe('BulkDataWriter', () => {
       expect(h.deps.onProgress).toHaveBeenCalledWith(1, 2, 'Bulk upsert Account');
     });
 
+    it('names the record the target already holds from the sf__Error of a bulk refusal', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.deps.keyPrefixOf = () => '001';
+      h.executeBulk.mockResolvedValue({
+        outcomes: [
+          {
+            recordIndex: 0,
+            success: false,
+            error:
+              'DUPLICATE_VALUE:duplicate value found: Code__c duplicates value on record with id: 001Fk00000AbCdE:--',
+          },
+          {
+            recordIndex: 1,
+            success: false,
+            error:
+              'DUPLICATE_VALUE:duplicate value found: <unknown> duplicates value on record with id: <unknown>:--',
+          },
+        ],
+      });
+
+      const outcomes = await h.writer.insert('Account', makeRecords(2), 200);
+
+      expect(outcomes[0].existingId).toBe('001Fk00000AbCdEIAV');
+      expect(outcomes[1].existingId).toBeUndefined();
+    });
+
     it('substitutes a generic message when a bulk failure carries no error text', async () => {
       const h = createHarness({ useBulkApi: true });
       h.executeBulk.mockResolvedValue({
@@ -351,6 +478,24 @@ describe('BulkDataWriter', () => {
       const outcomes = await h.writer.insert('Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
 
       expect(outcomes[0]).toEqual({ id: undefined, success: false, errors: ['Streaming error'] });
+    });
+
+    it('names the record the target already holds from a streamed refusal', async () => {
+      const h = createHarness();
+      streaming.executeChunked.mockResolvedValue({
+        outcomes: [
+          {
+            recordIndex: 0,
+            success: false,
+            error:
+              'DUPLICATE_VALUE:duplicate value found: Code__c duplicates value on record with id: 001Fk00000AbCdE:--',
+          },
+        ],
+      });
+
+      const outcomes = await h.writer.insert('Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      expect(outcomes[0].existingId).toBe('001Fk00000AbCdEIAV');
     });
 
     it('does not stream deletes: IDs are cheap to hold, so the threshold does not apply', async () => {

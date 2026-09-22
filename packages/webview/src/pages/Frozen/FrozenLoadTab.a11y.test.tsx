@@ -81,6 +81,6 @@ describe('FrozenLoadTab progress bar', () => {
   it('keeps the Frozen cyan on the fill', () => {
     render(<FrozenLoadTab onRefetchStatus={vi.fn()} />);
     const bar = screen.getByRole('progressbar', { name: 'Progress' });
-    expect((bar.firstChild as HTMLElement).className).toContain('bg-cyan-500');
+    expect((bar.firstChild as HTMLElement).className).toContain('bg-hue-cyan');
   });
 });

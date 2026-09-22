@@ -90,9 +90,9 @@ const OperationRow: React.FC<{
       className={cn(
         'rounded-lg border bg-surface-1 p-3 flex flex-col gap-2 transition-all',
         operation.status === 'failed'
-          ? 'border-red-500/30'
+          ? 'border-status-error/30'
           : operation.status === 'running'
-            ? 'border-blue-500/30'
+            ? 'border-status-info/30'
             : 'border-subtle',
       )}
       data-testid={`live-op-${operation.operationId}`}

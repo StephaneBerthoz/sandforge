@@ -36,7 +36,7 @@ export const GuidedFirstStepCard: React.FC<GuidedFirstStepCardProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const borderColor = variant === 'sync' ? 'border-l-blue-500' : 'border-l-green-500';
+  const borderColor = variant === 'sync' ? 'border-l-hue-blue' : 'border-l-hue-green';
 
   return (
     <Card className={cn('border-l-4', borderColor)} data-testid="guided-first-step-card">

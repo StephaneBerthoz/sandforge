@@ -66,11 +66,21 @@ function makeOptions(
   query: (orgId: string, soql: string) => Promise<Array<Record<string, unknown>>>,
   overrides?: Partial<PostLoadVerifyOptions>,
 ): {
-  deps: { orgAccess: { query: typeof query }; sasGuard: SasPathGuard };
+  deps: {
+    orgAccess: {
+      query: typeof query;
+      count: (orgId: string, soql: string) => Promise<number>;
+    };
+    sasGuard: SasPathGuard;
+  };
   options: PostLoadVerifyOptions;
 } {
+  // A count answers with a size; the routes give it as a `cnt` row.
+  const count = vi.fn(async (orgId: string, soql: string) =>
+    Number((await query(orgId, soql))[0]?.cnt ?? 0),
+  );
   return {
-    deps: { orgAccess: { query }, sasGuard: guard },
+    deps: { orgAccess: { query, count }, sasGuard: guard },
     options: {
       orgId: '00D-target',
       contractPath,
@@ -101,6 +111,54 @@ describe('PostLoadVerifier — counts vs contract', () => {
     expect(options.sleep).toHaveBeenCalledTimes(1);
   });
 
+  it('counts with COUNT(), which every object takes', async () => {
+    // `COUNT(Id)` comes back as a row, but FeedItem refuses it: "field Id
+    // does not support aggregate operator COUNT". Run for real, that one
+    // object took the whole verification down.
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, {
+      FeedItem: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+    });
+    const query = makeQuery([{ match: 'FROM FeedItem', responses: [[{ cnt: 1 }]] }]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(deps.orgAccess.count).toHaveBeenCalledWith('00D-target', 'SELECT COUNT() FROM FeedItem');
+    expect(verdict.checks.find((c) => c.name === 'counts')?.passed).toBe(true);
+  });
+
+  it('counts the records the load wrote, not everything the org holds', async () => {
+    // Run for real against a sandbox that already had data: 202 accounts in
+    // the org, one written by the load, and a count over the whole object
+    // reported a mismatch that no load could ever have avoided.
+    const sasDir = makeTmpDir();
+    const contractPath = writeContract(sasDir, {
+      Account: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+      Contact: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 1, expected: 2 },
+    });
+    const query = makeQuery([]);
+    const { deps, options } = makeOptions(contractPath, query, {
+      mapping: new Map([
+        ['Account-000001', '001000000000001AAA'],
+        ['Contact-000001', '003000000000001AAA'],
+        ['placeholder:Contact:Case.ContactId', '003000000000002AAA'],
+      ]),
+    });
+    deps.orgAccess.count = vi.fn(async (_org: string, soql: string) => {
+      if (!soql.includes('WHERE Id IN')) return 202;
+      return (soql.match(/'[0-9A-Za-z]{18}'/g) ?? []).length;
+    });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.checks.find((c) => c.name === 'counts')?.passed).toBe(true);
+    expect(deps.orgAccess.count).toHaveBeenCalledWith(
+      '00D-target',
+      "SELECT COUNT() FROM Contact WHERE Id IN ('003000000000001AAA', '003000000000002AAA')",
+    );
+  });
+
   it('fails and lists the mismatch when a count diverges', async () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
@@ -124,7 +182,7 @@ describe('PostLoadVerifier — link integrity', () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 2 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
       { match: 'FROM Contact WHERE AccountId = null', responses: [[{ Id: '003ORPHAN1' }]] },
     ]);
     const { deps, options } = makeOptions(contractPath, query, {
@@ -143,7 +201,7 @@ describe('PostLoadVerifier — link integrity', () => {
   it('passes orphans when no mandatory lookup is null', async () => {
     const sasDir = makeTmpDir();
     const contractPath = writeContract(sasDir, ACCOUNT_CONTRACT);
-    const query = makeQuery([{ match: 'COUNT(Id)', responses: [[{ cnt: 2 }]] }]);
+    const query = makeQuery([{ match: 'COUNT()', responses: [[{ cnt: 2 }]] }]);
     const { deps, options } = makeOptions(contractPath, query, {
       mandatoryLookups: { Contact: ['AccountId'] },
     });
@@ -168,7 +226,7 @@ describe('PostLoadVerifier — link integrity', () => {
       ['Contact-000001', '003REAL-CON'],
     ]);
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 2 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
       {
         match: 'PersonContactId FROM Account',
         responses: [[{ Id: '001REAL-ACC', PersonContactId: '003REAL-CON' }]],
@@ -200,7 +258,7 @@ describe('PostLoadVerifier — link integrity', () => {
       ['Contact-000001', '003REAL-CON'],
     ]);
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 2 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
       {
         match: 'PersonContactId FROM Account',
         responses: [[{ Id: '001REAL-ACC', PersonContactId: null }]],
@@ -236,7 +294,7 @@ describe('PostLoadVerifier — presence by key', () => {
       personContactSidecar: [],
     };
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 2 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 2 }]] },
       { match: 'ExternalId__c k FROM Account', responses: [[{ k: 'ACC-1' }]] }, // ACC-2 missing
     ]);
     const { deps, options } = makeOptions(contractPath, query, {
@@ -261,7 +319,7 @@ describe('PostLoadVerifier — robustness (transient inconsistent reads)', () =>
     });
     // Each measurement reads a DIFFERENT count: 1, then 2, then 3.
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 1 }], [{ cnt: 2 }], [{ cnt: 3 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 1 }], [{ cnt: 2 }], [{ cnt: 3 }]] },
     ]);
     const sleep = vi.fn(async () => {});
     const { deps, options } = makeOptions(contractPath, query, { sleep });
@@ -282,7 +340,7 @@ describe('PostLoadVerifier — robustness (transient inconsistent reads)', () =>
       Account: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
     });
     // 1 (transient), then 1… wait: 1st reads stale 0, 2nd and 3rd read 1.
-    const query = makeQuery([{ match: 'COUNT(Id)', responses: [[{ cnt: 0 }], [{ cnt: 1 }]] }]);
+    const query = makeQuery([{ match: 'COUNT()', responses: [[{ cnt: 0 }], [{ cnt: 1 }]] }]);
     const { deps, options } = makeOptions(contractPath, query);
 
     const verdict = await new PostLoadVerifier(deps).verify(options);
@@ -324,7 +382,7 @@ describe('PostLoadVerifier — manifest consignation', () => {
       Account: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
     });
     const manifestPath = writeManifest(sasDir);
-    const query = makeQuery([{ match: 'COUNT(Id)', responses: [[{ cnt: 1 }]] }]);
+    const query = makeQuery([{ match: 'COUNT()', responses: [[{ cnt: 1 }]] }]);
     const { deps, options } = makeOptions(contractPath, query, {
       manifestPath,
       author: 'load-bot',
@@ -348,7 +406,7 @@ describe('PostLoadVerifier — manifest consignation', () => {
     });
     const manifestPath = writeManifest(sasDir);
     const query = makeQuery([
-      { match: 'COUNT(Id)', responses: [[{ cnt: 1 }], [{ cnt: 2 }], [{ cnt: 3 }]] },
+      { match: 'COUNT()', responses: [[{ cnt: 1 }], [{ cnt: 2 }], [{ cnt: 3 }]] },
     ]);
     const { deps, options } = makeOptions(contractPath, query, {
       manifestPath,

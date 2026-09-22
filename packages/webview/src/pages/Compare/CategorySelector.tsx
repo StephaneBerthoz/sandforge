@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next';
 import type { MetadataComponentType } from '@sandforge/shared';
 import { cn } from '../../theme';
 
-/** Grouped metadata component types for visual organization. */
+/**
+ * Grouped metadata component types for visual organization.
+ *
+ * Every entry is a type listMetadata knows: the extension lists each ticked
+ * one, and a single unknown type fails the whole comparison. CustomSetting and
+ * Other used to be offered and came back INVALID_TYPE from real orgs, so
+ * "Select all" never produced a diff. Custom settings are CustomObjects.
+ */
 export const CATEGORY_GROUPS: Array<{
   label: string;
   labelKey: string;
@@ -25,14 +32,13 @@ export const CATEGORY_GROUPS: Array<{
   {
     label: 'Configuration',
     labelKey: 'compare.catConfiguration',
-    types: ['Layout', 'CustomLabel', 'CustomMetadata', 'CustomSetting'],
+    types: ['Layout', 'CustomLabel', 'CustomMetadata'],
   },
   {
     label: 'Content',
     labelKey: 'compare.catContent',
     types: ['StaticResource', 'EmailTemplate', 'Report', 'Dashboard'],
   },
-  { label: 'Other', labelKey: 'compare.catOther', types: ['Other'] },
 ];
 
 /** All available metadata component types for comparison (derived from groups). */

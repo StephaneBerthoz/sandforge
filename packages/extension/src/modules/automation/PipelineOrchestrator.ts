@@ -55,6 +55,7 @@ export class PipelineOrchestrator {
   private readonly handlers: Map<PipelineEvent, Set<PipelineEventHandler>> = new Map();
   private readonly pausedRuns: Set<string> = new Set();
   private readonly cancelledRuns: Set<string> = new Set();
+  private readonly aborters: Map<string, AbortController> = new Map();
 
   constructor(deps: PipelineOrchestratorDependencies) {
     this.deps = deps;
@@ -64,15 +65,22 @@ export class PipelineOrchestrator {
    * Execute a pipeline definition with the given variables.
    * Runs all steps sequentially, respects conditional routing,
    * and records the run in history upon completion.
+   *
+   * A pipeline with a step that cannot do its work does not start: see
+   * {@link refuseUnrunnable}.
    * @param pipeline - The pipeline definition to execute
    * @param variables - Runtime variables for the execution
    * @param triggeredBy - What triggered this execution
+   * @param signal - Stops the run when aborted, the step in progress included:
+   *   a caller that has given up on the run (its time budget spent) must not
+   *   leave the steps after it running unobserved.
    * @returns The completed pipeline run
    */
   async execute(
     pipeline: PipelineDefinition,
     variables: Record<string, string>,
     triggeredBy: TriggerType,
+    signal?: AbortSignal,
   ): Promise<PipelineRun> {
     const errors = this.deps.builder.validate(pipeline);
     if (errors.length > 0) {
@@ -84,15 +92,27 @@ export class PipelineOrchestrator {
       return failedRun;
     }
 
+    const refused = this.refuseUnrunnable(pipeline, variables, triggeredBy);
+    if (refused) {
+      return refused;
+    }
+
     const run = this.createRun(pipeline, variables, triggeredBy);
     run.status = 'running';
     this.activeRuns.set(run.id, run);
+
+    const aborter = new AbortController();
+    const abort = (): void => aborter.abort();
+    if (signal?.aborted) aborter.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    this.aborters.set(run.id, aborter);
+
     this.emit('started', { runId: run.id, pipelineId: pipeline.id });
 
     let hasFailures = false;
 
     for (const step of pipeline.steps) {
-      if (this.cancelledRuns.has(run.id)) {
+      if (this.cancelledRuns.has(run.id) || aborter.signal.aborted) {
         run.status = 'cancelled';
         break;
       }
@@ -122,10 +142,18 @@ export class PipelineOrchestrator {
         previousResults: run.stepResults,
         pipelineId: pipeline.id,
         runId: run.id,
+        signal: aborter.signal,
       });
 
       run.stepResults.push(result);
       this.emit('stepCompleted', { runId: run.id, stepResult: result });
+
+      // A step cut short by the abort failed because the run was stopped, not
+      // on its own: the run is cancelled, and nothing is routed from it.
+      if (aborter.signal.aborted) {
+        run.status = 'cancelled';
+        break;
+      }
 
       if (result.status === 'failed') {
         hasFailures = true;
@@ -145,6 +173,7 @@ export class PipelineOrchestrator {
             previousResults: run.stepResults,
             pipelineId: pipeline.id,
             runId: run.id,
+            signal: aborter.signal,
           });
           run.stepResults.push(nextResult);
           this.emit('stepCompleted', { runId: run.id, stepResult: nextResult });
@@ -159,6 +188,8 @@ export class PipelineOrchestrator {
     run.endTime = new Date().toISOString();
     run.duration = new Date(run.endTime).getTime() - new Date(run.startTime).getTime();
 
+    signal?.removeEventListener('abort', abort);
+    this.aborters.delete(run.id);
     this.activeRuns.delete(run.id);
     this.pausedRuns.delete(run.id);
     this.cancelledRuns.delete(run.id);
@@ -203,12 +234,14 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * Cancel a currently running or paused pipeline.
+   * Cancel a currently running or paused pipeline. The step in progress is
+   * stopped too: a Delay stops waiting rather than running to its end first.
    * @param runId - ID of the run to cancel
    */
   cancel(runId: string): void {
     if (this.activeRuns.has(runId)) {
       this.cancelledRuns.add(runId);
+      this.aborters.get(runId)?.abort();
       const run = this.activeRuns.get(runId);
       if (run) {
         run.status = 'cancelled';
@@ -257,6 +290,48 @@ export class PipelineOrchestrator {
     if (eventHandlers) {
       eventHandlers.delete(handler);
     }
+  }
+
+  /**
+   * Refuse, before any step runs, a pipeline one of whose steps cannot do its
+   * work — a type with no handler, or a configuration its handler cannot act
+   * on. Running the steps before it would leave the pipeline half done, and
+   * `continueOnError` would walk past the refused step to a run recorded as a
+   * success.
+   *
+   * The run is recorded failed, with one failed result per refused step and
+   * no result for the others, which never ran.
+   * @returns The refused run, or undefined when every step can run
+   */
+  private refuseUnrunnable(
+    pipeline: PipelineDefinition,
+    variables: Record<string, string>,
+    triggeredBy: TriggerType,
+  ): PipelineRun | undefined {
+    const refusals = pipeline.steps.flatMap((step) => {
+      const reason = this.deps.stepExecutor.check(step);
+      return reason === undefined ? [] : [{ step, reason }];
+    });
+    if (refusals.length === 0) {
+      return undefined;
+    }
+
+    const run = this.createRun(pipeline, variables, triggeredBy);
+    run.status = 'failed';
+    run.stepResults = refusals.map(({ step, reason }) => ({
+      stepId: step.id,
+      stepName: step.name,
+      stepType: step.type,
+      status: 'failed',
+      error: reason,
+    }));
+    run.error = `Pipeline did not start: ${refusals.map(({ reason }) => reason).join(' ')}`;
+    run.endTime = new Date().toISOString();
+    run.duration = new Date(run.endTime).getTime() - new Date(run.startTime).getTime();
+
+    this.deps.history.record(run);
+    this.emit('failed', { runId: run.id, error: run.error });
+    return run;
   }
 
   private emit(event: PipelineEvent, data: unknown): void {

@@ -48,6 +48,24 @@ export interface ManifestControls {
   date: string;
 }
 
+/**
+ * What the extraction reached. A dataset is only as complete as the graph it
+ * was read through, and a frozen one is used as a reference: one read through
+ * a graph cut short at its object cap has to say so where it is described.
+ */
+export interface ManifestCoverage {
+  /** Objects discovery reached. */
+  objects: number;
+  /** Discovery stopped at its object cap: objects further out were never read. */
+  truncated: boolean;
+  /** The object cap discovery ran with. */
+  maxNodes: number;
+  /** Objects read without `CreatedDate <= asOf`, having no such field. */
+  unboundedObjects: string[];
+  /** Objects left out because they carry files the rules do not keep. */
+  filesLeftOut: string[];
+}
+
 /** The frozen dataset manifest. */
 export interface FrozenManifest {
   /** Human semver of the dataset content. */
@@ -62,6 +80,8 @@ export interface FrozenManifest {
   rulesVersion: string;
   volumetry: ManifestVolumetry;
   controls: ManifestControls;
+  /** Absent from manifests written before coverage was recorded. */
+  coverage?: ManifestCoverage;
 }
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -76,6 +96,7 @@ export interface BuildManifestInput {
   volumetry: ManifestVolumetry;
   nonReidentification: NonReidentificationReport;
   author: string;
+  coverage?: ManifestCoverage;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -105,6 +126,7 @@ export function buildFrozenManifest(input: BuildManifestInput): FrozenManifest {
       author: input.author,
       date: now,
     },
+    ...(input.coverage ? { coverage: input.coverage } : {}),
   };
   validateManifest(manifest);
   return manifest;
@@ -140,6 +162,19 @@ export function validateManifest(manifest: FrozenManifest): void {
   }
   if (!manifest.controls.author || !manifest.controls.date) {
     throw new ManifestError('controls.author and controls.date are required');
+  }
+  const coverage = manifest.coverage;
+  if (
+    coverage !== undefined &&
+    (typeof coverage.objects !== 'number' ||
+      typeof coverage.truncated !== 'boolean' ||
+      typeof coverage.maxNodes !== 'number' ||
+      !Array.isArray(coverage.unboundedObjects) ||
+      !Array.isArray(coverage.filesLeftOut))
+  ) {
+    throw new ManifestError(
+      'coverage, when present, needs objects, truncated, maxNodes, unboundedObjects and filesLeftOut',
+    );
   }
 }
 

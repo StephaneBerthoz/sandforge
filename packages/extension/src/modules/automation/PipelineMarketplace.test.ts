@@ -240,9 +240,9 @@ describe('PipelineMarketplace', () => {
 
   describe('what the templates claim', () => {
     it('no template claims a dry run, an incremental sync or a delta the steps do not perform', () => {
-      // The sync step is a pass-through that reports success without writing
-      // or comparing anything, so a template promising a dry run or a
-      // changed-records-only sync told the user something no step does.
+      // The sync step has no handler and is refused: it writes and compares
+      // nothing, so a template promising a dry run or a changed-records-only
+      // sync told the user something no step does.
       const claims: string[] = [];
       for (const template of marketplace.getTemplates()) {
         for (const tag of template.tags) {

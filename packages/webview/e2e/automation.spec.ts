@@ -157,8 +157,10 @@ const HISTORY_ENTRIES = [
  * Marketplace templates as `marketplace:list:response` carries them.
  *
  * The list channel deliberately carries no steps — the handler projects each
- * template down to id/name/description/category/author. The steps only cross
- * the bridge on install, which is what {@link INSTALLED_PIPELINE} stands in for.
+ * template down to id/name/description/category/author, plus the type of each
+ * step so a card can say which cannot run (left out here: the page must cope
+ * without it). The steps only cross the bridge on install, which is what
+ * {@link INSTALLED_PIPELINE} stands in for.
  */
 const MARKETPLACE_TEMPLATES = [
   {
@@ -387,6 +389,28 @@ test.describe('Automation page — saved pipelines', () => {
     await expect(kpiValues(page)).toHaveText(['3', '1', '0']);
     await expect(page.getByTestId('page-header-subtitle')).toHaveText('Nightly Sync v1 · 3 Steps');
   });
+
+  test('a saved pipeline holding steps that cannot run is marked, and cannot be run', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
+
+    await expect(page.getByTestId('saved-pipeline-blocked-pipe-1')).toHaveText('Cannot run yet');
+    await page.getByTestId('saved-pipeline-pipe-1').click();
+
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    const notice = page.getByTestId('pipeline-blocked');
+    await expect(notice).toContainText('This pipeline cannot run.');
+    await expect(page.getByTestId('pipeline-blocked-step-1')).toHaveText(
+      'Query Accounts (Sync) — This step type cannot run in a pipeline yet.',
+    );
+    await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(3);
+
+    // Nothing reaches the host: the extension would only refuse it.
+    await page.getByTestId('run-pipeline-btn').click({ force: true });
+    expect(await outgoing(page, 'pipeline:execute')).toHaveLength(0);
+  });
 });
 
 test.describe('Automation page — canvas editing', () => {
@@ -399,12 +423,12 @@ test.describe('Automation page — canvas editing', () => {
 
     await expect(canvasSteps(page)).toHaveCount(0);
 
-    await page.getByTestId('palette-seed').click();
+    await page.getByTestId('palette-delay').click();
     await expect(canvasSteps(page)).toHaveCount(1);
-    await expect(page.getByTestId('pipeline-canvas')).toContainText('seed');
+    await expect(page.getByTestId('pipeline-canvas')).toContainText('delay');
     await expect(kpiValues(page).nth(0)).toHaveText('1');
 
-    await page.getByTestId('palette-anonymize').click();
+    await page.getByTestId('palette-delay').click();
     await expect(canvasSteps(page)).toHaveCount(2);
     await expect(kpiValues(page).nth(0)).toHaveText('2');
 
@@ -412,6 +436,61 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId(`remove-step-${firstStepId?.replace('canvas-step-', '') ?? ''}`).click();
     await expect(canvasSteps(page)).toHaveCount(1);
     await expect(kpiValues(page).nth(0)).toHaveText('1');
+  });
+
+  test('a step type that cannot run is disabled in the palette, and says why', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+
+    await expect(page.getByTestId('palette-runnable-note')).toHaveText(
+      'Only Delay steps can run in a pipeline for now. The other step types cannot be added yet.',
+    );
+    for (const type of ['seed', 'sync', 'backup', 'delete', 'compare', 'condition']) {
+      await expect(page.getByTestId(`palette-${type}`)).toBeDisabled();
+    }
+    await expect(page.getByTestId('palette-seed')).toHaveAttribute(
+      'title',
+      'This step type cannot run in a pipeline yet.',
+    );
+
+    await page.getByTestId('palette-seed').click({ force: true });
+    await expect(canvasSteps(page)).toHaveCount(0);
+  });
+
+  test('a Delay step runs once its seconds are set, and a failed run says why', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-delay').click();
+
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'Set how many seconds this Delay step waits',
+    );
+
+    await canvasSteps(page).first().click();
+    await page.getByTestId('config-seconds').fill('2');
+    await expect(page.getByTestId('pipeline-blocked')).toHaveCount(0);
+    await page.getByTestId('run-pipeline-btn').click();
+
+    const runs = await waitForOutgoing(page, 'pipeline:execute');
+    expect(runs).toHaveLength(1);
+    const sent = (runs[0].payload as { pipeline: { steps: Array<Record<string, unknown>> } })
+      .pipeline.steps;
+    expect(sent).toEqual([expect.objectContaining({ type: 'delay', config: { seconds: 2 } })]);
+
+    await respondToAll(page, 'pipeline:execute', 'pipeline:run:response', {
+      id: 'run-9',
+      status: 'failed',
+      error: 'Step execution timed out',
+      stepResults: [{ stepId: 'x', stepType: 'delay', status: 'failed' }],
+    });
+    await expect(page.getByTestId('automation-error')).toContainText(
+      'The pipeline run failed: Step execution timed out',
+    );
   });
 
   test('selecting a step opens its config panel and renaming it redraws the canvas', async ({
@@ -465,7 +544,7 @@ test.describe('Automation page — bridge round trips', () => {
     await openAutomation(page);
     await answerMountQueries(page);
     await page.getByTestId('create-pipeline-btn').click();
-    await page.getByTestId('palette-seed').click();
+    await page.getByTestId('palette-delay').click();
 
     await page.getByTestId('save-pipeline-btn').click();
 
@@ -521,6 +600,9 @@ test.describe('Automation page — bridge round trips', () => {
     await expect(page.getByTestId('page-header-subtitle')).toHaveText(
       'Anonymised nightly refresh v1 · 2 Steps',
     );
+    // A draft of sync and anonymize steps is drawn, marked, and not runnable.
+    await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(2);
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
   });
 
   test('a refused generation reports the reason instead of silently doing nothing', async ({
@@ -598,6 +680,27 @@ test.describe('Automation page — marketplace', () => {
     await expect(page.getByTestId('floating-toasts')).toContainText(
       'Template installed as new pipeline',
     );
+    // Installed is not runnable: its sync, anonymize and seed steps are refused.
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    await expect(page.getByTestId('pipeline-blocked')).toContainText('Query Source (Sync)');
+  });
+
+  test('a card names the step types of its template that cannot run', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('page-tab-marketplace').click();
+    await respondToAll(page, 'marketplace:list', 'marketplace:list:response', {
+      success: true,
+      templates: [
+        { ...MARKETPLACE_TEMPLATES[0], stepTypes: ['sync', 'anonymize', 'seed', 'sync'] },
+        { ...MARKETPLACE_TEMPLATES[1], stepTypes: ['delay'] },
+      ],
+    });
+
+    await expect(page.getByTestId('marketplace-template-blocked-mkt-1')).toContainText(
+      'Cannot run as a pipeline yet. These step types cannot run: Sync, Anonymize, Seed.',
+    );
+    await expect(page.getByTestId('marketplace-template-blocked-mkt-2')).toHaveCount(0);
   });
 
   test('a refused install reports the reason and leaves the canvas empty', async ({ page }) => {

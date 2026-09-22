@@ -224,8 +224,17 @@ export function useMonitorPageData(): MonitorPageData {
   const orgHealthStatus = data?.orgHealthStatus;
   const lastUpdated = data?.lastUpdated ?? null;
 
-  const alerts = useMemo(() => alertsQuery.data?.alerts ?? [], [alertsQuery.data?.alerts]);
-  const alertHistory = useMemo(() => alertsQuery.data?.history ?? [], [alertsQuery.data?.history]);
+  // The org on screen only. The extension keeps one list for every org of
+  // the window and an alert's message does not name its org, so another
+  // org's storage alert read as this org's.
+  const alerts = useMemo(
+    () => (alertsQuery.data?.alerts ?? []).filter((a) => a.orgId === selectedOrgId),
+    [alertsQuery.data?.alerts, selectedOrgId],
+  );
+  const alertHistory = useMemo(
+    () => (alertsQuery.data?.history ?? []).filter((a) => a.orgId === selectedOrgId),
+    [alertsQuery.data?.history, selectedOrgId],
+  );
   const refetchAlerts = alertsQuery.refetch;
 
   const activeAlertsCount = useMemo(

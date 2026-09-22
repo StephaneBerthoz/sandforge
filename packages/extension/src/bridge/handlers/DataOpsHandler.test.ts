@@ -773,6 +773,36 @@ describe('DataOpsHandler', () => {
       return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     }
 
+    it('brings a record deleted since the snapshot back from the recycle bin before restoring it', async () => {
+      // Run for real: "204 restored, 1 rejected — entity is deleted", the one
+      // record the user had lost.
+      const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+      const query = vi.fn().mockResolvedValue({ records: [{ Id: '001000000000001' }] });
+      const undelete = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue(accountDescribe),
+        sobject: vi.fn(() => ({ upsert })),
+        query,
+        soap: { undelete },
+      } as never);
+      deps.configStore = configStoreWithBackup('org-A');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(rollbackMsg('org-A'));
+
+      expect(query).toHaveBeenCalledWith(
+        "SELECT Id FROM Account WHERE Id IN ('001000000000001') AND IsDeleted = true",
+        { scanAll: true },
+      );
+      expect(undelete).toHaveBeenCalledWith(['001000000000001']);
+      expect(undelete.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder[0]);
+      const response = posted().find((m) => m.type === 'dataops:rollback:response') as unknown as {
+        payload: { totalRestored: number; totalFailed: number };
+      };
+      expect(response.payload).toMatchObject({ totalRestored: 1, totalFailed: 0 });
+    });
+
     it('refuses to restore a backup taken from another org', async () => {
       const { upsert } = await mockConnection();
       deps.configStore = configStoreWithBackup('org-B');

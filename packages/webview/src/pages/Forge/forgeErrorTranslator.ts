@@ -82,6 +82,16 @@ const RULES: Rule[] = [
                 code,
                 'info',
               );
+        // Not a platform code: the run's own, for an object it held back
+        // before writing because the running user cannot use a record type
+        // its records carry. The message names the type and the count; the
+        // hint says what holding back cost and what to change.
+        case 'RECORD_TYPE_UNAVAILABLE':
+          return mapping(
+            ['forge.error.recordTypeHeldBack.explanation', 'forge.error.recordTypeHeldBack.action'],
+            code,
+            'error',
+          );
         case 'REQUIRED_FIELD_MISSING':
           return mapping(
             [

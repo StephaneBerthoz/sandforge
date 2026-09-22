@@ -6,6 +6,15 @@ import type {
   AddOnField,
 } from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
+import {
+  carriesRecordType,
+  defaultRecordTypeOf,
+  findUnavailableRecordTypes,
+  recordTypeFallbackNote,
+  type RecordTypeAvailability,
+  type UnavailableRecordTypeUse,
+} from '../../core/metadata/recordTypeAvailability.js';
+import type { TargetWriteFields } from './targetWriteFields.js';
 
 /** Function to upsert records using an external ID field */
 export type UpsertFn = (
@@ -41,6 +50,13 @@ export interface OperationOutcome {
   id?: string;
   success: boolean;
   errors: string[];
+  /**
+   * The record the target already holds, when it refused this one as a
+   * duplicate and named exactly one record of the object — see
+   * `existingRecordOf`. A writer that links children reads it; one that does
+   * not can leave it alone.
+   */
+  existingId?: string;
 }
 
 /** Dependencies required by DataSync */
@@ -72,11 +88,12 @@ export interface DataSyncDeps {
    * row over one field. Knowing which fields those are is what lets the write
    * be tried again without them.
    *
+   * The same describe carries the record types the running user may use:
+   * see {@link DataSync.withoutClosedRecordTypes}.
+   *
    * Optional, so a caller that cannot describe keeps the previous behaviour.
    */
-  describeTargetFields?: (
-    objectApiName: string,
-  ) => Promise<{ creatable: ReadonlySet<string>; references: ReadonlySet<string> }>;
+  describeTargetFields?: (objectApiName: string) => Promise<TargetWriteFields>;
   /** Optional CRUD/FLS guard. When provided, permissions are re-verified before each DML operation. */
   crudFlsGuard?: CrudFlsGuard;
 }
@@ -103,7 +120,7 @@ export class DataSync {
   ): Promise<SyncObjectResult> {
     // What the target will take. A failure to describe is not a reason to
     // stop: the run then behaves as it did before this existed.
-    let target: { creatable: ReadonlySet<string>; references: ReadonlySet<string> } | null = null;
+    let target: TargetWriteFields | null = null;
     if (this.deps.describeTargetFields) {
       try {
         const answer = await this.deps.describeTargetFields(config.objectApiName);
@@ -125,22 +142,79 @@ export class DataSync {
       ),
     );
 
+    const closed = this.withoutClosedRecordTypes(config, mappedRecords, target);
+
     const outcomes = await this.executeOperation(
       config.objectApiName,
       config.operation,
-      mappedRecords,
+      closed.records,
       config.batchSize,
       config.externalIdField,
     );
 
     const retried = await this.retryWithoutCrossOrgReferences(
       config,
-      mappedRecords,
+      closed.records,
       outcomes,
       target?.references ?? null,
     );
 
-    return buildResult(config.objectApiName, config.operation, retried.outcomes, retried.notes);
+    // Said only of the records that were written: one refused for another
+    // reason carries its own error.
+    const recordTypeNotes = closed.dropped.flatMap(({ use, indices }) => {
+      const written = indices.filter((i) => retried.outcomes[i]?.success).length;
+      return written > 0
+        ? [recordTypeFallbackNote({ ...use, recordCount: written }, closed.fallback)]
+        : [];
+    });
+
+    return buildResult(config.objectApiName, config.operation, retried.outcomes, [
+      ...recordTypeNotes,
+      ...retried.notes,
+    ]);
+  }
+
+  /**
+   * Take the record type off the records whose type the running user cannot
+   * use in the target org, so the platform decides it instead.
+   *
+   * A sync copies `RecordTypeId` as it read it. A type that exists in the
+   * target but is closed to the running user — or inactive there — refuses
+   * every record carrying it, with an `INVALID_CROSS_REFERENCE_KEY` that names
+   * the id and not the reason. Sync already writes a row without a lookup the
+   * target cannot take rather than lose the row over one field (see
+   * {@link retryWithoutCrossOrgReferences}); a record type is that case known
+   * before the write, so it gets the same trade: the record is written, a new
+   * one with the running user's default record type, and the result says
+   * which type was set aside, for how many records, and what to grant to
+   * keep it. A delete sends no record type and is left alone.
+   */
+  private withoutClosedRecordTypes(
+    config: SyncObjectConfig,
+    records: Record<string, unknown>[],
+    target: TargetWriteFields | null,
+  ): {
+    records: Record<string, unknown>[];
+    dropped: Array<{ use: UnavailableRecordTypeUse; indices: number[] }>;
+    fallback: RecordTypeAvailability | undefined;
+  } {
+    const infos = target?.recordTypes ?? [];
+    if (config.operation === 'delete' || infos.length === 0) {
+      return { records, dropped: [], fallback: undefined };
+    }
+    const uses = findUnavailableRecordTypes(config.objectApiName, records, infos);
+    if (uses.length === 0) return { records, dropped: [], fallback: undefined };
+
+    const dropped = uses.map((use) => ({ use, indices: [] as number[] }));
+    const sent = records.map((record, index) => {
+      const hit = dropped.find(({ use }) => carriesRecordType(record, [use]));
+      if (!hit) return record;
+      hit.indices.push(index);
+      const copy = { ...record };
+      delete copy['RecordTypeId'];
+      return copy;
+    });
+    return { records: sent, dropped, fallback: defaultRecordTypeOf(infos) };
   }
 
   /**

@@ -230,7 +230,9 @@ describe('ForgeTableView', () => {
     );
     const badge = screen.getByText('skipped');
     // text-gray-500 on bg-gray-500/20 read 2.7:1 on Dark Modern.
-    expect(badge.className).toContain('bg-gray-500/10');
+    expect(badge.className).toContain(
+      'bg-[color-mix(in_srgb,var(--sf-text-secondary)_10%,transparent)]',
+    );
     expect(badge.className).toContain('text-text-primary');
     expect(badge.className).not.toMatch(/\btext-gray-\d+\b/);
   });

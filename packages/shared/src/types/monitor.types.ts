@@ -142,13 +142,14 @@ export interface ApexLogEntry {
 /** Org health status */
 export interface OrgHealthStatus {
   orgId: string;
-  overall: 'healthy' | 'degraded' | 'critical';
-  apiLimitsStatus: 'ok' | 'warning' | 'critical';
-  storageStatus: 'ok' | 'warning' | 'critical';
-  /** Failed AsyncApexJob rows among those this refresh read; 0 when they could not be read. */
-  failedJobs: number;
-  /** Error ApexLog rows of the last 24 hours this refresh read; 0 when they could not be read. */
-  recentErrorLogs: number;
+  /** `unknown` when no signal could be read. */
+  overall: 'healthy' | 'degraded' | 'critical' | 'unknown';
+  apiLimitsStatus: 'ok' | 'warning' | 'critical' | 'unknown';
+  storageStatus: 'ok' | 'warning' | 'critical' | 'unknown';
+  /** Failed AsyncApexJob rows among those this refresh read; null when they could not be read. */
+  failedJobs: number | null;
+  /** Error ApexLog rows of the last 24 hours this refresh read; null when they could not be read. */
+  recentErrorLogs: number | null;
   lastChecked: ISODateString;
 }
 

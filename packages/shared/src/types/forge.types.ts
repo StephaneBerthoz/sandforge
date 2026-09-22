@@ -204,6 +204,26 @@ export interface ForgeExecutionError {
 }
 
 /**
+ * The rows of one object the target org refused because it already held them.
+ *
+ * Salesforce names the record a row collided with — a unique index in its
+ * message, a duplicate rule in its match list — and a run that reads it links
+ * the row's children to that record instead of leaving them pointing at
+ * nothing. Neither created nor failed, so reported on its own.
+ */
+export interface ForgeExistingRecords {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows linked to the record the target already held; their children point at it. */
+  linked: number;
+  /**
+   * Rows refused as duplicates without one record the run could trust. Counted
+   * as failed, and their children lost the lookup to them.
+   */
+  unidentified: number;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -234,6 +254,28 @@ export interface ForgeExecutionResult {
    * Optional because runs recorded before this field existed do not carry it.
    */
   idRemapTable?: Record<string, string>;
+  /**
+   * Source ids whose `idRemapTable` entry is a record the target already held,
+   * linked to rather than created. Optional for runs recorded before it.
+   */
+  idRemapExisting?: string[];
+  /**
+   * Records this run created. The graph's per-node counts are never filled
+   * in by a run, so without this the results read zero whatever was written.
+   * Optional for runs recorded before it.
+   */
+  createdCount?: number;
+  /**
+   * Records the target already held and named when it refused them: linked
+   * to, never written, and counted in neither the created nor the failed
+   * rows. Optional for runs recorded before it.
+   */
+  linkedExistingCount?: number;
+  /**
+   * Per object, the rows the target refused because it already held them.
+   * Optional for runs recorded before it; empty when the target held none.
+   */
+  existingRecords?: ForgeExistingRecords[];
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];

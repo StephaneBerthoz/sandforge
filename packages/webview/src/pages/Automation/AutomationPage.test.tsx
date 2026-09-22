@@ -50,19 +50,16 @@ let mockSaveMutationState = {
   reset: mockSaveReset,
 };
 
+/** What each query answers, by request type; a type left out answers nothing yet. */
+let mockQueryData: Record<string, unknown> = {};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => {
-    if (type === 'pipeline:list') {
-      return { data: null, loading: false, error: null, refetch: vi.fn() };
-    }
-    if (type === 'pipeline:templates') {
-      return { data: null, loading: false, error: null, refetch: vi.fn() };
-    }
-    if (type === 'pipeline:history') {
-      return { data: null, loading: false, error: null, refetch: vi.fn() };
-    }
-    return { data: null, loading: false, error: null, refetch: vi.fn() };
-  },
+  useBridgeQuery: (type: string) => ({
+    data: mockQueryData[type] ?? null,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
@@ -86,6 +83,7 @@ vi.mock('../../stores/useAppStore', () => ({
 describe('AutomationPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    mockQueryData = {};
     mockNavigate.mockClear();
     mockExecuteMutate.mockClear();
     mockExecuteReset.mockClear();
@@ -240,23 +238,158 @@ describe('AutomationPage', () => {
     expect(screen.getByText('Pipeline validation failed')).toBeDefined();
   });
 
-  it('says on the canvas that most steps do nothing yet, before anyone runs a pipeline', () => {
+  it('says on the canvas that only Delay steps run, before anyone runs a pipeline', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     const notice = screen.getByTestId('automation-steps-soon');
     expect(notice.textContent).toContain('Coming soon');
-    expect(notice.textContent).toContain('Delay');
+    expect(notice.textContent).toContain('Only Delay steps run in a pipeline');
     expect(notice.textContent).toContain('Condition');
+    expect(notice.textContent).toContain('cannot run in a pipeline yet');
+    // The steps are refused now; nothing reports a success it did not earn.
+    expect(notice.textContent).not.toMatch(/report success/i);
   });
 
-  it('says on the Marketplace tab that the steps of a template do nothing yet', () => {
+  it('says on the Marketplace tab that the steps of a template cannot run yet', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     fireEvent.click(screen.getByText('Marketplace'));
     const notice = screen.getByTestId('automation-marketplace-steps-soon');
     expect(notice.textContent).toContain('Coming soon');
-    expect(notice.textContent).toContain('Delay');
-    expect(notice.textContent).toContain('Condition');
+    expect(notice.textContent).toContain('cannot run in a pipeline yet');
+    expect(notice.textContent).not.toMatch(/report success/i);
+  });
+
+  describe('a pipeline that cannot run', () => {
+    const blockedPipeline = {
+      id: 'p-1',
+      name: 'Refresh QA',
+      description: '',
+      version: 1,
+      steps: [
+        {
+          id: 's-wait',
+          name: 'Wait',
+          type: 'delay',
+          config: { seconds: 5 },
+          continueOnError: false,
+        },
+        { id: 's-seed', name: 'Load Target', type: 'seed', config: {}, continueOnError: true },
+      ],
+      triggers: [],
+      variables: [],
+      tags: [],
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    };
+
+    it('is marked in the saved list, and cannot be run once loaded: the notice says which step and why', () => {
+      mockQueryData = { 'pipeline:list': { pipelines: [blockedPipeline] } };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+
+      expect(screen.getByTestId('saved-pipeline-blocked-p-1').textContent).toBe('Cannot run yet');
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      const run = screen.getByTestId('run-pipeline-btn');
+      expect(run).toHaveProperty('disabled', true);
+      const notice = screen.getByTestId('pipeline-blocked');
+      expect(run.getAttribute('aria-describedby')).toBe(notice.id);
+      expect(notice.textContent).toContain(
+        'This pipeline cannot run. Remove or fix these steps first:',
+      );
+      expect(screen.getByTestId('pipeline-blocked-s-seed').textContent).toBe(
+        'Load Target (Seed) — This step type cannot run in a pipeline yet.',
+      );
+      // The Delay step has its seconds: it is not what blocks the pipeline.
+      expect(screen.queryByTestId('pipeline-blocked-s-wait')).toBeNull();
+
+      fireEvent.click(run);
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the notice in view on every tab, next to the Run button it disables', () => {
+      mockQueryData = { 'pipeline:list': { pipelines: [blockedPipeline] } };
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
+
+      fireEvent.click(screen.getByText('Triggers'));
+
+      expect(screen.getByTestId('pipeline-blocked')).toBeDefined();
+    });
+
+    it('asks a new Delay step for its seconds before it runs, and runs it once it has them', () => {
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('create-pipeline-btn'));
+      fireEvent.click(screen.getByTestId('palette-delay'));
+
+      const run = screen.getByTestId('run-pipeline-btn');
+      expect(run).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('pipeline-blocked').textContent).toContain(
+        'Set how many seconds this Delay step waits',
+      );
+
+      const [step] = screen.getAllByTestId(/^canvas-step-/);
+      fireEvent.click(step);
+      fireEvent.change(screen.getByTestId('config-seconds'), { target: { value: '3' } });
+
+      expect(screen.queryByTestId('pipeline-blocked')).toBeNull();
+      expect(run).toHaveProperty('disabled', false);
+      fireEvent.click(run);
+      expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+      const [payload] = mockExecuteMutate.mock.calls[0] as [
+        { pipeline: { steps: Array<{ type: string; config: Record<string, unknown> }> } },
+      ];
+      expect(payload.pipeline.steps).toEqual([
+        expect.objectContaining({ type: 'delay', config: { seconds: 3 } }),
+      ]);
+    });
+  });
+
+  it('marks a Marketplace card whose template holds steps that cannot run, and names their types', () => {
+    mockQueryData = {
+      'marketplace:list': {
+        success: true,
+        templates: [
+          {
+            id: 'tpl-a',
+            name: 'Sandbox Refresh Post-Processing',
+            description: 'Anonymize, then seed',
+            category: 'environment',
+            author: 'SandForge',
+            stepTypes: ['anonymize', 'seed', 'notification', 'seed'],
+          },
+          {
+            id: 'tpl-b',
+            name: 'Pause',
+            description: 'Wait a little',
+            category: 'maintenance',
+            author: 'SandForge',
+            stepTypes: ['delay'],
+          },
+          {
+            id: 'tpl-c',
+            name: 'From an older host',
+            description: 'No step types on the card',
+            category: 'maintenance',
+            author: 'SandForge',
+          },
+        ],
+      },
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByText('Marketplace'));
+
+    expect(screen.getByTestId('marketplace-template-blocked-tpl-a').textContent).toBe(
+      'Cannot run yet' +
+        'Cannot run as a pipeline yet. These step types cannot run: Anonymize, Seed, Notification.',
+    );
+    expect(screen.queryByTestId('marketplace-template-blocked-tpl-b')).toBeNull();
+    // A card that does not say what its steps are is not guessed at.
+    expect(screen.queryByTestId('marketplace-template-blocked-tpl-c')).toBeNull();
   });
 
   it('does not describe the empty state as automating seed or sync work', () => {

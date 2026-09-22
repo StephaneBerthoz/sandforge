@@ -104,6 +104,63 @@ describe('OrphanExpander', () => {
     expect(expander.buildErrorReport()).toBeNull();
   });
 
+  it('links the child to a parent the target already holds when it refuses the copy and names it', async () => {
+    const deps: Pick<
+      ForgeExecutorDeps,
+      'describeFields' | 'queryRecords' | 'insertRecords' | 'describeObject'
+    > = {
+      ...makeDeps({
+        insertRecords: vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([
+          {
+            id: '',
+            success: false,
+            errors: [
+              'DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: 001Fk00000AbCdE',
+            ],
+          },
+        ]),
+      }),
+      describeObject: vi.fn(async () => ({ keyPrefix: '001', recordTypes: [] })),
+    };
+    const { input } = makeInput(deps);
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(input.remapper.get(ORPHAN_ID)).toBe('001Fk00000AbCdEIAV');
+    expect(input.remapper.isExisting(ORPHAN_ID)).toBe(true);
+    expect(expander.buildErrorReport()).toBeNull();
+  });
+
+  it('reports the expansion as failed when the refusal names a record of another object', async () => {
+    const deps: Pick<
+      ForgeExecutorDeps,
+      'describeFields' | 'queryRecords' | 'insertRecords' | 'describeObject'
+    > = {
+      ...makeDeps({
+        insertRecords: vi.fn<ExpanderDeps['insertRecords']>().mockResolvedValue([
+          {
+            id: '',
+            success: false,
+            errors: [
+              'DUPLICATE_VALUE: duplicate value found: Name duplicates value on record with id: 003Fk00000MnOpQ',
+            ],
+          },
+        ]),
+      }),
+      describeObject: vi.fn(async () => ({ keyPrefix: '001', recordTypes: [] })),
+    };
+    const { input } = makeInput(deps);
+    const expander = new OrphanExpander(deps);
+
+    await expander.expandForNode(input);
+
+    expect(input.remapper.get(ORPHAN_ID)).toBeUndefined();
+    expect(expander.buildErrorReport()?.samples[0].messages).toEqual([
+      'Orphan parent expansion produced no new id',
+    ]);
+  });
+
   it('does nothing when disabled', async () => {
     const deps = makeDeps();
     const { input } = makeInput(deps, { enabled: false });

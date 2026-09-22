@@ -18,6 +18,12 @@ import type {
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { RecordIdRemapper } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  recordTypeBlockedMessage,
+  unavailableRecordTypeUses,
+  type RecordTypeAvailability,
+  type UnavailableRecordTypeUse,
+} from '../../core/metadata/recordTypeAvailability.js';
 import { logger } from '../../logger.js';
 
 /** Local alias matching the autopilot domain name. */
@@ -130,6 +136,20 @@ export interface AutopilotExecutorDeps {
    * Optional, so a caller that cannot describe keeps the previous behaviour.
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * The object's record types in the TARGET org, as the running user sees
+   * them — read from the describe `describeCreateableFields` already made.
+   * Optional, like the count below: without both, record types are left to
+   * the platform.
+   */
+  describeRecordTypes?: (objectApiName: string) => Promise<readonly RecordTypeAvailability[]>;
+  /**
+   * How many SOURCE records carry each `RecordTypeId`. The run reads an
+   * object a page at a time, so this count is how it knows every record type
+   * before the first page is written. Asked only when the target has a type
+   * the running user cannot use.
+   */
+  countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
 }
 
 /** Result of executing a single object */
@@ -185,6 +205,30 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     super();
     this.deps = deps;
     this.batchSize = deps.batchSize ?? 200;
+  }
+
+  /**
+   * The record types the object's records carry that the running user cannot
+   * use in the target org — empty when none, or when nothing can say.
+   *
+   * A run copies `RecordTypeId` as it read it, and a type that exists in the
+   * target but is closed to the running user refuses every record carrying
+   * it, with an INVALID_CROSS_REFERENCE_KEY that names the id and not the
+   * reason. The count is asked only when the describe shows such a type, and
+   * only when `RecordTypeId` is sent at all.
+   */
+  private async recordTypesHeldBack(objectApiName: string): Promise<UnavailableRecordTypeUse[]> {
+    const { describeRecordTypes, countRecordTypes } = this.deps;
+    if (!describeRecordTypes || !countRecordTypes) return [];
+    const writable = await this.creatableFieldsOf(objectApiName);
+    if (writable && !writable.has('RecordTypeId')) return [];
+    try {
+      const infos = await describeRecordTypes(objectApiName);
+      if (!infos.some((info) => !info.available && !info.master)) return [];
+      return unavailableRecordTypeUses(objectApiName, await countRecordTypes(objectApiName), infos);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -351,6 +395,21 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     let failure = 0;
     let apiCallsUsed = 0;
     const errors: string[] = [];
+
+    // Held back whole, before its first page: a run clears a lookup it cannot
+    // resolve but never touches a record type, so there is no default to fall
+    // back on without the user choosing it. The node fails with what to
+    // change in the target, and nothing of it is written.
+    const heldBack = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
+    if (heldBack.length > 0) {
+      return {
+        success: 0,
+        failure: totalRecords,
+        errors: heldBack.map(recordTypeBlockedMessage),
+        apiCallsUsed: 1,
+        elapsedMs: Date.now() - objStart,
+      };
+    }
 
     let offset = 0;
 

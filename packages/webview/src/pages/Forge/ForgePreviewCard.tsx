@@ -112,7 +112,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           t('forge.preview.willClone', 'Will clone'),
           `${buckets.cloneObjects.length} obj · ${buckets.cloneRecords.toLocaleString()} rec`,
           buckets.cloneObjects,
-          'border-green-500/30 bg-green-500/5',
+          'border-status-success/30 bg-status-success/5',
           'forge-preview-clone',
         )}
         {tile(
@@ -120,7 +120,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           t('forge.preview.willMap', 'Will map'),
           buckets.mappedObjects.length,
           buckets.mappedObjects,
-          'border-blue-500/30 bg-blue-500/5',
+          'border-status-info/30 bg-status-info/5',
           'forge-preview-map',
         )}
         {tile(
@@ -136,7 +136,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           t('forge.preview.skippedEmpty', 'Skipped (empty)'),
           buckets.skippedOutOfScope.length,
           buckets.skippedOutOfScope,
-          'border-yellow-500/30 bg-yellow-500/5',
+          'border-status-warning/30 bg-status-warning/5',
           'forge-preview-skipped-empty',
         )}
       </div>

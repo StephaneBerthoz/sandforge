@@ -78,7 +78,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
       {/* Three-way auto-resolved section */}
       {threeWay && Object.keys(threeWay.autoResolved).length > 0 && (
         <div
-          className="px-2 py-1.5 rounded bg-green-500/10 border border-green-500/30"
+          className="px-2 py-1.5 rounded bg-status-success/10 border border-status-success/30"
           data-testid="auto-resolved-section"
         >
           <p className="text-[10px] font-semibold text-status-success mb-1">
@@ -133,7 +133,7 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
                   key={field}
                   className={cn(
                     'border-b border-[var(--sf-border-subtle)]',
-                    isConflict && 'bg-amber-500/10',
+                    isConflict && 'bg-status-warning/10',
                   )}
                   data-testid={`diff-row-${field}`}
                   data-conflict={isConflict ? 'true' : 'false'}

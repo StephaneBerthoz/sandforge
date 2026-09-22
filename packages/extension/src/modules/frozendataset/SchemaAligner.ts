@@ -48,7 +48,7 @@ export interface SchemaAlignObjectInput {
 export class SchemaAligner {
   private readonly uiApiCache = new Map<string, string[] | null>();
 
-  constructor(private readonly orgAccess: TargetOrgAccess) {}
+  constructor(private readonly orgAccess: Omit<TargetOrgAccess, 'count'>) {}
 
   /** Align one object's records against its target describe. */
   async alignObject(input: SchemaAlignObjectInput): Promise<SchemaAlignObjectResult> {
@@ -119,6 +119,11 @@ export class SchemaAligner {
     input: SchemaAlignObjectInput,
     alignedRecords: Array<Record<string, unknown>>,
   ): MissingRequiredField[] {
+    // "Absent from every record" is only a finding when there is a record.
+    // With none, every required field of the object qualified, and the load
+    // asked for a default — or created a placeholder in the target — for an
+    // object it had nothing to write to.
+    if (alignedRecords.length === 0) return [];
     const missing: MissingRequiredField[] = [];
     for (const fd of input.describe.fields) {
       if (!fd.createable || fd.nillable || fd.defaultedOnCreate) {

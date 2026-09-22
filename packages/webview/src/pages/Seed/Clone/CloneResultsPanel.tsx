@@ -98,6 +98,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
 
     return (
       <div className="flex flex-col gap-2">
+        {(objResult.linkedCount ?? 0) > 0 && (
+          <span className="text-xs text-status-success" data-testid="clone-object-linked">
+            {t('seed.clone.results.linked')}: {objResult.linkedCount}
+          </span>
+        )}
         {/* ID Mappings */}
         {paginatedMappings.length > 0 && (
           <>
@@ -180,6 +185,13 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         <span className="text-status-success">
           {t('seed.clone.results.inserted')}: {result.totalInserted}
         </span>
+        {/* Records the target already held, linked to rather than written:
+            neither inserted nor failed, so counted on their own. */}
+        {(result.totalLinked ?? 0) > 0 && (
+          <span className="text-status-success" data-testid="clone-results-linked">
+            {t('seed.clone.results.linked')}: {result.totalLinked}
+          </span>
+        )}
         {result.totalFailed > 0 && (
           <span className="text-status-error">
             {t('seed.clone.results.failed')}: {result.totalFailed}

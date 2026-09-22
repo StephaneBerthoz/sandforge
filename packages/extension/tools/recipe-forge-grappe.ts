@@ -396,7 +396,9 @@ async function main(): Promise<void> {
         if (!conn) throw new Error(`No connection for ${orgId}`);
         const results = await conn
           .sobject(objectName)
-          .upsert(records as unknown as Record<string, unknown>[], externalIdField);
+          .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
+            headers: duplicateRuleHeaders(true),
+          });
         const arr = Array.isArray(results) ? results : [results];
         return arr.map((r) => ({
           id: r.id ?? '',

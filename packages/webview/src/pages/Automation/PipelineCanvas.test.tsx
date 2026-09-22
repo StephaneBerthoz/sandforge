@@ -71,4 +71,33 @@ describe('PipelineCanvas', () => {
     const step = screen.getByTestId('canvas-step-s2');
     expect(step.className).toContain('--sf-accent');
   });
+
+  it('marks each step that cannot run where it sits, with the reason', () => {
+    // A Marketplace template or an AI draft lands here with steps the palette
+    // would not add; the reader sees which ones before pressing Run.
+    render(
+      <PipelineCanvas
+        steps={[
+          ...steps,
+          { id: 'c1', name: 'Gate', type: 'condition', config: {}, continueOnError: false },
+          { id: 'd1', name: 'Pause', type: 'delay', config: {}, continueOnError: false },
+          { id: 'd2', name: 'Wait', type: 'delay', config: { seconds: 5 }, continueOnError: false },
+        ]}
+      />,
+    );
+
+    const backup = screen.getByTestId('canvas-blocked-s1');
+    expect(backup.textContent).toBe('Cannot run yet');
+    expect(backup.getAttribute('title')).toBe('This step type cannot run in a pipeline yet.');
+    expect(screen.getByTestId('canvas-blocked-s2')).toBeDefined();
+    expect(screen.getByTestId('canvas-blocked-s3')).toBeDefined();
+    expect(screen.getByTestId('canvas-blocked-c1').getAttribute('title')).toContain(
+      'nothing here sets its condition',
+    );
+    expect(screen.getByTestId('canvas-blocked-d1').getAttribute('title')).toBe(
+      'Set how many seconds this Delay step waits (from 0 up to 24 days).',
+    );
+    // A Delay step with its seconds runs, and is not marked.
+    expect(screen.queryByTestId('canvas-blocked-d2')).toBeNull();
+  });
 });

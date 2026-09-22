@@ -191,9 +191,11 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         fitView
         proOptions={{ hideAttribution: true }}
       >
+        {/* Nodes in the Forge mark as a class: the minimap sets `nodeColor` as a fill
+            attribute, which takes no token and which a class rule overrides. */}
         <MiniMap
-          style={{ backgroundColor: '#0A0A0F' }}
-          nodeColor="#F97316"
+          style={{ backgroundColor: 'var(--sf-bg-primary)' }}
+          nodeClassName="fill-hue-forge"
           maskColor="rgba(0,0,0,0.6)"
         />
         <Controls />

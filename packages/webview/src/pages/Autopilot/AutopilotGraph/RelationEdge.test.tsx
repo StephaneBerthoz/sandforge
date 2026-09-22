@@ -71,7 +71,7 @@ describe('RelationEdge', () => {
     });
     const path = container.querySelector('path[id="test-edge"]');
     expect(path).not.toBeNull();
-    expect(path?.getAttribute('stroke')).toBe('#f59e0b');
+    expect(path?.getAttribute('class')).toContain('stroke-hue-amber');
   });
 
   it('should render a hierarchical edge', () => {
@@ -82,7 +82,7 @@ describe('RelationEdge', () => {
     });
     const path = container.querySelector('path[id="test-edge"]');
     expect(path).not.toBeNull();
-    expect(path?.getAttribute('stroke')).toBe('#06b6d4');
+    expect(path?.getAttribute('class')).toContain('stroke-hue-cyan');
   });
 
   it('should render a polymorphic edge with diamond marker', () => {

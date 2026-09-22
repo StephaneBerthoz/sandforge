@@ -14,6 +14,12 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: mockCheckApiLimits,
 }));
 
+/** Limits an org reports as unused: the two the health check reads, at 0%. */
+const IDLE_LIMITS = {
+  DailyApiRequests: { Max: 100_000, Remaining: 100_000 },
+  DataStorageMB: { Max: 1_000, Remaining: 1_000 },
+};
+
 /** Build minimal factory deps with an inert connection. */
 function createDeps(overrides?: Partial<MonitorOpsFactoryDeps>): MonitorOpsFactoryDeps {
   return {
@@ -21,7 +27,7 @@ function createDeps(overrides?: Partial<MonitorOpsFactoryDeps>): MonitorOpsFacto
     log: vi.fn(),
     notify: vi.fn(),
     getConnection: vi.fn().mockResolvedValue({
-      request: vi.fn().mockResolvedValue({}),
+      request: vi.fn().mockResolvedValue(IDLE_LIMITS),
       limitInfo: undefined,
     } as unknown as Connection),
     ...overrides,
@@ -97,15 +103,32 @@ describe('createMonitorOps', () => {
       expect(health.overall).toBe('degraded');
     });
 
-    it('degrades to a neutral signal when the jobs query fails', async () => {
+    it('reports the jobs as not read when their query fails', async () => {
       mockQueryAll.mockRejectedValue(new Error('soql failed'));
       const ops = createMonitorOps(createDeps());
 
       const health = await ops.healthCheck.computeHealth('org-1');
 
-      // Fetch failure -> neutral ok signal (score 100) instead of a fake score.
-      expect(health.failedJobs).toBe(0);
+      // Not zero failed jobs: none read. The score rests on what was read.
+      expect(health.failedJobs).toBeNull();
       expect(health.overall).toBe('healthy');
+    });
+
+    it('is unknown when the limits cannot be read either', async () => {
+      mockQueryAll.mockRejectedValue(new Error('soql failed'));
+      const ops = createMonitorOps(
+        createDeps({
+          getConnection: vi.fn().mockResolvedValue({
+            request: vi.fn().mockRejectedValue(new Error('REQUEST_LIMIT_EXCEEDED')),
+            limitInfo: undefined,
+          } as unknown as Connection),
+        }),
+      );
+
+      const health = await ops.healthCheck.computeHealth('org-1');
+
+      expect(health.overall).toBe('unknown');
+      expect(health.apiLimitsStatus).toBe('unknown');
     });
   });
 
@@ -142,7 +165,7 @@ describe('createMonitorOps', () => {
       expect(second.recentErrorLogs).toBe(4);
     });
 
-    it('counts none and keeps a full score when the error logs cannot be read', async () => {
+    it('reports the error logs as not read when they cannot be read', async () => {
       mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) => {
         if (soql.includes('FROM ApexLog')) throw new Error('INSUFFICIENT_ACCESS');
         return [];
@@ -151,7 +174,7 @@ describe('createMonitorOps', () => {
 
       const health = await ops.healthCheck.computeHealth('org-1');
 
-      expect(health.recentErrorLogs).toBe(0);
+      expect(health.recentErrorLogs).toBeNull();
       expect(health.overall).toBe('healthy');
     });
   });

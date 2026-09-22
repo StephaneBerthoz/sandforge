@@ -32,12 +32,12 @@ describe('forgeConfigSchema rejects malicious recordId', () => {
   };
 
   it('accepts a valid 15-char Salesforce ID', () => {
-    const r = forgeConfigSchema.safeParse({ ...baseConfig, recordId: '001AP00000j2CEg' });
+    const r = forgeConfigSchema.safeParse({ ...baseConfig, recordId: '001000000000123' });
     expect(r.success).toBe(true);
   });
 
   it('accepts a valid 18-char Salesforce ID', () => {
-    const r = forgeConfigSchema.safeParse({ ...baseConfig, recordId: '001AP00000j2CEgYAM' });
+    const r = forgeConfigSchema.safeParse({ ...baseConfig, recordId: '001000000000123AAA' });
     expect(r.success).toBe(true);
   });
 
@@ -270,7 +270,7 @@ describe('discoveryCache key separates by all material params', () => {
   function makeConfig(overrides: Partial<ForgeConfig> = {}): ForgeConfig {
     return {
       inputMode: 'record',
-      recordId: '001AP00000j2CEgYAM',
+      recordId: '001000000000123AAA',
       depth: 'direct',
       sourceOrgId: 'src',
       targetOrgId: 'tgt',
@@ -332,7 +332,7 @@ describe('discoveryCache key separates by all material params', () => {
 describe('v1.2.5 — forgeConfigSchema accepts fieldExclusions + ownerMappings', () => {
   const baseConfig = {
     inputMode: 'record' as const,
-    recordId: '001AP00000j2CEg',
+    recordId: '001000000000123',
     depth: 'direct' as const,
     sourceOrgId: 'src',
     targetOrgId: 'tgt',
@@ -405,7 +405,7 @@ describe('v1.2.5 — forgeConfigSchema accepts fieldExclusions + ownerMappings',
 describe('v1.2.5 — forgeConfigSchema accepts objectSoqlFilters', () => {
   const baseConfig = {
     inputMode: 'record' as const,
-    recordId: '001AP00000j2CEg',
+    recordId: '001000000000123',
     depth: 'direct' as const,
     sourceOrgId: 'src',
     targetOrgId: 'tgt',
@@ -479,7 +479,7 @@ describe('v1.2.5 — forgeConfigSchema accepts objectSoqlFilters', () => {
 describe('v1.2.5 — forgeConfigSchema accepts fieldMappings', () => {
   const baseConfig = {
     inputMode: 'record' as const,
-    recordId: '001AP00000j2CEg',
+    recordId: '001000000000123',
     depth: 'direct' as const,
     sourceOrgId: 'src',
     targetOrgId: 'tgt',

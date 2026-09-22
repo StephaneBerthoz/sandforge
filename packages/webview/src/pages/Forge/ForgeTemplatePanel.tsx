@@ -126,7 +126,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                 {t('forge.starterBadge')}
               </span>
               {tpl.config.maxRecordsPerObject != null && (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-status-warning font-mono">
+                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-status-warning/10 text-status-warning font-mono">
                   ≤ {tpl.config.maxRecordsPerObject}/obj
                 </span>
               )}
@@ -251,7 +251,7 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                       e.stopPropagation();
                       manager.requestDeleteTemplate(tpl.id);
                     }}
-                    className="p-1 text-text-secondary hover:text-status-error transition-colors rounded hover:bg-red-500/10"
+                    className="p-1 text-text-secondary hover:text-status-error transition-colors rounded hover:bg-status-error/10"
                     title={t('forge.deleteTemplate')}
                   >
                     <Trash2 size={12} />

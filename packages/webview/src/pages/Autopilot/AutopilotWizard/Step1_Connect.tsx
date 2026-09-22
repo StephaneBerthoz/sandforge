@@ -18,12 +18,16 @@ export interface Step1ConnectProps {
   readonly onTargetSelect: (orgId: string) => void;
 }
 
-/** Tier color mapping for org cards (keyed by OrgSafetyTier values). */
+/**
+ * Tier color mapping for org cards (keyed by OrgSafetyTier values). The scale
+ * has one step more than the severities: high sits in the orange between
+ * warning and error.
+ */
 const tierColors: Record<OrgSafetyTier, string> = {
-  [OrgSafetyTier.LOW]: 'border-green-600',
-  [OrgSafetyTier.MEDIUM]: 'border-amber-500',
-  [OrgSafetyTier.HIGH]: 'border-orange-600',
-  [OrgSafetyTier.CRITICAL]: 'border-red-600',
+  [OrgSafetyTier.LOW]: 'border-status-success',
+  [OrgSafetyTier.MEDIUM]: 'border-status-warning',
+  [OrgSafetyTier.HIGH]: 'border-hue-orange',
+  [OrgSafetyTier.CRITICAL]: 'border-status-error',
 };
 
 /** Step 1: Select source and target orgs. */
@@ -70,7 +74,7 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               <div
                 className={cn(
                   'w-2.5 h-2.5 rounded-full shrink-0',
-                  org.status === 'connected' ? 'bg-green-500' : 'bg-gray-500',
+                  org.status === 'connected' ? 'bg-status-success' : 'bg-text-secondary',
                 )}
               />
               <div className="flex flex-col min-w-0">

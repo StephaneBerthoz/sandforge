@@ -256,17 +256,19 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const apiEntry = limitsRaw['DailyApiRequests'] as
         | { Max: number; Remaining: number }
         | undefined;
-      const pct = apiEntry
-        ? Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100)
-        : 0;
+      // A limit the org did not report is not a limit at 0%.
+      if (!apiEntry || !apiEntry.Max) {
+        return { name: 'apiLimits', status: 'unknown', score: 0, message: 'No API limit reported' };
+      }
+      const pct = Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100);
       const status =
         pct > 80 ? ('critical' as const) : pct > 60 ? ('warning' as const) : ('ok' as const);
       return { name: 'apiLimits', status, score: 100 - pct, message: `API usage at ${pct}%` };
     } catch {
       return {
         name: 'apiLimits',
-        status: 'ok' as const,
-        score: 100,
+        status: 'unknown' as const,
+        score: 0,
         message: 'Unable to fetch limits',
       };
     }
@@ -279,17 +281,25 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const storageEntry = limitsRaw['DataStorageMB'] as
         | { Max: number; Remaining: number }
         | undefined;
-      const pct = storageEntry
-        ? Math.round(((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100)
-        : 0;
+      if (!storageEntry || !storageEntry.Max) {
+        return {
+          name: 'storage',
+          status: 'unknown',
+          score: 0,
+          message: 'No storage limit reported',
+        };
+      }
+      const pct = Math.round(
+        ((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100,
+      );
       const status =
         pct > 85 ? ('critical' as const) : pct > 70 ? ('warning' as const) : ('ok' as const);
       return { name: 'storage', status, score: 100 - pct, message: `Storage usage at ${pct}%` };
     } catch {
       return {
         name: 'storage',
-        status: 'ok' as const,
-        score: 100,
+        status: 'unknown' as const,
+        score: 0,
         message: 'Unable to fetch storage',
       };
     }
@@ -307,8 +317,8 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     } catch {
       return {
         name: 'recentErrors',
-        status: 'ok' as const,
-        score: 100,
+        status: 'unknown' as const,
+        score: 0,
         message: 'Unable to fetch error logs',
       };
     }
@@ -330,8 +340,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
 
   // Jobs health from real AsyncApexJob data: each failed job in the recent
   // window costs 10 points; more than 5 failed jobs is critical, any failed
-  // job is a warning. Fetch failures degrade to a neutral "ok" signal rather
-  // than a fabricated score.
+  // job is a warning. A fetch that fails is `unknown`, left out of the score.
   const jobMonitor = new JobMonitor(async (orgId: string): Promise<JobInfo[]> => {
     const conn = await deps.getConnection(orgId);
     const records = await queryAll<{
@@ -377,8 +386,8 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     } catch {
       return {
         name: 'activeJobs',
-        status: 'ok' as const,
-        score: 100,
+        status: 'unknown' as const,
+        score: 0,
         message: 'Unable to fetch jobs',
       };
     }

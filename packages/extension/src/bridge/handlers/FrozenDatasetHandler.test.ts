@@ -7,6 +7,7 @@ import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -84,6 +85,106 @@ function posted(
   return mock.mock.calls
     .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
     .filter((m) => m.type === type);
+}
+
+/**
+ * A small org that answers what discovery, the extractor and the selector
+ * ask: two opportunities of one stage, one of them with a line item.
+ *
+ * Discovery here behaves as the real one does — the record id only picks the
+ * root object, counts are org-wide — which is the property the first health
+ * check was built without.
+ */
+function fakeOrg(): { conn: unknown; soqls: string[] } {
+  const created = '2026-01-01T00:00:00.000Z';
+  const rows: Record<string, Array<Record<string, unknown>>> = {
+    Opportunity: [
+      { Id: '006000000000001AAA', Name: 'Bare', StageName: 'Won', CreatedDate: created },
+      { Id: '006000000000002AAA', Name: 'Full', StageName: 'Won', CreatedDate: created },
+    ],
+    OpportunityLineItem: [
+      {
+        Id: '00k000000000001AAA',
+        OpportunityId: '006000000000002AAA',
+        Quantity: 2,
+        CreatedDate: created,
+      },
+    ],
+  };
+  const describes: Record<string, unknown> = {
+    Opportunity: {
+      name: 'Opportunity',
+      fields: [
+        { name: 'Id', type: 'id', nillable: false },
+        { name: 'Name', type: 'string', nillable: false },
+        { name: 'StageName', type: 'picklist', nillable: false },
+        { name: 'CreatedDate', type: 'datetime', nillable: false },
+      ],
+      childRelationships: [
+        {
+          childSObject: 'OpportunityLineItem',
+          field: 'OpportunityId',
+          relationshipName: 'OpportunityLineItems',
+          cascadeDelete: true,
+        },
+      ],
+    },
+    OpportunityLineItem: {
+      name: 'OpportunityLineItem',
+      fields: [
+        { name: 'Id', type: 'id', nillable: false },
+        {
+          name: 'OpportunityId',
+          type: 'reference',
+          referenceTo: ['Opportunity'],
+          relationshipName: 'Opportunity',
+          nillable: false,
+          cascadeDelete: true,
+        },
+        { name: 'Quantity', type: 'double', nillable: false },
+        { name: 'CreatedDate', type: 'datetime', nillable: false },
+      ],
+      childRelationships: [],
+    },
+  };
+  const soqls: string[] = [];
+  const answer = (records: Array<Record<string, unknown>>, totalSize = records.length) => ({
+    records,
+    done: true,
+    totalSize,
+  });
+  const conn = {
+    describeGlobal: async () => ({
+      sobjects: [
+        { name: 'Opportunity', keyPrefix: '006' },
+        { name: 'OpportunityLineItem', keyPrefix: '00k' },
+      ],
+    }),
+    describe: async (name: string) => describes[name],
+    queryMore: async () => answer([]),
+    query: async (soql: string) => {
+      soqls.push(soql);
+      const count = /^SELECT COUNT\(\) FROM (\w+)/.exec(soql);
+      if (count) return answer([], (rows[count[1]] ?? []).length);
+      if (soql.includes('axisValue')) return answer([{ axisValue: 'Won' }]);
+      if (soql.includes('Id = NULL') || soql.includes('FROM RecordType')) return answer([]);
+      const table = rows[/FROM (\w+)/.exec(soql)?.[1] ?? ''] ?? [];
+      const inClauses = [...soql.matchAll(/(\w+) IN \(([^)]*)\)/g)].map((m) => ({
+        field: m[1],
+        values: m[2].split(',').map((v) => v.trim().replace(/^'|'$/g, '')),
+      }));
+      const equals = [...soql.matchAll(/(\w+) = '([^']*)'/g)].map((m) => ({
+        field: m[1],
+        value: m[2],
+      }));
+      const matched = table
+        .filter((r) => inClauses.every((c) => c.values.includes(String(r[c.field]))))
+        .filter((r) => equals.every((e) => String(r[e.field]) === e.value))
+        .sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
+      return answer(matched);
+    },
+  };
+  return { conn, soqls };
 }
 
 describe('FrozenDatasetHandler', () => {
@@ -291,6 +392,183 @@ describe('FrozenDatasetHandler', () => {
       expect(status.configured).toBe(true);
       expect(status.salt.present).toBe(true);
       expect(status.salt.fingerprint).toMatch(/^[0-9a-f]{12}$/);
+    });
+  });
+
+  describe('against an org shaped like a real one', () => {
+    /** A config over the fake org, in a sas of its own. */
+    function realConfig(extra: Partial<FrozenProjectConfig> = {}): FrozenProjectConfig {
+      const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-real-'));
+      tmpDirs.push(sasDir);
+      return {
+        rootObject: 'Opportunity',
+        axes: [
+          {
+            name: 'stage',
+            label: 'Stage',
+            filterField: 'StageName',
+            valuesSoql: 'SELECT StageName axisValue FROM Opportunity GROUP BY StageName',
+          },
+        ],
+        edgeCases: [],
+        expectedObjects: ['OpportunityLineItem'],
+        sasDir,
+        ...extra,
+      };
+    }
+
+    it('keeps the candidate whose own records hold the expected object', async () => {
+      // Both candidates share one schema graph. The first check judged that
+      // graph, so it could not tell them apart; judged on their records, the
+      // one without a line item is turned away and the other kept.
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps(realConfig());
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:select:error')).toEqual([]);
+      const selection = posted(deps, 'frozen:select:response')[0].payload.selection as {
+        combinations: Array<{ combinationKey: string }>;
+        uncovered: unknown[];
+        volumetry: { measured: Record<string, number>; total: number };
+        graph: unknown;
+      };
+      expect(selection.combinations.map((c) => c.combinationKey)).toEqual(['stage=Won']);
+      expect(selection.uncovered).toEqual([]);
+      expect(selection.volumetry.measured).toEqual({ Opportunity: 1, OpportunityLineItem: 1 });
+      expect(selection.graph).toEqual({ objects: 2, truncated: false, maxNodes: 50 });
+    });
+
+    it('says why every combination went uncovered instead of failing', async () => {
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps(realConfig({ expectedObjects: ['Quote'] }));
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      // Before: the empty list reached the extraction, which had no root to
+      // start from, and the selection died with a discovery error.
+      expect(posted(deps, 'frozen:select:error')).toEqual([]);
+      const selection = posted(deps, 'frozen:select:response')[0].payload.selection as {
+        combinations: unknown[];
+        uncovered: Array<{ reason: string }>;
+      };
+      expect(selection.combinations).toEqual([]);
+      expect(selection.uncovered[0].reason).toContain('no Quote record in this dossier');
+    });
+
+    it('discovers the graph once for the whole run', async () => {
+      const { conn, soqls } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps(realConfig());
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      // One count per object of the graph: two candidates and the volumetry
+      // measurement all read the same one.
+      expect(soqls.filter((q) => q.startsWith('SELECT COUNT()'))).toHaveLength(2);
+    });
+
+    it('holds a line to the dossier through its required opportunity', async () => {
+      // The dossier's edge: a required lookup to anything but the catalog
+      // keeps only rows whose parent was read. It needs each field's
+      // `nillable`, which this adapter once dropped while Forge's passed it.
+      const { conn, soqls } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps(realConfig());
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      const lineReads = soqls.filter((q) => /FROM OpportunityLineItem WHERE/.test(q));
+      expect(lineReads.length).toBeGreaterThan(0);
+      for (const q of lineReads) expect(q).toContain('AND (OpportunityId IN (');
+    });
+    it('leaves out the objects the configuration names', async () => {
+      const { conn, soqls } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps(
+        realConfig({ expectedObjects: [], excludedObjects: ['OpportunityLineItem'] }),
+      );
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      expect(soqls.some((q) => /FROM OpportunityLineItem WHERE/.test(q))).toBe(false);
+      const selection = posted(deps, 'frozen:select:response')[0].payload.selection as {
+        volumetry: { measured: Record<string, number> };
+      };
+      expect(selection.volumetry.measured).toEqual({ Opportunity: 1 });
+    });
+
+    it('refuses to extract from a selection that kept no root', async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const config = realConfig();
+      await writeSelectionToSas(config.sasDir as string, {
+        roots: [],
+        uncovered: [{ combinationKey: 'stage=Won', reason: 'no candidate record' }],
+        volumetry: { measured: {}, total: 0, budgetMax: 2500 },
+        selectedAt: '2026-09-01T08:00:00.000Z',
+      });
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      const errors = posted(deps, 'frozen:extract:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.code).toBe('SELECTION_EMPTY');
+    });
+
+    it('records in the manifest how far the extraction reached', async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig({ maxNodes: 10 });
+      const sasDir = config.sasDir as string;
+      await writeSelectionToSas(sasDir, {
+        roots: [
+          {
+            rootRecordId: '006000000000002AAA',
+            combinationKey: 'stage=Won',
+            axisValues: { stage: 'Won' },
+          },
+        ],
+        uncovered: [],
+        volumetry: {
+          measured: { Opportunity: 1, OpportunityLineItem: 1 },
+          total: 2,
+          budgetMax: 2500,
+        },
+        selectedAt: '2026-09-01T08:00:00.000Z',
+      });
+      fs.writeFileSync(
+        path.join(sasDir, 'rules.json'),
+        JSON.stringify({
+          rulesVersion: '1.0.0',
+          rules: { 'Opportunity.Name': { generator: 'companyName' } },
+        }),
+      );
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: unknown;
+      };
+      expect(manifest.coverage).toEqual({
+        objects: 2,
+        truncated: false,
+        maxNodes: 10,
+        unboundedObjects: [],
+        filesLeftOut: [],
+      });
     });
   });
 

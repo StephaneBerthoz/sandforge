@@ -35,6 +35,12 @@ export interface TargetFieldDescribe {
 export interface TargetObjectDescribe {
   name: string;
   fields: TargetFieldDescribe[];
+  /**
+   * Record types as the running user sees them. `available` is false for one
+   * that exists and is active but is not assigned to that user — it resolves
+   * by DeveloperName and is then refused at insert.
+   */
+  recordTypeInfos?: Array<{ developerName: string; recordTypeId: string; available: boolean }>;
 }
 
 /**
@@ -45,6 +51,13 @@ export interface TargetObjectDescribe {
 export interface TargetOrgAccess {
   /** Run a SOQL query and return its records. */
   query(orgId: string, soql: string): Promise<Array<Record<string, unknown>>>;
+  /**
+   * The number of rows a `SELECT COUNT() FROM …` statement counts. Its answer
+   * is in the result's size, not in a row, and `COUNT(Id)` — which does come
+   * back as a row — is refused by some objects: `FeedItem` "does not support
+   * aggregate operator COUNT".
+   */
+  count(orgId: string, soql: string): Promise<number>;
   /** Describe a target object. Rejects when the object is absent. */
   describe(orgId: string, objectApiName: string): Promise<TargetObjectDescribe>;
   /**
@@ -312,6 +325,14 @@ export interface FrozenLoadReport {
   };
   /** PersonContact post-load: sidecar links restored as targeted updates. */
   personContact: { restored: number; unresolved: PersonContactLink[] };
+  /**
+   * Statuses the platform would not take at insert — an activated order is
+   * created as a draft — applied once the record's children were in.
+   */
+  statuses: {
+    restored: number;
+    refused: Array<{ objectApiName: string; referenceId: string; status: string; detail: string }>;
+  };
   purge: PurgeReport;
   /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;

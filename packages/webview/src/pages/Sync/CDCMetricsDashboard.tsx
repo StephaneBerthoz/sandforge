@@ -193,16 +193,10 @@ export const CDCMetricsDashboard: React.FC = () => {
         <div className="text-xs text-text-secondary">
           {t('sync.realtime.metricsPanel.average', { value: Math.round(metrics.averageLagMs) })}
         </div>
-        <Sparkline
-          values={lagHistoryValues}
-          color={
-            metrics.currentLagMs < 500
-              ? '#22c55e'
-              : metrics.currentLagMs <= 2000
-                ? '#eab308'
-                : '#ef4444'
-          }
-        />
+        {/* The line takes the lag figure's own severity token through currentColor. */}
+        <span className={currentLagColor}>
+          <Sparkline values={lagHistoryValues} color="currentColor" />
+        </span>
       </div>
 
       {/* Card 3: Events Applied */}

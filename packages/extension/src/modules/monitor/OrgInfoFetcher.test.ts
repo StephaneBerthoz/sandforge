@@ -5,7 +5,6 @@ import type { OrgInfoConnection } from './OrgInfoFetcher';
 function createMockConn(overrides: Partial<OrgInfoConnection> = {}): OrgInfoConnection {
   return {
     identity: vi.fn().mockResolvedValue({
-      instanceName: 'NA100',
       apiVersion: '60.0',
       lastLoginDate: '2026-02-24T09:00:00Z',
     }),
@@ -14,6 +13,7 @@ function createMockConn(overrides: Partial<OrgInfoConnection> = {}): OrgInfoConn
       orgId: '00D000000000001',
       type: 'Sandbox' as const,
       edition: 'Enterprise Edition',
+      instanceName: 'NA100',
     }),
     queryCount: vi.fn().mockResolvedValue(42),
     ...overrides,
@@ -70,10 +70,53 @@ describe('OrgInfoFetcher', () => {
     );
     expect(calls).toContain('SELECT COUNT() FROM User WHERE IsActive = true');
     expect(calls).toContain(
-      "SELECT COUNT() FROM EntityDefinition WHERE QualifiedApiName LIKE '%__c'",
+      "SELECT COUNT() FROM EntityDefinition WHERE DeploymentStatus != null AND QualifiedApiName LIKE '%__c'",
     );
     expect(calls).toContain('SELECT COUNT() FROM ApexClass');
     expect(calls).toContain('SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true');
+  });
+
+  it('counts the custom objects an org has, not every object whose name ends in c', async () => {
+    // An org's EntityDefinition, answering COUNT() the way Salesforce does. In
+    // a SOQL LIKE, `_` matches any one character, so `'%__c'` is "anything
+    // ending in two characters and a c": run against real orgs it counted 41
+    // custom objects where describeGlobal listed 5, Topic and ActivityMetric
+    // among the 36 standard objects it took for custom ones.
+    const entities = [
+      { name: 'Account', custom: false },
+      { name: 'Topic', custom: false },
+      { name: 'PushTopic', custom: false },
+      { name: 'ActivityMetric', custom: false },
+      { name: 'Invoice__c', custom: true },
+      { name: 'Setting__c', custom: true },
+      { name: 'Rate__mdt', custom: true },
+    ];
+    const like = (pattern: string): RegExp =>
+      new RegExp(
+        `^${pattern
+          .split('')
+          .map((ch) =>
+            ch === '%' ? '.*' : ch === '_' ? '.' : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+          )
+          .join('')}$`,
+      );
+    const countEntities = (soql: string): number => {
+      const pattern = /QualifiedApiName LIKE '([^']*)'/.exec(soql)?.[1];
+      // DeploymentStatus is set on custom entities only.
+      const customOnly = /DeploymentStatus != null/.test(soql);
+      return entities.filter(
+        (e) => (!pattern || like(pattern).test(e.name)) && (!customOnly || e.custom),
+      ).length;
+    };
+    const conn = createMockConn({
+      queryCount: vi.fn((soql: string) =>
+        Promise.resolve(/FROM EntityDefinition/.test(soql) ? countEntities(soql) : 0),
+      ),
+    });
+
+    const result = await fetcher.fetch('org-1', conn);
+
+    expect(result.customObjectCount).toBe(2);
   });
 
   it('should return cached data within TTL', async () => {

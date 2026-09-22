@@ -15,22 +15,22 @@ describe('Badge', () => {
 
   it('should apply success variant', () => {
     render(<Badge variant="success">OK</Badge>);
-    expect(screen.getByText('OK').className).toContain('bg-emerald-700');
+    expect(screen.getByText('OK').className).toContain('bg-status-success');
   });
 
   it('should apply warning variant', () => {
     render(<Badge variant="warning">!</Badge>);
-    expect(screen.getByText('!').className).toContain('bg-amber-700');
+    expect(screen.getByText('!').className).toContain('bg-status-warning');
   });
 
   it('should apply error variant', () => {
     render(<Badge variant="error">Err</Badge>);
-    expect(screen.getByText('Err').className).toContain('bg-red-700');
+    expect(screen.getByText('Err').className).toContain('bg-status-error');
   });
 
   it('should apply info variant', () => {
     render(<Badge variant="info">i</Badge>);
-    expect(screen.getByText('i').className).toContain('bg-blue-700');
+    expect(screen.getByText('i').className).toContain('bg-status-info');
   });
 
   it('should merge custom className', () => {

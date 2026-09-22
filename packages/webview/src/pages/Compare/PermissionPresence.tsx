@@ -97,7 +97,7 @@ const PresenceCell: React.FC<{ present: boolean; testId: string }> = ({ present,
   <span
     className={cn(
       'inline-block h-4 w-4 rounded-sm text-center text-[10px] font-bold leading-4',
-      present ? 'bg-green-500/10 text-status-success' : 'bg-red-500/10 text-status-error',
+      present ? 'bg-status-success/10 text-status-success' : 'bg-status-error/10 text-status-error',
     )}
     data-testid={testId}
   >
@@ -190,7 +190,7 @@ export const PermissionPresence: React.FC<PermissionPresenceProps> = ({
                   key={`${row.kind}-${row.name}`}
                   className={cn(
                     'border-b border-[var(--sf-border)] last:border-0',
-                    row.status !== 'unchanged' && 'bg-yellow-500/5',
+                    row.status !== 'unchanged' && 'bg-status-warning/5',
                   )}
                   data-testid={`perm-row-${row.kind}-${row.name}`}
                 >

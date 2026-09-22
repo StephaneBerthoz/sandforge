@@ -12,7 +12,7 @@ const variantStyles = {
   // theme, where white on red-500, yellow-500 or blue-500 read 3.8, 1.9 and 3.7:1.
   danger: {
     accent: 'text-status-error',
-    border: 'border-red-500/50',
+    border: 'border-status-error/50',
     btnBg: 'bg-status-error',
   },
   warning: {

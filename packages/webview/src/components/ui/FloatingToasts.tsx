@@ -8,7 +8,7 @@ const MAX_VISIBLE_TOASTS = 3;
 
 const levelStyles: Record<Notification['level'], string> = {
   info: 'border-l-[var(--vscode-notificationsInfoIcon-foreground,#75beff)]',
-  success: 'border-l-[#10b981]',
+  success: 'border-l-status-success',
   warning: 'border-l-[var(--vscode-notificationsWarningIcon-foreground,#cca700)]',
   error: 'border-l-[var(--vscode-notificationsErrorIcon-foreground,#f14c4c)]',
 };

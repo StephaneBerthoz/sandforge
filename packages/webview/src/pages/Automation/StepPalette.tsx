@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PipelineStepType } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
+import { typeBlocker } from './stepRunnability';
 
 /** Step category definition. */
 export type StepCategory = 'data' | 'control' | 'notification' | 'quality';
@@ -35,15 +36,6 @@ const STEP_ENTRIES: StepPaletteEntry[] = [
   { type: 'notification', category: 'notification' },
 ];
 
-/**
- * The step types the extension actually executes. `StepExecutor` gives Delay
- * and Condition real handlers and sends every other type to a pass-through
- * that reports success without opening a connection, so a pipeline of Seed and
- * Backup steps runs green and moves no record. Each of those is marked here
- * until it gets a handler of its own.
- */
-const EXECUTED_STEP_TYPES: ReadonlySet<PipelineStepType> = new Set(['delay', 'condition']);
-
 const CATEGORY_ORDER: StepCategory[] = ['data', 'quality', 'control', 'notification'];
 
 const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' | 'error' | 'info'> =
@@ -54,9 +46,17 @@ const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' |
     notification: 'default',
   };
 
-/** Palette of available step types grouped by category. */
+/**
+ * Palette of available step types grouped by category.
+ *
+ * A step type the extension cannot run is shown, so the reader sees what is
+ * planned, but its button is disabled: a pipeline holding one is refused
+ * before it starts, so adding it would only build a pipeline that cannot run.
+ * The note above the list says why, and each disabled entry is described by it.
+ */
 export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
   const { t } = useTranslation();
+  const noteId = useId();
 
   const grouped = CATEGORY_ORDER.map((category) => ({
     category,
@@ -68,32 +68,50 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
       <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
         {t('automation.steps')}
       </h3>
+      <p
+        id={noteId}
+        className="text-[10px] text-[var(--sf-text-secondary)]"
+        data-testid="palette-runnable-note"
+      >
+        {t('automation.runnability.paletteNote')}
+      </p>
       {grouped.map(({ category, steps }) => (
         <div key={category}>
           <span className="text-[10px] uppercase text-[var(--sf-text-secondary)]">
             {t(`automation.stepCategories.${category}`)}
           </span>
           <div className="flex flex-wrap gap-1 mt-1">
-            {steps.map((entry) => (
-              <button
-                key={entry.type}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[var(--sf-border)] hover:border-[var(--sf-accent)] transition-colors bg-[var(--sf-bg-primary)]"
-                onClick={() => onAddStep?.(entry.type)}
-                data-testid={`palette-${entry.type}`}
-              >
-                <Badge variant={CATEGORY_VARIANT[entry.category]} className="text-[9px]">
-                  {t(`automation.stepTypes.${entry.type}`)}
-                </Badge>
-                {!EXECUTED_STEP_TYPES.has(entry.type) && (
-                  <span
-                    className="text-[9px] text-[var(--sf-text-secondary)]"
-                    data-testid={`palette-${entry.type}-soon`}
-                  >
-                    {t('common.comingSoon')}
-                  </span>
-                )}
-              </button>
-            ))}
+            {steps.map((entry) => {
+              const blocker = typeBlocker(entry.type);
+              return (
+                <button
+                  key={entry.type}
+                  type="button"
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors bg-[var(--sf-bg-primary)] ${
+                    blocker === undefined
+                      ? 'border-[var(--sf-border)] hover:border-[var(--sf-accent)]'
+                      : 'border-dashed border-[var(--sf-border)] cursor-not-allowed'
+                  }`}
+                  onClick={() => onAddStep?.(entry.type)}
+                  disabled={blocker !== undefined}
+                  title={blocker === undefined ? undefined : t(`automation.runnability.${blocker}`)}
+                  aria-describedby={blocker === undefined ? undefined : noteId}
+                  data-testid={`palette-${entry.type}`}
+                >
+                  <Badge variant={CATEGORY_VARIANT[entry.category]} className="text-[9px]">
+                    {t(`automation.stepTypes.${entry.type}`)}
+                  </Badge>
+                  {blocker !== undefined && (
+                    <span
+                      className="text-[9px] text-[var(--sf-text-secondary)]"
+                      data-testid={`palette-${entry.type}-soon`}
+                    >
+                      {t('common.comingSoon')}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}

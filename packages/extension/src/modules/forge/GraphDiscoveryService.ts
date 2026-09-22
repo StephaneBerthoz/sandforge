@@ -110,7 +110,7 @@ const MB_PER_RECORD = 0.001;
 const SECONDS_PER_RECORD = 0.01;
 
 /** Default maximum number of nodes to discover. */
-const DEFAULT_MAX_NODES = 50;
+export const DEFAULT_MAX_NODES = 50;
 
 /**
  * How far past the node cap discovery may go to reach a required parent.

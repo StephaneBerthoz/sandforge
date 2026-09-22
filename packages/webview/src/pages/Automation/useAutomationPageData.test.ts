@@ -358,3 +358,121 @@ describe('useAutomationPageData — the History tab follows the runs', () => {
     expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
   });
 });
+
+describe('useAutomationPageData — a pipeline with a step that cannot run is not sent', () => {
+  it('does not add a step of a type that cannot run', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+
+    act(() => result.current.handleAddStep('seed'));
+    act(() => result.current.handleAddStep('condition'));
+    expect(result.current.stepCount).toBe(0);
+
+    act(() => result.current.handleAddStep('delay'));
+    expect(result.current.stepCount).toBe(1);
+  });
+
+  it('marks every step of an AI draft that cannot run, and refuses to send it', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('ai:generate-pipeline').data = {
+      success: true,
+      pipeline: {
+        name: 'Nightly refresh',
+        steps: [
+          { name: 'Copy accounts', type: 'sync', config: {} },
+          // 'dataops' is not a step type: it lands as a script step.
+          { name: 'Mask PII', type: 'dataops', config: {} },
+        ],
+      },
+    };
+    rerender();
+
+    expect(
+      result.current.runBlockers.map((blocked) => [blocked.stepName, blocked.blocker]),
+    ).toEqual([
+      ['Copy accounts', 'typeCannotRun'],
+      ['Mask PII', 'typeCannotRun'],
+    ]);
+
+    act(() => result.current.handleRunPipeline());
+    expect(mutationFor('pipeline:execute').mutate).not.toHaveBeenCalled();
+  });
+
+  it('marks an installed template that holds a step that cannot run', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('marketplace:install').data = {
+      success: true,
+      pipeline: {
+        name: 'API Limit Monitoring',
+        steps: [
+          { name: 'Check API Usage', type: 'precheck', config: {} },
+          { name: 'Evaluate Thresholds', type: 'condition', config: { field: 'x' } },
+        ],
+      },
+    };
+    rerender();
+
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'typeCannotRun',
+      'conditionCannotRun',
+    ]);
+  });
+
+  it('sends a pipeline whose every step can run', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddStep('delay'));
+    const [step] = result.current.pipeline?.steps ?? [];
+    act(() => result.current.handleUpdateStep(step.id, { config: { seconds: 1 } }));
+
+    expect(result.current.runBlockers).toEqual([]);
+    act(() => result.current.handleRunPipeline());
+    expect(mutationFor('pipeline:execute').mutate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useAutomationPageData — a failed run says why', () => {
+  it('reports the host reason under a translated headline', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    const reason =
+      'Pipeline did not start: Step "Load" is a seed step, and this step type cannot run in a pipeline yet.';
+
+    mutationFor('pipeline:execute').data = { id: 'run-1', status: 'failed', error: reason };
+    rerender();
+
+    const message = i18n.t('automation.runFailed', { reason });
+    expect(message).toBe(`The pipeline run failed: ${reason}`);
+    expect(result.current.error).toBe(message);
+    expect(messages(message)).toHaveLength(1);
+    expect(messages(message)[0].level).toBe('error');
+  });
+
+  it("falls back to the first failed step's error when the run carries none", () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('pipeline:execute').data = {
+      id: 'run-2',
+      status: 'failed',
+      stepResults: [
+        { stepId: 'a', status: 'completed' },
+        { stepId: 'b', status: 'failed', error: 'Step execution timed out' },
+      ],
+    };
+    rerender();
+
+    expect(result.current.error).toBe('The pipeline run failed: Step execution timed out');
+  });
+
+  it('adds nothing to a run that completed', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    mutationFor('pipeline:execute').data = { id: 'run-3', status: 'completed', stepResults: [] };
+    rerender();
+
+    expect(result.current.error).toBeNull();
+    expect(notifications.some((n) => n.level === 'error')).toBe(false);
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(1);
+  });
+});

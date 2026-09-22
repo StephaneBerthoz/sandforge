@@ -168,7 +168,7 @@ export const ConfigProfilePanel: React.FC = () => {
                 className={cn(
                   'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-all',
                   selected
-                    ? 'border-blue-500/50 bg-blue-500/10 text-hue-blue'
+                    ? 'border-hue-blue/50 bg-hue-blue/10 text-hue-blue'
                     : 'border-subtle bg-surface-2 text-text-secondary hover:border-active',
                 )}
                 onClick={() => toggleCategory(cat.key)}

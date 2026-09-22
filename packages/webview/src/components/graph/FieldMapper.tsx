@@ -234,7 +234,7 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 className={cn(
                   'px-3 text-xs font-mono rounded-full border transition-colors text-left truncate',
                   isMapped
-                    ? 'bg-[#4ec9b0] bg-opacity-20 border-[#4ec9b0] text-text-primary'
+                    ? 'bg-status-success/20 border-status-success text-text-primary'
                     : isClickable
                       ? 'bg-[var(--sf-bg-input)] border-dashed border-[var(--sf-accent)] text-text-primary animate-pulse'
                       : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-[var(--sf-text-input)]',

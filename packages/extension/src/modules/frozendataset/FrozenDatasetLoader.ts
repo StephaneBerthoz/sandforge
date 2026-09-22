@@ -25,6 +25,11 @@
  * mode: the record is skipped and listed, never an opaque error.
  */
 
+import {
+  PRICEBOOK_ENTRY_BOOK_FIELD,
+  STANDARD_PRICEBOOK_SOQL,
+  isPricebookEntry,
+} from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
@@ -51,11 +56,13 @@ import {
   type FrozenLoadConfig,
   type FrozenLoadProgressEvent,
   type FrozenLoadReport,
+  type MissingRequiredField,
   type PerObjectLoadResult,
   type PicklistRule,
   type PlaceholderCreation,
   type PurgeReport,
   type SafetyTier,
+  type SchemaAlignObjectResult,
   type SchemaAlignmentReport,
   type SkippedDuplicate,
   type TargetOrgAccess,
@@ -69,7 +76,7 @@ export interface LoadMappingStore extends ReferenceIdMappingStore {
 
 /** Dependencies of {@link FrozenDatasetLoader}. */
 export interface FrozenDatasetLoaderDeps {
-  orgAccess: TargetOrgAccess;
+  orgAccess: Omit<TargetOrgAccess, 'count'>;
   writer: FrozenDmlWriter;
   /**
    * Existing ProductionGuard — tier check on every DML batch; with
@@ -152,6 +159,59 @@ function soqlLiteral(value: unknown): string {
   return `'${sanitizeSoqlValue(String(value))}'`;
 }
 
+/**
+ * Objects whose status follows a lifecycle, and the object listing each
+ * status with its category. A record is born in the Draft category and moves
+ * on afterwards — run for real, an activated order was refused: "for a new
+ * order, choose Draft" — and an order takes its products only as a draft.
+ */
+const STATUS_LIFECYCLES: Readonly<Record<string, string>> = {
+  Order: 'OrderStatus',
+  Contract: 'ContractStatus',
+};
+
+/** Ids per `IN` list in the load's own reads of the target. */
+const ID_IN_CHUNK = 200;
+
+/** A status set aside at insert, to apply once the record is in. */
+interface DeferredStatus {
+  objectApiName: string;
+  referenceId: string;
+  status: string;
+}
+
+/** The join the platform creates for a Contact inserted with an Account. */
+const ACCOUNT_CONTACT_RELATION = 'AccountContactRelation';
+
+/** One object's results, from two insert calls made for it. */
+function mergeResults(
+  first: PerObjectLoadResult,
+  second: PerObjectLoadResult,
+): PerObjectLoadResult {
+  return {
+    objectApiName: second.objectApiName,
+    fromFiles: first.fromFiles + second.fromFiles,
+    inserted: first.inserted + second.inserted,
+    reused: first.reused + second.reused,
+    skippedDuplicates: [...first.skippedDuplicates, ...second.skippedDuplicates],
+    failed: [...first.failed, ...second.failed],
+  };
+}
+
+/** A placeholder the load will create, everything about it already known. */
+interface PlaceholderPlan {
+  kind: 'placeholder';
+  missing: MissingRequiredField;
+  /** `Object.field` of the lookup it fills. */
+  key: string;
+  name: string;
+  targetObject: string;
+  recordTypeId?: string;
+}
+
+/** How one required field the dataset leaves empty will be filled. */
+type RequiredFieldPlan = PlaceholderPlan | { kind: 'default'; missing: MissingRequiredField };
+
 export class FrozenDatasetLoader {
   private readonly config: FrozenLoadConfig;
   private readonly sasGuard: SasPathGuard;
@@ -189,13 +249,23 @@ export class FrozenDatasetLoader {
       : options.dataset;
     const refIndex = buildReferenceIndex(working);
     const dependencies = buildObjectDependencies(working, refIndex);
-    const { order, cyclic } = topoOrder(dependencies);
-    const insertOrder = [...order, ...cyclic];
+    const groups = insertionGroups(dependencies);
+    const groupOrder = groups.flat();
 
     // 3. Reload: reuse by identity keys, then purge residuals (children
     //    before parents — reverse insertion order; unknown objects last).
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
+    // The standard price book is matched, never inserted: every org has
+    // exactly one and none can be created. Matched before a reload purges,
+    // so the purge never reaches for it.
+    if (working.standardPricebook) {
+      const [book] = await this.deps.orgAccess.query(orgId, STANDARD_PRICEBOOK_SOQL);
+      if (typeof book?.Id === 'string') {
+        mapping.set(working.standardPricebook, book.Id);
+        reused.add(working.standardPricebook);
+      }
+    }
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
@@ -205,7 +275,7 @@ export class FrozenDatasetLoader {
           options,
           previousMapping,
           mapping,
-          [...cyclic].reverse().concat([...order].reverse()),
+          [...groupOrder].reverse(),
           purge,
         );
       }
@@ -248,8 +318,17 @@ export class FrozenDatasetLoader {
       string,
       Array<{ referenceId: string; fields: Record<string, unknown> }>
     >();
+    /** Lookups the target will not take empty, per object — from its describe. */
+    const requiredLookups = new Map<string, Set<string>>();
     for (const objectData of working.objects) {
       const objectApiName = objectData.objectApiName;
+      // An extraction writes a file for every object of the graph, and most
+      // hold nothing for the dossiers kept: of a real Opportunity dataset's 69
+      // objects, 56 were empty. With nothing to write there is nothing to
+      // describe, align or satisfy — and asking, the load stopped on the
+      // first required field of the first empty object, demanding a default
+      // for records that did not exist.
+      if (objectData.records.length === 0) continue;
       let describe;
       try {
         describe = await this.deps.orgAccess.describe(orgId, objectApiName);
@@ -260,6 +339,20 @@ export class FrozenDatasetLoader {
         });
         continue;
       }
+      requiredLookups.set(
+        objectApiName,
+        new Set(
+          describe.fields
+            .filter(
+              (f) =>
+                f.createable &&
+                !f.nillable &&
+                !f.defaultedOnCreate &&
+                (f.referenceTo?.length ?? 0) > 0,
+            )
+            .map((f) => f.name),
+        ),
+      );
       const result = await aligner.alignObject({
         orgId,
         objectApiName,
@@ -290,13 +383,17 @@ export class FrozenDatasetLoader {
     });
     const placeholders: PlaceholderCreation[] = [];
     const requiredDefaults: FrozenLoadReport['requiredDefaults'] = [];
-    for (const objectResult of alignment.objectResults) {
-      for (const missing of objectResult.missingRequired) {
-        if (missing.isLookup) {
-          await this.createPlaceholder(options, missing, alignedByObject, mapping, placeholders);
-        } else {
-          this.applyScalarDefault(missing, alignedByObject, requiredDefaults);
-        }
+    // Everything the dataset needs is settled before the first placeholder is
+    // written. One at a time, a load created the placeholders it could, then
+    // stopped on the first default nobody had declared: technical records
+    // left in the target for a load that did not happen, and one missing
+    // entry reported per attempt.
+    const plans = await this.planRequiredFields(options, alignment.objectResults);
+    for (const plan of plans) {
+      if (plan.kind === 'placeholder') {
+        await this.createPlaceholder(options, plan, alignedByObject, mapping, placeholders);
+      } else {
+        this.applyScalarDefault(plan.missing, alignedByObject, requiredDefaults);
       }
     }
     emit({
@@ -307,8 +404,16 @@ export class FrozenDatasetLoader {
     });
 
     // 7. Insert pass 1 (topological order; cycle FKs nullified, queued).
+    // Inside a cycle, a lookup the target requires cannot wait for pass 2,
+    // so the object it points at goes first.
+    const insertOrder = groups.flatMap((group) =>
+      group.length > 1
+        ? orderWithinGroup(group, requiredDependencies(alignedByObject, requiredLookups, refIndex))
+        : group,
+    );
     const perObject: PerObjectLoadResult[] = [];
     const pendingFk: PendingFk[] = [];
+    const deferredStatuses: DeferredStatus[] = [];
     const duplicatePatterns =
       this.config.duplicateErrorPatterns ?? DEFAULT_DUPLICATE_ERROR_PATTERNS;
     let objectIndex = 0;
@@ -325,18 +430,47 @@ export class FrozenDatasetLoader {
         progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
         message: `Inserting ${objectApiName}`,
       });
-      const objectResult = await this.insertObject(
-        options,
-        objectApiName,
+      if (objectApiName === ACCOUNT_CONTACT_RELATION) {
+        await this.matchDirectRelations(orgId, working, aligned, mapping, reused);
+      }
+      const fromFiles =
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
-          aligned.length,
-        aligned,
-        refIndex,
-        mapping,
-        reused,
-        pendingFk,
-        duplicatePatterns,
-      );
+        aligned.length;
+      const lifecycle = STATUS_LIFECYCLES[objectApiName];
+      const startingRecords = lifecycle
+        ? await this.startAsDrafts(orgId, objectApiName, lifecycle, aligned, deferredStatuses)
+        : aligned;
+      const insert = (
+        records: Array<{ referenceId: string; fields: Record<string, unknown> }>,
+        count: number,
+      ): Promise<PerObjectLoadResult> =>
+        this.insertObject(
+          options,
+          objectApiName,
+          count,
+          records,
+          refIndex,
+          mapping,
+          reused,
+          pendingFk,
+          duplicatePatterns,
+        );
+      // A custom price is refused for a product with no standard one, so the
+      // standard prices are written first, in a call of their own.
+      const standardRef = working.standardPricebook;
+      const objectResult =
+        isPricebookEntry(objectApiName) && standardRef
+          ? mergeResults(
+              await insert(
+                startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardRef),
+                0,
+              ),
+              await insert(
+                startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
+                fromFiles,
+              ),
+            )
+          : await insert(startingRecords, fromFiles);
       perObject.push(objectResult);
       emit({
         phase: 'insert',
@@ -356,6 +490,17 @@ export class FrozenDatasetLoader {
       progress: 88,
       message: `Pass 2: ${pass2.resolved} resolved, ${pass2.unresolved.length} unresolved`,
     });
+
+    // 8b. Statuses set aside at insert, now that each record's children are in.
+    const statuses = await this.applyDeferredStatuses(options, deferredStatuses, mapping);
+    if (statuses.restored + statuses.refused.length > 0) {
+      emit({
+        phase: 'pass2',
+        status: statuses.refused.length > 0 ? 'error' : 'done',
+        progress: 89,
+        message: `Statuses: ${statuses.restored} applied, ${statuses.refused.length} refused`,
+      });
+    }
 
     // 9. PersonContact post-load — sidecar resolved through the mapping.
     emit({
@@ -387,6 +532,7 @@ export class FrozenDatasetLoader {
       perObject.some((o) => o.failed.length > 0) ||
       pass2.unresolved.length > 0 ||
       personContact.unresolved.length > 0 ||
+      statuses.refused.length > 0 ||
       purge.failures.length > 0;
 
     const report: FrozenLoadReport = {
@@ -401,6 +547,7 @@ export class FrozenDatasetLoader {
       perObject,
       pass2,
       personContact,
+      statuses,
       purge,
       mappingPath: this.deps.mappingStore.filePath,
       contractPath,
@@ -571,6 +718,22 @@ export class FrozenDatasetLoader {
       bucket.push(realId);
       residualsByObject.set(objectApiName, bucket);
     }
+    // An activated order keeps its products and itself from being deleted —
+    // "unable to modify activated order" — and the last load activated them.
+    // Back to a draft first, and the deletes below can do their work.
+    for (const [objectApiName, lifecycle] of Object.entries(STATUS_LIFECYCLES)) {
+      const ids = residualsByObject.get(objectApiName);
+      if (!ids || ids.length === 0) continue;
+      const draft = (await this.statusCategories(options.orgId, lifecycle))?.draft;
+      if (!draft) continue;
+      await this.checkGuard(options, 'update', objectApiName, ids.length);
+      // A refusal here shows again, with its reason, as the delete that follows.
+      await this.deps.writer.update(
+        options.orgId,
+        objectApiName,
+        ids.map((id) => ({ Id: id, Status: draft })),
+      );
+    }
     const known = reverseOrder.filter((o) => residualsByObject.has(o));
     const unknown = [...residualsByObject.keys()].filter((o) => !reverseOrder.includes(o)).sort();
     for (const objectApiName of [...known, ...unknown]) {
@@ -591,15 +754,30 @@ export class FrozenDatasetLoader {
           }
         });
       } else {
-        await this.checkGuard(options, 'delete', objectApiName, ids.length);
-        const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, ids);
-        outcomes.forEach((outcome, i) => {
-          if (outcome.success) {
-            purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
-          } else {
-            purge.failures.push({ objectApiName, recordId: ids[i], errors: outcome.errors });
-          }
-        });
+        // A standard price goes only once the custom prices of its product
+        // have: asked for both in one call, the target refused the standard
+        // one with an UNKNOWN_EXCEPTION. The insert's rule, run backwards.
+        const rounds = isPricebookEntry(objectApiName)
+          ? await this.customPricesFirst(options.orgId, ids)
+          : objectApiName === ACCOUNT_CONTACT_RELATION
+            ? [await this.withoutDirectRelations(options.orgId, ids)]
+            : [ids];
+        for (const round of rounds) {
+          if (round.length === 0) continue;
+          await this.checkGuard(options, 'delete', objectApiName, round.length);
+          const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
+          // Already gone is what a purge wants: a parent deleted a step
+          // earlier takes its cascading children with it. Run for real, a
+          // reload counted ten of those as failures and called a clean load
+          // one with errors.
+          outcomes.forEach((outcome, i) => {
+            if (outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'))) {
+              purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
+            } else {
+              purge.failures.push({ objectApiName, recordId: round[i], errors: outcome.errors });
+            }
+          });
+        }
       }
     }
   }
@@ -645,6 +823,21 @@ export class FrozenDatasetLoader {
       objectApiName,
       developerName,
     );
+    if (targetId !== null && typeof targetId === 'object') {
+      // Kept, every record naming it is refused; dropped, the record goes in
+      // with the running user's default record type — and says so here.
+      delete fields.RecordTypeId;
+      issues.push({
+        objectApiName,
+        referenceId: record.referenceId,
+        recordTypeName: rtName,
+        detail:
+          `RecordType ${developerName} is in the target org but not available to the running ` +
+          "user — RecordTypeId dropped, the user's default record type applies. Assign it to " +
+          "the user's profile or a permission set to keep it.",
+      });
+      return { referenceId: record.referenceId, fields };
+    }
     if (!targetId) {
       delete fields.RecordTypeId;
       issues.push({
@@ -660,45 +853,104 @@ export class FrozenDatasetLoader {
     return { referenceId: record.referenceId, fields };
   }
 
+  /**
+   * Settle every required field the dataset leaves empty, writing nothing.
+   *
+   * Each one needs a declared placeholder (a lookup) or a declared default (a
+   * scalar), and a placeholder needs an object to create and, when one is
+   * named, a record type the target has. All of it is checked here, reading
+   * only, and every gap goes into one error — so a person fixes the
+   * configuration once, and a refused load has written nothing.
+   *
+   * @throws {LoadConfigError} Listing every gap found.
+   */
+  private async planRequiredFields(
+    options: FrozenLoadOptions,
+    objectResults: SchemaAlignObjectResult[],
+  ): Promise<RequiredFieldPlan[]> {
+    const plans: RequiredFieldPlan[] = [];
+    const gaps: string[] = [];
+    for (const objectResult of objectResults) {
+      for (const missing of objectResult.missingRequired) {
+        const key = `${missing.objectApiName}.${missing.field}`;
+        if (!missing.isLookup) {
+          if (this.config.requiredFieldDefaults?.[key] === undefined) {
+            gaps.push(`requiredFieldDefaults["${key}"]: a value for this required field`);
+          } else {
+            plans.push({ kind: 'default', missing });
+          }
+          continue;
+        }
+        const spec = this.config.requiredLookupPlaceholders?.[key];
+        if (!spec) {
+          gaps.push(
+            `requiredLookupPlaceholders["${key}"]: a placeholder (name + recordTypeDeveloperName) ` +
+              `for this required lookup to ${missing.referenceTo.join(' or ') || 'its parent'}`,
+          );
+          continue;
+        }
+        const targetObject = spec.targetObjectApiName ?? missing.referenceTo[0];
+        if (!targetObject) {
+          gaps.push(
+            `requiredLookupPlaceholders["${key}"].targetObjectApiName: the target describe ` +
+              'names no object this lookup points at',
+          );
+          continue;
+        }
+        let recordTypeId: string | undefined;
+        if (spec.recordTypeDeveloperName) {
+          const resolved = await this.deps.recordTypeResolver.resolveByDeveloperName(
+            options.orgId,
+            targetObject,
+            spec.recordTypeDeveloperName,
+          );
+          if (resolved !== null && typeof resolved === 'object') {
+            gaps.push(
+              `requiredLookupPlaceholders["${key}"]: record type ${spec.recordTypeDeveloperName} ` +
+                `on ${targetObject} is not available to the running user`,
+            );
+            continue;
+          }
+          recordTypeId = resolved ?? undefined;
+          if (!recordTypeId) {
+            gaps.push(
+              `requiredLookupPlaceholders["${key}"]: record type ${spec.recordTypeDeveloperName} ` +
+                `is not on ${targetObject} in the target org — deploy it before loading`,
+            );
+            continue;
+          }
+        }
+        plans.push({
+          kind: 'placeholder',
+          missing,
+          key,
+          name: spec.name,
+          targetObject,
+          recordTypeId,
+        });
+      }
+    }
+    if (gaps.length > 0) {
+      throw new LoadConfigError(
+        `The dataset leaves ${gaps.length} required field(s) empty that the configuration does ` +
+          'not cover. Nothing was written. Declare them all, then load again — records are ' +
+          `never silently excluded:\n- ${gaps.join('\n- ')}`,
+      );
+    }
+    return plans;
+  }
+
   /** Create ONE technical placeholder for a required lookup missing from the dataset. */
   private async createPlaceholder(
     options: FrozenLoadOptions,
-    missing: { objectApiName: string; field: string; referenceTo: string[] },
+    plan: PlaceholderPlan,
     alignedByObject: Map<string, Array<{ referenceId: string; fields: Record<string, unknown> }>>,
     mapping: Map<string, string>,
     placeholders: PlaceholderCreation[],
   ): Promise<void> {
-    const key = `${missing.objectApiName}.${missing.field}`;
-    const spec = this.config.requiredLookupPlaceholders?.[key];
-    if (!spec) {
-      throw new LoadConfigError(
-        `Required lookup ${key} is absent from the dataset and has no placeholder configured. ` +
-          `Remediation: declare requiredLookupPlaceholders["${key}"] (name + recordTypeDeveloperName) ` +
-          'so the loader can create a named, record-typed technical record — records are never silently excluded.',
-      );
-    }
-    const targetObject = spec.targetObjectApiName ?? missing.referenceTo[0];
-    if (!targetObject) {
-      throw new LoadConfigError(
-        `Cannot infer the placeholder object for required lookup ${key}: the target describe ` +
-          'exposes no referenceTo. Declare requiredLookupPlaceholders targetObjectApiName.',
-      );
-    }
-    const record: Record<string, unknown> = { Name: spec.name };
-    if (spec.recordTypeDeveloperName) {
-      const rtId = await this.deps.recordTypeResolver.resolveByDeveloperName(
-        options.orgId,
-        targetObject,
-        spec.recordTypeDeveloperName,
-      );
-      if (!rtId) {
-        throw new LoadConfigError(
-          `Placeholder RecordType ${spec.recordTypeDeveloperName} not found on ${targetObject} in the ` +
-            `target org. Deploy the RecordType metadata before loading (placeholder for ${key}).`,
-        );
-      }
-      record.RecordTypeId = rtId;
-    }
+    const { missing, key, targetObject } = plan;
+    const record: Record<string, unknown> = { Name: plan.name };
+    if (plan.recordTypeId) record.RecordTypeId = plan.recordTypeId;
     await this.checkGuard(options, 'insert', targetObject, 1);
     const [outcome] = await this.deps.writer.insert(options.orgId, targetObject, [record]);
     if (!outcome.success || !outcome.id) {
@@ -720,7 +972,7 @@ export class FrozenDatasetLoader {
       objectApiName: missing.objectApiName,
       field: missing.field,
       placeholderObjectApiName: targetObject,
-      placeholderName: spec.name,
+      placeholderName: plan.name,
       placeholderId: outcome.id,
       affectedRecords: affected,
     });
@@ -733,14 +985,8 @@ export class FrozenDatasetLoader {
     applied: FrozenLoadReport['requiredDefaults'],
   ): void {
     const key = `${missing.objectApiName}.${missing.field}`;
+    // Settled by planRequiredFields: a default is declared for every key here.
     const value = this.config.requiredFieldDefaults?.[key];
-    if (value === undefined) {
-      throw new LoadConfigError(
-        `Required field ${key} is absent from the dataset and has no declared default. ` +
-          `Remediation: declare requiredFieldDefaults["${key}"] so the load is explicit — ` +
-          'records are never silently excluded.',
-      );
-    }
     let affected = 0;
     for (const aligned of alignedByObject.get(missing.objectApiName) ?? []) {
       const current = aligned.fields[missing.field];
@@ -785,14 +1031,19 @@ export class FrozenDatasetLoader {
     const payloads = toInsert.map((record) => {
       const payload: Record<string, unknown> = {};
       for (const [field, value] of Object.entries(record.fields)) {
+        // No value is left out, and the platform decides: its default, the
+        // running user as owner. The `clear` generator marks what it removed
+        // with '', and sent as '' or null a field is given a value — a wrong
+        // one. Run for real: an owner "cannot be blank", a date "cannot
+        // deserialize ''", a feed item's revision "cannot be less than 1".
+        if (value === '' || value === null || value === undefined) continue;
         if (typeof value === 'string' && refIndex.has(value)) {
           const realId = mapping.get(value);
           if (realId) {
             payload[field] = realId;
           } else {
             // Cycle (target inserted later) or a parent skipped/failed:
-            // nullify now, pass 2 resolves or lists it — never opaque.
-            payload[field] = null;
+            // left empty now, pass 2 resolves or lists it — never opaque.
             pendingFk.push({
               objectApiName,
               referenceId: record.referenceId,
@@ -820,6 +1071,192 @@ export class FrozenDatasetLoader {
       }
     });
     return result;
+  }
+
+  /**
+   * Find the relations the platform created itself.
+   *
+   * Inserting a Contact with an AccountId makes Salesforce create the direct
+   * AccountContactRelation between them. The dataset carries that relation
+   * too — it was read from the source — and inserting it again is refused:
+   * "the contact already has a relationship with this account". So the one
+   * the platform made is looked up, mapped and counted as reused.
+   */
+  private async matchDirectRelations(
+    orgId: string,
+    working: FrozenDataset,
+    aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
+    mapping: Map<string, string>,
+    reused: Set<string>,
+  ): Promise<void> {
+    const accountOfContact = new Map<string, unknown>();
+    for (const contact of working.objects.find((o) => o.objectApiName === 'Contact')?.records ??
+      []) {
+      accountOfContact.set(contact.referenceId, contact.fields.AccountId);
+    }
+    // Direct: the relation joins a Contact to the Account it was created with.
+    const direct = aligned.filter((r) => {
+      const contactRef = r.fields.ContactId;
+      return (
+        typeof contactRef === 'string' &&
+        r.fields.AccountId !== undefined &&
+        accountOfContact.get(contactRef) === r.fields.AccountId &&
+        mapping.has(contactRef) &&
+        typeof r.fields.AccountId === 'string' &&
+        mapping.has(r.fields.AccountId)
+      );
+    });
+    if (direct.length === 0) return;
+    const contactIds = [...new Set(direct.map((r) => mapping.get(r.fields.ContactId as string)))];
+    const rows = await this.deps.orgAccess.query(
+      orgId,
+      'SELECT Id, AccountId, ContactId FROM AccountContactRelation WHERE IsDirect = true ' +
+        `AND ContactId IN (${contactIds.map((id) => `'${sanitizeSoqlValue(String(id))}'`).join(', ')})`,
+    );
+    const byPair = new Map(
+      rows.map((row) => [`${String(row.AccountId)}|${String(row.ContactId)}`, row.Id]),
+    );
+    for (const relation of direct) {
+      const accountId = mapping.get(relation.fields.AccountId as string);
+      const contactId = mapping.get(relation.fields.ContactId as string);
+      const id = byPair.get(`${String(accountId)}|${String(contactId)}`);
+      if (typeof id === 'string') {
+        mapping.set(relation.referenceId, id);
+        reused.add(relation.referenceId);
+      }
+    }
+  }
+
+  /**
+   * Put records whose status is past Draft in at a Draft status, and keep
+   * the real one for {@link applyDeferredStatuses}.
+   *
+   * The categories are the target's own — `OrderStatus` and `ContractStatus`
+   * list every value with its category — so nothing about a customised
+   * picklist is guessed. A target that cannot say leaves the records as they
+   * are, and the insert reports what it refuses.
+   */
+  private async startAsDrafts(
+    orgId: string,
+    objectApiName: string,
+    lifecycle: string,
+    aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
+    deferred: DeferredStatus[],
+  ): Promise<Array<{ referenceId: string; fields: Record<string, unknown> }>> {
+    const categories = await this.statusCategories(orgId, lifecycle);
+    if (!categories?.draft) return aligned;
+    const { categoryOf, draft } = categories;
+    return aligned.map((record) => {
+      const status = record.fields.Status;
+      if (typeof status !== 'string' || status === '') return record;
+      const category = categoryOf.get(status);
+      if (category === undefined || category === 'Draft') return record;
+      deferred.push({ objectApiName, referenceId: record.referenceId, status });
+      return { referenceId: record.referenceId, fields: { ...record.fields, Status: draft } };
+    });
+  }
+
+  /**
+   * Relations the purge leaves to the platform: a direct one cannot be
+   * deleted — "delete the contact instead" — and goes with its contact,
+   * which the purge deletes a step later.
+   */
+  private async withoutDirectRelations(orgId: string, ids: readonly string[]): Promise<string[]> {
+    const direct = new Set<string>();
+    for (let i = 0; i < ids.length; i += ID_IN_CHUNK) {
+      const inList = ids
+        .slice(i, i + ID_IN_CHUNK)
+        .map((id) => `'${sanitizeSoqlValue(id)}'`)
+        .join(', ');
+      const rows = await this.deps.orgAccess.query(
+        orgId,
+        `SELECT Id FROM ${ACCOUNT_CONTACT_RELATION} WHERE Id IN (${inList}) AND IsDirect = true`,
+      );
+      for (const row of rows) direct.add(String(row.Id));
+    }
+    return ids.filter((id) => !direct.has(id));
+  }
+
+  /** Price entry ids split into custom prices, then standard ones. */
+  private async customPricesFirst(orgId: string, ids: readonly string[]): Promise<string[][]> {
+    const standard = new Set<string>();
+    for (let i = 0; i < ids.length; i += ID_IN_CHUNK) {
+      const inList = ids
+        .slice(i, i + ID_IN_CHUNK)
+        .map((id) => `'${sanitizeSoqlValue(id)}'`)
+        .join(', ');
+      const rows = await this.deps.orgAccess.query(
+        orgId,
+        `SELECT Id FROM PricebookEntry WHERE Id IN (${inList}) AND Pricebook2.IsStandard = true`,
+      );
+      for (const row of rows) standard.add(String(row.Id));
+    }
+    return [ids.filter((id) => !standard.has(id)), ids.filter((id) => standard.has(id))];
+  }
+
+  /**
+   * The target's statuses for a lifecycle object, each with its category,
+   * and one status of the Draft category — or nothing, when the target
+   * cannot say (the object is not enabled there).
+   */
+  private async statusCategories(
+    orgId: string,
+    lifecycle: string,
+  ): Promise<{ categoryOf: Map<string, string>; draft: string | undefined } | undefined> {
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await this.deps.orgAccess.query(
+        orgId,
+        `SELECT ApiName, StatusCode FROM ${assertSoqlIdentifier(lifecycle)}`,
+      );
+    } catch {
+      return undefined;
+    }
+    return {
+      categoryOf: new Map(rows.map((row) => [String(row.ApiName), String(row.StatusCode)])),
+      draft: rows
+        .filter((row) => row.StatusCode === 'Draft')
+        .map((row) => String(row.ApiName))
+        .sort()[0],
+    };
+  }
+
+  /** Apply the statuses {@link startAsDrafts} set aside, record by record. */
+  private async applyDeferredStatuses(
+    options: FrozenLoadOptions,
+    deferred: readonly DeferredStatus[],
+    mapping: ReadonlyMap<string, string>,
+  ): Promise<FrozenLoadReport['statuses']> {
+    const refused: FrozenLoadReport['statuses']['refused'] = [];
+    let restored = 0;
+    const byObject = new Map<string, Array<DeferredStatus & { id: string }>>();
+    for (const entry of deferred) {
+      const id = mapping.get(entry.referenceId);
+      // Not inserted: its failure is already in perObject.
+      if (!id) continue;
+      byObject.set(entry.objectApiName, [
+        ...(byObject.get(entry.objectApiName) ?? []),
+        { ...entry, id },
+      ]);
+    }
+    for (const [objectApiName, entries] of byObject) {
+      const records = entries.map((e) => ({ Id: e.id, Status: e.status }));
+      await this.checkGuard(options, 'update', objectApiName, records.length);
+      const outcomes = await this.deps.writer.update(options.orgId, objectApiName, records);
+      outcomes.forEach((outcome, i) => {
+        if (outcome.success) {
+          restored++;
+        } else {
+          refused.push({
+            objectApiName,
+            referenceId: entries[i].referenceId,
+            status: entries[i].status,
+            detail: outcome.errors.join('; '),
+          });
+        }
+      });
+    }
+    return { restored, refused };
   }
 
   /** Pass 2: patch nullified cycle FKs — updates coalesced per record. */
@@ -996,33 +1433,147 @@ function buildObjectDependencies(
 }
 
 /**
- * Kahn topological order over the dependency graph: objects with no
- * dependencies (parents) insert first. Cyclic remainders are appended
- * alphabetically — their mutual FKs are handled by the 2-pass pattern.
+ * Insertion groups: the strongly connected components of the dependency
+ * graph — each cycle one group, every other object a group of its own —
+ * ordered so that a group comes after every group it depends on. Ties go
+ * alphabetically, so an acyclic dataset keeps the plain topological order.
+ * Inside a group, members are alphabetical; their mutual FKs are handled by
+ * the 2-pass pattern, and {@link orderWithinGroup} settles the required ones.
+ *
+ * The first version ran Kahn's algorithm and, at the first cycle, appended
+ * everything left alphabetically. Real data has cycles — an Account pointing
+ * at its key Contact, an Opportunity at its synced Quote — so everything
+ * downstream of one went in alphabetically: AccountContactRelation before
+ * Contact, line items before their quote. Run for real, that alone refused
+ * most of a dataset.
  */
-function topoOrder(deps: ReadonlyMap<string, ReadonlySet<string>>): {
-  order: string[];
-  cyclic: string[];
-} {
-  const remaining = new Map([...deps.entries()].map(([k, v]) => [k, new Set(v)]));
+function insertionGroups(deps: ReadonlyMap<string, ReadonlySet<string>>): string[][] {
+  // Tarjan's strongly connected components, iterated in name order so the
+  // grouping is deterministic.
+  let counter = 0;
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const componentOf = new Map<string, number>();
+  const components: string[][] = [];
+  const visit = (name: string): void => {
+    index.set(name, counter);
+    low.set(name, counter);
+    counter++;
+    stack.push(name);
+    onStack.add(name);
+    for (const next of [...(deps.get(name) ?? [])].sort()) {
+      if (!deps.has(next)) continue;
+      if (!index.has(next)) {
+        visit(next);
+        low.set(name, Math.min(low.get(name) ?? 0, low.get(next) ?? 0));
+      } else if (onStack.has(next)) {
+        low.set(name, Math.min(low.get(name) ?? 0, index.get(next) ?? 0));
+      }
+    }
+    if (low.get(name) === index.get(name)) {
+      const component: string[] = [];
+      let member: string | undefined;
+      do {
+        member = stack.pop();
+        if (member === undefined) break;
+        onStack.delete(member);
+        componentOf.set(member, components.length);
+        component.push(member);
+      } while (member !== name);
+      components.push(component.sort());
+    }
+  };
+  for (const name of [...deps.keys()].sort()) {
+    if (!index.has(name)) visit(name);
+  }
+
+  // Kahn over the components, ready ones taken in name order.
+  const waitingOn = components.map((component, i) => {
+    const needs = new Set<number>();
+    for (const member of component) {
+      for (const dep of deps.get(member) ?? []) {
+        const target = componentOf.get(dep);
+        if (target !== undefined && target !== i) needs.add(target);
+      }
+    }
+    return needs;
+  });
+  const placed = new Set<number>();
+  const ordered: string[][] = [];
+  while (placed.size < components.length) {
+    const ready = components
+      .map((component, i) => ({ component, i }))
+      .filter(({ i }) => !placed.has(i) && [...waitingOn[i]].every((d) => placed.has(d)))
+      .sort((a, b) => a.component[0].localeCompare(b.component[0]));
+    // The condensation of a graph has no cycle, so something is always ready.
+    for (const { component, i } of ready) {
+      placed.add(i);
+      ordered.push(component);
+    }
+  }
+  return ordered;
+}
+
+/**
+ * Object → objects its records point at through a lookup the target requires.
+ * Only these must be satisfied at insert; every other FK can wait for pass 2.
+ */
+function requiredDependencies(
+  alignedByObject: ReadonlyMap<string, Array<{ fields: Record<string, unknown> }>>,
+  requiredLookups: ReadonlyMap<string, ReadonlySet<string>>,
+  refIndex: ReadonlyMap<string, string>,
+): Map<string, Set<string>> {
+  const deps = new Map<string, Set<string>>();
+  for (const [objectApiName, records] of alignedByObject) {
+    const required = requiredLookups.get(objectApiName);
+    const set = new Set<string>();
+    if (required) {
+      for (const record of records) {
+        for (const field of required) {
+          const value = record.fields[field];
+          const target = typeof value === 'string' ? refIndex.get(value) : undefined;
+          if (target && target !== objectApiName) set.add(target);
+        }
+      }
+    }
+    deps.set(objectApiName, set);
+  }
+  return deps;
+}
+
+/**
+ * Order the members of one cycle so that each goes after the members its
+ * required lookups point at. A cycle made only of required lookups cannot be
+ * loaded in any order; its remainder goes alphabetically, and the insert says
+ * which records the target refused.
+ */
+function orderWithinGroup(
+  group: readonly string[],
+  requiredDeps: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] {
+  const members = new Set(group);
+  const remaining = new Map(
+    group.map((name) => [
+      name,
+      new Set([...(requiredDeps.get(name) ?? [])].filter((d) => members.has(d))),
+    ]),
+  );
   const order: string[] = [];
   for (;;) {
     const ready = [...remaining.entries()]
       .filter(([, d]) => d.size === 0)
       .map(([name]) => name)
       .sort();
-    if (ready.length === 0) {
-      break;
-    }
+    if (ready.length === 0) break;
     for (const name of ready) {
       order.push(name);
       remaining.delete(name);
-      for (const d of remaining.values()) {
-        d.delete(name);
-      }
+      for (const d of remaining.values()) d.delete(name);
     }
   }
-  return { order, cyclic: [...remaining.keys()].sort() };
+  return [...order, ...[...remaining.keys()].sort()];
 }
 
 /** Find a record by referenceId across the dataset. */

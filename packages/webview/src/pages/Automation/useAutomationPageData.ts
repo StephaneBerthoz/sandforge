@@ -13,6 +13,8 @@ import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import type { ScheduledPipeline } from './SchedulerCalendar';
+import { blockedSteps, typeBlocker } from './stepRunnability';
+import type { BlockedStep } from './stepRunnability';
 
 /**
  * The `PipelineStepType` union as data, for narrowing untyped host payloads.
@@ -61,9 +63,10 @@ function asRecord(value: unknown): Record<string, unknown> {
  * the host's `GeneratedPipeline` (name, description, steps of
  * `{ name, type, config }`, an optional cron `schedule`, optional `triggers`
  * strings). Every field is narrowed rather than cast — an unknown step type
- * becomes a `script` step so the user still sees the step and can retype it,
- * and an unknown trigger string ('error_detected' is one the generator emits)
- * is dropped instead of poisoning the trigger panel.
+ * becomes a `script` step so the user still sees the step, marked as one that
+ * cannot run (and so is the pipeline holding it), and an unknown trigger
+ * string ('error_detected' is one the generator emits) is dropped instead of
+ * poisoning the trigger panel.
  *
  * @param raw - The `pipeline` payload of the AI response.
  * @param fallbackName - Name to use when the generator returned none.
@@ -132,6 +135,26 @@ export interface MarketplaceTemplate {
   description: string;
   category: string;
   author: string;
+  /**
+   * The type of each step of the template, so the card can say before Install
+   * which of them cannot run. Absent from a host that predates it.
+   */
+  stepTypes?: string[];
+}
+
+/**
+ * The sentence a failed run is reported with: the run's own error, or else the
+ * error of its first failed step. The host writes both in English, for its log;
+ * the headline around it is translated.
+ */
+function runFailureReason(run: Record<string, unknown>): string | undefined {
+  if (typeof run.error === 'string' && run.error.length > 0) return run.error;
+  const steps = Array.isArray(run.stepResults) ? run.stepResults : [];
+  for (const step of steps) {
+    const result = asRecord(step);
+    if (result.status === 'failed' && typeof result.error === 'string') return result.error;
+  }
+  return undefined;
 }
 
 /** Return type for the useAutomationPageData hook. */
@@ -170,6 +193,11 @@ export interface AutomationPageData {
   triggerCount: number;
   /** Number of history entries. */
   historyCount: number;
+  /**
+   * The steps of the current pipeline that keep it from running, with the
+   * reason for each. Run is refused while this is not empty.
+   */
+  runBlockers: BlockedStep[];
   /** Currently active tab ID. */
   activeTab: string;
   /** Set the active tab. */
@@ -188,7 +216,7 @@ export interface AutomationPageData {
   setGenDescription: (desc: string) => void;
   /** Create a new empty pipeline. */
   handleCreatePipeline: () => void;
-  /** Run the current pipeline. */
+  /** Run the current pipeline, unless one of its steps cannot run. */
   handleRunPipeline: () => void;
   /** Save the current pipeline. */
   handleSavePipeline: () => void;
@@ -201,7 +229,7 @@ export interface AutomationPageData {
    * the canvas. Nothing is claimed before that answer arrives.
    */
   handleInstallTemplate: (tpl: { id: string; name: string; description: string }) => void;
-  /** Add a step of the given type to the pipeline. */
+  /** Add a step of the given type to the pipeline, unless the type cannot run. */
   handleAddStep: (type: PipelineStepType) => void;
   /** Remove a step by ID from the pipeline. */
   handleRemoveStep: (stepId: string) => void;
@@ -308,6 +336,10 @@ export function useAutomationPageData(): AutomationPageData {
   // Derive saved pipelines from bridge query
   const savedPipelines = pipelinesQuery.data?.pipelines ?? [];
 
+  // What keeps the current pipeline from running. The extension refuses such
+  // a pipeline before its first step; the page says so before Run is pressed.
+  const runBlockers = useMemo(() => (pipeline ? blockedSteps(pipeline.steps) : []), [pipeline]);
+
   // Derive execution data for the execution view while running
   const executionData = useMemo<PipelineExecutionData | undefined>(() => {
     if (!isRunning || !pipeline) return undefined;
@@ -386,11 +418,27 @@ export function useAutomationPageData(): AutomationPageData {
   // since the page opened. A completed or failed run both answer on
   // `pipeline:run:response`; a run that throws is not written, so there is
   // nothing new to fetch.
-  const refetchHistory = useLatestRef(() => historyQuery.refetch());
+  //
+  // A failed run is also said here. It used to reach only the History tab, as
+  // a red badge and an error count, with no word of what went wrong.
+  const settleRun = useLatestRef((run: Record<string, unknown>) => {
+    historyQuery.refetch();
+    if (run.status !== 'failed') return;
+    const reason = runFailureReason(run);
+    if (reason === undefined) return;
+    const message = t('automation.runFailed', { reason });
+    setError(message);
+    addNotification({
+      level: 'error',
+      title: t('automation.title'),
+      message,
+      autoDismissMs: 5000,
+    });
+  });
   useEffect(() => {
     if (!executeMutation.data) return;
-    refetchHistory.current();
-  }, [executeMutation.data, refetchHistory]);
+    settleRun.current(executeMutation.data);
+  }, [executeMutation.data, settleRun]);
 
   // Consume the AI-generated pipeline.
   //
@@ -464,7 +512,9 @@ export function useAutomationPageData(): AutomationPageData {
   };
 
   const handleRunPipeline = () => {
-    if (!pipeline) return;
+    // The Run button is disabled on the same condition; this keeps any other
+    // caller from sending a pipeline the extension would refuse.
+    if (!pipeline || runBlockers.length > 0) return;
     setError(null);
     executeMutation.mutate({
       pipeline: pipeline as unknown as Record<string, unknown>,
@@ -492,7 +542,7 @@ export function useAutomationPageData(): AutomationPageData {
   };
 
   const handleAddStep = (type: PipelineStepType) => {
-    if (!pipeline) return;
+    if (!pipeline || typeBlocker(type) !== undefined) return;
     const newStep = {
       id: crypto.randomUUID(),
       name: type,
@@ -606,6 +656,7 @@ export function useAutomationPageData(): AutomationPageData {
     stepCount,
     triggerCount,
     historyCount,
+    runBlockers,
     activeTab,
     setActiveTab,
     selectedStepId,

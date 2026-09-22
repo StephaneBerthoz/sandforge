@@ -6,7 +6,12 @@ import type {
   OrgHealthStatus,
   MonitorOpenApexJobsResponse,
 } from '@sandforge/shared';
-import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
+import {
+  MONITOR_KEY_LIMITS,
+  DEFAULT_SOQL_LIMITS,
+  SF_LIMITS,
+  SF_API_VERSION,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
@@ -791,7 +796,6 @@ export class MonitorOpsHandler implements DomainHandler {
         identity: async () => {
           const id = await conn.identity();
           return {
-            instanceName: ((id as Record<string, unknown>).instance_name as string) ?? '',
             apiVersion: conn.version ?? SF_LIMITS.DEFAULT_API_VERSION,
             lastLoginDate:
               ((id as Record<string, unknown>).last_login_date as string) ??
@@ -804,11 +808,12 @@ export class MonitorOpsHandler implements DomainHandler {
             Name: string;
             Id: string;
             OrganizationType: string;
+            InstanceName: string | null;
             NamespacePrefix: string | null;
             CreatedDate: string;
           }>(
             conn,
-            `SELECT Name, Id, OrganizationType, NamespacePrefix, CreatedDate FROM Organization LIMIT 1`,
+            `SELECT Name, Id, OrganizationType, InstanceName, NamespacePrefix, CreatedDate FROM Organization LIMIT 1`,
           );
           checkApiLimits(conn.limitInfo, 'monitor:refresh orgInfo');
           const rec = orgRecords[0];
@@ -817,7 +822,10 @@ export class MonitorOpsHandler implements DomainHandler {
             name: rec?.Name ?? org?.alias ?? '',
             orgId: rec?.Id ?? orgId,
             type: orgType as 'Production' | 'Sandbox' | 'Scratch' | 'Developer',
-            edition: org?.metadata.edition ?? '',
+            // The org's own answer first. The stored edition is whatever the
+            // connection path wrote: an SFDX import writes the org's name there.
+            edition: rec?.OrganizationType ?? org?.metadata.edition ?? '',
+            instanceName: rec?.InstanceName ?? '',
           };
         },
         queryCount: async (soql: string) => {
@@ -843,8 +851,16 @@ export class MonitorOpsHandler implements DomainHandler {
   }
 
   /**
-   * Handle monitor:storage -- per-object record count breakdown.
-   * Queries EntityDefinition for top 20 objects by QualifiedApiName.
+   * Handle monitor:storage -- per-object record count breakdown: the twenty
+   * objects holding the most records, and the total over every object.
+   *
+   * The counts come from the Record Count API, which answers for all of the
+   * org's objects in one call. They used to be read from
+   * `EntityDefinition.RecordCount`, a column EntityDefinition does not have:
+   * run against real orgs, the query came back INVALID_FIELD on every one, and
+   * the panel said "No object storage data available" about orgs holding
+   * thousands of records.
+   *
    * @param msg - The incoming storage request message.
    */
   private async handleStorage(msg: InboundRequest): Promise<void> {
@@ -860,25 +876,41 @@ export class MonitorOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      const entityRecords = await queryAll<{
-        QualifiedApiName: string;
-        Label: string;
-        RecordCount: number | null;
-      }>(
-        conn,
-        // No COALESCE(): SOQL only supports it on recent API versions and the
-        // query must parse on every org; null RecordCount is coalesced below.
-        `SELECT QualifiedApiName, Label, RecordCount FROM EntityDefinition WHERE RecordCount > 0 ORDER BY RecordCount DESC LIMIT 20`,
+      const counted = await conn.request<{ sObjects?: Array<{ name: string; count: number }> }>(
+        `/services/data/${SF_API_VERSION}/limits/recordCount`,
       );
-      checkApiLimits(conn.limitInfo, 'monitor:storage entityDefinition');
+      checkApiLimits(conn.limitInfo, 'monitor:storage recordCount');
+      const holding = (counted.sObjects ?? [])
+        .filter((o) => o.count > 0)
+        .sort((a, b) => b.count - a.count);
+      const top = holding.slice(0, 20);
 
-      const objects: StorageObjectEntry[] = entityRecords.map((r) => ({
-        objectName: r.QualifiedApiName,
-        label: r.Label ?? r.QualifiedApiName,
-        recordCount: r.RecordCount ?? 0,
+      // The counts carry API names only; the panel shows labels. The names are
+      // the org's own, filtered to API-name characters all the same.
+      const names = top.map((o) => o.name).filter((name) => /^[A-Za-z][A-Za-z0-9_]*$/.test(name));
+      const labels = new Map<string, string>();
+      if (names.length > 0) {
+        const labelRecords = await queryAll<{ QualifiedApiName: string; Label: string | null }>(
+          conn,
+          `SELECT QualifiedApiName, Label FROM EntityDefinition WHERE QualifiedApiName IN (${names
+            .map((name) => `'${name}'`)
+            .join(', ')})`,
+        );
+        checkApiLimits(conn.limitInfo, 'monitor:storage entityDefinition');
+        for (const r of labelRecords) {
+          if (r.Label) labels.set(r.QualifiedApiName, r.Label);
+        }
+      }
+
+      const objects: StorageObjectEntry[] = top.map((o) => ({
+        objectName: o.name,
+        label: labels.get(o.name) ?? o.name,
+        recordCount: o.count,
       }));
 
-      const totalRecords = objects.reduce((sum, o) => sum + o.recordCount, 0);
+      // Every object counted, not only the twenty listed: the panel heads the
+      // list with this as the org's total.
+      const totalRecords = holding.reduce((sum, o) => sum + o.count, 0);
 
       const response = buildResponse(this.deps, msg, 'monitor:storage:response', {
         success: true,
@@ -968,9 +1000,15 @@ export class MonitorOpsHandler implements DomainHandler {
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       checkApiLimits(conn.limitInfo, 'monitor:api-usage limits');
 
+      // Named as `/limits` names them at the API version SandForge calls.
+      // Three names here matched nothing any org returns, so the panel skipped
+      // them without a word: the Bulk API batch limit (called
+      // DailyBulkApiRequests before API 49.0), which every Bulk API load
+      // counts against; DailySoqlQueries, which is not a limit; and
+      // standard-volume platform events, filed under a name ending in Messages.
       const apiCategories = [
         'DailyApiRequests',
-        'DailyBulkApiRequests',
+        'DailyBulkApiBatches',
         'DailyBulkV2QueryJobs',
         'DailyBulkV2QueryFileStorageMB',
         'DailyStreamingApiEvents',
@@ -979,12 +1017,11 @@ export class MonitorOpsHandler implements DomainHandler {
         'DailyAsyncApexExecutions',
         'HourlyAsyncReportRuns',
         'HourlyTimeBasedWorkflow',
-        'DailySoqlQueries',
         'DailyWorkflowEmails',
         'MassEmail',
         'SingleEmail',
         'HourlyPublishedPlatformEvents',
-        'DailyStandardVolumePlatformMessages',
+        'DailyStandardVolumePlatformEvents',
       ];
 
       const categories: ApiUsageCategory[] = [];

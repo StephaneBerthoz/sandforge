@@ -163,7 +163,7 @@ export const ForgeInput: React.FC = () => {
       {/* Same-org warning */}
       {form.sameOrgSelected && (
         <div
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-status-warning bg-yellow-500/10 border border-yellow-500/20"
+          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-status-warning bg-status-warning/10 border border-status-warning/20"
           data-testid="forge-same-org-warning"
         >
           <AlertTriangle size={14} />
@@ -286,7 +286,7 @@ export const ForgeInput: React.FC = () => {
                     </p>
                   )}
                   {form.previewError && (
-                    <div className="p-2 rounded-md text-sm text-status-error bg-red-500/10 border border-red-500/20">
+                    <div className="p-2 rounded-md text-sm text-status-error bg-status-error/10 border border-status-error/20">
                       {form.previewError}
                     </div>
                   )}

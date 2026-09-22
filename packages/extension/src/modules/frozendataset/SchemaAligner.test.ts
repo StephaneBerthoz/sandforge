@@ -250,6 +250,30 @@ describe('SchemaAligner — required fields', () => {
     ]);
   });
 
+  it('flags nothing on an object with no record', async () => {
+    // Every required field is "absent from every record" of an empty list.
+    const aligner = new SchemaAligner({
+      query: vi.fn(),
+      describe: vi.fn(),
+      picklistValues: vi.fn(),
+    });
+    const result = await aligner.alignObject(
+      makeInput({
+        records: [],
+        describe: makeDescribe([
+          field({ name: 'Name', nillable: false }),
+          field({
+            name: 'Parent__c',
+            type: 'reference',
+            nillable: false,
+            referenceTo: ['Account'],
+          }),
+        ]),
+      }),
+    );
+    expect(result.missingRequired).toEqual([]);
+  });
+
   it('does not flag a required field carried by at least one record', async () => {
     const aligner = new SchemaAligner({
       query: vi.fn(),

@@ -31,6 +31,9 @@ import { SettingsDrift, readSettingsDrift } from './SettingsDrift';
 import type { SettingsDriftReport } from './SettingsDrift';
 import { enrichDiffs } from './enrichDiffs';
 
+/** How long the page waits for a diff before it calls the comparison failed. */
+const COMPARE_TIMEOUT_MS = 5 * 60_000;
+
 /** Main compare page -- wired to extension via bridge hooks. */
 export const ComparePage: React.FC = () => {
   const { t } = useTranslation();
@@ -53,8 +56,18 @@ export const ComparePage: React.FC = () => {
   const [selectedDiff, setSelectedDiff] = useState<EnrichedDiff | undefined>();
   const [error, setError] = useState<string | null>(null);
 
-  /** Bridge mutation: execute the comparison. */
-  const compareMutation = useBridgeMutation<CompareResult>('compare:execute');
+  /**
+   * Bridge mutation: execute the comparison.
+   *
+   * The extension lists every ticked category on both orgs, and that takes as
+   * long as the orgs make it: every category against two real sandboxes took
+   * from 24 s to 106 s over three runs, most of it the one listing of 24,000
+   * custom fields. The 30 s default showed a timeout and dropped the diff
+   * that came after it.
+   */
+  const compareMutation = useBridgeMutation<CompareResult>('compare:execute', {
+    timeoutMs: COMPARE_TIMEOUT_MS,
+  });
 
   const schemaAdvice = useSchemaAdvice();
 

@@ -76,8 +76,20 @@ export interface FrozenProjectConfig {
   budgetMaxRecords?: number;
   /** Candidates probed per combination before declaring it uncovered. */
   candidatesPerCombination?: number;
-  /** Objects that MUST appear in a dossier graph for it to be healthy. */
+  /** Objects every retained dossier must hold at least one record of. */
   expectedObjects?: string[];
+  /**
+   * How many objects discovery may reach from the root (10–500, default 50).
+   * Past it, objects further out are not read — the selection and the
+   * manifest say so when it happens.
+   */
+  maxNodes?: number;
+  /**
+   * Objects the dataset leaves out even when the graph reaches them — one
+   * whose required content the rules clear, say, and which the target then
+   * refuses.
+   */
+  excludedObjects?: string[];
   /** Per-object fields excluded from the extraction SELECT clause. */
   excludedFields?: Record<string, string[]>;
   /** Sas directory override (default: `~/.sandforge-sas/<workspace>`). Must be outside the repo. */
@@ -128,6 +140,24 @@ export interface FrozenUncoveredCombination {
   reason: string;
 }
 
+/** How far discovery reached — so a dataset cut short says so. */
+export interface FrozenGraphCoverage {
+  /** Objects discovery reached. */
+  objects: number;
+  /** Discovery stopped at its object cap: objects further out were never read. */
+  truncated: boolean;
+  /** The object cap discovery ran with. */
+  maxNodes: number;
+}
+
+/** Manifest coverage: the graph, plus what was read without the time bound. */
+export interface FrozenManifestCoverage extends FrozenGraphCoverage {
+  /** Objects read without `CreatedDate <= asOf`, having no such field. */
+  unboundedObjects: string[];
+  /** Objects left out because they carry files the rules do not keep. */
+  filesLeftOut: string[];
+}
+
 /** Selection summary returned to the webview (sas IDs redacted). */
 export interface FrozenSelectionSummary {
   /** Retained combinations — exactly one root per combination / edge case. */
@@ -143,6 +173,8 @@ export interface FrozenSelectionSummary {
   selectedAt: string;
   /** Sas path of the persisted selection.json. */
   selectionPath: string;
+  /** How far discovery reached while the dossiers were measured. */
+  graph?: FrozenGraphCoverage;
 }
 
 /** The four non-reidentification check names. */
@@ -209,6 +241,8 @@ export interface FrozenManifestInfo {
     author: string;
     date: string;
   };
+  /** What the extraction reached; absent from manifests written before 1.32.0. */
+  coverage?: FrozenManifestCoverage;
 }
 
 /** A field removed during schema alignment — always listed, never silent. */
@@ -297,6 +331,11 @@ export interface FrozenLoadReportInfo {
   personContact: {
     restored: number;
     unresolved: Array<{ accountReferenceId: string; contactReferenceId: string }>;
+  };
+  /** Statuses applied after insert: an activated order is created as a draft. */
+  statuses?: {
+    restored: number;
+    refused: Array<{ objectApiName: string; referenceId: string; status: string; detail: string }>;
   };
   purge: {
     deleted: Record<string, number>;

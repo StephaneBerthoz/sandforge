@@ -228,7 +228,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     value={latestProgress.progress}
                     size="sm"
                     ariaLabel={t('frozen.load.progress')}
-                    barClassName="bg-cyan-500"
+                    barClassName="bg-hue-cyan"
                   />
                 </div>
               )}
@@ -370,6 +370,27 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   personContact: loadReport.personContact.restored,
                 })}
               </p>
+              {loadReport.statuses &&
+                loadReport.statuses.restored + loadReport.statuses.refused.length > 0 && (
+                  <div data-testid="frozen-report-statuses">
+                    <p className="text-[11px] text-text-secondary">
+                      {t('frozen.report.statuses', {
+                        restored: loadReport.statuses.restored,
+                        refused: loadReport.statuses.refused.length,
+                      })}
+                    </p>
+                    <ul className="flex flex-col gap-0.5">
+                      {loadReport.statuses.refused.map((r) => (
+                        <li
+                          key={`${r.objectApiName}-${r.referenceId}`}
+                          className="text-[11px] text-status-error"
+                        >
+                          {r.objectApiName} {r.referenceId} → {r.status}: {r.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
             </div>
           </CardBody>
         </Card>

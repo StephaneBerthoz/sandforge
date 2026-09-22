@@ -26,9 +26,9 @@ export interface ProgressBarProps {
 
 const barVariants: Record<string, string> = {
   default: 'bg-[var(--vscode-progressBar-background,#0e70c0)]',
-  success: 'bg-emerald-500',
-  warning: 'bg-amber-500',
-  error: 'bg-red-500',
+  success: 'bg-status-success',
+  warning: 'bg-status-warning',
+  error: 'bg-status-error',
 };
 
 /** Progress bar matching VSCode theme. */

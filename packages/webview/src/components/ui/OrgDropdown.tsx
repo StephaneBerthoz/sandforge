@@ -24,11 +24,11 @@ export interface OrgDropdownProps {
 function statusDotColor(status: string): string {
   switch (status) {
     case 'connected':
-      return 'bg-green-500';
+      return 'bg-status-success';
     case 'refreshing':
-      return 'bg-yellow-500';
+      return 'bg-status-warning';
     default:
-      return 'bg-red-500';
+      return 'bg-status-error';
   }
 }
 

@@ -24,11 +24,17 @@ import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
 import { useAutomationPageData } from './useAutomationPageData';
+import { blockedSteps, typeBlocker } from './stepRunnability';
 
 /** Main Automation page — wired to extension via bridge hooks. */
 export const AutomationPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const blockedNoticeId = useId();
+
+  /** A step type in the reader's language; a type this page does not know stays as it is. */
+  const stepTypeLabel = (type: string): string =>
+    i18n.exists(`automation.stepTypes.${type}`) ? t(`automation.stepTypes.${type}`) : type;
 
   const AUTOMATION_TABS: PageTab[] = [
     { id: 'canvas', label: t('automation.canvas'), icon: 'project' },
@@ -56,6 +62,7 @@ export const AutomationPage: React.FC = () => {
     stepCount,
     triggerCount,
     historyCount,
+    runBlockers,
     activeTab,
     setActiveTab,
     selectedStepId,
@@ -138,6 +145,8 @@ export const AutomationPage: React.FC = () => {
                   size="sm"
                   onClick={handleRunPipeline}
                   loading={isRunning}
+                  disabled={runBlockers.length > 0}
+                  aria-describedby={runBlockers.length > 0 ? blockedNoticeId : undefined}
                   data-testid="run-pipeline-btn"
                 >
                   {isRunning ? t('automation.running') : t('automation.run')}
@@ -150,6 +159,36 @@ export const AutomationPage: React.FC = () => {
 
       {error && (
         <ErrorBanner message={error} onDismiss={clearError} data-testid="automation-error" />
+      )}
+
+      {/* Outside the tabs, next to the Run button it disables: a pipeline
+          installed from the Marketplace or drafted by the AI lands here with
+          steps the extension refuses, and the reader has to learn which, and
+          why, whichever tab is open. */}
+      {pipeline && runBlockers.length > 0 && (
+        <div
+          id={blockedNoticeId}
+          role="note"
+          className="flex flex-col gap-1 rounded-lg border border-dashed border-subtle bg-surface-1 px-3 py-2"
+          data-testid="pipeline-blocked"
+        >
+          <p className="text-xs font-semibold text-text-primary">
+            {t('automation.runnability.pipelineBlocked')}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {runBlockers.map((blocked) => (
+              <li
+                key={blocked.stepId}
+                className="text-xs text-text-secondary"
+                data-testid={`pipeline-blocked-${blocked.stepId}`}
+              >
+                <span className="font-medium text-text-primary">{blocked.stepName}</span> (
+                {stepTypeLabel(blocked.stepType)}) —{' '}
+                {t(`automation.runnability.${blocked.blocker}`)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Loading skeleton while pipelines query loads */}
@@ -183,6 +222,11 @@ export const AutomationPage: React.FC = () => {
                   <span className="text-xs text-text-secondary">
                     {p.steps.length} {t('automation.steps')}
                   </span>
+                  {blockedSteps(p.steps).length > 0 && (
+                    <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
+                      {t('automation.runnability.cannotRun')}
+                    </Badge>
+                  )}
                 </div>
               </button>
             ))}
@@ -231,9 +275,9 @@ export const AutomationPage: React.FC = () => {
         <div className="p-4" data-testid="automation-content">
           {activeTab === 'canvas' && (
             <div className="flex flex-col gap-[var(--sf-space-4)]">
-              {/* A run walks every step and reports it green, but only Delay
-                  and Condition have handlers: the rest pass through without
-                  touching an org. Say so before the Run button is pressed. */}
+              {/* Only Delay steps run: the extension refuses a pipeline that
+                  holds any other step type before its first step. Say so
+                  before anyone builds one. */}
               <ComingSoon
                 variant="banner"
                 data-testid="automation-steps-soon"
@@ -300,7 +344,8 @@ export const AutomationPage: React.FC = () => {
               </h2>
               {/* A template card is read on its own, and its description
                   promises work its steps do not do: the steps only show up on
-                  the canvas after Install. Say it here, before the button. */}
+                  the canvas after Install. Say it here, before the button, and
+                  on each card whose steps cannot run. */}
               <ComingSoon
                 variant="banner"
                 data-testid="automation-marketplace-steps-soon"
@@ -320,32 +365,52 @@ export const AutomationPage: React.FC = () => {
               )}
               {marketplaceTemplates.length > 0 ? (
                 <div className="grid gap-[var(--sf-space-2)]">
-                  {marketplaceTemplates.map((tpl) => (
-                    <div
-                      key={tpl.id}
-                      className="p-[var(--sf-space-3)] rounded-xl border border-subtle bg-surface-2"
-                      data-testid={`marketplace-template-${tpl.id}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-text-primary">{tpl.name}</span>
-                        <Badge variant="default">{tpl.category}</Badge>
+                  {marketplaceTemplates.map((tpl) => {
+                    const blockedTypes = [
+                      ...new Set(
+                        (tpl.stepTypes ?? []).filter((type) => typeBlocker(type) !== undefined),
+                      ),
+                    ];
+                    return (
+                      <div
+                        key={tpl.id}
+                        className="p-[var(--sf-space-3)] rounded-xl border border-subtle bg-surface-2"
+                        data-testid={`marketplace-template-${tpl.id}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-text-primary">{tpl.name}</span>
+                          <Badge variant="default">{tpl.category}</Badge>
+                        </div>
+                        <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
+                        {blockedTypes.length > 0 && (
+                          <p
+                            className="flex flex-wrap items-center gap-1 text-xs text-text-secondary mt-1"
+                            data-testid={`marketplace-template-blocked-${tpl.id}`}
+                          >
+                            <Badge variant="warning">{t('automation.runnability.cannotRun')}</Badge>
+                            <span>
+                              {t('automation.runnability.templateBlocked', {
+                                types: blockedTypes.map(stepTypeLabel).join(', '),
+                              })}
+                            </span>
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs text-text-secondary">
+                            {t('automation.marketplaceAuthor')}: {tpl.author}
+                          </span>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleInstallTemplate(tpl)}
+                            data-testid={`install-template-${tpl.id}`}
+                          >
+                            {t('automation.installTemplate')}
+                          </Button>
+                        </div>
                       </div>
-                      <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-xs text-text-secondary">
-                          {t('automation.marketplaceAuthor')}: {tpl.author}
-                        </span>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleInstallTemplate(tpl)}
-                          data-testid={`install-template-${tpl.id}`}
-                        >
-                          {t('automation.installTemplate')}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 !marketplaceLoading && (

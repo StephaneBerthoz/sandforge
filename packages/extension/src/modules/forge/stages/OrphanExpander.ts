@@ -7,7 +7,9 @@
  *
  *   1. Fetches the missing parent by Id from the source org.
  *   2. Inserts a minimal copy into the target org.
- *   3. Records the source→target mapping in the IdRemapper.
+ *   3. Records the source→target mapping in the IdRemapper — onto the
+ *      record the target already holds when it refuses the copy as a
+ *      duplicate and names that record.
  *
  * Single-hop only — the fetched parent's *own* required FKs are
  * orphan-nullified normally (no recursion). Capped at
@@ -22,6 +24,7 @@ import type {
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
 import { isExcludedFromCopy } from '../excludedObjects.js';
@@ -85,7 +88,7 @@ export class OrphanExpander {
   constructor(
     private readonly deps: Pick<
       ForgeExecutorDeps,
-      'describeFields' | 'queryRecords' | 'insertRecords'
+      'describeFields' | 'queryRecords' | 'insertRecords' | 'describeObject'
     >,
   ) {}
 
@@ -143,7 +146,7 @@ export class OrphanExpander {
       await Promise.all(
         slice.map(async (entry) => {
           try {
-            const newId = await this.expandSingleOrphanParent(
+            const parent = await this.expandSingleOrphanParent(
               input.sourceOrgId,
               input.targetOrgId,
               entry.object,
@@ -151,12 +154,13 @@ export class OrphanExpander {
               input.recordTypeMappings,
               input.recordTypeMapper,
             );
-            if (newId) {
+            if (parent) {
               // Count only successful expansions toward the cap
               // so a string of misses doesn't silently exhaust the budget
               // before the eligible list has had a chance to succeed.
               this.expansionsUsed++;
-              remapper.add(entry.sourceId, newId);
+              if (parent.existing) remapper.addExisting(entry.sourceId, parent.id);
+              else remapper.add(entry.sourceId, parent.id);
               // Register the parent in scopeCache so multi-hop
               // children that pivot through this object include the
               // newly cloned row in their scope query (otherwise the
@@ -208,8 +212,10 @@ export class OrphanExpander {
    * Fetches a missing parent record from the source org by Id, copies it
    * to the target org with a minimal payload (createable target fields
    * only, RecordType remapped if applicable, orphan FKs nullified), and
-   * returns the new target ID. Returns `null` when the parent can't be
-   * fetched or the insert fails.
+   * returns the target ID it now has — the new record's, or the existing
+   * one's when the target refuses the copy as a duplicate and names the
+   * record it holds. Returns `null` when the parent can't be fetched or the
+   * insert fails any other way.
    *
    * Intentionally non-recursive — the fetched parent's *own* required FKs
    * are nullified rather than expanded further. Callers must respect the
@@ -222,7 +228,7 @@ export class OrphanExpander {
     sourceRecordId: string,
     recordTypeMappings: RecordTypeMapping[] | undefined,
     recordTypeMapper: RecordTypeMapper | null,
-  ): Promise<string | null> {
+  ): Promise<{ id: string; existing: boolean } | null> {
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
     // via crafted source-org data (e.g. a managed package supplying a
@@ -281,7 +287,19 @@ export class OrphanExpander {
           )[0]
         : cleaned;
     const result = await this.deps.insertRecords(targetOrgId, objectName, [payload]);
-    if (!result[0] || !result[0].success) return null;
-    return result[0].id;
+    const written = result[0];
+    if (!written) return null;
+    if (written.success) return { id: written.id, existing: false };
+    // The parent is often in the target already — which is why it was not in
+    // the graph's reach to begin with. When the refusal names it, the child
+    // links to it; it is never written to.
+    const keyPrefix = this.deps.describeObject
+      ? await this.deps.describeObject(targetOrgId, objectName).then(
+          (info) => info.keyPrefix,
+          () => null,
+        )
+      : null;
+    const existing = existingRecordOf(written, keyPrefix);
+    return existing.kind === 'linked' ? { id: existing.id, existing: true } : null;
   }
 }

@@ -395,6 +395,29 @@ describe('forgeExecutionResultSchema', () => {
     expect(result.truncatedObjects).toEqual(['Account']);
   });
 
+  it('keeps the rows the target already held, linked apart from the ones it could not name', () => {
+    const result = forgeExecutionResultSchema.parse({
+      ...createValidForgeExecutionResult(),
+      createdCount: 5,
+      linkedExistingCount: 3,
+      existingRecords: [{ objectApiName: 'Account', linked: 3, unidentified: 1 }],
+    });
+    expect(result.createdCount).toBe(5);
+    expect(result.linkedExistingCount).toBe(3);
+    expect(result.existingRecords).toEqual([
+      { objectApiName: 'Account', linked: 3, unidentified: 1 },
+    ]);
+  });
+
+  it('rejects a negative count of rows the target already held', () => {
+    expect(() =>
+      forgeExecutionResultSchema.parse({
+        ...createValidForgeExecutionResult(),
+        existingRecords: [{ objectApiName: 'Account', linked: -1, unidentified: 0 }],
+      }),
+    ).toThrow();
+  });
+
   it('should parse valid execution result', () => {
     const result = forgeExecutionResultSchema.parse(createValidForgeExecutionResult());
     expect(result.forgeId).toBe('forge-001');
@@ -634,7 +657,7 @@ describe('forgeCheckpointSchema', () => {
       config: {
         inputMode: 'record',
         // 15-char strict Salesforce ID — forgeConfigSchema enforces the regex
-        recordId: '001AP00000j2CEg',
+        recordId: '001000000000123',
         depth: 'full',
         sourceOrgId: 'src',
         targetOrgId: 'tgt',

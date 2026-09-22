@@ -43,7 +43,7 @@ describe('Timeline', () => {
     const { container } = render(<Timeline items={items} />);
     const dots = container.querySelectorAll('[aria-hidden="true"]');
     const firstDot = dots[0];
-    expect(firstDot?.className).toContain('bg-blue-500');
+    expect(firstDot?.className).toContain('bg-status-info');
   });
 
   it('should render connector lines between items', () => {

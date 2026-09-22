@@ -6,7 +6,14 @@ import type { Connection, DescribeSObjectResult } from 'jsforce';
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 
 import { execFileSync } from 'node:child_process';
-import { adaptDescribe, loadRecordTypes, main } from './sandforge-clone';
+import {
+  adaptDescribe,
+  describeObjectInfo,
+  loadRecordTypes,
+  main,
+  summaryLines,
+} from './sandforge-clone';
+import type { ExecutionSummary } from '../src/modules/forge/ForgeExecutor.js';
 
 const mockExecFileSync = vi.mocked(execFileSync);
 
@@ -173,6 +180,107 @@ describe('sandforge-clone record type mapping', () => {
     );
     expect(mappings.find((m) => m.sourceId === '012000000000SRCACC')?.targetId).toBe(
       '012000000000TGTACC',
+    );
+  });
+});
+
+describe('sandforge-clone target object info', () => {
+  it('reads the key prefix and the record types from the describe jsforce already cached', async () => {
+    const describeCached = vi.fn().mockResolvedValue({
+      name: 'Account',
+      keyPrefix: '001',
+      recordTypeInfos: [
+        {
+          active: true,
+          available: false,
+          defaultRecordTypeMapping: false,
+          developerName: 'Partner',
+          master: false,
+          name: 'Partner',
+          recordTypeId: '012Fk00000RtDeFIAV',
+          urls: {},
+        },
+      ],
+    });
+    const describe = vi.fn();
+    const conn = { describe$: describeCached, describe } as unknown as Connection;
+
+    const info = await describeObjectInfo(conn, 'Account');
+
+    expect(info.keyPrefix).toBe('001');
+    expect(info.recordTypes.map((r) => [r.developerName, r.available])).toEqual([
+      ['Partner', false],
+    ]);
+    expect(describeCached).toHaveBeenCalledWith('Account');
+    expect(describe).not.toHaveBeenCalled();
+  });
+});
+
+describe('sandforge-clone summary', () => {
+  const summary = (overrides: Partial<ExecutionSummary>): ExecutionSummary => ({
+    successCount: 4,
+    linkedCount: 0,
+    failedCount: 0,
+    skippedCount: 0,
+    remapCount: 4,
+    errors: [],
+    truncatedObjects: [],
+    remapTable: {},
+    existingRecords: [],
+    existingSourceIds: [],
+    ...overrides,
+  });
+
+  it('counts the records the target already held apart from the created and the failed ones', () => {
+    const lines = summaryLines(
+      summary({
+        successCount: 4,
+        linkedCount: 2,
+        failedCount: 1,
+        existingRecords: [
+          { objectApiName: 'Account', linked: 2, unidentified: 0 },
+          { objectApiName: 'AccountContactRelation', linked: 0, unidentified: 1 },
+        ],
+      }),
+    );
+
+    expect(lines.slice(0, 3)).toEqual([
+      'success: 4',
+      'linked:  2 (already in the target, not created)',
+      'failed:  1',
+    ]);
+    expect(lines).toContain('  Account  2 linked');
+    expect(lines).toContain(
+      '  AccountContactRelation  0 linked, 1 not identified — their children lost the link',
+    );
+  });
+
+  it('prints the reason an object was held back, from its error samples', () => {
+    const lines = summaryLines(
+      summary({
+        successCount: 0,
+        failedCount: 2,
+        errors: [
+          {
+            objectApiName: 'Case',
+            stage: 'scope',
+            failedCount: 2,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: 'RecordType=Partner_Case (2 records)',
+                messages: ['RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case.'],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(lines).toContain('  [scope] Case  2/0');
+    expect(lines).toContain('    RecordType=Partner_Case (2 records)');
+    expect(lines).toContain(
+      '      └ RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case.',
     );
   });
 });

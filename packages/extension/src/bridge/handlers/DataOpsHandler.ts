@@ -1,7 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 import type { BackupSummary } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import {
+  duplicateRuleHeaders,
+  sanitizeSoqlObjectName,
+  orgTypeToGuardTier,
+} from '@sandforge/shared';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -17,7 +21,9 @@ import {
   sendOperationFailed,
   sendHandlerError,
 } from './HandlerTypes.js';
+import type { Connection } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
@@ -622,6 +628,47 @@ export class DataOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Bring back, from the recycle bin, the records of a snapshot deleted since.
+   *
+   * A record no longer in the recycle bin cannot come back with its Id; the
+   * upsert that follows reports it as refused, which is what it is. An object
+   * whose rows cannot be read with the deleted ones, or a record the bin will
+   * not give back, is likewise left to that upsert and its report.
+   */
+  private async undeleteFromRecycleBin(
+    conn: Connection,
+    objectApiName: string,
+    records: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<{ undeleted: number }> {
+    const ids = records.map((r) => r.Id).filter((id): id is string => typeof id === 'string');
+    const deleted: string[] = [];
+    try {
+      for (let i = 0; i < ids.length; i += 200) {
+        const inList = ids
+          .slice(i, i + 200)
+          .map((id) => `'${sanitizeSoqlValue(id)}'`)
+          .join(', ');
+        const result = await conn.query<{ Id: string }>(
+          `SELECT Id FROM ${objectApiName} WHERE Id IN (${inList}) AND IsDeleted = true`,
+          { scanAll: true },
+        );
+        deleted.push(...result.records.map((r) => r.Id));
+      }
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] Rollback on ${objectApiName}: could not look for deleted records — ${extractErrorMessage(err)}`,
+      );
+      return { undeleted: 0 };
+    }
+    let undeleted = 0;
+    for (let i = 0; i < deleted.length; i += 200) {
+      const results = await conn.soap.undelete(deleted.slice(i, i + 200));
+      undeleted += results.filter((r) => r.success).length;
+    }
+    return { undeleted };
+  }
+
   private async handleRollback(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsRollbackPayloadSchema, msg, 'dataops:error', this.deps);
@@ -805,6 +852,18 @@ export class DataOpsHandler implements DomainHandler {
           );
         }
 
+        // A record deleted since the snapshot sits in the recycle bin, and an
+        // upsert on its Id is refused: "entity is deleted". Run for real, a
+        // restore reported 204 restored and 1 rejected — the one record the
+        // user had lost. It is brought back first, with its Id and whatever
+        // pointed at it, and the upsert below then writes its fields.
+        const brought = await this.undeleteFromRecycleBin(conn, safeObj, records);
+        if (brought.undeleted > 0) {
+          this.deps.log(
+            `[INFO] Rollback on ${safeObj}: ${brought.undeleted} record(s) brought back from the recycle bin`,
+          );
+        }
+
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
         failure.batchSize = batchSize;
@@ -825,10 +884,9 @@ export class DataOpsHandler implements DomainHandler {
           });
           const results = (await conn
             .sobject(safeObj)
-            .upsert(
-              cleaned as Array<Record<string, unknown> & { Id: string }>,
-              'Id',
-            )) as unknown as JsforceResult[];
+            .upsert(cleaned as Array<Record<string, unknown> & { Id: string }>, 'Id', {
+              headers: duplicateRuleHeaders(true),
+            })) as unknown as JsforceResult[];
           const arr = Array.isArray(results) ? results : [results];
           // Only the successes used to be counted, so a row the org refused
           // (validation rule, required field, trigger) vanished between the

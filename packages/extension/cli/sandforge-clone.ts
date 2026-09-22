@@ -36,10 +36,17 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
-import type { ForgeExecutorDeps, FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
+import type {
+  ExecutionSummary,
+  ForgeExecutorDeps,
+  FieldInfo,
+  TargetObjectInfo,
+} from '../src/modules/forge/ForgeExecutor.js';
 import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
 import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
+import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
+import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 
 interface CliArgs {
   record: string;
@@ -376,6 +383,59 @@ export async function loadRecordTypes(
   return new RecordTypeMapper().buildMapping(s.records.map(toInfo), tgt.records.map(toInfo));
 }
 
+/**
+ * The key prefix and record types of an object, read from the describe the
+ * connection already holds — `describe$` answers from jsforce's cache, which
+ * the field describe of the same object filled. Exported so it can be tested.
+ */
+export async function describeObjectInfo(
+  conn: Connection,
+  objectName: string,
+): Promise<TargetObjectInfo> {
+  const meta = await conn.describe$(objectName);
+  return {
+    keyPrefix: meta.keyPrefix ?? null,
+    recordTypes: parseRecordTypeInfos(meta.recordTypeInfos),
+  };
+}
+
+/**
+ * The text summary of a run. Records the target already held are named apart
+ * from the created and the failed ones: linked is neither, and a duplicate
+ * nobody could identify is a failure whose children lost their lookup.
+ * Exported so it can be tested.
+ */
+export function summaryLines(summary: ExecutionSummary): string[] {
+  const lines = [
+    `success: ${summary.successCount}`,
+    `linked:  ${summary.linkedCount} (already in the target, not created)`,
+    `failed:  ${summary.failedCount}`,
+    `skipped: ${summary.skippedCount}`,
+    `remaps:  ${summary.remapCount}`,
+  ];
+  if (summary.existingRecords.length > 0) {
+    lines.push('', `already in the target (${summary.existingRecords.length} object(s)):`);
+    for (const e of summary.existingRecords) {
+      const parts = [`${e.linked} linked`];
+      if (e.unidentified > 0) {
+        parts.push(`${e.unidentified} not identified — their children lost the link`);
+      }
+      lines.push(`  ${e.objectApiName}  ${parts.join(', ')}`);
+    }
+  }
+  if (summary.errors.length > 0) {
+    lines.push('', `errors (${summary.errors.length} object(s)):`);
+    for (const e of summary.errors) {
+      lines.push(`  [${e.stage}] ${e.objectApiName}  ${e.failedCount}/${e.attemptedCount}`);
+      for (const s of e.samples.slice(0, 2)) {
+        lines.push(`    ${s.recordSummary}`);
+        for (const m of s.messages) lines.push(`      └ ${m}`);
+      }
+    }
+  }
+  return lines;
+}
+
 /** Run one clone from the given command line; exported so its flag checks can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -483,15 +543,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       // this header every root Account of a real UAT → DEV run was refused
       // with DUPLICATES_DETECTED, and its whole graph skipped behind it.
       const r = await c.sobject(name).create(records, { headers: duplicateRuleHeaders(true) });
-      const arr = Array.isArray(r) ? r : [r];
-      return arr.map((x) => ({
-        id: x.id ?? '',
-        success: x.success,
-        errors:
-          x.errors?.map((e: { statusCode?: string; message?: string }) =>
-            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-          ) ?? [],
-      }));
+      // With the records a blocking duplicate rule matched: the run links a
+      // row the target already holds to the one record the refusal names.
+      return toSaveOutcomes(r, name);
     },
     updateRecords: async (orgId, name, records) => {
       if (args.dryRun) return [];
@@ -502,10 +556,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       return arr.map((x, i) => ({
         id: x.id ?? (records[i]['Id'] as string) ?? '',
         success: x.success,
-        errors:
-          x.errors?.map((e: { statusCode?: string; message?: string }) =>
-            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-          ) ?? [],
+        errors: (x.errors ?? []).map(formatSaveError),
       }));
     },
     describeFields: async (orgId, name) => {
@@ -530,6 +581,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const meta = await c.sobject(name).describe();
       return meta.createable !== false;
     },
+    // The key prefix a duplicate's id must carry, and the record types the
+    // running user may use, from the describe already cached for the object.
+    describeObject: async (orgId, name) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return describeObjectInfo(c, name);
+    },
     // Surface upsert path so re-runs against the same source records
     // don't pile DUPLICATE_VALUE errors on objects with external Id fields.
     upsertRecords: async (orgId, name, externalIdField, records) => {
@@ -539,15 +597,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const r = await c
         .sobject(name)
         .upsert(records, externalIdField, { headers: duplicateRuleHeaders(true) });
-      const arr = Array.isArray(r) ? r : [r];
-      return arr.map((x) => ({
-        id: x.id ?? '',
-        success: x.success,
-        errors:
-          x.errors?.map((e: { statusCode?: string; message?: string }) =>
-            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
-          ) ?? [],
-      }));
+      return toSaveOutcomes(r, name);
     },
   };
 
@@ -683,9 +733,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           },
           result: {
             successCount: summary.successCount,
+            // Neither created nor failed: the target already held these
+            // records and named them, and their children link to them.
+            linkedCount: summary.linkedCount,
             failedCount: summary.failedCount,
             skippedCount: summary.skippedCount,
             remapCount: summary.remapCount,
+            existingRecords: summary.existingRecords,
             errors: summary.errors.map((e) => ({
               objectApiName: e.objectApiName,
               stage: e.stage,
@@ -696,6 +750,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             // remapTable only included in JSON output for CI consumers; the
             // text output stays terse (use --remap-csv for the file dump).
             remapTable: summary.remapTable,
+            // Which remapTable entries are records the target already held.
+            existingSourceIds: summary.existingSourceIds,
           },
           elapsedMs: elapsed,
         },
@@ -705,23 +761,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   } else {
     console.log('');
-    console.log(`success: ${summary.successCount}`);
-    console.log(`failed:  ${summary.failedCount}`);
-    console.log(`skipped: ${summary.skippedCount}`);
-    console.log(`remaps:  ${summary.remapCount}`);
-    if (summary.errors.length > 0) {
-      console.log(`\nerrors (${summary.errors.length} object(s)):`);
-      for (const e of summary.errors) {
-        console.log(`  [${e.stage}] ${e.objectApiName}  ${e.failedCount}/${e.attemptedCount}`);
-        for (const s of e.samples.slice(0, 2)) {
-          console.log(`    ${s.recordSummary}`);
-          for (const m of s.messages) console.log(`      └ ${m}`);
-        }
-      }
-    }
+    for (const line of summaryLines(summary)) console.log(line);
     console.log(`\ndone in ${elapsed}ms`);
   }
-  if (summary.failedCount > 0 && summary.successCount === 0) process.exit(1);
+  // A run that linked what it could not create has done part of its job.
+  if (summary.failedCount > 0 && summary.successCount + summary.linkedCount === 0) {
+    process.exit(1);
+  }
 }
 
 // Only when run as a script: importing the module must not start a clone.

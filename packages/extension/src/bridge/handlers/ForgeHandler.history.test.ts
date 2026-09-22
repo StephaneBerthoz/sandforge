@@ -56,7 +56,7 @@ function createGraph(): ForgeGraph {
 function createConfig(): ForgeConfig {
   return {
     inputMode: 'record',
-    recordId: '001AP00000j2CEg',
+    recordId: '001000000000123',
     depth: 'custom',
     customDepth: 3,
     sourceOrgId: 'src-org',
@@ -155,7 +155,7 @@ describe('forge history entries are replayable', () => {
     // nothing to rebuild a forge:execute from.
     expect(history[0].config).toEqual({
       inputMode: 'record',
-      recordId: '001AP00000j2CEg',
+      recordId: '001000000000123',
       depth: 'custom',
       customDepth: 3,
       anonymizePII: true,
@@ -200,7 +200,7 @@ describe('forge history entries are replayable', () => {
           },
       )
       .find((m) => m.type === 'forge:history:list:response');
-    expect(listed?.payload.history[0].config?.recordId).toBe('001AP00000j2CEg');
+    expect(listed?.payload.history[0].config?.recordId).toBe('001000000000123');
   });
 
   it('keeps pre-existing entries readable when they carry no config', () => {

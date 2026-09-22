@@ -832,8 +832,10 @@ export class ForgeHandler implements DomainHandler {
 
       // Arm the duplicate cooldown only when the run wrote something: a
       // failure, or a run that remapped no record at all, leaves the recipe
-      // immediately re-runnable.
-      if (result.status !== 'failure' && result.idRemapCount > 0) {
+      // immediately re-runnable. A record linked to one the target already
+      // held is in the remap table too, and was not written.
+      const created = result.idRemapCount - (result.linkedExistingCount ?? 0);
+      if (result.status !== 'failure' && created > 0) {
         this.noteForgeWrite(forgeOpId);
       }
       // The executor reports a run it could not finish by resolving with a

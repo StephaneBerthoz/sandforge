@@ -249,6 +249,51 @@ describe('FrozenPage', () => {
     expect(screen.getByText(/Inserting/)).toBeDefined();
   });
 
+  it('says which statuses were applied after insert, and which were refused', () => {
+    // An activated order is created as a draft and activated once its items
+    // are in; a refusal there has to show, not vanish into the counts.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: {
+          excludedObjects: [],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        statuses: {
+          restored: 2,
+          refused: [
+            {
+              objectApiName: 'Order',
+              referenceId: 'Order-000003',
+              status: 'Activated',
+              detail: 'An order must include at least one product.',
+            },
+          ],
+        },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const statuses = screen.getByTestId('frozen-report-statuses');
+    expect(statuses.textContent).toContain('Statuses applied after insert: 2 — refused: 1');
+    expect(statuses.textContent).toContain('Order-000003 → Activated');
+  });
+
   it('renders the load report with removals and skipped duplicates', () => {
     useFrozenStore.setState({
       tab: 'load',

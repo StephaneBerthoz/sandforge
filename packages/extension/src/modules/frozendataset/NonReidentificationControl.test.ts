@@ -16,6 +16,8 @@ const control = new NonReidentificationControl();
 function makeExtracted(): ExtractedDataset {
   return {
     asOf: '2026-08-01T00:00:00Z',
+    unboundedObjects: [],
+    fileFields: {},
     recordTypeMap: [],
     objects: [
       {
@@ -222,5 +224,54 @@ describe('NonReidentificationControl — absence vs emptiness semantics', () => 
     };
     const report = control.run(extracted, frozen, rules, { now: () => NOW });
     expect(report.passed).toBe(true);
+  });
+});
+
+describe('NonReidentificationControl — objects left out on purpose', () => {
+  it('does not report an object the anonymizer left out as a missing record', () => {
+    // Files the rules do not keep leave their object out of the dataset; the
+    // control read their absence as a record lost, and failed every
+    // extraction that reached a quote document.
+    const extracted = makeExtracted();
+    extracted.fileFields = { QuoteDocument: ['Document'] };
+    extracted.objects.push({
+      objectApiName: 'QuoteDocument',
+      records: [
+        {
+          referenceId: 'QuoteDocument-000001',
+          sourceId: 'doc',
+          fields: { Id: 'doc', Document: 'JVBERi0xLjQK' },
+        },
+      ],
+    });
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+    expect(frozen.filesLeftOut).toEqual(['QuoteDocument']);
+
+    const report = control.run(extracted, frozen, rules, { now: () => NOW });
+
+    expect(checkByName(report, 'substitution').violations).toEqual([]);
+    expect(report.passed).toBe(true);
+  });
+
+  it('still reports a record lost from an object that was kept', () => {
+    const extracted = makeExtracted();
+    const frozen = new FrozenDatasetAnonymizer().anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+    frozen.objects[0].records = [];
+
+    const report = control.run(extracted, frozen, rules, { now: () => NOW });
+
+    expect(checkByName(report, 'substitution').violations[0].detail).toBe(
+      'record missing from the frozen dataset',
+    );
   });
 });

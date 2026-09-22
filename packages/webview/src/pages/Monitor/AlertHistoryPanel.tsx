@@ -59,7 +59,7 @@ function StatusIcon({ status }: { status: AlertStatus }): React.ReactElement {
       return (
         <span className="relative flex h-3 w-3" data-testid="status-icon-active">
           <span className="absolute inline-flex h-full w-full rounded-full bg-status-error opacity-75 animate-ping" />
-          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-status-error" />
         </span>
       );
     case 'acknowledged':

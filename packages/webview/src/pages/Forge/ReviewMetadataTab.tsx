@@ -4,9 +4,9 @@ import { useForgeStore } from '../../stores/useForgeStore';
 
 /** CSS classes for severity badge variants. */
 const SEVERITY_STYLES: Record<string, string> = {
-  info: 'bg-blue-500/10 text-status-info',
-  warning: 'bg-orange-500/10 text-status-warning',
-  error: 'bg-red-500/10 text-status-error',
+  info: 'bg-status-info/10 text-status-info',
+  warning: 'bg-status-warning/10 text-status-warning',
+  error: 'bg-status-error/10 text-status-error',
 };
 
 /** Props for {@link ReviewMetadataTab}. */

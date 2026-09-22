@@ -17,7 +17,7 @@ export * from './DeterministicPseudonymizer.js';
 export * from './rulesFile.js';
 export * from './queryTemplates.js';
 export * from './CoverageMatrixSelector.js';
-export * from './ForgeGraphHealthChecker.js';
+export * from './ScopedDossierHealthChecker.js';
 export * from './selectionStore.js';
 export * from './FrozenDatasetExtractor.js';
 export * from './FrozenDatasetAnonymizer.js';

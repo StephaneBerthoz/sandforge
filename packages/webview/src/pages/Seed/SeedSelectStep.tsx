@@ -126,7 +126,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
             {/* PII badge warnings on selected objects */}
             {hasPiiWarnings && (
               <div
-                className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-amber-600 bg-amber-500/10"
+                className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-status-warning bg-status-warning/10"
                 role="alert"
                 data-testid="pii-scan-warning"
               >

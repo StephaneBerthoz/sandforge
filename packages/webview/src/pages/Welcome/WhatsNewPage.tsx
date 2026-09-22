@@ -56,10 +56,11 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
       fill="none"
       aria-hidden="true"
       data-testid="icon-improvement"
+      className="text-status-success"
     >
       <path
         d="M10 16V4m0 0l-4 4m4-4l4 4"
-        stroke="#4ec9b0"
+        stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -77,6 +78,26 @@ const CATEGORY_ICONS: Record<FeatureCategory, React.ReactNode> = {
  * adds no entry here shows no panel at all.
  */
 export const WHATS_NEW: Readonly<Record<string, readonly Feature[]>> = {
+  '1.32.0': [
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.frozenLoads',
+      descKey: 'onboarding.whatsNew.frozenLoadsDesc',
+      navigateTo: 'frozen',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.automationHonest',
+      descKey: 'onboarding.whatsNew.automationHonestDesc',
+      navigateTo: 'automation',
+    },
+    {
+      category: 'fix',
+      titleKey: 'onboarding.whatsNew.monitorReads',
+      descKey: 'onboarding.whatsNew.monitorReadsDesc',
+      navigateTo: 'monitor',
+    },
+  ],
   '1.31.0': [
     {
       category: 'fix',

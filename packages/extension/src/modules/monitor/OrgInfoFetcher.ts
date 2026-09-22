@@ -25,7 +25,14 @@ export class OrgInfoFetcher {
         conn.identity(),
         conn.queryOrg(),
         conn.queryCount('SELECT COUNT() FROM User WHERE IsActive = true'),
-        conn.queryCount("SELECT COUNT() FROM EntityDefinition WHERE QualifiedApiName LIKE '%__c'"),
+        // In a LIKE, `_` matches any one character: `'%__c'` alone also counts
+        // Topic, PushTopic and every *Metric object. EntityDefinition ignores
+        // an escaped `\_`, so the pattern is kept and narrowed to custom
+        // entities (the only ones with a DeploymentStatus), among which only
+        // the `__c` suffix ends in a c.
+        conn.queryCount(
+          "SELECT COUNT() FROM EntityDefinition WHERE DeploymentStatus != null AND QualifiedApiName LIKE '%__c'",
+        ),
         conn.queryCount('SELECT COUNT() FROM ApexClass'),
         conn.queryCount('SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true'),
       ]);
@@ -35,7 +42,7 @@ export class OrgInfoFetcher {
       orgId: orgRecord.orgId,
       type: orgRecord.type,
       edition: orgRecord.edition,
-      instanceName: identity.instanceName,
+      instanceName: orgRecord.instanceName,
       apiVersion: identity.apiVersion,
       userCount,
       customObjectCount,
@@ -60,12 +67,17 @@ export class OrgInfoFetcher {
 
 /** Abstraction over the Salesforce connection for testability. */
 export interface OrgInfoConnection {
-  identity(): Promise<{ instanceName: string; apiVersion: string; lastLoginDate: string }>;
+  identity(): Promise<{ apiVersion: string; lastLoginDate: string }>;
+  /**
+   * The org's own Organization row. The instance is read here and not from
+   * the identity URL, whose answer carries no instance name at all.
+   */
   queryOrg(): Promise<{
     name: string;
     orgId: string;
     type: OrgInfo['type'];
     edition: string;
+    instanceName: string;
   }>;
   queryCount(soql: string): Promise<number>;
 }

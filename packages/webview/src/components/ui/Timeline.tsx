@@ -20,10 +20,10 @@ export interface TimelineProps {
 }
 
 const statusDotClasses: Record<TimelineStatus, string> = {
-  success: 'bg-emerald-500',
-  error: 'bg-red-500',
-  warning: 'bg-amber-500',
-  info: 'bg-blue-500',
+  success: 'bg-status-success',
+  error: 'bg-status-error',
+  warning: 'bg-status-warning',
+  info: 'bg-status-info',
 };
 
 /** Vertical timeline displaying events with status indicators. */

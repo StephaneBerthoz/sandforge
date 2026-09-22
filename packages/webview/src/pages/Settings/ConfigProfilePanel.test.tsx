@@ -52,9 +52,10 @@ describe('ConfigProfilePanel', () => {
   it('toggles category selection', () => {
     render(<ConfigProfilePanel />);
     const btn = screen.getByTestId('cat-toggle-syncMappings');
+    expect(btn.className).toContain('border-hue-blue/50');
     fireEvent.click(btn);
     // After clicking, the category should be deselected (it starts selected)
-    expect(btn.className).not.toContain('border-blue-500/50');
+    expect(btn.className).not.toContain('border-hue-blue/50');
   });
 
   it('renders export button', () => {

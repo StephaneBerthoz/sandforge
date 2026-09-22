@@ -62,6 +62,10 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import {
+  targetWriteFieldsOf,
+  type TargetWriteFields,
+} from '../../modules/sync/targetWriteFields.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Message types handled by SyncOpsHandler. */
@@ -965,27 +969,14 @@ export class SyncOpsHandler implements DomainHandler {
 
       // One describe of the target per object, kept for the run. Without it a
       // sync with no field mappings sends every field it read — see
-      // `DataSyncDeps.describeCreateableFields`.
-      const targetFieldsByObject = new Map<
-        string,
-        { creatable: ReadonlySet<string>; references: ReadonlySet<string> }
-      >();
-      const describeTargetFields = async (
-        objectApiName: string,
-      ): Promise<{ creatable: ReadonlySet<string>; references: ReadonlySet<string> }> => {
+      // `DataSyncDeps.describeCreateableFields`. The record types the running
+      // user may use are read from the same describe.
+      const targetFieldsByObject = new Map<string, TargetWriteFields>();
+      const describeTargetFields = async (objectApiName: string): Promise<TargetWriteFields> => {
         const cached = targetFieldsByObject.get(objectApiName);
         if (cached) return cached;
         const described = await targetConn.describe(objectApiName);
-        const fields = described.fields as Array<{
-          name: string;
-          createable?: boolean;
-          type?: string;
-        }>;
-        const writable = fields.filter((f) => f.createable === true);
-        const answer = {
-          creatable: new Set(writable.map((f) => f.name)),
-          references: new Set(writable.filter((f) => f.type === 'reference').map((f) => f.name)),
-        };
+        const answer = targetWriteFieldsOf(described);
         targetFieldsByObject.set(objectApiName, answer);
         return answer;
       };

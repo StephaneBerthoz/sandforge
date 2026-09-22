@@ -52,7 +52,7 @@ export interface PostLoadVerdict {
 
 /** Dependencies of {@link PostLoadVerifier}. */
 export interface PostLoadVerifierDeps {
-  orgAccess: Pick<TargetOrgAccess, 'query'>;
+  orgAccess: Pick<TargetOrgAccess, 'query' | 'count'>;
   sasGuard?: SasPathGuard;
 }
 
@@ -174,31 +174,59 @@ export class PostLoadVerifier {
     };
   }
 
-  /** Per-object counts (`SELECT COUNT(Id)`) for every contract object. */
+  /**
+   * Per-object counts (`SELECT COUNT()`) for every contract object, of the
+   * records this load wrote.
+   *
+   * Counted among the ids the mapping holds for the object, not across it: a
+   * sandbox is seldom empty, and run for real against one, the count of the
+   * whole object read 202 accounts where the load had written one — a check
+   * that could only pass on an org with nothing in it. Without a mapping there
+   * is nothing to scope by, and the whole object is what gets counted.
+   */
   private async measureCounts(
     options: PostLoadVerifyOptions,
     contract: CountingContract,
   ): Promise<Record<string, number>> {
+    const loaded = options.mapping ? loadedIdsByObject(options.mapping) : undefined;
     const counts: Record<string, number> = {};
     for (const objectApiName of Object.keys(contract.objects).sort()) {
-      const soql = `SELECT COUNT(Id) cnt FROM ${assertSoqlIdentifier(objectApiName)}`;
-      const rows = await this.deps.orgAccess.query(options.orgId, soql);
-      counts[objectApiName] = Number(rows[0]?.cnt ?? 0);
+      const from = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}`;
+      if (!loaded) {
+        counts[objectApiName] = await this.deps.orgAccess.count(options.orgId, from);
+        continue;
+      }
+      let total = 0;
+      for (const clause of idInClauses(loaded.get(objectApiName) ?? [])) {
+        total += await this.deps.orgAccess.count(options.orgId, `${from} WHERE ${clause}`);
+      }
+      counts[objectApiName] = total;
     }
     return counts;
   }
 
-  /** Sampled orphans per mandatory lookup of the graph. */
+  /**
+   * Sampled orphans per mandatory lookup of the graph — among the records
+   * this load wrote when the mapping says which they are, for the reason the
+   * counts are: the records already in the org are not this load's to judge.
+   */
   private async measureOrphans(options: PostLoadVerifyOptions): Promise<Record<string, string[]>> {
     const orphans: Record<string, string[]> = {};
     const sample = options.orphanSampleSize ?? DEFAULT_ORPHAN_SAMPLE_SIZE;
+    const loaded = options.mapping ? loadedIdsByObject(options.mapping) : undefined;
     for (const [objectApiName, fields] of Object.entries(options.mandatoryLookups ?? {})) {
+      const clauses = loaded ? idInClauses(loaded.get(objectApiName) ?? []) : [''];
       for (const field of fields) {
-        const soql =
-          `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} ` +
-          `WHERE ${assertSoqlIdentifier(field)} = null ORDER BY Id LIMIT ${sample}`;
-        const rows = await this.deps.orgAccess.query(options.orgId, soql);
-        orphans[`${objectApiName}.${field}`] = rows.map((r) => String(r.Id)).sort();
+        const found: string[] = [];
+        for (const clause of clauses) {
+          const soql =
+            `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} ` +
+            `WHERE ${assertSoqlIdentifier(field)} = null${clause ? ` AND ${clause}` : ''} ` +
+            `ORDER BY Id LIMIT ${sample}`;
+          const rows = await this.deps.orgAccess.query(options.orgId, soql);
+          found.push(...rows.map((r) => String(r.Id)));
+        }
+        orphans[`${objectApiName}.${field}`] = found.sort().slice(0, sample);
       }
     }
     return orphans;
@@ -379,4 +407,36 @@ function stableSerialize(value: unknown): string {
     return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableSerialize(v)}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+/** Ids per SOQL `IN` list: short enough for any statement to stay well inside the limit. */
+const ID_CHUNK = 200;
+
+/**
+ * The target ids the load wrote, per object, from the persisted mapping.
+ * Dataset references read `<Object>-<n>`; placeholders read
+ * `placeholder:<Object>:<Object.field>`.
+ */
+function loadedIdsByObject(mapping: ReadonlyMap<string, string>): Map<string, string[]> {
+  const byObject = new Map<string, string[]>();
+  for (const [referenceId, id] of mapping) {
+    const objectApiName = referenceId.startsWith('placeholder:')
+      ? referenceId.split(':')[1]
+      : referenceId.slice(0, referenceId.lastIndexOf('-'));
+    if (!objectApiName) continue;
+    const ids = byObject.get(objectApiName) ?? [];
+    ids.push(id);
+    byObject.set(objectApiName, ids);
+  }
+  return byObject;
+}
+
+/** `Id IN (…)` clauses covering `ids`; none for no id, so nothing is counted. */
+function idInClauses(ids: readonly string[]): string[] {
+  const clauses: string[] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const chunk = ids.slice(i, i + ID_CHUNK).map((id) => `'${sanitizeSoqlValue(id)}'`);
+    clauses.push(`Id IN (${chunk.join(', ')})`);
+  }
+  return clauses;
 }

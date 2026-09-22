@@ -186,7 +186,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 className={cn(
                   'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
                   resolution?.source === 'source'
-                    ? 'border-blue-500 bg-blue-500/10 text-status-info'
+                    ? 'border-status-info bg-status-info/10 text-status-info'
                     : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                 )}
                 data-testid={`pick-source-${field}`}
@@ -201,7 +201,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                 className={cn(
                   'px-2 py-0.5 rounded font-mono text-[10px] border transition-colors',
                   resolution?.source === 'target'
-                    ? 'border-green-500 bg-green-500/10 text-status-success'
+                    ? 'border-status-success bg-status-success/10 text-status-success'
                     : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                 )}
                 data-testid={`pick-target-${field}`}
@@ -235,7 +235,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                   className={cn(
                     'px-2 py-0.5 rounded text-[10px] border transition-colors',
                     resolution?.source === 'manual'
-                      ? 'border-amber-500 bg-amber-500/10 text-status-warning'
+                      ? 'border-status-warning bg-status-warning/10 text-status-warning'
                       : 'border-[var(--sf-border-subtle)] hover:bg-[var(--sf-bg-hover)]',
                   )}
                   data-testid={`pick-manual-${field}`}

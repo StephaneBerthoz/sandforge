@@ -247,7 +247,20 @@
       "storage": "Storage",
       "failedJobs": "Failed Jobs",
       "recentErrorLogs": "Recent Error Logs",
-      "lastChecked": "Last checked"
+      "lastChecked": "Last checked",
+      "overall": {
+        "healthy": "Healthy",
+        "degraded": "Degraded",
+        "critical": "Critical",
+        "unknown": "Unknown"
+      },
+      "signal": {
+        "ok": "OK",
+        "warning": "Warning",
+        "critical": "Critical",
+        "unknown": "Not read"
+      },
+      "notRead": "not read"
     },
     "fileStorage": "File Storage",
     "noTrends": "Not enough data for trends yet",
@@ -308,7 +321,6 @@
     "catSecurity": "Security",
     "catConfiguration": "Configuration",
     "catContent": "Content",
-    "catOther": "Other",
     "emptyState": {
       "title": "Spot differences between two orgs",
       "description": "Compare metadata, permissions and drift between a source and a target org — know exactly what changes before you deploy.",
@@ -541,6 +553,7 @@
         "title": "Clone Results",
         "summary": "Source records",
         "inserted": "Inserted",
+        "linked": "Linked to existing",
         "failed": "Failed",
         "duration": "Duration",
         "idMapping": "ID Mapping",
@@ -1053,12 +1066,22 @@
     "noMarketplaceTemplates": "No templates available",
     "noMarketplaceTemplatesDesc": "Community templates will appear here",
     "installTemplate": "Install",
+    "runFailed": "The pipeline run failed: {{reason}}",
+    "runnability": {
+      "cannotRun": "Cannot run yet",
+      "typeCannotRun": "This step type cannot run in a pipeline yet.",
+      "conditionCannotRun": "A Condition step cannot run in a pipeline yet: nothing here sets its condition, and a run carries no variables for it to test.",
+      "delayNeedsSeconds": "Set how many seconds this Delay step waits (from 0 up to 24 days).",
+      "paletteNote": "Only Delay steps can run in a pipeline for now. The other step types cannot be added yet.",
+      "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
+      "templateBlocked": "Cannot run as a pipeline yet. These step types cannot run: {{types}}."
+    },
     "soon": {
-      "steps": "Only Delay and Condition steps do anything when a pipeline runs. Seed, Sync, Backup, Restore, Anonymize, Delete and the other step types report success without touching an org."
+      "steps": "Only Delay steps run in a pipeline for now. Seed, Sync, Backup, Restore, Anonymize, Delete, Condition and the other step types cannot run in a pipeline yet: a pipeline that holds one does not start."
     },
     "emptyState": {
       "title": "Build Your First Pipeline",
-      "description": "Compose pipelines on a visual canvas and save them. So far, only Delay and Condition steps do anything when a pipeline runs.",
+      "description": "Compose pipelines on a visual canvas and save them. So far, only Delay steps can run in a pipeline.",
       "cta": "Select an Org"
     }
   },
@@ -1288,7 +1311,13 @@
       "autopilotCopies": "Autopilot copies what you asked for, and writes it",
       "autopilotCopiesDesc": "A two-object request came back with twenty and wrote none of its records: it walked into users, profiles and history objects, sent every field it read, and put source ids into the target's lookups. All of it is fixed, and a gate now stops the next module forgetting the duplicate-rule waiver.",
       "backupPartial": "A backup says when it is only part of one",
-      "backupPartialDesc": "It reads up to two thousand records of an object — five hundred against a production org — and reported the result as a complete snapshot either way. Measured against a live org, 656 records were snapshotted at 500 and announced as done. It now says when a bound cut it short, and the snapshot carries it so the listing stays honest."
+      "backupPartialDesc": "It reads up to two thousand records of an object — five hundred against a production org — and reported the result as a complete snapshot either way. Measured against a live org, 656 records were snapshotted at 500 and announced as done. It now says when a bound cut it short, and the snapshot carries it so the listing stays honest.",
+      "frozenLoads": "A frozen dataset loads, end to end",
+      "frozenLoadsDesc": "Run against a real org for the first time, Frozen Dataset could not select a single root, and its first load wrote one record of twenty-eight. It now reads what a dossier needs — the prices its orders point at, the standard prices behind them — loads eighty-eight records, reloads them cleanly and passes its own verification.",
+      "automationHonest": "No pipeline step reports work it did not do",
+      "automationHonestDesc": "Thirteen of the fifteen step types had nothing behind them and returned success, and Delay waited zero seconds. A pipeline holding a step that cannot run is now marked as such and refused before it starts, instead of being recorded as done.",
+      "monitorReads": "Monitor and Compare show what the org holds",
+      "monitorReadsDesc": "Run against real orgs for the first time: storage failed on every org, custom objects were counted forty-one for five, one org's alerts showed on another, and Compare read a different slice of each org's permission sets. They now read what they show, and a health signal that cannot be read says so instead of reporting a healthy org."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
@@ -1317,7 +1346,7 @@
     "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: coming soon, nothing is deployed from a diff yet",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a full snapshot of Account and Contact, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Compliance, Cleanup and Quality: coming soon, nothing runs behind these tabs yet",
-    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Only Delay and Condition do anything yet: the other 13 report success without touching an org\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Condition steps with 11 operators\n- Execution history: status, total duration, step count and errors for each run\n- Pipeline templates from the Marketplace",
+    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Only Delay steps can run yet: a pipeline holding any of the other 14 is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration, step count and errors for each run\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
@@ -1480,6 +1509,7 @@
     "before": "Before",
     "after": "After",
     "inserted": "Inserted",
+    "linkedExisting": "Linked to existing",
     "skipped": "Skipped",
     "idRemaps": "ID Remaps",
     "successRate": "Success Rate",
@@ -1608,9 +1638,11 @@
     "soqlAliasRefused": "This query cannot be run. The FROM clause declares an alias over a relationship that does not start from the object after FROM — check the alias before the dot.",
     "idMapping": {
       "title": "Record Id mapping",
-      "subtitle": "{{count}} records created. Source Id on the left, the new Id in the target org on the right.",
+      "subtitle": "{{count}} records. Source Id on the left, its Id in the target org on the right.",
       "sourceId": "Source Id",
-      "targetId": "New Id"
+      "targetId": "Target Id",
+      "existingNote": "{{count}} of them were already in the target org: linked, not created.",
+      "existingBadge": "existing"
     },
     "apiCalls": "API calls",
     "preview": {
@@ -1722,6 +1754,10 @@
         "explanation": "The record type exists in the target org and was matched correctly, but it is not available to the user the clone runs as.",
         "action": "Assign the record type to that user's profile in the target org, or exclude the RecordTypeId field for this object."
       },
+      "recordTypeHeldBack": {
+        "explanation": "The user the clone runs as cannot use this record type in the target org, so the object was held back before any of its records were written, and the objects that depend on it were skipped.",
+        "action": "In the target org, give that user access to the record type, or activate it if it is inactive — or exclude the RecordTypeId field for this object so its records take the user's default record type."
+      },
       "outOfScope": {
         "explanation": "None of the parent records this object hangs from are in the clone, and it is not the root object, so none of its records were cloned.",
         "action": "Raise the depth if you need records of this object in the clone."
@@ -1734,6 +1770,12 @@
     "soqlObjectNameInvalid": "\"{{object}}\" is not an SObject API name, so the WHERE clause cannot be sent under it. It must start with a letter and hold at most 80 letters, digits or underscores.",
     "hintSoqlObjectNameInvalid": "Fix the object name after FROM to discover the graph",
     "truncatedRead": "Read only in part: {{objects}}. The source holds more rows than were cloned — split the run with filters that each stay under the bound to clone the rest.",
+    "existingRecords": {
+      "title": "Already in the target org",
+      "hint": "The target refused these records because it already holds them. Where Salesforce named the record, the clone links to it and never changes it.",
+      "linked": "{{count}} linked, not created",
+      "unidentified": "{{count}} not identified — counted as failed, and their children lost the link"
+    },
     "node": {
       "records": "{{records}} records",
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
@@ -2022,7 +2064,13 @@
       "placeholder": "Placeholder",
       "skippedList": "Records skipped (native anti-duplicate)",
       "errors": "Errors",
-      "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored"
+      "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored",
+      "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}"
+    },
+    "coverage": {
+      "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
+      "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",
+      "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}"
     }
   },
   "grappe": {

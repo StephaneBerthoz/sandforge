@@ -3,7 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   ForgeConfig,
+  ForgeGraph,
   FrozenControlReport,
+  FrozenGraphCoverage,
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
@@ -35,7 +37,10 @@ import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import { GraphDiscoveryService } from '../../modules/forge/GraphDiscoveryService.js';
+import {
+  DEFAULT_MAX_NODES,
+  GraphDiscoveryService,
+} from '../../modules/forge/GraphDiscoveryService.js';
 import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import type { ScopableField } from '../../modules/forge/ScopedSoqlBuilder.js';
@@ -43,7 +48,6 @@ import {
   CoverageMatrixSelector,
   CustomMetadataCalloutMockDetector,
   DeterministicPseudonymizer,
-  ForgeGraphHealthChecker,
   FrozenDatasetAnonymizer,
   FrozenDatasetExtractor,
   FrozenDatasetLoader,
@@ -53,10 +57,12 @@ import {
   LoadGuardError,
   MissingSaltError,
   NonReidentificationControl,
+  PLATFORM_RECORDS_FILE_NAME,
   PostLoadVerifier,
   SELECTION_FILE_NAME,
   SasPathGuard,
   SasReferenceIdMappingStore,
+  ScopedDossierHealthChecker,
   TargetRecordTypeIdResolver,
   VolumetryBudgetExceededError,
   buildFrozenManifest,
@@ -234,6 +240,7 @@ function toManifestInfo(manifest: FrozenManifest): FrozenManifestInfo {
       author: manifest.controls.author,
       date: manifest.controls.date,
     },
+    ...(manifest.coverage ? { coverage: manifest.coverage } : {}),
   };
 }
 
@@ -245,6 +252,7 @@ function toManifestInfo(manifest: FrozenManifest): FrozenManifestInfo {
 function toSelectionSummary(
   result: CoverageSelectionResult,
   selectionPath: string,
+  graph: FrozenGraphCoverage | undefined,
 ): FrozenSelectionSummary {
   return {
     combinations: result.roots.map((root) => ({
@@ -256,7 +264,23 @@ function toSelectionSummary(
     volumetry: result.volumetry,
     selectedAt: result.selectedAt,
     selectionPath,
+    ...(graph ? { graph } : {}),
   };
+}
+
+/** The graph with the objects the configuration leaves out marked so. */
+function withoutExcluded(graph: ForgeGraph, excluded: readonly string[] | undefined): ForgeGraph {
+  if (!excluded || excluded.length === 0) return graph;
+  const out = new Set(excluded);
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) => (out.has(n.objectApiName) ? { ...n, included: false } : n)),
+  };
+}
+
+/** How far a discovery reached, at the cap it ran with. */
+function graphCoverage(graph: ForgeGraph, maxNodes: number): FrozenGraphCoverage {
+  return { objects: graph.nodes.length, truncated: graph.truncated === true, maxNodes };
 }
 
 /** Map an engine load report to its bridge DTO (alignedRecords dropped). */
@@ -278,6 +302,7 @@ function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
     perObject: report.perObject,
     pass2: report.pass2,
     personContact: report.personContact,
+    statuses: report.statuses,
     purge: report.purge,
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
@@ -499,7 +524,13 @@ export class FrozenDatasetHandler implements DomainHandler {
     });
   }
 
-  /** Record-scoped discovery config for one candidate root (same as Forge). */
+  /**
+   * Discovery config for a root object.
+   *
+   * The record id only picks the root object: discovery walks the schema and
+   * counts org-wide, so the graph is the same for every root of one object and
+   * each run discovers it once.
+   */
   private discoveryConfig(sourceOrgId: string, rootRecordId: string): ForgeConfig {
     return {
       inputMode: 'record',
@@ -510,9 +541,17 @@ export class FrozenDatasetHandler implements DomainHandler {
       // but required by the ForgeConfig shape.
       targetOrgId: sourceOrgId,
       anonymizePII: false,
-      skipEmpty: false,
+      // An object with no record in the whole org has none in any dossier,
+      // and reading it costs a query per dossier measured. Measured against a
+      // real org, an Opportunity reached 400 objects of which 69 held any.
+      skipEmpty: true,
       batchSize: 'auto',
     };
+  }
+
+  /** The discovery options of a run: the configured object cap. */
+  private discoveryOptions(config: FrozenProjectConfig): { maxNodes: number } {
+    return { maxNodes: config.maxNodes ?? DEFAULT_MAX_NODES };
   }
 
   /** Per-object field describes for the extractor's scope-aware queries. */
@@ -526,6 +565,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       name: f.name,
       type: f.type,
       referenceTo: f.referenceTo ?? [],
+      // Which lookups are required: the extractor fetches the parents they
+      // name when scope did not reach them, and knows no other way.
+      nillable: f.nillable !== false,
     }));
   }
 
@@ -539,6 +581,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       query: async (orgId, soql) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         return queryAll(conn, soql);
+      },
+      count: async (orgId, soql) => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        return (await conn.query(soql)).totalSize;
       },
       describe: async (orgId, objectApiName) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -558,6 +604,14 @@ export class FrozenDatasetHandler implements DomainHandler {
               active: p.active ?? true,
             })),
           })),
+          // The REST describe carries each record type's developerName;
+          // jsforce's type for it leaves the field out.
+          recordTypeInfos: (meta.recordTypeInfos ?? []).flatMap((rt) => {
+            const developerName = (rt as typeof rt & { developerName?: string }).developerName;
+            return developerName
+              ? [{ developerName, recordTypeId: rt.recordTypeId, available: rt.available }]
+              : [];
+          }),
         };
       },
       picklistValues: async (orgId, objectApiName, recordTypeId, fieldApiName) => {
@@ -627,6 +681,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       'personcontact-sidecar.json',
       [],
     );
+    const platformRecords = await readOptional<{ standardPricebook?: string }>(
+      PLATFORM_RECORDS_FILE_NAME,
+      {},
+    );
 
     return {
       dataset: {
@@ -634,6 +692,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         objects,
         recordTypes,
         personContactSidecar,
+        ...(platformRecords.standardPricebook
+          ? { standardPricebook: platformRecords.standardPricebook }
+          : {}),
       },
       manifest,
     };
@@ -697,22 +758,24 @@ export class FrozenDatasetHandler implements DomainHandler {
       const query = (soql: string) => queryAll(conn, soql);
       const tokens = await this.loadTokens(sasDir, guard);
       const discovery = this.buildDiscoveryService();
-      const checkHealth = new ForgeGraphHealthChecker(discovery, parsed.sourceOrgId, {
-        rootObject: config.rootObject,
-        expectedObjects: config.expectedObjects ?? [],
-      });
+      const discoveryOptions = this.discoveryOptions(config);
       const extractor = new FrozenDatasetExtractor({
         query,
         describeFields: (objectApiName) =>
           this.describeScopableFields(parsed.sourceOrgId, objectApiName),
       });
+      // One graph for the run: it is the root object's, whichever root asks.
+      let graphOnce: Promise<ForgeGraph> | undefined;
+      const graphFor = (rootRecordId: string): Promise<ForgeGraph> =>
+        (graphOnce ??= discovery
+          .discover(this.discoveryConfig(parsed.sourceOrgId, rootRecordId), discoveryOptions)
+          .then((graph) => withoutExcluded(graph, config.excludedObjects)));
       // Volumetry = real extraction-scope footprint: the probe runs the
       // scope-aware extraction over the retained roots and counts per object.
       // Bounded by the configured budget (default 2 500 records).
       const measureVolumetry = async (rootRecordIds: string[]): Promise<Record<string, number>> => {
-        const graph = await discovery.discover(
-          this.discoveryConfig(parsed.sourceOrgId, rootRecordIds[0]),
-        );
+        if (rootRecordIds.length === 0) return {};
+        const graph = await graphFor(rootRecordIds[0]);
         const extracted = await extractor.extract({
           graph,
           rootObject: config.rootObject,
@@ -729,6 +792,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         }
         return measured;
       };
+      // Each candidate is judged on its own records, measured the same way.
+      const checkHealth = new ScopedDossierHealthChecker(
+        measureVolumetry,
+        config.expectedObjects ?? [],
+      );
 
       const selector = new CoverageMatrixSelector({ query, checkHealth, measureVolumetry });
       const result = await new TimeoutManager(SELECT_TIMEOUT_MS).withTimeout('frozen:select', () =>
@@ -743,8 +811,15 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
 
       const selectionPath = await writeSelectionToSas(sasDir, result, guard);
+      // A discovery that failed has already said so through every candidate
+      // it turned away; the summary just carries no graph.
+      const graph = graphOnce ? await graphOnce.catch(() => undefined) : undefined;
       const response = buildResponse(this.deps, msg, 'frozen:select:response', {
-        selection: toSelectionSummary(result, selectionPath),
+        selection: toSelectionSummary(
+          result,
+          selectionPath,
+          graph ? graphCoverage(graph, discoveryOptions.maxNodes) : undefined,
+        ),
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, {
@@ -799,6 +874,21 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
       const selection = await readSelectionFromSas(sasDir, guard);
       const rootRecordIds = selection.roots.map((r) => r.rootRecordId);
+      if (rootRecordIds.length === 0) {
+        sendHandlerError(
+          this.deps,
+          'frozen:extract',
+          'frozen:extract:error',
+          msg,
+          new Error(
+            'The last selection kept no root: every combination was uncovered, and the ' +
+              'selection says why for each. Adjust the axes or the expected objects, then ' +
+              'run the selection again.',
+          ),
+          { code: 'SELECTION_EMPTY' },
+        );
+        return;
+      }
       const tokens = await this.loadTokens(sasDir, guard);
       const rulesPath = config.rulesFilePath ?? path.join(sasDir, DEFAULT_RULES_FILE_NAME);
       if (!(await pathExists(rulesPath))) {
@@ -815,8 +905,13 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const discovery = this.buildDiscoveryService();
-      const graph = await discovery.discover(
-        this.discoveryConfig(parsed.sourceOrgId, rootRecordIds[0]),
+      const discoveryOptions = this.discoveryOptions(config);
+      const graph = withoutExcluded(
+        await discovery.discover(
+          this.discoveryConfig(parsed.sourceOrgId, rootRecordIds[0]),
+          discoveryOptions,
+        ),
+        config.excludedObjects,
       );
       const extractor = new FrozenDatasetExtractor({
         query: (soql) => queryAll(conn, soql),
@@ -872,8 +967,10 @@ export class FrozenDatasetHandler implements DomainHandler {
         return;
       }
 
+      // What the dataset holds — not what was read: an object left out for
+      // its files is named in the coverage, not counted as frozen.
       const measured: Record<string, number> = {};
-      for (const objectData of extracted.objects) {
+      for (const objectData of frozen.objects) {
         measured[objectData.objectApiName] = objectData.records.length;
       }
       const org = this.deps.orgManager.getOrg(parsed.sourceOrgId);
@@ -893,6 +990,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         },
         nonReidentification: report,
         author,
+        coverage: {
+          ...graphCoverage(graph, discoveryOptions.maxNodes),
+          unboundedObjects: extracted.unboundedObjects,
+          filesLeftOut: frozen.filesLeftOut ?? [],
+        },
       });
 
       const writeResult = await new FrozenDatasetWriter(guard).write(

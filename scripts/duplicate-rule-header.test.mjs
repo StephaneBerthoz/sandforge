@@ -48,7 +48,8 @@ function sourceFiles() {
  */
 function orgCreateCalls(text) {
   const calls = [];
-  const pattern = /\.create\(/g;
+  // An upsert creates too, whenever the key it is given matches nothing.
+  const pattern = /\.(create|upsert)\(/g;
   let match;
   while ((match = pattern.exec(text)) !== null) {
     const lookBack = text.slice(Math.max(0, match.index - 200), match.index);

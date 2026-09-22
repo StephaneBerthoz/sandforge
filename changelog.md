@@ -5,6 +5,109 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.32.0] - 2026-09-23
+
+Frozen Dataset had never been run against a real org. Run end to end — select,
+extract, load, verify — between two sandboxes, it could not select a single
+root, and once it could, its first load wrote one record of twenty-eight. It
+now loads a dossier of eighty-eight records, reloads it cleanly, and passes its
+own verification. Twenty-nine defects stood in the way, most of them rules of
+the platform that one module had learned and this one had not.
+
+Automation had a worse one: no step of a pipeline built in the panel did its
+work, and every run said it had. Compare and Monitor, run against real orgs for
+the first time, had thirteen defects between them; the Monitor's storage view
+failed on every org.
+
+### Added
+
+- **`sandforge-frozen`, a headless Frozen Dataset runner.** It drives the
+  panel's own handler through selection, extraction, load and verification.
+- **`sandforge-compare` and `sandforge-monitor`.** Headless runners that stand
+  up the panel's own message routing and read an org the way the page does.
+- **Forge links a record the target already holds.** When the target refuses a
+  parent as a duplicate and names the record it collided with, the source id
+  is mapped to it and the children link to it instead of losing their parent.
+  The result says how many were linked, and how many duplicates Salesforce did
+  not name. Seed clone does the same.
+- **Record types are checked before writing.** A record type that exists in
+  the target but is not available to the running user used to fail every
+  insert naming it. Forge, Seed clone and Autopilot now hold the object back
+  with the record type and the fix named; Sync writes the records with the
+  user's default record type and says so.
+- **`maxNodes` and `excludedObjects` in the Frozen Dataset configuration.** How
+  far discovery may reach, and which objects a dataset leaves out.
+- **Coverage in the manifest.** A frozen dataset says how many objects
+  discovery reached, whether it stopped at its cap, which objects were read
+  without the date bound, and which were left out for their files — and the
+  panel shows it where the selection and the extraction are.
+
+### Fixed
+
+- **Selection works on a real org.** A root was judged healthy on Forge's
+  discovery graph, which describes the schema and is the same for every root
+  of an object: on an Opportunity it ran to four hundred objects, was always
+  "truncated", and no candidate was ever kept. A root is now judged on its own
+  records. A combination left uncovered says why, and an empty selection is
+  reported as one instead of failing with a discovery error.
+- **Extraction reads what a dossier needs.** Every required parent scope
+  reached late is fetched by id — the items of two activated orders had been
+  left out because their prices were in a book read too early, and the orders
+  loaded with no product. The standard prices of the products in the dataset
+  are read with it. An object without `CreatedDate` no longer stops the
+  extraction. Objects carrying files the rules do not keep are left out and
+  named, instead of being frozen empty and refused at load.
+- **Load writes what it was given.** A value the rules cleared is left out of
+  the insert instead of sent as a blank owner or date. Objects inserted after a
+  cycle keep their order. The standard price book is matched, not inserted, and
+  standard prices go before custom ones. The direct contact relation Salesforce
+  creates is found instead of inserted twice. A record type the running user
+  cannot use is dropped and listed. An activated order is created as a draft
+  and activated once its items are in. Every required field left empty is
+  listed in one refusal before anything is written — the load used to create
+  placeholders and then stop.
+- **Reload purges what the last load wrote.** Activated orders go back to a
+  draft first, custom prices before standard ones, direct relations with their
+  contact, and a record a cascade already deleted counts as purged.
+- **Verification can pass on an org that is not empty.** Counts and orphans
+  are taken among the records the load wrote, not across the whole object, and
+  counting no longer fails on objects that refuse `COUNT(Id)`.
+- **No Automation step reports work it did not do.** Thirteen step types had
+  no handler and returned success; Delay read a field the panel never wrote
+  and waited zero seconds; Condition reported "met" with nothing to evaluate.
+  A pipeline holding a step that cannot run is now marked in the palette, on
+  the canvas and in the Marketplace, and refused before it starts. Delay runs,
+  and stops when the run is cancelled or times out.
+- **Monitor reads what it shows.** Storage failed on every org (a column the
+  API does not have); custom objects were counted by a pattern that also
+  matched standard ones (41 for 5); the instance name was blank; three API
+  limits were asked for under names the API does not use; one org's alerts
+  showed on another's page and shared its cooldown; the error-log window lost
+  an entry on every refresh. A health signal that cannot be read is now
+  "unknown" instead of "healthy, 100", and the statuses are translated.
+- **Compare compares what it says.** Permission sets were read as a different
+  slice of each org and compared by generated names; reports, dashboards and
+  email templates listed nothing; "select all" never produced a diff; the page
+  gave up at thirty seconds.
+- **A restore brings back what was deleted.** A record deleted since the
+  snapshot was refused at restore as "entity is deleted" — the one record a
+  user needed back. It is now brought back from the recycle bin first, with
+  its id.
+- **Refusals keep their status code.** Written through the REST API, a refusal
+  kept only its message, which is in the org's language: a French org's
+  duplicate never matched `DUPLICATE_VALUE`.
+
+### Changed
+
+- **Light themes, everywhere.** The panel no longer uses a fixed palette
+  colour: every status and category colour comes from the theme, and the lint
+  rule and the design-system test now refuse every fixed shade, not only one.
+- **Copies leave `AppUsageAssignment` alone.** The platform tags what it
+  manages itself and refuses a copy writing the tag onto a quote.
+- **Every upsert waives duplicate rules.** Forge's upsert and the DataOps
+  restore did not send the header the inserts send; the gate that counts them
+  now counts upserts too.
+
 ## [1.31.0] - 2026-09-22
 
 DataOps is the first module that largely worked when it was first run against

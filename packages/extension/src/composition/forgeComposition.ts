@@ -16,6 +16,11 @@ import {
   objectOfQuery,
   queryAllPages,
 } from '../modules/forge/queryAllPages.js';
+import { formatSaveError, toSaveOutcomes } from '../core/common/existingRecordMatch.js';
+import {
+  parseRecordTypeInfos,
+  type RecordTypeAvailability,
+} from '../core/metadata/recordTypeAvailability.js';
 
 /**
  * The part of an object describe that Forge reads, kept once per org and
@@ -26,6 +31,10 @@ interface ForgeObjectDescribe {
   name: string;
   /** False only when the org says so: jsforce omits the flag on some entities. */
   createable: boolean;
+  /** Key prefix of the object's ids; `null` when the org gives none. */
+  keyPrefix: string | null;
+  /** Record types as the user the connection runs as sees them. */
+  recordTypes: RecordTypeAvailability[];
   fields: Array<{
     name: string;
     type: string;
@@ -55,6 +64,8 @@ function toForgeObjectDescribe(
     // Default to true when jsforce omits the flag — only opt out when
     // the org explicitly says false (read-only system entities).
     createable: meta.createable !== false,
+    keyPrefix: meta.keyPrefix ?? null,
+    recordTypes: parseRecordTypeInfos(meta.recordTypeInfos),
     fields: meta.fields.map((f) => ({
       name: f.name,
       type: f.type,
@@ -338,12 +349,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const results = await conn
               .sobject(objectName)
               .create(records, { allowRecursive: true, headers: duplicateRuleHeaders(true) });
-            const arr = Array.isArray(results) ? results : [results];
-            return arr.map((r) => ({
-              id: r.id ?? '',
-              success: r.success,
-              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
-            }));
+            // Read with its status code and the records a duplicate rule
+            // matched. Only the message used to be kept, so a unique index
+            // refusing a row the target already held reached the executor as
+            // "duplicate value found: …" with nothing naming it a duplicate.
+            return toSaveOutcomes(results, objectName);
           },
           updateRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
@@ -357,7 +367,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             return arr.map((r, i) => ({
               id: r.id ?? (records[i]['Id'] as string) ?? '',
               success: r.success,
-              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+              errors: (r.errors ?? []).map(formatSaveError),
             }));
           },
           upsertRecords: async (orgId, objectName, externalIdField, records) => {
@@ -366,13 +376,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               .sobject(objectName)
               .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
                 allowRecursive: true,
+                headers: duplicateRuleHeaders(true),
               });
-            const arr = Array.isArray(results) ? results : [results];
-            return arr.map((r) => ({
-              id: r.id ?? '',
-              success: r.success,
-              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
-            }));
+            return toSaveOutcomes(results, objectName);
           },
           describeFields: async (orgId, objectName) => {
             const described = await describeOnce(orgId, objectName);
@@ -389,6 +395,19 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           },
           isObjectCreatable: async (orgId, objectName) =>
             (await describeOnce(orgId, objectName)).createable,
+          // The describe the field sets were read from: a run asks it for the
+          // key prefix and record types without a request of its own.
+          describeObject: async (orgId, objectName) => {
+            const described = await describeOnce(orgId, objectName);
+            // A record type closed to the running user is what the run tells
+            // the user to change in the target. Kept for five minutes, the
+            // answer would hold the object back again on the retry that
+            // follows the change: it is not kept past the run that read it.
+            if (described.recordTypes.some((type) => !type.available && !type.master)) {
+              describeCache.invalidate(`${orgId}::${objectName}`);
+            }
+            return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
+          },
           batchStrategy: batchStrategyService,
           anonymize: (records, objectApiName) => {
             return anonymizer.anonymizeRecords(
