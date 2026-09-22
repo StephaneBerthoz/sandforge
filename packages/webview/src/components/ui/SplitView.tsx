@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { cn } from '../../theme';
@@ -46,6 +47,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
   onToggleRight,
   className,
 }) => {
+  const { t } = useTranslation();
   return (
     <div className={cn('flex h-full', className)} data-testid="splitview">
       {/* Left (main) panel */}
@@ -62,7 +64,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
         className="relative z-10 flex items-center justify-center w-6 shrink-0 hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors"
         onClick={onToggleRight}
         data-testid="splitview-toggle"
-        aria-label={rightCollapsed ? 'Expand right panel' : 'Collapse right panel'}
+        aria-label={rightCollapsed ? t('a11y.expandRightPanel') : t('a11y.collapseRightPanel')}
       >
         {rightCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
       </button>

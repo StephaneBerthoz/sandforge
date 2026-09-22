@@ -1,6 +1,12 @@
 /**
  * i18n parity gate.
  *
+ * Section 0 — duplicate keys (blocking), in every webview locale and every
+ * `package.nls*.json`, at any depth. `JSON.parse` keeps the last of two equal
+ * keys and says nothing, so the copy written first is gone before any other
+ * section looks. A duplicate made in every locale at once leaves the key sets
+ * equal, and parity passes: that is how v1.2.6 lost three modules' strings.
+ *
  * Section 1 — webview locales: loads `packages/webview/src/i18n/locales/en.json`
  * as the reference, flattens its nested keys, and for every other locale reports:
  *
@@ -13,8 +19,9 @@
  *
  * Section 3 — code vs catalogue (blocking): parity between six files proves
  * nothing about the seventh party, the source. Three ways a string escapes the
- * catalogue entirely: a hardcoded `aria-label="…"` (invisible to sighted
- * reviewers AND to the translator), a `t('k')` whose key no locale defines (the
+ * catalogue entirely: a hardcoded `aria-label="…"`, or English written inside an
+ * `aria-label={…}` expression (invisible to sighted reviewers AND to the
+ * translator), a `t('k')` whose key no locale defines (the
  * raw key renders), and an inline `t('k', 'English')` default for such a key —
  * the default renders in all six languages, so the gap never surfaces as a
  * missing translation.
@@ -90,6 +97,98 @@ function flatten(
 function loadLocale(dir: string, file: string): Map<string, string> {
   const text = readFileSync(join(dir, file), 'utf8');
   return flatten(JSON.parse(text) as JsonObject);
+}
+
+/**
+ * Every key written twice inside one object, as `a.b.c` paths, at any depth.
+ *
+ * The text is walked rather than the parsed value, because the parsed value
+ * has already dropped the first copy. Only called on text `JSON.parse` has
+ * accepted, so it does not validate the grammar again.
+ */
+function duplicateKeys(text: string): string[] {
+  const found: string[] = [];
+  let at = 0;
+  const skipSpace = (): void => {
+    while (at < text.length && /\s/.test(text[at])) at++;
+  };
+  const readString = (): string => {
+    const start = at++;
+    while (text[at] !== '"') at += text[at] === '\\' ? 2 : 1;
+    at++;
+    return JSON.parse(text.slice(start, at)) as string;
+  };
+  const readValue = (path: string): void => {
+    skipSpace();
+    if (text[at] === '{') {
+      at++;
+      const seen = new Set<string>();
+      skipSpace();
+      while (text[at] !== '}') {
+        skipSpace();
+        const key = readString();
+        const keyPath = path ? `${path}.${key}` : key;
+        if (seen.has(key)) found.push(keyPath);
+        seen.add(key);
+        skipSpace();
+        at++; // the ':'
+        readValue(keyPath);
+        skipSpace();
+        if (text[at] === ',') at++;
+      }
+      at++;
+    } else if (text[at] === '[') {
+      at++;
+      skipSpace();
+      for (let index = 0; text[at] !== ']'; index++) {
+        readValue(`${path}[${index}]`);
+        skipSpace();
+        if (text[at] === ',') at++;
+        skipSpace();
+      }
+      at++;
+    } else if (text[at] === '"') {
+      readString();
+    } else {
+      while (at < text.length && !/[\s,}\]]/.test(text[at])) at++;
+    }
+  };
+  readValue('');
+  return found;
+}
+
+/**
+ * Section 0: a key written twice in a webview locale or an extension
+ * `package.nls*.json`. Returns true when any file has one.
+ */
+function checkDuplicateKeys(): boolean {
+  const files: Array<[label: string, path: string]> = [
+    ...readdirSync(WEBVIEW_LOCALES_DIR)
+      .filter((f) => f.endsWith('.json'))
+      .sort()
+      .map((f): [string, string] => [f, join(WEBVIEW_LOCALES_DIR, f)]),
+    ...readdirSync(EXTENSION_DIR)
+      .filter((f) => /^package\.nls(\..+)?\.json$/.test(f))
+      .sort()
+      .map((f): [string, string] => [f, join(EXTENSION_DIR, f)]),
+  ];
+  const duplicates = files.flatMap(([label, path]) => {
+    const text = readFileSync(path, 'utf8');
+    // A file that is not JSON stops the run here, with the parser's position.
+    JSON.parse(text);
+    return duplicateKeys(text).map((key) => `${label}: ${key}`);
+  });
+
+  console.log(`duplicate keys — ${files.length} locale and manifest files`);
+  if (duplicates.length === 0) {
+    console.log('✓ duplicate keys: none, at any depth');
+    return false;
+  }
+  console.log(
+    `✗ duplicate keys: ${duplicates.length} — each keeps only its last value, the others are lost`,
+  );
+  for (const d of duplicates) console.log(`    - ${d}`);
+  return true;
 }
 
 /**
@@ -618,6 +717,44 @@ function matchedKeys(pattern: RegExp, source: string): Set<string> {
 }
 
 /**
+ * A `t()` key argument, with the English default after it if there is one:
+ * both are the catalogue's business (section 3 checks the key resolves).
+ */
+const T_CALL_LITERALS = /\bt\(\s*(['"`])[^'"`]*\1(?:\s*,\s*(['"`])(?:[^'"`\\]|\\.)*\2)?/g;
+
+/**
+ * Line numbers of `aria-label={…}` expressions that hold English: a string or
+ * template literal with a letter in it, once `t()` arguments and `${…}`
+ * interpolations are set aside. `aria-label={open ? 'Collapse' : 'Expand'}`
+ * and `` aria-label={`Remove ${name}`} `` are the same untranslated copy as
+ * `aria-label="Remove"`, written where the literal check did not look.
+ */
+function englishLabelExpressions(source: string): number[] {
+  const lines: number[] = [];
+  const opener = /aria-label=\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = opener.exec(source)) !== null) {
+    let depth = 1;
+    let end = opener.lastIndex;
+    while (end < source.length && depth > 0) {
+      if (source[end] === '{') depth++;
+      else if (source[end] === '}') depth--;
+      end++;
+    }
+    const expression = source.slice(opener.lastIndex, end - 1).replace(T_CALL_LITERALS, 't(');
+    const literals =
+      expression.match(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? [];
+    const english = literals.some((literal) => {
+      const text = literal.slice(1, -1).replace(/\$\{[^}]*\}/g, '');
+      // `t(open ? 'a.close' : 'a.open')`: a dotted path is a key, not copy.
+      return /[A-Za-z]/.test(text) && !/^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+$/.test(text);
+    });
+    if (english) lines.push(source.slice(0, match.index).split('\n').length);
+  }
+  return lines;
+}
+
+/**
  * Section 3 — the three ways a user-visible string bypasses the catalogue.
  * Returns true when at least one violation was found.
  */
@@ -636,6 +773,7 @@ function checkSources(reference: Map<string, string>): boolean {
       lines.forEach((line, i) => {
         if (line.includes('aria-label="')) hardcodedLabels.push(`${label}:${i + 1}`);
       });
+      for (const line of englishLabelExpressions(source)) hardcodedLabels.push(`${label}:${line}`);
     }
 
     const withDefault = new Set([
@@ -1047,6 +1185,10 @@ function auditBaseline(reference: Map<string, string>, unreferenced: string[]): 
 
 const reportOnly = process.argv.includes('--report');
 
+const duplicateDrift = checkDuplicateKeys();
+
+console.log('');
+
 const webviewDrift = checkParity({
   dir: WEBVIEW_LOCALES_DIR,
   referenceFile: WEBVIEW_REFERENCE,
@@ -1093,6 +1235,7 @@ console.log('');
 const baselineDrift = auditBaseline(englishCatalogue, unreferenced);
 
 const hasDrift =
+  duplicateDrift ||
   webviewDrift ||
   manifestDrift ||
   sourceDrift ||

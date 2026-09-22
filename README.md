@@ -2,7 +2,7 @@
 
 <!-- badges:start -->
 
-![Version](https://img.shields.io/badge/version-1.32.0-blue)
+![Version](https://img.shields.io/badge/version-1.33.0-blue)
 [![CI](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -182,7 +182,7 @@ See the full list of settings in the VSCode Settings UI under "SandForge".
 
 ## Internationalization
 
-Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. All UI text uses `t('key')` via react-i18next, and numbers and dates are formatted with Intl APIs using the editor locale. Durations are not: they are composed from fixed `h`/`min`/`s`/`ms` tokens and read the same in every locale.
+Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. All UI text uses `t('key')` via react-i18next, and numbers and dates are formatted with Intl APIs in the language picked in SandForge, keeping the editor's regional conventions when the editor uses that same language. Durations are not: they are composed from fixed `h`/`min`/`s`/`ms` tokens and read the same in every locale.
 
 ---
 

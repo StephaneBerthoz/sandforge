@@ -68,7 +68,8 @@ describe('inline t() defaults are backed by the catalogue', () => {
         while ((match = pattern.exec(source)) !== null) {
           const key = match[1];
           if (!key.includes('.')) continue;
-          if (lookup(en, key) === undefined) {
+          // A counted key lives as its plural forms: i18next picks the one.
+          if (lookup(en, key) === undefined && lookup(en, `${key}_other`) === undefined) {
             unbacked.push(`${key} (${file.slice(SRC.length + 1)})`);
           }
         }
@@ -110,7 +111,7 @@ describe('sync templates are translated, not copied', () => {
     'sync.selectAndConfigure',
     'sync.templates.title',
     'sync.templates.useThis',
-    'sync.templates.objectCount',
+    'sync.templates.objectCount_other',
     'sync.templates.accountHierarchy.name',
     'sync.templates.accountHierarchy.description',
     'sync.templates.oppsProducts.name',
@@ -126,7 +127,7 @@ describe('sync templates are translated, not copied', () => {
   });
 
   it.each(NON_EN)('%s keeps the {{count}} placeholder', (locale) => {
-    expect(lookup(load(locale), 'sync.templates.objectCount')).toContain('{{count}}');
+    expect(lookup(load(locale), 'sync.templates.objectCount_other')).toContain('{{count}}');
   });
 });
 

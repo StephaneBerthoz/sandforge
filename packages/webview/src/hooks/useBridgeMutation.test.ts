@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import type { BaseMessage } from '@sandforge/shared';
+import '../i18n';
 
 /**
  * Mock the useVSCodeApi hook so tests do not depend on acquireVsCodeApi.
@@ -197,7 +198,9 @@ describe('useBridgeMutation', () => {
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe("Bridge mutation 'org:connect' timed out after 5000ms");
+    expect(result.current.error).toBe(
+      'SandForge did not answer org:connect within 5 s. Try again; if it keeps happening, look in the SandForge output channel.',
+    );
     expect(result.current.data).toBeNull();
   });
 

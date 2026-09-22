@@ -1,13 +1,18 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
-import { formatDuration } from '../../../utils/formatters';
-import { ProgressBar } from '../../../components/ui/ProgressBar';
+import { formatDuration, uiLocale } from '../../../utils/formatters';
+import { ProgressBar, ProgressAnnouncer } from '../../../components/ui/ProgressBar';
 
 /** Live statistics dashboard cards during execution. */
 export const LiveStats: React.FC = () => {
   const { t } = useTranslation();
   const liveStats = useAutopilotStore((s) => s.liveStats);
+  const executionStatus = useAutopilotStore((s) => s.executionStatus);
+  const finished = executionStatus === 'completed';
+  const percent = Math.round(
+    (liveStats.recordsProcessed / Math.max(liveStats.recordsTotal, 1)) * 100,
+  );
 
   return (
     <div className="grid grid-cols-2 gap-3" data-testid="live-stats">
@@ -17,7 +22,8 @@ export const LiveStats: React.FC = () => {
           {t('autopilot.control.recordsProcessed')}
         </span>
         <span className="text-lg font-bold text-text-primary">
-          {liveStats.recordsProcessed.toLocaleString()} / {liveStats.recordsTotal.toLocaleString()}
+          {liveStats.recordsProcessed.toLocaleString(uiLocale())} /{' '}
+          {liveStats.recordsTotal.toLocaleString(uiLocale())}
         </span>
         <ProgressBar
           value={liveStats.recordsProcessed}
@@ -32,7 +38,8 @@ export const LiveStats: React.FC = () => {
           {t('autopilot.control.apiCalls')}
         </span>
         <span className="text-lg font-bold text-text-primary">
-          {liveStats.apiCallsUsed.toLocaleString()} / {liveStats.apiCallsEstimated.toLocaleString()}
+          {liveStats.apiCallsUsed.toLocaleString(uiLocale())} /{' '}
+          {liveStats.apiCallsEstimated.toLocaleString(uiLocale())}
         </span>
         <ProgressBar
           value={liveStats.apiCallsUsed}
@@ -60,6 +67,22 @@ export const LiveStats: React.FC = () => {
           {liveStats.currentWave} / {liveStats.totalWaves}
         </span>
       </div>
+
+      {/* A run of several minutes, spoken: the bars above only redraw. This
+          panel stays mounted from the first wave to the finished run. */}
+      <ProgressAnnouncer
+        message={
+          finished
+            ? t('a11y.runFinished', {
+                name: t('nav.autopilot'),
+                written: liveStats.recordsProcessed,
+                total: liveStats.recordsTotal,
+              })
+            : t('a11y.progressAnnouncement', { name: t('nav.autopilot'), percent })
+        }
+        immediate={finished}
+        testId="autopilot-progress-status"
+      />
     </div>
   );
 };

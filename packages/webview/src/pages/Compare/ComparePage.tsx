@@ -219,10 +219,9 @@ export const ComparePage: React.FC = () => {
         <Card data-testid="schema-advice-results">
           <CardHeader
             title={t('compare.schemaAdviceResults', 'Schema Advice')}
-            subtitle={t('compare.schemaAdviceIssues', '{{count}} issues found').replace(
-              '{{count}}',
-              String(schemaAdvice.data.advice.issues.length),
-            )}
+            subtitle={t('compare.schemaAdviceIssues', {
+              count: schemaAdvice.data.advice.issues.length,
+            })}
           />
           <CardBody>
             {schemaAdvice.data.advice.issues.length > 0 && (

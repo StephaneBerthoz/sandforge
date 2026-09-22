@@ -16,7 +16,9 @@ catalog:
   vitest: '^4.1.11'
   '@vitest/coverage-v8': '^4.1.11'
 
-# pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
+# pnpm 11 build-script approvals, the only list pnpm 11 reads: it dropped
+# onlyBuiltDependencies and its siblings and ignores them without a warning
+# (packages/extension/src/test/workspacePolicy.test.ts keeps them out).
 # esbuild: required for the extension bundle. @vscode/vsce-sign: required by
 # `vsce package`. core-js*: postinstall is a funding banner only — stays
 # blocked. keytar: optional dependency of @vscode/vsce, reached only by the
@@ -30,10 +32,6 @@ allowBuilds:
   core-js-pure: false
   esbuild: true
   keytar: false
-
-onlyBuiltDependencies:
-  - esbuild
-  - '@vscode/vsce-sign'
 
 # Security overrides — all entries close high-severity CVEs surfaced by `pnpm audit`.
 # picomatch / lodash: see Round 1 commit 1b27ff9.

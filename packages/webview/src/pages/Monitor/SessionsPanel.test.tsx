@@ -64,7 +64,7 @@ describe('SessionsPanel', () => {
     expect(screen.getByTestId('sessions-panel')).toBeDefined();
     expect(screen.getByTestId('session-row-session-1')).toBeDefined();
     expect(screen.getByTestId('session-row-session-2')).toBeDefined();
-    expect(screen.getByText('2 active user(s)')).toBeDefined();
+    expect(screen.getByText('2 active users')).toBeDefined();
   });
 
   it('displays session type as badge', () => {

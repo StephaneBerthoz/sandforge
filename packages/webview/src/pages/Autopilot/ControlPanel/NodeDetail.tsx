@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
+import { uiLocale } from '../../../utils/formatters';
 
 /** Shows details of the selected node in the dependency graph. */
 export const NodeDetail: React.FC = () => {
@@ -50,8 +51,8 @@ export const NodeDetail: React.FC = () => {
         <div className="flex flex-col gap-0.5">
           <span className="text-text-secondary">{t('autopilot.control.recordsProcessed')}</span>
           <span className="font-medium text-text-primary">
-            {selectedNode.successCount?.toLocaleString() ?? 0} /{' '}
-            {selectedNode.recordCount.toLocaleString()}
+            {selectedNode.successCount?.toLocaleString(uiLocale()) ?? 0} /{' '}
+            {selectedNode.recordCount.toLocaleString(uiLocale())}
           </span>
         </div>
         <div className="flex flex-col gap-0.5">

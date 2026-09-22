@@ -40,7 +40,7 @@ const EXTENSION_SOURCES = [
  * the link is stated rather than derived.
  */
 const PANELS: ReadonlyArray<{ component: string; heading: string; reads: string }> = [
-  { component: 'StorageBreakdownPanel', heading: 'Storage Breakdown', reads: 'EntityDefinition' },
+  { component: 'StorageBreakdownPanel', heading: 'Records by Object', reads: 'EntityDefinition' },
   { component: 'ApiUsagePanel', heading: 'API Usage Breakdown', reads: '/limits' },
   { component: 'DeploymentTimeline', heading: 'Recent Deployments', reads: 'DeployRequest' },
   { component: 'ErrorLogsPanel', heading: 'Error Logs', reads: 'ApexLog' },

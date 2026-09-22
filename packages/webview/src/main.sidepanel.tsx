@@ -2,7 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { MotionProvider } from './motion/MotionProvider';
 import { i18nReady } from './i18n';
 import './index.css';
 import './styles/glass.css';
@@ -26,12 +25,11 @@ if (root) {
     ReactDOM.createRoot(root).render(
       <React.StrictMode>
         {/* SidePanel has no BridgeProvider ancestor of its own — give it the
-            same crash-recovery boundary the other roots get from PanelApp, and
-            the same motion context (LazyMotion features + reducedMotion="user"). */}
+            same crash-recovery boundary the other roots get from PanelApp. No
+            motion provider: nothing in the sidebar animates through
+            framer-motion, and its engine would load on every launch for it. */}
         <ErrorBoundary>
-          <MotionProvider>
-            <SidePanel />
-          </MotionProvider>
+          <SidePanel />
         </ErrorBoundary>
       </React.StrictMode>,
     );

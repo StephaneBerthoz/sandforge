@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 
 /** JsonViewer component props. */
@@ -57,6 +58,7 @@ const JsonNode: React.FC<{
   defaultCollapsed: boolean;
   isLast: boolean;
 }> = ({ keyName, value, depth, maxDepth, defaultCollapsed, isLast }) => {
+  const { t } = useTranslation();
   const type = getValueType(value);
   const isExpandable = type === 'object' || type === 'array';
   const shouldStartCollapsed = defaultCollapsed || depth >= maxDepth;
@@ -85,6 +87,7 @@ const JsonNode: React.FC<{
   const entries = isArray
     ? (value as unknown[]).map((v, i) => [String(i), v] as const)
     : Object.entries(value as Record<string, unknown>);
+  const nodeName = keyName ?? t(isArray ? 'a11y.jsonArray' : 'a11y.jsonObject');
   const openBracket = isArray ? '[' : '{';
   const closeBracket = isArray ? ']' : '}';
 
@@ -96,7 +99,7 @@ const JsonNode: React.FC<{
         onClick={toggle}
         role="button"
         aria-expanded={expanded}
-        aria-label={`Toggle ${keyName ?? (isArray ? 'array' : 'object')}`}
+        aria-label={t('a11y.toggleJsonNode', { name: nodeName })}
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {

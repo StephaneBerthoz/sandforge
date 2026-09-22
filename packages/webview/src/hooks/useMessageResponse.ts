@@ -1,4 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+// The i18next singleton rather than `../i18n`: that module initialises it for
+// React once at boot, and every hook-level test that mocks react-i18next would
+// otherwise have to provide its initialiser.
+import i18n from 'i18next';
 
 import type { BaseMessage } from '@sandforge/shared';
 
@@ -6,14 +10,12 @@ import type { BaseMessage } from '@sandforge/shared';
  * Options for the useMessageResponse hook.
  */
 export interface UseMessageResponseOptions {
-  /** The original request type, used in timeout error messages (e.g. `'org:list'`). */
+  /** The original request type, named in the error messages (e.g. `'org:list'`). */
   requestType: string;
   /** The message type to listen for (e.g. `'org:list:response'`). */
   responseType: string;
   /** Timeout in milliseconds before the request is considered failed. */
   timeoutMs: number;
-  /** Label used in timeout error messages (e.g. `'query'` or `'mutation'`). */
-  requestLabel: string;
   /**
    * Optional error channel to listen for (e.g. `'monitor:error'`). When a
    * handler rejects a request it replies on this channel instead of the
@@ -35,6 +37,20 @@ export interface UseMessageResponseOptions {
 
 /** Duration in milliseconds before the `timedOut` flag is set. */
 const FEEDBACK_TIMEOUT_MS = 10_000;
+
+/**
+ * A request's failure, in the interface language. These are the fallback of
+ * every query and mutation in the panel, and read as developer text in English
+ * whatever the language: "Bridge query 'reports:list' timed out after 30000ms".
+ * Before i18next is initialised — a hook mounted alone in a test — the key is
+ * returned, as `t` does for a missing one.
+ */
+function requestError(
+  key: 'bridge.timedOut' | 'bridge.failed' | 'bridge.rejected',
+  options: { request: string; seconds?: number },
+): string {
+  return i18n.isInitialized ? i18n.t(key, options) : key;
+}
 
 /**
  * Return value of the useMessageResponse hook.
@@ -74,14 +90,7 @@ export interface MessageResponseHandler<T> {
 export function useMessageResponse<T>(
   options: UseMessageResponseOptions,
 ): MessageResponseHandler<T> {
-  const {
-    requestType,
-    responseType,
-    timeoutMs,
-    requestLabel,
-    errorType,
-    acceptUncorrelated = false,
-  } = options;
+  const { requestType, responseType, timeoutMs, errorType, acceptUncorrelated = false } = options;
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,7 +129,12 @@ export function useMessageResponse<T>(
       const timer = setTimeout(() => {
         if (mountedRef.current && activeRequestId.current === messageId) {
           setLoading(false);
-          setError(`Bridge ${requestLabel} '${requestType}' timed out after ${timeoutMs}ms`);
+          setError(
+            requestError('bridge.timedOut', {
+              request: requestType,
+              seconds: Math.round(timeoutMs / 1000),
+            }),
+          );
           activeRequestId.current = null;
         }
       }, timeoutMs);
@@ -206,7 +220,7 @@ export function useMessageResponse<T>(
           setError(
             typeof payloadMessage === 'string'
               ? payloadMessage
-              : `Bridge ${requestLabel} '${requestType}' failed`,
+              : requestError('bridge.failed', { request: requestType }),
           );
           setLoading(false);
           setTimedOut(false);
@@ -245,7 +259,7 @@ export function useMessageResponse<T>(
         }
         activeRequestId.current = null;
 
-        setError(`SandForge turned down this ${requestLabel}: '${requestType}' was rejected.`);
+        setError(requestError('bridge.rejected', { request: requestType }));
         setLoading(false);
         setTimedOut(false);
       };
@@ -262,7 +276,7 @@ export function useMessageResponse<T>(
         removeErrorListener?.();
       };
     },
-    [requestType, responseType, timeoutMs, requestLabel, errorType, acceptUncorrelated],
+    [requestType, responseType, timeoutMs, errorType, acceptUncorrelated],
   );
 
   const reset = useCallback(() => {

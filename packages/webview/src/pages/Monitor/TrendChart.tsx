@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { cn } from '../../theme';
+import { dateTimeFormat, uiLocale } from '../../utils/formatters';
 
 /** Single data point for the trend chart. */
 export interface TrendDataPoint {
@@ -44,13 +45,13 @@ const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string;
 function formatXAxis(ts: number, period: Period): string {
   const date = new Date(ts);
   if (period === '24h') {
-    return new Intl.DateTimeFormat(undefined, {
+    return dateTimeFormat({
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
     }).format(date);
   }
-  return new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit' }).format(date);
+  return dateTimeFormat({ month: '2-digit', day: '2-digit' }).format(date);
 }
 
 /** Custom tooltip component for the area chart. */
@@ -62,7 +63,7 @@ const ChartTooltip: React.FC<{
   if (!active || !payload || payload.length === 0 || label === undefined) return null;
 
   const date = new Date(label);
-  const timeStr = new Intl.DateTimeFormat(undefined, {
+  const timeStr = dateTimeFormat({
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
@@ -73,7 +74,9 @@ const ChartTooltip: React.FC<{
       data-testid="trend-tooltip"
     >
       <p className="text-text-secondary">{timeStr}</p>
-      <p className="font-semibold text-text-primary">{payload[0].value.toLocaleString()}</p>
+      <p className="font-semibold text-text-primary">
+        {payload[0].value.toLocaleString(uiLocale())}
+      </p>
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 import { Input } from '../../../components/ui/Input';
 import type { AutopilotObjectInfo } from './AutopilotWizard';
+import { uiLocale } from '../../../utils/formatters';
 
 /** Step2Objects component props. */
 export interface Step2ObjectsProps {
@@ -38,7 +39,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
   }, [availableObjects, filter]);
 
   /** Format record count with locale-aware number formatting. */
-  const formatCount = (count: number): string => count.toLocaleString();
+  const formatCount = (count: number): string => count.toLocaleString(uiLocale());
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="step2-objects">

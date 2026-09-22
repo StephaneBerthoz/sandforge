@@ -1,7 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
@@ -18,6 +19,20 @@ vi.mock('../../hooks/useVSCodeApi', () => {
   };
   return { useVSCodeApi: () => api, getVscodeApi: () => api };
 });
+
+// jsdom has no layout: the real virtualizer measures a zero-height container
+// and renders no row. Every row is in view here.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => {
+    const size = opts.estimateSize();
+    const items = Array.from({ length: opts.count }, (_, index) => ({
+      index,
+      start: index * size,
+      size,
+    }));
+    return { getVirtualItems: () => items, getTotalSize: () => opts.count * size };
+  },
+}));
 
 /** Deliver a message from the extension host to the panel's window. */
 function fromHost(data: Record<string, unknown>): void {
@@ -112,6 +127,27 @@ describe('SyncHistoryPanel', () => {
     expect(screen.getByTestId('sync-history-panel')).toBeDefined();
   });
 
+  it('says how long ago a run started in the interface language', async () => {
+    // date-fns wrote "about 2 hours ago" beside French column headers.
+    const startTime = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    useSyncHistoryStore.setState({
+      entries: [{ ...makeMockEntry('h-1'), startTime }],
+      loading: false,
+    });
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<SyncHistoryPanel />);
+      expect(screen.getByText('il y a 2 heures')).toBeDefined();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
   it('should render DataTable with entries when data exists', () => {
     const entries = [makeMockEntry('h-1'), makeMockEntry('h-2', 'failure')];
     useSyncHistoryStore.setState({ entries, loading: false });
@@ -150,6 +186,12 @@ describe('SyncHistoryPanel', () => {
     });
     render(<SyncHistoryPanel />);
     expect(screen.getByTestId('refresh-btn')).toBeDefined();
+  });
+
+  it('names its icon-only refresh button', () => {
+    useSyncHistoryStore.setState({ entries: [makeMockEntry('h-1')], loading: false });
+    render(<SyncHistoryPanel />);
+    expect(screen.getByRole('button', { name: 'Reload' })).toBe(screen.getByTestId('refresh-btn'));
   });
 
   it('fills the table when the extension answers the history request', () => {

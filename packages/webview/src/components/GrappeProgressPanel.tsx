@@ -4,6 +4,7 @@ import { ProgressAnnouncer, ProgressBar } from './ui/ProgressBar';
 import { Badge } from './ui/Badge';
 import { cn } from '../theme';
 import { useGrappeStore } from '../stores/useGrappeStore';
+import { uiLocale } from '../utils/formatters';
 
 /**
  * Panel displaying grappe (cluster) operation progress.
@@ -86,16 +87,16 @@ export const GrappeProgressPanel: React.FC<{
         data-testid="grappe-stats"
       >
         <span>
-          {t('grappe.totalRecords', 'Records')}: {totalRecords.toLocaleString()}
+          {t('grappe.totalRecords', 'Records')}: {totalRecords.toLocaleString(uiLocale())}
         </span>
         {!active && (
           <>
             <span className="text-status-success">
-              {totalProcessed.toLocaleString()} {t('grappe.processed', 'processed')}
+              {totalProcessed.toLocaleString(uiLocale())} {t('grappe.processed', 'processed')}
             </span>
             {totalFailed > 0 && (
               <span className="text-status-error">
-                {totalFailed.toLocaleString()} {t('grappe.failed', 'failed')}
+                {totalFailed.toLocaleString(uiLocale())} {t('grappe.failed', 'failed')}
               </span>
             )}
           </>

@@ -430,6 +430,14 @@ describe('OrgManagerPage', () => {
       },
     );
 
+    it('names the button that closes the method panel', () => {
+      // An icon-only X: announced as "button" and nothing else.
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByTestId('org-auth-jwt'));
+      const panel = screen.getByTestId('org-inline-not-supported');
+      expect(within(panel).getByRole('button', { name: 'Close' })).toBeDefined();
+    });
+
     it('should leave the implemented methods enabled', () => {
       render(<OrgManagerPage />);
       expect(screen.getByTestId('org-auth-oauth_web').getAttribute('aria-disabled')).toBeNull();

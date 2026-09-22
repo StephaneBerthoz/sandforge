@@ -6,12 +6,14 @@
  * *coverage* percentage: nothing measures one — the CI gate compares key sets
  * between locales, and a key present in all six files but translated in none
  * of them passes it untouched. And an unqualified "formatted with Intl APIs":
- * that invites the reader to expect the language picker to change how numbers
- * and dates render, while every formatter in the webview resolves against the
- * host — the editor — and no code path feeds it the picked language.
+ * every formatter in the webview once resolved against the host — the editor —
+ * and no code path fed it the picked language, so the README had to say
+ * "using the editor locale".
  *
- * The second claim is pinned to the source rather than to a fixed string, so
- * the wording is allowed to strengthen exactly when the wiring appears.
+ * The second claim is pinned to the source rather than to a fixed string. The
+ * wiring has since appeared — `uiLocale()` in utils/formatters.ts reads the
+ * language i18next renders in — and the README now says formatting follows the
+ * picked language; the gate holds that sentence to the wiring it describes.
  *
  * Run: node --test README.test.mjs
  */
@@ -85,13 +87,13 @@ test('the root README says which locale drives Intl formatting', () => {
 
   assert.match(
     section,
-    /Intl APIs using the editor locale/,
-    'an unqualified Intl claim reads as "the language picker reformats numbers and dates"',
+    /Intl APIs in the language picked in SandForge/,
+    'say which language dates and numbers are written in',
   );
   assert.doesNotMatch(
     section,
-    /\b(?:selected|chosen|active|picked) language\b/i,
-    'no formatter is bound to the language the picker sets',
+    /editor locale/,
+    'formatting follows the picked language: the editor only lends its region',
   );
 });
 
@@ -112,15 +114,14 @@ test('the co-location scan distinguishes a bound formatter from a host-locale on
   assert.equal(bindsFormattingToAppLanguage(switcherWithoutFormatting), false);
 });
 
-test('no webview module binds an Intl formatter to the active language', () => {
-  const offenders = productionSources(WEBVIEW_SRC)
+test('the webview binds its Intl formatters to the active language, as the README says', () => {
+  const bound = productionSources(WEBVIEW_SRC)
     .filter((file) => bindsFormattingToAppLanguage(readFileSync(file, 'utf8')))
     .map((file) => relative(repoRoot, file).replaceAll('\\', '/'))
     .sort();
 
-  assert.deepEqual(
-    offenders,
-    [],
-    'formatting now follows the picked language — the README may drop the "editor locale" qualifier',
+  assert.ok(
+    bound.includes('packages/webview/src/utils/formatters.ts'),
+    `no formatter reads the picked language any more (bound: ${bound.join(', ') || 'none'}) — the README's "language picked in SandForge" is false`,
   );
 });

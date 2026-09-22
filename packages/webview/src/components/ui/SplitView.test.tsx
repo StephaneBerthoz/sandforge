@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { SplitView } from './SplitView';
 
 describe('SplitView', () => {
@@ -58,6 +60,25 @@ describe('SplitView', () => {
     render(<SplitView left={<div>Left</div>} right={<div>Right</div>} rightCollapsed />);
     const toggle = screen.getByTestId('splitview-toggle');
     expect(toggle.getAttribute('aria-label')).toBe('Expand right panel');
+  });
+
+  it('names its toggle in the interface language', async () => {
+    // The name was English whatever the language: a French screen reader
+    // announced "Collapse right panel".
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<SplitView left={<div>Left</div>} right={<div>Right</div>} rightCollapsed={false} />);
+      expect(screen.getByTestId('splitview-toggle').getAttribute('aria-label')).toBe(
+        'Replier le panneau de droite',
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('should hide right panel when rightCollapsed is true', () => {

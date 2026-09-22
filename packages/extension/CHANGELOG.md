@@ -5,6 +5,113 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-09-23
+
+Compare said "modified" for anything two orgs listed differently — ids and
+dates differ between any two orgs, so between two sandboxes it reported 374
+modified components where 47 are. It now reads what it compares. Monitor, run
+against real orgs again, stopped several lists at a bound without saying so,
+charted two limits that do not exist, and never imported a scratch org. A
+guard that met an org of unknown type treated it as a sandbox. And a sandbox
+refresh — a new org under the same login — went unnoticed: SandForge kept
+using what it knew of the org the sandbox had been.
+
+### Added
+
+- **SandForge notices a sandbox refresh.** A refresh gives a sandbox a new org
+  id; the login, the alias and the entry stay. SandForge compares the org a
+  sandbox answers as — when it connects, on each Monitor refresh, when the
+  refresh panel opens — with the one it registered. When they differ it says
+  so, lists the refresh on the panel, and drops what it kept about the old
+  org: the connection, the describes, the discovery graphs, the org info, the
+  limits and the trends. Against a production org, a refresh read in the
+  sandbox history is reported once, when it completes, including one that
+  completed while no window was open.
+- **The end-to-end suite runs on Windows.** Measured, not gated: each push
+  that touches the panel reports how many specs fail there.
+
+### Changed
+
+- **Compare reads the content.** A component both orgs hold is read from
+  each — Apex by query, the other types through the Metadata API — normalised
+  (line endings, ordering, org-specific ids and users) and compared. What it
+  could not read, or did not have time to read, is "not compared" and says
+  why; it is never counted as unchanged, never as a change, and never lets
+  the risk card say "safe". The page says how many components were compared
+  by content. The comparison modes that could not run are gone.
+- **An org of unknown type is guarded as a production org.** Every write
+  path asked no question of an org whose type it could not tell, and the Frozen
+  load's sandbox-only guard let one through. It now asks, or refuses, as for
+  production.
+- **Monitor's storage panel says what it lists.** Records by object include
+  setup and log objects and are not data storage use; it is titled so.
+- **Dates and numbers follow SandForge's language.** They were written in the
+  editor's locale: with the editor in English and SandForge in French, a date
+  read in English. They now follow the language picked in SandForge, keeping
+  the region when it is the same language.
+- **Counts agree with their number.** "1 records", "1 champ(s)": thirty-two
+  strings now have their singular and plural forms in the six languages.
+- **The sidebar loads less.** Its script no longer carries the animation
+  library the panel uses (408 kB → 346 kB), and its stylesheet only the
+  classes the sidebar renders (73 kB → 25 kB).
+- **Help starts with Forge**, and has sections for Autopilot, Migration and
+  Reports.
+
+### Fixed
+
+- **Scratch orgs are imported.** The org list reads the flag the CLI emits
+  (`isScratch`) and scratch orgs' own status, so they were never imported, and
+  an org's name stood in for its edition.
+- **Monitor's lists say where they stop.** Sessions, error logs, Apex logs,
+  deployments, jobs and refreshes were read with a `LIMIT` and shown as if
+  complete; each now says when the list came back full, and the health check
+  counts error logs exactly. The trends and the health score used two limits
+  the API never returns; they use two it does. The org bar shows the org's API
+  version, its namespace and creation date, and no longer a login date that was
+  always "now".
+- **Automation runs each step once.** A step a route jumped to ran twice, and
+  one on the branch not taken ran too; a step's timeout left it running; a run
+  that ran out of time was never recorded; a false condition held nothing
+  back; pause could never resume and is gone. Conditions compare by the type
+  of their value and are checked before a run starts. The canvas is a list of
+  buttons a keyboard and a screen reader can use.
+- **Forge finds the relation the platform made.** A contact inserted with its
+  account gets its direct account-contact relation from Salesforce; the one
+  read from the source was inserted again and refused, naming no record to
+  link to. Forge now links to the platform's, as Frozen Dataset does.
+- **A duplicate the target does not name is found by its key.** A product
+  selling model is unique on its selling model type, pricing term and unit; a
+  clone was refused "one already exists for this combination", and every price
+  pointing at it lost the link. The one record holding that key is now linked.
+- **Pass 2 no longer waits for records no copy writes.** A lookup at an object
+  every copy leaves out — an opportunity's last-amount-change history — was
+  queued as a cycle and reported unresolved on every clone.
+- **A declined confirmation ends the operation.** A CSV import or a clone the
+  user declined stayed listed as running for the rest of the session.
+- **Compare's deployment advice is translated.** It was built as English
+  sentences and read in English in every language.
+- **A frozen dataset is not reloaded against the org a sandbox was.** The
+  mapping of loaded records now records the org it was written to. After a
+  refresh, a reload starts from nothing instead of purging records the new
+  org never held, and verification refuses to judge the refreshed org rather
+  than reporting every record missing.
+- **The sandbox refresh trigger says why it starts nothing.** Automation
+  still refuses it — its steps write to an org — and the trigger card now
+  says so.
+- **Screen readers hear SandForge's language.** Seven labels were English in
+  every language and six controls had no name; Autopilot's live counts and
+  Forge's finished run are now announced.
+- **A path card on the welcome page no longer ends onboarding** unless "Don't
+  show again" is ticked, and a language that fails to load says so.
+- **Sync history and the bridge's fallback errors are translated.** Relative
+  times were English, and so were the messages shown when the extension did
+  not answer.
+
+### Removed
+
+- **The `scheduler:*` channel.** Nothing sent it; scheduling runs through the
+  sync schedules.
+
 ## [1.32.0] - 2026-09-23
 
 Frozen Dataset had never been run against a real org. Run end to end — select,

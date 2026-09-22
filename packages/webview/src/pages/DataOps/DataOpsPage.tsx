@@ -22,6 +22,7 @@ import { BackupPanel } from './BackupPanel';
 import { RestorePanel } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { ComingSoon } from '../../components/ui/ComingSoon';
+import { uiLocale } from '../../utils/formatters';
 
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
@@ -276,7 +277,7 @@ export const DataOpsPage: React.FC = () => {
             <KPICard
               icon="archive"
               label={t('dataops.recordsProcessed')}
-              value={recordsProcessed.toLocaleString()}
+              value={recordsProcessed.toLocaleString(uiLocale())}
               variant="default"
             />
           </m.div>

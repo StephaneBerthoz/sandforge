@@ -9,13 +9,14 @@
 # webview tsc, and it is not run on every commit. `pnpm -r typecheck` runs
 # tsc per package.
 #
-# (2) Duplicate top-level keys in i18n locale JSONs. A locale file carrying
-# the same top-level key twice (monitor / dataops / execution have all done
-# it) parses without complaint — JSON.parse keeps the second value and wipes
-# out an entire module's translations, so the UI renders raw keys such as
+# (2) Duplicate keys in i18n locale JSONs. A locale file carrying the same key
+# twice (monitor / dataops / execution have all done it) parses without
+# complaint — JSON.parse keeps the second value and wipes out an entire
+# module's translations, so the UI renders raw keys such as
 # `monitor.emptyState.title` instead of the label. Typecheck does NOT catch
-# this: the JSON imports pass even with dupes. This hook adds an explicit
-# dupe scan across all locale files.
+# this: the JSON imports pass even with dupes. `pnpm check:i18n` scans every
+# webview locale and package.nls file at any depth; CI runs the same gate, so
+# a commit made with --no-verify is caught there.
 #
 # Bypass with --no-verify if you really need to (don't).
 
@@ -24,21 +25,7 @@ set -e
 echo "→ pre-commit: pnpm -r typecheck"
 pnpm -r typecheck
 
-echo "→ pre-commit: locale dup-key scan"
-node -e "
-const fs=require('fs'),path=require('path');
-const dir='packages/webview/src/i18n/locales';
-const files=fs.readdirSync(dir).filter(f=>f.endsWith('.json'));
-let bad=0;
-for(const f of files){
-  const text=fs.readFileSync(path.join(dir,f),'utf8');
-  const seen={};
-  for(const line of text.split('\n')){
-    const m=line.match(/^  \"([^\"]+)\":/);
-    if(m){if(seen[m[1]]){console.error('DUP top-level key in',f,'->',m[1]);bad++;}else seen[m[1]]=true;}
-  }
-}
-process.exit(bad?1:0);
-"
+echo "→ pre-commit: pnpm check:i18n"
+pnpm check:i18n
 
-echo "✓ pre-commit: typecheck + i18n dup scan green"
+echo "✓ pre-commit: typecheck + i18n gate green"

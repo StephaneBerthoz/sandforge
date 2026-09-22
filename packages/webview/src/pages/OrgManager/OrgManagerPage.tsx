@@ -467,11 +467,13 @@ export const OrgManagerPage: React.FC = () => {
                 {t(AUTH_METHODS.find((m) => m.method === activeMethod)?.labelKey ?? '')}
               </span>
               <button
+                type="button"
                 className="text-text-secondary hover:text-text-primary transition-colors"
                 onClick={() => {
                   setActiveMethod(null);
                   resetForm();
                 }}
+                aria-label={t('common.close')}
                 data-testid="org-inline-close"
               >
                 <X className="w-4 h-4" />
@@ -552,8 +554,10 @@ export const OrgManagerPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <p className="text-xs text-text-secondary">{t('auth.notSupported')}</p>
               <button
+                type="button"
                 className="text-text-secondary hover:text-text-primary transition-colors"
                 onClick={() => setActiveMethod(null)}
+                aria-label={t('common.close')}
               >
                 <X className="w-4 h-4" />
               </button>

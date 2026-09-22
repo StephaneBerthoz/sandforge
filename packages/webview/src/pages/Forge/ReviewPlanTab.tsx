@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { uiLocale } from '../../utils/formatters';
 
 /**
  * Plan tab within the Forge Review phase.
@@ -45,7 +46,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
       {/* Summary */}
       <div className="flex gap-4 text-xs text-text-secondary">
         <span>
-          {plan.totalRecords.toLocaleString()} {t('forge.records', 'records')}
+          {plan.totalRecords.toLocaleString(uiLocale())} {t('forge.records', 'records')}
         </span>
         <span>{plan.totalApiCalls} API calls</span>
         <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>

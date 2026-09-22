@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { DataTable } from '../../components/ui/DataTable';
 import type { DataTableColumn } from '../../components/ui/DataTable';
@@ -11,7 +11,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/Icon';
 import { usePagination } from '../../hooks/usePagination';
-import { formatDuration } from '../../utils/formatters';
+import { formatDuration, formatRelativeTime } from '../../utils/formatters';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 
@@ -61,9 +61,11 @@ export const SyncHistoryPanel: React.FC = () => {
         key: 'startTime',
         header: t('sync.history.dateTime'),
         width: '180px',
+        // The relative phrase is written in the interface language; the tooltip
+        // keeps the exact ISO time, which reads the same in all six.
         render: (row: HistoryRow) => (
           <span title={format(new Date(row.startTime), 'yyyy-MM-dd HH:mm:ss')}>
-            {formatDistanceToNow(new Date(row.startTime), { addSuffix: true })}
+            {formatRelativeTime(new Date(row.startTime))}
           </span>
         ),
       },
@@ -152,6 +154,7 @@ export const SyncHistoryPanel: React.FC = () => {
                 type="button"
                 className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
                 onClick={() => fetchHistory()}
+                aria-label={t('common.reload')}
                 data-testid="refresh-btn"
               >
                 <Icon name="refresh" />

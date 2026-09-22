@@ -57,6 +57,37 @@ describe('SeedSelectStep record counts', () => {
   });
 });
 
+describe('SeedSelectStep PII warning', () => {
+  beforeEach(() => {
+    useOrgStore.setState({ orgs: [], selectedOrgId: 'org-1' });
+    useSeedWizardStore.setState({ selectedOrgId: 'org-1', selectedObjects: ['Contact'] });
+  });
+
+  it('sets a field’s PII type apart from its confidence with a dash, not two hyphens', () => {
+    render(
+      <SeedSelectStep
+        availableObjects={[]}
+        loadingObjects={false}
+        volumes={{}}
+        onChangeVolume={vi.fn()}
+        hasPiiWarnings
+        piiResults={[
+          {
+            objectName: 'Contact',
+            piiFields: [{ fieldName: 'Email', piiType: 'email', confidence: 0.92 }],
+          },
+        ]}
+        nl2soqlQuery=""
+        onNl2soqlQueryChange={vi.fn()}
+        onNl2soqlSubmit={vi.fn()}
+        nl2soql={nl2soqlStub(null)}
+      />,
+    );
+
+    expect(screen.getByTestId('pii-scan-warning').textContent).toContain('Email (email — 92%)');
+  });
+});
+
 describe('SeedSelectStep NL2SOQL draft', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: 'org-1' });

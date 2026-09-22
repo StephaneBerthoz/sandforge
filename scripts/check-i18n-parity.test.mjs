@@ -1,5 +1,5 @@
 /**
- * Tests for sections 3, 4 and 6 of check-i18n-parity.ts.
+ * Tests for sections 0, 3, 4 and 6 of check-i18n-parity.ts.
  *
  * The gate is a CLI whose contract is "exit 1 and name the offender", so it is
  * exercised as a CLI: a throwaway repo is built in a temp dir, the real script
@@ -158,6 +158,80 @@ const orphanCatalogue = {
   [`${LOCALES}/en.json`]: JSON.stringify({ ...EN, orphan: { old: 'Retired copy' } }),
   [`${LOCALES}/fr.json`]: JSON.stringify({ ...fr(), orphan: { old: 'Texte retiré' } }),
 };
+
+// --- section 0: a key written twice ----------------------------------------
+
+const NO_DUPLICATES = '✓ duplicate keys: none, at any depth';
+
+test('section 0 passes a catalogue whose names repeat only across objects', () => {
+  // `title` under two parents is two keys, not one written twice.
+  const { status, output } = runGate({
+    [`${LOCALES}/en.json`]: JSON.stringify({ ...EN, a: { title: 'One' }, b: { title: 'Two' } }),
+    [`${LOCALES}/fr.json`]: JSON.stringify({ ...fr(), a: { title: 'Un' }, b: { title: 'Deux' } }),
+    'packages/webview/src/App.tsx': app("t('a.title')", "t('b.title')"),
+  });
+  assert.ok(output.includes(NO_DUPLICATES), output);
+  assert.equal(status, 0);
+});
+
+test('section 0 fails on a nested key repeated identically in every locale', () => {
+  // The v1.2.6 shape: the same duplicate in en and fr collapses both files the
+  // same way, so the key sets stay equal and parity reports 100%.
+  const { status, output } = runGate({
+    [`${LOCALES}/en.json`]: JSON.stringify(EN).replace(
+      '"hello":"Hello there"',
+      '"hello":"Hi","hello":"Hello there"',
+    ),
+    [`${LOCALES}/fr.json`]: JSON.stringify(fr()).replace(
+      '"hello":"Bonjour"',
+      '"hello":"Salut","hello":"Bonjour"',
+    ),
+  });
+  assert.ok(output.includes('✗ duplicate keys: 2'), output);
+  assert.ok(output.includes('    - en.json: greeting.hello'), output);
+  assert.ok(output.includes('    - fr.json: greeting.hello'), output);
+  assert.equal(status, 1);
+});
+
+test('section 0 fails on a key repeated in an extension package.nls file', () => {
+  const { status, output } = runGate({
+    'packages/extension/package.nls.json':
+      '{"command.run.title": "Run", "command.run.title": "Go"}',
+  });
+  assert.ok(output.includes('    - package.nls.json: command.run.title'), output);
+  assert.equal(status, 1);
+});
+
+test('section 3 fails on English written into an aria-label expression', () => {
+  // The literal check read `aria-label="…"` only; the same English written
+  // as `{…}` — a ternary, a template — reached screen readers in every language.
+  const { status, output } = runGate({
+    'packages/webview/src/Toggle.tsx': [
+      'export const A = ({ open }) => <b aria-label={open ? "Collapse panel" : "Expand panel"} />;',
+      'export const B = ({ name }) => <i aria-label={`Remove ${name}`} />;',
+      '',
+    ].join('\n'),
+  });
+  assert.ok(output.includes('✗ aria-label: 2 hardcoded English literal(s):'), output);
+  assert.ok(output.includes('    - Toggle.tsx:1'), output);
+  assert.ok(output.includes('    - Toggle.tsx:2'), output);
+  assert.equal(status, 1);
+});
+
+test('section 3 passes an aria-label expression built from t() alone', () => {
+  const { status, output } = runGate({
+    'packages/webview/src/App.tsx': app(),
+    'packages/webview/src/Label.tsx': [
+      "export const A = ({ t, n }) => <b aria-label={t('greeting.hello', { n })} />;",
+      "export const B = ({ t, n }) => <i aria-label={`${t('greeting.hello')}: ${n}`} />;",
+      "export const C = ({ t }) => <u aria-label={t('greeting.hello', 'Hello there')} />;",
+      "export const D = ({ t, o }) => <s aria-label={t(o ? 'greeting.hello' : 'prose.welcome')} />;",
+      '',
+    ].join('\n'),
+  });
+  assert.ok(output.includes('✓ aria-label: every accessible name goes through t()'), output);
+  assert.equal(status, 0);
+});
 
 test('section 3 passes when the catalogue backs every literal key', () => {
   const { status, output } = runGate();

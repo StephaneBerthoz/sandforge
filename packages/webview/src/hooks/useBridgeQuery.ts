@@ -63,7 +63,6 @@ export function useBridgeQuery<T>(
     requestType,
     responseType,
     timeoutMs,
-    requestLabel: 'query',
     errorType,
     acceptUncorrelated: options?.acceptUncorrelated,
   });

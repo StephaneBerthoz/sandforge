@@ -217,6 +217,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     className="px-1 py-0.5 text-[10px] rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] w-24"
+                    aria-label={t('sync.conflictResolution.manualEdit')}
                     data-testid={`manual-input-${field}`}
                   />
                   <button

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import i18n from '../i18n';
 import {
   formatNumber,
   formatDate,
@@ -7,6 +8,8 @@ import {
   formatFileSize,
   formatRelativeTime,
   formatRelativeTimeI18n,
+  dateTimeFormat,
+  uiLocale,
 } from './formatters';
 
 describe('formatNumber', () => {
@@ -277,5 +280,60 @@ describe('formatRelativeTimeI18n', () => {
     const ts = Date.now() - 120_000; // 2 minutes ago
     formatRelativeTimeI18n(ts, mockT, 'sidePanel.relativeTime');
     expect(mockT).toHaveBeenCalledWith('sidePanel.relativeTime.minutesAgo', { count: 2 });
+  });
+});
+
+describe('the UI locale', () => {
+  // The language the labels are in, with a bundle registered so i18next
+  // resolves to it the way `changeLanguageLazy` leaves it after a load.
+  async function showInterfaceIn(language: string): Promise<void> {
+    if (!i18n.hasResourceBundle(language, 'translation')) {
+      i18n.addResourceBundle(language, 'translation', { probe: language });
+    }
+    await i18n.changeLanguage(language);
+  }
+
+  function hostSpeaks(tag: string): void {
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue(tag);
+  }
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await i18n.changeLanguage('en');
+  });
+
+  it('writes numbers in the language picked in SandForge, not the host’s', async () => {
+    hostSpeaks('en-US');
+    await showInterfaceIn('fr');
+
+    expect(uiLocale()).toBe('fr');
+    expect(formatNumber(1234.5)).toBe(new Intl.NumberFormat('fr').format(1234.5));
+    expect(formatNumber(1234.5)).not.toBe('1,234.5');
+  });
+
+  it('keeps the host’s region when the host speaks the same language', async () => {
+    hostSpeaks('en-GB');
+    await showInterfaceIn('en');
+
+    expect(uiLocale()).toBe('en-GB');
+    expect(dateTimeFormat({ dateStyle: 'short' }).format(new Date(2026, 0, 15))).toBe('15/01/2026');
+  });
+
+  it('follows a language switch after a date has already been written', async () => {
+    hostSpeaks('en-US');
+    const day = new Date(2026, 0, 15);
+    const english = dateTimeFormat({ dateStyle: 'long' }).format(day);
+
+    await showInterfaceIn('de');
+
+    expect(dateTimeFormat({ dateStyle: 'long' }).format(day)).toBe('15. Januar 2026');
+    expect(english).toBe('January 15, 2026');
+  });
+
+  it('describes a moment relative to now in the interface language', async () => {
+    hostSpeaks('en-US');
+    await showInterfaceIn('es');
+
+    expect(formatRelativeTime(new Date(Date.now() - 2 * 3_600_000))).toBe('hace 2 horas');
   });
 });

@@ -153,9 +153,9 @@ describe('ConflictResolutionPanel', () => {
     // Click manual edit for Name
     fireEvent.click(screen.getByTestId('pick-manual-Name'));
 
-    // Should show input
+    // Should show input, named: a bare text box reads as "edit, blank"
     const input = screen.getByTestId('manual-input-Name');
-    expect(input).toBeDefined();
+    expect(screen.getByRole('textbox', { name: 'Manual edit' })).toBe(input);
 
     fireEvent.change(input, { target: { value: 'Custom Value' } });
     fireEvent.click(screen.getByTestId('manual-confirm-Name'));

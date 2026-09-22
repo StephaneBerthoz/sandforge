@@ -266,11 +266,11 @@ test.describe.skip('Sync conflicts — arrival', () => {
     const rowA = conflictRow(page, ACCOUNT_A);
     await expect(rowA).toContainText('Account');
     await expect(rowA).toContainText('Edit / Edit');
-    await expect(rowA).toContainText('2 field(s)');
+    await expect(rowA).toContainText('2 fields');
     await expect(rowA).toContainText('Unresolved');
 
     // ACCOUNT_B differs on both of its fields.
-    await expect(conflictRow(page, ACCOUNT_B)).toContainText('2 field(s)');
+    await expect(conflictRow(page, ACCOUNT_B)).toContainText('2 fields');
   });
 
   test('the same conflict pushed twice is not counted twice', async ({ page }) => {

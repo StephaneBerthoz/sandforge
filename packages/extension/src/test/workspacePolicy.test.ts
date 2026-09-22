@@ -60,12 +60,6 @@ function mapping(block: Block): Map<string, string> {
   return entries;
 }
 
-function sequence(block: Block): string[] {
-  return block.body
-    .filter((line) => line.startsWith('- '))
-    .map((line) => unquote(line.slice(2).trim()));
-}
-
 describe('pnpm build-script approvals', () => {
   const allowBuilds = readBlock('allowBuilds');
   const approvals = mapping(allowBuilds);
@@ -77,11 +71,27 @@ describe('pnpm build-script approvals', () => {
     expect(approvals.get('core-js-pure')).toBe('false');
   });
 
-  it('blocks the keytar native build in both the pnpm 11 and legacy keys', () => {
+  it('blocks the keytar native build', () => {
     // keytar is an optional dep of @vscode/vsce for `vsce login` only; approving
     // it runs node-gyp on every install for a code path releases never take.
     expect(approvals.get('keytar')).toBe('false');
-    expect(sequence(readBlock('onlyBuiltDependencies'))).not.toContain('keytar');
+  });
+
+  it('writes approvals only in allowBuilds, the one list pnpm 11 reads', () => {
+    // pnpm 11 dropped onlyBuiltDependencies and its siblings and ignores them
+    // without a word. The file kept the old list beside the new one, so a
+    // change made there would look applied and do nothing.
+    const removed = [
+      'onlyBuiltDependencies',
+      'onlyBuiltDependenciesFile',
+      'neverBuiltDependencies',
+      'ignoredBuiltDependencies',
+      'ignoreDepScripts',
+    ];
+    const present = removed.filter((key) =>
+      manifest.split(/\r?\n/).some((line) => line.startsWith(`${key}:`)),
+    );
+    expect(present).toEqual([]);
   });
 
   it("does not justify keytar as this extension's secrets backend", () => {

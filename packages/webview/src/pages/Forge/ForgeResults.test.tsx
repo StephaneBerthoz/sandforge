@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 
 /* ---- Mocks ---- */
@@ -194,6 +195,15 @@ describe('ForgeResults', () => {
     expect(screen.getByTestId('forge-results')).toBeDefined();
   });
 
+  it('tells a screen reader the clone finished, and what it wrote', () => {
+    // The execution screen's announcer unmounts in the same pass that shows
+    // the results, so its "complete" message was never spoken.
+    render(<ForgeResults />);
+    expect(screen.getByTestId('forge-results-status').textContent).toBe(
+      'Forge finished. Written: 28 of 35.',
+    );
+  });
+
   it('should render 6 KPI cards', () => {
     render(<ForgeResults />);
     const cards = screen.getAllByTestId('kpi-card');
@@ -260,6 +270,19 @@ describe('ForgeResults', () => {
     render(<ForgeResults />);
     const btn = screen.getByTestId('forge-save-template');
     expect(btn).toBeDefined();
+  });
+
+  it('shows Save as template as not built yet instead of answering a click in English', () => {
+    // The button used to be live and answer every click with a toast whose
+    // body was the literal English "Coming soon", in all six languages.
+    useNotificationStore.setState({ notifications: [] });
+    render(<ForgeResults />);
+    const btn = screen.getByTestId('forge-save-template') as HTMLButtonElement;
+
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toContain(i18n.t('common.comingSoon'));
+    fireEvent.click(btn);
+    expect(useNotificationStore.getState().notifications).toEqual([]);
   });
 
   it('should render export JSON button', () => {
@@ -329,6 +352,13 @@ describe('ForgeResults', () => {
   });
 
   /* ---- Filter by status ---- */
+
+  it('names the status filter', () => {
+    render(<ForgeResults />);
+    expect(screen.getByRole('combobox', { name: 'Filter by status' })).toBe(
+      screen.getByTestId('forge-results-status-filter'),
+    );
+  });
 
   it('should filter table rows by status', () => {
     render(<ForgeResults />);
@@ -443,7 +473,7 @@ describe('ForgeResults', () => {
     const rows = screen.getAllByTestId('forge-results-existing-row').map((r) => r.textContent);
     expect(rows).toEqual([
       'Account — 2 linked, not created',
-      'AccountContactRelation — 1 not identified — counted as failed, and their children lost the link',
+      'AccountContactRelation — 1 not identified — counted as failed, and its children lost the link',
     ]);
   });
 
@@ -471,7 +501,7 @@ describe('ForgeResults', () => {
       'existing',
     );
     expect(screen.getByTestId('forge-id-mapping').textContent).toContain(
-      '1 of them were already in the target org: linked, not created.',
+      '1 of them was already in the target org: linked, not created.',
     );
   });
 

@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { ListCapNote } from './ListCapNote';
+import { dateTimeFormat } from '../../utils/formatters';
 
 /** Response shape from monitor:sessions. */
 interface SessionsData {
@@ -25,10 +26,11 @@ interface SessionsData {
 }
 
 /** Shared date formatter for session login timestamps. */
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
+const dateFormatter = (): Intl.DateTimeFormat =>
+  dateTimeFormat({
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
 
 /** Returns badge variant based on session type. */
 function sessionTypeVariant(type: string): BadgeVariant {
@@ -100,10 +102,7 @@ export const SessionsPanel: React.FC = () => {
           {t('monitor.sessions.title', 'Active Sessions')}
         </h3>
         <Badge variant="info">
-          {t('monitor.sessions.activeUsers', '{{count}} active user(s)').replace(
-            '{{count}}',
-            String(activeUserCount),
-          )}
+          {t('monitor.sessions.activeUsers', { count: activeUserCount })}
         </Badge>
       </div>
 
@@ -132,7 +131,7 @@ export const SessionsPanel: React.FC = () => {
               <Badge variant={sessionTypeVariant(session.sessionType)}>{session.sessionType}</Badge>
             </span>
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
-              {dateFormatter.format(new Date(session.loginTime))}
+              {dateFormatter().format(new Date(session.loginTime))}
             </span>
             <span className="text-[11px] font-mono text-text-secondary w-28 text-right">
               {session.sourceIp}

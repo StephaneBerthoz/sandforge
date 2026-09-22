@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { dateTimeFormat } from '../../../utils/formatters';
 
 /** Timeline entry for a compliance event. */
 interface TimelineEntry {
@@ -26,7 +27,7 @@ export const ComplianceTimeline: React.FC = () => {
       .map((node) => {
         const nodeRuleCount = rules.filter((r) => r.objectApiName === node.objectApiName).length;
         return {
-          timestamp: new Intl.DateTimeFormat(undefined, {
+          timestamp: dateTimeFormat({
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit',

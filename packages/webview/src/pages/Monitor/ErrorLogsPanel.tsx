@@ -6,6 +6,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import { ListCapNote } from './ListCapNote';
+import { dateTimeFormat } from '../../utils/formatters';
 
 /** Response shape from monitor:error-logs. */
 interface ErrorLogsData {
@@ -26,10 +27,11 @@ interface ErrorLogsData {
 }
 
 /** Shared date formatter for error log timestamps. */
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
+const dateFormatter = (): Intl.DateTimeFormat =>
+  dateTimeFormat({
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
 
 /**
  * Panel displaying recent error logs fetched via the monitor:error-logs bridge query.
@@ -125,7 +127,7 @@ export const ErrorLogsPanel: React.FC = () => {
             data-testid={`error-log-row-${error.id}`}
           >
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
-              {dateFormatter.format(new Date(error.timestamp))}
+              {dateFormatter().format(new Date(error.timestamp))}
             </span>
             <span className="w-24 shrink-0">
               <Badge variant="error">{error.errorType}</Badge>

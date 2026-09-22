@@ -202,7 +202,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
       {/* Per-object accordion */}
       <Accordion
         items={result.objectResults.map((objResult) => ({
-          title: `${objResult.objectApiName} -- ${objResult.insertedCount}/${objResult.sourceCount} ${t('seed.clone.results.inserted').toLowerCase()}`,
+          title: `${objResult.objectApiName} — ${objResult.insertedCount}/${objResult.sourceCount} ${t('seed.clone.results.inserted').toLowerCase()}`,
           content: buildObjectContent(objResult),
         }))}
       />

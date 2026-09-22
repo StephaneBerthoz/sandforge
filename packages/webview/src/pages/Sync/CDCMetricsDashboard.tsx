@@ -7,6 +7,7 @@ import {
   getUptimeSeconds,
 } from '../../stores/useCDCMetricsStore';
 import { useCDCLiveStore } from '../../stores/useCDCLiveStore';
+import { uiLocale } from '../../utils/formatters';
 
 /** SVG viewBox dimensions for sparklines. */
 const SPARK_WIDTH = 80;
@@ -208,7 +209,7 @@ export const CDCMetricsDashboard: React.FC = () => {
           {t('sync.realtime.metricsPanel.applied')}
         </div>
         <div className="text-xl font-semibold text-status-success">
-          {metrics.eventsApplied.toLocaleString()}
+          {metrics.eventsApplied.toLocaleString(uiLocale())}
         </div>
       </div>
 
@@ -223,7 +224,7 @@ export const CDCMetricsDashboard: React.FC = () => {
         <div
           className={`text-xl font-semibold ${metrics.eventsFailed > 0 ? 'text-status-error' : 'text-text-secondary'}`}
         >
-          {metrics.eventsFailed.toLocaleString()}
+          {metrics.eventsFailed.toLocaleString(uiLocale())}
         </div>
       </div>
 
@@ -251,7 +252,7 @@ export const CDCMetricsDashboard: React.FC = () => {
         <div className="text-xl font-semibold">{uptimeDisplay}</div>
         <div className="text-xs text-text-secondary">
           {t('sync.realtime.metricsPanel.since', {
-            time: new Date(metrics.startedAt).toLocaleTimeString(),
+            time: new Date(metrics.startedAt).toLocaleTimeString(uiLocale()),
           })}
         </div>
       </div>

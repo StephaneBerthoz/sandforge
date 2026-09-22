@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { dateTimeFormat } from '../../utils/formatters';
 
 /** Org health status payload from the monitor:data response. */
 export interface OrgHealthStatus {
@@ -27,10 +28,11 @@ interface HealthCheckPanelProps {
 }
 
 /** Shared date formatter for the last-checked timestamp. */
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'short',
-  timeStyle: 'short',
-});
+const dateFormatter = (): Intl.DateTimeFormat =>
+  dateTimeFormat({
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
 
 /** Returns badge variant based on health or status value. */
 function statusVariant(status: SignalStatus | OrgHealthStatus['overall']): BadgeVariant {
@@ -147,7 +149,7 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
         {/* Last checked */}
         <p className="text-[10px] text-text-secondary">
           {t('monitor.healthCheck.lastChecked', 'Last checked')}:{' '}
-          {dateFormatter.format(new Date(orgHealthStatus.lastChecked))}
+          {dateFormatter().format(new Date(orgHealthStatus.lastChecked))}
         </p>
       </div>
     );

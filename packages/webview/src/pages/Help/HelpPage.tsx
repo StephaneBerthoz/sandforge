@@ -26,6 +26,9 @@ const HELP_SECTIONS: HelpSection[] = [
     contentKey: 'help.gettingStartedContent',
     icon: '\uD83D\uDE80',
   },
+  // Forge first: the sidebar hero, the walkthrough and the welcome wizard all
+  // lead with it.
+  { id: 'forge', titleKey: 'nav.forge', contentKey: 'help.forgeContent', icon: '\uD83D\uDD28' },
   {
     id: 'monitor',
     titleKey: 'nav.monitor',
@@ -52,7 +55,6 @@ const HELP_SECTIONS: HelpSection[] = [
     contentKey: 'help.automationContent',
     icon: '\u26A1',
   },
-  { id: 'forge', titleKey: 'nav.forge', contentKey: 'help.forgeContent', icon: '\uD83D\uDD28' },
   {
     id: 'frozen',
     titleKey: 'nav.frozen',
@@ -60,6 +62,24 @@ const HELP_SECTIONS: HelpSection[] = [
     icon: '\u2744\uFE0F',
   },
   { id: 'grappe', titleKey: 'nav.grappe', contentKey: 'help.grappeContent', icon: '\uD83C\uDF47' },
+  {
+    id: 'autopilot',
+    titleKey: 'nav.autopilot',
+    contentKey: 'help.autopilotContent',
+    icon: '\u2708\uFE0F',
+  },
+  {
+    id: 'migration',
+    titleKey: 'nav.migration',
+    contentKey: 'help.migrationContent',
+    icon: '\uD83D\uDCE6',
+  },
+  {
+    id: 'reports',
+    titleKey: 'nav.reports',
+    contentKey: 'help.reportsContent',
+    icon: '\uD83D\uDCC8',
+  },
   { id: 'ai', titleKey: 'nav.ai', contentKey: 'help.aiContent', icon: '\uD83E\uDD16' },
   {
     id: 'shortcuts',

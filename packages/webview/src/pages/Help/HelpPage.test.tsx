@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ja from '../../i18n/locales/ja.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
 import { HelpPage } from './HelpPage';
+
+/** The six bundles, for what the Help sections say rather than which exist. */
+const LOCALES = { en, fr, de, es, ja, 'pt-BR': ptBR };
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -66,6 +75,35 @@ describe('HelpPage', () => {
       expect(screen.getByTestId(`help-section-${id}`)).toBeDefined();
       fireEvent.click(screen.getByText(title));
       expect(screen.getByText(content)).toBeDefined();
+    }
+  });
+
+  it('covers Autopilot, Migration and Reports, which have their own pages', () => {
+    render(<HelpPage />);
+    for (const [id, title, content] of [
+      ['autopilot', 'nav.autopilot', 'help.autopilotContent'],
+      ['migration', 'nav.migration', 'help.migrationContent'],
+      ['reports', 'nav.reports', 'help.reportsContent'],
+    ]) {
+      expect(screen.getByTestId(`help-section-${id}`)).toBeDefined();
+      fireEvent.click(screen.getByText(title));
+      expect(screen.getByText(content)).toBeDefined();
+    }
+  });
+
+  it('puts Forge first among the modules, right after Getting Started', () => {
+    // Every other first-run surface leads with Forge; Help listed it eighth.
+    render(<HelpPage />);
+    const ids = screen
+      .getAllByTestId(/^help-section-/)
+      .map((section) => section.getAttribute('data-testid'));
+    expect(ids.slice(0, 2)).toEqual(['help-section-getting-started', 'help-section-forge']);
+  });
+
+  it('starts a new user on Forge right after connecting an org, in every language', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const steps = bundle.help.gettingStartedContent.split('\n');
+      expect(steps[1], lng).toMatch(/^2\. .*Forge/);
     }
   });
 

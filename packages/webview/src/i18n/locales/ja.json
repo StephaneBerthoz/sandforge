@@ -126,14 +126,14 @@
     "limitReachedIn": "制限到達まで約{{hours}}時間",
     "period24h": "24時間",
     "period7d": "7日間",
-    "alertsCount": "件のアラート",
+    "alertsCount_other": "件のアラート",
     "openApexJobs": "Salesforce で Apex ジョブを開く",
     "filterAll": "すべて",
     "filterRunning": "実行中",
     "filterFailed": "失敗",
     "filterCompleted": "完了",
     "recentJobs": "最近のApexジョブ",
-    "activeJobs": "アクティブ",
+    "activeJobs_other": "{{count}} アクティブ",
     "noJobs": "最近のジョブはありません",
     "runs": "実行回数",
     "success": "成功",
@@ -209,7 +209,7 @@
     "details": "詳細",
     "staleData": "データは{{minutes}}分前のものです",
     "refreshNow": "今すぐ更新",
-    "connectionLost": "接続が失われました。自動更新が{{count}}回失敗しました。",
+    "connectionLost_other": "接続が失われました。自動更新が{{count}}回失敗しました。",
     "tryReconnect": "再接続を試行",
     "alertHistory": "アラート履歴",
     "alertHistoryTimeline": "タイムライン",
@@ -220,7 +220,7 @@
     "resolved": "解決済み",
     "showMore": "さらに表示",
     "remaining": "残り",
-    "alertHistoryCount": "{{count}} 件のイベント",
+    "alertHistoryCount_other": "{{count}} 件のイベント",
     "activeAlertCount": "{{count}} 件がアクティブ",
     "apexInsights": {
       "title": "Apex インサイト",
@@ -285,7 +285,7 @@
     "sessions": {
       "title": "アクティブなセッション",
       "empty": "アクティブなセッションはありません",
-      "activeUsers": "アクティブユーザー {{count}} 人",
+      "activeUsers_other": "アクティブユーザー {{count}} 人",
       "username": "ユーザー名",
       "sessionType": "セッション種別",
       "loginTime": "ログイン時刻",
@@ -349,11 +349,11 @@
     },
     "schemaAdvice": "スキーマの推奨事項",
     "schemaAdviceResults": "スキーマの推奨事項",
-    "schemaAdviceIssues": "{{count}} 件の問題を検出",
+    "schemaAdviceIssues_other": "{{count}} 件の問題を検出",
     "recommendations": "推奨事項",
     "advice": {
-      "critical": "重大リスクの変更が {{count}} 件あります。手動レビューが必要です。",
-      "high": "高リスクの変更が {{count}} 件あります。まず Sandbox にデプロイしてください。",
+      "critical_other": "重大リスクの変更が {{count}} 件あります。手動レビューが必要です。",
+      "high_other": "高リスクの変更が {{count}} 件あります。まず Sandbox にデプロイしてください。",
       "apexTests": "すべての Apex テストを実行してください。",
       "lowRisk": "低リスク。デプロイしても安全です。",
       "review": "デプロイ前に変更を確認してください。"
@@ -433,8 +433,8 @@
     "gallery": {
       "title": "テンプレートからクイックSeed",
       "subtitle": "テンプレートを選んで数秒でSeedを開始",
-      "objects": "{{count}}個のオブジェクト",
-      "records": "{{count}}件のレコード",
+      "objects_other": "{{count}}個のオブジェクト",
+      "records_other": "{{count}}件のレコード",
       "useThis": "これを使う",
       "customize": "レコード数をカスタマイズ",
       "startSeeding": "Seedを開始",
@@ -469,8 +469,8 @@
       },
       "validation": {
         "title": "バリデーション結果",
-        "valid": "{{count}}行すべてが有効です",
-        "errors": "{{count}}件のエラーが見つかりました",
+        "valid_other": "{{count}}行すべてが有効です",
+        "errors_other": "{{count}}件のエラーが見つかりました",
         "proceedAnyway": "続行する",
         "fixAndRevalidate": "修正して再検証",
         "andMore": "他{{count}}件...",
@@ -497,8 +497,8 @@
         "execute": "インポート実行",
         "done": "完了",
         "executing": "レコードをインポート中...",
-        "inserted": "{{count}}件のレコードが挿入されました",
-        "failed": "{{count}}件のレコードが失敗しました"
+        "inserted_other": "{{count}}件のレコードが挿入されました",
+        "failed_other": "{{count}}件のレコードが失敗しました"
       }
     },
     "modeSelect": {
@@ -521,7 +521,7 @@
       "card": {
         "preview": "プレビュー",
         "select": "選択",
-        "fields": "{{count}}個のフィールド",
+        "fields_other": "{{count}}個のフィールド",
         "createCustom": "カスタムを作成",
         "createCustomDesc": "業界を記述してAIにペルソナを生成させます",
         "generateBtn": "生成",
@@ -563,7 +563,7 @@
       "objectSelector": {
         "title": "クローンするオブジェクトを選択",
         "search": "オブジェクトを検索...",
-        "selected": "{{count}}個のオブジェクトが選択済み",
+        "selected_other": "{{count}}個のオブジェクトが選択済み",
         "whereHint": "一致するレコードのみクローンするオプションフィルター",
         "wherePlaceholder": "例: Industry = 'Technology'"
       },
@@ -713,7 +713,7 @@
     "templates": {
       "title": "クイックスタートテンプレート",
       "useThis": "使用する",
-      "objectCount": "{{count}} 個のオブジェクト",
+      "objectCount_other": "{{count}} 個のオブジェクト",
       "accountHierarchy": {
         "name": "取引先階層すべて",
         "description": "取引先を、取引先責任者・商談・ToDo・メモとあわせて同期します"
@@ -759,7 +759,7 @@
         "DELETE": "削除",
         "UNDELETE": "復元"
       },
-      "nMore": "他{{count}}件",
+      "nMore_other": "他{{count}}件",
       "metricsPanel": {
         "throughput": "スループット",
         "lag": "レプリケーション遅延",
@@ -792,10 +792,10 @@
       "applySourceAll": "すべてにソースを適用",
       "applyTargetAll": "すべてにターゲットを適用",
       "applyResolution": "解決を適用",
-      "confirmBulk": "{{count}}件の競合を解決します。この操作は元に戻せません。",
+      "confirmBulk_other": "{{count}}件の競合を解決します。この操作は元に戻せません。",
       "resolved": "解決済み",
       "clearResolved": "解決済みをクリア",
-      "fieldCount": "{{count}}個のフィールド",
+      "fieldCount_other": "{{count}}個のフィールド",
       "fieldName": "フィールド名",
       "selectConflict": "競合を選択して詳細を表示",
       "unresolved": "未解決",
@@ -1229,7 +1229,10 @@
   "bridge": {
     "protocolMismatch": {
       "message": "SandForge が更新されました。新しいバージョンを適用するにはウィンドウを再読み込みしてください。"
-    }
+    },
+    "timedOut": "SandForge は {{request}} に {{seconds}} 秒以内に応答しませんでした。もう一度お試しください。繰り返し発生する場合は、SandForge の出力チャネルを確認してください。",
+    "failed": "{{request}} は失敗しましたが、SandForge から理由は返されませんでした。SandForge の出力チャネルを確認してください。",
+    "rejected": "SandForge は {{request}} を受け付けませんでした。理由は SandForge の出力チャネルに表示されます。"
   },
   "onboarding": {
     "welcomeTitle": "SandForgeへようこそ",
@@ -1269,6 +1272,12 @@
     "tryItNow": "今すぐ試す",
     "viewChangelog": "完全なチェンジログを表示",
     "whatsNew": {
+      "compareContent": "Compare は比較対象の中身を読むように",
+      "compareContentDesc": "2 つの Sandbox 間で、実際は 47 件の変更に対して 374 件の変更済みコンポーネントを報告していました。ID と日付はどの 2 つの組織間でも異なり、各組織の一覧の仕方を比較していたためです。現在は両方の組織にあるすべてのコンポーネントの内容を読み取り、読み取れなかったものは「未比較」とし、「変更なし」や「安全」とは扱いません。",
+      "refreshNoticed": "Sandbox のリフレッシュを検知",
+      "refreshNoticedDesc": "リフレッシュにより Sandbox は同じログインのまま新しい組織になりますが、SandForge は以前の組織の情報を使い続けていました。現在は Sandbox がどの組織として応答するかを確認し、変わった場合は通知して、以前の組織について保持していた情報を破棄します。",
+      "monitorBounds": "Monitor の一覧が上限で止まったことを表示",
+      "monitorBoundsDesc": "セッション、エラーログ、デプロイ、ジョブ、リフレッシュは上限で打ち切られたまま完全な一覧として表示されていました。現在は上限に達した場合にそれぞれ表示します。スクラッチ組織がインポートされるようになり、種別が判別できない組織は本番組織として保護されます。",
       "i18n": "完全な多言語サポート",
       "i18nDesc": "サポート対象の全言語で完全な翻訳を提供",
       "help": "統合ヘルプパネル",
@@ -1363,7 +1372,7 @@
     "title": "ヘルプとリソース",
     "gettingStarted": "はじめに",
     "gettingStartedDesc": "SandForgeの基本を学ぶ",
-    "gettingStartedContent": "1. 組織ページからSalesforce Orgを接続します。\n2. モニターを開いてOrgの健全性を確認します。\n3. Seedを使ってSandboxにテストデータを生成します。\n4. Syncを設定して環境を同期させます。\n5. Compare、DataOps、自動化で高度なワークフローを探索します。",
+    "gettingStartedContent": "1. 組織ページからSalesforce Orgを接続します。\n2. Forgeで実際のレコードとその周辺のレコードをSandboxに複製します。\n3. モニターを開いてOrgの健全性を確認します。\n4. Seedでテストデータを生成するか、Syncで2つのOrg間でデータをコピーします。\n5. Compare、DataOps、凍結データセット、自動化で高度なワークフローを探索します。",
     "monitorContent": "モニターダッシュボードはOrgの健全性をリアルタイムで表示します：\n- 寄与要因付きの健全性スコアゲージ\n- 使用トレンドと予測付きのAPI制限\n- アクティブおよび最近のApexジョブ\n- 重大しきい値のアラート通知\n\nヒント：継続的な監視のために自動更新を有効にしてください。",
     "seedContent": "Seedウィザードはリアルなテストデータを生成します：\n1. ターゲットOrgを選択\n2. 投入するオブジェクトを選択\n3. フィールドルールを設定（AI、Faker、固定値、連番...）\n4. レコード件数を設定 — 参照項目には同じ実行で先に挿入されたレコードが入ります\n5. 確認して実行\n\nヒント：最もリアルなデータにはAI生成を使用してください。",
     "syncContent": "2つのSalesforce Org間でデータを同期：\n- フル同期のみ：実行のたびにオブジェクトセット全体を転送します（インクリメンタル、デルタ、CDC は未実装です）\n- 信頼度スコア付きの自動フィールドマッピング\n- 変換ルールは実行対象の全レコードの全項目に適用されます。ただし Id と実行が照合に使う外部 ID はそのまま残るため、接頭辞や切り詰めが存在しないレコードへの書き込みを招くことはありません。各ルールが受け取る設定：大文字小文字と前後の空白は設定なし、切り詰めは長さ、接頭辞・接尾辞・置換・正規表現・既定値・日付と数値の書式・数式はそれぞれのテキストを受け取ります。値マッピングは置換表を受け取りますが、この画面ではまだ入力できないため、この種のルールは値をそのまま残します\n- 双方向実行での競合解決：ソース優先、ターゲット優先、最新優先、またはフィールド単位のマージ\n- 元に戻せません：実行は取り消せないため、先に DataOps でターゲット Org のバックアップを取ってください（対象は Account と Contact）",
@@ -1393,7 +1402,10 @@
     "sfStackExchange": "Salesforce Stack Exchange",
     "sfStackExchangeDesc": "Salesforce開発者向けコミュニティQ&A",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
-    "startTour": "ガイドツアーを開始"
+    "startTour": "ガイドツアーを開始",
+    "autopilotContent": "Autopilot は、選択したオブジェクトをソース Org からターゲット Org へ 4 つのステップでコピーします：\n1. ソース Org とターゲット Org を選択します\n2. コピーするオブジェクトを選択します\n3. 個人データを匿名化するコンプライアンスフレームワーク（GDPR、CCPA、HIPAA、PCI-DSS）を選ぶか、なしを選びます\n4. 計画（ウェーブ、レコード数、API コール数、PII 項目）を確認して実行します",
+    "migrationContent": "移行は、既存の移行定義を Sync 設定に変換します：\n- SFDMU の export.json、または .json / .csv ファイルをインポートします\n- インポートはファイルを読み込むだけで、どの Org も変更しません\n- 変換した設定を実行すると、ターゲット Org にレコードが書き込まれます",
+    "reportsContent": "レポートは、Forge と Sync がすでに保存している実行履歴を読み込みます：\n- 実行：各実行のステータス、所要時間、レコード数。JSON でエクスポートできます\n- 分析：これらの実行から算出した成功率\n- 監査証跡とデータリネージ：近日公開。まだ何も記録されていません"
   },
   "emptyState": {
     "connectViaSfdx": "SFDXインポートでOrgを接続",
@@ -1596,7 +1608,7 @@
     "noOrgSelected": "ソースOrgを選択してプレビュー",
     "livePreview": "ライブプレビュー",
     "estimatedGraph": "推定グラフ",
-    "piiWarning": "{{count}}個のPIIフィールドが検出されました",
+    "piiWarning_other": "{{count}}個のPIIフィールドが検出されました",
     "piiWarningHint": "「PIIを匿名化」を有効にして機密データを保護",
     "tableView": "テーブルビュー",
     "graphView": "グラフビュー",
@@ -1639,7 +1651,7 @@
     "starterBadge": "スターター",
     "starterTemplates": "スターターテンプレート",
     "yourTemplates": "自分のテンプレート",
-    "smartLimitSuggested": "{{count}}件のレコードを持つOrgを検出 — {{limit}}/オブジェクトの上限を適用しました",
+    "smartLimitSuggested_other": "{{count}}件のレコードを持つOrgを検出 — {{limit}}/オブジェクトの上限を適用しました",
     "expandOrphanParents": "親を自動取得",
     "expandOrphanParentsHint": "不足している必須の親レコードを自動取得（シングルホップ）し、Asset/InsurancePolicyなどが外部キーを保持したまま取り込まれます。",
     "reuseLastGraph": "前回のグラフを再利用（検出をスキップ）",
@@ -1661,10 +1673,10 @@
     "soqlAliasRefused": "このクエリは実行できません。FROM 句が、FROM のあとのオブジェクトから始まっていないリレーションに別名を宣言しています。ピリオドの前の別名を確認してください。",
     "idMapping": {
       "title": "レコード Id の対応",
-      "subtitle": "{{count}} 件のレコード。左が元の Id、右がターゲット組織での Id です。",
+      "subtitle_other": "{{count}} 件のレコード。左が元の Id、右がターゲット組織での Id です。",
       "sourceId": "元の Id",
       "targetId": "ターゲットの Id",
-      "existingNote": "うち {{count}} 件はターゲット組織に既にあり、作成せずにリンクしました。",
+      "existingNote_other": "うち {{count}} 件はターゲット組織に既にあり、作成せずにリンクしました。",
       "existingBadge": "既存"
     },
     "apiCalls": "API コール数",
@@ -1692,7 +1704,7 @@
       "presetCustom": "カスタム (プリセットなし)",
       "category": "カテゴリ",
       "method": "手法",
-      "anonymizationDesc": "{{count}} 件の PII 項目を検出しました。カテゴリごとに匿名化手法を設定してください。",
+      "anonymizationDesc_other": "{{count}} 件の PII 項目を検出しました。カテゴリごとに匿名化手法を設定してください。",
       "framework": "フレームワーク",
       "noCompliance": "コンプライアンスフレームワークが選択されていません。レポートを生成するには 1 つ選択してください。",
       "complianceLoading": "コンプライアンスを分析しています...",
@@ -1700,7 +1712,7 @@
       "complianceStatus": "ステータス",
       "diffsLoading": "メタデータスキーマを比較しています...",
       "noDiffs": "メタデータの差分は検出されませんでした。",
-      "diffsFound": "ソースとターゲットの間で {{count}} 件の差分が見つかりました。",
+      "diffsFound_other": "ソースとターゲットの間で {{count}} 件の差分が見つかりました。",
       "planLoading": "実行プランを生成しています...",
       "wave": "ウェーブ",
       "cycles": "循環参照の解決"
@@ -1796,14 +1808,15 @@
     "existingRecords": {
       "title": "ターゲット組織に既に存在",
       "hint": "ターゲット組織はこれらのレコードを既に保持しているため拒否しました。Salesforce がレコードを示した場合、複製はそのレコードにリンクし、変更は一切しません。",
-      "linked": "{{count}} 件をリンク(作成なし)",
-      "unidentified": "{{count}} 件を特定できず — 失敗として集計され、子レコードはリンクを失いました"
+      "linked_other": "{{count}} 件をリンク(作成なし)",
+      "unidentified_other": "{{count}} 件を特定できず — 失敗として集計され、子レコードはリンクを失いました"
     },
     "node": {
       "records": "{{records}} 件のレコード",
       "fieldsCloneable": "{{total}} 項目（うち {{cloneable}} 件が複製可能）",
       "notMeasured": "件数は未計測です"
-    }
+    },
+    "statusFilterLabel": "ステータスで絞り込む"
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1981,7 +1994,7 @@
       "salt": "ソルトフィンガープリント",
       "saltMissing": "ソルト未設定",
       "dataset": "凍結データセット",
-      "records": "{{count}} レコード",
+      "records_other": "{{count}} レコード",
       "noDataset": "凍結データセットなし",
       "selection": "セレクション",
       "noSelection": "セレクションなし",
@@ -2025,12 +2038,12 @@
       "axes": "軸の値",
       "edgeCase": "エッジケース",
       "empty": "選択された組み合わせなし",
-      "uncovered": "未カバーの組み合わせ {{count}} 件"
+      "uncovered_other": "未カバーの組み合わせ {{count}} 件"
     },
     "extract": {
       "title": "抽出と仮名化",
       "run": "抽出を実行",
-      "summary": "{{count}} レコードを {{files}} ファイルに凍結"
+      "summary_other": "{{count}} レコードを {{files}} ファイルに凍結"
     },
     "control": {
       "check": "チェック",
@@ -2045,7 +2058,7 @@
     "guards": {
       "title": "入力ガード",
       "sandboxOnly": "サンドボックスのみ",
-      "protectedEnvs": "保護環境 {{count}} 件",
+      "protectedEnvs_other": "保護環境 {{count}} 件",
       "mocksConfigured": "モック検出が設定済み",
       "mocksNotConfigured": "モック検出が未設定",
       "saltOk": "ソルト読込済み",
@@ -2062,7 +2075,7 @@
     "verify": {
       "run": "再検証",
       "title": "ロード後検証",
-      "attempts": "{{count}} 回測定",
+      "attempts_other": "{{count}} 回測定",
       "status": {
         "passed": "成功",
         "failed": "失敗",
@@ -2176,7 +2189,7 @@
     "go": "今すぐ同期",
     "executing": "同期中...",
     "complete": "同期完了",
-    "objectCount": "{{count}}個のオブジェクト",
+    "objectCount_other": "{{count}}個のオブジェクト",
     "parentDependency": "親の依存関係",
     "newQuickSync": "新規クイックSync",
     "add": "追加",
@@ -2222,6 +2235,20 @@
     "batchSizeFor": "{{object}} のバッチサイズ",
     "runProgress": "{{name}} の進捗",
     "progressAnnouncement": "{{name}} の進捗: {{percent}}%",
-    "orgDropdownValue": "{{label}}: {{org}}、状態: {{status}}"
+    "orgDropdownValue": "{{label}}: {{org}}、状態: {{status}}",
+    "expandRightPanel": "右パネルを展開",
+    "collapseRightPanel": "右パネルを折りたたむ",
+    "orgStatus": "接続状態: {{status}}",
+    "trendUp": "上昇傾向",
+    "trendDown": "下降傾向",
+    "trendStable": "横ばい",
+    "toggleJsonNode": "{{name}} を開閉",
+    "jsonArray": "配列",
+    "jsonObject": "オブジェクト",
+    "removeObject": "{{object}} を削除",
+    "urgencyCritical": "重大",
+    "urgencyWarning": "警告",
+    "urgencySafe": "安全",
+    "runFinished": "{{name}} が完了しました。書き込み: {{total}} 件中 {{written}} 件。"
   }
 }

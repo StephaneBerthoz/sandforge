@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '../../theme';
@@ -62,6 +63,13 @@ const trendIndicatorMap: Record<
   stable: { icon: Minus, className: 'text-text-secondary' },
 };
 
+/** What the trend arrow says to a screen reader, per direction. */
+const trendLabelKey: Record<NonNullable<KPICardProps['trendDirection']>, string> = {
+  up: 'a11y.trendUp',
+  down: 'a11y.trendDown',
+  stable: 'a11y.trendStable',
+};
+
 export const KPICard: React.FC<KPICardProps> = ({
   icon,
   label,
@@ -75,6 +83,7 @@ export const KPICard: React.FC<KPICardProps> = ({
   trendWarning,
   accentClassName,
 }) => {
+  const { t } = useTranslation();
   const accentClass = accentClassName ?? variantColorMap[variant];
   const trendIndicator = trendDirection ? trendIndicatorMap[trendDirection] : undefined;
 
@@ -96,7 +105,7 @@ export const KPICard: React.FC<KPICardProps> = ({
           <span
             data-testid="trend-arrow"
             className={cn('ml-auto flex items-center', trendIndicator.className)}
-            aria-label={`Trend ${trendDirection}`}
+            aria-label={trendDirection ? t(trendLabelKey[trendDirection]) : undefined}
           >
             <trendIndicator.icon width={14} height={14} />
           </span>

@@ -98,7 +98,7 @@
     "tagsHint": "Comma-separated",
     "tagsPlaceholder": "dev, team-a",
     "aliasPlaceholder": "my-sandbox",
-    "bannerConnected": "{{count}} of {{total}} org(s) connected",
+    "bannerConnected": "Orgs connected: {{count}} of {{total}}",
     "bannerEmpty": "Import your orgs from Salesforce CLI or connect manually",
     "installCli": "Install the Salesforce CLI"
   },
@@ -129,14 +129,16 @@
     "limitReachedIn": "Limit reached in ~{{hours}}h",
     "period24h": "24h",
     "period7d": "7d",
-    "alertsCount": "alert(s)",
+    "alertsCount_one": "alert",
+    "alertsCount_other": "alerts",
     "openApexJobs": "Open Apex Jobs in Salesforce",
     "filterAll": "All",
     "filterRunning": "Running",
     "filterFailed": "Failed",
     "filterCompleted": "Completed",
     "recentJobs": "Recent Apex Jobs",
-    "activeJobs": "active",
+    "activeJobs_one": "{{count}} active",
+    "activeJobs_other": "{{count}} active",
     "noJobs": "No recent jobs",
     "runs": "runs",
     "success": "success",
@@ -212,7 +214,8 @@
     "details": "Details",
     "staleData": "Data is {{minutes}}m old",
     "refreshNow": "Refresh now",
-    "connectionLost": "Connection lost. Auto-refresh failed {{count}} times.",
+    "connectionLost_one": "Connection lost. Auto-refresh failed {{count}} time.",
+    "connectionLost_other": "Connection lost. Auto-refresh failed {{count}} times.",
     "tryReconnect": "Try Reconnect",
     "alertHistory": "Alert History",
     "alertHistoryTimeline": "Timeline",
@@ -223,7 +226,8 @@
     "resolved": "Resolved",
     "showMore": "Show more",
     "remaining": "remaining",
-    "alertHistoryCount": "{{count}} events",
+    "alertHistoryCount_one": "{{count}} event",
+    "alertHistoryCount_other": "{{count}} events",
     "activeAlertCount": "{{count}} active",
     "apexInsights": {
       "title": "Apex Insights",
@@ -288,7 +292,8 @@
     "sessions": {
       "title": "Active Sessions",
       "empty": "No active sessions",
-      "activeUsers": "{{count}} active user(s)",
+      "activeUsers_one": "{{count}} active user",
+      "activeUsers_other": "{{count}} active users",
       "username": "Username",
       "sessionType": "Session Type",
       "loginTime": "Login Time",
@@ -352,11 +357,14 @@
     },
     "schemaAdvice": "Schema Advice",
     "schemaAdviceResults": "Schema Advice",
-    "schemaAdviceIssues": "{{count}} issues found",
+    "schemaAdviceIssues_one": "{{count}} issue found",
+    "schemaAdviceIssues_other": "{{count}} issues found",
     "recommendations": "Recommendations",
     "advice": {
-      "critical": "{{count}} critical-risk change(s). Manual review required.",
-      "high": "{{count}} high-risk change(s). Deploy to a sandbox first.",
+      "critical_one": "{{count}} critical-risk change. Manual review required.",
+      "critical_other": "{{count}} critical-risk changes. Manual review required.",
+      "high_one": "{{count}} high-risk change. Deploy to a sandbox first.",
+      "high_other": "{{count}} high-risk changes. Deploy to a sandbox first.",
       "apexTests": "Run all Apex tests.",
       "lowRisk": "Low risk. Safe to deploy.",
       "review": "Review changes before deploying."
@@ -436,8 +444,10 @@
     "gallery": {
       "title": "Quick Seed from Template",
       "subtitle": "Pick a template and start seeding in seconds",
-      "objects": "{{count}} objects",
-      "records": "{{count}} records",
+      "objects_one": "{{count}} object",
+      "objects_other": "{{count}} objects",
+      "records_one": "{{count}} record",
+      "records_other": "{{count}} records",
       "useThis": "Use This",
       "customize": "Customize Record Counts",
       "startSeeding": "Start Seeding",
@@ -472,8 +482,10 @@
       },
       "validation": {
         "title": "Validation Results",
-        "valid": "All {{count}} rows are valid",
-        "errors": "{{count}} errors found",
+        "valid_one": "{{count}} row is valid",
+        "valid_other": "All {{count}} rows are valid",
+        "errors_one": "{{count}} error found",
+        "errors_other": "{{count}} errors found",
         "proceedAnyway": "Proceed Anyway",
         "fixAndRevalidate": "Fix and Re-validate",
         "andMore": "and {{count}} more...",
@@ -500,8 +512,10 @@
         "execute": "Execute Import",
         "done": "Done",
         "executing": "Importing records...",
-        "inserted": "{{count}} records inserted",
-        "failed": "{{count}} records failed"
+        "inserted_one": "{{count}} record inserted",
+        "inserted_other": "{{count}} records inserted",
+        "failed_one": "{{count}} record failed",
+        "failed_other": "{{count}} records failed"
       }
     },
     "modeSelect": {
@@ -524,7 +538,8 @@
       "card": {
         "preview": "Preview",
         "select": "Select",
-        "fields": "{{count}} fields",
+        "fields_one": "{{count}} field",
+        "fields_other": "{{count}} fields",
         "createCustom": "Create Custom",
         "createCustomDesc": "Describe your industry and let AI generate a persona",
         "generateBtn": "Generate",
@@ -566,7 +581,8 @@
       "objectSelector": {
         "title": "Select Objects to Clone",
         "search": "Search objects...",
-        "selected": "{{count}} objects selected",
+        "selected_one": "{{count}} object selected",
+        "selected_other": "{{count}} objects selected",
         "whereHint": "Optional filter to clone only matching records",
         "wherePlaceholder": "e.g., Industry = 'Technology'"
       },
@@ -716,7 +732,8 @@
     "templates": {
       "title": "Quick Start Templates",
       "useThis": "Use This",
-      "objectCount": "{{count}} objects",
+      "objectCount_one": "{{count}} object",
+      "objectCount_other": "{{count}} objects",
       "accountHierarchy": {
         "name": "Full Account Hierarchy",
         "description": "Sync accounts with contacts, opportunities, tasks and notes"
@@ -762,7 +779,8 @@
         "DELETE": "Delete",
         "UNDELETE": "Undelete"
       },
-      "nMore": "+{{count}} more",
+      "nMore_one": "+{{count}} more",
+      "nMore_other": "+{{count}} more",
       "metricsPanel": {
         "throughput": "Throughput",
         "lag": "Replication Lag",
@@ -795,10 +813,12 @@
       "applySourceAll": "Apply source to all",
       "applyTargetAll": "Apply target to all",
       "applyResolution": "Apply resolution",
-      "confirmBulk": "This will resolve {{count}} conflicts. This cannot be undone.",
+      "confirmBulk_one": "This will resolve {{count}} conflict. This cannot be undone.",
+      "confirmBulk_other": "This will resolve {{count}} conflicts. This cannot be undone.",
       "resolved": "Resolved",
       "clearResolved": "Clear resolved",
-      "fieldCount": "{{count}} field(s)",
+      "fieldCount_one": "{{count}} field",
+      "fieldCount_other": "{{count}} fields",
       "fieldName": "Field Name",
       "selectConflict": "Select a conflict to view details",
       "unresolved": "Unresolved",
@@ -1233,7 +1253,10 @@
   "bridge": {
     "protocolMismatch": {
       "message": "SandForge has been updated. Reload the window to apply the new version."
-    }
+    },
+    "timedOut": "SandForge did not answer {{request}} within {{seconds}} s. Try again; if it keeps happening, look in the SandForge output channel.",
+    "failed": "{{request}} failed without a reason from SandForge. Look in the SandForge output channel.",
+    "rejected": "SandForge turned down {{request}}. The SandForge output channel says why."
   },
   "onboarding": {
     "welcomeTitle": "Welcome to SandForge",
@@ -1273,6 +1296,12 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "compareContent": "Compare reads what it compares",
+      "compareContentDesc": "Between two sandboxes it reported 374 modified components where 47 are: ids and dates differ between any two orgs, and it compared how each org listed them. It now reads the content of every component both orgs hold, and one it could not read is marked not compared — never unchanged, never safe.",
+      "refreshNoticed": "A sandbox refresh is noticed",
+      "refreshNoticedDesc": "A refresh gives a sandbox a new org under the same login, and SandForge kept using what it knew of the old one. It now checks which org a sandbox answers as, says when it changed, and drops what it kept about the org the sandbox was.",
+      "monitorBounds": "Monitor says where its lists stop",
+      "monitorBoundsDesc": "Sessions, error logs, deployments, jobs and refreshes were cut at a bound and shown as complete; each now says when it came back full. Scratch orgs are imported, and an org whose type cannot be told is guarded as a production org.",
       "i18n": "Full Bilingual Support",
       "i18nDesc": "Complete English and French translations across the entire UI",
       "help": "Integrated Help Panel",
@@ -1367,7 +1396,7 @@
     "title": "Help & Resources",
     "gettingStarted": "Getting Started",
     "gettingStartedDesc": "Learn the basics of SandForge",
-    "gettingStartedContent": "1. Connect your Salesforce org using the Organizations page.\n2. Open the Monitor to check your org health.\n3. Use Seed to generate test data in your sandbox.\n4. Set up Sync to keep environments in sync.\n5. Explore Compare, DataOps, and Automation for advanced workflows.",
+    "gettingStartedContent": "1. Connect your Salesforce org using the Organizations page.\n2. Use Forge to clone a real record, and the records around it, into your sandbox.\n3. Open the Monitor to check your org health.\n4. Use Seed to generate test data, or Sync to copy data between two orgs.\n5. Explore Compare, DataOps, Frozen Dataset and Automation for advanced workflows.",
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
     "seedContent": "The Seed wizard generates realistic test data:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
     "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
@@ -1397,7 +1426,10 @@
     "sfStackExchange": "Salesforce Stack Exchange",
     "sfStackExchangeDesc": "Community Q&A for Salesforce developers",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
-    "startTour": "Start Guided Tour"
+    "startTour": "Start Guided Tour",
+    "autopilotContent": "Autopilot copies the objects you pick from a source org into a target org, in four steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Choose a compliance framework to anonymize personal data (GDPR, CCPA, HIPAA or PCI-DSS), or none\n4. Review the plan (waves, records, API calls, PII fields), then run it",
+    "migrationContent": "Migration turns an existing migration definition into a Sync configuration:\n- Import an SFDMU export.json, or a .json or .csv file\n- Importing reads the file and changes nothing in any org\n- Running the converted configuration writes records to the target org",
+    "reportsContent": "Reports reads the run history Forge and Sync already keep:\n- Executions: each run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit trail and data lineage: coming soon, nothing records them yet"
   },
   "emptyState": {
     "connectViaSfdx": "Connect an org via SFDX import",
@@ -1600,7 +1632,8 @@
     "noOrgSelected": "Select a source org to preview",
     "livePreview": "Live Preview",
     "estimatedGraph": "Estimated Graph",
-    "piiWarning": "{{count}} PII field(s) detected",
+    "piiWarning_one": "{{count}} PII field detected",
+    "piiWarning_other": "{{count}} PII fields detected",
     "piiWarningHint": "Enable Anonymize PII to protect sensitive data",
     "tableView": "Table View",
     "graphView": "Graph View",
@@ -1643,7 +1676,8 @@
     "starterBadge": "Starter",
     "starterTemplates": "Starter templates",
     "yourTemplates": "Your templates",
-    "smartLimitSuggested": "Detected org with {{count}} records — applied {{limit}}/object cap",
+    "smartLimitSuggested_one": "Detected org with {{count}} record — applied {{limit}}/object cap",
+    "smartLimitSuggested_other": "Detected org with {{count}} records — applied {{limit}}/object cap",
     "expandOrphanParents": "Auto-fetch parents",
     "expandOrphanParentsHint": "Auto-fetch missing required parents (single-hop) so Asset/InsurancePolicy etc. land with their FKs intact.",
     "reuseLastGraph": "Reuse last graph (skip discovery)",
@@ -1665,10 +1699,12 @@
     "soqlAliasRefused": "This query cannot be run. The FROM clause declares an alias over a relationship that does not start from the object after FROM — check the alias before the dot.",
     "idMapping": {
       "title": "Record Id mapping",
-      "subtitle": "{{count}} records. Source Id on the left, its Id in the target org on the right.",
+      "subtitle_one": "{{count}} record. Source Id on the left, its Id in the target org on the right.",
+      "subtitle_other": "{{count}} records. Source Id on the left, its Id in the target org on the right.",
       "sourceId": "Source Id",
       "targetId": "Target Id",
-      "existingNote": "{{count}} of them were already in the target org: linked, not created.",
+      "existingNote_one": "{{count}} of them was already in the target org: linked, not created.",
+      "existingNote_other": "{{count}} of them were already in the target org: linked, not created.",
       "existingBadge": "existing"
     },
     "apiCalls": "API calls",
@@ -1696,7 +1732,8 @@
       "presetCustom": "Custom (no preset)",
       "category": "Category",
       "method": "Method",
-      "anonymizationDesc": "{{count}} PII fields detected. Configure anonymization method per category.",
+      "anonymizationDesc_one": "{{count}} PII field detected. Configure anonymization method per category.",
+      "anonymizationDesc_other": "{{count}} PII fields detected. Configure anonymization method per category.",
       "framework": "Framework",
       "noCompliance": "No compliance framework selected. Select one to generate a report.",
       "complianceLoading": "Analyzing compliance...",
@@ -1704,7 +1741,8 @@
       "complianceStatus": "Status",
       "diffsLoading": "Comparing metadata schemas...",
       "noDiffs": "No metadata differences detected.",
-      "diffsFound": "{{count}} differences found between source and target.",
+      "diffsFound_one": "{{count}} difference found between source and target.",
+      "diffsFound_other": "{{count}} differences found between source and target.",
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions"
@@ -1800,14 +1838,17 @@
     "existingRecords": {
       "title": "Already in the target org",
       "hint": "The target refused these records because it already holds them. Where Salesforce named the record, the clone links to it and never changes it.",
-      "linked": "{{count}} linked, not created",
-      "unidentified": "{{count}} not identified — counted as failed, and their children lost the link"
+      "linked_one": "{{count}} linked, not created",
+      "linked_other": "{{count}} linked, not created",
+      "unidentified_one": "{{count}} not identified — counted as failed, and its children lost the link",
+      "unidentified_other": "{{count}} not identified — counted as failed, and their children lost the link"
     },
     "node": {
       "records": "{{records}} records",
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
       "notMeasured": "Size not measured yet"
-    }
+    },
+    "statusFilterLabel": "Filter by status"
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1985,7 +2026,8 @@
       "salt": "Salt fingerprint",
       "saltMissing": "Salt missing",
       "dataset": "Frozen dataset",
-      "records": "{{count}} records",
+      "records_one": "{{count}} record",
+      "records_other": "{{count}} records",
       "noDataset": "No dataset frozen yet",
       "selection": "Selection",
       "noSelection": "No selection yet",
@@ -2029,12 +2071,14 @@
       "axes": "Axis values",
       "edgeCase": "Edge case",
       "empty": "No combination retained",
-      "uncovered": "{{count}} uncovered combination(s)"
+      "uncovered_one": "{{count}} uncovered combination",
+      "uncovered_other": "{{count}} uncovered combinations"
     },
     "extract": {
       "title": "Extraction & pseudonymization",
       "run": "Run extraction",
-      "summary": "{{count}} records frozen across {{files}} files"
+      "summary_one": "{{count}} record frozen across {{files}} files",
+      "summary_other": "{{count}} records frozen across {{files}} files"
     },
     "control": {
       "check": "Check",
@@ -2049,7 +2093,8 @@
     "guards": {
       "title": "Entry guards",
       "sandboxOnly": "Sandbox only",
-      "protectedEnvs": "{{count}} protected env(s)",
+      "protectedEnvs_one": "{{count}} protected env",
+      "protectedEnvs_other": "{{count}} protected envs",
       "mocksConfigured": "Mock detection configured",
       "mocksNotConfigured": "Mock detection not configured",
       "saltOk": "Salt loaded",
@@ -2066,7 +2111,8 @@
     "verify": {
       "run": "Re-verify",
       "title": "Post-load verification",
-      "attempts": "{{count}} measurement(s)",
+      "attempts_one": "{{count}} measurement",
+      "attempts_other": "{{count}} measurements",
       "status": {
         "passed": "Passed",
         "failed": "Failed",
@@ -2180,7 +2226,8 @@
     "go": "Sync Now",
     "executing": "Syncing...",
     "complete": "Sync complete",
-    "objectCount": "{{count}} objects",
+    "objectCount_one": "{{count}} object",
+    "objectCount_other": "{{count}} objects",
     "parentDependency": "Parent dependency",
     "newQuickSync": "New Quick Sync",
     "add": "Add",
@@ -2226,6 +2273,20 @@
     "batchSizeFor": "Batch size for {{object}}",
     "runProgress": "{{name}} progress",
     "progressAnnouncement": "{{name}} progress: {{percent}}%",
-    "orgDropdownValue": "{{label}}: {{org}}, status: {{status}}"
+    "orgDropdownValue": "{{label}}: {{org}}, status: {{status}}",
+    "expandRightPanel": "Expand right panel",
+    "collapseRightPanel": "Collapse right panel",
+    "orgStatus": "Connection status: {{status}}",
+    "trendUp": "Trending up",
+    "trendDown": "Trending down",
+    "trendStable": "Holding steady",
+    "toggleJsonNode": "Toggle {{name}}",
+    "jsonArray": "array",
+    "jsonObject": "object",
+    "removeObject": "Remove {{object}}",
+    "urgencyCritical": "Critical",
+    "urgencyWarning": "Warning",
+    "urgencySafe": "Safe",
+    "runFinished": "{{name}} finished. Written: {{written}} of {{total}}."
   }
 }

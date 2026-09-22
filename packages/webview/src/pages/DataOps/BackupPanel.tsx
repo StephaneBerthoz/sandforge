@@ -5,6 +5,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { uiLocale } from '../../utils/formatters';
 
 /** BackupPanel component props. */
 export interface BackupPanelProps {
@@ -64,7 +65,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               // A backup records its timestamp, not a config id or a byte size,
               // so the header names the moment it was taken. Rendering fields
               // the backup never captured would only ever print blanks.
-              title={new Date(backup.timestamp).toLocaleString()}
+              title={new Date(backup.timestamp).toLocaleString(uiLocale())}
               subtitle={t('common.recordCount', { count: backup.totalRecords })}
               action={
                 <div className="flex items-center gap-2">

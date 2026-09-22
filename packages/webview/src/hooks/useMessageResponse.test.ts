@@ -3,6 +3,9 @@ import { renderHook, act } from '@testing-library/react';
 
 import type { BaseMessage } from '@sandforge/shared';
 
+import i18n from '../i18n';
+import fr from '../i18n/locales/fr.json';
+
 import { useMessageResponse } from './useMessageResponse';
 import type { UseMessageResponseOptions } from './useMessageResponse';
 
@@ -24,7 +27,6 @@ const defaultOptions: UseMessageResponseOptions = {
   requestType: 'org:list',
   responseType: 'org:list:response',
   timeoutMs: 5000,
-  requestLabel: 'query',
 };
 
 describe('useMessageResponse', () => {
@@ -74,16 +76,43 @@ describe('useMessageResponse', () => {
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe("Bridge query 'org:list' timed out after 5000ms");
+    expect(result.current.error).toBe(
+      'SandForge did not answer org:list within 5 s. Try again; if it keeps happening, look in the SandForge output channel.',
+    );
     expect(result.current.data).toBeNull();
   });
 
-  it('should use requestLabel in timeout error message', () => {
+  it('writes the timeout in the interface language', async () => {
+    // It used to be developer text in English whatever the language:
+    // "Bridge query 'org:list' timed out after 5000ms".
+    i18n.addResourceBundle('fr', 'translation', fr);
+    vi.useRealTimers();
+    await i18n.changeLanguage('fr');
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useMessageResponse<unknown>(defaultOptions));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-fr');
+      });
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(result.current.error).toBe(
+        "SandForge n'a pas répondu à org:list en 5 s. Réessayez ; si cela se reproduit, consultez le canal de sortie SandForge.",
+      );
+    } finally {
+      vi.useRealTimers();
+      await i18n.changeLanguage('en');
+      vi.useFakeTimers();
+    }
+  });
+
+  it('names the unanswered request in the timeout message', () => {
     const { result } = renderHook(() =>
       useMessageResponse<unknown>({
         ...defaultOptions,
         requestType: 'org:connect',
-        requestLabel: 'mutation',
       }),
     );
 
@@ -96,7 +125,7 @@ describe('useMessageResponse', () => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(result.current.error).toBe("Bridge mutation 'org:connect' timed out after 5000ms");
+    expect(result.current.error).toContain('org:connect');
   });
 
   it('should clean up event listener via returned cleanup function', () => {
@@ -302,7 +331,6 @@ describe('useMessageResponse', () => {
         requestType: 'ai:status',
         responseType: 'ai:status:response',
         timeoutMs: 5000,
-        requestLabel: 'query',
         acceptUncorrelated: false,
       }),
     );
@@ -457,7 +485,9 @@ describe('useMessageResponse', () => {
         simulateResponse('org:error', { code: 'UNKNOWN' }, 'req-1');
       });
 
-      expect(result.current.error).toBe("Bridge query 'org:list' failed");
+      expect(result.current.error).toBe(
+        'org:list failed without a reason from SandForge. Look in the SandForge output channel.',
+      );
     });
 
     it('should ignore error channel messages with a wrong correlationId', () => {
@@ -504,7 +534,6 @@ describe('useMessageResponse', () => {
       requestType: 'sync:execute',
       responseType: 'sync:execute:response',
       timeoutMs: 5000,
-      requestLabel: 'mutation',
       errorType: 'sync:error',
     };
 

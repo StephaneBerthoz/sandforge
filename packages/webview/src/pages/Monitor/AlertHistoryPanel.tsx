@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { dateTimeFormat, uiLocale } from '../../utils/formatters';
 
 /** Payload returned by monitor:alerts:result (includes history). */
 interface AlertsWithHistoryPayload {
@@ -71,17 +72,16 @@ function StatusIcon({ status }: { status: AlertStatus }): React.ReactElement {
   }
 }
 
-/** Date formatter for group headers (medium date). */
-const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+/** Time formatter for timestamps, in the interface language. */
+const timeFmt = (): Intl.DateTimeFormat => dateTimeFormat({ hour: '2-digit', minute: '2-digit' });
 
-/** Time formatter for timestamps. */
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
-
-/** Group alerts by date string. */
-function groupByDate(alerts: AlertInstance[]): Map<string, AlertInstance[]> {
+/** Group alerts by their date, written in `locale` (medium date). */
+function groupByDate(alerts: AlertInstance[], locale: string): Map<string, AlertInstance[]> {
   const groups = new Map<string, AlertInstance[]>();
   for (const alert of alerts) {
-    const dateKey = dateFmt.format(new Date(alert.triggeredAt));
+    const dateKey = dateTimeFormat({ dateStyle: 'medium' }, locale).format(
+      new Date(alert.triggeredAt),
+    );
     const group = groups.get(dateKey);
     if (group) {
       group.push(alert);
@@ -130,8 +130,9 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
     [sortedHistory, displayLimit],
   );
 
+  const locale = uiLocale();
   /** Grouped by date for the timeline display. */
-  const dateGroups = useMemo(() => groupByDate(visibleEntries), [visibleEntries]);
+  const dateGroups = useMemo(() => groupByDate(visibleEntries, locale), [visibleEntries, locale]);
 
   const hasMore = sortedHistory.length > displayLimit;
 
@@ -217,7 +218,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                         className="text-[10px] text-text-secondary"
                         data-testid={`triggered-time-${alert.id}`}
                       >
-                        {timeFmt.format(new Date(alert.triggeredAt))}
+                        {timeFmt().format(new Date(alert.triggeredAt))}
                       </span>
                       {alert.acknowledgedAt && (
                         <span
@@ -225,7 +226,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                           data-testid={`acknowledged-time-${alert.id}`}
                         >
                           {t('monitor.ack', 'Ack')}:{' '}
-                          {timeFmt.format(new Date(alert.acknowledgedAt))}
+                          {timeFmt().format(new Date(alert.acknowledgedAt))}
                         </span>
                       )}
                       {alert.resolvedAt && (
@@ -234,7 +235,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                           data-testid={`resolved-time-${alert.id}`}
                         >
                           {t('monitor.resolved', 'Resolved')}:{' '}
-                          {timeFmt.format(new Date(alert.resolvedAt))}
+                          {timeFmt().format(new Date(alert.resolvedAt))}
                         </span>
                       )}
                     </div>

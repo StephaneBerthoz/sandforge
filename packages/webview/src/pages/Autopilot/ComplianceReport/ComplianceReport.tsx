@@ -9,6 +9,7 @@ import { useBridgeQuery } from '../../../hooks/useBridgeQuery';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { Button } from '../../../components/ui/Button';
 import { ComplianceTimeline } from './ComplianceTimeline';
+import { uiLocale } from '../../../utils/formatters';
 
 /** Display labels for compliance frameworks (acronyms, locale-independent). */
 const FRAMEWORK_LABELS: Record<ComplianceFrameworkType, string> = {
@@ -161,7 +162,7 @@ export const ComplianceReport: React.FC = () => {
                   <td className="py-1.5 px-3 text-text-primary">{entry.piiCategory}</td>
                   <td className="py-1.5 px-3 text-text-primary">{entry.anonymizationMethod}</td>
                   <td className="py-1.5 px-3 text-text-primary tabular-nums">
-                    {entry.recordsAnonymized.toLocaleString()}
+                    {entry.recordsAnonymized.toLocaleString(uiLocale())}
                   </td>
                   <td className="py-1.5 px-3 text-text-primary">{entry.ruleApplied}</td>
                 </tr>

@@ -122,7 +122,7 @@ export const MonitorKpiRow: React.FC<MonitorKpiRowProps> = React.memo(
             icon="bell"
             label={t('monitor.alerts', 'Alerts')}
             value={String(activeAlertsCount)}
-            subtitle={t('monitor.alertsCount', 'alert(s)')}
+            subtitle={t('monitor.alertsCount', { count: activeAlertsCount })}
             variant={activeAlertsCount > 0 ? 'warning' : 'default'}
           />
         </div>

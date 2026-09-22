@@ -138,6 +138,14 @@ describe('CloneResultsPanel', () => {
     expect(panel.textContent).toContain('Contact');
   });
 
+  it('sets each object apart from its counts with a dash, not two hyphens', () => {
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
+
+    const panel = screen.getByTestId('clone-results-panel');
+    expect(panel.textContent).toContain('Account — 50/50');
+    expect(panel.textContent).not.toContain(' -- ');
+  });
+
   it('should show failed count for partial results', () => {
     render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
 

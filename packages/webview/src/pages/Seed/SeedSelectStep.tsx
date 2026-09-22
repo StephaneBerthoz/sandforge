@@ -141,7 +141,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                       <div className="flex flex-wrap gap-1">
                         {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
                           <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
-                            {f.fieldName} ({f.piiType} -- {Math.round(f.confidence * 100)}%)
+                            {f.fieldName} ({f.piiType} — {Math.round(f.confidence * 100)}%)
                           </Badge>
                         ))}
                       </div>

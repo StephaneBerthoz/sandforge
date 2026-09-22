@@ -358,7 +358,7 @@ describe('MonitorPage', () => {
 
     // Alerts KPI shows the "Alerts" label text and count value
     expect(screen.getByText('Alerts')).toBeDefined();
-    expect(screen.getByText('alert(s)')).toBeDefined();
+    expect(screen.getByText('alerts')).toBeDefined();
   });
 
   it('should display correct API Calls KPI values', () => {

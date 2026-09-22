@@ -7,7 +7,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import type { JobDisplayInfo } from './MonitorPage';
-import { formatNumber, formatRelativeTimeI18n } from '../../utils/formatters';
+import { dateTimeFormat, formatNumber, formatRelativeTimeI18n } from '../../utils/formatters';
 
 /** Filter for job status */
 export type JobFilter = 'all' | 'running' | 'failed' | 'completed';
@@ -210,7 +210,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
     <Card className={cn('border-0 bg-transparent shadow-none', className)}>
       <CardHeader
         title={t('monitor.recentJobs', 'Recent Apex Jobs')}
-        subtitle={`${activeCount} ${t('monitor.activeJobs', 'active')}`}
+        subtitle={t('monitor.activeJobs', { count: activeCount })}
         action={
           jobs.length > 0 ? (
             <button
@@ -451,7 +451,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                       </div>
                       {group.jobs.map((job) => {
                         const created = new Date(job.createdDate);
-                        const exactCreated = new Intl.DateTimeFormat(undefined, {
+                        const exactCreated = dateTimeFormat({
                           dateStyle: 'short',
                           timeStyle: 'short',
                         }).format(created);

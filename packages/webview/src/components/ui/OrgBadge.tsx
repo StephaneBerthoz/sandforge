@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 
 /** Props for the OrgBadge component. */
@@ -43,6 +44,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   instanceUrl,
   className,
 }) => {
+  const { t } = useTranslation();
   const dotClass = statusColors[status] ?? statusColors.error;
   const typeInfo = orgTypeConfig[orgType] ?? {
     label: orgType.slice(0, 3).toUpperCase(),
@@ -71,7 +73,8 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
       <span
         className={cn('inline-block w-2 h-2 rounded-full shrink-0', dotClass)}
         data-testid="org-badge-status-dot"
-        aria-label={`Status: ${status}`}
+        role="img"
+        aria-label={t('a11y.orgStatus', { status: t(`org.status_${status}`) })}
       />
 
       {/* Alias */}

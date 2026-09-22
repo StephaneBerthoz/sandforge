@@ -5,12 +5,17 @@
  *
  * The numeric/duration/file-size formatters are re-exported from the canonical
  * implementations in `@sandforge/shared` (single source of truth shared with
- * the extension host). The date/currency/relative-time helpers below are
+ * the extension host); `formatNumber` is wrapped so its locale defaults to the
+ * interface language. The date/currency/relative-time helpers below are
  * webview-only (Intl + i18n shaped for the UI).
  */
+import { formatNumber as formatNumberIn } from '@sandforge/shared';
+// The i18next singleton, not `../i18n`: that module initialises it for React
+// and the panel imports it once at boot. Reading the instance is all this
+// needs, and a test that mocks react-i18next can still import a formatter.
+import i18n from 'i18next';
 
 export {
-  formatNumber,
   formatDuration,
   formatFileSize,
   formatDurationSec,
@@ -18,17 +23,74 @@ export {
   formatSizeMB,
 } from '@sandforge/shared';
 
+/** `en` of `en-GB`, lower-cased. */
+function primarySubtag(tag: string): string {
+  return tag.split('-')[0].toLowerCase();
+}
+
+/**
+ * The locale every date and number on screen is written in.
+ *
+ * It follows the language picked in SandForge, which is not VS Code's: a
+ * formatter given no locale takes the host's, so an interface set to French
+ * wrote "Jan 15, 2026" and "1,234" beside French labels. The host locale is
+ * kept for its region when it speaks the same language — English on an en-GB
+ * machine still writes the day first — and set aside when it does not.
+ *
+ * Read it while rendering: a component that calls `t()` re-renders on a
+ * language switch, and picks the new locale up with it.
+ */
+export function uiLocale(): string {
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  const host = typeof navigator === 'undefined' ? undefined : navigator.language;
+  return host && primarySubtag(host) === primarySubtag(language) ? host : language;
+}
+
+/**
+ * Format a number with the grouping and decimal separators of `locale`.
+ * @param n - The number to format.
+ * @param locale - BCP-47 locale; defaults to {@link uiLocale}.
+ * @returns The formatted number string, or '0' for NaN/invalid input.
+ */
+export function formatNumber(n: number, locale: string = uiLocale()): string {
+  return formatNumberIn(n, locale);
+}
+
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * An `Intl.DateTimeFormat` in `locale` ({@link uiLocale} by default), built
+ * once per locale and options. Ask for it where the date is written: one built
+ * at module scope keeps the language the panel was opened in.
+ */
+export function dateTimeFormat(
+  options: Intl.DateTimeFormatOptions,
+  locale: string = uiLocale(),
+): Intl.DateTimeFormat {
+  const key = `${locale} ${JSON.stringify(options)}`;
+  let format = dateTimeFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormats.set(key, format);
+  }
+  return format;
+}
+
 /** Date display format options. */
 export type DateFormatStyle = 'short' | 'medium' | 'long';
 
 /**
  * Format a Date using locale-specific date formatting.
  * @param d - The Date to format.
- * @param locale - Optional BCP-47 locale string.
+ * @param locale - BCP-47 locale; defaults to {@link uiLocale}.
  * @param format - Display style: 'short', 'medium' (default), or 'long'.
  * @returns The formatted date string, or an empty string for invalid dates.
  */
-export function formatDate(d: Date, locale?: string, format: DateFormatStyle = 'medium'): string {
+export function formatDate(
+  d: Date,
+  locale: string = uiLocale(),
+  format: DateFormatStyle = 'medium',
+): string {
   if (!(d instanceof Date) || isNaN(d.getTime())) return '';
 
   const options: Intl.DateTimeFormatOptions =
@@ -45,10 +107,10 @@ export function formatDate(d: Date, locale?: string, format: DateFormatStyle = '
  * Format a number as currency using locale-specific conventions.
  * @param n - The monetary amount.
  * @param currency - ISO 4217 currency code (e.g. 'USD', 'EUR').
- * @param locale - Optional BCP-47 locale string.
+ * @param locale - BCP-47 locale; defaults to {@link uiLocale}.
  * @returns The formatted currency string, or the currency code with '0.00' for invalid input.
  */
-export function formatCurrency(n: number, currency: string, locale?: string): string {
+export function formatCurrency(n: number, currency: string, locale: string = uiLocale()): string {
   if (!Number.isFinite(n)) {
     return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(0);
   }
@@ -75,7 +137,14 @@ export function formatRelativeTimeI18n(
   return t(`${keyPrefix}.hoursAgo`, { count: diffH });
 }
 
-export function formatRelativeTime(date: Date, locale?: string): string {
+/**
+ * "2 hours ago", "in 3 days", "now" — in `locale`, through Intl, so it needs
+ * no translation key and ships no word list.
+ * @param date - The moment to describe, relative to now.
+ * @param locale - BCP-47 locale; defaults to {@link uiLocale}.
+ * @returns The relative phrase, or an empty string for an invalid date.
+ */
+export function formatRelativeTime(date: Date, locale: string = uiLocale()): string {
   if (!(date instanceof Date) || isNaN(date.getTime())) return '';
 
   const now = Date.now();

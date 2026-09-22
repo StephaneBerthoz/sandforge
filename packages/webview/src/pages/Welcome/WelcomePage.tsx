@@ -6,6 +6,7 @@ import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
@@ -92,6 +93,8 @@ function WelcomePageView(
   const setShowWelcome = useAppStore((s) => s.setShowWelcome);
   const [step, setStep] = useState(0);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  /** Why the language just picked is not the one on screen, or null. */
+  const [languageError, setLanguageError] = useState<string | null>(null);
   /**
    * Honor the "Don't show again" flag: it is written on completion but was
    * never read back, so the wizard kept reappearing whenever the extension
@@ -146,38 +149,53 @@ function WelcomePageView(
     navigate('settings');
   }, [dontShowAgain, onComplete, navigate]);
 
-  const handleLanguageChange = useCallback((code: SupportedLanguage): void => {
-    // Loads the locale bundle over the bridge first when it is not loaded
-    // yet; the i18n module mirrors every applied change into the VS Code
-    // webview state. That state is per-document and dies with the panel, so
-    // the wizard's choice must ALSO reach the extension-side settings blob
-    // (globalState) — the exact `settings:update` write the Settings page
-    // performs on save. Without it the language picked here is gone the
-    // moment the onboarding panel closes.
-    // Only a change that actually applied is persisted: when the bundle
-    // fails to load the UI keeps its current language, and writing the
-    // requested one would leave the blob describing a language nobody sees.
-    void changeLanguageLazy(code).then((applied) => {
-      if (!applied) {
-        return;
-      }
-      sendBridgeMessage<{ key: string; value: Record<string, unknown> }>('settings:update', {
-        key: 'settings',
-        value: { language: code },
+  const handleLanguageChange = useCallback(
+    (code: SupportedLanguage): void => {
+      // Loads the locale bundle over the bridge first when it is not loaded
+      // yet; the i18n module mirrors every applied change into the VS Code
+      // webview state. That state is per-document and dies with the panel, so
+      // the wizard's choice must ALSO reach the extension-side settings blob
+      // (globalState) — the exact `settings:update` write the Settings page
+      // performs on save. Without it the language picked here is gone the
+      // moment the onboarding panel closes.
+      // Only a change that actually applied is persisted: when the bundle
+      // fails to load the UI keeps its current language, and writing the
+      // requested one would leave the blob describing a language nobody sees.
+      // The failure is said, as Settings says it: otherwise the click simply
+      // does nothing.
+      setLanguageError(null);
+      void changeLanguageLazy(code).then((applied) => {
+        if (!applied) {
+          const label = LANGUAGES.find((lang) => lang.code === code)?.label ?? code;
+          setLanguageError(t('settings.languageLoadFailed', { language: label }));
+          return;
+        }
+        sendBridgeMessage<{ key: string; value: Record<string, unknown> }>('settings:update', {
+          key: 'settings',
+          value: { language: code },
+        });
       });
-    });
-  }, []);
+    },
+    [t],
+  );
 
-  /** Open a use-case path module and close the wizard. */
+  /**
+   * Open a use-case path module and step the wizard aside. Like the step-1
+   * exit, this is not completion: steps 3 and 4 are still unseen, and
+   * `onComplete` would record onboarding as done for good. Only a ticked
+   * "Don't show again" makes leaving here final.
+   */
   const handleOpenPath = useCallback(
     (route: 'forge' | 'seed' | 'frozen'): void => {
       if (dontShowAgain) {
         setPersistedItem(DONT_SHOW_KEY, 'true');
+        onComplete();
+      } else {
+        setShowWelcome(false);
       }
-      onComplete();
       navigate(route);
     },
-    [dontShowAgain, onComplete, navigate],
+    [dontShowAgain, onComplete, navigate, setShowWelcome],
   );
 
   const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
@@ -262,6 +280,15 @@ function WelcomePageView(
                   </Button>
                 ))}
               </div>
+              {languageError && (
+                <div className="mt-3 text-left">
+                  <ErrorBanner
+                    data-testid="language-error"
+                    message={languageError}
+                    onDismiss={() => setLanguageError(null)}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

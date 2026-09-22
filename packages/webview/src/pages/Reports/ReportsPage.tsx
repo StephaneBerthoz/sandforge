@@ -17,6 +17,7 @@ import { AnalyticsDashboard } from './AnalyticsDashboard';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import { LineageGraph } from './LineageGraph';
+import { uiLocale } from '../../utils/formatters';
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
@@ -34,18 +35,17 @@ export interface ReportsPageProps {
 /**
  * Main reports and analytics page with tabbed navigation.
  *
- * Presentational only: there is no `reports:*` channel in the shared protocol
- * and no handler behind one, so every datum arrives through props. It used to
- * fire `reports:list` / `reports:export` on the bridge — the broker dropped
- * both as undeclared and the page sat on a 30 s timeout it then swallowed.
+ * Presentational only: every datum arrives through props. `ReportsContainer`
+ * feeds the reports and the analytics summary from `reports:list`, which reads
+ * the run history Forge and Sync keep; audit trail and data lineage have no
+ * producer, so those props stay `undefined`.
  *
- * PanelRouter mounts it with no props at all, so in the shipped product every
- * prop below is `undefined`. Rendering the panels anyway printed four KPI
- * tiles reading 0 / 0 / 0.0 % / 0 — figures with no source behind them, which
- * a reader takes for measurements ("this org ran nothing and fails every
- * operation") rather than for an absent feature. A tab whose data has no
- * producer says so, through the same {@link ComingSoon} notice DataOps uses;
- * the KPI row only appears once every figure it prints has a source.
+ * Rendering a panel with no source anyway printed four KPI tiles reading
+ * 0 / 0 / 0.0 % / 0 — figures a reader takes for measurements ("this org ran
+ * nothing and fails every operation") rather than for an absent feature. A tab
+ * whose data has no producer says so, through the same {@link ComingSoon}
+ * notice DataOps uses; the KPI row only appears once every figure it prints
+ * has a source.
  */
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
@@ -139,7 +139,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 <KPICard
                   icon="pulse"
                   label={t('reports.totalOperations')}
-                  value={totalOps.toLocaleString()}
+                  value={totalOps.toLocaleString(uiLocale())}
                   variant="default"
                 />
               </m.div>

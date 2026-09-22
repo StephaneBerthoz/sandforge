@@ -17,7 +17,7 @@ vi.mock('react-i18next', () => ({
   // The real i18n module calls i18n.use(initReactI18next) at import time.
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string, fallback?: unknown) => (typeof fallback === 'string' ? fallback : key),
     i18n: { changeLanguage: mockChangeLanguage, language: 'en' },
   }),
 }));
@@ -331,22 +331,38 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('path-card-frozen')).toBeDefined();
   });
 
-  it('should navigate to forge when the forge path CTA is clicked', () => {
+  it('opens Forge from its path card without marking onboarding complete', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-forge-btn'));
-    expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('forge');
+    // Steps 3 and 4 are still unseen, like the four a step-1 exit leaves:
+    // completing here would stop the wizard for good.
+    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 
-  it('should navigate to seed when the seed path CTA is clicked', () => {
+  it('opens Seed from its path card without marking onboarding complete', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
-    expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('seed');
+    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('completes onboarding from a path card once "Don\'t show again" is ticked', () => {
+    render(<WelcomePage onComplete={onComplete} orgType="production" />);
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('common.next')); // 0 -> 4
+    fireEvent.click(screen.getByTestId('dont-show-again'));
+    fireEvent.click(screen.getByText('common.back')); // 4 -> 3
+    fireEvent.click(screen.getByText('common.back')); // 3 -> 2
+    fireEvent.click(screen.getByTestId('welcome-open-forge-btn'));
+    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('forge');
   });
 
   it('should persist the chosen language into the extension settings blob', async () => {
@@ -387,13 +403,25 @@ describe('WelcomePage', () => {
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
   });
 
-  it('should navigate to frozen when the frozen path CTA is clicked', () => {
+  it('says so when the language picked could not be loaded', async () => {
+    // The click used to end in silence: the bundle failed, the buttons stayed
+    // on the current language, and nothing said why.
+    mockChangeLanguageLazy.mockResolvedValue(false);
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('lang-de'));
+
+    const banner = await screen.findByTestId('language-error');
+    expect(banner.textContent).toContain('settings.languageLoadFailed');
+  });
+
+  it('opens Frozen from its path card without marking onboarding complete', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
     fireEvent.click(screen.getByTestId('welcome-open-frozen-btn'));
-    expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('frozen');
+    expect(mockSetShowWelcome).toHaveBeenCalledWith(false);
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });
 

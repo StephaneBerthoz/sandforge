@@ -37,11 +37,11 @@ function urgencyTextClass(hours: number): string {
   return 'text-status-success';
 }
 
-/** Returns the urgency label based on estimated hours. */
-function urgencyLabel(hours: number): string {
-  if (hours < 2) return 'Critical';
-  if (hours < 12) return 'Warning';
-  return 'Safe';
+/** Returns the catalogue key of the urgency label for the estimated hours. */
+function urgencyLabelKey(hours: number): string {
+  if (hours < 2) return 'a11y.urgencyCritical';
+  if (hours < 12) return 'a11y.urgencyWarning';
+  return 'a11y.urgencySafe';
 }
 
 /** Formats hours into a human-readable string. */
@@ -80,7 +80,7 @@ export const PredictionsTile: React.FC<PredictionsTileProps> = ({ predictions, c
         <div className="flex flex-col gap-2">
           {sorted.map((prediction) => {
             const color = urgencyColor(prediction.estimatedHoursToLimit);
-            const label = urgencyLabel(prediction.estimatedHoursToLimit);
+            const label = t(urgencyLabelKey(prediction.estimatedHoursToLimit));
             return (
               <div
                 key={prediction.limitName}

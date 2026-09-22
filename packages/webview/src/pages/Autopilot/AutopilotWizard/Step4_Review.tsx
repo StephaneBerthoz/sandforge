@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { ComplianceFrameworkType } from '@sandforge/shared';
 import { Button } from '../../../components/ui/Button';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
+import { uiLocale } from '../../../utils/formatters';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -53,7 +54,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   const { t } = useTranslation();
 
   /** Format numbers with locale separators. */
-  const fmt = (n: number): string => n.toLocaleString();
+  const fmt = (n: number): string => n.toLocaleString(uiLocale());
 
   /** Map compliance framework to display label. */
   const frameworkLabel = (fw: ComplianceFrameworkType): string => {

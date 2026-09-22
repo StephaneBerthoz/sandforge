@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../theme';
 import type { LiveOperationSnapshot } from '@sandforge/shared';
+import { uiLocale } from '../../utils/formatters';
 
 /**
  * Props for the LiveOperationsPanel component.
@@ -127,8 +128,10 @@ const OperationRow: React.FC<{
           </span>
         </div>
         <span className="tabular-nums">
-          {operation.processedRecords.toLocaleString()}
-          {operation.totalRecords > 0 ? ` / ${operation.totalRecords.toLocaleString()}` : ''}
+          {operation.processedRecords.toLocaleString(uiLocale())}
+          {operation.totalRecords > 0
+            ? ` / ${operation.totalRecords.toLocaleString(uiLocale())}`
+            : ''}
         </span>
         <span className="font-medium">{Math.round(operation.percentage)}%</span>
       </div>

@@ -72,6 +72,7 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
             max={20}
             value={customDepth}
             onChange={(e) => onCustomDepthChange(Number(e.target.value))}
+            aria-label={t('forge.depthCustom')}
             data-testid="forge-depth-custom-input"
             className={cn(
               'w-16 px-2 py-1.5 rounded-full text-xs text-center',

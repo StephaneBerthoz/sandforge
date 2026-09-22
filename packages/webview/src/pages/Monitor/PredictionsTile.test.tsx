@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import '../../i18n';
+import { render, screen, act } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { PredictionsTile } from './PredictionsTile';
 import type { LimitPrediction } from './PredictionsTile';
 
@@ -47,6 +48,26 @@ describe('PredictionsTile', () => {
     render(<PredictionsTile predictions={samplePredictions} />);
     const dot = screen.getByTestId('prediction-dot-DailyAsyncApexExecutions');
     expect(dot.getAttribute('aria-label')).toBe('Safe');
+  });
+
+  it('names each urgency in the interface language', async () => {
+    // The three names were English literals, read out as such in every language.
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<PredictionsTile predictions={samplePredictions} />);
+      const label = (limit: string): string | null =>
+        screen.getByTestId(`prediction-dot-${limit}`).getAttribute('aria-label');
+      expect(label('DailyApiRequests')).toBe('Critique');
+      expect(label('DataStorageMB')).toBe('Avertissement');
+      expect(label('DailyAsyncApexExecutions')).toBe('Sans risque');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('should display formatted time estimates', () => {

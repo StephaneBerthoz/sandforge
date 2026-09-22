@@ -5,6 +5,7 @@ import type { NodeProps } from 'reactflow';
 import { Check, Loader2, Clock, X, AlertTriangle, Minus, Shield } from 'lucide-react';
 import type { ForgeNodeStatus } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { uiLocale } from '../../utils/formatters';
 
 /** Data payload carried by a ProgressNode in the React Flow graph. */
 export interface ProgressNodeData {
@@ -141,7 +142,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               checked={included}
               onChange={handleCheckboxChange}
               className="h-3 w-3 accent-forge cursor-pointer"
-              aria-label={`Include ${objectApiName}`}
+              aria-label={t('a11y.includeObject', { object: objectApiName })}
             />
           )}
           <span className="text-xs font-semibold text-text-primary truncate">{objectApiName}</span>
@@ -176,7 +177,9 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
       {fieldCount > 0 ? (
         <>
           <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
-            <span>{t('forge.node.records', { records: recordCount.toLocaleString() })}</span>
+            <span>
+              {t('forge.node.records', { records: recordCount.toLocaleString(uiLocale()) })}
+            </span>
             <span>~{estimatedSizeMB.toFixed(1)} MB</span>
           </div>
           <div className="mt-0.5 text-[10px] text-text-secondary">

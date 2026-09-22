@@ -69,7 +69,6 @@ export function useBridgeMutation<T>(
     requestType,
     responseType,
     timeoutMs,
-    requestLabel: 'mutation',
     errorType,
   });
 

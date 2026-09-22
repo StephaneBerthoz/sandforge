@@ -98,7 +98,7 @@
     "tagsHint": "Separadas por comas",
     "tagsPlaceholder": "dev, equipo-a",
     "aliasPlaceholder": "mi-sandbox",
-    "bannerConnected": "{{count}} de {{total}} org(s) conectadas",
+    "bannerConnected": "Orgs conectadas: {{count}} de {{total}}",
     "bannerEmpty": "Importe sus orgs desde Salesforce CLI o conéctelas manualmente",
     "installCli": "Instalar la CLI de Salesforce"
   },
@@ -129,14 +129,16 @@
     "limitReachedIn": "Límite alcanzado en ~{{hours}}h",
     "period24h": "24h",
     "period7d": "7d",
-    "alertsCount": "alerta(s)",
+    "alertsCount_one": "alerta",
+    "alertsCount_other": "alertas",
     "openApexJobs": "Abrir trabajos de Apex en Salesforce",
     "filterAll": "Todos",
     "filterRunning": "En ejecución",
     "filterFailed": "Fallidos",
     "filterCompleted": "Completados",
     "recentJobs": "Jobs Apex recientes",
-    "activeJobs": "activos",
+    "activeJobs_one": "{{count}} activo",
+    "activeJobs_other": "{{count}} activos",
     "noJobs": "Sin jobs recientes",
     "runs": "ejecuciones",
     "success": "éxito",
@@ -212,7 +214,8 @@
     "details": "Detalles",
     "staleData": "Datos de hace {{minutes}}m",
     "refreshNow": "Actualizar ahora",
-    "connectionLost": "Conexión perdida. La actualización automática falló {{count}} veces.",
+    "connectionLost_one": "Conexión perdida. La actualización automática falló {{count}} vez.",
+    "connectionLost_other": "Conexión perdida. La actualización automática falló {{count}} veces.",
     "tryReconnect": "Intentar reconectar",
     "alertHistory": "Historial de alertas",
     "alertHistoryTimeline": "Cronología",
@@ -223,7 +226,8 @@
     "resolved": "Resuelta",
     "showMore": "Mostrar más",
     "remaining": "restantes",
-    "alertHistoryCount": "{{count}} eventos",
+    "alertHistoryCount_one": "{{count}} evento",
+    "alertHistoryCount_other": "{{count}} eventos",
     "activeAlertCount": "{{count}} activas",
     "apexInsights": {
       "title": "Análisis de Apex",
@@ -288,7 +292,8 @@
     "sessions": {
       "title": "Sesiones activas",
       "empty": "No hay sesiones activas",
-      "activeUsers": "{{count}} usuario(s) activo(s)",
+      "activeUsers_one": "{{count}} usuario activo",
+      "activeUsers_other": "{{count}} usuarios activos",
       "username": "Nombre de usuario",
       "sessionType": "Tipo de sesión",
       "loginTime": "Hora de inicio de sesión",
@@ -352,11 +357,14 @@
     },
     "schemaAdvice": "Recomendaciones de esquema",
     "schemaAdviceResults": "Recomendaciones de esquema",
-    "schemaAdviceIssues": "{{count}} problemas encontrados",
+    "schemaAdviceIssues_one": "{{count}} problema encontrado",
+    "schemaAdviceIssues_other": "{{count}} problemas encontrados",
     "recommendations": "Recomendaciones",
     "advice": {
-      "critical": "{{count}} cambio(s) de riesgo crítico. Se requiere revisión manual.",
-      "high": "{{count}} cambio(s) de riesgo alto. Despliegue primero en un sandbox.",
+      "critical_one": "{{count}} cambio de riesgo crítico. Se requiere revisión manual.",
+      "critical_other": "{{count}} cambios de riesgo crítico. Se requiere revisión manual.",
+      "high_one": "{{count}} cambio de riesgo alto. Despliegue primero en un sandbox.",
+      "high_other": "{{count}} cambios de riesgo alto. Despliegue primero en un sandbox.",
       "apexTests": "Ejecute todas las pruebas de Apex.",
       "lowRisk": "Riesgo bajo. Despliegue seguro.",
       "review": "Revise los cambios antes de desplegar."
@@ -436,8 +444,10 @@
     "gallery": {
       "title": "Seed rápido desde plantilla",
       "subtitle": "Elija una plantilla y comience el seed en segundos",
-      "objects": "{{count}} objetos",
-      "records": "{{count}} registros",
+      "objects_one": "{{count}} objeto",
+      "objects_other": "{{count}} objetos",
+      "records_one": "{{count}} registro",
+      "records_other": "{{count}} registros",
       "useThis": "Usar esta",
       "customize": "Personalizar cantidades de registros",
       "startSeeding": "Iniciar Seed",
@@ -472,8 +482,10 @@
       },
       "validation": {
         "title": "Resultados de validación",
-        "valid": "Las {{count}} filas son válidas",
-        "errors": "{{count}} errores encontrados",
+        "valid_one": "{{count}} fila es válida",
+        "valid_other": "Las {{count}} filas son válidas",
+        "errors_one": "{{count}} error encontrado",
+        "errors_other": "{{count}} errores encontrados",
         "proceedAnyway": "Continuar de todos modos",
         "fixAndRevalidate": "Corregir y revalidar",
         "andMore": "y {{count}} más...",
@@ -500,8 +512,10 @@
         "execute": "Ejecutar importación",
         "done": "Hecho",
         "executing": "Importando registros...",
-        "inserted": "{{count}} registros insertados",
-        "failed": "{{count}} registros fallidos"
+        "inserted_one": "{{count}} registro insertado",
+        "inserted_other": "{{count}} registros insertados",
+        "failed_one": "{{count}} registro fallido",
+        "failed_other": "{{count}} registros fallidos"
       }
     },
     "modeSelect": {
@@ -524,7 +538,8 @@
       "card": {
         "preview": "Vista previa",
         "select": "Seleccionar",
-        "fields": "{{count}} campos",
+        "fields_one": "{{count}} campo",
+        "fields_other": "{{count}} campos",
         "createCustom": "Crear personalizada",
         "createCustomDesc": "Describa su industria y deje que la IA genere una persona",
         "generateBtn": "Generar",
@@ -566,7 +581,8 @@
       "objectSelector": {
         "title": "Seleccionar objetos para clonar",
         "search": "Buscar objetos...",
-        "selected": "{{count}} objetos seleccionados",
+        "selected_one": "{{count}} objeto seleccionado",
+        "selected_other": "{{count}} objetos seleccionados",
         "whereHint": "Filtro opcional para clonar solo registros coincidentes",
         "wherePlaceholder": "ej. Industry = 'Technology'"
       },
@@ -716,7 +732,8 @@
     "templates": {
       "title": "Plantillas de inicio rápido",
       "useThis": "Usar",
-      "objectCount": "{{count}} objetos",
+      "objectCount_one": "{{count}} objeto",
+      "objectCount_other": "{{count}} objetos",
       "accountHierarchy": {
         "name": "Jerarquía de cuentas completa",
         "description": "Sincronizar cuentas con contactos, oportunidades, tareas y notas"
@@ -762,7 +779,8 @@
         "DELETE": "Eliminar",
         "UNDELETE": "Restaurar"
       },
-      "nMore": "+{{count}} más",
+      "nMore_one": "+{{count}} más",
+      "nMore_other": "+{{count}} más",
       "metricsPanel": {
         "throughput": "Rendimiento",
         "lag": "Retardo de replicación",
@@ -795,10 +813,12 @@
       "applySourceAll": "Aplicar origen a todos",
       "applyTargetAll": "Aplicar destino a todos",
       "applyResolution": "Aplicar resolución",
-      "confirmBulk": "Esto resolverá {{count}} conflictos. Esta acción no se puede deshacer.",
+      "confirmBulk_one": "Esto resolverá {{count}} conflicto. Esta acción no se puede deshacer.",
+      "confirmBulk_other": "Esto resolverá {{count}} conflictos. Esta acción no se puede deshacer.",
       "resolved": "Resueltos",
       "clearResolved": "Limpiar resueltos",
-      "fieldCount": "{{count}} campo(s)",
+      "fieldCount_one": "{{count}} campo",
+      "fieldCount_other": "{{count}} campos",
       "fieldName": "Nombre del campo",
       "selectConflict": "Seleccione un conflicto para ver detalles",
       "unresolved": "Sin resolver",
@@ -1233,7 +1253,10 @@
   "bridge": {
     "protocolMismatch": {
       "message": "SandForge se ha actualizado. Recargue la ventana para aplicar la nueva versión."
-    }
+    },
+    "timedOut": "SandForge no respondió a {{request}} en {{seconds}} s. Vuelva a intentarlo; si se repite, consulte el canal de salida de SandForge.",
+    "failed": "{{request}} falló sin que SandForge diera un motivo. Consulte el canal de salida de SandForge.",
+    "rejected": "SandForge rechazó {{request}}. El canal de salida de SandForge indica el motivo."
   },
   "onboarding": {
     "welcomeTitle": "Bienvenido a SandForge",
@@ -1273,6 +1296,12 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "compareContent": "Compare lee lo que compara",
+      "compareContentDesc": "Entre dos sandboxes informaba de 374 componentes modificados donde hay 47: los ids y las fechas difieren entre dos orgs cualesquiera, y comparaba cómo los listaba cada org. Ahora lee el contenido de cada componente que tienen ambas orgs, y uno que no pudo leer queda como no comparado: nunca sin cambios, nunca seguro.",
+      "refreshNoticed": "Se detecta la actualización de un sandbox",
+      "refreshNoticedDesc": "Una actualización da a un sandbox una org nueva con el mismo inicio de sesión, y SandForge seguía usando lo que sabía de la anterior. Ahora comprueba como qué org responde un sandbox, avisa cuando cambió y descarta lo que guardaba de la org que era.",
+      "monitorBounds": "Monitor dice dónde se detienen sus listas",
+      "monitorBoundsDesc": "Sesiones, registros de errores, despliegues, trabajos y actualizaciones se cortaban en un límite y se mostraban como completos; cada lista indica ahora cuándo volvió llena. Las scratch orgs se importan, y una org de tipo desconocido se protege como una org de producción.",
       "i18n": "Soporte multilingüe completo",
       "i18nDesc": "Traducciones completas en todos los idiomas soportados",
       "help": "Panel de ayuda integrado",
@@ -1367,7 +1396,7 @@
     "title": "Ayuda y Recursos",
     "gettingStarted": "Primeros pasos",
     "gettingStartedDesc": "Aprenda los conceptos básicos de SandForge",
-    "gettingStartedContent": "1. Conecte su org Salesforce desde la página de Organizaciones.\n2. Abra el Monitor para verificar la salud de su org.\n3. Use Seed para generar datos de prueba en su sandbox.\n4. Configure Sync para mantener los entornos sincronizados.\n5. Explore Compare, DataOps y Automatización para flujos de trabajo avanzados.",
+    "gettingStartedContent": "1. Conecte su org Salesforce desde la página de Organizaciones.\n2. Use Forge para clonar un registro real, y los registros que lo rodean, en su sandbox.\n3. Abra el Monitor para verificar la salud de su org.\n4. Use Seed para generar datos de prueba, o Sync para copiar datos entre dos orgs.\n5. Explore Compare, DataOps, Dataset congelado y Automatización para flujos de trabajo avanzados.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
     "seedContent": "El asistente de Seed genera datos de prueba realistas:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental, delta y CDC no están implementados)\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas y minúsculas y espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; la asignación de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Sin deshacer: una ejecución no se puede revertir, así que haga primero un respaldo DataOps de la org de destino (cubre Account y Contact)",
@@ -1397,7 +1426,10 @@
     "sfStackExchange": "Salesforce Stack Exchange",
     "sfStackExchangeDesc": "Preguntas y respuestas de la comunidad para desarrolladores de Salesforce",
     "sfStackExchangeUrl": "https://salesforce.stackexchange.com",
-    "startTour": "Iniciar tour guiado"
+    "startTour": "Iniciar tour guiado",
+    "autopilotContent": "Autopilot copia los objetos que elija de una org de origen a una org de destino, en cuatro pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Elija un marco de cumplimiento para anonimizar los datos personales (RGPD, CCPA, HIPAA o PCI-DSS), o ninguno\n4. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo",
+    "migrationContent": "Migración convierte una definición de migración existente en una configuración de Sync:\n- Importe un export.json de SFDMU, o un archivo .json o .csv\n- La importación lee el archivo y no cambia nada en ninguna org\n- Ejecutar la configuración convertida escribe registros en la org de destino",
+    "reportsContent": "Reportes lee el historial de ejecuciones que Forge y Sync ya conservan:\n- Ejecuciones: cada ejecución con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría y linaje de datos: próximamente, nada los registra todavía"
   },
   "emptyState": {
     "connectViaSfdx": "Conecte una org mediante la importación SFDX",
@@ -1600,7 +1632,8 @@
     "noOrgSelected": "Seleccione una org de origen para previsualizar",
     "livePreview": "Vista previa en vivo",
     "estimatedGraph": "Grafo estimado",
-    "piiWarning": "{{count}} campo(s) PII detectado(s)",
+    "piiWarning_one": "{{count}} campo PII detectado",
+    "piiWarning_other": "{{count}} campos PII detectados",
     "piiWarningHint": "Habilite Anonimizar PII para proteger datos sensibles",
     "tableView": "Vista de tabla",
     "graphView": "Vista de grafo",
@@ -1643,7 +1676,8 @@
     "starterBadge": "Inicial",
     "starterTemplates": "Plantillas iniciales",
     "yourTemplates": "Sus plantillas",
-    "smartLimitSuggested": "Org detectada con {{count}} registros — se aplicó un límite de {{limit}}/objeto",
+    "smartLimitSuggested_one": "Org detectada con {{count}} registro — se aplicó un límite de {{limit}}/objeto",
+    "smartLimitSuggested_other": "Org detectada con {{count}} registros — se aplicó un límite de {{limit}}/objeto",
     "expandOrphanParents": "Obtener padres automáticamente",
     "expandOrphanParentsHint": "Obtiene automáticamente los padres obligatorios faltantes (un solo salto) para que Asset/InsurancePolicy etc. lleguen con sus FK intactas.",
     "reuseLastGraph": "Reutilizar último grafo (omitir descubrimiento)",
@@ -1665,10 +1699,12 @@
     "soqlAliasRefused": "Esta consulta no se puede ejecutar. La cláusula FROM declara un alias sobre una relación que no parte del objeto que sigue a FROM: revise el alias antes del punto.",
     "idMapping": {
       "title": "Correspondencia de Ids",
-      "subtitle": "{{count}} registros. Id de origen a la izquierda, su Id en la org destino a la derecha.",
+      "subtitle_one": "{{count}} registro. Id de origen a la izquierda, su Id en la org destino a la derecha.",
+      "subtitle_other": "{{count}} registros. Id de origen a la izquierda, su Id en la org destino a la derecha.",
       "sourceId": "Id de origen",
       "targetId": "Id de destino",
-      "existingNote": "{{count}} de ellos ya estaban en la org destino: vinculados, no creados.",
+      "existingNote_one": "{{count}} de ellos ya estaba en la org destino: vinculado, no creado.",
+      "existingNote_other": "{{count}} de ellos ya estaban en la org destino: vinculados, no creados.",
       "existingBadge": "existente"
     },
     "apiCalls": "Llamadas a la API",
@@ -1696,7 +1732,8 @@
       "presetCustom": "Personalizado (sin preajuste)",
       "category": "Categoría",
       "method": "Método",
-      "anonymizationDesc": "{{count}} campos de PII detectados. Configure el método de anonimización por categoría.",
+      "anonymizationDesc_one": "{{count}} campo de PII detectado. Configure el método de anonimización por categoría.",
+      "anonymizationDesc_other": "{{count}} campos de PII detectados. Configure el método de anonimización por categoría.",
       "framework": "Marco",
       "noCompliance": "No hay ningún marco de cumplimiento seleccionado. Elija uno para generar un informe.",
       "complianceLoading": "Analizando el cumplimiento...",
@@ -1704,7 +1741,8 @@
       "complianceStatus": "Estado",
       "diffsLoading": "Comparando esquemas de metadatos...",
       "noDiffs": "No se detectaron diferencias de metadatos.",
-      "diffsFound": "{{count}} diferencias encontradas entre origen y destino.",
+      "diffsFound_one": "{{count}} diferencia encontrada entre origen y destino.",
+      "diffsFound_other": "{{count}} diferencias encontradas entre origen y destino.",
       "planLoading": "Generando el plan de ejecución...",
       "wave": "Oleada",
       "cycles": "Resoluciones de ciclos"
@@ -1800,14 +1838,17 @@
     "existingRecords": {
       "title": "Ya en la org de destino",
       "hint": "La org de destino rechazó estos registros porque ya los contiene. Cuando Salesforce indicó el registro, el clon se vincula a él y nunca lo modifica.",
-      "linked": "{{count}} vinculado(s), no creado(s)",
-      "unidentified": "{{count}} sin identificar — contados como fallidos, y sus registros hijos perdieron el vínculo"
+      "linked_one": "{{count}} vinculado, no creado",
+      "linked_other": "{{count}} vinculados, no creados",
+      "unidentified_one": "{{count}} sin identificar — contado como fallido, y sus registros hijos perdieron el vínculo",
+      "unidentified_other": "{{count}} sin identificar — contados como fallidos, y sus registros hijos perdieron el vínculo"
     },
     "node": {
       "records": "{{records}} registros",
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonables)",
       "notMeasured": "Volumen aún sin medir"
-    }
+    },
+    "statusFilterLabel": "Filtrar por estado"
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1985,7 +2026,8 @@
       "salt": "Huella de la sal",
       "saltMissing": "Sal ausente",
       "dataset": "Dataset congelado",
-      "records": "{{count}} registros",
+      "records_one": "{{count}} registro",
+      "records_other": "{{count}} registros",
       "noDataset": "Ningún dataset congelado aún",
       "selection": "Selección",
       "noSelection": "Ninguna selección aún",
@@ -2029,12 +2071,14 @@
       "axes": "Valores de ejes",
       "edgeCase": "Caso límite",
       "empty": "Ninguna combinación retenida",
-      "uncovered": "{{count}} combinación(es) sin cobertura"
+      "uncovered_one": "{{count}} combinación sin cobertura",
+      "uncovered_other": "{{count}} combinaciones sin cobertura"
     },
     "extract": {
       "title": "Extracción y seudonimización",
       "run": "Ejecutar extracción",
-      "summary": "{{count}} registros congelados en {{files}} archivos"
+      "summary_one": "{{count}} registro congelado en {{files}} archivos",
+      "summary_other": "{{count}} registros congelados en {{files}} archivos"
     },
     "control": {
       "check": "Control",
@@ -2049,7 +2093,8 @@
     "guards": {
       "title": "Guardas de entrada",
       "sandboxOnly": "Solo sandbox",
-      "protectedEnvs": "{{count}} entorno(s) protegido(s)",
+      "protectedEnvs_one": "{{count}} entorno protegido",
+      "protectedEnvs_other": "{{count}} entornos protegidos",
       "mocksConfigured": "Detección de mocks configurada",
       "mocksNotConfigured": "Detección de mocks no configurada",
       "saltOk": "Sal cargada",
@@ -2066,7 +2111,8 @@
     "verify": {
       "run": "Volver a verificar",
       "title": "Verificación posterior a la carga",
-      "attempts": "{{count}} medición(es)",
+      "attempts_one": "{{count}} medición",
+      "attempts_other": "{{count}} mediciones",
       "status": {
         "passed": "Superada",
         "failed": "Fallida",
@@ -2180,7 +2226,8 @@
     "go": "Sincronizar ahora",
     "executing": "Sincronizando...",
     "complete": "Sync completado",
-    "objectCount": "{{count}} objetos",
+    "objectCount_one": "{{count}} objeto",
+    "objectCount_other": "{{count}} objetos",
     "parentDependency": "Dependencia padre",
     "newQuickSync": "Nuevo Sync rápido",
     "add": "Agregar",
@@ -2226,6 +2273,20 @@
     "batchSizeFor": "Tamaño de lote para {{object}}",
     "runProgress": "Progreso de {{name}}",
     "progressAnnouncement": "Progreso de {{name}}: {{percent}} %",
-    "orgDropdownValue": "{{label}}: {{org}}, estado: {{status}}"
+    "orgDropdownValue": "{{label}}: {{org}}, estado: {{status}}",
+    "expandRightPanel": "Expandir el panel derecho",
+    "collapseRightPanel": "Contraer el panel derecho",
+    "orgStatus": "Estado de la conexión: {{status}}",
+    "trendUp": "Tendencia al alza",
+    "trendDown": "Tendencia a la baja",
+    "trendStable": "Estable",
+    "toggleJsonNode": "Mostrar u ocultar {{name}}",
+    "jsonArray": "matriz",
+    "jsonObject": "objeto",
+    "removeObject": "Quitar {{object}}",
+    "urgencyCritical": "Crítico",
+    "urgencyWarning": "Advertencia",
+    "urgencySafe": "Seguro",
+    "runFinished": "{{name}} terminado. Escritos: {{written}} de {{total}}."
   }
 }

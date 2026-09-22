@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { uiLocale } from '../../utils/formatters';
 
 /**
  * Grappe module page — partitioned-run dashboard.
@@ -68,7 +69,7 @@ export const GrappePage: React.FC = () => {
             <Cpu className="w-5 h-5 text-hue-cyan shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
-                {totalRecords.toLocaleString()}
+                {totalRecords.toLocaleString(uiLocale())}
               </div>
               <div className="text-[10px] text-text-secondary">
                 {t('grappe.totalRecords', 'Records')}
@@ -81,7 +82,7 @@ export const GrappePage: React.FC = () => {
             <Play className="w-5 h-5 text-status-success shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
-                {currentProcessed.toLocaleString()}
+                {currentProcessed.toLocaleString(uiLocale())}
               </div>
               <div className="text-[10px] text-text-secondary">
                 {t('grappe.processed', 'processed')}
@@ -94,7 +95,7 @@ export const GrappePage: React.FC = () => {
             <Square className="w-5 h-5 text-status-error shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">
-                {totalFailed.toLocaleString()}
+                {totalFailed.toLocaleString(uiLocale())}
               </div>
               <div className="text-[10px] text-text-secondary">{t('grappe.failed', 'failed')}</div>
             </div>
@@ -118,7 +119,8 @@ export const GrappePage: React.FC = () => {
                   </Badge>
                 </div>
                 <span className="text-xs tabular-nums text-text-secondary">
-                  {currentProcessed.toLocaleString()} / {totalRecords.toLocaleString()}
+                  {currentProcessed.toLocaleString(uiLocale())} /{' '}
+                  {totalRecords.toLocaleString(uiLocale())}
                 </span>
               </div>
               {/* Overall progress bar */}
@@ -135,7 +137,7 @@ export const GrappePage: React.FC = () => {
                 </span>
                 {totalFailed > 0 && (
                   <span className="text-[10px] text-status-error">
-                    {totalFailed.toLocaleString()} {t('grappe.failed', 'failed')}
+                    {totalFailed.toLocaleString(uiLocale())} {t('grappe.failed', 'failed')}
                   </span>
                 )}
               </div>

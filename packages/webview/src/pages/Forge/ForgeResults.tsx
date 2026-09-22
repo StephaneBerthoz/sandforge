@@ -18,6 +18,7 @@ import {
 import type { ForgeExecutionError } from '@sandforge/shared';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
+import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { Button } from '../../components/ui/Button';
 import { VirtualList } from '../../components/ui/VirtualList';
 import { LogStream } from '../../components/ui/LogStream';
@@ -26,7 +27,7 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
-import { formatElapsed } from '../../utils/formatters';
+import { formatElapsed, uiLocale } from '../../utils/formatters';
 
 /**
  * Above this many source -> target pairs the Id map switches from a plain
@@ -57,7 +58,7 @@ export interface ForgeResultsProps {
  *
  * Displays KPI cards with inserted/skipped/remapped counts,
  * a per-object results table, and action buttons for
- * saving templates, copying reports, or starting a new forge.
+ * copying reports, exporting JSON, or starting a new forge.
  */
 export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const { save } = useFileSave();
@@ -113,13 +114,18 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
 
+  /** Records the run set out to write. */
+  const plannedRecords = useMemo(
+    () => result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0),
+    [result, nodes],
+  );
+
   // A record linked to the one the target already held is in the target, and
   // its children point at it: for the rate, it made it.
   const successRate = useMemo(() => {
-    const total = result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0);
-    if (total === 0) return 100;
-    return Math.round(((inserted + linked) / total) * 100);
-  }, [result, nodes, inserted, linked]);
+    if (plannedRecords === 0) return 100;
+    return Math.round(((inserted + linked) / plannedRecords) * 100);
+  }, [plannedRecords, inserted, linked]);
 
   const anonymizedFieldCount = useMemo(
     () => nodes.reduce((sum, n) => sum + n.anonymizeFields.length, 0),
@@ -205,16 +211,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     await navigator.clipboard.writeText(report);
   }, [buildReport]);
 
-  /** Placeholder for save-as-template action. */
-  const handleSaveTemplate = useCallback(() => {
-    addNotification({
-      level: 'info',
-      title: t('forge.saveTemplate'),
-      message: 'Coming soon',
-      autoDismissMs: 3000,
-    });
-  }, [addNotification, t]);
-
   /** Serialize result to JSON and copy to clipboard. */
   const handleExportJson = useCallback(async () => {
     const json = JSON.stringify(result, null, 2);
@@ -256,6 +252,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   return (
     <div data-testid="forge-results" className={cn('flex flex-col gap-4', className)}>
+      {/* The execution screen's announcer unmounts in the pass that shows this
+          one, so the finished run is spoken from here. */}
+      <ProgressAnnouncer
+        message={t('a11y.runFinished', {
+          name: t('nav.forge'),
+          written: inserted,
+          total: plannedRecords,
+        })}
+        immediate
+        testId="forge-results-status"
+      />
       {/* KPI row */}
       <m.div
         variants={staggerContainer}
@@ -311,7 +318,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <span data-testid="forge-results-timestamp">
             {t('forge.executionTimestamp')}:{' '}
             <strong className="text-text-primary">
-              {new Date(result.timestamp).toLocaleString()}
+              {new Date(result.timestamp).toLocaleString(uiLocale())}
             </strong>
           </span>
         </div>
@@ -322,6 +329,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         <div className="flex items-center gap-2 mb-2">
           <select
             data-testid="forge-results-status-filter"
+            aria-label={t('forge.statusFilterLabel')}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className={cn(
@@ -583,14 +591,19 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         animate="visible"
         className="flex flex-wrap items-center gap-3"
       >
+        {/* Not built yet, and said so before the click: a saved run's
+            configuration comes back today from History's Re-run. */}
         <Button
           variant="secondary"
           size="md"
           icon={<Save size={14} />}
-          onClick={handleSaveTemplate}
+          disabled
           data-testid="forge-save-template"
         >
           {t('forge.saveTemplate')}
+          <span className="ml-1.5 rounded-full border border-subtle px-1.5 text-[10px] leading-4">
+            {t('common.comingSoon')}
+          </span>
         </Button>
         <Button
           variant="secondary"

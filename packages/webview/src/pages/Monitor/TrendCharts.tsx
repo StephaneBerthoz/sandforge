@@ -4,6 +4,7 @@ import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Tabs } from '../../components/ui/Tabs';
 import { Sparkline } from '../../components/ui/Sparkline';
+import { dateTimeFormat } from '../../utils/formatters';
 
 /** Data point for trend charts. */
 export interface TrendDataPoint {
@@ -56,7 +57,7 @@ const MS_24H = 24 * 60 * 60 * 1000;
 export function formatTime(ts: string, multiDay = false): string {
   const date = new Date(ts);
   if (multiDay) {
-    return new Intl.DateTimeFormat(undefined, {
+    return dateTimeFormat({
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -64,7 +65,7 @@ export function formatTime(ts: string, multiDay = false): string {
       hour12: false,
     }).format(date);
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return dateTimeFormat({
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,

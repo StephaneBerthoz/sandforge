@@ -151,4 +151,21 @@ describe('ControlPanel progress bars', () => {
     const bar = screen.getByRole('progressbar', { name: 'Progress' });
     expect(bar.getAttribute('aria-valuenow')).toBe('60');
   });
+
+  it('tells a screen reader how far the run has got', () => {
+    // A run of several minutes updated only silent DOM: nothing was spoken
+    // from start to finish.
+    render(<ControlPanel />);
+    expect(screen.getByTestId('autopilot-progress-status').textContent).toBe(
+      'Autopilot progress: 25%',
+    );
+  });
+
+  it('tells a screen reader the run finished, and what it wrote', () => {
+    mockStoreState = { ...mockStoreState, executionStatus: 'completed' };
+    render(<ControlPanel />);
+    expect(screen.getByTestId('autopilot-progress-status').textContent).toBe(
+      'Autopilot finished. Written: 25 of 100.',
+    );
+  });
 });

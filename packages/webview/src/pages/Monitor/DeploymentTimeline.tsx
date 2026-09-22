@@ -9,6 +9,7 @@ import { Timeline } from '../../components/ui/Timeline';
 import type { TimelineItem, TimelineStatus } from '../../components/ui/Timeline';
 import type { DeploymentEntry } from '@sandforge/shared';
 import { ListCapNote } from './ListCapNote';
+import { dateTimeFormat } from '../../utils/formatters';
 
 /** Response shape from monitor:deployments. */
 interface DeploymentData {
@@ -39,7 +40,7 @@ function statusToTimelineStatus(status: DeploymentEntry['status']): TimelineStat
 
 /** Formats an ISO date to a readable local string. */
 function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return dateTimeFormat({
     month: 'short',
     day: 'numeric',
     hour: '2-digit',

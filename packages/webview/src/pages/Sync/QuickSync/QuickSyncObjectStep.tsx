@@ -248,7 +248,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                     type="button"
                     onClick={() => onRemoveObject(name)}
                     className="codicon codicon-close text-[10px] text-text-secondary hover:text-status-error focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
-                    aria-label={`Remove ${name}`}
+                    aria-label={t('a11y.removeObject', { object: name })}
                     data-testid={`remove-object-${name}`}
                   />
                 </div>

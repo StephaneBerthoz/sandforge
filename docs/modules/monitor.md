@@ -56,7 +56,8 @@ no longer shows a run that was in progress and cannot cancel it.
 Record counts per object, not megabytes, and not data storage:
 
 - The 20 objects that hold the most records, largest first, read from the
-  org's Record Count API, with how many objects hold records in all
+  org's Record Count API (`/limits/recordCount`, labels from
+  `EntityDefinition`), with how many objects hold records in all
 - Every object the org counts is in the list, setup and log objects included
   (object and field permissions, login history, the setup audit trail), and
   these often lead it; the panel says so. What uses data storage is the Data

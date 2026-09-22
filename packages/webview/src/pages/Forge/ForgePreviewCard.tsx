@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Database, Link2, EyeOff, AlertTriangle, Clock, Zap } from 'lucide-react';
 import type { ForgeGraph, ForgePlan } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { uiLocale } from '../../utils/formatters';
 
 /** Default reference-data objects — must mirror ForgeExecutor's default. */
 const REFERENCE_DATA_DEFAULTS = new Set(['BusinessHours', 'OperatingHours']);
@@ -110,7 +111,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         {tile(
           <Database size={13} className="text-status-success" />,
           t('forge.preview.willClone', 'Will clone'),
-          `${buckets.cloneObjects.length} obj · ${buckets.cloneRecords.toLocaleString()} rec`,
+          `${buckets.cloneObjects.length} obj · ${buckets.cloneRecords.toLocaleString(uiLocale())} rec`,
           buckets.cloneObjects,
           'border-status-success/30 bg-status-success/5',
           'forge-preview-clone',
