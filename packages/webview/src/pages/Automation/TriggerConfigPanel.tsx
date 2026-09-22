@@ -79,8 +79,8 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
         </div>
       </div>
 
-      {/* The scheduler channels answer with a no-op, so a trigger of any type
-          but manual is stored and never fires. Say so where it is configured. */}
+      {/* SandForge has no pipeline scheduler, so a trigger of any type but
+          manual is stored and never fires. Say so where it is configured. */}
       <p className="text-xs text-[var(--sf-text-secondary)]" data-testid="trigger-manual-only-note">
         {t('automation.triggerManualOnlyNote')}
       </p>
@@ -127,6 +127,19 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
                 </div>
               }
             />
+            {/* SandForge notices a sandbox refresh now, so this trigger looks
+                like it should fire. It is refused on purpose: say why here,
+                where it is configured, not after a refresh that ran nothing. */}
+            {trigger.type === 'sandbox_refresh' && (
+              <CardBody>
+                <p
+                  className="text-xs text-[var(--sf-text-secondary)]"
+                  data-testid={`trigger-refused-${trigger.id}`}
+                >
+                  {t('automation.sandboxRefreshTriggerRefused')}
+                </p>
+              </CardBody>
+            )}
             {trigger.type === 'schedule' && (
               <CardBody>
                 <div className="flex items-center gap-2">

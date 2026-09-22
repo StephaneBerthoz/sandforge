@@ -8,6 +8,7 @@ import { ConnectionPool } from './ConnectionPool';
 import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { isAuthError } from '../common/isAuthError.js';
+import { logger } from '../../logger.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -124,6 +125,41 @@ export function resetCircuitBreakers(): void {
     breaker.reset();
   }
   circuitBreakers.clear();
+}
+
+/** What the identity check of a new connection said about the org it reached. */
+export interface ValidatedIdentity {
+  /** The identity answer's `organization_id`: the org the credentials opened. */
+  organizationId: string;
+}
+
+/** Hears, for a registered org, which org its newly validated connection reached. */
+export type IdentityObserver = (orgId: string, identity: ValidatedIdentity) => void;
+
+let identityObserver: IdentityObserver | undefined;
+
+/**
+ * Be told which org each connection validated from now on reached; one
+ * observer at a time, `undefined` to stop.
+ *
+ * Every new connection is checked with an identity call, and its answer names
+ * the org. After a sandbox refresh that is another org than before, under the
+ * same username: the CLI token refresh below reconnects to it without a word,
+ * and this is where it can be noticed at no extra cost.
+ */
+export function observeValidatedIdentities(observer: IdentityObserver | undefined): void {
+  identityObserver = observer;
+}
+
+/** Hand an identity answer to the observer. Never throws: the connection is good either way. */
+function reportIdentity(orgId: string, identity: unknown): void {
+  const organizationId = (identity as { organization_id?: unknown } | null)?.organization_id;
+  if (!identityObserver || typeof organizationId !== 'string') return;
+  try {
+    identityObserver(orgId, { organizationId });
+  } catch (err: unknown) {
+    logger.warn('Identity observer threw', { orgId, error: extractErrorMessage(err) });
+  }
 }
 
 /** Fresh credentials as currently known by the SF CLI. */
@@ -361,12 +397,17 @@ export async function getJsforceConnection(
   const start = Date.now();
   const identityTimeoutMessage = `identity check did not answer within ${IDENTITY_TIMEOUT_MS / 1000} s`;
   try {
-    await withDeadline(conn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage);
+    const identity = await withDeadline(
+      conn.identity(),
+      IDENTITY_TIMEOUT_MS,
+      identityTimeoutMessage,
+    );
     const latency = Date.now() - start;
     circuitBreaker.recordSuccess();
     connectionPool.acquire(uid, credentials.instanceUrl, credentials.accessToken);
     connectionPool.recordLatency(uid, latency);
     lastValidatedAt.set(orgId, Date.now());
+    reportIdentity(orgId, identity);
     return conn;
   } catch (err: unknown) {
     const latency = Date.now() - start;
@@ -404,7 +445,11 @@ export async function getJsforceConnection(
           accessToken: fresh.accessToken,
           version: apiVersion,
         });
-        await withDeadline(refreshedConn.identity(), IDENTITY_TIMEOUT_MS, identityTimeoutMessage);
+        const refreshedIdentity = await withDeadline(
+          refreshedConn.identity(),
+          IDENTITY_TIMEOUT_MS,
+          identityTimeoutMessage,
+        );
 
         // Persist only AFTER the new credentials have been validated — a CLI
         // token rejected by identity() must never reach the vault.
@@ -420,6 +465,9 @@ export async function getJsforceConnection(
         connectionPool.acquire(uid, instanceUrl, fresh.accessToken);
         connectionPool.recordLatency(uid, latency);
         lastValidatedAt.set(orgId, Date.now());
+        // The path a refreshed sandbox takes: its old token fails, the CLI
+        // hands over one for the new org, and only this answer says so.
+        reportIdentity(orgId, refreshedIdentity);
         return refreshedConn;
       } catch (recoveryErr: unknown) {
         // Refresh failed or the new token was rejected too: this DOES count

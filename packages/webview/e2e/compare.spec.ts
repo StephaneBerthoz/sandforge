@@ -25,12 +25,18 @@ const MOCK_COMPARE_RESULT = {
   targetOrgId: QA_SANDBOX.id,
   mode: 'metadata',
   summary: {
-    totalItems: 135,
+    totalItems: 138,
     added: 5,
     removed: 2,
     modified: 8,
     unchanged: 120,
+    notCompared: 3,
     byType: {},
+  },
+  content: {
+    compared: 128,
+    notCompared: { unreadable: 1, read_failed: 0, over_budget: 2 },
+    budget: { components: 500, seconds: 90 },
   },
   // `CompareItem`, not the `{componentName, sourceContent}` shape the
   // quarantined fixture invented — `enrichDiffs` reads `fullName`,
@@ -68,6 +74,14 @@ const MOCK_COMPARE_RESULT = {
       status: 'unchanged',
       severity: 'info',
       deployable: true,
+    },
+    {
+      componentType: 'ApexClass',
+      fullName: 'pkg__Engine',
+      status: 'not_compared',
+      notComparedReason: 'unreadable',
+      severity: 'info',
+      deployable: false,
     },
   ],
   timestamp: '2026-09-10T09:00:00.000Z',
@@ -321,14 +335,23 @@ test.describe('Compare panel — running a comparison', () => {
     await expect(summary).toContainText('-2 Removed');
     await expect(summary).toContainText('~8 Modified');
     await expect(summary).toContainText('=120 Unchanged');
+    // In both orgs, content not compared: counted apart, and said why.
+    await expect(summary).toContainText('?3 Not compared');
+    await expect(page.getByTestId('compare-coverage-compared')).toHaveText(
+      'Content compared for 128 of the 131 components both orgs hold.',
+    );
+    await expect(page.getByTestId('compare-coverage-unreadable')).toHaveText(
+      'Content that cannot be read, such as Apex from a managed package: 1',
+    );
 
     // Risk scoring runs over the diffs, not over the summary.
     await expect(page.getByTestId('risk-score-card')).toBeVisible();
     await expect(page.getByTestId('risk-score-value')).not.toBeEmpty();
 
-    // Diff groups: the three changed items land in "Apex Code"; the
-    // unchanged CustomObject is filtered out by enrichDiffs, so no
-    // "Data Model" group exists.
+    // Diff groups: the three changed items land in "Apex Code", and the
+    // managed class nobody could read is not one of them; the unchanged
+    // CustomObject is filtered out by enrichDiffs, so no "Data Model" group
+    // exists.
     await expect(page.getByTestId('diff-groups')).toBeVisible();
     const apexGroup = page.getByTestId('diff-group-Apex Code');
     await expect(apexGroup).toBeVisible();
@@ -340,6 +363,7 @@ test.describe('Compare panel — running a comparison', () => {
     await expect(page.getByTestId('diff-item-AccountTrigger')).toBeVisible();
     await expect(page.getByTestId('diff-item-MyClass')).toBeVisible();
     await expect(page.getByTestId('diff-item-OldHelper')).toBeVisible();
+    await expect(page.getByTestId('diff-item-pkg__Engine')).toHaveCount(0);
 
     // And a component opens its detail modal.
     await page.getByTestId('diff-item-OldHelper').click();

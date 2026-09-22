@@ -93,9 +93,93 @@ describe('ConditionalRouter', () => {
       );
     });
 
-    it('should handle matches operator with invalid regex', () => {
+    it('refuses to answer a pattern that does not compile, instead of answering false', () => {
       const condition: PipelineCondition = { field: 'val', operator: 'matches', value: '[invalid' };
-      expect(router.evaluate(condition, { val: 'test' })).toBe(false);
+      expect(() => router.evaluate(condition, { val: 'test' })).toThrow(
+        'the condition matches "val" against "[invalid", which is not a valid pattern',
+      );
+    });
+
+    it('finds a number equal to the text a run variable holds', () => {
+      // A run's variables are all text, and strict `===` never found '5' equal to 5.
+      const five: PipelineCondition = { field: 'count', operator: 'eq', value: 5 };
+      expect(router.evaluate(five, { count: '5' })).toBe(true);
+      expect(router.evaluate(five, { count: '5.0' })).toBe(true);
+      expect(router.evaluate(five, { count: 'five' })).toBe(false);
+      expect(router.evaluate(five, {})).toBe(false);
+      expect(router.evaluate({ ...five, operator: 'neq' }, { count: '5' })).toBe(false);
+      expect(router.evaluate({ ...five, operator: 'neq' }, { count: '6' })).toBe(true);
+    });
+
+    it('compares true and false as booleans, and text as text', () => {
+      const enabled: PipelineCondition = { field: 'enabled', operator: 'eq', value: true };
+      expect(router.evaluate(enabled, { enabled: 'true' })).toBe(true);
+      expect(router.evaluate(enabled, { enabled: 'TRUE' })).toBe(true);
+      expect(router.evaluate(enabled, { enabled: 'false' })).toBe(false);
+      expect(router.evaluate({ ...enabled, value: false }, { enabled: 'false' })).toBe(true);
+
+      const code: PipelineCondition = { field: 'code', operator: 'eq', value: '05' };
+      expect(router.evaluate(code, { code: '05' })).toBe(true);
+      expect(router.evaluate(code, { code: '5' })).toBe(false);
+    });
+
+    it('orders a number written as text', () => {
+      const high: PipelineCondition = { field: 'usage', operator: 'gt', value: '80' };
+      expect(router.evaluate(high, { usage: '95' })).toBe(true);
+      expect(router.evaluate(high, { usage: '9' })).toBe(false);
+    });
+
+    it('does not answer an order for a value that is not a number', () => {
+      // `Number('')` is 0: an unset variable was "less than 5", and a
+      // threshold never reached read as a real answer.
+      const small: PipelineCondition = { field: 'count', operator: 'lt', value: 5 };
+      expect(() => router.evaluate(small, {})).toThrow('"count" has no value to compare with 5');
+      expect(() => router.evaluate(small, { count: '' })).toThrow(
+        '"count" has no value to compare with 5',
+      );
+      expect(() => router.evaluate(small, { count: 'many' })).toThrow(
+        '"count" is "many", not a number to compare with 5',
+      );
+    });
+
+    it('reads only the values the context holds, not what every object inherits', () => {
+      expect(router.evaluate({ field: 'constructor', operator: 'is_empty', value: '' }, {})).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('check', () => {
+    it('clears a condition every operator can answer', () => {
+      expect(router.check({ field: 'env', operator: 'eq', value: 'prod' })).toBeUndefined();
+      expect(router.check({ field: 'count', operator: 'gte', value: '3' })).toBeUndefined();
+      expect(router.check({ field: 'id', operator: 'matches', value: '^a0' })).toBeUndefined();
+      // Presence needs no value to compare with.
+      expect(
+        router.check({ field: 'env', operator: 'is_empty' } as unknown as PipelineCondition),
+      ).toBeUndefined();
+    });
+
+    it('says why a condition cannot be evaluated, before any run asks it', () => {
+      expect(router.check(undefined)).toBe('names no field to test');
+      expect(router.check({ field: ' ', operator: 'eq', value: 'x' })).toBe(
+        'names no field to test',
+      );
+      expect(router.check({ field: 'usage', operator: '>' as never, value: '80' })).toBe(
+        'uses an unknown operator: >',
+      );
+      expect(router.check({ field: 'usage', operator: 'eq' } as unknown as PipelineCondition)).toBe(
+        'compares "usage" with no value',
+      );
+      expect(router.check({ field: 'usage', operator: 'gt', value: 'high' })).toBe(
+        'compares "usage" with "high", which is not a number',
+      );
+      expect(router.check({ field: 'usage', operator: 'lt', value: true })).toBe(
+        'compares "usage" with true, which is not a number',
+      );
+      expect(router.check({ field: 'id', operator: 'matches', value: '(' })).toBe(
+        'matches "id" against "(", which is not a valid pattern',
+      );
     });
   });
 
@@ -150,6 +234,37 @@ describe('ConditionalRouter', () => {
       const step = createStep({ onSuccess: 'step-2', onFailure: 'step-3' });
       expect(router.getNextStep(step, createResult({ status: 'pending' }))).toBeUndefined();
       expect(router.getNextStep(step, createResult({ status: 'skipped' }))).toBeUndefined();
+    });
+
+    it('sends a Condition step whose condition does not hold to its onFailure step', () => {
+      const step = createStep({ onSuccess: 'then', onFailure: 'else' });
+
+      expect(router.getNextStep(step, createResult({ output: { conditionMet: false } }))).toBe(
+        'else',
+      );
+      expect(router.getNextStep(step, createResult({ output: { conditionMet: true } }))).toBe(
+        'then',
+      );
+    });
+  });
+
+  describe('endsRun', () => {
+    const notMet = createResult({ output: { conditionMet: false } });
+
+    it('ends the run after a Condition step whose condition does not hold', () => {
+      expect(router.endsRun(createStep(), notMet)).toBe(true);
+    });
+
+    it('does not end it when the Condition names a step to go on from', () => {
+      expect(router.endsRun(createStep({ onFailure: 'else' }), notMet)).toBe(false);
+    });
+
+    it('does not end it when the condition holds, or after any other step', () => {
+      expect(router.endsRun(createStep(), createResult({ output: { conditionMet: true } }))).toBe(
+        false,
+      );
+      expect(router.endsRun(createStep({ type: 'delay' }), notMet)).toBe(false);
+      expect(router.endsRun(createStep(), createResult({ status: 'failed' }))).toBe(false);
     });
   });
 

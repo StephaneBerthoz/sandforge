@@ -11,6 +11,8 @@
   "SandForge: {0} failed — {1}": "SandForge: {0} fehlgeschlagen — {1}",
   "Show Details": "Details anzeigen",
   "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: Noch keine Org registriert — verbinden Sie zuerst eine über die Seite „Organisationen“.",
+  "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.": "SandForge: Die Sandbox {0} wurde aktualisiert und ist jetzt eine neue Org — was vor der Aktualisierung dort geschrieben wurde, ist weg. SandForge hat verworfen, was es dazu zwischengespeichert hatte.",
+  "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.": "SandForge: Die Sandbox {0} hat eine Aktualisierung abgeschlossen, laut der Refresh-Historie von {1}. SandForge hat verworfen, was es dazu zwischengespeichert hatte.",
   "Select the org to open in the browser": "Wählen Sie die Org aus, die im Browser geöffnet werden soll",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: „{0}“ kann nicht geöffnet werden — ungültige Instanz-URL: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: Öffnen von „{0}“ abgelehnt — die Instanz-URL muss HTTPS verwenden, erhalten „{1}“.",

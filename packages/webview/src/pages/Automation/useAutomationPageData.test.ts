@@ -94,8 +94,8 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
-/** `sandforge.pipeline.timeout` default, read from the extension manifest. */
-function manifestPipelineTimeoutDefault(): number {
+/** `sandforge.pipeline.timeout`'s default and maximum, read from the extension manifest. */
+function manifestPipelineTimeout(): { default: number; maximum: number } {
   // vitest may be started from the workspace root or from packages/webview.
   const manifestPath = [
     resolve(process.cwd(), '../extension/package.json'),
@@ -106,14 +106,16 @@ function manifestPipelineTimeoutDefault(): number {
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     contributes: {
-      configuration: { properties: Record<string, { default?: unknown }> };
+      configuration: { properties: Record<string, { default?: unknown; maximum?: unknown }> };
     };
   };
   const setting = manifest.contributes.configuration.properties['sandforge.pipeline.timeout'];
-  if (typeof setting?.default !== 'number') {
-    throw new Error('sandforge.pipeline.timeout has no numeric default in the extension manifest');
+  if (typeof setting?.default !== 'number' || typeof setting.maximum !== 'number') {
+    throw new Error(
+      'sandforge.pipeline.timeout has no numeric default and maximum in the extension manifest',
+    );
   }
-  return setting.default;
+  return { default: setting.default, maximum: setting.maximum };
 }
 
 beforeEach(() => {
@@ -124,13 +126,17 @@ beforeEach(() => {
 });
 
 describe('useAutomationPageData — pipeline execution timeout', () => {
-  it('should not give up on a run before the host does', () => {
+  it('should not give up on a run before the host does, whatever budget the host is given', () => {
     renderHook(() => useAutomationPageData());
 
-    const options = mutationOptions.get('pipeline:execute');
+    const timeoutMs = mutationOptions.get('pipeline:execute')?.timeoutMs;
     // A 30 s UI deadline reported a 45 s pipeline as failed while the host was
-    // still running it under a 300 s budget.
-    expect(options?.timeoutMs).toBe(manifestPipelineTimeoutDefault());
+    // still running it under a 300 s budget; a deadline equal to that budget
+    // starts first and ends first, before the host's answer to a run the
+    // budget stopped. The host answers every run, so the page waits out the
+    // longest budget the setting accepts.
+    expect(typeof timeoutMs).toBe('number');
+    expect(timeoutMs as number).toBeGreaterThan(manifestPipelineTimeout().maximum);
   });
 
   it('should still listen on the pipeline:run:response channel', () => {
@@ -139,10 +145,12 @@ describe('useAutomationPageData — pipeline execution timeout', () => {
     expect(mutationOptions.get('pipeline:execute')?.responseType).toBe('pipeline:run:response');
   });
 
-  it('should read a numeric default for sandforge.pipeline.timeout from the manifest', () => {
+  it('should read a numeric default and maximum for sandforge.pipeline.timeout from the manifest', () => {
     // Guards the assertion above: if the setting is renamed or dropped, this
     // fails loudly instead of the comparison silently passing on undefined.
-    expect(manifestPipelineTimeoutDefault()).toBeGreaterThan(0);
+    const { default: byDefault, maximum } = manifestPipelineTimeout();
+    expect(byDefault).toBeGreaterThan(0);
+    expect(maximum).toBeGreaterThanOrEqual(byDefault);
   });
 });
 

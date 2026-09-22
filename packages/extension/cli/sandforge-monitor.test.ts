@@ -122,6 +122,50 @@ describe('describeAnswer', () => {
     expect(lines).toContain('    a2 active another org: theirs');
   });
 
+  /** An answered request whose payload is `payload`. */
+  function answered(type: string, payload: Record<string, unknown>) {
+    return {
+      outcome: 'answered' as const,
+      elapsedMs: 5,
+      late: false,
+      message: { id: 'r1', type, timestamp: 0, payload },
+    };
+  }
+
+  it('says where a list stops when its read came back full, as the page does', () => {
+    const sessions = Array.from({ length: 3 }, (_, i) => ({
+      sessionType: 'UI',
+      sessionId: `s${i}`,
+    }));
+    const [, full] = describeAnswer(
+      'monitor:sessions',
+      'sessions',
+      answered('monitor:sessions:response', { sessions, activeUserCount: 2, truncated: true }),
+    );
+    const [, complete] = describeAnswer(
+      'monitor:sessions',
+      'sessions',
+      answered('monitor:sessions:response', { sessions, activeUserCount: 2, truncated: false }),
+    );
+
+    expect(full).toBe('  3 session(s), 2 active user(s); the list stops at 3');
+    expect(complete).toBe('  3 session(s), 2 active user(s)');
+  });
+
+  it('says how many counted objects the storage list stops short of', () => {
+    const [, head] = describeAnswer(
+      'monitor:storage',
+      'storage',
+      answered('monitor:storage:response', {
+        objects: [{ objectName: 'ObjectPermissions', recordCount: 37000 }],
+        totalRecords: 133989,
+        objectCount: 216,
+      }),
+    );
+
+    expect(head).toBe('  1 of 216 object(s) holding records listed, total 133989 record(s)');
+  });
+
   it('says an answer past the page timeout was dropped by the page', () => {
     const [head] = describeAnswer('monitor:refresh', 'refresh', {
       outcome: 'answered',

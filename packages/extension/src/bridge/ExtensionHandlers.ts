@@ -25,8 +25,12 @@ import type {
   InfraServices,
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
+import type { UUID } from '@sandforge/shared';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
+import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
+import { forgetOrgDescribes } from '../core/connection/describeCache.js';
+import { SandboxRefreshDetector } from '../modules/monitor/SandboxRefreshDetector.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
@@ -145,11 +149,17 @@ export class ExtensionHandlers {
   private readonly i18nHandler: I18nHandler;
   private readonly syncHistoryStore: SyncHistoryStore;
   private executionHandler?: ExecutionHandler;
+  private readonly refreshDetector: SandboxRefreshDetector;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Default to a no-op executor so tests that don't care about the reload
     // command can still construct ExtensionHandlers without wiring vscode.
     this.executeCommand = deps.executeCommand ?? (() => Promise.resolve());
+    this.refreshDetector = new SandboxRefreshDetector({
+      configStore: deps.configStore,
+      orgManager: deps.orgManager,
+      log: deps.log,
+    });
     // Shared mutable deps object — infraServices is set later via setInfraServices
     this.handlerDeps = {
       log: deps.log,
@@ -168,6 +178,7 @@ export class ExtensionHandlers {
       robustness: DEFAULT_ROBUSTNESS_CONFIG,
       bulkManager: new BulkApiManager(DEFAULT_ROBUSTNESS_CONFIG.bulk.maxConcurrentJobs),
       nextId: () => this.nextId(),
+      sandboxRefreshes: this.refreshDetector,
     };
 
     this.orgHandler = new OrgHandler(this.handlerDeps);
@@ -207,6 +218,38 @@ export class ExtensionHandlers {
     this.reportsHandler = new ReportsHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
     this.i18nHandler = new I18nHandler(this.handlerDeps, deps.localesDir);
+    this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
+  }
+
+  /**
+   * Which org each registered sandbox answered as last, and the refreshes
+   * noticed on it. The composition root feeds it every connection's identity
+   * check and tells the user of each refresh (see
+   * `composition/sandboxRefreshComposition.ts`).
+   */
+  get sandboxRefreshes(): SandboxRefreshDetector {
+    return this.refreshDetector;
+  }
+
+  /**
+   * Drop everything held about an org that is no longer the org it was.
+   *
+   * A refreshed sandbox answers from a new org behind the same registered id,
+   * so whatever is keyed by that id describes the org the refresh replaced:
+   * the pooled connection, the describes of every module, Forge's discovered
+   * graphs, the Monitor's readings, the Smart Action recommendation.
+   *
+   * @param orgId - The registered org.
+   */
+  private forgetOrg(orgId: string): void {
+    getConnectionPool().remove(orgId as UUID);
+    forgetOrgDescribes(orgId);
+    this.monitorHandler.forgetOrg(orgId);
+    this.forgeHandler.forgetOrg(orgId);
+    this.frozenHandler.forgetOrg(orgId);
+    this.aiHandler.forgetOrg(orgId);
+    this.smartActionHandler.forgetOrg(orgId);
+    this.handlerDeps.log(`[sandbox-refresh] dropped what was cached about ${orgId}`);
   }
 
   /** Inject live operation tracker for monitor:live-operations messages. */
@@ -626,13 +669,9 @@ export class ExtensionHandlers {
       route(['execution:abort'], this.executionHandler);
     }
 
-    // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)
+    // No-op handler for a ghost feature (RealTime CDC)
     route(
       [
-        'scheduler:list',
-        'scheduler:upsert',
-        'scheduler:delete',
-        'scheduler:toggle',
         'realtime:start',
         'realtime:stop',
         'realtime:status',

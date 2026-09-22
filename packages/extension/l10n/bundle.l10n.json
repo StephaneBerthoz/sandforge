@@ -11,6 +11,8 @@
   "SandForge: {0} failed — {1}": "SandForge: {0} failed — {1}",
   "Show Details": "Show Details",
   "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: no org is registered yet — connect one from the Organizations page first.",
+  "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.": "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.",
+  "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.": "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.",
   "Select the org to open in the browser": "Select the org to open in the browser",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: cannot open \"{0}\" — invalid instance URL: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".",

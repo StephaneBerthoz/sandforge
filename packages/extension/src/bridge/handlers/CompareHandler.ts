@@ -1,4 +1,3 @@
-import { sanitizeSoqlObjectName, SF_API_VERSION } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -7,9 +6,8 @@ import {
   compareOrgsPayloadSchema,
 } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
+import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
-import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 
 /**
  * The types listMetadata answers only folder by folder, each with the type
@@ -35,8 +33,9 @@ const COMPARE_TYPES = new Set([
 /**
  * Domain handler for compare-related webview-to-extension messages.
  *
- * Routes compare:* message types to metadata, config, permission,
- * and data comparison operations between two Salesforce orgs.
+ * Routes compare:* message types: the metadata diff, permission set and
+ * profile presence, the object snapshot and five Organization settings,
+ * between two Salesforce orgs.
  */
 export class CompareHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
@@ -87,18 +86,9 @@ export class CompareHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      // Resolve dynamic query limits based on source org tier
-      const compareSourceOrg = this.deps.orgManager.getOrg(payload.sourceOrgId);
-      const compareOrgTier = resolveOrgTier(
-        compareSourceOrg?.orgType === 'Sandbox' || compareSourceOrg?.orgType === 'Scratch',
-      );
-      const compareQueryLimits = getQueryLimits(compareOrgTier);
-
       const { DiffEngine } = await import('../../modules/compare/DiffEngine.js');
       const { MetadataCompare } = await import('../../modules/compare/MetadataCompare.js');
-      const { ConfigCompare } = await import('../../modules/compare/ConfigCompare.js');
-      const { PermissionCompare } = await import('../../modules/compare/PermissionCompare.js');
-      const { DataCompare } = await import('../../modules/compare/DataCompare.js');
+      const { createContentReader } = await import('../../modules/compare/ContentReader.js');
 
       const diffEngine = new DiffEngine();
 
@@ -129,42 +119,12 @@ export class CompareHandler implements DomainHandler {
         return components;
       };
 
-      const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine);
-      const configCompare = new ConfigCompare(async (orgId) => {
-        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-        const settings = (await conn.request(
-          `/services/data/${SF_API_VERSION}/tooling/query?q=SELECT+FullName,Metadata+FROM+OrgWideEmailAddress+LIMIT+1`,
-        )) as Record<string, string>;
-        return new Map<string, string>(Object.entries(settings));
-      }, diffEngine);
-      const permissionCompare = new PermissionCompare(async (orgId) => {
-        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-        const records = await queryAll<{ Id: string; Name: string }>(
-          conn,
-          `SELECT Id, Name FROM PermissionSet LIMIT ${compareQueryLimits.permissionSetLimit}`,
-        );
-        checkApiLimits(conn.limitInfo, `compare:permissionSets query`);
-        return records.map((r) => ({
-          name: r.Name,
-          type: 'PermissionSet' as const,
-          objectPermissions: {} as Record<
-            string,
-            { create: boolean; read: boolean; update: boolean; delete: boolean }
-          >,
-          fieldPermissions: {} as Record<string, boolean>,
-        }));
-      });
-      const dataCompare = new DataCompare(async (orgId, objectName) => {
-        const safeObj = sanitizeSoqlObjectName(objectName);
-        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-        const dataRecords = await queryWithFieldsFallback<Record<string, string>>(
-          conn,
-          safeObj,
-          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${compareQueryLimits.defaultQueryLimit}`,
-        );
-        checkApiLimits(conn.limitInfo, `compare:data query ${safeObj}`);
-        return dataRecords;
-      });
+      // What each org holds of a component both list: the listing alone
+      // differs between any two orgs, whatever the component says.
+      const contentReader = createContentReader((orgId) =>
+        orgId === payload.sourceOrgId ? sourceConn : targetConn,
+      );
+      const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine, contentReader);
 
       if (!this.deps.services) {
         throw new Error(
@@ -173,9 +133,6 @@ export class CompareHandler implements DomainHandler {
       }
       const orchestrator = this.deps.services.compareOrchestrator({
         metadataCompare,
-        configCompare,
-        permissionCompare,
-        dataCompare,
         diffEngine,
         services: this.deps.services,
       });

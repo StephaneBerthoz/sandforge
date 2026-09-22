@@ -251,15 +251,37 @@ test('no pipeline view handles a status a run never reaches', () => {
   // `waiting_approval` was in the run-status union, badged in the history view
   // and treated as active in the execution view, although no code has ever
   // assigned it: the UI carried an approval concept nothing could produce.
+  // `paused` went the same way once nothing could pause a run.
+  const unreached = /waiting_approval|\bpaused\b/;
   const views = ['PipelineCanvas.tsx', 'PipelineExecutionView.tsx', 'PipelineHistoryView.tsx'];
   for (const file of views) {
     const source = read(webviewSrc, 'pages', 'Automation', file);
-    assert.doesNotMatch(source, /waiting_approval/, `${file} still handles waiting_approval`);
+    assert.doesNotMatch(source, unreached, `${file} still handles a status no run reaches`);
   }
+  const union = automationTypes.match(/export type PipelineRunStatus =([^;]+);/);
+  assert.ok(union, 'PipelineRunStatus union not found in automation.types.ts');
   assert.doesNotMatch(
-    read(repoRoot, 'packages', 'shared', 'src', 'types', 'automation.types.ts'),
-    /waiting_approval/,
+    union[1],
+    unreached,
     'PipelineRunStatus still offers a status no run is ever given',
+  );
+});
+
+test('no run can be paused, since nothing takes a paused run up again', () => {
+  // `pause` stopped the run before its next step and recorded it as paused,
+  // after which `resume` found no active run to wake. No message reached
+  // either of them, and the execution view offered buttons for both.
+  const orchestrator = read(extensionSrc, 'modules', 'automation', 'PipelineOrchestrator.ts');
+  assert.doesNotMatch(
+    orchestrator,
+    /^ {2}(?:pause|resume)\(/m,
+    'PipelineOrchestrator offers a pause or a resume again — does a paused run resume now?',
+  );
+  const view = read(webviewSrc, 'pages', 'Automation', 'PipelineExecutionView.tsx');
+  assert.doesNotMatch(
+    view,
+    /\bon(?:Pause|Resume)\b/,
+    'the execution view offers to pause or resume a run again',
   );
 });
 
@@ -306,7 +328,7 @@ test('a finished run is written where the History tab reads it', () => {
   // above matches while nothing is ever written.
   assert.match(
     handler,
-    /await new TimeoutManager[\s\S]*?this\.recordRun\(/,
+    /await orchestrator\.execute\([\s\S]*?this\.recordRun\(/,
     'the run handler never calls the history writer after a run',
   );
   assert.match(

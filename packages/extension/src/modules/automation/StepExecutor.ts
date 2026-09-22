@@ -1,13 +1,10 @@
-import type {
-  ConditionOperator,
-  PipelineStep,
-  PipelineStepResult,
-  PipelineStepType,
-} from '@sandforge/shared';
+import type { PipelineStep, PipelineStepResult, PipelineStepType } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { conditionDefect, evaluateCondition } from './ConditionalRouter.js';
 
 /** Runtime context passed to step handlers during execution */
 export interface StepContext {
+  /** The run's variables: the pipeline's defaults, with the values the run was given over them. */
   variables: Record<string, string>;
   previousResults: PipelineStepResult[];
   pipelineId: string;
@@ -35,20 +32,15 @@ type StepCheck = (step: PipelineStep) => string | undefined;
  */
 const MAX_DELAY_MS = 24 * 24 * 60 * 60 * 1000;
 
-/** Every operator a condition can name; any other one would quietly evaluate to false. */
-const CONDITION_OPERATORS: ReadonlySet<string> = new Set<ConditionOperator>([
-  'eq',
-  'neq',
-  'gt',
-  'gte',
-  'lt',
-  'lte',
-  'contains',
-  'not_contains',
-  'matches',
-  'is_empty',
-  'is_not_empty',
-]);
+/**
+ * How one try at a step ended: with the handler's own result, or with the
+ * reason it did not give one. `final` marks a try the run itself stopped,
+ * which no retry may follow.
+ */
+type Attempt = { result: PipelineStepResult } | { error: string; final: boolean };
+
+/** What a try settles with when its signal aborts before the handler answers. */
+const STOPPED: unique symbol = Symbol('stopped');
 
 /**
  * Creates a successful step result for the given step.
@@ -140,10 +132,8 @@ function checkCondition(step: PipelineStep): string | undefined {
   if (!condition || typeof condition.field !== 'string' || condition.field.trim() === '') {
     return `Condition step "${step.name}" has no condition to evaluate.`;
   }
-  if (!CONDITION_OPERATORS.has(condition.operator)) {
-    return `Condition step "${step.name}" uses an unknown operator: ${String(condition.operator)}.`;
-  }
-  return undefined;
+  const defect = conditionDefect(condition);
+  return defect === undefined ? undefined : `Condition step "${step.name}" ${defect}.`;
 }
 
 /**
@@ -186,14 +176,20 @@ export class StepExecutor {
    * Execute a pipeline step within the given context.
    * Applies timeout and retry logic as configured on the step. A step that
    * cannot run fails at once, without retries: nothing about it is transient.
+   *
+   * A step's timeout stops the step, not only the wait for it. It used to give
+   * up on the step and leave it running: the result said the step had timed
+   * out while a Delay went on waiting, and a retry started a second wait beside
+   * the first. See {@link attempt}.
    * @param step - The step to execute
    * @param context - Runtime context with variables and previous results
    * @returns The result of executing the step
    */
   async execute(step: PipelineStep, context: StepContext): Promise<PipelineStepResult> {
+    const startTime = new Date().toISOString();
     const refusal = this.check(step);
     if (refusal) {
-      return createFailureResult(step, refusal, new Date().toISOString());
+      return createFailureResult(step, refusal, startTime);
     }
 
     const handler = this.getExecutor(step.type);
@@ -201,26 +197,74 @@ export class StepExecutor {
     let lastError = '';
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const resultPromise = handler(step, context);
-
-        if (step.timeout && step.timeout > 0) {
-          const timeoutPromise = new Promise<PipelineStepResult>((_, reject) => {
-            setTimeout(() => reject(new Error('Step execution timed out')), step.timeout);
-          });
-          return await Promise.race([resultPromise, timeoutPromise]);
-        }
-
-        return await resultPromise;
-      } catch (err) {
-        lastError = extractErrorMessage(err);
-        if (attempt === maxRetries) {
-          return createFailureResult(step, lastError, new Date().toISOString());
-        }
+      const outcome = await this.attempt(handler, step, context);
+      if ('result' in outcome) {
+        return outcome.result;
+      }
+      lastError = outcome.error;
+      if (outcome.final) {
+        break;
       }
     }
 
-    return createFailureResult(step, lastError, new Date().toISOString());
+    return createFailureResult(step, lastError, startTime);
+  }
+
+  /**
+   * One try at `step`. The handler runs under a signal of its own, which the
+   * run's signal and the step's timeout both abort, and the try ends as soon as
+   * that signal aborts, whatever the handler does with it: a handler that
+   * ignores its signal cannot hold the run, or the next try, after the step
+   * has been given up on. Nothing the try set up — its timer, its listener on
+   * the run — outlives it.
+   * @param handler - The handler of the step's type
+   * @param step - The step to try
+   * @param context - The run's context; its signal stops the try
+   */
+  private async attempt(
+    handler: StepHandler,
+    step: PipelineStep,
+    context: StepContext,
+  ): Promise<Attempt> {
+    const run = context.signal;
+    if (run?.aborted) {
+      return { error: `Step "${step.name}" was stopped before it started.`, final: true };
+    }
+
+    const stop = new AbortController();
+    const stopped = new Promise<typeof STOPPED>((resolve) => {
+      stop.signal.addEventListener('abort', () => resolve(STOPPED), { once: true });
+    });
+    const onRunAbort = (): void => stop.abort();
+    run?.addEventListener('abort', onRunAbort, { once: true });
+
+    let timedOut = false;
+    const timeout = step.timeout;
+    const timer =
+      timeout !== undefined && timeout > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            stop.abort();
+          }, timeout)
+        : undefined;
+
+    try {
+      const outcome = await Promise.race([
+        handler(step, { ...context, signal: stop.signal }),
+        stopped,
+      ]);
+      if (outcome !== STOPPED) {
+        return { result: outcome };
+      }
+      return timedOut
+        ? { error: `Step "${step.name}" timed out after ${timeout} ms.`, final: false }
+        : { error: `Step "${step.name}" was stopped before it finished.`, final: true };
+    } catch (err) {
+      return { error: extractErrorMessage(err), final: false };
+    } finally {
+      clearTimeout(timer);
+      run?.removeEventListener('abort', onRunAbort);
+    }
   }
 
   /**
@@ -305,55 +349,20 @@ export class StepExecutor {
         return createFailureResult(step, refusal ?? 'No condition', startTime);
       }
 
-      const fieldValue = context.variables[step.condition.field];
-      const conditionMet = this.evaluateSimpleCondition(
-        fieldValue,
-        step.condition.operator,
-        step.condition.value,
-      );
-
-      return createSuccessResult(step, { conditionMet }, startTime);
-    };
-  }
-
-  private evaluateSimpleCondition(
-    actual: string | undefined,
-    operator: string,
-    expected: string | number | boolean,
-  ): boolean {
-    const actualStr = actual ?? '';
-    const expectedStr = String(expected);
-
-    switch (operator) {
-      case 'eq':
-        return actualStr === expectedStr;
-      case 'neq':
-        return actualStr !== expectedStr;
-      case 'contains':
-        return actualStr.includes(expectedStr);
-      case 'not_contains':
-        return !actualStr.includes(expectedStr);
-      case 'is_empty':
-        return actualStr === '';
-      case 'is_not_empty':
-        return actualStr !== '';
-      case 'gt':
-        return Number(actualStr) > Number(expectedStr);
-      case 'gte':
-        return Number(actualStr) >= Number(expectedStr);
-      case 'lt':
-        return Number(actualStr) < Number(expectedStr);
-      case 'lte':
-        return Number(actualStr) <= Number(expectedStr);
-      case 'matches': {
-        try {
-          return new RegExp(expectedStr).test(actualStr);
-        } catch {
-          return false;
-        }
+      // Held or not, the answer is the step's work, and the run reads it: a
+      // condition that does not hold keeps the steps after it from running.
+      // The one evaluation the router makes serves here too, so a Condition
+      // step and a condition on any other step cannot answer differently.
+      try {
+        const conditionMet = evaluateCondition(step.condition, context.variables);
+        return createSuccessResult(step, { conditionMet }, startTime);
+      } catch (err) {
+        return createFailureResult(
+          step,
+          `Condition step "${step.name}" could not be evaluated: ${extractErrorMessage(err)}.`,
+          startTime,
+        );
       }
-      default:
-        return false;
-    }
+    };
   }
 }

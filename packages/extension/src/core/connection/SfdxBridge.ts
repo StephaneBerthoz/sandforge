@@ -86,18 +86,46 @@ function extractJson(raw: string): string {
   return stripped.slice(start);
 }
 
-/** Result from parsing a single SF CLI org entry */
+/**
+ * One org entry of `sf org list --json`, as the CLI writes it.
+ *
+ * The flag is `isScratch`: an `isScratchOrg` key was read here that no entry
+ * carries, so a scratch org was typed from `isSandbox` alone and came in as
+ * Production. `orgEdition` is the edition ("Developer Edition"); `name`, read
+ * as the edition before, is the org's own name.
+ */
 export interface SfdxOrgEntry {
   orgId: string;
   username: string;
   alias?: string;
   instanceUrl: string;
   accessToken?: string;
-  connectedStatus: string;
+  /**
+   * The CLI's reachability verdict. Written on the orgs it pings, not on the
+   * entries of the `scratchOrgs` bucket, which carry `status` instead.
+   */
+  connectedStatus?: string;
   isSandbox?: boolean;
-  isScratchOrg?: boolean;
+  isScratch?: boolean;
+  /** Scratch entries: the Dev Hub's word on the org ("Active", "Expired"…). */
+  status?: string;
+  /** Scratch entries: whether the org is past its expiration date. */
+  isExpired?: boolean;
   instanceApiVersion?: string;
-  name?: string;
+  orgEdition?: string;
+}
+
+/**
+ * Whether an entry is an org the CLI can still reach.
+ *
+ * A pinged org says so in `connectedStatus`. The `scratchOrgs` bucket carries
+ * no such key: its entries hold the Dev Hub's `status` and an `isExpired`
+ * flag, and requiring "Connected" of them dropped every scratch org from an
+ * import, active ones included.
+ */
+function isUsable(entry: SfdxOrgEntry): boolean {
+  if (entry.connectedStatus !== undefined) return entry.connectedStatus === 'Connected';
+  return entry.isScratch === true && entry.status === 'Active' && entry.isExpired !== true;
 }
 
 /** Result of importing orgs from SF CLI */
@@ -194,7 +222,7 @@ export class SfdxBridge {
 
     const deduped = this.dedupeByOrgId(allEntries);
     return deduped
-      .filter((entry) => entry.connectedStatus === 'Connected')
+      .filter((entry) => isUsable(entry))
       .map((entry) => this.mapToSalesforceOrg(entry));
   }
 
@@ -238,7 +266,7 @@ export class SfdxBridge {
   }
 
   private mapToSalesforceOrg(entry: SfdxOrgEntry): SfdxImportResult {
-    const orgType = entry.isScratchOrg
+    const orgType = entry.isScratch
       ? ('Scratch' as const)
       : entry.isSandbox
         ? ('Sandbox' as const)
@@ -269,7 +297,7 @@ export class SfdxBridge {
       },
       metadata: {
         apiVersion: entry.instanceApiVersion ?? SF_LIMITS.DEFAULT_API_VERSION,
-        edition: entry.name ?? '',
+        edition: entry.orgEdition ?? '',
         features: [],
       },
       status: 'connected',

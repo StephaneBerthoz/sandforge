@@ -55,6 +55,17 @@ export class SmartActionHandler implements DomainHandler {
   }
 
   /**
+   * Drop the recommendation held for an org that is no longer the org it was.
+   * It was read from record counts, and a refreshed sandbox holds a new copy
+   * of production's records: "this org is empty, seed it" may no longer be so.
+   *
+   * @param orgId - The registered org.
+   */
+  forgetOrg(orgId: string): void {
+    this.cache.delete(`smart-action:${orgId}`);
+  }
+
+  /**
    * Handle the smart-action:analyze request.
    *
    * Checks cache first, then delegates to SmartActionAnalyzer if cache

@@ -27,6 +27,12 @@ export async function queryAll<T extends Record<string, unknown>>(
   return (await queryAllBounded<T>(conn, soql, maxRecords)).records;
 }
 
+/** Rows read from the org, and whether a bound cut the read short. */
+export interface BoundedRecords<T> {
+  records: T[];
+  truncated: boolean;
+}
+
 /**
  * The same read, saying whether a bound cut it short.
  *
@@ -47,7 +53,7 @@ export async function queryAllBounded<T extends Record<string, unknown>>(
   conn: Connection,
   soql: string,
   maxRecords: number = DEFAULT_MAX_RECORDS,
-): Promise<{ records: T[]; truncated: boolean }> {
+): Promise<BoundedRecords<T>> {
   let result: QueryResult<T> = await conn.query<T>(soql);
   const records: T[] = [...result.records];
 

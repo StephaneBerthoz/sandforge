@@ -8,6 +8,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -904,6 +905,37 @@ describe('AutopilotHandler', () => {
       await handler.handle(executeMsg());
 
       expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
+      expect(errors).toHaveLength(1);
+      expect(
+        (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
+      ).toContain('production confirmation declined');
+    });
+
+    it('asks before executing on a target the registry does not know, and inserts nothing when declined', async () => {
+      // A real guard, and getOrg left unstubbed: the org named at scan time is
+      // not in the registry, so nothing shows it is a sandbox. It was classed
+      // as development, and the plan ran without a word to the user.
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 0 Account record(s) on production org tgt [module: autopilot]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
       expect(orchestrator.executePlan).not.toHaveBeenCalled();
       const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
       expect(errors).toHaveLength(1);

@@ -167,6 +167,8 @@
     "customObjects": "Objects",
     "code": "Code",
     "orgCreated": "Created",
+    "namespace": "Namespace",
+    "listStopsAt": "Only the {{shown}} most recent are read here: the list and its counts stop there.",
     "noOrgsHint": "No connected orgs. Go to Organizations to connect one.",
     "emptyState": {
       "title": "Keep an eye on your org health",
@@ -176,9 +178,11 @@
       "step4": "Get alerted before limits are hit"
     },
     "storage": {
-      "title": "Storage Breakdown",
+      "title": "Records by Object",
       "totalRecords": "total records",
-      "empty": "No object storage data available"
+      "empty": "No record counts available",
+      "scope": "Every object the org counts, setup and log objects included: not what uses data storage, which the Data Storage tile shows.",
+      "listed": "The {{shown}} objects holding the most records, of {{total}}."
     },
     "deployments": {
       "title": "Recent Deployments",
@@ -268,7 +272,17 @@
       "title": "Sandbox Refreshes",
       "empty": "No sandbox refresh events",
       "inProgress": "Refresh in progress",
-      "unsupported": "Only an org that manages sandboxes keeps a refresh history. This one has none to read."
+      "unsupported": "Only an org that manages sandboxes keeps a refresh history. This one has none to read.",
+      "detected": {
+        "title": "Refreshes SandForge noticed",
+        "note": "A refreshed sandbox is a new org: what was written to it before the refresh is gone, and SandForge dropped what it had cached about it.",
+        "badge": "Refreshed",
+        "byConnection": "Noticed when SandForge connected to it",
+        "byMonitor": "Noticed by the Monitor",
+        "byProduction": "Reported by the refresh history of {{org}}",
+        "orgChanged": "Was org {{from}}, now org {{to}}",
+        "instanceChanged": "Moved from instance {{from}} to {{to}}"
+      }
     },
     "resetIn": "Reset in",
     "sessions": {
@@ -300,6 +314,14 @@
     "removed": "Removed",
     "modified": "Modified",
     "unchanged": "Unchanged",
+    "notCompared": "Not compared",
+    "coverage": {
+      "compared": "Content compared for {{compared}} of the {{inBoth}} components both orgs hold.",
+      "overBudget": "Beyond what one run reads ({{components}} per org, {{seconds}} s): {{count}}",
+      "unreadable": "Content that cannot be read, such as Apex from a managed package: {{count}}",
+      "readFailed": "Read failed: {{count}}",
+      "leftOut": "A component not compared is neither a change nor a match: the risk score leaves it out."
+    },
     "driftScore": "Drift Score",
     "buildDeployment": "Build Deployment",
     "sameOrgWarning": "Source and target orgs must be different",
@@ -331,7 +353,14 @@
     "schemaAdvice": "Schema Advice",
     "schemaAdviceResults": "Schema Advice",
     "schemaAdviceIssues": "{{count}} issues found",
-    "recommendations": "Recommendations"
+    "recommendations": "Recommendations",
+    "advice": {
+      "critical": "{{count}} critical-risk change(s). Manual review required.",
+      "high": "{{count}} high-risk change(s). Deploy to a sandbox first.",
+      "apexTests": "Run all Apex tests.",
+      "lowRisk": "Low risk. Safe to deploy.",
+      "review": "Review changes before deploying."
+    }
   },
   "seed": {
     "title": "Seed Data",
@@ -977,11 +1006,10 @@
     "historyRuns": "History Runs",
     "triggers": "Triggers",
     "triggerManualOnlyNote": "Only a manual run starts a pipeline. The other trigger types can be configured here, but nothing fires them yet.",
+    "sandboxRefreshTriggerRefused": "SandForge notices a sandbox refresh and tells you, but this trigger starts no pipeline: a pipeline runs only Delay and Condition steps, and the work a refresh calls for — anonymizing, seeding, backing up — is made of data steps it would refuse to start.",
     "addTrigger": "Add Trigger",
     "run": "Run Pipeline",
     "running": "Running pipeline...",
-    "pause": "Pause",
-    "resume": "Resume",
     "cancel": "Cancel",
     "history": "History",
     "noHistory": "No execution history",
@@ -1022,7 +1050,6 @@
       "idle": "Idle",
       "queued": "Queued",
       "running": "Running",
-      "paused": "Paused",
       "completed": "Completed",
       "completed_with_warnings": "Completed with Warnings",
       "failed": "Failed",

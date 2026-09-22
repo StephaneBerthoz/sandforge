@@ -445,8 +445,8 @@ describe('extension', () => {
     // + openOrgInBrowser command + AI token budget reset command
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
-    // + performanceTracker = 32
-    expect(context.subscriptions.length).toBe(32);
+    // + performanceTracker + sandbox refresh detection = 33
+    expect(context.subscriptions.length).toBe(33);
   });
 
   it('writes telemetry log records to the output channel as readable lines, not raw JSON', async () => {

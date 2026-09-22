@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OrgInfoFetcher } from './OrgInfoFetcher';
+import { OrgInfoFetcher, newestApiVersion } from './OrgInfoFetcher';
 import type { OrgInfoConnection } from './OrgInfoFetcher';
 
 function createMockConn(overrides: Partial<OrgInfoConnection> = {}): OrgInfoConnection {
   return {
-    identity: vi.fn().mockResolvedValue({
-      apiVersion: '60.0',
-      lastLoginDate: '2026-02-24T09:00:00Z',
-    }),
+    latestApiVersion: vi.fn().mockResolvedValue('60.0'),
     queryOrg: vi.fn().mockResolvedValue({
       name: 'Acme Corp',
       orgId: '00D000000000001',
@@ -49,14 +46,60 @@ describe('OrgInfoFetcher', () => {
     expect(result.customObjectCount).toBe(42);
     expect(result.apexClassCount).toBe(42);
     expect(result.flowCount).toBe(42);
-    expect(result.lastLoginDate).toBe('2026-02-24T09:00:00Z');
+  });
+
+  it('sends no login date: nothing the org answers carries one', async () => {
+    // It was filled from `last_login_date` on the identity answer, which has
+    // no such key, and fell back to the time of the refresh: always "now".
+    const result = await fetcher.fetch('org-1', createMockConn());
+
+    expect(Object.keys(result)).not.toContain('lastLoginDate');
+  });
+
+  it('passes the namespace and the creation date on, the date as an ISO timestamp', async () => {
+    const conn = createMockConn({
+      queryOrg: vi.fn().mockResolvedValue({
+        name: 'Acme Corp',
+        orgId: '00D000000000001',
+        type: 'Sandbox' as const,
+        edition: 'Enterprise Edition',
+        instanceName: 'EU42S',
+        namespacePrefix: 'acme',
+        // As the Organization row writes it.
+        createdDate: '2026-04-24T10:20:51.000+0000',
+      }),
+    });
+
+    const result = await fetcher.fetch('org-1', conn);
+
+    expect(result.namespacePrefix).toBe('acme');
+    expect(result.createdDate).toBe('2026-04-24T10:20:51.000Z');
+  });
+
+  it('leaves out a namespace the org never registered and a date it cannot read', async () => {
+    const conn = createMockConn({
+      queryOrg: vi.fn().mockResolvedValue({
+        name: 'Acme Corp',
+        orgId: '00D000000000001',
+        type: 'Sandbox' as const,
+        edition: 'Enterprise Edition',
+        instanceName: 'EU42S',
+        namespacePrefix: null,
+        createdDate: 'not a date',
+      }),
+    });
+
+    const result = await fetcher.fetch('org-1', conn);
+
+    expect(Object.keys(result)).not.toContain('namespacePrefix');
+    expect(Object.keys(result)).not.toContain('createdDate');
   });
 
   it('should call all queries in parallel', async () => {
     const conn = createMockConn();
     await fetcher.fetch('org-1', conn);
 
-    expect(conn.identity).toHaveBeenCalledTimes(1);
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(1);
     expect(conn.queryOrg).toHaveBeenCalledTimes(1);
     expect(conn.queryCount).toHaveBeenCalledTimes(4);
   });
@@ -129,8 +172,8 @@ describe('OrgInfoFetcher', () => {
     const result2 = await fetcher.fetch('org-1', conn);
     expect(result2.name).toBe('Acme Corp');
 
-    // identity should only have been called once (cached)
-    expect(conn.identity).toHaveBeenCalledTimes(1);
+    // the version should only have been read once (cached)
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(1);
   });
 
   it('should refetch after cache expires', async () => {
@@ -141,7 +184,7 @@ describe('OrgInfoFetcher', () => {
     vi.advanceTimersByTime(6 * 60 * 1000);
 
     await fetcher.fetch('org-1', conn);
-    expect(conn.identity).toHaveBeenCalledTimes(2);
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(2);
   });
 
   it('should cache per org', async () => {
@@ -150,7 +193,7 @@ describe('OrgInfoFetcher', () => {
     await fetcher.fetch('org-2', conn);
 
     // Both orgs fetched independently
-    expect(conn.identity).toHaveBeenCalledTimes(2);
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(2);
   });
 
   it('should clear cache for specific org', async () => {
@@ -159,7 +202,7 @@ describe('OrgInfoFetcher', () => {
     fetcher.clearCache('org-1');
 
     await fetcher.fetch('org-1', conn);
-    expect(conn.identity).toHaveBeenCalledTimes(2);
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(2);
   });
 
   it('should clear all cache', async () => {
@@ -170,7 +213,7 @@ describe('OrgInfoFetcher', () => {
 
     await fetcher.fetch('org-1', conn);
     await fetcher.fetch('org-2', conn);
-    expect(conn.identity).toHaveBeenCalledTimes(4);
+    expect(conn.latestApiVersion).toHaveBeenCalledTimes(4);
   });
 
   it('should handle different org types', async () => {
@@ -206,8 +249,32 @@ describe('OrgInfoFetcher', () => {
 
   it('should propagate connection errors', async () => {
     const conn = createMockConn({
-      identity: vi.fn().mockRejectedValue(new Error('Auth expired')),
+      latestApiVersion: vi.fn().mockRejectedValue(new Error('Auth expired')),
     });
     await expect(fetcher.fetch('org-1', conn)).rejects.toThrow('Auth expired');
+  });
+});
+
+describe('newestApiVersion', () => {
+  /** The tail of a real `GET /services/data` answer, oldest first, as a sandbox served it. */
+  const SERVED = [
+    { label: "Winter '25", url: '/services/data/v62.0', version: '62.0' },
+    { label: "Spring '26", url: '/services/data/v66.0', version: '66.0' },
+    { label: "Summer '26", url: '/services/data/v67.0', version: '67.0' },
+    { label: "Winter '27", url: '/services/data/v68.0', version: '68.0' },
+    { label: 'Latest Release', url: '/services/data/latest', version: '68.0' },
+  ];
+
+  it("reads the org's release, not the version a connection speaks", () => {
+    expect(newestApiVersion(SERVED)).toBe('68.0');
+  });
+
+  it('does not depend on the order the versions come in', () => {
+    expect(newestApiVersion([...SERVED].reverse())).toBe('68.0');
+  });
+
+  it('refuses an answer that lists no version', () => {
+    expect(() => newestApiVersion([])).toThrow('no API version');
+    expect(() => newestApiVersion({ error: 'NOT_FOUND' })).toThrow();
   });
 });

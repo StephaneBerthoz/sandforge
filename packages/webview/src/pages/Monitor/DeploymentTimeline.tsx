@@ -8,11 +8,14 @@ import { Badge } from '../../components/ui/Badge';
 import { Timeline } from '../../components/ui/Timeline';
 import type { TimelineItem, TimelineStatus } from '../../components/ui/Timeline';
 import type { DeploymentEntry } from '@sandforge/shared';
+import { ListCapNote } from './ListCapNote';
 
 /** Response shape from monitor:deployments. */
 interface DeploymentData {
   success: boolean;
   deployments: DeploymentEntry[];
+  /** The read stopped at its bound: older deployments are not listed. */
+  truncated?: boolean;
   error?: string;
 }
 
@@ -99,6 +102,8 @@ export const DeploymentTimeline: React.FC = () => {
         </h3>
         {deployments.length > 0 && <Badge variant="default">{deployments.length}</Badge>}
       </div>
+
+      {data?.truncated && <ListCapNote shown={deployments.length} testId="deployment-list-cap" />}
 
       {deployments.length === 0 ? (
         <p

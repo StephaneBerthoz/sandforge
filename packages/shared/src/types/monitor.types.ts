@@ -234,12 +234,15 @@ export interface OrgInfo {
   type: 'Production' | 'Sandbox' | 'Scratch' | 'Developer';
   edition: string;
   instanceName: string;
+  /**
+   * The newest API version the org serves, as `/services/data` lists it: the
+   * org's release, not the version SandForge's connection happens to speak.
+   */
   apiVersion: string;
   userCount: number;
   customObjectCount: number;
   apexClassCount: number;
   flowCount: number;
-  lastLoginDate: ISODateString;
   /** Salesforce release name, e.g. "Spring '26" */
   releaseName?: string;
   /** Next major release name, e.g. "Summer '26" */

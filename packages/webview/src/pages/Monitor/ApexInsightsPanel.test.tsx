@@ -119,3 +119,36 @@ describe('ApexInsightsPanel SOQL bars', () => {
     expect(screen.getByRole('progressbar', { name: 'SOQL queries, log log-001-' })).toBeDefined();
   });
 });
+
+describe('ApexInsightsPanel list bound', () => {
+  beforeEach(() => {
+    mockLoading = false;
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+  });
+
+  const analysis = {
+    logId: 'log-001-abcdef',
+    totalDuration: 1200,
+    soqlQueries: 45,
+    dmlStatements: 12,
+    heapUsed: 65000,
+    cpuTime: 800,
+    issues: [],
+  };
+
+  it('says the analysis covers the most recent logs only when older ones were left unread', () => {
+    mockData = { success: true, analyses: [analysis], topIssues: [], truncated: true };
+    render(<ApexInsightsPanel />);
+
+    expect(screen.getByTestId('apex-insights-list-cap').textContent).toBe(
+      'Only the 1 most recent are read here: the list and its counts stop there.',
+    );
+  });
+
+  it('says nothing of a bound when every log was analysed', () => {
+    mockData = { success: true, analyses: [analysis], topIssues: [], truncated: false };
+    render(<ApexInsightsPanel />);
+
+    expect(screen.queryByTestId('apex-insights-list-cap')).toBeNull();
+  });
+});

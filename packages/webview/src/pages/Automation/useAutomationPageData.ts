@@ -51,6 +51,15 @@ const TRIGGER_TYPES: readonly string[] = [
   'deployment_complete',
 ];
 
+/**
+ * The longest run `sandforge.pipeline.timeout` allows: its `maximum` in the
+ * extension manifest, one hour.
+ */
+const PIPELINE_BUDGET_MAX_MS = 3_600_000;
+
+/** How long past that budget the page waits for the host's answer to cross the bridge. */
+const ANSWER_MARGIN_MS = 60_000;
+
 /** Narrows an unknown value to a plain object without widening to `any`. */
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -299,17 +308,21 @@ export function useAutomationPageData(): AutomationPageData {
   const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>('pipeline:list');
 
   // Bridge mutation: execute a pipeline.
-  // The UI deadline must not undercut the host budget: AutomationHandler wraps
-  // the run in `sandforge.pipeline.timeout`, whose manifest default is
-  // 300 000 ms (packages/extension/package.json → contributes.configuration →
-  // `sandforge.pipeline.timeout`.default). On the 30 s useBridgeMutation
-  // default a 45 s pipeline was reported as failed while it was still running
-  // and about to succeed. useAutomationPageData.test.ts reads that manifest
-  // default and asserts it against this value, so the two cannot re-diverge
+  // The UI deadline must not undercut the host budget. AutomationHandler bounds
+  // a run with `sandforge.pipeline.timeout` and answers however the run ends,
+  // a run that budget stopped included. The page cannot read the setting, so
+  // it waits out the longest budget the setting accepts and a margin for the
+  // answer to arrive: this deadline only fires for a host that never answers.
+  // On the 30 s useBridgeMutation default a 45 s pipeline was reported as
+  // failed while it was still running and about to succeed. A deadline equal
+  // to the default budget is no better: it starts when the request leaves,
+  // before the host's, so it ends first and drops the host's answer to a run
+  // that budget stopped. useAutomationPageData.test.ts reads the manifest's
+  // `maximum` and asserts this value against it, so the two cannot re-diverge
   // silently.
   const executeMutation = useBridgeMutation<Record<string, unknown>>('pipeline:execute', {
     responseType: 'pipeline:run:response',
-    timeoutMs: 300_000,
+    timeoutMs: PIPELINE_BUDGET_MAX_MS + ANSWER_MARGIN_MS,
   });
 
   // Bridge mutation: save a pipeline.

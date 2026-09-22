@@ -27,6 +27,13 @@ export class TriggerEngine {
       case 'webhook':
         return false;
       case 'sandbox_refresh':
+        // Refused on purpose, and not for want of a signal: SandForge notices
+        // a refresh from the sandbox itself (SandboxRefreshDetector) and tells
+        // the user. What such a trigger would start cannot run. The work a
+        // refresh calls for — anonymizing, seeding, backing up — is made of
+        // data steps, and a pipeline runs only Delay and Condition steps: each
+        // refresh would start a run refused before its first step, with nobody
+        // there to read why. The Automation page says so on the trigger.
         return false;
       case 'deployment_complete':
         return false;

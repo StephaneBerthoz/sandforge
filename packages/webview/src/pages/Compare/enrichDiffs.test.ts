@@ -76,7 +76,7 @@ describe('enrichDiffs', () => {
       }),
     ];
     const report = enrichDiffs(items);
-    expect(report.deploymentAdvice).toContain('Apex tests');
+    expect(report.deploymentAdvice).toContainEqual({ kind: 'apexTests' });
   });
 
   it('should count risks by level in summary', () => {
@@ -87,6 +87,46 @@ describe('enrichDiffs', () => {
     const report = enrichDiffs(items);
     expect(report.summary.byRisk['critical']).toBe(1);
     expect(report.summary.byRisk['low']).toBe(1);
+  });
+
+  it('scores no component whose content was not compared, which is not known to differ', () => {
+    const items = [
+      createItem({
+        componentType: 'ApexTrigger',
+        fullName: 'OnAccount',
+        status: 'not_compared',
+        severity: 'info',
+        deployable: false,
+        notComparedReason: 'over_budget',
+      }),
+      createItem({
+        componentType: 'CustomObject',
+        fullName: 'Invoice__c',
+        status: 'not_compared',
+        severity: 'info',
+        deployable: false,
+        notComparedReason: 'read_failed',
+      }),
+    ];
+
+    const report = enrichDiffs(items);
+
+    expect(report.diffs).toHaveLength(0);
+    expect(report.summary).toMatchObject({ total: 0, added: 0, removed: 0, modified: 0 });
+    expect(report.riskScore).toBe(0);
+  });
+
+  it('does not call a comparison safe to deploy while part of it was not compared', () => {
+    const added = createItem({ componentType: 'CustomLabel', status: 'added', severity: 'info' });
+    const unread = createItem({
+      status: 'not_compared',
+      severity: 'info',
+      deployable: false,
+      notComparedReason: 'over_budget',
+    });
+
+    expect(enrichDiffs([added]).deploymentAdvice).toEqual([{ kind: 'lowRisk' }]);
+    expect(enrichDiffs([added, unread]).deploymentAdvice).not.toContainEqual({ kind: 'lowRisk' });
   });
 
   it('should cap risk score at 100', () => {

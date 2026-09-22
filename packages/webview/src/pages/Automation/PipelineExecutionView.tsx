@@ -18,11 +18,13 @@ export interface PipelineExecutionData {
   progress: number;
 }
 
-/** PipelineExecutionView props. */
+/**
+ * PipelineExecutionView props. There is no pause control: a run asked to pause
+ * stopped where it was, and nothing ever took it up again, so a run offers
+ * only to be cancelled.
+ */
 export interface PipelineExecutionViewProps {
   execution?: PipelineExecutionData;
-  onPause?: () => void;
-  onResume?: () => void;
   onCancel?: () => void;
   className?: string;
 }
@@ -52,8 +54,6 @@ function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
       return 'warning';
     case 'running':
       return 'info';
-    case 'paused':
-      return 'warning';
     case 'failed':
       return 'error';
     case 'cancelled':
@@ -65,12 +65,10 @@ function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
 
 /**
  * Real-time pipeline execution view showing step-by-step progress,
- * overall status, and pause/resume/cancel controls.
+ * overall status, and a cancel control.
  */
 export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
   execution,
-  onPause,
-  onResume,
   onCancel,
   className,
 }) => {
@@ -87,7 +85,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
     );
   }
 
-  const isActive = execution.status === 'running' || execution.status === 'paused';
+  const isActive = execution.status === 'running';
   const completedSteps = execution.steps.filter((s) => s.status === 'completed').length;
   const failedSteps = execution.steps.filter((s) => s.status === 'failed').length;
 
@@ -106,24 +104,6 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {isActive && execution.status === 'running' && onPause && (
-            <button
-              onClick={onPause}
-              className="text-[10px] px-2 py-0.5 rounded bg-[var(--sf-warning,#F59E0B)] text-black cursor-pointer"
-              data-testid="execution-pause"
-            >
-              {t('automation.pause', 'Pause')}
-            </button>
-          )}
-          {execution.status === 'paused' && onResume && (
-            <button
-              onClick={onResume}
-              className="text-[10px] px-2 py-0.5 rounded bg-status-info text-[var(--sf-bg-primary)] cursor-pointer"
-              data-testid="execution-resume"
-            >
-              {t('automation.resume', 'Resume')}
-            </button>
-          )}
           {isActive && onCancel && (
             <button
               onClick={onCancel}

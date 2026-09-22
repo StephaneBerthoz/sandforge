@@ -103,10 +103,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
-  { channel: 'scheduler:list', reason: 'SchedulerPanel was removed; no UI enumerates schedules.' },
-  { channel: 'scheduler:upsert', reason: 'Same panel — nothing creates or edits a schedule.' },
-  { channel: 'scheduler:delete', reason: 'Same panel — nothing deletes a schedule.' },
-  { channel: 'scheduler:toggle', reason: 'Same panel — nothing enables or pauses a schedule.' },
   {
     channel: 'realtime:status',
     reason: 'NoOp CDC surface: the stores send start/stop/metrics and read status off them.',
@@ -190,8 +186,9 @@ describe('consumed channels (consumption-side anti-drift)', () => {
     // 163 registered / 147 sent at introduction. A renamed helper or a
     // restructured registerAll must fail here rather than pass vacuously with
     // an empty extraction on either side.
-    // 148 registered once the unsent aliases and dead backends left the registry.
-    expect(readRegisteredChannels().size).toBeGreaterThanOrEqual(140);
+    // 148 registered once the unsent aliases and dead backends left the registry,
+    // and 136 once the scheduler:* routes, with no scheduler behind them, left too.
+    expect(readRegisteredChannels().size).toBeGreaterThanOrEqual(130);
     expect(readSentChannels().size).toBeGreaterThanOrEqual(120);
   });
 

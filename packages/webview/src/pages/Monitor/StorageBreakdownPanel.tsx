@@ -32,15 +32,23 @@ interface StorageData {
   success: boolean;
   objects: StorageObjectEntry[];
   totalRecords: number;
+  /** Objects holding at least one record, of which `objects` lists the first. */
+  objectCount?: number;
   error?: string;
 }
 
 /**
- * Panel displaying per-object storage breakdown with a donut chart and table.
+ * Panel displaying the org's record counts per object, with a donut chart and
+ * table.
  *
  * Fetches data via useBridgeQuery('monitor:storage') and renders
  * the top 10 objects in a Recharts PieChart (donut variant) with
  * a detailed table below.
+ *
+ * The counts are every object the org counts. On a real sandbox the list was
+ * led by ObjectPermissions, FieldPermissions and LoginHistory under the title
+ * "Storage Breakdown", where none of them uses data storage: the panel now
+ * says what the list is, and how much of it is shown.
  */
 export const StorageBreakdownPanel: React.FC = () => {
   const { t } = useTranslation();
@@ -54,6 +62,7 @@ export const StorageBreakdownPanel: React.FC = () => {
 
   const objects = useMemo(() => data?.objects ?? [], [data?.objects]);
   const totalRecords = data?.totalRecords ?? 0;
+  const objectCount = data?.objectCount ?? objects.length;
   const chartData = useMemo(
     () => objects.slice(0, 10).map((o) => ({ name: o.label, value: o.recordCount })),
     [objects],
@@ -78,31 +87,41 @@ export const StorageBreakdownPanel: React.FC = () => {
       >
         <div className="flex items-center gap-2 mb-3">
           <Database className="w-4 h-4 text-text-secondary" />
-          <h3 className="text-sm font-semibold text-text-primary">
-            {t('monitor.storage.title', 'Storage Breakdown')}
-          </h3>
+          <h3 className="text-sm font-semibold text-text-primary">{t('monitor.storage.title')}</h3>
         </div>
-        <p className="text-xs text-text-secondary text-center py-6">
-          {t('monitor.storage.empty', 'No object storage data available')}
-        </p>
+        <p className="text-xs text-text-secondary text-center py-6">{t('monitor.storage.empty')}</p>
       </div>
     );
   }
 
   return (
     <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="storage-panel">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-1">
         <Database className="w-4 h-4 text-text-secondary" />
-        <h3 className="text-sm font-semibold text-text-primary">
-          {t('monitor.storage.title', 'Storage Breakdown')}
-        </h3>
+        <h3 className="text-sm font-semibold text-text-primary">{t('monitor.storage.title')}</h3>
         <span className="text-xs text-text-secondary ml-auto">
           {formatNumber(totalRecords)} {t('monitor.storage.totalRecords', 'total records')}
         </span>
       </div>
+      <p className="text-[11px] text-text-secondary mb-3" data-testid="storage-scope">
+        {t('monitor.storage.scope')}
+        {objectCount > objects.length && (
+          <>
+            {' '}
+            {t('monitor.storage.listed', {
+              shown: formatNumber(objects.length),
+              total: formatNumber(objectCount),
+            })}
+          </>
+        )}
+      </p>
 
-      {/* Donut chart */}
-      <div className="h-48" data-testid="storage-donut-chart">
+      {/* Donut chart. Hidden from assistive technology, and out of the tab
+          order with it: Recharts draws each slice as a path with role img and
+          no text, which axe fails the first time the panel is scanned with
+          data, and the table below gives every slice's name, count and share
+          in words. */}
+      <div className="h-48" data-testid="storage-donut-chart" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -113,6 +132,7 @@ export const StorageBreakdownPanel: React.FC = () => {
               outerRadius={80}
               dataKey="value"
               paddingAngle={2}
+              rootTabIndex={-1}
             >
               {chartData.map((_entry, index) => (
                 <Cell

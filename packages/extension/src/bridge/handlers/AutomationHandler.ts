@@ -19,7 +19,6 @@ import {
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
-import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 
 /**
  * How many runs the history keeps. Each entry carries the definition that ran,
@@ -156,29 +155,44 @@ export class AutomationHandler implements DomainHandler {
       };
       orchestrator.on('stepCompleted', stepCompletedListener);
 
-      let result;
+      // `sandforge.pipeline.timeout` (manifest default 300 000 ms) bounds the
+      // wall-clock duration of a pipeline run. When the budget is spent its
+      // signal stops the run where it is — the step in progress included, and
+      // no step after it starts — and the run comes back to be answered and
+      // recorded like any other. It used to be dropped instead: the handler
+      // gave up on it with a TimeoutError, so the run reached neither History
+      // nor the page, which went on waiting for an answer until its own limit.
+      const pipelineTimeout =
+        this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
+      const budget = new AbortController();
+      const timer = setTimeout(() => budget.abort(), pipelineTimeout);
+      let run: PipelineRun;
       try {
-        // `sandforge.pipeline.timeout` (manifest default 300 000 ms) bounds the
-        // wall-clock duration of a pipeline run. Its signal stops the run when
-        // the budget is spent: the run is reported failed at that moment, and
-        // steps still running after it would be work nobody is told about.
-        const pipelineTimeout =
-          this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
-        result = await new TimeoutManager(pipelineTimeout).withTimeout(
-          'pipeline:execute',
-          (signal) => orchestrator.execute(pipeline, variables, 'manual', signal),
-        );
+        run = await orchestrator.execute(pipeline, variables, 'manual', budget.signal);
       } finally {
+        clearTimeout(timer);
         // Release the event-emitter listener so the closure doesn't pin the
         // orchestrator + pipeline graph in memory after execution.
         orchestrator.off?.('stepCompleted', stepCompletedListener);
       }
+      // The orchestrator reports a run its signal stopped as cancelled; this
+      // one did not finish in the time it was given, which is a failure the
+      // reader has to see. A run that ended as the budget ran out keeps its
+      // own status.
+      const outOfTime = budget.signal.aborted && run.status === 'cancelled';
+      const result: PipelineRun = outOfTime
+        ? {
+            ...run,
+            status: 'failed',
+            error: `Pipeline ran out of time: sandforge.pipeline.timeout stopped it after ${pipelineTimeout} ms.`,
+          }
+        : run;
 
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.recordRun(result, pipeline);
 
       if (result.status === 'failed') {
-        sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', false, {
+        sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', outOfTime, {
           context: failure,
         });
       } else {
@@ -197,10 +211,12 @@ export class AutomationHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      const isTimeout = err instanceof TimeoutError;
-      this.deps.log(`[ERR] pipeline:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout, {
+      // The page waits on this request, and `operation:failed` does not answer
+      // it: it reaches every panel, correlated to no request. Without the
+      // correlated `pipeline:error` the page held Run in its running state
+      // until a deadline of its own.
+      sendHandlerError(this.deps, 'pipeline:execute', 'pipeline:error', msg, err);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), false, {
         context: failure,
       });
     }
@@ -234,7 +250,10 @@ export class AutomationHandler implements DomainHandler {
           triggeredBy: run.triggeredBy,
           startTime: run.startTime,
           duration: run.duration ?? 0,
-          stepCount: run.stepResults.length,
+          // The steps that ran. A step the run passed over — its condition did
+          // not hold, a route jumped it, a Condition held it back — has a
+          // result too, and the History tab says how many steps ran.
+          stepCount: run.stepResults.filter((step) => step.status !== 'skipped').length,
           errorCount: run.stepResults.filter((step) => step.status === 'failed').length,
           // `pipeline:history` sorts on this; `startTime` is an ISO string.
           timestamp: Number.isNaN(startedAt) ? Date.now() : startedAt,

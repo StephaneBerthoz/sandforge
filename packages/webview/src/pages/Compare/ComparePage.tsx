@@ -21,6 +21,7 @@ import { ComingSoon } from '../../components/ui/ComingSoon';
 import { OrgSelector } from './OrgSelector';
 import { CategorySelector } from './CategorySelector';
 import { RiskScoreCard } from './RiskScoreCard';
+import { ContentCoverage } from './ContentCoverage';
 import { DiffGroupAccordion } from './DiffGroupAccordion';
 import { DiffDetailModal } from './DiffDetailModal';
 import { PermissionPresence, readPermissionComparison } from './PermissionPresence';
@@ -361,7 +362,17 @@ export const ComparePage: React.FC = () => {
             <span className="text-[var(--sf-text-secondary)]">
               ={result.summary.unchanged} {t('compare.unchanged')}
             </span>
+            {result.summary.notCompared > 0 && (
+              <span
+                className="text-[var(--sf-text-secondary)]"
+                data-testid="compare-summary-not-compared"
+              >
+                ?{result.summary.notCompared} {t('compare.notCompared')}
+              </span>
+            )}
           </div>
+
+          <ContentCoverage coverage={result.content} />
 
           <PageTabs tabs={COMPARE_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 

@@ -164,6 +164,8 @@
     "customObjects": "オブジェクト",
     "code": "コード",
     "orgCreated": "作成日",
+    "namespace": "名前空間",
+    "listStopsAt": "ここでは最新の{{shown}}件のみを読み込みます。一覧と件数はそこまでです。",
     "noOrgsHint": "接続済みのOrgがありません。組織ページで接続してください。",
     "emptyState": {
       "title": "Orgの健全性を常に把握",
@@ -173,9 +175,11 @@
       "step4": "制限到達前にアラートを受信"
     },
     "storage": {
-      "title": "ストレージ内訳",
+      "title": "オブジェクト別レコード数",
       "totalRecords": "合計レコード",
-      "empty": "オブジェクトのストレージデータがありません"
+      "empty": "レコード数を取得できません",
+      "scope": "組織が数えるすべてのオブジェクト（設定オブジェクトやログを含む）です。データストレージの使用量ではありません。使用量は「データストレージ」タイルに表示されます。",
+      "listed": "レコード数が最も多い{{shown}}件（全{{total}}件中）。"
     },
     "deployments": {
       "title": "最近のデプロイ",
@@ -265,7 +269,17 @@
       "title": "Sandbox の更新",
       "empty": "Sandbox の更新イベントはありません",
       "inProgress": "更新中",
-      "unsupported": "更新履歴を持つのはサンドボックスを管理する組織だけです。この組織には読み取れる履歴がありません。"
+      "unsupported": "更新履歴を持つのはサンドボックスを管理する組織だけです。この組織には読み取れる履歴がありません。",
+      "detected": {
+        "title": "SandForge が検出したリフレッシュ",
+        "note": "リフレッシュされた Sandbox は新しい組織です。リフレッシュ前に書き込まれたデータは残っておらず、SandForge はこの組織についてキャッシュしていた情報を破棄しました。",
+        "badge": "リフレッシュ済み",
+        "byConnection": "SandForge の接続時に検出",
+        "byMonitor": "モニターが検出",
+        "byProduction": "{{org}} のリフレッシュ履歴による報告",
+        "orgChanged": "組織 {{from}} から組織 {{to}} に変わりました",
+        "instanceChanged": "インスタンスが {{from}} から {{to}} に移動しました"
+      }
     },
     "resetIn": "リセットまで",
     "sessions": {
@@ -297,6 +311,14 @@
     "removed": "削除",
     "modified": "変更",
     "unchanged": "変更なし",
+    "notCompared": "未比較",
+    "coverage": {
+      "compared": "両方のOrgにある{{inBoth}}件のコンポーネントのうち、{{compared}}件の内容を比較しました。",
+      "overBudget": "1回の実行で読み取る範囲外（Orgごとに{{components}}件、{{seconds}}秒）: {{count}}",
+      "unreadable": "読み取れない内容（管理パッケージのApexなど）: {{count}}",
+      "readFailed": "読み取り失敗: {{count}}",
+      "leftOut": "比較していないコンポーネントは変更でも一致でもないため、リスクスコアには含まれません。"
+    },
     "driftScore": "ドリフトスコア",
     "buildDeployment": "デプロイメントを構築",
     "sameOrgWarning": "ソースとターゲットのOrgは異なる必要があります",
@@ -328,7 +350,14 @@
     "schemaAdvice": "スキーマの推奨事項",
     "schemaAdviceResults": "スキーマの推奨事項",
     "schemaAdviceIssues": "{{count}} 件の問題を検出",
-    "recommendations": "推奨事項"
+    "recommendations": "推奨事項",
+    "advice": {
+      "critical": "重大リスクの変更が {{count}} 件あります。手動レビューが必要です。",
+      "high": "高リスクの変更が {{count}} 件あります。まず Sandbox にデプロイしてください。",
+      "apexTests": "すべての Apex テストを実行してください。",
+      "lowRisk": "低リスク。デプロイしても安全です。",
+      "review": "デプロイ前に変更を確認してください。"
+    }
   },
   "seed": {
     "title": "データ生成",
@@ -973,11 +1002,10 @@
     "historyRuns": "履歴実行",
     "triggers": "トリガー",
     "triggerManualOnlyNote": "パイプラインを開始できるのは手動実行だけです。その他のトリガータイプはここで設定できますが、まだ何も起動しません。",
+    "sandboxRefreshTriggerRefused": "SandForge は Sandbox のリフレッシュを検出してお知らせしますが、このトリガーはパイプラインを開始しません。パイプラインで実行できるのは遅延と条件のステップだけで、リフレッシュ後に必要な作業（匿名化、Seed、バックアップ）はデータステップで構成されるため、開始前に拒否されます。",
     "addTrigger": "トリガーを追加",
     "run": "パイプラインを実行",
     "running": "パイプラインを実行中...",
-    "pause": "一時停止",
-    "resume": "再開",
     "cancel": "キャンセル",
     "history": "履歴",
     "noHistory": "実行履歴がありません",
@@ -1018,7 +1046,6 @@
       "idle": "待機中",
       "queued": "キュー待ち",
       "running": "実行中",
-      "paused": "一時停止中",
       "completed": "完了",
       "completed_with_warnings": "警告付きで完了",
       "failed": "失敗",

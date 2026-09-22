@@ -4,6 +4,7 @@ import type {
   SandboxRefreshEvent,
   QuerySandboxesFn,
   RefreshDetectedFn,
+  SeenRefreshStore,
 } from './SandboxRefreshTracker';
 
 function createMockRefreshEvents(): SandboxRefreshEvent[] {
@@ -31,6 +32,18 @@ function createMockRefreshEvents(): SandboxRefreshEvent[] {
   ];
 }
 
+/** A store that outlives the trackers built on it, like the ConfigStore-backed one. */
+function sharedStore(): SeenRefreshStore & { saved: Map<string, string[]> } {
+  const saved = new Map<string, string[]>();
+  return {
+    saved,
+    load: (orgId) => saved.get(orgId),
+    save: (orgId, keys) => {
+      saved.set(orgId, keys);
+    },
+  };
+}
+
 describe('SandboxRefreshTracker', () => {
   let tracker: SandboxRefreshTracker;
   let querySandboxes: QuerySandboxesFn;
@@ -39,7 +52,7 @@ describe('SandboxRefreshTracker', () => {
   beforeEach(() => {
     querySandboxes = vi
       .fn<QuerySandboxesFn>()
-      .mockResolvedValue({ supported: true, events: createMockRefreshEvents() });
+      .mockResolvedValue({ supported: true, events: createMockRefreshEvents(), truncated: false });
     onRefreshDetected = vi.fn();
     tracker = new SandboxRefreshTracker(querySandboxes, onRefreshDetected);
   });
@@ -60,9 +73,11 @@ describe('SandboxRefreshTracker', () => {
       expect(tracker.getRecentRefreshes('org-1')).toHaveLength(3);
     });
 
-    it('should notify for new refresh events on first fetch', async () => {
+    it('records the history it finds on its first read without reporting any of it', async () => {
+      // The first read used to report every row it found, which is why the
+      // callback was left unconnected: an old refresh is not news.
       await tracker.fetch('org-1');
-      expect(onRefreshDetected).toHaveBeenCalledTimes(3);
+      expect(onRefreshDetected).not.toHaveBeenCalled();
     });
 
     it('should not re-notify for already-known events on subsequent fetch', async () => {
@@ -72,24 +87,92 @@ describe('SandboxRefreshTracker', () => {
       expect(onRefreshDetected).not.toHaveBeenCalled();
     });
 
-    it('should notify only for new events on subsequent fetch', async () => {
+    it('reports a refresh that completes after the first read, once', async () => {
       await tracker.fetch('org-1');
-      vi.mocked(onRefreshDetected).mockClear();
 
-      const newEvent: SandboxRefreshEvent = {
+      const completed: SandboxRefreshEvent = {
         orgId: 'org-1',
         sandboxName: 'new-sandbox',
         refreshDate: '2026-01-05T10:00:00Z',
-        status: 'Pending',
+        status: 'Completed',
       };
       vi.mocked(querySandboxes).mockResolvedValue({
         supported: true,
-        events: [...createMockRefreshEvents(), newEvent],
+        truncated: false,
+        events: [completed, ...createMockRefreshEvents()],
       });
 
       await tracker.fetch('org-1');
+      await tracker.fetch('org-1');
       expect(onRefreshDetected).toHaveBeenCalledTimes(1);
-      expect(onRefreshDetected).toHaveBeenCalledWith(newEvent);
+      expect(onRefreshDetected).toHaveBeenCalledWith(completed);
+    });
+
+    it('waits for a refresh in progress to complete before reporting it', async () => {
+      await tracker.fetch('org-1');
+
+      const pending: SandboxRefreshEvent = {
+        orgId: 'org-1',
+        sandboxName: 'uat',
+        refreshDate: '2026-01-06T09:00:00Z',
+        status: 'Processing',
+      };
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        truncated: false,
+        events: [pending],
+      });
+      await tracker.fetch('org-1');
+      expect(onRefreshDetected).not.toHaveBeenCalled();
+
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        truncated: false,
+        events: [{ ...pending, status: 'Completed' }],
+      });
+      await tracker.fetch('org-1');
+      expect(onRefreshDetected).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(onRefreshDetected).mock.calls[0][0].sandboxName).toBe('uat');
+    });
+
+    it('reports to a tracker built after a restart a refresh completed in between', async () => {
+      const store = sharedStore();
+      await new SandboxRefreshTracker(querySandboxes, onRefreshDetected, store).fetch('org-1');
+      expect(store.saved.get('org-1')).toEqual(['dev-sandbox:2026-01-01T10:00:00Z']);
+
+      const completed: SandboxRefreshEvent = {
+        orgId: 'org-1',
+        sandboxName: 'qa-sandbox',
+        refreshDate: '2026-01-02T08:00:00Z',
+        status: 'Completed',
+      };
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: true,
+        truncated: false,
+        events: [
+          completed,
+          ...createMockRefreshEvents().filter((e) => e.sandboxName !== 'qa-sandbox'),
+        ],
+      });
+      await new SandboxRefreshTracker(querySandboxes, onRefreshDetected, store).fetch('org-1');
+
+      // The history the first tracker saw is not reported again; the refresh
+      // that completed while no tracker ran is.
+      expect(onRefreshDetected).toHaveBeenCalledTimes(1);
+      expect(onRefreshDetected).toHaveBeenCalledWith(completed);
+    });
+
+    it('remembers nothing about an org that cannot be asked', async () => {
+      const store = sharedStore();
+      vi.mocked(querySandboxes).mockResolvedValue({
+        supported: false,
+        truncated: false,
+        events: [],
+      });
+
+      await new SandboxRefreshTracker(querySandboxes, onRefreshDetected, store).fetch('org-sbx');
+
+      expect(store.saved.has('org-sbx')).toBe(false);
     });
   });
 
@@ -106,6 +189,22 @@ describe('SandboxRefreshTracker', () => {
     });
   });
 
+  describe('isTruncated', () => {
+    it('says whether the last read of an org stopped at its bound', async () => {
+      vi.mocked(querySandboxes).mockResolvedValueOnce({
+        supported: true,
+        events: createMockRefreshEvents(),
+        truncated: true,
+      });
+      await tracker.fetch('org-1');
+      expect(tracker.isTruncated('org-1')).toBe(true);
+
+      await tracker.fetch('org-1');
+      expect(tracker.isTruncated('org-1')).toBe(false);
+      expect(tracker.isTruncated('unknown')).toBe(false);
+    });
+  });
+
   describe('isRefreshInProgress', () => {
     it('should return true when a sandbox is Processing', async () => {
       await tracker.fetch('org-1');
@@ -115,6 +214,7 @@ describe('SandboxRefreshTracker', () => {
     it('should return true when a sandbox is Pending', async () => {
       vi.mocked(querySandboxes).mockResolvedValue({
         supported: true,
+        truncated: false,
         events: [
           {
             orgId: 'org-1',
@@ -131,6 +231,7 @@ describe('SandboxRefreshTracker', () => {
     it('should return false when all sandboxes are Completed', async () => {
       vi.mocked(querySandboxes).mockResolvedValue({
         supported: true,
+        truncated: false,
         events: [
           {
             orgId: 'org-1',
@@ -147,6 +248,7 @@ describe('SandboxRefreshTracker', () => {
     it('should return false when all sandboxes are Failed', async () => {
       vi.mocked(querySandboxes).mockResolvedValue({
         supported: true,
+        truncated: false,
         events: [
           {
             orgId: 'org-1',

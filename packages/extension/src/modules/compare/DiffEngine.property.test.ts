@@ -72,6 +72,22 @@ describe('DiffEngine — property-based', () => {
     );
   });
 
+  it('not read: a key both hold that was not read is not_compared, never modified nor unchanged', () => {
+    fc.assert(
+      fc.property(componentMapArb, componentMapArb, metadataComponentTypeArb, (a, b, type) => {
+        const engine = new DiffEngine();
+        const inBoth = [...a.keys()].filter((key) => b.has(key));
+        const notRead = new Map(inBoth.map((key) => [key, 'over_budget' as const]));
+        for (const item of engine.diff(a, b, type, notRead)) {
+          expect(item.status).not.toBe('modified');
+          expect(item.status).not.toBe('unchanged');
+          if (notRead.has(item.fullName)) expect(item.status).toBe('not_compared');
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
   it('disjoint keys: source-only keys are removed, target-only keys are added', () => {
     fc.assert(
       fc.property(componentMapArb, componentMapArb, metadataComponentTypeArb, (a, b, type) => {

@@ -167,6 +167,8 @@
     "customObjects": "Objetos",
     "code": "Código",
     "orgCreated": "Criada",
+    "namespace": "Namespace",
+    "listStopsAt": "Aqui só são lidos os {{shown}} mais recentes: a lista e as contagens param aí.",
     "noOrgsHint": "Nenhuma org conectada. Vá para Organizações para conectar uma.",
     "emptyState": {
       "title": "Fique de olho na saúde da sua org",
@@ -176,9 +178,11 @@
       "step4": "Seja alertado antes de atingir os limites"
     },
     "storage": {
-      "title": "Detalhamento de armazenamento",
+      "title": "Registros por objeto",
       "totalRecords": "registros no total",
-      "empty": "Nenhum dado de armazenamento por objeto disponível"
+      "empty": "Nenhuma contagem de registros disponível",
+      "scope": "Todos os objetos que a org conta, incluindo os de configuração e de log: não é o uso do armazenamento de dados, que o bloco Armazenamento de dados mostra.",
+      "listed": "Os {{shown}} objetos com mais registros, de {{total}}."
     },
     "deployments": {
       "title": "Implantações recentes",
@@ -268,7 +272,17 @@
       "title": "Atualizações de sandbox",
       "empty": "Nenhum evento de atualização de sandbox",
       "inProgress": "Atualização em andamento",
-      "unsupported": "Apenas uma org que gerencia sandboxes mantém um histórico de atualizações. Esta não tem nenhum para ler."
+      "unsupported": "Apenas uma org que gerencia sandboxes mantém um histórico de atualizações. Esta não tem nenhum para ler.",
+      "detected": {
+        "title": "Atualizações detectadas pelo SandForge",
+        "note": "Um sandbox atualizado é uma nova org: o que foi gravado nele antes da atualização não existe mais, e o SandForge descartou o que tinha em cache sobre ele.",
+        "badge": "Atualizado",
+        "byConnection": "Detectado quando o SandForge se conectou",
+        "byMonitor": "Detectado pelo Monitor",
+        "byProduction": "Informado pelo histórico de atualizações de {{org}}",
+        "orgChanged": "Era a org {{from}}, agora a org {{to}}",
+        "instanceChanged": "Passou da instância {{from}} para {{to}}"
+      }
     },
     "resetIn": "Redefinição em",
     "sessions": {
@@ -300,6 +314,14 @@
     "removed": "Removido",
     "modified": "Modificado",
     "unchanged": "Sem alteração",
+    "notCompared": "Não comparado",
+    "coverage": {
+      "compared": "Conteúdo comparado em {{compared}} dos {{inBoth}} componentes presentes nas duas orgs.",
+      "overBudget": "Além do que uma execução lê ({{components}} por org, {{seconds}} s): {{count}}",
+      "unreadable": "Conteúdo que não pode ser lido, como o Apex de um pacote gerenciado: {{count}}",
+      "readFailed": "Falha na leitura: {{count}}",
+      "leftOut": "Um componente não comparado não é uma alteração nem uma correspondência: a pontuação de risco o deixa de fora."
+    },
     "driftScore": "Pontuação de drift",
     "buildDeployment": "Construir implantação",
     "sameOrgWarning": "As orgs de origem e destino devem ser diferentes",
@@ -331,7 +353,14 @@
     "schemaAdvice": "Recomendações de esquema",
     "schemaAdviceResults": "Recomendações de esquema",
     "schemaAdviceIssues": "{{count}} problemas encontrados",
-    "recommendations": "Recomendações"
+    "recommendations": "Recomendações",
+    "advice": {
+      "critical": "{{count}} alteração(ões) de risco crítico. Revisão manual necessária.",
+      "high": "{{count}} alteração(ões) de risco alto. Implante primeiro em um sandbox.",
+      "apexTests": "Execute todos os testes Apex.",
+      "lowRisk": "Risco baixo. Implantação segura.",
+      "review": "Revise as alterações antes de implantar."
+    }
   },
   "seed": {
     "title": "Gerar dados",
@@ -977,11 +1006,10 @@
     "historyRuns": "Execuções no histórico",
     "triggers": "Gatilhos",
     "triggerManualOnlyNote": "Só uma execução manual inicia um pipeline. Os outros tipos de gatilho podem ser configurados aqui, mas nada os dispara ainda.",
+    "sandboxRefreshTriggerRefused": "O SandForge detecta a atualização de um sandbox e avisa você, mas este gatilho não inicia nenhum pipeline: um pipeline só executa etapas Atraso e Condição, e o trabalho que uma atualização pede — anonimização, seed, backup — é feito de etapas de dados que ele se recusaria a iniciar.",
     "addTrigger": "Adicionar gatilho",
     "run": "Executar pipeline",
     "running": "Executando pipeline...",
-    "pause": "Pausar",
-    "resume": "Retomar",
     "cancel": "Cancelar",
     "history": "Histórico",
     "noHistory": "Sem histórico de execução",
@@ -1022,7 +1050,6 @@
       "idle": "Inativo",
       "queued": "Na fila",
       "running": "Em execução",
-      "paused": "Em pausa",
       "completed": "Concluído",
       "completed_with_warnings": "Concluído com avisos",
       "failed": "Falhou",

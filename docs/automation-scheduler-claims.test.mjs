@@ -1,16 +1,20 @@
 /**
  * Keeps the Automation prose honest about the scheduler.
  *
- * `ExtensionHandlers` routes every `scheduler:*` channel to `NoOpHandler`, so
- * no pipeline has ever started on a timer. `docs/modules/automation.md` says so
- * in two banners — but the same file's own intro, quick start and tips used to
- * promise scheduling anyway, and the FAQ told readers pipelines run "on a
- * schedule". Banners lose to body copy: a reader who skims takes the promise.
+ * SandForge has no pipeline scheduler. The `scheduler:*` channels it once
+ * declared were sent by no screen and answered by `NoOpHandler`, and they are
+ * gone: `ExtensionHandlers` routes none and the bridge's Zod union declares
+ * none, so no pipeline has ever started on a timer. `docs/modules/automation.md`
+ * says so in two banners — but the same file's own intro, quick start and tips
+ * used to promise scheduling anyway, and the FAQ told readers pipelines run "on
+ * a schedule". Banners lose to body copy: a reader who skims takes the promise.
  *
  * This gate asserts the three unbannered regions stay silent about scheduling
- * for as long as the routing above holds. It fails in both directions: wire the
- * scheduler and the first check trips, telling whoever did it that the docs are
- * now understating the product and may be rewritten.
+ * for as long as that absence holds. It fails in both directions: wire a
+ * scheduler on those channels and the first check trips, telling whoever did it
+ * that the docs are now understating the product and may be rewritten. It reads
+ * channel names only: a scheduler wired under another name, or one that fires a
+ * pipeline's triggers from the host with no channel at all, is not seen.
  *
  * Lives here rather than under `packages/*` because its subject is this
  * directory; run it the way `scripts/check-i18n-parity.test.mjs` is run:
@@ -45,20 +49,44 @@ function section(markdown, heading) {
   return next === -1 ? body : body.slice(0, next);
 }
 
-test('scheduler:* is still routed to the no-op handler', () => {
+/** Every channel `ExtensionHandlers.ts` hands to `route(`, as a list or on its own. */
+function routedChannels() {
   const src = readFileSync(
     join(repoRoot, 'packages', 'extension', 'src', 'bridge', 'ExtensionHandlers.ts'),
     'utf8',
   );
-  const noOpRoute = [...src.matchAll(/route\(\s*\[([^\]]*)\]\s*,\s*this\.(\w+)/g)].find(
-    ([, , handler]) => handler === 'noOpHandler',
+  return [...src.matchAll(/\broute\(\s*(\[[^\]]*\]|'[^']*')/g)].flatMap(([, channels]) =>
+    [...channels.matchAll(/'([^']+)'/g)].map(([, channel]) => channel),
   );
-  assert.ok(noOpRoute, 'no `route([...], this.noOpHandler)` call found in ExtensionHandlers.ts');
-  assert.match(
-    noOpRoute[1],
-    /'scheduler:upsert'/,
-    'the scheduler now has a real handler — re-read the Automation docs before deleting this test',
+}
+
+/** Every channel the bridge's Zod union declares, one `msg('…')` member each. */
+function declaredChannels() {
+  const src = readFileSync(
+    join(repoRoot, 'packages', 'shared', 'src', 'bridge', 'messageSchemas.ts'),
+    'utf8',
   );
+  return [...src.matchAll(/msg\('([^']+)'\)/g)].map(([, channel]) => channel);
+}
+
+test('no scheduler:* channel is routed or declared', () => {
+  for (const [where, channels] of [
+    ['routed in ExtensionHandlers.ts', routedChannels()],
+    ['declared in messageSchemas.ts', declaredChannels()],
+  ]) {
+    // Positive control: the scan reads the Sync schedules, which are there, so
+    // an empty list below is not an empty read.
+    assert.ok(
+      channels.includes('sync:schedule:upsert'),
+      `sync:schedule:upsert is not seen ${where} — the scan is reading nothing`,
+    );
+    assert.deepEqual(
+      channels.filter((channel) => channel.startsWith('scheduler:')),
+      [],
+      `a scheduler:* channel is ${where} again — a pipeline may now start on a timer. Re-read ` +
+        'the Automation docs and the FAQ before relaxing this test',
+    );
+  }
 });
 
 test('the FAQ does not answer "recurring operations" with a schedule', () => {
@@ -103,8 +131,8 @@ test('the Triggers and Scheduler sections keep their coming-soon banners', () =>
   }
   assert.match(
     section(automation, '### Scheduler'),
-    /no-op/,
-    'the Scheduler banner must state the backend is a no-op, not merely hedge',
+    /there is no scheduler backend/,
+    'the Scheduler banner must state there is no scheduler backend, not merely hedge',
   );
 });
 

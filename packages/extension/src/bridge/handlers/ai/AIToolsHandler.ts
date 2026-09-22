@@ -14,9 +14,34 @@ import {
   type SObjectCatalogEntry,
 } from '../../../modules/ai/mentionedObjects.js';
 import type { SchemaContext } from '../../../modules/ai/NL2SOQL.js';
+import type { OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
 
 /** Message types handled by AIToolsHandler. */
 const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:generate-pipeline']);
+
+/**
+ * The type the pipeline model is told an org has. The registry stores an
+ * `OrgType` ('Production', 'Sandbox', ...) and the prompt shows the lowercase
+ * names of {@link OrgInfo}; the cast that stood here passed 'Production'
+ * through as is. An org the registry does not know, or whose stored type is
+ * none of these, is described as production, the tier the guard gives it: the
+ * model plans the draft from this word, and was told "sandbox" about an org
+ * nothing showed to be one.
+ */
+function pipelineOrgType(orgType: string | undefined): OrgInfo['type'] {
+  switch (orgType) {
+    case 'Production':
+      return 'production';
+    case 'Sandbox':
+      return 'sandbox';
+    case 'Developer':
+      return 'developer';
+    case 'Scratch':
+      return 'scratch';
+    default:
+      return 'production';
+  }
+}
 
 /** One object of a {@link SchemaContext}, trimmed to what the prompt prints. */
 type DescribedObject = SchemaContext['objects'][number];
@@ -80,6 +105,18 @@ export class AIToolsHandler implements DomainHandler {
    */
   setAIModules(modules: AIModules | undefined): void {
     this.aiModules = modules;
+  }
+
+  /**
+   * Drop the catalogue and describes of an org that is no longer the org it
+   * was: a refreshed sandbox takes production's schema as of the refresh, and
+   * a query checked against its old fields could name one it lost.
+   *
+   * @param orgId - The registered org.
+   */
+  forgetOrg(orgId: string): void {
+    this.describeGlobalCache.invalidate(orgId);
+    this.describeCache.invalidateByPrefix(`${orgId}::`);
   }
 
   /**
@@ -255,7 +292,7 @@ export class AIToolsHandler implements DomainHandler {
         return {
           orgId: id,
           alias: org?.alias ?? id,
-          type: (org?.orgType ?? 'sandbox') as 'production' | 'sandbox' | 'developer' | 'scratch',
+          type: pipelineOrgType(org?.orgType),
         };
       });
       const result = await this.aiModules.pipelineGenerator.generatePipeline(

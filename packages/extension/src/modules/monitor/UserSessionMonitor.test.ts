@@ -44,7 +44,9 @@ describe('UserSessionMonitor', () => {
   let querySessions: QuerySessionsFn;
 
   beforeEach(() => {
-    querySessions = vi.fn<QuerySessionsFn>().mockResolvedValue(createMockSessions());
+    querySessions = vi
+      .fn<QuerySessionsFn>()
+      .mockResolvedValue({ records: createMockSessions(), truncated: false });
     monitor = new UserSessionMonitor(querySessions);
   });
 
@@ -67,7 +69,10 @@ describe('UserSessionMonitor', () => {
 
     it('should overwrite cache on subsequent fetch', async () => {
       await monitor.fetch('org-1');
-      vi.mocked(querySessions).mockResolvedValue([createMockSessions()[0]]);
+      vi.mocked(querySessions).mockResolvedValue({
+        records: [createMockSessions()[0]],
+        truncated: false,
+      });
       await monitor.fetch('org-1');
       expect(monitor.getActiveSessions('org-1')).toHaveLength(1);
     });
@@ -85,9 +90,27 @@ describe('UserSessionMonitor', () => {
     });
 
     it('should return empty when no sessions exist', async () => {
-      vi.mocked(querySessions).mockResolvedValue([]);
+      vi.mocked(querySessions).mockResolvedValue({ records: [], truncated: false });
       await monitor.fetch('org-1');
       expect(monitor.getActiveSessions('org-1')).toEqual([]);
+    });
+  });
+
+  describe('isTruncated', () => {
+    it('says whether the last read of an org stopped at its bound', async () => {
+      vi.mocked(querySessions).mockResolvedValueOnce({
+        records: createMockSessions(),
+        truncated: true,
+      });
+      await monitor.fetch('org-1');
+      expect(monitor.isTruncated('org-1')).toBe(true);
+
+      await monitor.fetch('org-1');
+      expect(monitor.isTruncated('org-1')).toBe(false);
+    });
+
+    it('is false for an org never read', () => {
+      expect(monitor.isTruncated('unknown')).toBe(false);
     });
   });
 
@@ -102,22 +125,25 @@ describe('UserSessionMonitor', () => {
     });
 
     it('should return 0 when no sessions exist', async () => {
-      vi.mocked(querySessions).mockResolvedValue([]);
+      vi.mocked(querySessions).mockResolvedValue({ records: [], truncated: false });
       await monitor.fetch('org-1');
       expect(monitor.getActiveUserCount('org-1')).toBe(0);
     });
 
     it('should count a user with multiple sessions only once', async () => {
-      vi.mocked(querySessions).mockResolvedValue([
-        createMockSessions()[0],
-        createMockSessions()[2],
-      ]);
+      vi.mocked(querySessions).mockResolvedValue({
+        records: [createMockSessions()[0], createMockSessions()[2]],
+        truncated: false,
+      });
       await monitor.fetch('org-1');
       expect(monitor.getActiveUserCount('org-1')).toBe(1);
     });
 
     it('should handle a single session', async () => {
-      vi.mocked(querySessions).mockResolvedValue([createMockSessions()[0]]);
+      vi.mocked(querySessions).mockResolvedValue({
+        records: [createMockSessions()[0]],
+        truncated: false,
+      });
       await monitor.fetch('org-1');
       expect(monitor.getActiveUserCount('org-1')).toBe(1);
     });

@@ -28,7 +28,6 @@ export * from './forge.messages.js';
 export * from './ai.messages.js';
 export * from './settings.messages.js';
 export * from './operation.messages.js';
-export * from './scheduler.messages.js';
 export * from './realtime.messages.js';
 export * from './smart-action.messages.js';
 export * from './frozen.messages.js';
@@ -329,16 +328,6 @@ import type {
   ExecutionErrorResponse,
 } from './operation.messages.js';
 import type {
-  SchedulerListRequest,
-  SchedulerUpsertRequest,
-  SchedulerDeleteRequest,
-  SchedulerToggleRequest,
-  SchedulerListResponse,
-  SchedulerUpsertResponse,
-  SchedulerDeleteResponse,
-  SchedulerToggleResponse,
-} from './scheduler.messages.js';
-import type {
   RealTimeStartRequest,
   RealTimeStopRequest,
   RealTimeStatusRequest,
@@ -528,11 +517,6 @@ export type WebViewToExtensionMessage =
   // Bridge control
   | WorkbenchReloadRequest
   | ErrorBoundaryReport
-  // Scheduler
-  | SchedulerListRequest
-  | SchedulerUpsertRequest
-  | SchedulerDeleteRequest
-  | SchedulerToggleRequest
   // Realtime (CDC)
   | RealTimeStartRequest
   | RealTimeStopRequest
@@ -726,11 +710,6 @@ export type ExtensionToWebViewMessage =
   | ExecutionRetryStatusMessage
   | ExecutionAbortResponse
   | ExecutionErrorResponse
-  // Scheduler
-  | SchedulerListResponse
-  | SchedulerUpsertResponse
-  | SchedulerDeleteResponse
-  | SchedulerToggleResponse
   // Realtime (CDC)
   | RealTimeStartedResponse
   | RealTimeStoppedResponse

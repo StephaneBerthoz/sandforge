@@ -23,6 +23,7 @@ import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { OfflineManager } from '../../core/connection/OfflineManager.js';
 import type { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { Services } from '../../services.js';
 
 /** Infrastructure services bundle shared across handlers. */
@@ -96,6 +97,12 @@ export interface HandlerDeps {
    * the handlers are constructed (same pattern as setOnboardingService).
    */
   onOrgSelected?: (orgId: string) => void;
+  /**
+   * Which org each registered sandbox answered as last, and the refreshes
+   * that changed it. Built by `ExtensionHandlers`; absent in handler tests
+   * that do not exercise it.
+   */
+  sandboxRefreshes?: SandboxRefreshDetector;
 }
 
 /** The retry, timeout and bulk settings of a run. */
@@ -597,6 +604,8 @@ const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   // A pipeline refused before its first step: a step type that cannot run in
   // a pipeline yet, or a Delay or Condition step with nothing to act on.
   /^Pipeline did not start: /,
+  // A pipeline stopped by sandforge.pipeline.timeout.
+  /^Pipeline ran out of time: /,
   // ConnectionHelper, before any call reaches the org: an unknown org, a
   // missing session, a malformed CLI username. The first two carry the org Id.
   /^Org not found: /,

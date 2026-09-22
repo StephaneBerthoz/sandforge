@@ -165,34 +165,32 @@ export function parseArgs(argv: string[]): CliArgs {
   };
 }
 
-/** A diff's serialised component, read back; `undefined` when it is not JSON. */
-function parsed(value: string | undefined): Record<string, unknown> | undefined {
-  if (value === undefined) return undefined;
-  try {
-    const out: unknown = JSON.parse(value);
-    return out && typeof out === 'object' ? (out as Record<string, unknown>) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
- * Which properties differ across the items called modified, and how often.
- * The page says "modified"; this says what the two orgs disagreed on.
+ * The components called modified, by type, in the order the diff lists them.
+ * Each verdict rests on content read from both orgs; these are the names to
+ * read back when checking one.
  */
-export function modifiedBecause(diffs: readonly CompareItem[]): Record<string, number> {
-  const counts: Record<string, number> = {};
+export function modifiedByType(diffs: readonly CompareItem[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
   for (const item of diffs) {
     if (item.status !== 'modified') continue;
-    const source = parsed(item.sourceValue) ?? {};
-    const target = parsed(item.targetValue) ?? {};
-    for (const key of new Set([...Object.keys(source), ...Object.keys(target)])) {
-      if (JSON.stringify(source[key]) !== JSON.stringify(target[key])) {
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-    }
+    const names = out.get(item.componentType) ?? [];
+    names.push(item.fullName);
+    out.set(item.componentType, names);
   }
-  return counts;
+  return out;
+}
+
+/** What the content comparison covered, in one line. */
+export function describeCoverage(result: Pick<CompareResult, 'summary' | 'content'>): string {
+  const { content, summary } = result;
+  const inBoth = summary.modified + summary.unchanged + summary.notCompared;
+  const { over_budget: overBudget, unreadable, read_failed: readFailed } = content.notCompared;
+  return (
+    `  content compared for ${content.compared} of ${inBoth} in both orgs; not compared: ` +
+    `${overBudget} over the budget (${content.budget.components} per org, ${content.budget.seconds} s), ` +
+    `${unreadable} unreadable, ${readFailed} read failed`
+  );
 }
 
 /** Lines for one diff answer. */
@@ -200,7 +198,8 @@ function describeExecute(result: CompareResult): string[] {
   const { summary } = result;
   const lines = [
     `  mode ${result.mode}, ${summary.totalItems} item(s): +${summary.added} added  ` +
-      `-${summary.removed} removed  ~${summary.modified} modified  =${summary.unchanged} unchanged`,
+      `-${summary.removed} removed  ~${summary.modified} modified  =${summary.unchanged} unchanged  ` +
+      `?${summary.notCompared} not compared`,
   ];
   const byType = new Map<string, Record<string, number>>();
   for (const item of result.diffs) {
@@ -209,21 +208,17 @@ function describeExecute(result: CompareResult): string[] {
     byType.set(item.componentType, row);
   }
   for (const [type, row] of byType) {
-    const inSource = (row.removed ?? 0) + (row.modified ?? 0) + (row.unchanged ?? 0);
-    const inTarget = (row.added ?? 0) + (row.modified ?? 0) + (row.unchanged ?? 0);
+    const inBoth = (row.modified ?? 0) + (row.unchanged ?? 0) + (row.not_compared ?? 0);
+    const inSource = (row.removed ?? 0) + inBoth;
+    const inTarget = (row.added ?? 0) + inBoth;
     lines.push(
       `    ${type.padEnd(26)} source ${String(inSource).padStart(5)}  target ${String(inTarget).padStart(5)}` +
-        `   +${row.added ?? 0} -${row.removed ?? 0} ~${row.modified ?? 0} =${row.unchanged ?? 0}`,
+        `   +${row.added ?? 0} -${row.removed ?? 0} ~${row.modified ?? 0} =${row.unchanged ?? 0} ?${row.not_compared ?? 0}`,
     );
   }
-  const because = modifiedBecause(result.diffs);
-  if (Object.keys(because).length > 0) {
-    lines.push(
-      `  modified because: ${Object.entries(because)
-        .sort((a, b) => b[1] - a[1])
-        .map(([key, n]) => `${key}×${n}`)
-        .join(' ')}`,
-    );
+  lines.push(describeCoverage(result));
+  for (const [type, names] of modifiedByType(result.diffs)) {
+    lines.push(`  modified ${type}: ${someOf(names)}`);
   }
   return lines;
 }

@@ -41,13 +41,29 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   }),
 }));
 
+/** What a comparison that read every component both orgs hold says it read. */
+const COMPARED_EVERYTHING = {
+  compared: 92,
+  notCompared: { unreadable: 0, read_failed: 0, over_budget: 0 },
+  budget: { components: 500, seconds: 90 },
+};
+
 /** A `CompareResult` complete enough to unlock the results tabs. */
 const RESULT_WITH_TABS = {
   configId: 'cfg-1',
   sourceOrgId: 'org-1',
   targetOrgId: 'org-2',
   mode: 'metadata',
-  summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+  summary: {
+    totalItems: 100,
+    added: 5,
+    removed: 3,
+    modified: 10,
+    unchanged: 82,
+    notCompared: 0,
+    byType: {},
+  },
+  content: COMPARED_EVERYTHING,
   diffs: [
     {
       componentType: 'ApexClass',
@@ -183,7 +199,16 @@ describe('ComparePage', () => {
         sourceOrgId: 'org-1',
         targetOrgId: 'org-2',
         mode: 'metadata',
-        summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+        summary: {
+          totalItems: 100,
+          added: 5,
+          removed: 3,
+          modified: 10,
+          unchanged: 82,
+          notCompared: 0,
+          byType: {},
+        },
+        content: COMPARED_EVERYTHING,
         diffs: [
           {
             componentType: 'ApexClass',
@@ -217,7 +242,16 @@ describe('ComparePage', () => {
         sourceOrgId: 'org-1',
         targetOrgId: 'org-2',
         mode: 'metadata',
-        summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+        summary: {
+          totalItems: 100,
+          added: 5,
+          removed: 3,
+          modified: 10,
+          unchanged: 82,
+          notCompared: 0,
+          byType: {},
+        },
+        content: COMPARED_EVERYTHING,
         diffs: [],
         timestamp: '2024-01-01T12:00:00Z',
         duration: 5000,
@@ -241,7 +275,16 @@ describe('ComparePage', () => {
         sourceOrgId: 'org-1',
         targetOrgId: 'org-2',
         mode: 'metadata',
-        summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+        summary: {
+          totalItems: 100,
+          added: 5,
+          removed: 3,
+          modified: 10,
+          unchanged: 82,
+          notCompared: 0,
+          byType: {},
+        },
+        content: COMPARED_EVERYTHING,
         diffs: [
           {
             componentType: 'ApexClass',
@@ -414,6 +457,86 @@ describe('ComparePage', () => {
     expect(screen.getByText('compare:drift returned no settings to compare')).toBeDefined();
     expect(screen.queryByTestId('settings-drift')).toBeNull();
     expect(screen.queryByText('No drift detected')).toBeNull();
+  });
+
+  it('counts the components it did not compare apart from the changes, and says why', () => {
+    mockCompareMutationState = {
+      ...mockCompareMutationState,
+      data: {
+        ...RESULT_WITH_TABS,
+        summary: {
+          totalItems: 30,
+          added: 0,
+          removed: 0,
+          modified: 1,
+          unchanged: 4,
+          notCompared: 25,
+          byType: {},
+        },
+        content: {
+          compared: 5,
+          notCompared: { unreadable: 2, read_failed: 0, over_budget: 23 },
+          budget: { components: 500, seconds: 90 },
+        },
+      },
+    };
+    render(<ComparePage />);
+
+    expect(screen.getByTestId('compare-summary-not-compared').textContent).toBe('?25 Not compared');
+    expect(screen.getByTestId('compare-coverage-compared').textContent).toBe(
+      'Content compared for 5 of the 30 components both orgs hold.',
+    );
+    expect(screen.getByTestId('compare-coverage-over-budget')).toBeDefined();
+    expect(screen.getByTestId('compare-coverage-unreadable')).toBeDefined();
+  });
+
+  it('shows no not-compared count when every component both orgs hold was compared', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    render(<ComparePage />);
+
+    expect(screen.queryByTestId('compare-summary-not-compared')).toBeNull();
+    expect(screen.getByTestId('compare-coverage-compared').textContent).toBe(
+      'Content compared for 92 of the 92 components both orgs hold.',
+    );
+  });
+
+  it('scores no risk for components it did not compare', () => {
+    mockCompareMutationState = {
+      ...mockCompareMutationState,
+      data: {
+        ...RESULT_WITH_TABS,
+        summary: {
+          totalItems: 1,
+          added: 0,
+          removed: 0,
+          modified: 0,
+          unchanged: 0,
+          notCompared: 1,
+          byType: {},
+        },
+        content: {
+          compared: 0,
+          notCompared: { unreadable: 0, read_failed: 0, over_budget: 1 },
+          budget: { components: 500, seconds: 90 },
+        },
+        diffs: [
+          {
+            componentType: 'ApexTrigger',
+            fullName: 'OnAccount',
+            status: 'not_compared',
+            notComparedReason: 'over_budget',
+            severity: 'info',
+            deployable: false,
+          },
+        ],
+      },
+    };
+    render(<ComparePage />);
+
+    expect(screen.getByTestId('risk-score-value').textContent).toBe('0');
+    // Nothing is listed as a change, and nothing is called safe.
+    expect(screen.queryByTestId('diff-group-Apex Code')).toBeNull();
+    expect(screen.getByTestId('deployment-advice').textContent).not.toContain('Safe to deploy');
   });
 
   it('should display error from bridge mutation', () => {

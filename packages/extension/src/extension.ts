@@ -36,6 +36,7 @@ import {
 } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
+import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
@@ -242,6 +243,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Native notifications for offline-queue lifecycle (queued / restarted /
   // dropped) — the webview has no offline channel, this is the only surface.
   wireOfflineNotifications(offlineManager);
+  // A refreshed sandbox is a new org behind the same registered one. Every
+  // validated connection says which org it reached, the startup check of
+  // each org included, so this is wired before that check runs (step 10b).
+  context.subscriptions.push(wireSandboxRefreshDetection(handlers.sandboxRefreshes, orgManager));
 
   // Start the sync schedule tick loop (wires SyncScheduleHandler.onExecute
   // to SyncOpsHandler.executeScheduled; idempotent, stops in deactivate()).

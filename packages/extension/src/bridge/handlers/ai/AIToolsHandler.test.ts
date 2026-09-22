@@ -4,6 +4,7 @@ import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { AIModules } from '../AIHandler.js';
 import { inboundRequest } from '../../../test/mockFactories.js';
 import { NL2SOQL } from '../../../modules/ai/NL2SOQL.js';
+import { PipelineGenerator } from '../../../modules/ai/PipelineGenerator.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
 
 vi.mock('../../../core/connection/ConnectionHelper.js', () => ({
@@ -41,7 +42,7 @@ function createMockDeps(): HandlerDeps {
     broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
     stateSync: {} as unknown as HandlerDeps['stateSync'],
     orgManager: {
-      getOrg: vi.fn().mockReturnValue({ alias: 'dev', orgType: 'sandbox' }),
+      getOrg: vi.fn().mockReturnValue({ alias: 'dev', orgType: 'Sandbox' }),
     } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
     configStore: {} as unknown as HandlerDeps['configStore'],
@@ -176,6 +177,61 @@ describe('AIToolsHandler', () => {
     expect(response.type).toBe('ai:generate-pipeline:response');
     expect(response.payload.success).toBe(true);
     expect(response.correlationId).toBe('msg-1');
+  });
+
+  describe('the org types the pipeline model is told', () => {
+    /** A real PipelineGenerator over a scripted model, so the prompt is the shipped one. */
+    function realGenerator() {
+      const provider = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          name: 'Pipeline_Refresh',
+          steps: [{ name: 'refresh_step', type: 'sync', config: {}, description: '' }],
+        }),
+      );
+      handler.setAIModules({
+        pipelineGenerator: new PipelineGenerator(provider),
+      } as unknown as AIModules);
+      return provider;
+    }
+
+    /** No step keyword in it, so the draft comes from the model and its prompt. */
+    const REQUEST = 'refresh the reference tables';
+
+    it('describes an org the registry does not know as production, not as a sandbox', async () => {
+      const provider = realGenerator();
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue(undefined);
+
+      await handler.handle(
+        createMsg('ai:generate-pipeline', { description: REQUEST, orgIds: ['org-x'] }),
+      );
+
+      const prompt = provider.mock.calls[0][0] as string;
+      expect(prompt).toContain('org-x (production, ID: org-x)');
+      expect(prompt).not.toContain('(sandbox');
+    });
+
+    it('names each registered org type in the lowercase the model is shown', async () => {
+      const provider = realGenerator();
+      const registry: Record<string, { alias: string; orgType: string }> = {
+        'org-p': { alias: 'prod', orgType: 'Production' },
+        'org-s': { alias: 'uat', orgType: 'Sandbox' },
+        'org-d': { alias: 'dev', orgType: 'Developer' },
+        'org-c': { alias: 'scratch', orgType: 'Scratch' },
+      };
+      vi.mocked(deps.orgManager.getOrg).mockImplementation(
+        (id) => registry[id] as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>,
+      );
+
+      await handler.handle(
+        createMsg('ai:generate-pipeline', { description: REQUEST, orgIds: Object.keys(registry) }),
+      );
+
+      const prompt = provider.mock.calls[0][0] as string;
+      expect(prompt).toContain('prod (production, ID: org-p)');
+      expect(prompt).toContain('uat (sandbox, ID: org-s)');
+      expect(prompt).toContain('dev (developer, ID: org-d)');
+      expect(prompt).toContain('scratch (scratch, ID: org-c)');
+    });
   });
 
   describe('nl2soql schema context', () => {
@@ -315,6 +371,22 @@ describe('AIToolsHandler', () => {
 
       expect(describe_).toHaveBeenCalledTimes(1);
       expect(conn.describeGlobal).toHaveBeenCalledTimes(1);
+    });
+
+    it('describes an org again once told to forget it', async () => {
+      const describe_ = vi.fn().mockResolvedValue(ACCOUNT_DESCRIBE);
+      const conn = mockConnection(describe_);
+      vi.mocked(getJsforceConnection).mockResolvedValue(
+        conn as unknown as Awaited<ReturnType<typeof getJsforceConnection>>,
+      );
+      realNL2SOQL('SELECT Id FROM Account');
+
+      await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
+      handler.forgetOrg('org1');
+      await handler.handle(createMsg('ai:nl2soql', { query: 'accounts again', orgId: 'org1' }));
+
+      expect(describe_).toHaveBeenCalledTimes(2);
+      expect(conn.describeGlobal).toHaveBeenCalledTimes(2);
     });
   });
 

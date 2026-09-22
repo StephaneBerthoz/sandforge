@@ -6,7 +6,13 @@ import type {
 } from './PipelineOrchestrator';
 import { StepExecutor } from './StepExecutor';
 import type { StepContext } from './StepExecutor';
-import type { PipelineDefinition, PipelineStep, PipelineStepResult } from '@sandforge/shared';
+import { ConditionalRouter } from './ConditionalRouter';
+import type {
+  PipelineDefinition,
+  PipelineRun,
+  PipelineStep,
+  PipelineStepResult,
+} from '@sandforge/shared';
 
 function createMockDeps(): PipelineOrchestratorDependencies {
   return {
@@ -63,8 +69,10 @@ function createMockDeps(): PipelineOrchestratorDependencies {
     } as unknown as PipelineOrchestratorDependencies['stepExecutor'],
     conditionalRouter: {
       evaluate: vi.fn().mockReturnValue(true),
+      check: vi.fn().mockReturnValue(undefined),
       evaluateGroup: vi.fn().mockReturnValue(true),
       getNextStep: vi.fn().mockReturnValue(undefined),
+      endsRun: vi.fn().mockReturnValue(false),
       findBranch: vi.fn().mockReturnValue([]),
     } as unknown as PipelineOrchestratorDependencies['conditionalRouter'],
     history: {
@@ -220,27 +228,7 @@ describe('PipelineOrchestrator', () => {
     });
   });
 
-  describe('pause / resume / cancel', () => {
-    it('should track paused runs', async () => {
-      const pipeline = createPipeline({
-        steps: [
-          { id: 'step-1', name: 'S1', type: 'seed', config: {}, continueOnError: false },
-          { id: 'step-2', name: 'S2', type: 'sync', config: {}, continueOnError: false },
-        ],
-      });
-
-      let runId = '';
-      orchestrator.on('started', (_event, data) => {
-        const d = data as { runId: string };
-        runId = d.runId;
-        orchestrator.pause(runId);
-      });
-
-      const run = await orchestrator.execute(pipeline, {}, 'manual');
-
-      expect(run.status).toBe('paused');
-    });
-
+  describe('cancel', () => {
     it('should cancel a run', async () => {
       const pipeline = createPipeline({
         steps: [
@@ -563,6 +551,273 @@ describe('PipelineOrchestrator', () => {
       for (const context of contexts) {
         expect(context.signal).toBeInstanceOf(AbortSignal);
       }
+    });
+  });
+
+  /** A Delay step of no length: it runs at once and completes. */
+  function delayStep(id: string, overrides?: Partial<PipelineStep>): PipelineStep {
+    return {
+      id,
+      name: id.toUpperCase(),
+      type: 'delay',
+      config: { seconds: 0 },
+      continueOnError: false,
+      ...overrides,
+    };
+  }
+
+  /** Each result of `run` as [step id, status]. */
+  function statuses(run: PipelineRun): Array<[string, string]> {
+    return run.stepResults.map((result) => [result.stepId, result.status]);
+  }
+
+  describe('routing', () => {
+    beforeEach(() => {
+      deps.conditionalRouter = new ConditionalRouter();
+      orchestrator = new PipelineOrchestrator(deps);
+    });
+
+    /** The ids of the steps the executor was asked to run, in order. */
+    function executed(): string[] {
+      return vi
+        .mocked(deps.stepExecutor.execute)
+        .mock.calls.map(([step]) => (step as PipelineStep).id);
+    }
+
+    it('runs the step a route jumps to once, and passes over the steps it jumps past', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            delayStep('a', { onSuccess: 'c' }),
+            delayStep('b'),
+            delayStep('c'),
+            delayStep('d'),
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      // The target used to run twice: once when routed to, and again in its turn.
+      expect(executed()).toEqual(['a', 'c', 'd']);
+      expect(statuses(run)).toEqual([
+        ['a', 'completed'],
+        ['b', 'skipped'],
+        ['c', 'completed'],
+        ['d', 'completed'],
+      ]);
+      expect(run.status).toBe('completed');
+    });
+
+    it('goes on from the onFailure step of a failed step that carries on, and runs it once', async () => {
+      vi.mocked(deps.stepExecutor.execute).mockResolvedValueOnce({
+        stepId: 'a',
+        stepName: 'A',
+        stepType: 'delay',
+        status: 'failed',
+        error: 'boom',
+      });
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            delayStep('a', { continueOnError: true, onFailure: 'c' }),
+            delayStep('b'),
+            delayStep('c'),
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(executed()).toEqual(['a', 'c']);
+      expect(statuses(run)).toEqual([
+        ['a', 'failed'],
+        ['b', 'skipped'],
+        ['c', 'completed'],
+      ]);
+      expect(run.status).toBe('completed_with_warnings');
+    });
+
+    it('refuses, before any step runs, a route that points back', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [delayStep('a'), delayStep('b', { onSuccess: 'a' })] }),
+        {},
+        'manual',
+      );
+
+      expect(executed()).toEqual([]);
+      expect(run.status).toBe('failed');
+      expect(run.error).toBe(
+        'Pipeline did not start: Step "B" routes on success to "A", which does not come after it: a route can only skip ahead.',
+      );
+    });
+
+    it('refuses a route to the step itself, or to a step the pipeline does not have', async () => {
+      const toItself = await orchestrator.execute(
+        createPipeline({ steps: [delayStep('a', { onFailure: 'a' })] }),
+        {},
+        'manual',
+      );
+      const toNowhere = await orchestrator.execute(
+        createPipeline({ steps: [delayStep('a', { onSuccess: 'zz' })] }),
+        {},
+        'manual',
+      );
+
+      expect(toItself.stepResults[0].error).toBe(
+        'Step "A" routes on failure to "A", which does not come after it: a route can only skip ahead.',
+      );
+      expect(toNowhere.stepResults[0].error).toBe(
+        'Step "A" routes on success to "zz", which is not a step of this pipeline: a route can only skip ahead.',
+      );
+      expect(executed()).toEqual([]);
+    });
+  });
+
+  describe('conditions', () => {
+    beforeEach(() => {
+      deps.stepExecutor = new StepExecutor();
+      deps.conditionalRouter = new ConditionalRouter();
+      orchestrator = new PipelineOrchestrator(deps);
+    });
+
+    /** A Condition step that holds when `env` is `prod`. */
+    function gate(overrides?: Partial<PipelineStep>): PipelineStep {
+      return {
+        id: 'gate',
+        name: 'Gate',
+        type: 'condition',
+        config: {},
+        continueOnError: false,
+        condition: { field: 'env', operator: 'eq', value: 'prod' },
+        ...overrides,
+      };
+    }
+
+    it('records a Condition that does not hold as answered, and runs no step after it', async () => {
+      // It used to be recorded skipped, as if never asked, and every step
+      // after it ran all the same.
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [gate(), delayStep('then'), delayStep('after')] }),
+        { env: 'dev' },
+        'manual',
+      );
+
+      expect(run.stepResults[0]).toMatchObject({
+        stepId: 'gate',
+        status: 'completed',
+        output: { conditionMet: false },
+      });
+      expect(statuses(run).slice(1)).toEqual([
+        ['then', 'skipped'],
+        ['after', 'skipped'],
+      ]);
+      expect(run.status).toBe('completed');
+    });
+
+    it('runs the steps after a Condition that holds', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [gate(), delayStep('then')] }),
+        { env: 'prod' },
+        'manual',
+      );
+
+      expect(run.stepResults[0].output).toEqual({ conditionMet: true });
+      expect(statuses(run)).toEqual([
+        ['gate', 'completed'],
+        ['then', 'completed'],
+      ]);
+    });
+
+    it('goes on from the onFailure step of a Condition that does not hold', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [gate({ onFailure: 'else' }), delayStep('then'), delayStep('else')],
+        }),
+        { env: 'dev' },
+        'manual',
+      );
+
+      expect(statuses(run)).toEqual([
+        ['gate', 'completed'],
+        ['then', 'skipped'],
+        ['else', 'completed'],
+      ]);
+    });
+
+    it("reads the pipeline's variables at their defaults, under the values the run was given", async () => {
+      // A default was read by nothing: the condition found `env` unset.
+      const pipeline = createPipeline({
+        steps: [gate()],
+        variables: [
+          { name: 'env', type: 'string', defaultValue: 'prod', required: false, description: '' },
+        ],
+      });
+
+      const onDefault = await orchestrator.execute(pipeline, {}, 'manual');
+      const overridden = await orchestrator.execute(pipeline, { env: 'dev' }, 'manual');
+
+      expect(onDefault.stepResults[0].output).toEqual({ conditionMet: true });
+      expect(overridden.stepResults[0].output).toEqual({ conditionMet: false });
+      // What the run was given is what it records.
+      expect(onDefault.variables).toEqual({});
+    });
+
+    it('runs a step whose condition compares a number with the text of a variable', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [delayStep('then', { condition: { field: 'count', operator: 'eq', value: 5 } })],
+        }),
+        { count: '5' },
+        'manual',
+      );
+
+      expect(statuses(run)).toEqual([['then', 'completed']]);
+    });
+
+    it('fails a step whose condition has no answer, instead of passing it over', async () => {
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [delayStep('then', { condition: { field: 'count', operator: 'gt', value: 5 } })],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(run.stepResults).toEqual([
+        {
+          stepId: 'then',
+          stepName: 'THEN',
+          stepType: 'delay',
+          status: 'failed',
+          error:
+            'Step "THEN" did not run: its condition could not be evaluated, as "count" has no value to compare with 5.',
+        },
+      ]);
+      expect(run.status).toBe('failed');
+    });
+
+    it('refuses, before any step runs, a condition that cannot be evaluated', async () => {
+      const execute = vi.spyOn(deps.stepExecutor, 'execute');
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            delayStep('first'),
+            delayStep('then', {
+              condition: { field: 'usage', operator: '>' as never, value: '80' },
+            }),
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(run.error).toBe(
+        'Pipeline did not start: Step "THEN" runs only when its condition holds, and the condition uses an unknown operator: >.',
+      );
     });
   });
 });

@@ -101,6 +101,27 @@ describe('SmartActionHandler', () => {
     expect(cacheHitLogs.length).toBe(1);
   });
 
+  it('analyzes an org again once told to forget it', async () => {
+    const analyze = (id: string): Promise<boolean> =>
+      handler.handle(
+        inboundRequest({
+          id,
+          type: 'smart-action:analyze',
+          timestamp: Date.now(),
+          payload: { targetOrgId: 'org-target-1' },
+        }),
+      );
+
+    await analyze('req-before');
+    handler.forgetOrg('org-target-1');
+    await analyze('req-after');
+
+    const cacheHits = (deps.log as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call: string[]) => typeof call[0] === 'string' && call[0].includes('Cache hit'),
+    );
+    expect(cacheHits).toHaveLength(0);
+  });
+
   it('should report smart-action:analyze in SMART_ACTION_TYPES', async () => {
     const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
       id: 'req-4',

@@ -1,10 +1,12 @@
 import type {
+  CompareContentCoverage,
   CompareItem,
   CompareSeverity,
   CompareSummary,
   DiffStatus,
   FieldDiff,
   MetadataComponentType,
+  NotComparedReason,
 } from '@sandforge/shared';
 
 /** Critical component types whose removal or modification is breaking */
@@ -25,11 +27,15 @@ export class DiffEngine {
   /**
    * Compare source and target component maps to produce a list of diffs.
    * Each key represents a component fullName, and the value is its serialized content.
+   *
+   * A component both maps hold and `notCompared` names is `not_compared`,
+   * whatever its two values: they are not its content, so they prove nothing.
    */
   diff(
     source: Map<string, string>,
     target: Map<string, string>,
     componentType: MetadataComponentType,
+    notCompared: ReadonlyMap<string, NotComparedReason> = new Map(),
   ): CompareItem[] {
     const items: CompareItem[] = [];
     const allKeys = new Set([...source.keys(), ...target.keys()]);
@@ -37,11 +43,17 @@ export class DiffEngine {
     for (const key of allKeys) {
       const sourceValue = source.get(key);
       const targetValue = target.get(key);
+      const reason = notCompared.get(key);
 
       if (sourceValue !== undefined && targetValue === undefined) {
         items.push(DiffEngine.createItem(componentType, key, 'removed', sourceValue, undefined));
       } else if (sourceValue === undefined && targetValue !== undefined) {
         items.push(DiffEngine.createItem(componentType, key, 'added', undefined, targetValue));
+      } else if (reason !== undefined) {
+        items.push({
+          ...DiffEngine.createItem(componentType, key, 'not_compared', undefined, undefined),
+          notComparedReason: reason,
+        });
       } else if (sourceValue !== targetValue) {
         items.push(DiffEngine.createItem(componentType, key, 'modified', sourceValue, targetValue));
       } else {
@@ -84,6 +96,7 @@ export class DiffEngine {
     let removed = 0;
     let modified = 0;
     let unchanged = 0;
+    let notCompared = 0;
     const byType: Record<string, { added: number; removed: number; modified: number }> = {};
 
     for (const item of items) {
@@ -100,9 +113,12 @@ export class DiffEngine {
         case 'unchanged':
           unchanged++;
           break;
+        case 'not_compared':
+          notCompared++;
+          break;
       }
 
-      if (item.status !== 'unchanged') {
+      if (DiffEngine.isChange(item.status)) {
         if (!byType[item.componentType]) {
           byType[item.componentType] = { added: 0, removed: 0, modified: 0 };
         }
@@ -123,8 +139,38 @@ export class DiffEngine {
       removed,
       modified,
       unchanged,
+      notCompared,
       byType,
     };
+  }
+
+  /**
+   * What the items say was compared by content, and what was not and why,
+   * beside the budget the reading kept within.
+   */
+  computeCoverage(
+    items: readonly CompareItem[],
+    budget: CompareContentCoverage['budget'],
+  ): CompareContentCoverage {
+    const notCompared: Record<NotComparedReason, number> = {
+      unreadable: 0,
+      read_failed: 0,
+      over_budget: 0,
+    };
+    let compared = 0;
+    for (const item of items) {
+      if (item.status === 'modified' || item.status === 'unchanged') {
+        compared++;
+      } else if (item.status === 'not_compared' && item.notComparedReason !== undefined) {
+        notCompared[item.notComparedReason]++;
+      }
+    }
+    return { compared, notCompared, budget: { ...budget } };
+  }
+
+  /** Whether a status is a difference between the orgs: not a match, nor a component left unread. */
+  static isChange(status: DiffStatus): boolean {
+    return status === 'added' || status === 'removed' || status === 'modified';
   }
 
   /** Determine the severity of a diff based on status and component type */
@@ -132,7 +178,7 @@ export class DiffEngine {
     status: DiffStatus,
     componentType: MetadataComponentType,
   ): CompareSeverity {
-    if (status === 'unchanged' || status === 'added') {
+    if (!DiffEngine.isChange(status) || status === 'added') {
       return 'info';
     }
     if (CRITICAL_TYPES.has(componentType)) {
@@ -141,9 +187,9 @@ export class DiffEngine {
     return 'warning';
   }
 
-  /** Determine if a diff item is deployable */
+  /** Determine if a diff item is deployable: only a difference is. */
   static isDeployable(status: DiffStatus): boolean {
-    return status !== 'unchanged';
+    return DiffEngine.isChange(status);
   }
 
   private static createItem(

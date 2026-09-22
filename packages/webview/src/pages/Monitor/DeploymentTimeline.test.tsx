@@ -93,4 +93,31 @@ describe('DeploymentTimeline', () => {
 
     expect(screen.getByText(/2 errors/)).toBeDefined();
   });
+
+  const deployment = {
+    id: 'dep-4',
+    status: 'Succeeded',
+    startDate: '2026-03-16T14:00:00Z',
+    createdBy: 'Admin User',
+    componentCount: 5,
+    errorCount: 0,
+  };
+
+  it('says the timeline stops where the read did when older deployments were left unread', () => {
+    // Run against a real sandbox, the read came back full at twenty and the
+    // page showed a badge of 20 as though that were every deployment.
+    mockDeploymentData = { success: true, deployments: [deployment], truncated: true };
+    render(<DeploymentTimeline />);
+
+    expect(screen.getByTestId('deployment-list-cap').textContent).toBe(
+      'Only the 1 most recent are read here: the list and its counts stop there.',
+    );
+  });
+
+  it('says nothing of a bound when the timeline is complete', () => {
+    mockDeploymentData = { success: true, deployments: [deployment], truncated: false };
+    render(<DeploymentTimeline />);
+
+    expect(screen.queryByTestId('deployment-list-cap')).toBeNull();
+  });
 });

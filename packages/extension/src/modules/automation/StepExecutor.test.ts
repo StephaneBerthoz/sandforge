@@ -184,7 +184,7 @@ describe('StepExecutor', () => {
       expect(settled).toBe(true);
       const result = await promise;
       expect(result.status).toBe('failed');
-      expect(result.error).toBe('Delay step "Pause" was stopped before its 60000 ms wait ended.');
+      expect(result.error).toBe('Step "Pause" was stopped before it finished.');
       expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -193,12 +193,97 @@ describe('StepExecutor', () => {
       aborter.abort();
 
       const result = await executor.execute(
-        createStep({ type: 'delay', config: { seconds: 60 } }),
+        createStep({ type: 'delay', name: 'Pause', config: { seconds: 60 } }),
         createContext({ signal: aborter.signal }),
       );
 
       expect(result.status).toBe('failed');
+      expect(result.error).toBe('Step "Pause" was stopped before it started.');
       expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stops a step its own timeout gives up on, instead of leaving it running', async () => {
+      // The timeout used to reject a race and nothing more: the result said
+      // "timed out" while the Delay's 60 s timer went on to its end.
+      let settled = false;
+      const promise = executor
+        .execute(
+          createStep({ type: 'delay', name: 'Pause', config: { seconds: 60 }, timeout: 1_000 }),
+          createContext(),
+        )
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(settled).toBe(true);
+      const result = await promise;
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe('Step "Pause" timed out after 1000 ms.');
+      expect(result.duration).toBe(1_000);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stops each timed-out try before the next one starts', async () => {
+      // A retry after a timeout started a second try beside the first, still
+      // running: three tries of a step that never answers ran at once.
+      let running = 0;
+      let mostAtOnce = 0;
+      executor.registerHandler('seed', (_step, context) => {
+        running += 1;
+        mostAtOnce = Math.max(mostAtOnce, running);
+        context.signal?.addEventListener('abort', () => {
+          running -= 1;
+        });
+        return new Promise<never>(() => {});
+      });
+
+      const promise = executor.execute(
+        createStep({ type: 'seed', name: 'Load', retries: 2, timeout: 100 }),
+        createContext(),
+      );
+      await vi.advanceTimersByTimeAsync(300);
+      const result = await promise;
+
+      expect(result.error).toBe('Step "Load" timed out after 100 ms.');
+      expect(mostAtOnce).toBe(1);
+      expect(running).toBe(0);
+    });
+
+    it('leaves no timer behind when a step ends within its timeout', async () => {
+      const promise = executor.execute(
+        createStep({ type: 'delay', config: { seconds: 1 }, timeout: 5_000 }),
+        createContext(),
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect((await promise).status).toBe('completed');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('settles when the run is stopped, even under a handler that ignores its signal', async () => {
+      // Otherwise a run stopped by its time budget would wait on that step for
+      // ever, and nobody would hear of the run again.
+      executor.registerHandler('seed', () => new Promise<never>(() => {}));
+      const aborter = new AbortController();
+      let settled = false;
+      const promise = executor
+        .execute(createStep({ type: 'seed', name: 'Load', retries: 3 }), {
+          ...createContext(),
+          signal: aborter.signal,
+        })
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+
+      aborter.abort();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settled).toBe(true);
+      expect((await promise).error).toBe('Step "Load" was stopped before it finished.');
     });
 
     it('should handle the condition step with a matching condition', async () => {
@@ -270,6 +355,46 @@ describe('StepExecutor', () => {
 
       expect(result.status).toBe('failed');
       expect(result.error).toBe('Condition step "Gate" uses an unknown operator: >.');
+    });
+
+    it('fails a Condition step it cannot answer, and says why, instead of answering no', async () => {
+      // `Number(undefined ?? '')` is 0, so "count > 5" on a count nobody set
+      // came back false, a real-looking answer to a question never asked.
+      const gate = createStep({
+        type: 'condition',
+        name: 'Gate',
+        condition: { field: 'count', operator: 'gt', value: 5 },
+      });
+
+      const unset = await executor.execute(gate, createContext());
+      expect(unset.status).toBe('failed');
+      expect(unset.error).toBe(
+        'Condition step "Gate" could not be evaluated: "count" has no value to compare with 5.',
+      );
+
+      const answered = await executor.execute(gate, createContext({ variables: { count: '7' } }));
+      expect(answered.output).toEqual({ conditionMet: true });
+    });
+
+    it('refuses a Condition step whose value no number comparison can use', () => {
+      expect(
+        executor.check(
+          createStep({
+            type: 'condition',
+            name: 'Gate',
+            condition: { field: 'count', operator: 'gt', value: 'many' },
+          }),
+        ),
+      ).toBe('Condition step "Gate" compares "count" with "many", which is not a number.');
+      expect(
+        executor.check(
+          createStep({
+            type: 'condition',
+            name: 'Gate',
+            condition: { field: 'id', operator: 'matches', value: '[' },
+          }),
+        ),
+      ).toBe('Condition step "Gate" matches "id" against "[", which is not a valid pattern.');
     });
 
     it('should return failure result when handler throws', async () => {
@@ -375,7 +500,12 @@ describe('StepExecutor', () => {
       await executor.execute(step, context);
 
       expect(customHandler).toHaveBeenCalledTimes(1);
-      expect(customHandler).toHaveBeenCalledWith(step, context);
+      // The run's context, with a signal of the step's own that its timeout
+      // and the run can both abort.
+      expect(customHandler).toHaveBeenCalledWith(step, {
+        ...context,
+        signal: expect.any(AbortSignal),
+      });
     });
   });
 });

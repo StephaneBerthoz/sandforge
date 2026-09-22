@@ -6,6 +6,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { ListCapNote } from './ListCapNote';
 
 /** Response shape from monitor:sessions. */
 interface SessionsData {
@@ -19,6 +20,8 @@ interface SessionsData {
     sourceIp: string;
   }>;
   activeUserCount: number;
+  /** The read stopped at its bound: the org holds more sessions than listed. */
+  truncated?: boolean;
 }
 
 /** Shared date formatter for session login timestamps. */
@@ -103,6 +106,8 @@ export const SessionsPanel: React.FC = () => {
           )}
         </Badge>
       </div>
+
+      {data?.truncated && <ListCapNote shown={sessions.length} testId="sessions-list-cap" />}
 
       {/* Table header */}
       <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-secondary font-medium uppercase tracking-wider border-b border-subtle mb-1">

@@ -122,4 +122,42 @@ describe('SessionsPanel', () => {
     expect(warn.mock.calls.filter((call) => String(call[0]).includes('same key'))).toHaveLength(0);
     warn.mockRestore();
   });
+
+  /** Two sessions, as the most recent of an org that holds more. */
+  const SESSIONS = [
+    {
+      sessionId: 'session-1',
+      userId: 'user-1',
+      username: 'admin@dev.sandbox',
+      sessionType: 'UI',
+      loginTime: '2026-03-20T10:00:00Z',
+      sourceIp: '192.168.1.1',
+    },
+    {
+      sessionId: 'session-2',
+      userId: 'user-2',
+      username: 'api@dev.sandbox',
+      sessionType: 'API',
+      loginTime: '2026-03-20T10:05:00Z',
+      sourceIp: '10.0.0.1',
+    },
+  ];
+
+  it('says the list and its user count stop where the read did', () => {
+    // The read stopped at 100 sessions without a word, and the active-user
+    // badge counted the users of those 100 as the org's.
+    mockData = { success: true, sessions: SESSIONS, activeUserCount: 2, truncated: true };
+    render(<SessionsPanel />);
+
+    expect(screen.getByTestId('sessions-list-cap').textContent).toBe(
+      'Only the 2 most recent are read here: the list and its counts stop there.',
+    );
+  });
+
+  it('says nothing of a bound when the list is complete', () => {
+    mockData = { success: true, sessions: SESSIONS, activeUserCount: 2, truncated: false };
+    render(<SessionsPanel />);
+
+    expect(screen.queryByTestId('sessions-list-cap')).toBeNull();
+  });
 });

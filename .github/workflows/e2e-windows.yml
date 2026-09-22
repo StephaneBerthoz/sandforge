@@ -1,0 +1,84 @@
+name: E2E on Windows
+
+# The E2E suite runs on ubuntu in ci.yml, and nowhere else. It used to run on
+# Windows only, was cancelled at thirty minutes on every run for months, and
+# was moved; since then nothing has said whether it passes on the platform
+# most VS Code users are on. This leg measures that. It does not block: a spec
+# that fails only here is first a number to know, then a defect to find — the
+# annotation carries the number, the report the rest.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packages/webview/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/e2e-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Measured, not gated: see the header.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared
+        run: pnpm build:shared
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+        working-directory: packages/webview
+
+      - name: Run E2E tests
+        run: pnpm --filter webview e2e
+        env:
+          CI: true
+
+      - name: Count what failed on Windows
+        if: always()
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const report = "packages/webview/test-results/results.json";
+            if (!fs.existsSync(report)) {
+              console.log("::warning::no Playwright json report — the E2E step did not get that far");
+              process.exit(0);
+            }
+            const { stats } = JSON.parse(fs.readFileSync(report, "utf8"));
+            const failed = stats.unexpected ?? 0;
+            const line = `${failed} E2E test(s) fail on Windows, ${stats.flaky ?? 0} passed only on retry, ${stats.expected ?? 0} passed`;
+            console.log(failed > 0 ? "::warning::" + line : line);
+          '
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: playwright-report-windows
+          path: |
+            packages/webview/playwright-report/
+            packages/webview/test-results/results.json
+          retention-days: 7

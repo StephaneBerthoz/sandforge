@@ -105,4 +105,54 @@ describe('ErrorLogsPanel', () => {
     const badges = screen.getAllByText('3');
     expect(badges.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('says the list and its counts stop where the read did', () => {
+    // The read stopped at 50 errors without a word: the total badge and the
+    // per-type counts said 50 about a day that held more.
+    mockData = {
+      success: true,
+      errors: [
+        {
+          id: 'err-1',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-03-20T10:00:00Z',
+        },
+        {
+          id: 'err-2',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-03-20T09:00:00Z',
+        },
+      ],
+      errorsByType: [{ type: 'Failed', count: 2 }],
+      totalCount: 2,
+      truncated: true,
+    };
+    render(<ErrorLogsPanel />);
+
+    expect(screen.getByTestId('error-logs-list-cap').textContent).toBe(
+      'Only the 2 most recent are read here: the list and its counts stop there.',
+    );
+  });
+
+  it('says nothing of a bound when the list is complete', () => {
+    mockData = {
+      success: true,
+      errors: [
+        {
+          id: 'err-1',
+          errorType: 'Failed',
+          message: 'Api - Failed',
+          timestamp: '2026-03-20T10:00:00Z',
+        },
+      ],
+      errorsByType: [{ type: 'Failed', count: 1 }],
+      totalCount: 1,
+      truncated: false,
+    };
+    render(<ErrorLogsPanel />);
+
+    expect(screen.queryByTestId('error-logs-list-cap')).toBeNull();
+  });
 });

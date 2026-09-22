@@ -6,12 +6,7 @@ import type {
   OrgHealthStatus,
   MonitorOpenApexJobsResponse,
 } from '@sandforge/shared';
-import {
-  MONITOR_KEY_LIMITS,
-  DEFAULT_SOQL_LIMITS,
-  SF_LIMITS,
-  SF_API_VERSION,
-} from '@sandforge/shared';
+import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_API_VERSION } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
@@ -26,7 +21,7 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
 import type { TrendStorage } from '../../modules/monitor/TrendStorage.js';
-import { OrgInfoFetcher } from '../../modules/monitor/OrgInfoFetcher.js';
+import { OrgInfoFetcher, newestApiVersion } from '../../modules/monitor/OrgInfoFetcher.js';
 import type { OrgInfoConnection } from '../../modules/monitor/OrgInfoFetcher.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { transformLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
@@ -46,6 +41,14 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 
 /** Bound for monitor:refresh org calls, kept below the 30 s bridge timeout. */
 const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
+
+/**
+ * The newest deployments, Apex logs and objects the panels list. Bounds, not
+ * the org's whole history: a list that comes back full says so on the page.
+ */
+const DEPLOYMENT_LIST_BOUND = 20;
+const APEX_LOG_SAMPLE = 20;
+const STORAGE_LIST_BOUND = 20;
 
 /**
  * Platform facts relied on below. Those marked (describe) were checked against
@@ -440,6 +443,8 @@ export class MonitorOpsHandler implements DomainHandler {
     orgId: string,
     conn: Connection,
   ) => Promise<RawLimitsResponse>;
+  /** Drops what the monitor services hold about one org (see {@link forgetOrg}). */
+  private readonly forgetServicesOrg: (orgId: string) => void;
   private readonly errorLogMonitor: ErrorLogMonitor;
   private readonly userSessionMonitor: UserSessionMonitor;
   private readonly apexLogAnalyzer: ApexLogAnalyzer;
@@ -479,8 +484,14 @@ export class MonitorOpsHandler implements DomainHandler {
           orgId,
           await getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager),
         ),
+      // A refresh a production org's history shows completing is recorded on
+      // the registered sandbox it names, which is then told like any other.
+      onSandboxRefreshCompleted: (event) => {
+        deps.sandboxRefreshes?.noteCompletedRefresh(event);
+      },
     });
     this.trendStorage = ops.trendStorage;
+    this.forgetServicesOrg = ops.forgetOrg;
     this.alertStateStore = ops.alertStateStore;
     this.alertEngine = ops.alertEngine;
     this.errorLogMonitor = ops.errorLogMonitor;
@@ -507,6 +518,24 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   getAlertEngine(): AlertEngine {
     return this.alertEngine;
+  }
+
+  /**
+   * Drop what the Monitor holds about an org that is no longer the org it
+   * was: a refreshed sandbox answers from a new org behind the same id.
+   *
+   * The org info and the /limits reading would be served for minutes more;
+   * the job progress log watches jobs of the old org. The trend history goes
+   * too: storage and API usage start over with a copy of production, and a
+   * trend drawn across the refresh would predict from the jump.
+   *
+   * @param orgId - The registered org.
+   */
+  forgetOrg(orgId: string): void {
+    this.forgetServicesOrg(orgId);
+    this.orgInfoFetcher.clearCache(orgId);
+    this.jobProgress.delete(orgId);
+    this.trendStorage.purge(orgId);
   }
 
   /**
@@ -697,6 +726,10 @@ export class MonitorOpsHandler implements DomainHandler {
         batchesProcessed: r.JobItemsProcessed ?? null,
         totalBatches: r.TotalJobItems ?? null,
       }));
+      // The window is a bound, not the org's whole history: when it comes back
+      // full the org may hold older jobs, and the page says so under the list
+      // and the counts it draws from it.
+      const jobsTruncated = jobRecords.length >= DEFAULT_SOQL_LIMITS.monitorJobs;
       // The payload keeps its contract: the batch counters feed the insights only.
       const jobs: MonitorJobSummary[] = observed.map(
         ({ id, jobType, status, createdBy, createdDate, failedRecords }) => ({
@@ -735,6 +768,16 @@ export class MonitorOpsHandler implements DomainHandler {
       // 4. Fetch org info (cached, non-blocking failure)
       const orgInfo = await this.fetchOrgInfo(payload.orgId, conn);
 
+      // 4b. The Organization row just read names the org this entry reaches:
+      // a refreshed sandbox answers with a new id under the same entry.
+      if (orgInfo) {
+        this.deps.sandboxRefreshes?.observe(
+          payload.orgId,
+          { organizationId: orgInfo.orgId, instanceName: orgInfo.instanceName || undefined },
+          'monitor',
+        );
+      }
+
       // 5. Calculate health report (after orgInfo so metadata dimensions can be
       // included). It reads the trends just computed rather than the store,
       // which would re-read and re-parse the history once per limit.
@@ -759,6 +802,7 @@ export class MonitorOpsHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'monitor:data', {
         limits,
         jobs,
+        jobsTruncated,
         healthScore,
         healthReport,
         trends,
@@ -793,15 +837,7 @@ export class MonitorOpsHandler implements DomainHandler {
   ): Promise<import('@sandforge/shared').OrgInfo | undefined> {
     try {
       const orgInfoConn: OrgInfoConnection = {
-        identity: async () => {
-          const id = await conn.identity();
-          return {
-            apiVersion: conn.version ?? SF_LIMITS.DEFAULT_API_VERSION,
-            lastLoginDate:
-              ((id as Record<string, unknown>).last_login_date as string) ??
-              new Date().toISOString(),
-          };
-        },
+        latestApiVersion: async () => newestApiVersion(await conn.request('/services/data')),
         queryOrg: async () => {
           const org = this.deps.orgManager.getOrg(orgId);
           const orgRecords = await queryAll<{
@@ -817,15 +853,21 @@ export class MonitorOpsHandler implements DomainHandler {
           );
           checkApiLimits(conn.limitInfo, 'monitor:refresh orgInfo');
           const rec = orgRecords[0];
-          const orgType = org?.orgType ?? 'Sandbox';
           return {
             name: rec?.Name ?? org?.alias ?? '',
             orgId: rec?.Id ?? orgId,
-            type: orgType as 'Production' | 'Sandbox' | 'Scratch' | 'Developer',
+            // The registry's type, the one every guard reads. An org it no
+            // longer knows, disconnected while this refresh ran, is shown as
+            // Production: an unknown type fails closed here as in the guards,
+            // where it used to read as a sandbox.
+            type: org?.orgType ?? 'Production',
             // The org's own answer first. The stored edition is whatever the
-            // connection path wrote: an SFDX import writes the org's name there.
+            // connection path wrote: SFDX imports used to write the org's name
+            // there, and an org imported then keeps it.
             edition: rec?.OrganizationType ?? org?.metadata.edition ?? '',
             instanceName: rec?.InstanceName ?? '',
+            namespacePrefix: rec?.NamespacePrefix,
+            createdDate: rec?.CreatedDate,
           };
         },
         queryCount: async (soql: string) => {
@@ -852,7 +894,8 @@ export class MonitorOpsHandler implements DomainHandler {
 
   /**
    * Handle monitor:storage -- per-object record count breakdown: the twenty
-   * objects holding the most records, and the total over every object.
+   * objects holding the most records, the total over every object, and how
+   * many objects that total covers.
    *
    * The counts come from the Record Count API, which answers for all of the
    * org's objects in one call. They used to be read from
@@ -860,6 +903,12 @@ export class MonitorOpsHandler implements DomainHandler {
    * run against real orgs, the query came back INVALID_FIELD on every one, and
    * the panel said "No object storage data available" about orgs holding
    * thousands of records.
+   *
+   * Those counts cover setup and log objects too, and on a real sandbox they
+   * lead the list: ObjectPermissions, FieldPermissions, LoginHistory, the setup
+   * audit trail — 134,000 records counted where the org used 6 MB of data
+   * storage, about 3,000 records' worth. No API says which objects use data
+   * storage, so the panel says what the list is instead of calling it storage.
    *
    * @param msg - The incoming storage request message.
    */
@@ -883,7 +932,7 @@ export class MonitorOpsHandler implements DomainHandler {
       const holding = (counted.sObjects ?? [])
         .filter((o) => o.count > 0)
         .sort((a, b) => b.count - a.count);
-      const top = holding.slice(0, 20);
+      const top = holding.slice(0, STORAGE_LIST_BOUND);
 
       // The counts carry API names only; the panel shows labels. The names are
       // the org's own, filtered to API-name characters all the same.
@@ -916,6 +965,8 @@ export class MonitorOpsHandler implements DomainHandler {
         success: true,
         objects,
         totalRecords,
+        // The list stops at its bound: the page says out of how many.
+        objectCount: holding.length,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -926,7 +977,8 @@ export class MonitorOpsHandler implements DomainHandler {
 
   /**
    * Handle monitor:deployments -- recent deployment history.
-   * Queries DeployRequest for the 20 most recent deployments.
+   * Queries DeployRequest for the {@link DEPLOYMENT_LIST_BOUND} most recent
+   * deployments, and says when the list came back full.
    * @param msg - The incoming deployments request message.
    */
   private async handleDeployments(msg: InboundRequest): Promise<void> {
@@ -944,7 +996,8 @@ export class MonitorOpsHandler implements DomainHandler {
 
       // DeployRequest lives in the Tooling API — the standard REST query
       // endpoint rejects it with "sObject type 'DeployRequest' is not
-      // supported" on every org. LIMIT 20: no pagination needed.
+      // supported" on every org. The LIMIT keeps the read to one page; a page
+      // that comes back full is a list that stops there, and the page says so.
       const deployResult = await conn.tooling.query<{
         Id: string;
         Status: string;
@@ -954,7 +1007,7 @@ export class MonitorOpsHandler implements DomainHandler {
         NumberComponentsTotal: number;
         NumberComponentErrors: number;
       }>(
-        `SELECT Id, Status, StartDate, CompletedDate, CreatedBy.Name, NumberComponentsTotal, NumberComponentErrors FROM DeployRequest ORDER BY StartDate DESC LIMIT 20`,
+        `SELECT Id, Status, StartDate, CompletedDate, CreatedBy.Name, NumberComponentsTotal, NumberComponentErrors FROM DeployRequest ORDER BY StartDate DESC LIMIT ${DEPLOYMENT_LIST_BOUND}`,
       );
       const deployRecords = deployResult.records;
       checkApiLimits(conn.limitInfo, 'monitor:deployments deployRequest');
@@ -972,6 +1025,7 @@ export class MonitorOpsHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'monitor:deployments:response', {
         success: true,
         deployments,
+        truncated: deployRecords.length >= DEPLOYMENT_LIST_BOUND,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -1136,6 +1190,7 @@ export class MonitorOpsHandler implements DomainHandler {
         errors,
         errorsByType,
         totalCount: errors.length,
+        truncated: this.errorLogMonitor.isTruncated(payload.orgId),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -1162,6 +1217,7 @@ export class MonitorOpsHandler implements DomainHandler {
         success: true,
         sessions,
         activeUserCount,
+        truncated: this.userSessionMonitor.isTruncated(payload.orgId),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -1181,18 +1237,51 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = parsed;
 
     try {
-      const analyses = await this.apexLogAnalyzer.fetchAndAnalyze(payload.orgId, 20);
+      const analyses = await this.apexLogAnalyzer.fetchAndAnalyze(payload.orgId, APEX_LOG_SAMPLE);
       const topIssues = this.apexLogAnalyzer.getTopIssues(payload.orgId);
 
       const response = buildResponse(this.deps, msg, 'monitor:apex-insights:response', {
         success: true,
         analyses,
         topIssues,
+        truncated: this.apexLogAnalyzer.isTruncated(payload.orgId),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'monitor:apex-insights', 'monitor:error', msg, err);
+    }
+  }
+
+  /**
+   * Ask a registered sandbox which org it is, so the panel shows a refresh
+   * the moment it opens rather than after the next identity check.
+   *
+   * A sandbox cannot list its own refreshes, but its Organization row names
+   * the org it now is. A failure here is logged: it must not cost the panel
+   * the answers it can give.
+   *
+   * @param orgId - The registered org the panel shows.
+   */
+  private async checkSandboxIdentity(orgId: string): Promise<void> {
+    const detector = this.deps.sandboxRefreshes;
+    if (!detector || this.deps.orgManager.getOrg(orgId)?.orgType !== 'Sandbox') return;
+    try {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const [row] = await queryAll<{ Id: string; InstanceName: string | null }>(
+        conn,
+        'SELECT Id, InstanceName FROM Organization',
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh organization');
+      if (row) {
+        detector.observe(
+          orgId,
+          { organizationId: row.Id, instanceName: row.InstanceName ?? undefined },
+          'monitor',
+        );
+      }
+    } catch (err: unknown) {
+      this.deps.log(`[WARN] monitor:sandbox-refresh identity check: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -1207,6 +1296,7 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = parsed;
 
     try {
+      await this.checkSandboxIdentity(payload.orgId);
       const refreshes = await this.sandboxRefreshTracker.fetch(payload.orgId);
       const inProgress = this.sandboxRefreshTracker.isRefreshInProgress(payload.orgId);
 
@@ -1218,6 +1308,9 @@ export class MonitorOpsHandler implements DomainHandler {
         supported: this.sandboxRefreshTracker.isSupported(payload.orgId),
         refreshes,
         inProgress,
+        truncated: this.sandboxRefreshTracker.isTruncated(payload.orgId),
+        // What the sandbox itself revealed: the org it answers as changed.
+        detected: this.deps.sandboxRefreshes?.refreshesOf(payload.orgId) ?? [],
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);

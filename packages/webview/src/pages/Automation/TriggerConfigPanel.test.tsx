@@ -25,7 +25,7 @@ describe('TriggerConfigPanel', () => {
       />,
     );
     // Nothing fires a pipeline on a schedule, an event, a webhook, a sandbox
-    // refresh or a deployment: the scheduler channels answer with a no-op.
+    // refresh or a deployment: SandForge has no pipeline scheduler.
     expect(screen.queryByTestId('trigger-coming-soon-manual')).toBeNull();
     for (const type of types.filter((type) => type !== 'manual')) {
       expect(screen.getByTestId(`trigger-coming-soon-${type}`).textContent).toBe('Coming soon');
@@ -56,6 +56,23 @@ describe('TriggerConfigPanel', () => {
   it('says in the panel that only manual runs start a pipeline', () => {
     render(<TriggerConfigPanel />);
     expect(screen.getByTestId('trigger-manual-only-note').textContent).toMatch(/manual/i);
+  });
+
+  it('says on a sandbox refresh trigger why it starts nothing, though refreshes are noticed', () => {
+    render(
+      <TriggerConfigPanel
+        triggers={[
+          { id: 'refresh', type: 'sandbox_refresh', enabled: true, config: {} },
+          { id: 'deploy', type: 'deployment_complete', enabled: true, config: {} },
+        ]}
+      />,
+    );
+
+    const reason = screen.getByTestId('trigger-refused-refresh').textContent ?? '';
+    expect(reason).toMatch(/notices a sandbox refresh/);
+    expect(reason).toMatch(/only Delay and Condition steps/);
+    // The reason is the refresh trigger's own, not a note on every card.
+    expect(screen.queryByTestId('trigger-refused-deploy')).toBeNull();
   });
 
   it('should render the panel', () => {

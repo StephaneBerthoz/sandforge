@@ -21,11 +21,36 @@ import type {
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { isAlreadyExistsError } from '@sandforge/shared';
 import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { IdRemapper } from '../IdRemapper.js';
+
+/** The join Salesforce creates for a contact inserted with an account. */
+const ACCOUNT_CONTACT_RELATION = 'AccountContactRelation';
+
+/** Contacts per `IN` list when the direct relations are looked up. */
+const DIRECT_RELATION_CHUNK = 200;
+
+/**
+ * Objects the platform keeps unique on a combination of fields, which a
+ * refusal names without naming the record. A product selling model is one
+ * per selling model type, pricing term and unit: run for real, a clone was
+ * refused "a product selling model already exists for this combination", and
+ * every price and line pointing at it lost the link.
+ */
+const NATURAL_KEYS: Readonly<Record<string, readonly string[]>> = {
+  ProductSellingModel: ['SellingModelType', 'PricingTerm', 'PricingTermUnit'],
+};
+
+/** A value as a SOQL literal. */
+function soqlLiteral(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'null';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return `'${sanitizeSoqlValue(String(value))}'`;
+}
 
 /**
  * Maximum records each write API accepts in a single call.
@@ -173,7 +198,8 @@ export class BatchWriter {
   private readonly batchStrategy: ForgeBatchStrategyService;
 
   constructor(
-    private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'>,
+    private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'> &
+      Partial<Pick<ForgeExecutorDeps, 'queryRecords'>>,
     batchStrategy?: ForgeBatchStrategyService,
   ) {
     this.batchStrategy = batchStrategy ?? new ForgeBatchStrategyService();
@@ -185,8 +211,22 @@ export class BatchWriter {
    * `done`/`error` node event and the fail-fast bookkeeping.
    */
   async writeNode(input: WriteNodeInput): Promise<BatchWriteResult> {
-    const { node, records, cleanedRecords, fieldInfos, creatableFields, targetOrgId, remapper } =
-      input;
+    const { node, fieldInfos, creatableFields, targetOrgId, remapper } = input;
+    // A contact inserted with its account gets its direct relation from the
+    // platform, and the relation read from the source is that one: inserted
+    // again it is refused — "the contact already has a relationship with
+    // this account" — and the refusal names no record to link to. The one
+    // the platform made is found instead, and linked.
+    const direct =
+      node.objectApiName === ACCOUNT_CONTACT_RELATION
+        ? await this.directRelations(targetOrgId, input.records)
+        : new Map<number, string>();
+    for (const [index, id] of direct) {
+      const oldId = input.cleanedRecords[index]?.source['Id'];
+      if (typeof oldId === 'string') remapper.addExisting(oldId, id);
+    }
+    const records = input.records.filter((_, i) => !direct.has(i));
+    const cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
     const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
     // The resolved `api` used to be discarded, so a node resolved to
     // 'bulk' was sliced into 10 000-record batches and handed to the REST
@@ -214,13 +254,19 @@ export class BatchWriter {
     });
 
     let nodeSuccess = 0;
-    let nodeLinked = 0;
+    let nodeLinked = direct.size;
     let nodeFailure = 0;
     let nodeAlreadyExists = 0;
     let nodeUnidentified = 0;
     let recordOffset = 0;
     const nodeErrorSamples: ExecutionErrorSample[] = [];
     const pendingFkUpdates: PendingFkUpdate[] = [];
+    /** Duplicates the target did not name, for an object with a natural key. */
+    const byNaturalKey: Array<{
+      payload: Record<string, unknown>;
+      sourceId: unknown;
+      errors: string[];
+    }> = [];
 
     // Upsert via external Id when available — re-runs patch existing
     // target rows instead of failing on DUPLICATE_VALUE. When multiple
@@ -292,6 +338,16 @@ export class BatchWriter {
             if (typeof oldId === 'string') remapper.addExisting(oldId, existing.id);
             continue;
           }
+          const naturalKey = NATURAL_KEYS[node.objectApiName];
+          if (existing.kind === 'unidentified' && naturalKey) {
+            // Settled after the batches: the record may be found by its key.
+            byNaturalKey.push({
+              payload: batch[i],
+              sourceId: cleanedRecords[recordOffset + i]?.source['Id'],
+              errors: result.errors,
+            });
+            continue;
+          }
           nodeFailure++;
           if (existing.kind === 'unidentified') nodeUnidentified++;
           // Counted apart because it says something different from a failure:
@@ -332,6 +388,33 @@ export class BatchWriter {
       });
     }
 
+    const keyFields = NATURAL_KEYS[node.objectApiName];
+    if (keyFields && byNaturalKey.length > 0) {
+      const found = await this.recordsByNaturalKey(
+        targetOrgId,
+        node.objectApiName,
+        keyFields,
+        byNaturalKey.map((d) => d.payload),
+      );
+      byNaturalKey.forEach((duplicate, i) => {
+        const id = found[i];
+        if (id && typeof duplicate.sourceId === 'string') {
+          remapper.addExisting(duplicate.sourceId, id);
+          nodeLinked++;
+          return;
+        }
+        nodeFailure++;
+        nodeUnidentified++;
+        if (duplicate.errors.every((m) => isAlreadyExistsError(m))) nodeAlreadyExists++;
+        if (nodeErrorSamples.length < 3) {
+          nodeErrorSamples.push({
+            recordSummary: summarizeRecordForError(duplicate.payload),
+            messages: duplicate.errors,
+          });
+        }
+      });
+    }
+
     return {
       successCount: nodeSuccess,
       linkedExistingCount: nodeLinked,
@@ -341,6 +424,80 @@ export class BatchWriter {
       errorSamples: nodeErrorSamples,
       pendingFkUpdates,
     };
+  }
+
+  /**
+   * The one target record holding each payload's natural key, by payload
+   * index — or nothing where none, or more than one, does.
+   */
+  private async recordsByNaturalKey(
+    targetOrgId: string,
+    objectApiName: string,
+    keyFields: readonly string[],
+    payloads: readonly Record<string, unknown>[],
+  ): Promise<Array<string | undefined>> {
+    const query = this.deps.queryRecords;
+    if (!query) return payloads.map(() => undefined);
+    const byKey = new Map<string, string | undefined>();
+    for (const payload of payloads) {
+      const key = JSON.stringify(keyFields.map((f) => payload[f] ?? null));
+      if (byKey.has(key)) continue;
+      const where = keyFields
+        .map((f) => `${assertSoqlIdentifier(f)} = ${soqlLiteral(payload[f])}`)
+        .join(' AND ');
+      const rows = await query(
+        targetOrgId,
+        `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${where} LIMIT 2`,
+      );
+      byKey.set(
+        key,
+        rows.length === 1 && typeof rows[0]['Id'] === 'string' ? rows[0]['Id'] : undefined,
+      );
+    }
+    return payloads.map((p) => byKey.get(JSON.stringify(keyFields.map((f) => p[f] ?? null))));
+  }
+
+  /**
+   * The direct relations the platform created for the contacts this run
+   * inserted, by the index of the payload that describes each.
+   */
+  private async directRelations(
+    targetOrgId: string,
+    records: readonly Record<string, unknown>[],
+  ): Promise<Map<number, string>> {
+    const found = new Map<number, string>();
+    const query = this.deps.queryRecords;
+    if (!query) return found;
+    const contactIds = [
+      ...new Set(
+        records
+          .map((r) => r['ContactId'])
+          .filter((id): id is string => typeof id === 'string' && id !== ''),
+      ),
+    ];
+    if (contactIds.length === 0) return found;
+    const byPair = new Map<string, string>();
+    for (let i = 0; i < contactIds.length; i += DIRECT_RELATION_CHUNK) {
+      const inList = contactIds
+        .slice(i, i + DIRECT_RELATION_CHUNK)
+        .map((id) => `'${sanitizeSoqlValue(id)}'`)
+        .join(', ');
+      const rows = await query(
+        targetOrgId,
+        `SELECT Id, AccountId, ContactId FROM ${ACCOUNT_CONTACT_RELATION} ` +
+          `WHERE IsDirect = true AND ContactId IN (${inList})`,
+      );
+      for (const row of rows) {
+        if (typeof row['Id'] === 'string') {
+          byPair.set(`${String(row['AccountId'])}|${String(row['ContactId'])}`, row['Id']);
+        }
+      }
+    }
+    records.forEach((r, i) => {
+      const id = byPair.get(`${String(r['AccountId'])}|${String(r['ContactId'])}`);
+      if (id) found.set(i, id);
+    });
+    return found;
   }
 
   /**

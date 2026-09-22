@@ -13,7 +13,6 @@ import {
   AIMessageSchema,
   SettingsMessageSchema,
   RealtimeMessageSchema,
-  ConflictMessageSchema,
   SmartActionMessageSchema,
   FrozenMessageSchema,
 } from './messageSchemas.js';
@@ -110,11 +109,6 @@ describe('Domain schemas — valid / invalid samples', () => {
   it('RealtimeMessageSchema accepts realtime:start and rejects bogus type', () => {
     expect(RealtimeMessageSchema.safeParse(baseFields('realtime:start')).success).toBe(true);
     expect(RealtimeMessageSchema.safeParse(baseFields('realtime:bogus')).success).toBe(false);
-  });
-
-  it('ConflictMessageSchema accepts scheduler:list and rejects unknown', () => {
-    expect(ConflictMessageSchema.safeParse(baseFields('scheduler:list')).success).toBe(true);
-    expect(ConflictMessageSchema.safeParse(baseFields('scheduler:bogus')).success).toBe(false);
   });
 
   it('SmartActionMessageSchema accepts smart-action:analyze and rejects unknown', () => {
@@ -301,6 +295,17 @@ describe('requests no screen sends', () => {
     'cache:invalidate-all:response',
     'cache:get-stats',
     'cache:stats-response',
+    // The scheduler panel was removed and no pipeline scheduler was ever
+    // built: all four requests were answered by the no-op handler. Sync
+    // schedules travel on sync:schedule:*, which is untouched.
+    'scheduler:list',
+    'scheduler:list:response',
+    'scheduler:upsert',
+    'scheduler:upsert:response',
+    'scheduler:delete',
+    'scheduler:delete:response',
+    'scheduler:toggle',
+    'scheduler:toggle:response',
   ];
 
   it.each(REMOVED)('refuses %s', (type) => {
@@ -319,6 +324,9 @@ describe('requests no screen sends', () => {
       'monitor:refresh',
       'execution:abort',
       'org:update',
+      // The schedules that do run, which the scheduler:* removal must not take.
+      'sync:schedule:upsert',
+      'sync:schedule:upsert:response',
     ]) {
       expect(BridgeMessageSchema.safeParse(baseFields(type)).success).toBe(true);
     }

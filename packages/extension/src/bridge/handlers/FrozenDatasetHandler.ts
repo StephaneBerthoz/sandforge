@@ -358,6 +358,17 @@ export class FrozenDatasetHandler implements DomainHandler {
   constructor(private readonly deps: HandlerDeps) {}
 
   /**
+   * Drop the describes held for an org that is no longer the org it was: a
+   * refreshed sandbox takes production's schema as of the refresh.
+   *
+   * @param orgId - The registered org.
+   */
+  forgetOrg(orgId: string): void {
+    this.describeCache.invalidateByPrefix(`${orgId}::`);
+    this.describeGlobalCache.invalidate(orgId);
+  }
+
+  /**
    * Inject the shared registry so dataset loads are cancellable.
    * Called from ExtensionHandlers, same as SeedOpsHandler.
    */
@@ -569,6 +580,39 @@ export class FrozenDatasetHandler implements DomainHandler {
       // name when scope did not reach them, and knows no other way.
       nillable: f.nillable !== false,
     }));
+  }
+
+  /**
+   * The reference-id mapping of the sas, bound to the org the target answers
+   * as now (its `Organization.Id`).
+   *
+   * A refreshed sandbox keeps its registered id and answers with a new one.
+   * The mapping is written with that id and read against it, so the records
+   * of the org the sandbox was are never taken for records of the org it is.
+   * When the org cannot say, the store is bound to nothing and judges nothing.
+   *
+   * The store asks on first use rather than here: a load reaches its mapping
+   * only once the entry guards have passed, and a production org refused by
+   * the tier guard must not have been read before the refusal.
+   */
+  private mappingStoreFor(
+    sasDir: string,
+    targetOrgId: string,
+    guard: SasPathGuard,
+  ): SasReferenceIdMappingStore {
+    const organizationId = async (): Promise<string | undefined> => {
+      try {
+        const [row] = await this.buildTargetOrgAccess().query(
+          targetOrgId,
+          'SELECT Id FROM Organization',
+        );
+        return typeof row?.Id === 'string' ? row.Id : undefined;
+      } catch (err: unknown) {
+        this.deps.log(`[WARN] frozen: the target did not say which org it is: ${String(err)}`);
+        return undefined;
+      }
+    };
+    return new SasReferenceIdMappingStore(sasDir, { orgId: targetOrgId, organizationId, guard });
   }
 
   /**
@@ -1117,10 +1161,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       const mockDetector = config.mockDetection
         ? new CustomMetadataCalloutMockDetector(orgAccess, config.mockDetection)
         : { areCalloutsMocked: async (): Promise<boolean> => true };
-      const mappingStore = new SasReferenceIdMappingStore(sasDir, {
-        orgId: parsed.targetOrgId,
-        guard,
-      });
+      const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
 
       const loader = new FrozenDatasetLoader({
         orgAccess,
@@ -1216,11 +1257,23 @@ export class FrozenDatasetHandler implements DomainHandler {
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      // Verified against a sandbox refreshed since the load, every record
+      // would read as missing, and the verdict would blame the load.
+      if (await mappingStore.isStale()) {
+        sendHandlerError(
+          this.deps,
+          'frozen:verify',
+          'frozen:verify:error',
+          msg,
+          new Error(
+            'The target org was refreshed after the last load: the records that load wrote are gone. Load the dataset again, then verify.',
+          ),
+          { code: 'TARGET_REFRESHED' },
+        );
+        return;
+      }
       const { dataset } = await this.readFrozenDataset(lastRun.datasetDir, guard);
-      const mappingStore = new SasReferenceIdMappingStore(sasDir, {
-        orgId: parsed.targetOrgId,
-        guard,
-      });
       await this.runVerification(msg, {
         orgId: parsed.targetOrgId,
         contractPath: lastRun.contractPath,

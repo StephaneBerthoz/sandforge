@@ -438,6 +438,38 @@ test.describe('Automation page — canvas editing', () => {
     await expect(kpiValues(page).nth(0)).toHaveText('1');
   });
 
+  test('a step is selected and removed from the keyboard', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-delay').click();
+    await page.getByTestId('palette-delay').click();
+    await expect(canvasSteps(page)).toHaveCount(2);
+
+    // Enter on the step selects it, and its config panel opens.
+    const first = canvasSteps(page).first();
+    await first.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('step-config-panel')).toBeVisible();
+    await expect(first).toHaveAttribute('aria-current', 'true');
+
+    // Space selects too: the step is a button of its own now, not a div that
+    // listened for Enter.
+    const second = canvasSteps(page).nth(1);
+    await second.focus();
+    await page.keyboard.press('Space');
+    await expect(second).toHaveAttribute('aria-current', 'true');
+    await expect(first).not.toHaveAttribute('aria-current', 'true');
+
+    // The remove button is the next stop after the step it removes.
+    const secondId = (await second.getAttribute('data-testid'))?.replace('canvas-step-', '') ?? '';
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId(`remove-step-${secondId}`)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(canvasSteps(page)).toHaveCount(1);
+    await expect(page.getByTestId(`canvas-step-${secondId}`)).toHaveCount(0);
+  });
+
   test('a step type that cannot run is disabled in the palette, and says why', async ({ page }) => {
     await openAutomation(page);
     await answerMountQueries(page);

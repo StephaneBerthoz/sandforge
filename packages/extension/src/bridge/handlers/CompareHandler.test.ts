@@ -16,21 +16,6 @@ vi.mock('../../modules/compare/MetadataCompare.js', () => ({
     return {};
   }),
 }));
-vi.mock('../../modules/compare/ConfigCompare.js', () => ({
-  ConfigCompare: vi.fn().mockImplementation(function () {
-    return {};
-  }),
-}));
-vi.mock('../../modules/compare/PermissionCompare.js', () => ({
-  PermissionCompare: vi.fn().mockImplementation(function () {
-    return {};
-  }),
-}));
-vi.mock('../../modules/compare/DataCompare.js', () => ({
-  DataCompare: vi.fn().mockImplementation(function () {
-    return {};
-  }),
-}));
 vi.mock('../../modules/compare/CompareOrchestrator.js', () => ({
   CompareOrchestrator: vi.fn().mockImplementation(function () {
     return {

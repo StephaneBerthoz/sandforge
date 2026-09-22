@@ -1,3 +1,5 @@
+import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
+
 /** A single error entry from Salesforce logs */
 export interface ErrorLogEntry {
   id: string;
@@ -9,8 +11,14 @@ export interface ErrorLogEntry {
   context?: string;
 }
 
-/** Function signature for querying Salesforce error logs */
-export type QueryErrorsFn = (orgId: string, since: string) => Promise<ErrorLogEntry[]>;
+/**
+ * Function signature for querying Salesforce error logs: the entries since a
+ * timestamp, newest first, and whether the read stopped at its bound.
+ */
+export type QueryErrorsFn = (
+  orgId: string,
+  since: string,
+) => Promise<BoundedRecords<ErrorLogEntry>>;
 
 /**
  * Tracks recent errors from Salesforce debug/error logs.
@@ -20,6 +28,7 @@ export type QueryErrorsFn = (orgId: string, since: string) => Promise<ErrorLogEn
 export class ErrorLogMonitor {
   private readonly queryErrors: QueryErrorsFn;
   private readonly errorCache: Map<string, ErrorLogEntry[]> = new Map();
+  private readonly truncatedCache: Map<string, boolean> = new Map();
 
   constructor(queryErrors: QueryErrorsFn) {
     this.queryErrors = queryErrors;
@@ -36,14 +45,24 @@ export class ErrorLogMonitor {
    */
   async fetch(orgId: string): Promise<ErrorLogEntry[]> {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const errors = await this.queryErrors(orgId, since);
-    this.errorCache.set(orgId, errors);
-    return errors;
+    const { records, truncated } = await this.queryErrors(orgId, since);
+    this.errorCache.set(orgId, records);
+    this.truncatedCache.set(orgId, truncated);
+    return records;
   }
 
   /** Return the cached error entries for an org */
   getRecentErrors(orgId: string): ErrorLogEntry[] {
     return this.errorCache.get(orgId) ?? [];
+  }
+
+  /**
+   * Whether the last read of this org stopped at its bound: the window then
+   * holds more errors than the cache, and every count drawn from the cache
+   * stops where the read did.
+   */
+  isTruncated(orgId: string): boolean {
+    return this.truncatedCache.get(orgId) ?? false;
   }
 
   /** Group cached errors by their error type and count occurrences */

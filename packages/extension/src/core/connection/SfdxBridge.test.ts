@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
+import type { SfdxImportResult } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
@@ -189,8 +190,9 @@ describe('SfdxBridge', () => {
             orgId: '00D9',
             username: 'dev@scratch.com',
             instanceUrl: 'https://scratch.my.salesforce.com',
-            connectedStatus: 'Connected',
-            isScratchOrg: true,
+            status: 'Active',
+            isExpired: false,
+            isScratch: true,
           },
         ],
       );
@@ -355,6 +357,196 @@ describe('SfdxBridge', () => {
       mockExec.mockRejectedValueOnce(err as never);
 
       await expect(bridge.listOrgs()).rejects.toThrow('SF CLI failed with no output');
+    });
+  });
+
+  /**
+   * The answer `sf org list --json` (CLI 2.150) gives, key for key, with the
+   * values replaced. A pinged org carries `connectedStatus`; a scratch org
+   * sits in its own bucket with the Dev Hub's `status` and no
+   * `connectedStatus`; the type is in `isSandbox` and `isScratch`, the edition
+   * in `orgEdition`, and `name` is the org's own name. Sandboxes and Dev Hubs
+   * are listed twice, once in `nonScratchOrgs`.
+   */
+  describe('a real sf org list --json answer', () => {
+    const pinged = (org: {
+      orgId: string;
+      alias: string;
+      name: string;
+      isSandbox: boolean;
+      isDevHub?: boolean;
+      orgEdition: string;
+      connectedStatus?: string;
+    }): Record<string, unknown> => ({
+      accessToken: `${org.orgId}!fake-token`,
+      instanceUrl: `https://${org.alias}.my.salesforce.com`,
+      orgId: org.orgId,
+      username: `admin@${org.alias}.example`,
+      loginUrl: 'https://login.salesforce.com',
+      clientId: 'PlatformCLI',
+      isDevHub: org.isDevHub ?? false,
+      instanceApiVersion: org.isSandbox ? '68.0' : '67.0',
+      instanceApiVersionLastRetrieved: '9/22/2026, 10:00:00 PM',
+      name: org.name,
+      instanceName: 'EU42S',
+      namespacePrefix: null,
+      isSandbox: org.isSandbox,
+      isScratch: false,
+      trailExpirationDate: null,
+      orgEdition: org.orgEdition,
+      tracksSource: false,
+      alias: org.alias,
+      isDefaultDevHubUsername: false,
+      isDefaultUsername: false,
+      lastUsed: '2026-09-22T20:00:00.000Z',
+      connectedStatus: org.connectedStatus ?? 'Connected',
+    });
+    const scratch = (org: {
+      orgId: string;
+      alias: string;
+      status: string;
+      isExpired: boolean;
+    }): Record<string, unknown> => ({
+      accessToken: `${org.orgId}!fake-token`,
+      instanceUrl: `https://${org.alias}.scratch.my.salesforce.com`,
+      orgId: org.orgId,
+      username: `test-${org.alias}@example.com`,
+      loginUrl: 'https://CS42.salesforce.com',
+      clientId: 'PlatformCLI',
+      isDevHub: false,
+      instanceApiVersion: '67.0',
+      instanceApiVersionLastRetrieved: '9/22/2026, 10:00:00 PM',
+      name: 'Acme Scratch',
+      instanceName: 'CS42',
+      namespacePrefix: null,
+      isSandbox: false,
+      isScratch: true,
+      trailExpirationDate: '2026-09-26T17:34:31.000+0000',
+      orgEdition: 'Developer Edition',
+      devHubUsername: 'admin@hub.example',
+      created: '2026-09-19T17:34:31.000+0000',
+      expirationDate: '2026-09-26',
+      createdOrgInstance: 'CS42',
+      tracksSource: true,
+      alias: org.alias,
+      isDefaultDevHubUsername: false,
+      isDefaultUsername: false,
+      lastUsed: '2026-09-22T20:00:00.000Z',
+      signupUsername: `test-${org.alias}@example.com`,
+      createdBy: 'admin@hub.example',
+      createdDate: '2026-09-19T17:34:31.000+0000',
+      devHubOrgId: '00D00000000000HUB',
+      devHubId: '00D00000000000HUB',
+      attributes: {
+        type: 'ScratchOrgInfo',
+        url: '/services/data/v67.0/sobjects/ScratchOrgInfo/2SR000000000001AAA',
+      },
+      orgName: 'Acme Scratch',
+      edition: 'Developer',
+      status: org.status,
+      isExpired: org.isExpired,
+      namespace: null,
+    });
+
+    function realOrgList(): string {
+      const sandbox = pinged({
+        orgId: '00D000000000001AAA',
+        alias: 'acme-uat',
+        name: 'Acme Corp',
+        isSandbox: true,
+        orgEdition: 'Enterprise Edition',
+      });
+      const production = pinged({
+        orgId: '00D000000000002AAA',
+        alias: 'acme-prod',
+        name: 'Acme Corp',
+        isSandbox: false,
+        orgEdition: 'Enterprise Edition',
+      });
+      const hub = pinged({
+        orgId: '00D00000000000HUB',
+        alias: 'hub',
+        name: 'Acme Hub',
+        isSandbox: false,
+        isDevHub: true,
+        orgEdition: 'Developer Edition',
+      });
+      const lapsed = pinged({
+        orgId: '00D000000000003AAA',
+        alias: 'acme-old',
+        name: 'Acme Corp',
+        isSandbox: true,
+        orgEdition: 'Enterprise Edition',
+        connectedStatus: 'RefreshTokenAuthError',
+      });
+      return JSON.stringify({
+        status: 0,
+        result: {
+          other: [production],
+          sandboxes: [sandbox, lapsed],
+          nonScratchOrgs: [sandbox, lapsed, production, hub],
+          devHubs: [hub],
+          scratchOrgs: [
+            scratch({
+              orgId: '00D000000000004AAA',
+              alias: 'feature',
+              status: 'Active',
+              isExpired: false,
+            }),
+            scratch({
+              orgId: '00D000000000005AAA',
+              alias: 'spent',
+              status: 'Expired',
+              isExpired: true,
+            }),
+          ],
+        },
+        warnings: [],
+      });
+    }
+
+    async function importReal(): Promise<Map<string, SfdxImportResult['org']>> {
+      mockExec.mockResolvedValueOnce({ stdout: realOrgList(), stderr: '' } as never);
+      const results = await bridge.listOrgs();
+      return new Map(results.map(({ org }) => [org.orgId, org]));
+    }
+
+    it('imports an active scratch org as a scratch org, at the lowest safety tier', async () => {
+      const orgs = await importReal();
+
+      expect(orgs.get('00D000000000004AAA')).toMatchObject({
+        orgType: 'Scratch',
+        safetyTier: 'low',
+      });
+    });
+
+    it('leaves out a scratch org its Dev Hub reports expired, and a pinged org it cannot reach', async () => {
+      const orgs = await importReal();
+
+      expect(orgs.has('00D000000000005AAA')).toBe(false);
+      expect(orgs.has('00D000000000003AAA')).toBe(false);
+      expect([...orgs.keys()].sort()).toEqual([
+        '00D000000000001AAA',
+        '00D000000000002AAA',
+        '00D000000000004AAA',
+        '00D00000000000HUB',
+      ]);
+    });
+
+    it("records the edition the CLI reports, never the org's name", async () => {
+      const orgs = await importReal();
+
+      expect(orgs.get('00D000000000001AAA')?.metadata.edition).toBe('Enterprise Edition');
+      expect(orgs.get('00D000000000002AAA')?.metadata.edition).toBe('Enterprise Edition');
+      expect(orgs.get('00D000000000004AAA')?.metadata.edition).toBe('Developer Edition');
+    });
+
+    it('types sandboxes and production orgs from their flags', async () => {
+      const orgs = await importReal();
+
+      expect(orgs.get('00D000000000001AAA')?.orgType).toBe('Sandbox');
+      expect(orgs.get('00D000000000002AAA')?.orgType).toBe('Production');
+      expect(orgs.get('00D00000000000HUB')?.orgType).toBe('Production');
     });
   });
 

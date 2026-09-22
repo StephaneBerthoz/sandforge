@@ -24,7 +24,7 @@ const lowRiskReport: CompareReport = {
     byRisk: { none: 0, low: 1, medium: 0, high: 0, critical: 0 },
   },
   riskScore: 5,
-  deploymentAdvice: 'Low overall risk. Safe to deploy.',
+  deploymentAdvice: [{ kind: 'lowRisk' }],
 };
 
 const highRiskReport: CompareReport = {
@@ -56,7 +56,7 @@ const highRiskReport: CompareReport = {
     byRisk: { none: 0, low: 0, medium: 1, high: 0, critical: 1 },
   },
   riskScore: 72,
-  deploymentAdvice: '1 critical-risk change(s) detected. Manual review required before deployment.',
+  deploymentAdvice: [{ kind: 'critical', count: 1 }],
 };
 
 describe('RiskScoreCard', () => {

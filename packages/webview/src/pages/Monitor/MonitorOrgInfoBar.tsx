@@ -94,7 +94,7 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
         <div className="flex items-center gap-4 mt-2 pt-2 border-t border-subtle text-[10px] text-text-secondary">
           {orgInfo.namespacePrefix && (
             <span>
-              Namespace:{' '}
+              {t('monitor.namespace')}:{' '}
               <span className="font-mono text-text-secondary">{orgInfo.namespacePrefix}</span>
             </span>
           )}

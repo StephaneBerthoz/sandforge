@@ -167,6 +167,8 @@
     "customObjects": "Objets",
     "code": "Code",
     "orgCreated": "Créé le",
+    "namespace": "Espace de noms",
+    "listStopsAt": "Seuls les {{shown}} plus récents sont lus ici : la liste et ses totaux s'arrêtent là.",
     "noOrgsHint": "Aucune org connectée. Allez dans Organisations pour en connecter une.",
     "emptyState": {
       "title": "Gardez un œil sur la santé de votre org",
@@ -176,9 +178,11 @@
       "step4": "Soyez alerté avant que les limites ne soient atteintes"
     },
     "storage": {
-      "title": "Répartition du stockage",
+      "title": "Enregistrements par objet",
       "totalRecords": "enregistrements au total",
-      "empty": "Aucune donnée de stockage disponible"
+      "empty": "Aucun décompte d'enregistrements disponible",
+      "scope": "Tous les objets que l'org compte, objets de configuration et journaux compris : ce n'est pas l'usage du stockage de données, que montre la tuile Stockage de données.",
+      "listed": "Les {{shown}} objets qui comptent le plus d'enregistrements, sur {{total}}."
     },
     "deployments": {
       "title": "Déploiements récents",
@@ -268,7 +272,17 @@
       "title": "Rafraîchissements de sandbox",
       "empty": "Aucun événement de rafraîchissement de sandbox",
       "inProgress": "Rafraîchissement en cours",
-      "unsupported": "Seule une org qui gère des sandboxes conserve un historique de rafraîchissement. Celle-ci n'en a aucun à lire."
+      "unsupported": "Seule une org qui gère des sandboxes conserve un historique de rafraîchissement. Celle-ci n'en a aucun à lire.",
+      "detected": {
+        "title": "Rafraîchissements remarqués par SandForge",
+        "note": "Une sandbox rafraîchie est une nouvelle org : ce qui y avait été écrit avant le rafraîchissement a disparu, et SandForge a abandonné ce qu'il en gardait en cache.",
+        "badge": "Rafraîchie",
+        "byConnection": "Remarqué quand SandForge s'y est connecté",
+        "byMonitor": "Remarqué par le Moniteur",
+        "byProduction": "Signalé par l'historique de rafraîchissement de {{org}}",
+        "orgChanged": "Était l'org {{from}}, désormais l'org {{to}}",
+        "instanceChanged": "Passée de l'instance {{from}} à {{to}}"
+      }
     },
     "resetIn": "Réinitialisation dans",
     "sessions": {
@@ -299,7 +313,15 @@
     "added": "Ajouté",
     "removed": "Supprimé",
     "modified": "Modifié",
-    "unchanged": "Inchange",
+    "unchanged": "Inchangé",
+    "notCompared": "Non comparé",
+    "coverage": {
+      "compared": "Contenu comparé pour {{compared}} des {{inBoth}} composants présents dans les deux orgs.",
+      "overBudget": "Au-delà de ce qu'une exécution lit ({{components}} par org, {{seconds}} s) : {{count}}",
+      "unreadable": "Contenu illisible, comme l'Apex d'un package géré : {{count}}",
+      "readFailed": "Lecture en échec : {{count}}",
+      "leftOut": "Un composant non comparé n'est ni une modification ni une correspondance : le score de risque l'ignore."
+    },
     "driftScore": "Score de drift",
     "buildDeployment": "Construire le déploiement",
     "sameOrgWarning": "Les orgs source et cible doivent être différentes",
@@ -331,7 +353,14 @@
     "schemaAdvice": "Conseils de schéma",
     "schemaAdviceResults": "Conseils de schéma",
     "schemaAdviceIssues": "{{count}} problèmes détectés",
-    "recommendations": "Recommandations"
+    "recommendations": "Recommandations",
+    "advice": {
+      "critical": "{{count}} changement(s) à risque critique. Revue manuelle requise.",
+      "high": "{{count}} changement(s) à risque élevé. Déployez d'abord dans une sandbox.",
+      "apexTests": "Exécutez tous les tests Apex.",
+      "lowRisk": "Risque faible. Déploiement sûr.",
+      "review": "Examinez les changements avant de déployer."
+    }
   },
   "seed": {
     "title": "Générer des données",
@@ -977,11 +1006,10 @@
     "historyRuns": "Historique des exécutions",
     "triggers": "Déclencheurs",
     "triggerManualOnlyNote": "Seule une exécution manuelle démarre un pipeline. Les autres types de déclencheur se configurent ici, mais rien ne les déclenche encore.",
+    "sandboxRefreshTriggerRefused": "SandForge remarque le rafraîchissement d'une sandbox et vous le signale, mais ce déclencheur ne démarre aucun pipeline : un pipeline n'exécute que des étapes Délai et Condition, et le travail qu'appelle un rafraîchissement — anonymisation, seed, sauvegarde — se compose d'étapes de données qu'il refuserait de démarrer.",
     "addTrigger": "Ajouter un déclencheur",
     "run": "Exécuter le pipeline",
     "running": "Exécution du pipeline...",
-    "pause": "Pause",
-    "resume": "Reprendre",
     "cancel": "Annuler",
     "history": "Historique",
     "noHistory": "Aucun historique d'exécution",
@@ -1022,7 +1050,6 @@
       "idle": "Inactif",
       "queued": "En file",
       "running": "En cours",
-      "paused": "En pause",
       "completed": "Terminé",
       "completed_with_warnings": "Terminé avec avertissements",
       "failed": "Échoué",

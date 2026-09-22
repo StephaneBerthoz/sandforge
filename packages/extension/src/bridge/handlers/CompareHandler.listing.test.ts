@@ -8,7 +8,8 @@ import { inboundRequest } from '../../test/mockFactories.js';
 /*
  * The diff behind the Compare page, run through the real orchestrator, diff
  * engine and metadata comparator: only the connection is a stand-in, and it
- * answers listMetadata the way an org does.
+ * answers listMetadata the way an org does. Both orgs hold the same content
+ * of every component they share, so what is in both is unchanged.
  */
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -42,7 +43,18 @@ function orgListing(folders: Record<string, string[]>, filed: Record<string, str
       }),
     );
   });
-  return { metadata: { list }, limitInfo: undefined };
+  const read = vi.fn((_type: string, names: string[]) =>
+    Promise.resolve(names.map((fullName) => ({ fullName, description: 'the same in both' }))),
+  );
+  const query = vi.fn((soql: string) => {
+    const names = [...soql.matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    return Promise.resolve({
+      records: names.map((Name) => ({ NamespacePrefix: null, Name, Body: 'the same in both' })),
+      done: true,
+      totalSize: names.length,
+    });
+  });
+  return { metadata: { list, read }, query, limitInfo: undefined };
 }
 
 function createDeps(): HandlerDeps {

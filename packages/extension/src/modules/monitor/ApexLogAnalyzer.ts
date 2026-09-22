@@ -1,4 +1,5 @@
 import type { ApexLogEntry } from '@sandforge/shared';
+import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
 
 /** Result of analyzing a single Apex log entry */
 export interface ApexLogAnalysis {
@@ -19,8 +20,11 @@ export interface ApexLogIssue {
   line?: number;
 }
 
-/** Function signature for fetching Apex log entries */
-export type FetchLogsFn = (orgId: string, count: number) => Promise<ApexLogEntry[]>;
+/**
+ * Function signature for fetching Apex log entries: at most `count`, newest
+ * first, and whether the read stopped at that bound.
+ */
+export type FetchLogsFn = (orgId: string, count: number) => Promise<BoundedRecords<ApexLogEntry>>;
 
 /** Governor limit thresholds for issue detection */
 const SOQL_QUERY_LIMIT = 100;
@@ -38,6 +42,7 @@ const HEAP_WARNING_RATIO = 0.7;
 export class ApexLogAnalyzer {
   private readonly fetchLogs: FetchLogsFn;
   private readonly analyses: Map<string, ApexLogAnalysis[]> = new Map();
+  private readonly truncatedCache: Map<string, boolean> = new Map();
 
   constructor(fetchLogs: FetchLogsFn) {
     this.fetchLogs = fetchLogs;
@@ -65,10 +70,19 @@ export class ApexLogAnalyzer {
 
   /** Fetch logs for an org, analyze them, and cache the results */
   async fetchAndAnalyze(orgId: string, count: number = 10): Promise<ApexLogAnalysis[]> {
-    const logs = await this.fetchLogs(orgId, count);
-    const results = logs.map((log) => this.analyze(log));
+    const { records, truncated } = await this.fetchLogs(orgId, count);
+    const results = records.map((log) => this.analyze(log));
     this.analyses.set(orgId, results);
+    this.truncatedCache.set(orgId, truncated);
     return results;
+  }
+
+  /**
+   * Whether the last read of this org stopped at its bound: older logs were
+   * left unread, and the top issues describe the analysed ones only.
+   */
+  isTruncated(orgId: string): boolean {
+    return this.truncatedCache.get(orgId) ?? false;
   }
 
   /** Return the cached analysis results for an org */

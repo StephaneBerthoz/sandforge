@@ -59,6 +59,7 @@ import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import type { ProductionGuardOptions } from '../../core/precheck/ProductionGuard.js';
 import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -1240,8 +1241,8 @@ describe('SyncOpsHandler', () => {
     }
 
     /** Wire the real ProductionGuard so its rules — not a stub — decide. */
-    function wireRealGuard(): ProductionGuard {
-      const guard = new ProductionGuard();
+    function wireRealGuard(options?: ProductionGuardOptions): ProductionGuard {
+      const guard = new ProductionGuard(options);
       deps.infraServices = {
         performanceTracker: undefined,
         productionGuard: guard,
@@ -1332,6 +1333,51 @@ describe('SyncOpsHandler', () => {
           ]) as unknown as import('@sandforge/shared').SyncConfig,
         ),
       ).rejects.toThrow(/delete is not allowed on production org tgt-org/);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('blocks a delete-mode sync to an org the registry does not know, as on production', async () => {
+      // getOrg is left unstubbed: nothing shows 'tgt-org' is a sandbox. It was
+      // classed as development, and the delete went straight past the guard.
+      wireRealGuard();
+      mockWorkingConnection();
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-guard-unknown-delete',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: {
+            config: syncConfigWithObjects([{ objectApiName: 'Account', operation: 'delete' }]),
+          },
+        }),
+      );
+
+      const syncErrors = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage & { payload: { message?: string } })
+        .filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.message).toContain(
+        'delete is not allowed on production org tgt-org',
+      );
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('asks before a scheduled sync writes to an org the registry does not know', async () => {
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = wireRealGuard({ requestConfirmation });
+      mockWorkingConnection();
+
+      await expect(
+        handler.executeScheduled(
+          validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+        ),
+      ).rejects.toThrow('Scheduled sync cancelled (production confirmation declined).');
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT an unknown number of Account record(s) on production org tgt-org [module: sync]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
       expect(mockGetConn).not.toHaveBeenCalled();
     });
 

@@ -7,6 +7,25 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Spinner } from '../../components/ui/Spinner';
+import { ListCapNote } from './ListCapNote';
+
+/** How SandForge came to notice a refresh of the org itself. */
+type RefreshEvidence = 'connection' | 'monitor' | 'production';
+
+/**
+ * A refresh SandForge noticed on the org it shows: the org answered with
+ * another org id than the one it answered with before.
+ */
+interface DetectedRefresh {
+  detectedAt: string;
+  evidence: RefreshEvidence;
+  previousOrganizationId?: string;
+  organizationId?: string;
+  previousInstanceName?: string;
+  instanceName?: string;
+  /** The registered production org whose refresh history reported it. */
+  reportedBy?: string;
+}
 
 /** Response shape from monitor:sandbox-refresh. */
 interface SandboxRefreshData {
@@ -21,6 +40,10 @@ interface SandboxRefreshData {
     sourceOrg?: string;
   }>;
   inProgress: boolean;
+  /** The read stopped at its bound: older refreshes are not listed. */
+  truncated?: boolean;
+  /** Absent from answers of builds that did not notice refreshes. */
+  detected?: DetectedRefresh[];
 }
 
 /** Shared date formatter for refresh timestamps. */
@@ -28,6 +51,12 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'short',
   timeStyle: 'short',
 });
+
+/** How each way of noticing is told, as catalogue keys. */
+const EVIDENCE_KEYS: Record<Exclude<RefreshEvidence, 'production'>, string> = {
+  connection: 'monitor.sandboxRefresh.detected.byConnection',
+  monitor: 'monitor.sandboxRefresh.detected.byMonitor',
+};
 
 /** Returns badge variant based on refresh status. */
 function statusVariant(status: string): BadgeVariant {
@@ -45,10 +74,77 @@ function statusVariant(status: string): BadgeVariant {
 }
 
 /**
+ * The refreshes SandForge noticed on the org itself.
+ *
+ * A sandbox cannot list its own refreshes — only the org that manages it can
+ * — so on a sandbox this is the only refresh the panel can show. It is shown
+ * whatever the org's own history says.
+ */
+const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refreshes }) => {
+  const { t } = useTranslation();
+  const orgs = useOrgStore((s) => s.orgs);
+  if (refreshes.length === 0) return null;
+  const aliasOf = (orgId: string): string => orgs.find((org) => org.id === orgId)?.alias ?? orgId;
+
+  return (
+    <section className="mt-3 pt-3 border-t border-subtle" data-testid="refresh-detected">
+      <h4 className="text-xs font-semibold text-text-primary">
+        {t('monitor.sandboxRefresh.detected.title')}
+      </h4>
+      <p className="text-[11px] text-text-secondary mt-1 mb-2">
+        {t('monitor.sandboxRefresh.detected.note')}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {refreshes.map((refresh) => (
+          <li
+            key={refresh.detectedAt}
+            className="flex flex-col gap-0.5 px-2 py-1.5 rounded bg-surface-2"
+            data-testid="refresh-detected-row"
+          >
+            <span className="flex items-center gap-2">
+              <Badge variant="warning">{t('monitor.sandboxRefresh.detected.badge')}</Badge>
+              <span className="text-[11px] tabular-nums text-text-secondary">
+                {dateFormatter.format(new Date(refresh.detectedAt))}
+              </span>
+            </span>
+            <span className="text-[11px] text-text-secondary">
+              {refresh.evidence === 'production'
+                ? t('monitor.sandboxRefresh.detected.byProduction', {
+                    org: aliasOf(refresh.reportedBy ?? ''),
+                  })
+                : t(EVIDENCE_KEYS[refresh.evidence])}
+            </span>
+            {refresh.previousOrganizationId && refresh.organizationId && (
+              <span className="text-[11px] text-text-primary tabular-nums">
+                {t('monitor.sandboxRefresh.detected.orgChanged', {
+                  from: refresh.previousOrganizationId,
+                  to: refresh.organizationId,
+                })}
+              </span>
+            )}
+            {refresh.previousInstanceName &&
+              refresh.instanceName &&
+              refresh.previousInstanceName !== refresh.instanceName && (
+                <span className="text-[11px] text-text-secondary">
+                  {t('monitor.sandboxRefresh.detected.instanceChanged', {
+                    from: refresh.previousInstanceName,
+                    to: refresh.instanceName,
+                  })}
+                </span>
+              )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/**
  * Panel displaying sandbox refresh events fetched via the monitor:sandbox-refresh bridge query.
  *
  * Renders three states: loading skeleton, empty message, or a table of refresh
- * events with status badges and an in-progress indicator.
+ * events with status badges and an in-progress indicator. Under each, the
+ * refreshes SandForge noticed on the org itself.
  */
 export const RefreshPanel: React.FC = () => {
   const { t } = useTranslation();
@@ -61,6 +157,7 @@ export const RefreshPanel: React.FC = () => {
   );
 
   const refreshes = useMemo(() => data?.refreshes ?? [], [data?.refreshes]);
+  const detected = useMemo(() => data?.detected ?? [], [data?.detected]);
   const inProgress = data?.inProgress ?? false;
 
   if (loading) {
@@ -91,6 +188,7 @@ export const RefreshPanel: React.FC = () => {
         <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.sandboxRefresh.unsupported')}
         </p>
+        <DetectedRefreshes refreshes={detected} />
       </div>
     );
   }
@@ -110,6 +208,7 @@ export const RefreshPanel: React.FC = () => {
         <p className="text-xs text-text-secondary text-center py-6">
           {t('monitor.sandboxRefresh.empty', 'No sandbox refresh events')}
         </p>
+        <DetectedRefreshes refreshes={detected} />
       </div>
     );
   }
@@ -131,6 +230,8 @@ export const RefreshPanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {data?.truncated && <ListCapNote shown={refreshes.length} testId="refresh-list-cap" />}
 
       {/* Table rows */}
       <div className="flex flex-col gap-0.5">
@@ -157,6 +258,7 @@ export const RefreshPanel: React.FC = () => {
           </div>
         ))}
       </div>
+      <DetectedRefreshes refreshes={detected} />
     </div>
   );
 };

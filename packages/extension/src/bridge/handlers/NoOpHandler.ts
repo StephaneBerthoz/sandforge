@@ -2,17 +2,13 @@ import { buildResponse } from './HandlerTypes.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 
 /**
- * Message types for features that are planned but not yet implemented.
+ * Message types for a feature that is planned but not yet implemented.
  *
- * Neither the scheduler nor RealTime CDC has an implementation yet, and no
- * release is promised for either. This handler ensures the extension returns a clean "feature not available"
+ * RealTime CDC has no implementation yet, and no release is promised for it.
+ * This handler ensures the extension returns a clean "feature not available"
  * response instead of causing unhandled-message warnings in the MessageBroker.
  */
 const NOOP_TYPES = new Set([
-  'scheduler:list',
-  'scheduler:upsert',
-  'scheduler:delete',
-  'scheduler:toggle',
   'realtime:start',
   'realtime:stop',
   'realtime:status',
@@ -36,7 +32,7 @@ const RESPONSE_TYPE_OVERRIDES: Readonly<Record<string, string>> = {
 };
 
 /**
- * No-op handler for ghost features (Scheduler, RealTime CDC).
+ * No-op handler for a ghost feature (RealTime CDC).
  *
  * Returns a standardised `{ success: false, comingSoon: true }` response
  * for any message type in the NOOP_TYPES set, preventing unhandled message

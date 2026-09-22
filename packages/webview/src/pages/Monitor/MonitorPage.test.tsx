@@ -835,7 +835,6 @@ describe('MonitorPage', () => {
       customObjectCount: 45,
       apexClassCount: 230,
       flowCount: 18,
-      lastLoginDate: '2026-02-24T09:00:00Z',
     };
 
     mockMonitorQueryState = {
@@ -857,6 +856,68 @@ describe('MonitorPage', () => {
     // Edition and instance are shown in the grid
     expect(screen.getByText('Enterprise Edition')).toBeDefined();
     expect(screen.getByText('NA100')).toBeDefined();
+  });
+
+  it("shows the org's namespace and creation date the refresh now sends", () => {
+    mockMonitorQueryState = {
+      data: {
+        ...standardMonitorPayload,
+        orgInfo: {
+          name: 'Acme Corp',
+          orgId: '00D000000000001',
+          type: 'Sandbox' as const,
+          edition: 'Enterprise Edition',
+          instanceName: 'EU42S',
+          apiVersion: '68.0',
+          userCount: 19,
+          customObjectCount: 5,
+          apexClassCount: 22,
+          flowCount: 109,
+          namespacePrefix: 'acme',
+          createdDate: '2026-04-24T10:20:51.000Z',
+        },
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    const panel = screen.getByTestId('org-info-panel');
+    expect(panel.textContent).toContain('Namespace: acme');
+    expect(panel.textContent).toContain(
+      `Created: ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date('2026-04-24T10:20:51.000Z'))}`,
+    );
+    expect(panel.textContent).toContain('API v68.0');
+  });
+
+  it('says the job list stops at its window when the window came back full', () => {
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, jobsTruncated: true },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('jobs-list-cap').textContent).toBe(
+      'Only the 2 most recent are read here: the list and its counts stop there.',
+    );
+  });
+
+  it('says nothing of a window when the job list holds every recent job', () => {
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, jobsTruncated: false },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.queryByTestId('jobs-list-cap')).toBeNull();
   });
 
   // ── Dashboard Refresh UX ──

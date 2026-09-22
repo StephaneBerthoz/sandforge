@@ -18,6 +18,7 @@ import type { ForgeComplianceService } from '../../modules/forge/ForgeCompliance
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -132,6 +133,7 @@ function createMockOrchestrator(): ForgeOrchestrator {
     abort: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
+    clearDiscoveryCache: vi.fn(),
   } as unknown as ForgeOrchestrator;
 }
 
@@ -1166,6 +1168,36 @@ describe('ForgeHandler', () => {
       expect(errPayload.code).toBe('GUARD_DECLINED');
     });
 
+    it('asks before executing on an org the registry does not know, and runs nothing when declined', async () => {
+      // A real guard, and getOrg left unstubbed: nothing shows 'tgt-org' is a
+      // sandbox. It was classed as development, so the run started without a
+      // word to the user.
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((call) => call[0] as BaseMessage & { payload: { code?: string } })
+        .filter((m) => m.type === 'forge:execute:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.code).toBe('GUARD_DECLINED');
+    });
+
     it('lets sandbox executions through and audits them via logOperation', async () => {
       const guard = wireGuard({ allowed: true, requiresConfirmation: false });
       mockTargetOrgType('Sandbox');
@@ -2001,6 +2033,30 @@ describe('ForgeHandler', () => {
         };
         expect(second.payload.objectApiName).toBe('Contact');
         expect(second.payload.objectLabel).toBe('Contact');
+      });
+
+      it('reads the prefix table of an org again once told to forget it', async () => {
+        // A refreshed sandbox is a new org behind the same id: the table its
+        // old self answered with would be served for five more minutes.
+        const mockConn = createPreviewConn();
+        mockGetConn.mockResolvedValue(mockConn as never);
+        mockQueryFallback.mockResolvedValue([{ Id: '001xx000003DGb1', Name: 'Acme' }]);
+        const preview = () =>
+          handler.handle(
+            buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' }),
+          );
+
+        await preview();
+        handler.forgetOrg('org-1');
+        await preview();
+
+        expect(mockConn.describeGlobal).toHaveBeenCalledTimes(2);
+      });
+
+      it('drops the discovered graphs and describes of the org it forgets', () => {
+        handler.forgetOrg('org-1');
+
+        expect(orchestrator.clearDiscoveryCache).toHaveBeenCalledWith(['org-1']);
       });
 
       it('does not serve one org cached prefix table to another org', async () => {

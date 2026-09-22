@@ -17,6 +17,7 @@
 import type { FieldInfo, ForgeExecutorDeps } from '../ForgeExecutor.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import { exclusiveFieldsToDrop, isUncopyableObject } from '@sandforge/shared';
+import { isExcludedFromCopy } from '../excludedObjects.js';
 
 /** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
 export interface NullifiedFk {
@@ -135,8 +136,12 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
   /**
-   * Lookups whose every target is an object no clone creates. Computed once
-   * per node rather than per record.
+   * Lookups whose every target is an object no clone creates — one the
+   * platform will not take as data, or one every copy leaves out. Computed
+   * once per node rather than per record. The second list was missing: run
+   * for real, an Opportunity's `LastAmountChangedHistoryId` waited for an
+   * `OpportunityHistory` no wave would ever write, and pass 2 reported it
+   * unresolved on every clone.
    */
   const uncopyableLookups = new Set(
     fieldInfos
@@ -144,7 +149,9 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         (f) =>
           f.isReference &&
           (f.referenceTo?.length ?? 0) > 0 &&
-          (f.referenceTo ?? []).every((target) => isUncopyableObject(target)),
+          (f.referenceTo ?? []).every(
+            (target) => isUncopyableObject(target) || isExcludedFromCopy(target),
+          ),
       )
       .map((f) => f.name),
   );

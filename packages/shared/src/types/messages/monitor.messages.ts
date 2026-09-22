@@ -27,6 +27,11 @@ export interface MonitorDataMessage extends BaseMessage {
   payload: {
     limits: ApiLimit[];
     jobs: Array<Record<string, unknown>>;
+    /**
+     * True when the recent-job window came back full: the org may hold older
+     * jobs than `jobs` lists, and the counts drawn from it stop there too.
+     */
+    jobsTruncated?: boolean;
     healthScore: number;
     healthReport?: HealthReport;
     trends?: Record<string, TrendData>;
@@ -170,13 +175,23 @@ export interface MonitorStorageRequest extends BaseMessage {
   payload: { orgId: string };
 }
 
-/** Response containing per-object storage breakdown. */
+/**
+ * Response containing the org's record counts per object.
+ *
+ * The counts are every object the org counts, setup and log objects
+ * included (permissions, login history, the audit trail): they are not what
+ * uses data storage, and the page says so.
+ */
 export interface MonitorStorageResponse extends BaseMessage {
   type: 'monitor:storage:response';
   payload: {
     success: boolean;
+    /** The objects holding the most records, most first. */
     objects: StorageObjectEntry[];
+    /** Records over every object counted, not only the ones listed. */
     totalRecords: number;
+    /** Objects holding at least one record, of which `objects` lists the first. */
+    objectCount?: number;
     error?: string;
   };
 }
@@ -204,6 +219,8 @@ export interface MonitorDeploymentsResponse extends BaseMessage {
   payload: {
     success: boolean;
     deployments: DeploymentEntry[];
+    /** True when the read stopped at its bound: older deployments are not listed. */
+    truncated?: boolean;
     error?: string;
   };
 }
@@ -256,6 +273,11 @@ export interface MonitorErrorLogsResponse extends BaseMessage {
     }>;
     errorsByType: Array<{ type: string; count: number }>;
     totalCount: number;
+    /**
+     * True when the read stopped at its bound: the window holds more errors
+     * than are listed, and `totalCount` and `errorsByType` stop there too.
+     */
+    truncated?: boolean;
     error?: string;
   };
 }
@@ -280,7 +302,13 @@ export interface MonitorSessionsResponse extends BaseMessage {
       loginTime: string;
       sourceIp: string;
     }>;
+    /** Distinct users among the sessions listed. */
     activeUserCount: number;
+    /**
+     * True when the read stopped at its bound: the org holds more sessions
+     * than are listed, and `activeUserCount` counts the listed ones only.
+     */
+    truncated?: boolean;
     error?: string;
   };
 }
@@ -316,6 +344,8 @@ export interface MonitorApexInsightsResponse extends BaseMessage {
       message: string;
       line?: number;
     }>;
+    /** True when the read stopped at its bound: older logs were not analysed. */
+    truncated?: boolean;
     error?: string;
   };
 }
@@ -346,6 +376,26 @@ export interface MonitorSandboxRefreshResponse extends BaseMessage {
       sourceOrg?: string;
     }>;
     inProgress: boolean;
+    /** True when the read stopped at its bound: older refreshes are not listed. */
+    truncated?: boolean;
+    /**
+     * Refreshes SandForge noticed on the org itself, newest first: a sandbox
+     * cannot list its own refreshes, but after one it answers with a new org
+     * id. Optional: a response recorded before this field existed has none.
+     */
+    detected?: Array<{
+      detectedAt: string;
+      /** Noticed on a connection's identity check, by the Monitor, or in a production org's history. */
+      evidence: 'connection' | 'monitor' | 'production';
+      /** 15-character org ids before and after; the new one is unknown while only production reported it. */
+      previousOrganizationId?: string;
+      organizationId?: string;
+      previousInstanceName?: string;
+      instanceName?: string;
+      /** The sandbox name and the registered production org, for a refresh production reported. */
+      sandboxName?: string;
+      reportedBy?: string;
+    }>;
     error?: string;
   };
 }

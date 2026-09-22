@@ -12,6 +12,7 @@ import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAd
  */
 const mockGetJsforceConnection = vi.hoisted(() => vi.fn());
 const mockQueryAll = vi.hoisted(() => vi.fn());
+const mockQueryAllBounded = vi.hoisted(() => vi.fn());
 const mockCheckApiLimits = vi.hoisted(() => vi.fn());
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -20,6 +21,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 
 vi.mock('../../core/common/soqlQueryHelper.js', () => ({
   queryAll: mockQueryAll,
+  queryAllBounded: mockQueryAllBounded,
 }));
 
 vi.mock('../../core/common/sforceLimitParser.js', () => ({
@@ -49,6 +51,24 @@ const FAKE_LIMITS: Record<string, { Max: number; Remaining: number }> = {
   HourlyPublishedPlatformEvents: { Max: 50000, Remaining: 49000 },
   DailyStandardVolumePlatformEvents: { Max: 100000, Remaining: 95000 },
 };
+
+/** The tail of what `/services/data` answers: the versions the org serves, oldest first. */
+const SERVED_API_VERSIONS = [
+  { label: "Summer '26", url: '/services/data/v67.0', version: '67.0' },
+  { label: "Winter '27", url: '/services/data/v68.0', version: '68.0' },
+  { label: 'Latest Release', url: '/services/data/latest', version: '68.0' },
+];
+
+/**
+ * A connection's `request`, answering the two REST reads a refresh makes:
+ * `/services/data` with the versions the org serves, anything else (the
+ * `/limits` call) with `limits`.
+ */
+function orgRequest(limits: unknown = FAKE_LIMITS): ReturnType<typeof vi.fn> {
+  return vi.fn((url: string) =>
+    Promise.resolve(url === '/services/data' ? SERVED_API_VERSIONS : limits),
+  );
+}
 
 /**
  * Creates minimal mock deps for MonitorOpsHandler tests.
@@ -80,6 +100,13 @@ describe('MonitorOpsHandler', () => {
     mockGetJsforceConnection.mockReset();
     mockQueryAll.mockReset();
     mockCheckApiLimits.mockReset();
+    // A bounded read answers the rows mockQueryAll holds for its SOQL, and
+    // says it stopped short only when a test says so.
+    mockQueryAllBounded.mockReset();
+    mockQueryAllBounded.mockImplementation(async (conn: unknown, soql: string) => ({
+      records: (await mockQueryAll(conn, soql)) as unknown[],
+      truncated: false,
+    }));
     deps = createMockDeps();
     handler = new MonitorOpsHandler(deps);
   });
@@ -293,7 +320,7 @@ describe('MonitorOpsHandler', () => {
     beforeEach(() => {
       const fakeConn = {
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -464,7 +491,7 @@ describe('MonitorOpsHandler', () => {
     it('handles monitor:error-logs and returns error entries', async () => {
       const fakeConn = {
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -551,7 +578,7 @@ describe('MonitorOpsHandler', () => {
     it('handles monitor:sessions and returns active sessions', async () => {
       const fakeConn = {
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -613,7 +640,7 @@ describe('MonitorOpsHandler', () => {
     it('handles monitor:apex-insights and returns analyses with top issues', async () => {
       const fakeConn = {
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -669,7 +696,7 @@ describe('MonitorOpsHandler', () => {
     it('handles monitor:sandbox-refresh and returns refresh events', async () => {
       const fakeConn = {
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -720,7 +747,7 @@ describe('MonitorOpsHandler', () => {
     it('tells the panel an org that cannot query SandboxProcess is unsupported', async () => {
       mockGetJsforceConnection.mockResolvedValue({
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       });
       mockQueryAll.mockRejectedValue(new Error("sObject type 'SandboxProcess' is not supported."));
@@ -745,11 +772,157 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
+  /**
+   * Every Monitor list reads a bounded number of rows, newest first. The
+   * sessions and error logs used to stop at a LIMIT in their query without a
+   * word, and the counts drawn from them (active users, errors per type)
+   * stopped there too. Each answer now says when its list came back full.
+   */
+  describe('lists that stop at a bound', () => {
+    function ask(type: string): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: `req-${type}`,
+          type,
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        }),
+      );
+    }
+
+    function answer(): BaseMessage & { payload: Record<string, unknown> } {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls[0][0] as BaseMessage & { payload: Record<string, unknown> };
+    }
+
+    beforeEach(() => {
+      mockGetJsforceConnection.mockResolvedValue({
+        request: orgRequest(),
+        query: vi.fn().mockResolvedValue({ done: true, totalSize: 0, records: [] }),
+        limitInfo: {},
+        version: '62.0',
+      });
+      mockQueryAll.mockResolvedValue([]);
+    });
+
+    it.each([
+      ['monitor:sessions', 'monitor:sessions:response', 'FROM AuthSession'],
+      ['monitor:error-logs', 'monitor:error-logs:response', 'FROM ApexLog WHERE'],
+      ['monitor:apex-insights', 'monitor:apex-insights:response', 'FROM ApexLog ORDER BY'],
+      ['monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', 'FROM SandboxProcess'],
+    ])('%s says when its list came back full', async (type, responseType, from) => {
+      mockQueryAllBounded.mockImplementation(async (_conn: unknown, soql: string) => ({
+        records: [],
+        truncated: soql.includes(from),
+      }));
+
+      await ask(type);
+
+      expect(answer().type).toBe(responseType);
+      expect(answer().payload.truncated).toBe(true);
+    });
+
+    it.each([
+      ['monitor:sessions'],
+      ['monitor:error-logs'],
+      ['monitor:apex-insights'],
+      ['monitor:sandbox-refresh'],
+    ])('%s says nothing was left out when its list is complete', async (type) => {
+      await ask(type);
+
+      expect(answer().payload.truncated).toBe(false);
+    });
+
+    it('says when the deployment list came back full, and not before', async () => {
+      const deployment = (i: number): Record<string, unknown> => ({
+        Id: `0Af00000000000${String(i).padStart(2, '0')}`,
+        Status: 'Succeeded',
+        StartDate: '2026-09-22T16:05:27.000+0000',
+        CompletedDate: '2026-09-22T16:06:02.000+0000',
+        CreatedBy: { Name: 'Admin' },
+        NumberComponentsTotal: 3,
+        NumberComponentErrors: 0,
+      });
+      const toolingQuery = vi.fn((soql: string) => {
+        const limit = Number(/LIMIT (\d+)$/.exec(soql)?.[1] ?? Infinity);
+        // An org with 26 deployments on record, answering the LIMIT it is given.
+        const rows = Array.from({ length: Math.min(26, limit) }, (_, i) => deployment(i));
+        return Promise.resolve({ done: true, totalSize: rows.length, records: rows });
+      });
+      mockGetJsforceConnection.mockResolvedValue({
+        tooling: { query: toolingQuery },
+        limitInfo: {},
+      });
+
+      await ask('monitor:deployments');
+
+      expect(answer().type).toBe('monitor:deployments:response');
+      expect(answer().payload.deployments).toHaveLength(20);
+      expect(answer().payload.truncated).toBe(true);
+
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mockClear();
+      toolingQuery.mockResolvedValueOnce({
+        done: true,
+        totalSize: 3,
+        records: [0, 1, 2].map(deployment),
+      });
+      await ask('monitor:deployments');
+
+      expect(answer().payload.truncated).toBe(false);
+    });
+
+    it('says how many objects the org counted, of which the twenty holding the most are listed', async () => {
+      const counts = Array.from({ length: 25 }, (_, i) => ({ name: `Obj${i}__c`, count: 100 + i }));
+      mockGetJsforceConnection.mockResolvedValue({
+        request: vi.fn().mockResolvedValue({ sObjects: [...counts, { name: 'Lead', count: 0 }] }),
+        limitInfo: {},
+      });
+
+      await ask('monitor:storage');
+
+      expect(answer().type).toBe('monitor:storage:response');
+      expect(answer().payload.objects).toHaveLength(20);
+      // Objects holding at least one record: the empty one is not among them.
+      expect(answer().payload.objectCount).toBe(25);
+    });
+
+    it('says when the recent-job window came back full', async () => {
+      const job = (i: number): Record<string, unknown> => ({
+        Id: `707000000000${String(i).padStart(3, '0')}`,
+        JobType: 'Queueable',
+        Status: 'Completed',
+        NumberOfErrors: 0,
+        CreatedDate: '2026-09-22T10:00:00Z',
+        CreatedById: '005000000000001',
+      });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'SRC',
+        orgType: 'Sandbox',
+        metadata: { edition: 'Enterprise Edition' },
+      });
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) =>
+        soql.includes('FROM AsyncApexJob') ? Array.from({ length: 50 }, (_, i) => job(i)) : [],
+      );
+
+      await ask('monitor:refresh');
+      expect(answer().type).toBe('monitor:data');
+      expect(answer().payload.jobsTruncated).toBe(true);
+
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mockClear();
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) =>
+        soql.includes('FROM AsyncApexJob') ? [job(1), job(2)] : [],
+      );
+      await ask('monitor:refresh');
+
+      expect(answer().payload.jobsTruncated).toBe(false);
+    });
+  });
+
   describe('MONITOR_TYPES coverage', () => {
     it('MONITOR_TYPES includes all new message types', async () => {
       const fakeConn = {
         limitInfo: {},
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         version: '62.0',
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
@@ -777,7 +950,7 @@ describe('MonitorOpsHandler', () => {
   describe('handleRefresh includes orgHealthStatus', () => {
     it('handleRefresh includes orgHealthStatus in response', async () => {
       const fakeConn = {
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         identity: vi.fn().mockResolvedValue({
           instance_name: 'NA99',
           last_login_date: '2026-03-20T00:00:00Z',
@@ -839,36 +1012,37 @@ describe('MonitorOpsHandler', () => {
   });
 
   describe('org info of a refresh', () => {
-    it("takes the instance and the edition from the org's Organization row", async () => {
-      // The identity URL answers with the keys below and nothing else: no
-      // instance_name, no last_login_date. Read from there, the instance was
-      // blank on every real org the Monitor was pointed at.
-      const identity = {
-        id: 'https://login.salesforce.com/id/00D000000000001AAA/005000000000001AAA',
-        user_id: '005000000000001AAA',
-        organization_id: '00D000000000001AAA',
-        username: 'admin@example.com',
-        display_name: 'Admin',
-        urls: {},
-        active: true,
-        user_type: 'STANDARD',
-        language: 'en_US',
-        locale: 'en_US',
-        utcOffset: 0,
-        last_modified_date: '2026-01-01T00:00:00.000+0000',
-      };
-      const organization: Record<string, unknown> = {
-        Name: 'Acme Corp',
-        Id: '00D000000000001AAA',
-        OrganizationType: 'Enterprise Edition',
-        InstanceName: 'EU42S',
-        IsSandbox: true,
-        NamespacePrefix: null,
-        CreatedDate: '2026-01-01T00:00:00.000+0000',
-      };
+    /**
+     * The identity URL answers with the keys below and nothing else: no
+     * instance_name, no last_login_date.
+     */
+    const IDENTITY = {
+      id: 'https://login.salesforce.com/id/00D000000000001AAA/005000000000001AAA',
+      user_id: '005000000000001AAA',
+      organization_id: '00D000000000001AAA',
+      username: 'admin@example.com',
+      display_name: 'Admin',
+      urls: {},
+      active: true,
+      user_type: 'STANDARD',
+      language: 'en_US',
+      locale: 'en_US',
+      utcOffset: 0,
+      last_modified_date: '2026-01-01T00:00:00.000+0000',
+    };
+
+    /**
+     * Refresh an org whose connection speaks 62.0 while the org serves up to
+     * 68.0, whose Organization row holds `organization`, and which the
+     * registry holds as `registered`; answer the org info the page receives.
+     */
+    async function refreshOrgInfo(
+      organization: Record<string, unknown>,
+      registered: Record<string, unknown> | undefined,
+    ): Promise<Record<string, unknown> | undefined> {
       mockGetJsforceConnection.mockResolvedValue({
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-        identity: vi.fn().mockResolvedValue(identity),
+        request: orgRequest(),
+        identity: vi.fn().mockResolvedValue(IDENTITY),
         query: vi.fn().mockResolvedValue({ totalSize: 3, done: true, records: [] }),
         version: '62.0',
         limitInfo: undefined,
@@ -879,12 +1053,7 @@ describe('MonitorOpsHandler', () => {
         const columns = (/SELECT (.+?) FROM/.exec(soql)?.[1] ?? '').split(',').map((c) => c.trim());
         return Promise.resolve([Object.fromEntries(columns.map((c) => [c, organization[c]]))]);
       });
-      // What an SFDX import stores as the edition: the org's name.
-      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
-        alias: 'SRC',
-        orgType: 'Sandbox',
-        metadata: { edition: 'Acme Corp' },
-      });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue(registered);
 
       await handler.handle(
         inboundRequest({
@@ -897,25 +1066,76 @@ describe('MonitorOpsHandler', () => {
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-        payload: { orgInfo?: { instanceName: string; edition: string } };
+        payload: { orgInfo?: Record<string, unknown> };
       };
       expect(response.type).toBe('monitor:data');
-      expect(response.payload.orgInfo?.instanceName).toBe('EU42S');
-      expect(response.payload.orgInfo?.edition).toBe('Enterprise Edition');
+      return response.payload.orgInfo;
+    }
+
+    const ORGANIZATION: Record<string, unknown> = {
+      Name: 'Acme Corp',
+      Id: '00D000000000001AAA',
+      OrganizationType: 'Enterprise Edition',
+      InstanceName: 'EU42S',
+      IsSandbox: true,
+      NamespacePrefix: null,
+      CreatedDate: '2026-01-01T00:00:00.000+0000',
+    };
+
+    it("takes the instance and the edition from the org's Organization row", async () => {
+      // Read from the identity URL, the instance was blank on every real org
+      // the Monitor was pointed at. And what an SFDX import used to store as
+      // the edition was the org's name.
+      const orgInfo = await refreshOrgInfo(ORGANIZATION, {
+        alias: 'SRC',
+        orgType: 'Sandbox',
+        metadata: { edition: 'Acme Corp' },
+      });
+
+      expect(orgInfo?.instanceName).toBe('EU42S');
+      expect(orgInfo?.edition).toBe('Enterprise Edition');
+    });
+
+    it("shows the newest API version the org serves, not the connection's", async () => {
+      // Run against real orgs, the panel said API 62.0 about orgs on 68.0.
+      const orgInfo = await refreshOrgInfo(ORGANIZATION, {
+        alias: 'SRC',
+        orgType: 'Sandbox',
+        metadata: { edition: 'Enterprise Edition' },
+      });
+
+      expect(orgInfo?.apiVersion).toBe('68.0');
+    });
+
+    it('sends the namespace and the creation date the row holds, and no login date', async () => {
+      const orgInfo = await refreshOrgInfo(
+        { ...ORGANIZATION, NamespacePrefix: 'acme', CreatedDate: '2026-04-24T10:20:51.000+0000' },
+        { alias: 'SRC', orgType: 'Sandbox', metadata: { edition: 'Enterprise Edition' } },
+      );
+
+      expect(orgInfo?.namespacePrefix).toBe('acme');
+      expect(orgInfo?.createdDate).toBe('2026-04-24T10:20:51.000Z');
+      // The identity answer carries no login date, and the refresh time
+      // stood in for one: "now", on every org.
+      expect(orgInfo).not.toHaveProperty('lastLoginDate');
+    });
+
+    it('types an org the registry no longer holds as Production, not as a sandbox', async () => {
+      // Disconnected while the refresh ran: the type is unknown, and an
+      // unknown type fails closed, as the guards read it.
+      const orgInfo = await refreshOrgInfo(ORGANIZATION, undefined);
+
+      expect(orgInfo?.type).toBe('Production');
     });
   });
 
   describe('OrgInfoFetcher cache sharing', () => {
-    let mockConnIdentity: ReturnType<typeof vi.fn>;
+    let mockConnRequest: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      mockConnIdentity = vi.fn().mockResolvedValue({
-        instance_name: 'NA99',
-        last_login_date: '2026-03-20T00:00:00Z',
-      });
+      mockConnRequest = orgRequest();
       mockGetJsforceConnection.mockResolvedValue({
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-        identity: mockConnIdentity,
+        request: mockConnRequest,
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
@@ -950,7 +1170,7 @@ describe('MonitorOpsHandler', () => {
     /**
      * OrgInfoFetcher is a single instance on MonitorOpsHandler.
      * Two refresh calls within 5 minutes should reuse the cached OrgInfo,
-     * meaning the connection's identity/query methods are called only once.
+     * meaning the org's API versions are read only once.
      */
     it('should reuse OrgInfoFetcher cache across two refresh calls', async () => {
       const localDeps = createMockDeps();
@@ -979,10 +1199,11 @@ describe('MonitorOpsHandler', () => {
       await localHandler.handle(refreshMsg1);
       await localHandler.handle(refreshMsg2);
 
-      // OrgInfoFetcher cache means identity is called only once (via the conn
-      // adapter in handleRefresh), not twice. The conn.identity mock tracks
-      // calls made via the OrgInfoConnection adapter.
-      expect(mockConnIdentity).toHaveBeenCalledTimes(1);
+      // OrgInfoFetcher cache means /services/data is read only once (via the
+      // conn adapter in handleRefresh), not twice.
+      expect(mockConnRequest.mock.calls.filter(([url]) => url === '/services/data')).toHaveLength(
+        1,
+      );
 
       // Both refreshes should succeed
       const postToWebview = localDeps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -1008,7 +1229,7 @@ describe('MonitorOpsHandler', () => {
         DailyApiRequests: { Max: 15000, Remaining: 750 }, // 95% used
       };
       const fakeConn = {
-        request: vi.fn().mockResolvedValue(highUsageLimits),
+        request: orgRequest(highUsageLimits),
         identity: vi.fn().mockResolvedValue({
           instance_name: 'NA99',
           last_login_date: '2026-03-20T00:00:00Z',
@@ -1312,12 +1533,10 @@ describe('MonitorOpsHandler', () => {
 
     /** A connection answering every call a refresh makes; `/limits` is `request`. */
     function createRefreshConn(request: ReturnType<typeof vi.fn>): Record<string, unknown> {
+      const limits = request as unknown as (url: string) => Promise<unknown>;
       return {
-        request,
-        identity: vi.fn().mockResolvedValue({
-          instance_name: 'NA99',
-          last_login_date: '2026-03-20T00:00:00Z',
-        }),
+        request: (url: string): Promise<unknown> =>
+          url === '/services/data' ? Promise.resolve(SERVED_API_VERSIONS) : limits(url),
         query: vi.fn().mockResolvedValue({ totalSize: 10, done: true, records: [] }),
         version: '62.0',
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
@@ -1481,7 +1700,7 @@ describe('MonitorOpsHandler', () => {
       });
       return {
         query,
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         identity: vi.fn().mockResolvedValue({
           instance_name: 'NA99',
           last_login_date: '2026-03-20T00:00:00Z',
@@ -1579,7 +1798,7 @@ describe('MonitorOpsHandler', () => {
       vi.useFakeTimers();
       try {
         const fakeConn = {
-          request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+          request: orgRequest(),
           identity: vi.fn().mockResolvedValue({
             instance_name: 'NA99',
             last_login_date: '2026-03-20T00:00:00Z',
@@ -1740,7 +1959,7 @@ describe('MonitorOpsHandler', () => {
       });
       mockGetJsforceConnection.mockResolvedValue({
         query,
-        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        request: orgRequest(),
         identity: vi.fn().mockResolvedValue({
           instance_name: 'NA99',
           last_login_date: '2026-03-20T00:00:00Z',

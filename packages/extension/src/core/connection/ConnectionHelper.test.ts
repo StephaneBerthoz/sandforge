@@ -3,6 +3,7 @@ import {
   getJsforceConnection,
   getConnectionPool,
   getCircuitBreaker,
+  observeValidatedIdentities,
   resetCircuitBreakers,
   resetConnectionValidation,
 } from './ConnectionHelper';
@@ -838,6 +839,123 @@ describe('ConnectionHelper', () => {
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         'Circuit breaker is open',
       );
+    });
+  });
+
+  describe('identity observer', () => {
+    /**
+     * An identity answer in the shape a sandbox returns it (the keys read on
+     * a live sandbox), with made-up values: the org it names is the part a
+     * refresh changes.
+     */
+    function identityAnswer(organizationId: string): Record<string, unknown> {
+      return {
+        id: `https://test.salesforce.com/id/${organizationId}/005XX00000AbCdEYA0`,
+        asserted_user: true,
+        user_id: '005XX00000AbCdEYA0',
+        organization_id: organizationId,
+        username: 'admin@acme.test.uat',
+        display_name: 'Admin',
+        urls: { rest: 'https://acme--uat.sandbox.my.salesforce.com/services/data/v{version}/' },
+        active: true,
+        user_type: 'STANDARD',
+        language: 'fr',
+        locale: 'fr_FR',
+        utcOffset: 3600000,
+        last_modified_date: '2026-09-01T08:00:00.000+0000',
+      };
+    }
+
+    afterEach(() => {
+      observeValidatedIdentities(undefined);
+    });
+
+    it('tells the observer which org a newly validated connection reached', async () => {
+      const observer = vi.fn();
+      observeValidatedIdentities(observer);
+      mockIdentity.mockResolvedValueOnce(identityAnswer('00DXX00000AbCdE2A1'));
+
+      await getJsforceConnection(
+        'org-1',
+        createMockOrgRegistry(makeCreds()),
+        createMockOrgManager(makeOrg()),
+      );
+
+      expect(observer).toHaveBeenCalledWith('org-1', { organizationId: '00DXX00000AbCdE2A1' });
+    });
+
+    it('tells the observer the org a CLI token refresh reconnected to', async () => {
+      // A refreshed sandbox: the stored token belongs to the org that is gone,
+      // and the CLI's session for the same username opens the new one.
+      const observer = vi.fn();
+      observeValidatedIdentities(observer);
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockResolvedValueOnce(identityAnswer('00Dxx00000FgHiJ3B2'));
+      mockCliInvoker
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }),
+          stderr: '',
+        } as never)
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { accessToken: 'token-of-the-new-org' } }),
+          stderr: '',
+        } as never);
+
+      await getJsforceConnection(
+        'org-1',
+        createMockOrgRegistry(makeCreds()),
+        createMockOrgManager(makeOrg()),
+      );
+
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(observer).toHaveBeenCalledWith('org-1', { organizationId: '00Dxx00000FgHiJ3B2' });
+    });
+
+    it('hands over the connection even when the observer throws', async () => {
+      observeValidatedIdentities(() => {
+        throw new Error('observer down');
+      });
+      mockIdentity.mockResolvedValueOnce(identityAnswer('00DXX00000AbCdE2A1'));
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+
+      const conn = await getJsforceConnection(
+        'org-1',
+        orgRegistry,
+        createMockOrgManager(makeOrg()),
+      );
+
+      expect(conn).toBeDefined();
+      expect(getCircuitBreaker('org-1').getFailureCount()).toBe(0);
+    });
+
+    it('is not asked about a connection served from the pool', async () => {
+      const observer = vi.fn();
+      observeValidatedIdentities(observer);
+      mockIdentity.mockResolvedValueOnce(identityAnswer('00DXX00000AbCdE2A1'));
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      const orgManager = createMockOrgManager(makeOrg());
+
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(mockIdentity).toHaveBeenCalledTimes(1);
+      expect(observer).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops telling an observer taken away', async () => {
+      const observer = vi.fn();
+      observeValidatedIdentities(observer);
+      observeValidatedIdentities(undefined);
+      mockIdentity.mockResolvedValueOnce(identityAnswer('00DXX00000AbCdE2A1'));
+
+      await getJsforceConnection(
+        'org-1',
+        createMockOrgRegistry(makeCreds()),
+        createMockOrgManager(makeOrg()),
+      );
+
+      expect(observer).not.toHaveBeenCalled();
     });
   });
 });

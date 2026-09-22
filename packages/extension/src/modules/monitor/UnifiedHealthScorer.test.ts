@@ -66,8 +66,8 @@ describe('UnifiedHealthScorer', () => {
       limits: [
         makeLimit('DailyApiRequests', 15000, 20),
         makeLimit('DataStorageMB', 500, 10),
-        makeLimit('DailySoqlQueries', 100000, 30),
-        makeLimit('DailyDmlStatements', 150000, 25),
+        makeLimit('DailyBulkV2QueryJobs', 100000, 30),
+        makeLimit('DailyBulkApiBatches', 150000, 25),
         makeLimit('DailyAsyncApexExecutions', 250000, 15),
       ],
       orgId: 'org-1',
@@ -83,7 +83,7 @@ describe('UnifiedHealthScorer', () => {
       limits: [
         makeLimit('DailyApiRequests', 15000, 65),
         makeLimit('DataStorageMB', 500, 40),
-        makeLimit('DailySoqlQueries', 100000, 30),
+        makeLimit('DailyBulkV2QueryJobs', 100000, 30),
       ],
       orgId: 'org-1',
     };
@@ -100,8 +100,8 @@ describe('UnifiedHealthScorer', () => {
       limits: [
         makeLimit('DailyApiRequests', 15000, 96),
         makeLimit('DataStorageMB', 500, 92),
-        makeLimit('DailySoqlQueries', 100000, 95),
-        makeLimit('DailyDmlStatements', 150000, 91),
+        makeLimit('DailyBulkV2QueryJobs', 100000, 95),
+        makeLimit('DailyBulkApiBatches', 150000, 91),
         makeLimit('DailyAsyncApexExecutions', 250000, 94),
       ],
       orgId: 'org-1',
@@ -170,13 +170,13 @@ describe('UnifiedHealthScorer', () => {
     const limits = [
       makeLimit('DailyApiRequests', 15000, 50),
       makeLimit('DataStorageMB', 500, 30),
-      makeLimit('DailySoqlQueries', 100000, 20),
+      makeLimit('DailyBulkV2QueryJobs', 100000, 20),
     ];
 
     const mockTrendStorage = makeMockTrendStorage({
       DailyApiRequests: { direction: 'up', changePercent: 10 },
       DataStorageMB: { direction: 'down', changePercent: -5 },
-      DailySoqlQueries: { direction: 'stable', changePercent: 1 },
+      DailyBulkV2QueryJobs: { direction: 'stable', changePercent: 1 },
     });
 
     const input: UnifiedHealthInput = {
@@ -188,11 +188,36 @@ describe('UnifiedHealthScorer', () => {
 
     const apiFactor = report.factors.find((f) => f.name === 'DailyApiRequests');
     const storageFactor = report.factors.find((f) => f.name === 'DataStorageMB');
-    const soqlFactor = report.factors.find((f) => f.name === 'DailySoqlQueries');
+    const bulkQueryFactor = report.factors.find((f) => f.name === 'DailyBulkV2QueryJobs');
 
     expect(apiFactor!.trend).toBe('degrading');
     expect(storageFactor!.trend).toBe('improving');
-    expect(soqlFactor!.trend).toBe('stable');
+    expect(bulkQueryFactor!.trend).toBe('stable');
+  });
+
+  it("weighs a day's Bulk API batches as a core factor, not as one leftover limit among others", () => {
+    // The limits of a real org the day a large load used up the Bulk API
+    // batches, with the few others any org has in use.
+    const input: UnifiedHealthInput = {
+      limits: [
+        makeLimit('DailyApiRequests', 5_000_000, 10),
+        makeLimit('DataStorageMB', 5120, 10),
+        makeLimit('DailyAsyncApexExecutions', 250_000, 10),
+        makeLimit('DailyBulkApiBatches', 15_000, 95),
+        makeLimit('SingleEmail', 5000, 10),
+        makeLimit('MassEmail', 5000, 10),
+        makeLimit('DailyWorkflowEmails', 1_126_000, 10),
+        makeLimit('HourlyPublishedPlatformEvents', 250_000, 10),
+        makeLimit('HourlyTimeBasedWorkflow', 1000, 10),
+      ],
+      orgId: 'org-1',
+    };
+
+    const report = scorer.calculate(input);
+
+    const batches = report.factors.find((f) => f.name === 'DailyBulkApiBatches');
+    expect(batches?.weight).toBe(0.15);
+    expect(batches?.recommendation).toContain('Bulk API');
   });
 
   it('should skip metadata/coverage/security dimensions when data is missing', () => {
@@ -214,8 +239,8 @@ describe('UnifiedHealthScorer', () => {
       limits: [
         makeLimit('DailyApiRequests', 15000, 20),
         makeLimit('DataStorageMB', 500, 10),
-        makeLimit('DailySoqlQueries', 100000, 15),
-        makeLimit('DailyDmlStatements', 150000, 12),
+        makeLimit('DailyBulkV2QueryJobs', 100000, 15),
+        makeLimit('DailyBulkApiBatches', 150000, 12),
         makeLimit('DailyAsyncApexExecutions', 250000, 8),
       ],
       orgId: 'org-1',
@@ -265,8 +290,8 @@ describe('UnifiedHealthScorer', () => {
       limits: [
         makeLimit('DailyApiRequests', 15000, 100),
         makeLimit('DataStorageMB', 500, 100),
-        makeLimit('DailySoqlQueries', 100000, 100),
-        makeLimit('DailyDmlStatements', 150000, 100),
+        makeLimit('DailyBulkV2QueryJobs', 100000, 100),
+        makeLimit('DailyBulkApiBatches', 150000, 100),
         makeLimit('DailyAsyncApexExecutions', 250000, 100),
       ],
       orgId: 'org-1',

@@ -69,3 +69,15 @@ export async function describeCached<T>(
 export function clearDescribeCache(): void {
   entries.clear();
 }
+
+/**
+ * Forget what one org answered. A refreshed sandbox is a new org behind the
+ * same id, with production's schema as of the refresh: its old describes
+ * would be served for up to five more minutes.
+ */
+export function forgetOrgDescribes(orgId: string): void {
+  const prefix = keyFor(orgId, '');
+  for (const key of entries.keys()) {
+    if (key.startsWith(prefix)) entries.delete(key);
+  }
+}

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DESCRIBE_CACHE_TTL_MS, clearDescribeCache, describeCached } from './describeCache.js';
+import {
+  DESCRIBE_CACHE_TTL_MS,
+  clearDescribeCache,
+  describeCached,
+  forgetOrgDescribes,
+} from './describeCache.js';
 
 describe('describeCached', () => {
   beforeEach(() => {
@@ -70,5 +75,21 @@ describe('describeCached', () => {
     now += 2;
     await describeCached('org-1', 'Account', describe, clock);
     expect(describe).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks a forgotten org again and keeps serving the others', async () => {
+    const describe = vi.fn().mockResolvedValue({ fields: [] });
+    await describeCached('org-1', 'Account', describe);
+    await describeCached('org-1', 'Contact', describe);
+    await describeCached('org-10', 'Account', describe);
+
+    forgetOrgDescribes('org-1');
+    await describeCached('org-1', 'Account', describe);
+    await describeCached('org-1', 'Contact', describe);
+    await describeCached('org-10', 'Account', describe);
+
+    // Three first reads, then the two objects of the forgotten org again; the
+    // org whose id merely starts the same way is still served from the cache.
+    expect(describe).toHaveBeenCalledTimes(5);
   });
 });

@@ -126,6 +126,42 @@ describe('DiffEngine', () => {
       const items = engine.diff(source, target, 'Layout');
       expect(items[0].severity).toBe('warning');
     });
+
+    it('calls a component both hold not compared when told it was not read, however its values differ', () => {
+      // Two listings of one class: they differ in every org, and prove nothing.
+      const source = new Map([['Invoicing', '{"id":"01pA"}']]);
+      const target = new Map([['Invoicing', '{"id":"01pB"}']]);
+
+      const [item] = engine.diff(
+        source,
+        target,
+        'ApexClass',
+        new Map([['Invoicing', 'over_budget']]),
+      );
+
+      expect(item.status).toBe('not_compared');
+      expect(item.notComparedReason).toBe('over_budget');
+      expect(item.sourceValue).toBeUndefined();
+      expect(item.targetValue).toBeUndefined();
+      expect(item.severity).toBe('info');
+      expect(item.deployable).toBe(false);
+    });
+
+    it('still calls a component one org alone holds added or removed when told it was not read', () => {
+      const notRead = new Map([
+        ['Gone', 'read_failed' as const],
+        ['New', 'read_failed' as const],
+      ]);
+
+      const items = engine.diff(new Map([['Gone', 'x']]), new Map([['New', 'y']]), 'Flow', notRead);
+
+      expect(new Map(items.map((i) => [i.fullName, i.status]))).toEqual(
+        new Map([
+          ['Gone', 'removed'],
+          ['New', 'added'],
+        ]),
+      );
+    });
   });
 
   describe('diffFields', () => {
@@ -220,6 +256,21 @@ describe('DiffEngine', () => {
       expect(summary.byType['ApexClass']).toBeUndefined();
     });
 
+    it('counts components not compared apart, and never as a change of their type', () => {
+      const items: CompareItem[] = [
+        createItem('ApexClass', 'A', 'not_compared'),
+        createItem('ApexClass', 'B', 'not_compared'),
+        createItem('ApexClass', 'C', 'modified'),
+      ];
+
+      const summary = engine.computeSummary(items);
+
+      expect(summary.notCompared).toBe(2);
+      expect(summary.modified).toBe(1);
+      expect(summary.unchanged).toBe(0);
+      expect(summary.byType['ApexClass']).toEqual({ added: 0, removed: 0, modified: 1 });
+    });
+
     it('should return zero counts for an empty array', () => {
       const summary = engine.computeSummary([]);
 
@@ -228,7 +279,31 @@ describe('DiffEngine', () => {
       expect(summary.removed).toBe(0);
       expect(summary.modified).toBe(0);
       expect(summary.unchanged).toBe(0);
+      expect(summary.notCompared).toBe(0);
       expect(summary.byType).toEqual({});
+    });
+  });
+
+  describe('computeCoverage', () => {
+    it('counts what was compared by content, and what was not by reason', () => {
+      const items: CompareItem[] = [
+        createItem('ApexClass', 'A', 'modified'),
+        createItem('ApexClass', 'B', 'unchanged'),
+        createItem('ApexClass', 'C', 'added'),
+        createItem('ApexClass', 'D', 'removed'),
+        { ...createItem('ApexClass', 'E', 'not_compared'), notComparedReason: 'unreadable' },
+        { ...createItem('Flow', 'F', 'not_compared'), notComparedReason: 'read_failed' },
+        { ...createItem('Flow', 'G', 'not_compared'), notComparedReason: 'over_budget' },
+        { ...createItem('Flow', 'H', 'not_compared'), notComparedReason: 'over_budget' },
+      ];
+
+      const coverage = engine.computeCoverage(items, { components: 500, seconds: 90 });
+
+      expect(coverage).toEqual({
+        compared: 2,
+        notCompared: { unreadable: 1, read_failed: 1, over_budget: 2 },
+        budget: { components: 500, seconds: 90 },
+      });
     });
   });
 
@@ -239,6 +314,10 @@ describe('DiffEngine', () => {
 
     it('should return info for unchanged items', () => {
       expect(DiffEngine.determineSeverity('unchanged', 'ApexClass')).toBe('info');
+    });
+
+    it('returns info for a critical component that was not compared, since nothing is known to differ', () => {
+      expect(DiffEngine.determineSeverity('not_compared', 'ApexTrigger')).toBe('info');
     });
 
     it('should return breaking for removed critical types', () => {
@@ -267,6 +346,10 @@ describe('DiffEngine', () => {
 
     it('should return false for unchanged', () => {
       expect(DiffEngine.isDeployable('unchanged')).toBe(false);
+    });
+
+    it('returns false for a component that was not compared', () => {
+      expect(DiffEngine.isDeployable('not_compared')).toBe(false);
     });
   });
 });

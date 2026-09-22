@@ -1,4 +1,11 @@
-import type { ApiLimit, HealthFactor, HealthReport, OrgInfo, TrendData } from '@sandforge/shared';
+import type {
+  ApiLimit,
+  HealthFactor,
+  HealthReport,
+  MonitorKeyLimit,
+  OrgInfo,
+  TrendData,
+} from '@sandforge/shared';
 import type { TrendStorage } from './TrendStorage.js';
 
 /** Weight and category configuration for a known limit factor. */
@@ -46,14 +53,23 @@ export interface UnifiedHealthInput {
   securitySettings?: SecuritySettings;
 }
 
-/** Weight configuration for the 5 core limit factors. */
-const CORE_LIMIT_FACTORS: Record<string, LimitFactorConfig> = {
+/**
+ * Weight configuration for the 5 core limit factors.
+ *
+ * Keyed by the trended limits, because a core factor's trend penalty reads
+ * the history TrendStorage keeps, and it keeps those limits only. Two of the
+ * five were `DailySoqlQueries` and `DailyDmlStatements`, Apex governor limits
+ * no org's `/limits` returns: skipped on every org, they left the score to
+ * three core limits, and a Bulk API load that used up the day's batches
+ * counted as one leftover limit among the others in use.
+ */
+const CORE_LIMIT_FACTORS = {
   DailyApiRequests: { weight: 0.2, category: 'limits' },
   DataStorageMB: { weight: 0.2, category: 'storage' },
-  DailySoqlQueries: { weight: 0.15, category: 'limits' },
-  DailyDmlStatements: { weight: 0.15, category: 'limits' },
+  DailyBulkApiBatches: { weight: 0.15, category: 'limits' },
+  DailyBulkV2QueryJobs: { weight: 0.15, category: 'limits' },
   DailyAsyncApexExecutions: { weight: 0.15, category: 'jobs' },
-};
+} satisfies Partial<Record<MonitorKeyLimit, LimitFactorConfig>>;
 
 /** Base weight allocated to all limit factors combined. */
 const BASE_LIMITS_WEIGHT = 1.0;
@@ -181,10 +197,10 @@ function generateLimitRecommendation(name: string, usedPercent: number): string 
       return `${prefix}Review scheduled batch jobs and integrations consuming API calls.`;
     case 'DataStorageMB':
       return `${prefix}Consider archiving old records or cleaning up attachments.`;
-    case 'DailySoqlQueries':
-      return `${prefix}Optimize triggers and flows that execute excessive SOQL queries.`;
-    case 'DailyDmlStatements':
-      return `${prefix}Consolidate DML operations in batch processing.`;
+    case 'DailyBulkApiBatches':
+      return `${prefix}Group small Bulk API loads into fewer, larger jobs, or spread them over several days.`;
+    case 'DailyBulkV2QueryJobs':
+      return `${prefix}Review the integrations that run Bulk API 2.0 queries, and how often they run.`;
     case 'DailyAsyncApexExecutions':
       return `${prefix}Review queued and scheduled Apex jobs for efficiency.`;
     default:

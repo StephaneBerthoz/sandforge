@@ -78,24 +78,6 @@ describe('PipelineExecutionView', () => {
     expect(screen.getByTestId('exec-step-status-step-3').textContent).toContain('Pending');
   });
 
-  it('should show pause button when running', () => {
-    const onPause = vi.fn();
-    render(<PipelineExecutionView execution={execution} onPause={onPause} />);
-    const btn = screen.getByTestId('execution-pause');
-    expect(btn).toBeDefined();
-    fireEvent.click(btn);
-    expect(onPause).toHaveBeenCalled();
-  });
-
-  it('should show resume button when paused', () => {
-    const onResume = vi.fn();
-    const paused: PipelineExecutionData = { ...execution, status: 'paused' };
-    render(<PipelineExecutionView execution={paused} onResume={onResume} />);
-    const btn = screen.getByTestId('execution-resume');
-    fireEvent.click(btn);
-    expect(onResume).toHaveBeenCalled();
-  });
-
   it('should show cancel button when active', () => {
     const onCancel = vi.fn();
     render(<PipelineExecutionView execution={execution} onCancel={onCancel} />);
@@ -136,9 +118,9 @@ describe('PipelineExecutionView', () => {
     expect(stats.textContent).toContain('failed');
   });
 
-  it('should not show pause when completed', () => {
+  it('offers to cancel a run only while it is running', () => {
     const completed: PipelineExecutionData = { ...execution, status: 'completed' };
-    render(<PipelineExecutionView execution={completed} onPause={vi.fn()} />);
-    expect(screen.queryByTestId('execution-pause')).toBeNull();
+    render(<PipelineExecutionView execution={completed} onCancel={vi.fn()} />);
+    expect(screen.queryByTestId('execution-cancel')).toBeNull();
   });
 });

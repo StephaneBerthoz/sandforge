@@ -1616,18 +1616,38 @@ function assertCompareDeploysNothing() {
   );
 }
 
-/** Pipelines start by hand: every scheduler:* channel is answered by the no-op handler. */
-function assertSchedulerIsANoOp() {
-  const src = read(...HANDLERS_FILE.split('/'));
-  const noOpRoute = [...src.matchAll(/route\(\s*\[([^\]]*)\]\s*,\s*this\.(\w+)/g)].find(
-    ([, , handler]) => handler === 'noOpHandler',
-  );
-  assert.ok(noOpRoute, `no \`route([...], this.noOpHandler)\` call found in ${HANDLERS_FILE}`);
-  for (const channel of ['scheduler:list', 'scheduler:upsert', 'scheduler:delete']) {
-    assert.match(
-      noOpRoute[1],
-      new RegExp(`'${channel}'`),
-      `${channel} now has a real handler — pipelines may start on a timer. Re-read ` +
+const SCHEMAS_FILE = 'packages/shared/src/bridge/messageSchemas.ts';
+
+/** The channel literals a file hands to every `name(…)` call, as a list or on their own. */
+function channelsPassedTo(relativePath, name) {
+  return callsWithin(parseFile(relativePath))
+    .filter((call) => call.name === name && call.args.length > 0)
+    .flatMap(({ args }) => {
+      const first = unwrap(args[0]);
+      const channels = ts.isArrayLiteralExpression(first) ? first.elements : [first];
+      return channels.filter(ts.isStringLiteralLike).map((channel) => channel.text);
+    });
+}
+
+/**
+ * Pipelines start by hand: no `scheduler:*` channel is routed or declared. The
+ * four that once were reached only the no-op handler, and no screen sent them.
+ */
+function assertNoPipelineScheduler() {
+  for (const [file, channels] of [
+    [HANDLERS_FILE, channelsPassedTo(HANDLERS_FILE, 'route')],
+    [SCHEMAS_FILE, channelsPassedTo(SCHEMAS_FILE, 'msg')],
+  ]) {
+    // Positive control: the walk reads the Sync schedules, which are there.
+    assert.ok(
+      channels.includes('sync:schedule:upsert'),
+      `the walk does not see sync:schedule:upsert in ${file}, where it is — it is not reading ` +
+        'channels, so the absence below proves nothing',
+    );
+    assert.deepEqual(
+      channels.filter((channel) => channel.startsWith('scheduler:')),
+      [],
+      `${file} carries a scheduler:* channel again — pipelines may start on a timer. Re-read ` +
         'help.automationContent and help.dataopsContent before relaxing this.',
     );
   }
@@ -1704,7 +1724,7 @@ function assertHistoryKeepsNoStepDetail() {
  *  - A vocabulary, not a meaning: "a sync can be reversed" passes the rollback rule, and any paraphrase that avoids a rule's words passes it.
  *  - A line carrying its bundle's "Coming soon" passes a disclaimable rule whatever else it says.
  *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
- *  - The pipeline-start rule's anchor reads the scheduler route only. Webhook and event triggers have no executor either, and nothing here reads that absence.
+ *  - The pipeline-start rule's anchor reads channel names only: no `scheduler:*` channel is routed or declared. A scheduler wired under another name, or one that fires a pipeline's triggers from the host with no channel, is not seen. Webhook and event triggers have no executor either, and nothing here reads that absence.
  *  - The DataOps and Compare anchors read `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
  *  - The run-history anchor reads the fields of `PipelineHistoryEntry` and whether the page opens a run. Step results fetched some other way, into another view, are not seen.
  */
@@ -1800,7 +1820,7 @@ const HELP_CLAIM_RULES = [
     pattern:
       /schedul|webhook|\bcron\b|planifi|zeitpl(?:a|ä|ae)n|programaci[óo]n|agendament|スケジュール|trigger|d[ée]clencheur|ausl(?:ö|oe)ser|disparador|gatilho|トリガー/iu,
     disclaimable: true,
-    anchor: assertSchedulerIsANoOp,
+    anchor: assertNoPipelineScheduler,
     shipped: [
       '- Backup & Restore with scheduling',
       '- 6 trigger types including schedules and webhooks',

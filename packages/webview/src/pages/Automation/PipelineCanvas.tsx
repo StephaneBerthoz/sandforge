@@ -59,7 +59,11 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-2 p-2" data-testid="pipeline-canvas">
+    <ol
+      className="flex flex-col p-2"
+      aria-label={t('automation.canvas')}
+      data-testid="pipeline-canvas"
+    >
       {steps.map((step, index) => {
         const isSelected = step.id === selectedStepId;
         const colorClass = STEP_COLORS[step.type] ?? 'bg-text-secondary';
@@ -67,44 +71,51 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         // step the palette would not add: it is marked where it sits.
         const blocker = stepBlocker(step);
 
+        // The node holds two buttons side by side, one that selects the step
+        // and one that removes it. It used to be a role="button" div with the
+        // remove button inside it: a control inside a control, which a screen
+        // reader announces as one (axe: nested-interactive), and whose inner
+        // click had to be kept from selecting the step as well.
         return (
-          <div key={step.id} className="flex items-center gap-2">
-            {/* Connection line */}
-            {index > 0 && <div className="w-0.5 h-4 bg-[var(--sf-border)] mx-auto -mt-2 -mb-2" />}
+          <li key={step.id} className="flex flex-col items-start">
+            {index > 0 && (
+              <span aria-hidden="true" className="ml-4 h-3 w-0.5 bg-[var(--sf-border)]" />
+            )}
             <div
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
                 isSelected ? 'border-[var(--sf-accent)]' : 'border-[var(--sf-border)]'
               }`}
-              onClick={() => onSelectStep?.(step.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSelectStep?.(step.id);
-              }}
-              data-testid={`canvas-step-${step.id}`}
             >
-              <div className={`w-2 h-2 rounded-full ${colorClass}`} />
-              <span className="text-xs font-medium text-[var(--sf-text-primary)]">{step.name}</span>
-              <Badge variant="default">{step.type}</Badge>
-              {step.continueOnError && (
-                <Badge variant="warning">{t('automation.continueOnError')}</Badge>
-              )}
-              {blocker !== undefined && (
-                <Badge
-                  variant="warning"
-                  title={t(`automation.runnability.${blocker}`)}
-                  data-testid={`canvas-blocked-${step.id}`}
-                >
-                  {t('automation.runnability.cannotRun')}
-                </Badge>
-              )}
+              <button
+                type="button"
+                className="flex items-center gap-2 text-left cursor-pointer"
+                onClick={() => onSelectStep?.(step.id)}
+                aria-current={isSelected ? 'true' : undefined}
+                data-testid={`canvas-step-${step.id}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${colorClass}`} />
+                <span className="text-xs font-medium text-[var(--sf-text-primary)]">
+                  {step.name}
+                </span>
+                <Badge variant="default">{step.type}</Badge>
+                {step.continueOnError && (
+                  <Badge variant="warning">{t('automation.continueOnError')}</Badge>
+                )}
+                {blocker !== undefined && (
+                  <Badge
+                    variant="warning"
+                    title={t(`automation.runnability.${blocker}`)}
+                    data-testid={`canvas-blocked-${step.id}`}
+                  >
+                    {t('automation.runnability.cannotRun')}
+                  </Badge>
+                )}
+              </button>
               {onRemoveStep && (
                 <button
-                  className="text-xs text-[var(--sf-text-secondary)] hover:text-status-error ml-auto"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemoveStep(step.id);
-                  }}
+                  type="button"
+                  className="text-xs text-[var(--sf-text-secondary)] hover:text-status-error"
+                  onClick={() => onRemoveStep(step.id)}
                   aria-label={t('common.delete')}
                   data-testid={`remove-step-${step.id}`}
                 >
@@ -112,9 +123,9 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
                 </button>
               )}
             </div>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 };

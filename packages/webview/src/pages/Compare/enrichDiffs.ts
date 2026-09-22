@@ -4,6 +4,7 @@ import type {
   DiffRiskLevel,
   EnrichedDiff,
   CompareReport,
+  DeploymentAdvice,
 } from '@sandforge/shared';
 
 /** Group mapping for component types. */
@@ -101,16 +102,26 @@ function riskReasons(item: CompareItem): string[] {
   return reasons;
 }
 
+/** A difference between the orgs: what the report scores. */
+function isChange(item: CompareItem): item is CompareItem & { status: EnrichedDiff['changeType'] } {
+  return item.status === 'added' || item.status === 'removed' || item.status === 'modified';
+}
+
 /**
  * Convert raw CompareItem diffs to an enriched CompareReport.
- * Unchanged items are excluded from the report.
+ *
+ * Only changes are scored. An unchanged component is none, and one whose
+ * content was not compared is not known to be one: counting it would score
+ * a risk nobody checked, and leaving it out of the advice means the report
+ * cannot call a comparison safe while part of it was never read.
  */
 export function enrichDiffs(items: CompareItem[]): CompareReport {
-  const changed = items.filter((i) => i.status !== 'unchanged');
+  const changed = items.filter(isChange);
+  const notCompared = items.some((i) => i.status === 'not_compared');
 
   const diffs: EnrichedDiff[] = changed.map((item) => ({
     category: item.componentType,
-    changeType: item.status as EnrichedDiff['changeType'],
+    changeType: item.status,
     name: item.fullName,
     sourceValue: item.sourceValue,
     targetValue: item.targetValue,
@@ -140,16 +151,16 @@ export function enrichDiffs(items: CompareItem[]): CompareReport {
   }
   const riskScore = Math.min(100, Math.round(totalWeight));
 
-  const parts: string[] = [];
+  const advice: DeploymentAdvice[] = [];
   const cc = diffs.filter((d) => d.riskLevel === 'critical').length;
   const hc = diffs.filter((d) => d.riskLevel === 'high').length;
-  if (cc > 0) parts.push(`${cc} critical-risk change(s). Manual review required.`);
-  if (hc > 0) parts.push(`${hc} high-risk change(s). Deploy to a sandbox first.`);
+  if (cc > 0) advice.push({ kind: 'critical', count: cc });
+  if (hc > 0) advice.push({ kind: 'high', count: hc });
   if (diffs.some((d) => d.category === 'ApexClass' || d.category === 'ApexTrigger')) {
-    parts.push('Run all Apex tests.');
+    advice.push({ kind: 'apexTests' });
   }
-  if (riskScore < 25) parts.push('Low risk. Safe to deploy.');
-  const deploymentAdvice = parts.length > 0 ? parts.join(' ') : 'Review changes before deploying.';
+  if (riskScore < 25 && !notCompared) advice.push({ kind: 'lowRisk' });
+  const deploymentAdvice: DeploymentAdvice[] = advice.length > 0 ? advice : [{ kind: 'review' }];
 
   return {
     diffs,

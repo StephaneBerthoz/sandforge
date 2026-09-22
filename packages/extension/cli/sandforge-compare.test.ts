@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { CompareItem } from '@sandforge/shared';
-import { parseArgs, modifiedBecause, PAGE_COMPONENT_TYPES } from './sandforge-compare.js';
+import type { CompareItem, CompareResult } from '@sandforge/shared';
+import {
+  parseArgs,
+  modifiedByType,
+  describeCoverage,
+  describeAnswer,
+  PAGE_COMPONENT_TYPES,
+} from './sandforge-compare.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -76,23 +82,91 @@ describe('parseArgs', () => {
   });
 });
 
-describe('modifiedBecause', () => {
-  it('counts the properties the two orgs disagree on across modified items', () => {
-    const item = (source: object, target: object): CompareItem => ({
-      componentType: 'ApexClass',
-      fullName: 'Invoicing',
-      status: 'modified',
-      sourceValue: JSON.stringify(source),
-      targetValue: JSON.stringify(target),
-      severity: 'breaking',
-      deployable: true,
+/** One component of a diff. */
+function item(
+  componentType: CompareItem['componentType'],
+  fullName: string,
+  status: CompareItem['status'],
+  notComparedReason?: CompareItem['notComparedReason'],
+): CompareItem {
+  return {
+    componentType,
+    fullName,
+    status,
+    ...(notComparedReason ? { notComparedReason } : {}),
+    severity: 'info',
+    deployable: false,
+  };
+}
+
+/** A diff answer, as the page receives it. */
+const RESULT: CompareResult = {
+  configId: 'cfg',
+  sourceOrgId: 'src',
+  targetOrgId: 'tgt',
+  mode: 'metadata',
+  summary: {
+    totalItems: 6,
+    added: 1,
+    removed: 0,
+    modified: 2,
+    unchanged: 1,
+    notCompared: 2,
+    byType: {},
+  },
+  content: {
+    compared: 3,
+    notCompared: { unreadable: 1, read_failed: 0, over_budget: 1 },
+    budget: { components: 500, seconds: 90 },
+  },
+  diffs: [
+    item('ApexClass', 'Billing', 'modified'),
+    item('ApexClass', 'Invoicing', 'unchanged'),
+    item('ApexClass', 'pkg__Engine', 'not_compared', 'unreadable'),
+    item('ApexClass', 'Tax', 'added'),
+    item('Flow', 'Onboarding', 'modified'),
+    item('CustomField', 'Account.Region__c', 'not_compared', 'over_budget'),
+  ],
+  timestamp: '2026-09-22T10:00:00.000Z',
+  duration: 1000,
+};
+
+describe('modifiedByType', () => {
+  it('names the components called modified, by type', () => {
+    expect(modifiedByType(RESULT.diffs)).toEqual(
+      new Map([
+        ['ApexClass', ['Billing']],
+        ['Flow', ['Onboarding']],
+      ]),
+    );
+  });
+});
+
+describe('describeCoverage', () => {
+  it('says how many of the components in both orgs were compared by content, and why the rest were not', () => {
+    expect(describeCoverage(RESULT)).toBe(
+      '  content compared for 3 of 5 in both orgs; not compared: 1 over the budget ' +
+        '(500 per org, 90 s), 1 unreadable, 0 read failed',
+    );
+  });
+});
+
+describe('describeAnswer', () => {
+  it('counts each type in each org with the components it did not compare', () => {
+    const lines = describeAnswer('execute', {
+      outcome: 'answered',
+      message: { id: 'r', type: 'compare:execute:response', timestamp: 0, payload: RESULT },
+      elapsedMs: 1200,
+      late: false,
     });
 
-    const counts = modifiedBecause([
-      item({ id: 'a', fullName: 'X' }, { id: 'b', fullName: 'X' }),
-      item({ id: 'c', lastModifiedDate: '1' }, { id: 'd', lastModifiedDate: '2' }),
-    ]);
-
-    expect(counts).toEqual({ id: 2, lastModifiedDate: 1 });
+    expect(lines).toContain(
+      '  mode metadata, 6 item(s): +1 added  -0 removed  ~2 modified  =1 unchanged  ?2 not compared',
+    );
+    // Three classes in the source, four in the target: the one it hides counts in both.
+    expect(lines).toContain(
+      `    ${'ApexClass'.padEnd(26)} source     3  target     4   +1 -0 ~1 =1 ?1`,
+    );
+    expect(lines).toContain('  modified ApexClass: Billing');
   });
 });

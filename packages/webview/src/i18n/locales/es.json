@@ -167,6 +167,8 @@
     "customObjects": "Objetos",
     "code": "Código",
     "orgCreated": "Creada",
+    "namespace": "Espacio de nombres",
+    "listStopsAt": "Aquí solo se leen los {{shown}} más recientes: la lista y sus recuentos se detienen ahí.",
     "noOrgsHint": "Sin orgs conectadas. Vaya a Organizaciones para conectar una.",
     "emptyState": {
       "title": "Vigile la salud de su org",
@@ -176,9 +178,11 @@
       "step4": "Reciba alertas antes de alcanzar los límites"
     },
     "storage": {
-      "title": "Desglose de almacenamiento",
+      "title": "Registros por objeto",
       "totalRecords": "registros totales",
-      "empty": "Sin datos de almacenamiento de objetos disponibles"
+      "empty": "No hay recuentos de registros disponibles",
+      "scope": "Todos los objetos que cuenta la org, incluidos los de configuración y de registro: no es el uso del almacenamiento de datos, que muestra el mosaico Almacenamiento de datos.",
+      "listed": "Los {{shown}} objetos con más registros, de {{total}}."
     },
     "deployments": {
       "title": "Despliegues recientes",
@@ -268,7 +272,17 @@
       "title": "Actualizaciones de sandbox",
       "empty": "No hay eventos de actualización de sandbox",
       "inProgress": "Actualización en curso",
-      "unsupported": "Solo una org que gestiona sandboxes guarda un historial de actualizaciones. Esta no tiene ninguno que leer."
+      "unsupported": "Solo una org que gestiona sandboxes guarda un historial de actualizaciones. Esta no tiene ninguno que leer.",
+      "detected": {
+        "title": "Actualizaciones detectadas por SandForge",
+        "note": "Un sandbox actualizado es una org nueva: lo que se escribió en él antes de la actualización ya no existe, y SandForge descartó lo que tenía en caché sobre él.",
+        "badge": "Actualizado",
+        "byConnection": "Detectado cuando SandForge se conectó",
+        "byMonitor": "Detectado por el Monitor",
+        "byProduction": "Informado por el historial de actualizaciones de {{org}}",
+        "orgChanged": "Era la org {{from}}, ahora la org {{to}}",
+        "instanceChanged": "Pasó de la instancia {{from}} a {{to}}"
+      }
     },
     "resetIn": "Reinicio en",
     "sessions": {
@@ -300,6 +314,14 @@
     "removed": "Eliminado",
     "modified": "Modificado",
     "unchanged": "Sin cambios",
+    "notCompared": "Sin comparar",
+    "coverage": {
+      "compared": "Contenido comparado en {{compared}} de los {{inBoth}} componentes presentes en ambas orgs.",
+      "overBudget": "Más allá de lo que lee una ejecución ({{components}} por org, {{seconds}} s): {{count}}",
+      "unreadable": "Contenido que no se puede leer, como el Apex de un paquete gestionado: {{count}}",
+      "readFailed": "Lectura fallida: {{count}}",
+      "leftOut": "Un componente sin comparar no es ni un cambio ni una coincidencia: el puntaje de riesgo lo deja fuera."
+    },
     "driftScore": "Puntaje de drift",
     "buildDeployment": "Crear despliegue",
     "sameOrgWarning": "Las orgs origen y destino deben ser diferentes",
@@ -331,7 +353,14 @@
     "schemaAdvice": "Recomendaciones de esquema",
     "schemaAdviceResults": "Recomendaciones de esquema",
     "schemaAdviceIssues": "{{count}} problemas encontrados",
-    "recommendations": "Recomendaciones"
+    "recommendations": "Recomendaciones",
+    "advice": {
+      "critical": "{{count}} cambio(s) de riesgo crítico. Se requiere revisión manual.",
+      "high": "{{count}} cambio(s) de riesgo alto. Despliegue primero en un sandbox.",
+      "apexTests": "Ejecute todas las pruebas de Apex.",
+      "lowRisk": "Riesgo bajo. Despliegue seguro.",
+      "review": "Revise los cambios antes de desplegar."
+    }
   },
   "seed": {
     "title": "Generar datos",
@@ -977,11 +1006,10 @@
     "historyRuns": "Ejecuciones del historial",
     "triggers": "Disparadores",
     "triggerManualOnlyNote": "Solo una ejecución manual inicia un pipeline. Los demás tipos de disparador se pueden configurar aquí, pero todavía nada los activa.",
+    "sandboxRefreshTriggerRefused": "SandForge detecta la actualización de un sandbox y se lo indica, pero este disparador no inicia ningún pipeline: un pipeline solo ejecuta pasos Retraso y Condición, y el trabajo que pide una actualización — anonimización, seed, respaldo — se compone de pasos de datos que se negaría a iniciar.",
     "addTrigger": "Agregar disparador",
     "run": "Ejecutar pipeline",
     "running": "Ejecutando pipeline...",
-    "pause": "Pausar",
-    "resume": "Reanudar",
     "cancel": "Cancelar",
     "history": "Historial",
     "noHistory": "Sin historial de ejecución",
@@ -1022,7 +1050,6 @@
       "idle": "Inactivo",
       "queued": "En cola",
       "running": "En ejecución",
-      "paused": "En pausa",
       "completed": "Completado",
       "completed_with_warnings": "Completado con advertencias",
       "failed": "Fallido",

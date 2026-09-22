@@ -8,6 +8,7 @@ import { TrendChart } from './TrendChart';
 import { TrendCharts } from './TrendCharts';
 import type { TrendSeries } from './TrendCharts';
 import { JobsTable } from './JobsTable';
+import { ListCapNote } from './ListCapNote';
 import type { JobDisplayInfo } from './monitorUtils';
 
 /** Props for the MonitorTrendsJobsRow section. */
@@ -22,6 +23,8 @@ export interface MonitorTrendsJobsRowProps {
   trendSeries: TrendSeries[];
   /** Jobs from the monitor data. */
   jobs: JobDisplayInfo[];
+  /** Whether the job list stops at its window: the list says so under its header. */
+  jobsTruncated?: boolean;
   /** Whether the monitor query is in flight: the jobs list says so rather than
       claiming the org has none. */
   jobsLoading: boolean;
@@ -34,7 +37,16 @@ export interface MonitorTrendsJobsRowProps {
  * Memoized — re-renders only when its own slices change.
  */
 export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.memo(
-  ({ sortedLimits, trends, trendChartData, trendSeries, jobs, jobsLoading, isRefreshing }) => {
+  ({
+    sortedLimits,
+    trends,
+    trendChartData,
+    trendSeries,
+    jobs,
+    jobsTruncated = false,
+    jobsLoading,
+    isRefreshing,
+  }) => {
     const { t } = useTranslation();
 
     return (
@@ -63,6 +75,7 @@ export const MonitorTrendsJobsRow: React.FC<MonitorTrendsJobsRowProps> = React.m
               title={t('monitor.jobs', 'Jobs')}
               count={jobs.length > 0 ? jobs.length : undefined}
             />
+            {jobsTruncated && <ListCapNote shown={jobs.length} testId="jobs-list-cap" />}
             <JobsTable jobs={jobs} isLoading={jobsLoading} />
           </div>
         </div>

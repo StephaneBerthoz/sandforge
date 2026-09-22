@@ -82,6 +82,108 @@ describe('SasReferenceIdMappingStore', () => {
     await expect(store.load()).rejects.toThrow();
   });
 
+  describe('after a sandbox refresh', () => {
+    // Org ids in the shape `Organization.Id` answers with: the target as it
+    // was when the load wrote its records, and as it is after a refresh.
+    const LOADED_INTO = '00DXX00000AbCdE2A1';
+    const REFRESHED_TO = '00Dxx00000FgHiJ3B2';
+
+    async function writtenTo(dir: string, organizationId: string | undefined): Promise<void> {
+      await new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-target',
+        organizationId,
+      }).persist(new Map([['Account-000001', '001XX00000AbCdEAAA']]));
+    }
+
+    function readBy(dir: string, organizationId: string | undefined): SasReferenceIdMappingStore {
+      return new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-target',
+        organizationId,
+      });
+    }
+
+    it('records the org the records were written to', async () => {
+      const dir = makeTmpDir();
+      await writtenTo(dir, LOADED_INTO);
+
+      const payload = JSON.parse(
+        fs.readFileSync(path.join(dir, REFERENCEID_MAPPING_FILENAME), 'utf8'),
+      ) as { organizationId?: string };
+      expect(payload.organizationId).toBe(LOADED_INTO);
+    });
+
+    it('answers with no mapping once the target is another org', async () => {
+      const dir = makeTmpDir();
+      await writtenTo(dir, LOADED_INTO);
+
+      const store = readBy(dir, REFRESHED_TO);
+
+      await expect(store.load()).resolves.toEqual(new Map());
+      await expect(store.isStale()).resolves.toBe(true);
+    });
+
+    it('keeps the mapping of the org the target still is, whatever the id length', async () => {
+      const dir = makeTmpDir();
+      await writtenTo(dir, LOADED_INTO);
+
+      const store = readBy(dir, LOADED_INTO.slice(0, 15));
+
+      await expect(store.load()).resolves.toEqual(
+        new Map([['Account-000001', '001XX00000AbCdEAAA']]),
+      );
+      await expect(store.isStale()).resolves.toBe(false);
+    });
+
+    it('never calls stale a mapping that recorded no org', async () => {
+      // Written before the org was recorded: nothing says which org it was.
+      const dir = makeTmpDir();
+      await writtenTo(dir, undefined);
+
+      const store = readBy(dir, REFRESHED_TO);
+
+      await expect(store.isStale()).resolves.toBe(false);
+      await expect(store.load()).resolves.toHaveProperty('size', 1);
+    });
+
+    it('never calls stale a mapping read without knowing the org the target is', async () => {
+      const dir = makeTmpDir();
+      await writtenTo(dir, LOADED_INTO);
+
+      await expect(readBy(dir, undefined).isStale()).resolves.toBe(false);
+    });
+
+    it('has nothing stale before the first load', async () => {
+      await expect(readBy(makeTmpDir(), REFRESHED_TO).isStale()).resolves.toBe(false);
+    });
+
+    it('asks the target which org it is on first use, and once', async () => {
+      const dir = makeTmpDir();
+      await writtenTo(dir, LOADED_INTO);
+      let asked = 0;
+      const store = new SasReferenceIdMappingStore(dir, {
+        guard: new SasPathGuard(repoRoot),
+        orgId: 'org-target',
+        organizationId: async () => {
+          asked += 1;
+          return REFRESHED_TO;
+        },
+      });
+      expect(asked).toBe(0);
+
+      await expect(store.isStale()).resolves.toBe(true);
+      await expect(store.load()).resolves.toEqual(new Map());
+      await store.persist(new Map());
+
+      expect(asked).toBe(1);
+      const payload = JSON.parse(
+        fs.readFileSync(path.join(dir, REFERENCEID_MAPPING_FILENAME), 'utf8'),
+      ) as { organizationId?: string };
+      expect(payload.organizationId).toBe(REFRESHED_TO);
+    });
+  });
+
   it('refuses a sas directory inside the repository', async () => {
     const store = new SasReferenceIdMappingStore(path.join(repoRoot, 'exports'), {
       guard: new SasPathGuard(repoRoot),

@@ -21,13 +21,14 @@ describe('ApexLogAnalyzer', () => {
   let fetchLogs: FetchLogsFn;
 
   beforeEach(() => {
-    fetchLogs = vi
-      .fn<FetchLogsFn>()
-      .mockResolvedValue([
+    fetchLogs = vi.fn<FetchLogsFn>().mockResolvedValue({
+      records: [
         createMockLog({ id: 'log-1', durationMs: 1000, logSize: 5000 }),
         createMockLog({ id: 'log-2', durationMs: 8000, logSize: 60000 }),
         createMockLog({ id: 'log-3', durationMs: 500, logSize: 200 }),
-      ]);
+      ],
+      truncated: false,
+    });
     analyzer = new ApexLogAnalyzer(fetchLogs);
   });
 
@@ -114,6 +115,19 @@ describe('ApexLogAnalyzer', () => {
       await analyzer.fetchAndAnalyze('org-1');
       expect(analyzer.getRecentAnalyses('org-1')).toHaveLength(3);
     });
+
+    it('says whether the last read of an org stopped at its bound', async () => {
+      vi.mocked(fetchLogs).mockResolvedValueOnce({
+        records: [createMockLog({ id: 'log-1' })],
+        truncated: true,
+      });
+      await analyzer.fetchAndAnalyze('org-1', 1);
+      expect(analyzer.isTruncated('org-1')).toBe(true);
+
+      await analyzer.fetchAndAnalyze('org-1');
+      expect(analyzer.isTruncated('org-1')).toBe(false);
+      expect(analyzer.isTruncated('unknown')).toBe(false);
+    });
   });
 
   describe('getRecentAnalyses', () => {
@@ -140,10 +154,13 @@ describe('ApexLogAnalyzer', () => {
     });
 
     it('should deduplicate identical issues', async () => {
-      vi.mocked(fetchLogs).mockResolvedValue([
-        createMockLog({ id: 'log-1', durationMs: 6000, logSize: 200 }),
-        createMockLog({ id: 'log-2', durationMs: 6000, logSize: 200 }),
-      ]);
+      vi.mocked(fetchLogs).mockResolvedValue({
+        records: [
+          createMockLog({ id: 'log-1', durationMs: 6000, logSize: 200 }),
+          createMockLog({ id: 'log-2', durationMs: 6000, logSize: 200 }),
+        ],
+        truncated: false,
+      });
       await analyzer.fetchAndAnalyze('org-1');
       const issues = analyzer.getTopIssues('org-1');
       const slowIssues = issues.filter((i) => i.type === 'slow_query');

@@ -432,3 +432,112 @@ describe('summarizeRecordForError', () => {
     expect(summarizeRecordForError({})).toBe('(empty)');
   });
 });
+
+describe('BatchWriter — relations the platform creates', () => {
+  it('links an account-contact relation to the direct one the platform made instead of inserting it', async () => {
+    // Inserted with its account, a contact gets its direct relation from
+    // Salesforce; inserted again it is refused — "the contact already has a
+    // relationship with this account" — with no record named to link to.
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockImplementation(async (_org, _obj, recs) =>
+        recs.map((_, i) => ({ id: `07kNEW${i}`, success: true, errors: [] })),
+      );
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '07kDIRECT', AccountId: '001T', ContactId: '003T' },
+    ]);
+    const payloads = [
+      { AccountId: '001T', ContactId: '003T' },
+      { AccountId: '001OTHER', ContactId: '003T' },
+    ];
+    const input = makeInput([], {
+      node: makeNode('AccountContactRelation', 2),
+      records: payloads,
+      cleanedRecords: [
+        { source: { Id: '07kSRC1' }, cleaned: payloads[0], nullifiedFks: [] },
+        { source: { Id: '07kSRC2' }, cleaned: payloads[1], nullifiedFks: [] },
+      ],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(queryRecords).toHaveBeenCalledWith(
+      'tgt',
+      "SELECT Id, AccountId, ContactId FROM AccountContactRelation WHERE IsDirect = true AND ContactId IN ('003T')",
+    );
+    // Only the indirect relation is written.
+    expect(insertRecords.mock.calls[0][2]).toEqual([payloads[1]]);
+    expect(input.remapper.get('07kSRC1')).toBe('07kDIRECT');
+    expect(input.remapper.get('07kSRC2')).toBe('07kNEW0');
+    expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
+  });
+});
+
+describe('BatchWriter — duplicates found by their natural key', () => {
+  it('links a product selling model the target holds under the same key', async () => {
+    // "A product selling model already exists for this combination" — and
+    // the refusal names no record.
+    const insertRecords = vi.fn<InsertImpl>().mockResolvedValue([
+      {
+        id: '',
+        success: false,
+        errors: [
+          'DUPLICATE_VALUE: a product selling model already exists for this combination of selling model type, pricing term or pricing term unit.',
+        ],
+      },
+    ]);
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [{ Id: '0jPEXISTING' }]);
+    const payload = {
+      Name: 'One-time',
+      SellingModelType: 'OneTime',
+      PricingTerm: 1,
+      PricingTermUnit: 'Months',
+    };
+    const input = makeInput([], {
+      node: makeNode('ProductSellingModel', 1),
+      records: [payload],
+      cleanedRecords: [{ source: { Id: '0jPSOURCE' }, cleaned: payload, nullifiedFks: [] }],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(queryRecords).toHaveBeenCalledWith(
+      'tgt',
+      "SELECT Id FROM ProductSellingModel WHERE SellingModelType = 'OneTime' AND PricingTerm = 1 AND PricingTermUnit = 'Months' LIMIT 2",
+    );
+    expect(input.remapper.get('0jPSOURCE')).toBe('0jPEXISTING');
+    expect(result).toMatchObject({
+      linkedExistingCount: 1,
+      failureCount: 0,
+      unidentifiedExistingCount: 0,
+    });
+    expect(result.errorSamples).toEqual([]);
+  });
+
+  it('keeps the duplicate a failure when the key matches more than one record', async () => {
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockResolvedValue([{ id: '', success: false, errors: ['DUPLICATE_VALUE: already exists'] }]);
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '0jPA' },
+      { Id: '0jPB' },
+    ]);
+    const payload = { SellingModelType: 'OneTime', PricingTerm: null, PricingTermUnit: null };
+    const input = makeInput([], {
+      node: makeNode('ProductSellingModel', 1),
+      records: [payload],
+      cleanedRecords: [{ source: { Id: '0jPSOURCE' }, cleaned: payload, nullifiedFks: [] }],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(queryRecords.mock.calls[0][1]).toContain('PricingTerm = null');
+    expect(input.remapper.get('0jPSOURCE')).toBeUndefined();
+    expect(result).toMatchObject({
+      linkedExistingCount: 0,
+      failureCount: 1,
+      unidentifiedExistingCount: 1,
+    });
+    expect(result.errorSamples).toHaveLength(1);
+  });
+});

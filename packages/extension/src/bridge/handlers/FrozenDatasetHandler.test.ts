@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeSelectionToSas } from '../../modules/frozendataset/index.js';
+import {
+  buildFrozenManifest,
+  serializeManifest,
+  writeSelectionToSas,
+} from '../../modules/frozendataset/index.js';
+import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
@@ -322,6 +328,74 @@ describe('FrozenDatasetHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('NOT_INITIALIZED');
     });
+
+    it('refuses to load into an org stored with a type outside OrgType, before touching it', async () => {
+      // The connection only opens for an org the registry holds, and the
+      // registry hands back whatever type was stored: it loads orgs without a
+      // shape check. A type outside OrgType shows nothing of a sandbox, and a
+      // frozen dataset only goes into one. It was classed as development, and
+      // the load went ahead.
+      const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-load-'));
+      tmpDirs.push(sasDir);
+      const datasetDir = path.join(sasDir, 'dataset');
+      fs.mkdirSync(path.join(datasetDir, 'data'), { recursive: true });
+      // Every other entry guard would let this load through: the dataset holds
+      // a record, no callout detection is configured, and the source is
+      // another org. Only the tier can refuse it.
+      fs.writeFileSync(
+        path.join(datasetDir, 'manifest.json'),
+        serializeManifest(
+          buildFrozenManifest({
+            version: '1.0.0',
+            source: { orgId: '00D000000000001AAA', decisionDate: '2026-09-01' },
+            saltFingerprint: '0123456789ab',
+            rulesVersion: '1.0.0',
+            volumetry: {
+              budgetMax: 2500,
+              measured: { Account: 1 },
+              measuredAt: '2026-09-01T08:00:00.000Z',
+            },
+            nonReidentification: {
+              passed: true,
+              checks: [],
+              author: 'test',
+              checkedAt: '2026-09-01T08:00:00.000Z',
+            },
+            author: 'test',
+          }),
+        ),
+      );
+      fs.writeFileSync(
+        path.join(datasetDir, 'data', 'Account.json'),
+        JSON.stringify({
+          objectApiName: 'Account',
+          records: [{ referenceId: 'ACC-0001', fields: { Name: 'Acme' } }],
+        }),
+      );
+      const conn = { query: vi.fn(), describe: vi.fn(), sobject: vi.fn(), request: vi.fn() };
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps = createMockDeps({ ...createMockConfig(), sasDir });
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType: 'Unknown',
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+      deps.infraServices = {
+        productionGuard: new ProductionGuard(),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+      const errors = posted(deps, 'frozen:load:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.code).toBe('GUARD_REFUSED');
+      expect(String(errors[0].payload.message)).toContain(
+        'Refusing frozen-dataset load on production org org-2: loads are sandbox-only.',
+      );
+      expect(posted(deps, 'frozen:load:response')).toEqual([]);
+      expect(conn.query).not.toHaveBeenCalled();
+      expect(conn.describe).not.toHaveBeenCalled();
+      expect(conn.sobject).not.toHaveBeenCalled();
+    });
   });
 
   describe('frozen:verify', () => {
@@ -332,6 +406,69 @@ describe('FrozenDatasetHandler', () => {
       const errors = posted(deps, 'frozen:verify:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('NO_LOAD');
+    });
+
+    describe('after the target was refreshed', () => {
+      // `Organization.Id` as a sandbox answers it: before the refresh, when
+      // the load wrote its records, and after it.
+      const LOADED_INTO = '00DXX00000AbCdE2A1';
+      const REFRESHED_TO = '00Dxx00000FgHiJ3B2';
+
+      /** A config whose sas holds the mapping a load into `LOADED_INTO` wrote. */
+      async function loadedConfig(): Promise<FrozenProjectConfig> {
+        const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-refresh-'));
+        tmpDirs.push(sasDir);
+        await new SasReferenceIdMappingStore(sasDir, {
+          orgId: 'org-2',
+          organizationId: LOADED_INTO,
+        }).persist(new Map([['Account-000001', '001XX00000AbCdEAAA']]));
+        return { ...createMockConfig(), sasDir };
+      }
+
+      /** The target, answering its Organization row with `organizationId`. */
+      function targetAnswering(organizationId: string): void {
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query: async () => ({
+            records: [{ attributes: { type: 'Organization' }, Id: organizationId }],
+            done: true,
+            totalSize: 1,
+          }),
+        } as never);
+      }
+
+      async function verifyAfterLoad(): Promise<Array<Record<string, unknown>>> {
+        deps = createMockDeps(await loadedConfig());
+        deps.configStore.set('frozen:lastRun', {
+          contractPath: '/nowhere/contract.json',
+          datasetDir: path.join(os.tmpdir(), 'sandforge-frozen-no-dataset'),
+          manifestPath: '/nowhere/manifest.json',
+          targetOrgId: 'org-2',
+          status: 'success',
+          at: '2026-09-01T08:00:00.000Z',
+        });
+        handler = new FrozenDatasetHandler(deps);
+        await handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-2' }));
+        return posted(deps, 'frozen:verify:error').map((error) => error.payload);
+      }
+
+      it('refuses to verify, and says why, instead of calling every record missing', async () => {
+        targetAnswering(REFRESHED_TO);
+
+        const [error] = await verifyAfterLoad();
+
+        expect(error.code).toBe('TARGET_REFRESHED');
+        expect(String(error.message)).toContain('refreshed after the last load');
+      });
+
+      it('goes on to verify a target that is still the org it was loaded into', async () => {
+        targetAnswering(LOADED_INTO);
+
+        const errors = await verifyAfterLoad();
+
+        // Past the check, the verification reads the dataset, which this
+        // sas does not hold: that is the failure, not a refresh.
+        expect(errors.map((error) => error.code)).not.toContain('TARGET_REFRESHED');
+      });
     });
   });
 
@@ -458,6 +595,32 @@ describe('FrozenDatasetHandler', () => {
       };
       expect(selection.combinations).toEqual([]);
       expect(selection.uncovered[0].reason).toContain('no Quote record in this dossier');
+    });
+
+    it('describes the org again once told to forget it', async () => {
+      // A refreshed sandbox takes production's schema as of the refresh: the
+      // describes of the org it was would serve five more minutes.
+      const org = fakeOrg().conn as { describe: (name: string) => Promise<unknown> };
+      const describe = vi.fn(org.describe);
+      vi.mocked(getJsforceConnection).mockResolvedValue({ ...org, describe } as never);
+      deps = createMockDeps(realConfig());
+      handler = new FrozenDatasetHandler(deps);
+      const select = () => handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+
+      const asked = (): number => describe.mock.calls.length;
+
+      await select();
+      const firstRun = asked();
+      await select();
+      const cachedRun = asked() - firstRun;
+      handler.forgetOrg('org-1');
+      await select();
+      const forgottenRun = asked() - firstRun - cachedRun;
+
+      // The cache serves the discovery describes of a second run; once the
+      // org is forgotten, the run asks for everything the first one did.
+      expect(cachedRun).toBeLessThan(firstRun);
+      expect(forgottenRun).toBe(firstRun);
     });
 
     it('discovers the graph once for the whole run', async () => {

@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { formatNumber } from '../../utils/formatters';
+import { ListCapNote } from './ListCapNote';
 
 /** Response shape from monitor:apex-insights. */
 interface ApexInsightsData {
@@ -32,6 +33,8 @@ interface ApexInsightsData {
     message: string;
     line?: number;
   }>;
+  /** The read stopped at its bound: older logs were not analysed. */
+  truncated?: boolean;
 }
 
 /** Returns badge variant based on issue severity. */
@@ -110,6 +113,8 @@ export const ApexInsightsPanel: React.FC = () => {
         </h3>
         <Badge variant="default">{analyses.length}</Badge>
       </div>
+
+      {data?.truncated && <ListCapNote shown={analyses.length} testId="apex-insights-list-cap" />}
 
       {/* Top Issues */}
       {topIssues.length > 0 ? (

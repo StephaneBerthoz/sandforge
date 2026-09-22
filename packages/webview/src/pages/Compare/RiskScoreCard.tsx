@@ -201,7 +201,13 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               }}
               data-testid="deployment-advice"
             >
-              {deploymentAdvice}
+              {deploymentAdvice
+                .map((a) =>
+                  'count' in a
+                    ? t(`compare.advice.${a.kind}`, { count: a.count })
+                    : t(`compare.advice.${a.kind}`),
+                )
+                .join(' ')}
             </p>
           </div>
         </div>

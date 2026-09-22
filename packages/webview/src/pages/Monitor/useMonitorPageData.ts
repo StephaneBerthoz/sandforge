@@ -22,6 +22,8 @@ import type { OrgHealthStatus } from './HealthCheckPanel';
 interface MonitorData {
   limits: ApiLimit[];
   jobs: JobDisplayInfo[];
+  /** The recent-job window came back full: the org may hold older jobs. */
+  jobsTruncated?: boolean;
   healthScore: number;
   healthReport?: HealthReport;
   trends?: Record<string, TrendData>;
@@ -74,6 +76,8 @@ export interface MonitorPageData {
   limits: ApiLimit[];
   /** Jobs from the monitor data. */
   jobs: JobDisplayInfo[];
+  /** Whether the job list stops at its window, with older jobs left unread. */
+  jobsTruncated: boolean;
   /** Overall health score (0-100). */
   healthScore: number;
   /** Detailed health report breakdown. */
@@ -214,6 +218,7 @@ export function useMonitorPageData(): MonitorPageData {
   // Memoised fallbacks keep referential stability when there is no data yet,
   // so the memoised page sections don't re-render on every parent render.
   const jobs = useMemo(() => data?.jobs ?? [], [data?.jobs]);
+  const jobsTruncated = data?.jobsTruncated === true;
   const healthScore = data?.healthScore ?? 0;
   const healthReport = data?.healthReport;
   const trends = useMemo(() => data?.trends ?? {}, [data?.trends]);
@@ -272,7 +277,7 @@ export function useMonitorPageData(): MonitorPageData {
     const colorMap: Record<string, string> = {
       DailyApiRequests: 'var(--sf-info, #3B82F6)',
       DataStorageMB: 'var(--sf-success, #10B981)',
-      DailySoqlQueries: 'var(--sf-warning, #F59E0B)',
+      DailyBulkApiBatches: 'var(--sf-warning, #F59E0B)',
       DailyAsyncApexExecutions: 'var(--sf-accent, #8B5CF6)',
     };
     return Object.entries(trends)
@@ -421,6 +426,7 @@ export function useMonitorPageData(): MonitorPageData {
     error,
     limits,
     jobs,
+    jobsTruncated,
     healthScore,
     healthReport,
     trends,

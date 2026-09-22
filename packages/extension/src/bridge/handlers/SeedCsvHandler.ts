@@ -168,13 +168,11 @@ export class SeedCsvHandler implements DomainHandler {
         }
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
-          sendOperationFailed(
-            this.deps,
-            operationId,
-            'Operation cancelled by user (production confirmation declined).',
-            false,
-            { context: failure },
-          );
+          const declined = 'Operation cancelled by user (production confirmation declined).';
+          sendOperationFailed(this.deps, operationId, declined, false, { context: failure });
+          // Registered before the question was asked: left unsettled, the
+          // import stayed listed as running for the rest of the session.
+          settle(new Error(declined));
           return;
         }
       }

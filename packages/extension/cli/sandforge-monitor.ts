@@ -178,6 +178,9 @@ function someOf(items: readonly string[], max = 6): string {
 /** Readable lines for the payload of one answered request about the org `orgId`. */
 function describePayload(op: Operation, p: Record<string, unknown>, orgId: string): string[] {
   const list = <T>(key: string): T[] => (Array.isArray(p[key]) ? (p[key] as T[]) : []);
+  // What the page says under a list whose read came back full.
+  const stops = (shown: number): string =>
+    p.truncated === true ? `; the list stops at ${shown}` : '';
   switch (op) {
     case 'refresh': {
       const limits = list<{ name: string; max: number; remaining: number; usedPercent: number }>(
@@ -201,14 +204,20 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
           top.map((l) => `${l.name} ${l.usedPercent}% (${l.max - l.remaining}/${l.max})`),
           5,
         )}`,
-        `  ${jobs.length} job(s): ${someOf(Object.entries(byStatus).map(([s, n]) => `${s} ${n}`))}`,
+        `  ${jobs.length} job(s)${
+          p.jobsTruncated === true ? ' (the window came back full: older jobs not read)' : ''
+        }: ${someOf(Object.entries(byStatus).map(([s, n]) => `${s} ${n}`))}`,
         `  job insights: ${insights === null ? 'none sent' : someOf(insights.map((i) => i.title))}`,
         info
           ? `  org: type ${String(info.type)}, edition ${String(info.edition)}, instance ${String(
               info.instanceName,
-            )}, API ${String(info.apiVersion)}, users ${String(info.userCount)}, custom objects ${String(
-              info.customObjectCount,
-            )}, Apex classes ${String(info.apexClassCount)}, active flows ${String(info.flowCount)}`
+            )}, API ${String(info.apiVersion)}, namespace ${String(
+              info.namespacePrefix ?? '—',
+            )}, created ${String(info.createdDate ?? '—')}, users ${String(
+              info.userCount,
+            )}, custom objects ${String(info.customObjectCount)}, Apex classes ${String(
+              info.apexClassCount,
+            )}, active flows ${String(info.flowCount)}`
           : '  org: no org info sent',
         health
           ? `  health check: ${String(health.overall)}; api ${String(health.apiLimitsStatus)}, storage ${String(
@@ -228,7 +237,9 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
     case 'storage': {
       const objects = list<{ objectName: string; recordCount: number }>('objects');
       return [
-        `  ${objects.length} object(s), total ${String(p.totalRecords)} record(s)`,
+        `  ${objects.length} of ${String(p.objectCount ?? objects.length)} object(s) holding records listed, total ${String(
+          p.totalRecords,
+        )} record(s)`,
         `    ${someOf(
           objects.map((o) => `${o.objectName} ${o.recordCount}`),
           10,
@@ -240,7 +251,7 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
         'deployments',
       );
       return [
-        `  ${deployments.length} deployment(s)`,
+        `  ${deployments.length} deployment(s)${stops(deployments.length)}`,
         `    ${someOf(
           deployments.map((d) => `${d.status} ${d.startDate} (${d.componentCount})`),
           5,
@@ -262,7 +273,7 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
     case 'error-logs': {
       const errors = list<{ errorType: string; timestamp: string }>('errors');
       return [
-        `  total ${String(p.totalCount)}; ${errors.length} listed; by type ${someOf(
+        `  total ${String(p.totalCount)}; ${errors.length} listed${stops(errors.length)}; by type ${someOf(
           list<{ type: string; count: number }>('errorsByType').map((e) => `${e.type} ${e.count}`),
         )}`,
         errors.length > 0
@@ -275,7 +286,9 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
       const byType: Record<string, number> = {};
       for (const s of sessions) byType[s.sessionType] = (byType[s.sessionType] ?? 0) + 1;
       return [
-        `  ${sessions.length} session(s), ${String(p.activeUserCount)} active user(s)`,
+        `  ${sessions.length} session(s), ${String(p.activeUserCount)} active user(s)${stops(
+          sessions.length,
+        )}`,
         `    ${someOf(
           Object.entries(byType).map(([t, n]) => `${t} ${n}`),
           10,
@@ -284,15 +297,15 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
     }
     case 'apex-insights':
       return [
-        `  ${list('analyses').length} log(s) analysed; top issues: ${someOf(
+        `  ${list('analyses').length} log(s) analysed${stops(list('analyses').length)}; top issues: ${someOf(
           list<{ message: string }>('topIssues').map((i) => i.message),
         )}`,
       ];
     case 'sandbox-refresh':
       return [
-        `  supported ${String(p.supported)}; ${list('refreshes').length} refresh(es); in progress ${String(
-          p.inProgress,
-        )}`,
+        `  supported ${String(p.supported)}; ${list('refreshes').length} refresh(es)${stops(
+          list('refreshes').length,
+        )}; in progress ${String(p.inProgress)}`,
       ];
     case 'alerts': {
       // The answer holds every org's alerts; the page shows the org on screen.

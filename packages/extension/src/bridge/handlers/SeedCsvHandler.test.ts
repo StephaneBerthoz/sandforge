@@ -37,6 +37,8 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 
@@ -433,6 +435,55 @@ describe('SeedCsvHandler', () => {
         error: 'Operation cancelled by user (production confirmation declined).',
         retryable: false,
       });
+    });
+
+    it('asks before importing into an org the registry does not know, and writes nothing when declined', async () => {
+      // A real guard, and getOrg left unstubbed: nothing shows 'tgt-org' is a
+      // sandbox. It was classed as development, so the rows went straight to
+      // the writer without a word to the user.
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 1 Account record(s) on production org tgt-org [module: seed]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(writer.upsert).not.toHaveBeenCalled();
+      expect(posted(deps, 'operation:failed')[0].payload as unknown).toEqual({
+        operationId: 'msg-seed:csv:execute',
+        error: 'Operation cancelled by user (production confirmation declined).',
+        retryable: false,
+      });
+    });
+
+    it('does not leave a declined import listed as running', async () => {
+      // Registered before the question was asked; left unsettled, it stayed
+      // "running" in Live Operations for the rest of the session.
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: new ProductionGuard({
+          requestConfirmation: vi.fn().mockResolvedValue(false),
+        }),
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(registry.getRunning()).toEqual([]);
     });
 
     it('tells the model the object and batch size a failed import was writing to', async () => {

@@ -1,4 +1,38 @@
+import { z } from 'zod';
 import type { OrgInfo } from '@sandforge/shared';
+
+/** `GET /services/data`: every API version the org serves, oldest first. */
+const apiVersionsSchema = z.array(z.object({ version: z.string() }));
+
+/**
+ * The newest API version an org serves, read from its `/services/data` answer.
+ *
+ * That is the org's own release. The version shown used to be the one
+ * SandForge's connection speaks, which the org does not choose: 62.0 on orgs
+ * running 68.0.
+ *
+ * @param answer - The body of `GET /services/data`, as the org sent it.
+ * @throws When the answer lists no version.
+ */
+export function newestApiVersion(answer: unknown): string {
+  const versions = apiVersionsSchema
+    .parse(answer)
+    .map(({ version }) => version)
+    .filter((version) => Number.isFinite(Number(version)));
+  if (versions.length === 0) {
+    throw new Error('The org listed no API version under /services/data.');
+  }
+  return versions.reduce((newest, version) =>
+    Number(version) > Number(newest) ? version : newest,
+  );
+}
+
+/** An org's timestamp as an ISO string, or `undefined` when it does not parse. */
+function isoTimestamp(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const at = new Date(raw);
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
 
 /**
  * Fetches org-level metadata for the Monitor overview panel.
@@ -20,9 +54,9 @@ export class OrgInfoFetcher {
       return cached.data;
     }
 
-    const [identity, orgRecord, userCount, customObjectCount, apexClassCount, flowCount] =
+    const [apiVersion, orgRecord, userCount, customObjectCount, apexClassCount, flowCount] =
       await Promise.all([
-        conn.identity(),
+        conn.latestApiVersion(),
         conn.queryOrg(),
         conn.queryCount('SELECT COUNT() FROM User WHERE IsActive = true'),
         // In a LIKE, `_` matches any one character: `'%__c'` alone also counts
@@ -37,18 +71,24 @@ export class OrgInfoFetcher {
         conn.queryCount('SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true'),
       ]);
 
+    // The panel has a line for both. An org that registered no namespace
+    // answers null, and the line leaves that part out.
+    const namespacePrefix = orgRecord.namespacePrefix || undefined;
+    const createdDate = isoTimestamp(orgRecord.createdDate);
+
     const info: OrgInfo = {
       name: orgRecord.name,
       orgId: orgRecord.orgId,
       type: orgRecord.type,
       edition: orgRecord.edition,
       instanceName: orgRecord.instanceName,
-      apiVersion: identity.apiVersion,
+      apiVersion,
       userCount,
       customObjectCount,
       apexClassCount,
       flowCount,
-      lastLoginDate: identity.lastLoginDate,
+      ...(namespacePrefix !== undefined ? { namespacePrefix } : {}),
+      ...(createdDate !== undefined ? { createdDate } : {}),
     };
 
     this.cache.set(orgId, { data: info, fetchedAt: Date.now() });
@@ -67,7 +107,8 @@ export class OrgInfoFetcher {
 
 /** Abstraction over the Salesforce connection for testability. */
 export interface OrgInfoConnection {
-  identity(): Promise<{ apiVersion: string; lastLoginDate: string }>;
+  /** The newest API version the org serves (see {@link newestApiVersion}). */
+  latestApiVersion(): Promise<string>;
   /**
    * The org's own Organization row. The instance is read here and not from
    * the identity URL, whose answer carries no instance name at all.
@@ -78,6 +119,10 @@ export interface OrgInfoConnection {
     type: OrgInfo['type'];
     edition: string;
     instanceName: string;
+    /** `NamespacePrefix`: null on an org that registered none. */
+    namespacePrefix?: string | null;
+    /** `CreatedDate`, as the org wrote it. */
+    createdDate?: string | null;
   }>;
   queryCount(soql: string): Promise<number>;
 }

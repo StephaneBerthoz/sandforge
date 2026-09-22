@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TriggerEngine } from './TriggerEngine';
-import type { PipelineTrigger } from '@sandforge/shared';
+import { PipelineMarketplace } from './PipelineMarketplace';
+import { StepExecutor } from './StepExecutor';
+import type { PipelineStep, PipelineTrigger } from '@sandforge/shared';
 
 function createTrigger(overrides?: Partial<PipelineTrigger>): PipelineTrigger {
   return {
@@ -42,6 +44,29 @@ describe('TriggerEngine', () => {
         config: { eventType: 'deploy' },
       });
       expect(engine.evaluateTrigger(trigger)).toBe(false);
+    });
+
+    it('never fires on a sandbox refresh, since no step a refresh calls for can run in a pipeline', () => {
+      expect(engine.evaluateTrigger(createTrigger({ type: 'sandbox_refresh' }))).toBe(false);
+
+      // The reason the refusal gives, checked against the executor: every step
+      // of the built-in refresh template is refused before it runs. Give those
+      // steps a handler and this fails — the refusal is then worth revisiting.
+      const template = new PipelineMarketplace()
+        .getTemplates()
+        .find((candidate) => candidate.id === 'tpl-sandbox-refresh');
+      const executor = new StepExecutor();
+      expect(template?.steps.length).toBeGreaterThan(0);
+      for (const [index, step] of (template?.steps ?? []).entries()) {
+        const refusal = executor.check({
+          id: `step-${index}`,
+          name: step.name,
+          type: step.type as PipelineStep['type'],
+          config: step.config,
+          continueOnError: false,
+        });
+        expect(refusal).toContain('cannot run in a pipeline');
+      }
     });
   });
 

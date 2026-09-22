@@ -5,7 +5,6 @@ export type PipelineRunStatus =
   | 'idle'
   | 'queued'
   | 'running'
-  | 'paused'
   | 'completed'
   | 'completed_with_warnings'
   | 'failed'

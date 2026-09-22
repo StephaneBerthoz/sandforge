@@ -291,6 +291,21 @@ export class ForgeHandler implements DomainHandler {
   constructor(private readonly deps: HandlerDeps) {}
 
   /**
+   * Drop what Forge holds about an org that is no longer the org it was.
+   *
+   * A refreshed sandbox is a new copy of production behind the same id: its
+   * prefix table, its describes and every dependency graph discovered on it
+   * describe the org the refresh replaced — root records that are gone,
+   * counts from before, fields production may not have.
+   *
+   * @param orgId - The registered org.
+   */
+  forgetOrg(orgId: string): void {
+    this.describeGlobalCache.invalidate(orgId);
+    this.orchestrator?.clearDiscoveryCache([orgId]);
+  }
+
+  /**
    * Inject forge orchestrator and optional v2 services.
    *
    * @param orchestrator - The ForgeOrchestrator instance.

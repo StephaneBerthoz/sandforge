@@ -51,20 +51,24 @@ Background operations do not survive a reload. The extension keeps the list in
 memory only, so after a window reload or an extension host restart the panel
 no longer shows a run that was in progress and cannot cancel it.
 
-### Storage Breakdown
+### Records by Object
 
-Record counts per object, not megabytes:
+Record counts per object, not megabytes, and not data storage:
 
-- Up to 20 objects that hold records, largest first, read from the org's
-  `EntityDefinition` records (`RecordCount`)
+- The 20 objects that hold the most records, largest first, read from the
+  org's Record Count API, with how many objects hold records in all
+- Every object the org counts is in the list, setup and log objects included
+  (object and field permissions, login history, the setup audit trail), and
+  these often lead it; the panel says so. What uses data storage is the Data
+  Storage tile
 - A donut chart of the ten largest and a table of all of them, each with its
-  share of the records those objects hold together
+  share of the records counted
 - The same list feeds the anomaly scan's object dropdown
 
 ### Trends and Charts
 
 - Trend charts for the key limits: daily API requests, data and file storage,
-  daily SOQL queries, DML statements and async Apex executions
+  daily Bulk API batches, Bulk API 2.0 query jobs and async Apex executions
 - One snapshot of those limits every 15 minutes while the dashboard refreshes,
   kept for 7 days; the chart shows the last 24 hours or the whole week
 - Direction, change and the predictions tile read the last 24 hours only, since
@@ -163,6 +167,18 @@ as production: on an org that cannot query it, such as a sandbox, the panel says
 the org keeps no refresh history to read, and the org is not asked again in the
 same session.
 
+A sandbox cannot list its own refreshes, but a refreshed sandbox is a new org:
+it answers with another org id under the same username. SandForge reads the org
+id each registered sandbox answers with — on every new connection, and from the
+`Organization` row when this panel opens or the dashboard refreshes — and keeps
+the last one. When it changes, the panel lists the refresh under "Refreshes
+SandForge noticed", VS Code shows a warning, and SandForge drops what it held
+about the old org: the pooled connection, object describes, Forge discovery
+graphs, and the Monitor's org info, limits and trend history. A Frozen Dataset
+verification refuses to run against a target refreshed since its last load. A
+refresh a production org's history shows completing is recorded the same way on
+the registered sandbox it names.
+
 ### Org Health Check
 
 Computed by the extension on each dashboard refresh and sent with the rest of
@@ -176,8 +192,8 @@ signals, each scored out of 100:
 - Jobs: failed jobs among the recent `AsyncApexJob` rows the refresh reads, ten
   points each -- a warning from one, critical above five
 - Recent errors: the `ApexLog` rows of the last 24 hours whose status is not
-  Success, read by the refresh itself (at most 50), five points each -- a
-  warning above three, critical above ten
+  Success, counted by the refresh itself, five points each -- a warning above
+  three, critical above ten
 
 The badge is the average of the four scores: healthy from 80, degraded from
 50, critical below. A signal whose data cannot be read counts as a full 100.

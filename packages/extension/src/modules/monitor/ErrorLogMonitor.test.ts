@@ -41,7 +41,9 @@ describe('ErrorLogMonitor', () => {
   let queryErrors: QueryErrorsFn;
 
   beforeEach(() => {
-    queryErrors = vi.fn<QueryErrorsFn>().mockResolvedValue(createMockErrors());
+    queryErrors = vi
+      .fn<QueryErrorsFn>()
+      .mockResolvedValue({ records: createMockErrors(), truncated: false });
     monitor = new ErrorLogMonitor(queryErrors);
   });
 
@@ -103,7 +105,10 @@ describe('ErrorLogMonitor', () => {
         },
       ];
       const org = new ErrorLogMonitor((_orgId, since) =>
-        Promise.resolve(logs.filter((l) => Date.parse(l.timestamp) > Date.parse(since))),
+        Promise.resolve({
+          records: logs.filter((l) => Date.parse(l.timestamp) > Date.parse(since)),
+          truncated: false,
+        }),
       );
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-01-02T09:00:00Z'));
@@ -137,6 +142,24 @@ describe('ErrorLogMonitor', () => {
     });
   });
 
+  describe('isTruncated', () => {
+    it('says whether the last read of an org stopped at its bound', async () => {
+      vi.mocked(queryErrors).mockResolvedValueOnce({
+        records: createMockErrors(),
+        truncated: true,
+      });
+      await monitor.fetch('org-1');
+      expect(monitor.isTruncated('org-1')).toBe(true);
+
+      await monitor.fetch('org-1');
+      expect(monitor.isTruncated('org-1')).toBe(false);
+    });
+
+    it('is false for an org never read', () => {
+      expect(monitor.isTruncated('unknown')).toBe(false);
+    });
+  });
+
   describe('getErrorsByType', () => {
     it('should group errors by their error type', async () => {
       await monitor.fetch('org-1');
@@ -153,7 +176,10 @@ describe('ErrorLogMonitor', () => {
     });
 
     it('should handle a single error type', async () => {
-      vi.mocked(queryErrors).mockResolvedValue([createMockErrors()[0]]);
+      vi.mocked(queryErrors).mockResolvedValue({
+        records: [createMockErrors()[0]],
+        truncated: false,
+      });
       await monitor.fetch('org-1');
       const grouped = monitor.getErrorsByType('org-1');
 

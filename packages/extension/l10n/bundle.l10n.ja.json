@@ -11,6 +11,8 @@
   "SandForge: {0} failed — {1}": "SandForge: {0} が失敗しました — {1}",
   "Show Details": "詳細を表示",
   "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: 登録済みの組織がまだありません。先に「組織」ページから組織を接続してください。",
+  "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.": "SandForge: Sandbox {0} がリフレッシュされ、新しい組織になりました。リフレッシュ前に書き込まれたデータは残っていません。SandForge はこの組織についてキャッシュしていた情報を破棄しました。",
+  "SandForge: sandbox {0} finished a refresh, according to the refresh history of {1}. SandForge dropped what it had cached about it.": "SandForge: {1} のリフレッシュ履歴によると、Sandbox {0} のリフレッシュが完了しました。SandForge はこの組織についてキャッシュしていた情報を破棄しました。",
   "Select the org to open in the browser": "ブラウザーで開く組織を選択してください",
   "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: 「{0}」を開けません — インスタンス URL が無効です: {1}",
   "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: 「{0}」を開くことを拒否しました — インスタンス URL は HTTPS である必要がありますが、「{1}」でした。",

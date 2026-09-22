@@ -49,6 +49,8 @@ vi.mock('../../modules/seed/CloneReferenceLinker.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -503,6 +505,54 @@ describe('SeedCloneHandler', () => {
         retryable: false,
         code: 'PRODUCTION_CONFIRMATION_DECLINED',
       });
+    });
+
+    it('asks before cloning into an org the registry does not know, and writes nothing when declined', async () => {
+      // A real guard, and getOrg left unstubbed: nothing shows 'tgt-org' is a
+      // sandbox. It was classed as development, so the clone wrote without a
+      // word to the user.
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(writer.upsert).not.toHaveBeenCalled();
+      expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
+        retryable: false,
+        code: 'PRODUCTION_CONFIRMATION_DECLINED',
+      });
+    });
+
+    it('does not leave a declined clone listed as running', async () => {
+      // Registered before the question was asked; left unsettled, it stayed
+      // "running" in Live Operations for the rest of the session.
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: new ProductionGuard({
+          requestConfirmation: vi.fn().mockResolvedValue(false),
+        }),
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(registry.getRunning()).toEqual([]);
     });
 
     it('tells the model which objects a failed clone was writing', async () => {

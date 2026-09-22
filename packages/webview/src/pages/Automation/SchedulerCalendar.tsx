@@ -21,8 +21,8 @@ export interface SchedulerCalendarProps {
 /**
  * Calendar-like view of scheduled pipeline executions.
  *
- * The scheduler is not implemented: every `scheduler:*` channel answers with
- * a no-op. The component renders a "Coming soon" badge that names no release
+ * SandForge has no pipeline scheduler: nothing fires a trigger that is not
+ * manual. The component renders a "Coming soon" badge that names no release
  * and keeps all interactive controls disabled.
  */
 export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled = [] }) => {

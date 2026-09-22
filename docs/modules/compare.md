@@ -14,12 +14,28 @@ Compare metadata, permission names, and five Organization settings between two S
 
 ### Metadata Diff
 
-The primary tab shows a side-by-side comparison of metadata between the two orgs:
+The primary tab shows a side-by-side comparison of metadata between the two orgs.
 
-- **Summary Bar** -- Counts of added (+), removed (-), modified (~), and unchanged (=) components
-- **Risk Score Card** -- An enriched risk assessment computed from the diff results
-- **Diff Group Accordion** -- Components grouped by type, expandable to see individual changes
-- **Diff Detail Modal** -- Click any diff entry to see the full before/after comparison
+Each chosen type is listed in both orgs. A component only one org holds is
+added (+) or removed (-). A component both hold is read from each and its two
+copies compared by content: Apex source by query, everything else through the
+Metadata API. What differs between any two orgs by nature is set aside first --
+line endings, the order of keys and of entries that state their own order,
+ids, the user a dashboard runs as, the date inside a zip archive, and profile
+or permission set entries that grant nothing. The component is modified (~)
+only when what is left differs, and unchanged (=) when it does not.
+
+A run reads at most 500 components from each org and starts no read after 90
+seconds, those whose listings differ first, shared evenly across the chosen
+types. A component both orgs hold that was not read is **not compared** (?),
+with the reason: beyond what one run reads, content that cannot be read (the
+Apex of a managed package is hidden), or a read that failed. It is neither a
+change nor a match.
+
+- **Summary Bar** -- Counts of added (+), removed (-), modified (~), unchanged (=) and not compared (?) components, and how many of the components both orgs hold were compared by content
+- **Risk Score Card** -- An enriched risk assessment computed from the changes; components not compared are left out of it, and it does not call a comparison safe to deploy while some were
+- **Diff Group Accordion** -- Changes grouped by type, expandable to see individual changes
+- **Diff Detail Modal** -- Click any change to see it; for a modified component, the lines where the two copies first differ
 
 ### Permission Presence
 

@@ -200,6 +200,29 @@ describe('cleanNodeRecords', () => {
     expect(out.cleaned.OwnerId).toBeUndefined();
   });
 
+  it('does not queue a lookup at an object every copy leaves out', () => {
+    // Run for real: `LastAmountChangedHistoryId` waited for an
+    // `OpportunityHistory` no wave writes, and was reported unresolved.
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'LastAmountChangedHistoryId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['OpportunityHistory'],
+      },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [{ Id: '006A', LastAmountChangedHistoryId: '008SOURCE' }],
+        fieldInfos: fields,
+        creatableFields: new Set(['LastAmountChangedHistoryId']),
+      }),
+    );
+    expect(out.nullifiedFks).toEqual([]);
+  });
+
   it('strips non-createable fields, exclusions and null values', () => {
     const [out] = cleanNodeRecords(
       makeInput({

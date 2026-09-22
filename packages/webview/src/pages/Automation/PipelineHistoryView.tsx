@@ -19,7 +19,6 @@ const STATUS_VARIANT: Record<
   idle: 'default',
   queued: 'info',
   running: 'info',
-  paused: 'warning',
   completed: 'success',
   completed_with_warnings: 'warning',
   failed: 'error',

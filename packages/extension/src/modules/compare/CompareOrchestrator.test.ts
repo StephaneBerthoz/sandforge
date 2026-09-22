@@ -1,32 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CompareOrchestrator } from './CompareOrchestrator';
 import type { CompareDependencies } from './CompareOrchestrator';
+import { DiffEngine } from './DiffEngine';
 import type { CompareConfig, CompareItem, CompareSummary } from '@sandforge/shared';
+
+const BUDGET = { components: 500, seconds: 90 };
 
 function createMockDeps(): CompareDependencies {
   return {
     metadataCompare: {
       compare: vi.fn().mockResolvedValue([]),
+      budget: BUDGET,
     } as unknown as CompareDependencies['metadataCompare'],
-    configCompare: {
-      compare: vi.fn().mockResolvedValue([]),
-    } as unknown as CompareDependencies['configCompare'],
-    permissionCompare: {
-      compare: vi.fn().mockResolvedValue([]),
-    } as unknown as CompareDependencies['permissionCompare'],
-    dataCompare: {
-      compare: vi.fn().mockResolvedValue([]),
-    } as unknown as CompareDependencies['dataCompare'],
-    diffEngine: {
-      computeSummary: vi.fn().mockReturnValue({
-        totalItems: 0,
-        added: 0,
-        removed: 0,
-        modified: 0,
-        unchanged: 0,
-        byType: {},
-      } satisfies CompareSummary),
-    } as unknown as CompareDependencies['diffEngine'],
+    diffEngine: new DiffEngine(),
   };
 }
 
@@ -45,13 +31,18 @@ function createConfig(overrides?: Partial<CompareConfig>): CompareConfig {
   };
 }
 
-function createItem(fullName: string, status: CompareItem['status'] = 'modified'): CompareItem {
+function createItem(
+  fullName: string,
+  status: CompareItem['status'],
+  notComparedReason?: CompareItem['notComparedReason'],
+): CompareItem {
   return {
     componentType: 'ApexClass',
     fullName,
     status,
-    severity: 'info',
-    deployable: status !== 'unchanged',
+    ...(notComparedReason ? { notComparedReason } : {}),
+    severity: DiffEngine.determineSeverity(status, 'ApexClass'),
+    deployable: DiffEngine.isDeployable(status),
   };
 }
 
@@ -65,107 +56,63 @@ describe('CompareOrchestrator', () => {
   });
 
   describe('execute', () => {
-    it('should call metadataCompare for metadata mode', async () => {
-      const config = createConfig({ mode: 'metadata' });
-      await orchestrator.execute(config);
+    it('compares the configured types between the two orgs', async () => {
+      await orchestrator.execute(createConfig({ componentTypes: ['ApexClass', 'Flow'] }));
 
       expect(deps.metadataCompare.compare).toHaveBeenCalledWith('source-org', 'target-org', [
         'ApexClass',
+        'Flow',
       ]);
     });
 
-    it('should call configCompare for config mode', async () => {
-      const config = createConfig({ mode: 'config' });
-      await orchestrator.execute(config);
+    it('counts a component left unread apart from the changes and the matches', async () => {
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([
+        createItem('Added', 'added'),
+        createItem('Edited', 'modified'),
+        createItem('Same', 'unchanged'),
+        createItem('Managed', 'not_compared', 'unreadable'),
+        createItem('Late', 'not_compared', 'over_budget'),
+      ]);
 
-      expect(deps.configCompare.compare).toHaveBeenCalledWith('source-org', 'target-org');
-    });
+      const result = await orchestrator.execute(createConfig());
 
-    it('should call permissionCompare for permissions mode', async () => {
-      const config = createConfig({ mode: 'permissions' });
-      await orchestrator.execute(config);
-
-      expect(deps.permissionCompare.compare).toHaveBeenCalledWith('source-org', 'target-org');
-    });
-
-    it('should call dataCompare for data mode with objectFilter', async () => {
-      const config = createConfig({
-        mode: 'data',
-        objectFilter: ['Account', 'Contact'],
-      });
-      await orchestrator.execute(config);
-
-      expect(deps.dataCompare.compare).toHaveBeenCalledWith(
-        'source-org',
-        'target-org',
-        'Account',
-        'Id',
-      );
-      expect(deps.dataCompare.compare).toHaveBeenCalledWith(
-        'source-org',
-        'target-org',
-        'Contact',
-        'Id',
-      );
-    });
-
-    it('should not call dataCompare for data mode without objectFilter', async () => {
-      const config = createConfig({ mode: 'data' });
-      await orchestrator.execute(config);
-
-      expect(deps.dataCompare.compare).not.toHaveBeenCalled();
-    });
-
-    it('should call all comparators for full mode', async () => {
-      const config = createConfig({
-        mode: 'full',
-        objectFilter: ['Account'],
-      });
-      await orchestrator.execute(config);
-
-      expect(deps.metadataCompare.compare).toHaveBeenCalled();
-      expect(deps.configCompare.compare).toHaveBeenCalled();
-      expect(deps.permissionCompare.compare).toHaveBeenCalled();
-      expect(deps.dataCompare.compare).toHaveBeenCalled();
-    });
-
-    it('should not call metadata comparator for config mode', async () => {
-      const config = createConfig({ mode: 'config' });
-      await orchestrator.execute(config);
-
-      expect(deps.metadataCompare.compare).not.toHaveBeenCalled();
-    });
-
-    it('should aggregate diffs from all sub-services', async () => {
-      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([createItem('ClassA')]);
-      vi.mocked(deps.configCompare.compare).mockResolvedValue([createItem('Setting1')]);
-
-      const config = createConfig({ mode: 'full' });
-      await orchestrator.execute(config);
-
-      expect(deps.diffEngine.computeSummary).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ fullName: 'ClassA' }),
-          expect.objectContaining({ fullName: 'Setting1' }),
-        ]),
-      );
-    });
-
-    it('should compute summary using the diff engine', async () => {
-      const mockSummary: CompareSummary = {
-        totalItems: 2,
+      expect(result.summary).toEqual({
+        totalItems: 5,
         added: 1,
         removed: 0,
         modified: 1,
-        unchanged: 0,
+        unchanged: 1,
+        notCompared: 2,
         byType: { ApexClass: { added: 1, removed: 0, modified: 1 } },
-      };
-      vi.mocked(deps.diffEngine.computeSummary).mockReturnValue(mockSummary);
+      } satisfies CompareSummary);
+    });
 
-      const config = createConfig();
-      const result = await orchestrator.execute(config);
+    it('says how many components were compared by content, how many were not and why, and within what budget', async () => {
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([
+        createItem('Edited', 'modified'),
+        createItem('Same', 'unchanged'),
+        createItem('Managed', 'not_compared', 'unreadable'),
+        createItem('Broken', 'not_compared', 'read_failed'),
+        createItem('Late', 'not_compared', 'over_budget'),
+        createItem('Later', 'not_compared', 'over_budget'),
+      ]);
 
-      expect(result.summary).toBe(mockSummary);
+      const result = await orchestrator.execute(createConfig());
+
+      expect(result.content).toEqual({
+        compared: 2,
+        notCompared: { unreadable: 1, read_failed: 1, over_budget: 2 },
+        budget: BUDGET,
+      });
+    });
+
+    it('returns the diffs it was given, in order', async () => {
+      const items = [createItem('B', 'modified'), createItem('A', 'unchanged')];
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue(items);
+
+      const result = await orchestrator.execute(createConfig());
+
+      expect(result.diffs).toEqual(items);
     });
 
     it('should include correct configId in result', async () => {
@@ -175,11 +122,10 @@ describe('CompareOrchestrator', () => {
       expect(result.configId).toBe('my-config');
     });
 
-    it('should include the mode in result', async () => {
-      const config = createConfig({ mode: 'permissions' });
-      const result = await orchestrator.execute(config);
+    it('reports the metadata mode it ran', async () => {
+      const result = await orchestrator.execute(createConfig());
 
-      expect(result.mode).toBe('permissions');
+      expect(result.mode).toBe('metadata');
     });
 
     it('should include a valid timestamp', async () => {

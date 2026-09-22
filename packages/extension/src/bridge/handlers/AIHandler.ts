@@ -86,6 +86,11 @@ export class AIHandler implements DomainHandler {
     this.analysisHandler.setRuleModules(modules);
   }
 
+  /** Drop the schema the AI tools hold for an org that is no longer the org it was. */
+  forgetOrg(orgId: string): void {
+    this.toolsHandler.forgetOrg(orgId);
+  }
+
   /**
    * Handle an incoming bridge message.
    *

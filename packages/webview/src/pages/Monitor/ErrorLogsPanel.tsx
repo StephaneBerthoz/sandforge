@@ -5,6 +5,7 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
+import { ListCapNote } from './ListCapNote';
 
 /** Response shape from monitor:error-logs. */
 interface ErrorLogsData {
@@ -20,6 +21,8 @@ interface ErrorLogsData {
   }>;
   errorsByType: Array<{ type: string; count: number }>;
   totalCount: number;
+  /** The read stopped at its bound: the day holds more errors than listed. */
+  truncated?: boolean;
 }
 
 /** Shared date formatter for error log timestamps. */
@@ -91,6 +94,8 @@ export const ErrorLogsPanel: React.FC = () => {
         </h3>
         <Badge variant="error">{totalCount}</Badge>
       </div>
+
+      {data?.truncated && <ListCapNote shown={errors.length} testId="error-logs-list-cap" />}
 
       {/* Error type summary */}
       {errorsByType.length > 0 && (

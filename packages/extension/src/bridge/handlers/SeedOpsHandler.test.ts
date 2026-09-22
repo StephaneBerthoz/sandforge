@@ -1676,4 +1676,53 @@ describe('SeedOpsHandler', () => {
       expect(entry.result.warnings.join(' ')).toContain('200000 records');
     });
   });
+
+  describe('production guard tier', () => {
+    it('asks before seeding an org stored with a type outside OrgType, and seeds nothing when declined', async () => {
+      // The connection only opens for an org the registry holds, and the
+      // registry hands back whatever type was stored: it loads orgs without a
+      // shape check. A type outside OrgType shows nothing of a sandbox; it was
+      // classed as development, and the seed ran without a word to the user.
+      const requestConfirmation = vi.fn<(impactSummary: string) => Promise<boolean>>();
+      requestConfirmation.mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        id: 'org-1',
+        orgType: 'Unknown',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      const execute = vi.fn();
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({ execute })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-guard-2',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        } as BaseMessage),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'INSERT 5 SeedData record(s) on production org org-1 [module: seed]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(execute).not.toHaveBeenCalled();
+      const seedErrors = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: Record<string, unknown> })
+        .filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload?.code).toBe('PROD_CONFIRMATION_DECLINED');
+    });
+  });
 });

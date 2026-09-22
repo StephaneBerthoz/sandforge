@@ -117,6 +117,7 @@ export const MonitorPage: React.FC = () => {
     loading,
     error,
     jobs,
+    jobsTruncated,
     healthScore,
     healthReport,
     trends,
@@ -583,6 +584,7 @@ export const MonitorPage: React.FC = () => {
             trendChartData={trendChartData}
             trendSeries={trendSeries}
             jobs={jobs}
+            jobsTruncated={jobsTruncated}
             jobsLoading={loading}
             isRefreshing={isRefreshing}
           />

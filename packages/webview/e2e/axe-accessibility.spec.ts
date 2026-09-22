@@ -503,6 +503,238 @@ for (const theme of SCANNED_THEMES) {
       expect(measured, 'axe did not measure the org type badge').toBe(true);
     });
 
+    test('Monitor lists that stop at their bound, and the record counts per object', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      const job = (id: string): Record<string, unknown> => ({
+        id,
+        jobType: 'Queueable',
+        status: 'Completed',
+        createdBy: 'Admin',
+        createdDate: '2026-03-13T11:00:00Z',
+        failedRecords: 0,
+      });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [job('707000000000001'), job('707000000000002')],
+        jobsTruncated: true,
+        limits: [{ name: 'DailyApiRequests', max: 100000, remaining: 45000, usedPercent: 55 }],
+        orgInfo: {
+          orgId: '00D000000000001',
+          name: 'DevSandbox',
+          type: 'Sandbox',
+          edition: 'Enterprise Edition',
+          instanceName: 'CS42',
+          apiVersion: '68.0',
+          userCount: 25,
+          customObjectCount: 45,
+          apexClassCount: 120,
+          flowCount: 30,
+          namespacePrefix: 'acme',
+          createdDate: '2026-04-24T10:20:51.000Z',
+        },
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+
+      const panels: Array<[string, string, Record<string, unknown>]> = [
+        [
+          'monitor:storage',
+          'monitor:storage:response',
+          {
+            success: true,
+            totalRecords: 81100,
+            objectCount: 216,
+            objects: [
+              { objectName: 'ObjectPermissions', label: 'Object Permissions', recordCount: 37000 },
+              { objectName: 'FieldPermissions', label: 'Field Permissions', recordCount: 36900 },
+              { objectName: 'LoginHistory', label: 'Login History', recordCount: 7200 },
+            ],
+          },
+        ],
+        [
+          'monitor:sessions',
+          'monitor:sessions:response',
+          {
+            success: true,
+            activeUserCount: 1,
+            truncated: true,
+            sessions: [
+              {
+                sessionId: 'session-1',
+                userId: 'user-1',
+                username: 'admin@dev.sandbox',
+                sessionType: 'UI',
+                loginTime: '2026-03-13T10:00:00Z',
+                sourceIp: '10.0.0.1',
+              },
+            ],
+          },
+        ],
+        [
+          'monitor:error-logs',
+          'monitor:error-logs:response',
+          {
+            success: true,
+            totalCount: 1,
+            truncated: true,
+            errorsByType: [{ type: 'Failed', count: 1 }],
+            errors: [
+              {
+                id: 'log-1',
+                errorType: 'Failed',
+                message: 'Api - Failed',
+                timestamp: '2026-03-13T10:00:00Z',
+              },
+            ],
+          },
+        ],
+        [
+          'monitor:deployments',
+          'monitor:deployments:response',
+          {
+            success: true,
+            truncated: true,
+            deployments: [
+              {
+                id: '0Af000000000001',
+                status: 'Succeeded',
+                startDate: '2026-03-13T09:00:00Z',
+                createdBy: 'Admin',
+                componentCount: 12,
+                errorCount: 0,
+              },
+            ],
+          },
+        ],
+        [
+          'monitor:apex-insights',
+          'monitor:apex-insights:response',
+          {
+            success: true,
+            truncated: true,
+            topIssues: [],
+            analyses: [
+              {
+                logId: '07L000000000001',
+                totalDuration: 1200,
+                soqlQueries: 10,
+                dmlStatements: 2,
+                heapUsed: 12000,
+                cpuTime: 800,
+                issues: [],
+              },
+            ],
+          },
+        ],
+        [
+          'monitor:sandbox-refresh',
+          'monitor:sandbox-refresh:response',
+          {
+            success: true,
+            supported: true,
+            inProgress: false,
+            truncated: true,
+            refreshes: [
+              {
+                orgId: DEV_SANDBOX.id,
+                sandboxName: 'uat',
+                refreshDate: '2026-03-12T08:00:00Z',
+                status: 'Completed',
+              },
+            ],
+          },
+        ],
+      ];
+      for (const [request, response, payload] of panels) {
+        await bridge.waitForMessage(request, { timeout: 10_000 });
+        await answerAll(page, request, response, payload);
+      }
+      for (const note of [
+        'jobs-list-cap',
+        'storage-scope',
+        'sessions-list-cap',
+        'error-logs-list-cap',
+        'deployment-list-cap',
+        'apex-insights-list-cap',
+        'refresh-list-cap',
+      ]) {
+        await page.getByTestId(note).waitFor({ state: 'visible', timeout: 10_000 });
+      }
+      await expect(page.getByTestId('org-info-panel')).toContainText('Namespace: acme');
+
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Monitor sandbox refresh panel with a refresh SandForge noticed', async ({ page }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+      await bridge.waitForMessage('monitor:sandbox-refresh', { timeout: 10_000 });
+      // A sandbox: no history of its own to list, one refresh it revealed.
+      await answerAll(page, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', {
+        success: true,
+        supported: false,
+        refreshes: [],
+        inProgress: false,
+        detected: [
+          {
+            detectedAt: '2026-03-13T09:15:00Z',
+            evidence: 'connection',
+            previousOrganizationId: '00D000000000001',
+            organizationId: '00D000000000002',
+            previousInstanceName: 'CS42',
+            instanceName: 'CS44',
+          },
+        ],
+      });
+      const noticed = page.getByTestId('refresh-detected');
+      await noticed.waitFor({ state: 'visible', timeout: 10_000 });
+      await noticed.scrollIntoViewIfNeeded();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      const measured = results.passes
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .some((node) => node.html.includes('Was org'));
+      expect(measured, 'axe did not measure the noticed refresh').toBe(true);
+    });
+
+    test('Automation sandbox refresh trigger saying why it starts nothing', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      await page.getByRole('tab', { name: 'Triggers' }).click();
+      await page.getByTestId('trigger-type-select').selectOption('sandbox_refresh');
+      await page.getByTestId('add-trigger-btn').click();
+      await page
+        .locator('[data-testid^="trigger-refused-"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      const measured = results.passes
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .some((node) => node.html.includes('trigger-refused-'));
+      expect(measured, 'axe did not measure the refusal').toBe(true);
+    });
+
     test('Grappe page while a partitioned run is in progress', async ({ page }) => {
       await openPanel(bridge, page, 'grappe', theme);
       await page.waitForSelector('[data-testid="grappe-page"]', { timeout: 10_000 });
@@ -685,11 +917,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('palette-delay').click();
       await page.getByTestId('pipeline-blocked').waitFor({ state: 'visible', timeout: 5000 });
 
-      // This is the first scan with a step on the canvas, and it finds the step
-      // node, a role="button" div, holding its remove button. That nesting
-      // predates this state and is left to a change of its own; every other
-      // rule still runs over the canvas.
-      const results = await checkAccessibility(page, { disableRules: ['nested-interactive'] });
+      const results = await checkAccessibility(page);
       expectNoViolations(results);
     });
 
@@ -770,7 +998,22 @@ for (const theme of STATE_THEMES) {
         sourceOrgId: DEV_SANDBOX.id,
         targetOrgId: QA_SANDBOX.id,
         mode: 'metadata',
-        summary: { totalItems: 1, added: 1, removed: 0, modified: 0, unchanged: 0, byType: {} },
+        summary: {
+          totalItems: 2,
+          added: 1,
+          removed: 0,
+          modified: 0,
+          unchanged: 0,
+          notCompared: 1,
+          byType: {},
+        },
+        // One class past the read budget, so the not-compared count and the
+        // coverage lines are painted and read against the theme too.
+        content: {
+          compared: 0,
+          notCompared: { unreadable: 0, read_failed: 0, over_budget: 1 },
+          budget: { components: 500, seconds: 90 },
+        },
         diffs: [
           {
             componentType: 'ApexClass',
@@ -780,11 +1023,20 @@ for (const theme of STATE_THEMES) {
             severity: 'info',
             deployable: true,
           },
+          {
+            componentType: 'ApexClass',
+            fullName: 'Billing',
+            status: 'not_compared',
+            notComparedReason: 'over_budget',
+            severity: 'info',
+            deployable: false,
+          },
         ],
         timestamp: '2026-09-10T09:00:00.000Z',
         duration: 1200,
       });
       await expect(page.getByTestId('risk-score-label')).toHaveText('Low', { timeout: 10_000 });
+      await expect(page.getByTestId('compare-coverage-over-budget')).toBeVisible();
 
       await expectReadable(page, theme);
     });

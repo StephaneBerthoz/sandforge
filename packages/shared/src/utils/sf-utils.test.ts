@@ -53,8 +53,13 @@ describe('orgTypeToGuardTier', () => {
     expect(orgTypeToGuardTier('Developer')).toBe('development');
   });
 
-  it('should default unknown types to development', () => {
-    expect(orgTypeToGuardTier('Unknown')).toBe('development');
-    expect(orgTypeToGuardTier('')).toBe('development');
+  it('should give an unknown or empty type the production tier, the most restrictive one', () => {
+    expect(orgTypeToGuardTier('Unknown')).toBe('production');
+    expect(orgTypeToGuardTier('')).toBe('production');
+  });
+
+  it('should not read an inherited property name as a known type', () => {
+    expect(orgTypeToGuardTier('constructor')).toBe('production');
+    expect(orgTypeToGuardTier('toString')).toBe('production');
   });
 });

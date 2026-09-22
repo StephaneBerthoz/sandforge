@@ -1,17 +1,11 @@
-import type { CompareConfig, CompareResult, CompareItem } from '@sandforge/shared';
+import type { CompareConfig, CompareResult } from '@sandforge/shared';
 import type { MetadataCompare } from './MetadataCompare';
-import type { ConfigCompare } from './ConfigCompare';
-import type { PermissionCompare } from './PermissionCompare';
-import type { DataCompare } from './DataCompare';
 import type { DiffEngine } from './DiffEngine';
 import type { CoreServices } from '../../services.js';
 
 /** Dependencies required by the CompareOrchestrator */
 export interface CompareDependencies {
   metadataCompare: MetadataCompare;
-  configCompare: ConfigCompare;
-  permissionCompare: PermissionCompare;
-  dataCompare: DataCompare;
   diffEngine: DiffEngine;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
@@ -22,9 +16,8 @@ export interface CompareDependencies {
 }
 
 /**
- * Central orchestrator that coordinates all comparison sub-services.
- * Delegates to the appropriate comparators based on the CompareConfig mode
- * and aggregates results into a unified CompareResult.
+ * Runs a comparison and gathers its result: the diff of every component, the
+ * counts, and what the content comparison covered.
  */
 export class CompareOrchestrator {
   private readonly deps: CompareDependencies;
@@ -34,53 +27,18 @@ export class CompareOrchestrator {
     this.deps = deps;
   }
 
-  /**
-   * Execute a full comparison based on the provided configuration.
-   * Dispatches to sub-services according to the configured mode.
-   */
+  /** Execute a comparison based on the provided configuration. */
   async execute(config: CompareConfig): Promise<CompareResult> {
     const startTime = Date.now();
-    const allDiffs: CompareItem[] = [];
 
-    if (config.mode === 'metadata' || config.mode === 'full') {
-      const metadataDiffs = await this.deps.metadataCompare.compare(
-        config.sourceOrgId,
-        config.targetOrgId,
-        config.componentTypes,
-      );
-      allDiffs.push(...metadataDiffs);
-    }
+    const diffs = await this.deps.metadataCompare.compare(
+      config.sourceOrgId,
+      config.targetOrgId,
+      config.componentTypes,
+    );
 
-    if (config.mode === 'config' || config.mode === 'full') {
-      const configDiffs = await this.deps.configCompare.compare(
-        config.sourceOrgId,
-        config.targetOrgId,
-      );
-      allDiffs.push(...configDiffs);
-    }
-
-    if (config.mode === 'permissions' || config.mode === 'full') {
-      const permDiffs = await this.deps.permissionCompare.compare(
-        config.sourceOrgId,
-        config.targetOrgId,
-      );
-      allDiffs.push(...permDiffs);
-    }
-
-    if (config.mode === 'data' || config.mode === 'full') {
-      const objectFilter = config.objectFilter ?? [];
-      for (const objectName of objectFilter) {
-        const dataDiffs = await this.deps.dataCompare.compare(
-          config.sourceOrgId,
-          config.targetOrgId,
-          objectName,
-          'Id',
-        );
-        allDiffs.push(...dataDiffs);
-      }
-    }
-
-    const summary = this.deps.diffEngine.computeSummary(allDiffs);
+    const summary = this.deps.diffEngine.computeSummary(diffs);
+    const content = this.deps.diffEngine.computeCoverage(diffs, this.deps.metadataCompare.budget);
     const duration = Date.now() - startTime;
 
     const result: CompareResult = {
@@ -89,7 +47,8 @@ export class CompareOrchestrator {
       targetOrgId: config.targetOrgId,
       mode: config.mode,
       summary,
-      diffs: allDiffs,
+      content,
+      diffs,
       timestamp: new Date().toISOString(),
       duration,
     };

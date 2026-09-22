@@ -9,13 +9,21 @@
  *
  * Used by both MonitorHandler and MonitorOpsHandler to determine which
  * Salesforce API limits should have trend data computed.
+ *
+ * Every name is one `/limits` answers with. The list used to carry
+ * `DailySoqlQueries` and `DailyDmlStatements`, which are Apex governor limits
+ * counted per transaction, not org limits: no org returns them, and read
+ * against real orgs their two trends never held a single point. The Bulk API
+ * limits took their place: SandForge writes through Bulk API 2.0 ingest jobs,
+ * which draw on `DailyBulkApiBatches`, and Bulk API 2.0 queries draw on
+ * `DailyBulkV2QueryJobs`.
  */
 export const MONITOR_KEY_LIMITS = [
   'DailyApiRequests',
   'DataStorageMB',
   'FileStorageMB',
-  'DailySoqlQueries',
-  'DailyDmlStatements',
+  'DailyBulkApiBatches',
+  'DailyBulkV2QueryJobs',
   'DailyAsyncApexExecutions',
 ] as const;
 

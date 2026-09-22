@@ -26,36 +26,19 @@ describe('NoOpHandler', () => {
     expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
-  it('returns true for scheduler:list', async () => {
-    const deps = createMockDeps();
-    const handler = new NoOpHandler(deps);
-    const msg: InboundRequest = inboundRequest({
-      id: 'req-2',
-      type: 'scheduler:list',
-      timestamp: Date.now(),
-    });
+  // No screen sent these, and SandForge has no pipeline scheduler to answer
+  // them: they left the protocol instead of being answered with "coming soon".
+  it.each(['scheduler:list', 'scheduler:upsert', 'scheduler:delete', 'scheduler:toggle'])(
+    'does not claim %s, since there is no scheduler behind it',
+    async (type) => {
+      const deps = createMockDeps();
+      const handler = new NoOpHandler(deps);
+      const msg: InboundRequest = inboundRequest({ id: `req-${type}`, type, timestamp: 1000 });
 
-    expect(await handler.handle(msg)).toBe(true);
-  });
-
-  it('returns true for all scheduler types', async () => {
-    const deps = createMockDeps();
-    const handler = new NoOpHandler(deps);
-
-    for (const type of [
-      'scheduler:list',
-      'scheduler:upsert',
-      'scheduler:delete',
-      'scheduler:toggle',
-    ]) {
-      const msg: InboundRequest = inboundRequest({
-        id: `req-${type}`,
-        type,
-        timestamp: Date.now(),
-      });
-      expect(await handler.handle(msg)).toBe(true);
-    }
-  });
+      expect(await handler.handle(msg)).toBe(false);
+      expect(deps.broker.postToWebview).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns true for all realtime types', async () => {
     const deps = createMockDeps();
@@ -166,7 +149,7 @@ describe('NoOpHandler', () => {
     const handler = new NoOpHandler(deps);
     const msg: InboundRequest = inboundRequest({
       id: 'req-42',
-      type: 'scheduler:list',
+      type: 'realtime:metrics',
       timestamp: 1000,
     });
 
@@ -198,20 +181,5 @@ describe('NoOpHandler', () => {
     expect(posted.payload.success).toBe(false);
     expect(posted.payload.comingSoon).toBe(true);
     expect(posted.payload.error).toBe('Feature not yet available');
-  });
-
-  it('response type follows the pattern type:response', async () => {
-    const deps = createMockDeps();
-    const handler = new NoOpHandler(deps);
-    const msg: InboundRequest = inboundRequest({
-      id: 'req-50',
-      type: 'scheduler:upsert',
-      timestamp: 3000,
-    });
-
-    await handler.handle(msg);
-
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(posted.type).toBe('scheduler:upsert:response');
   });
 });

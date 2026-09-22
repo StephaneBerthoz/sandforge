@@ -238,8 +238,8 @@ export class PipelineGenerator {
   private extractTriggers(description: string): string[] {
     const triggers: string[] = [];
     // "on refresh" and "after refresh" used to produce a sandbox_refresh
-    // trigger. Nothing watches for a sandbox refresh — the tracker has no
-    // callback and TriggerEngine answers false for that type — so the draft
+    // trigger. SandForge notices a refresh, but TriggerEngine refuses that
+    // trigger — what it would start cannot run in a pipeline — so the draft
     // came back carrying a trigger that can never fire. Dropped until it does.
     const triggerKeywords: Record<string, string> = {
       'on deploy': 'deployment_complete',

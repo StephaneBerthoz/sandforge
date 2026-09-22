@@ -6,6 +6,7 @@ import { inboundRequest } from '../../test/mockFactories.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -406,6 +407,42 @@ describe('DataOpsHandler', () => {
         'Operation cancelled by user (production confirmation declined).',
       );
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('asks before masking an org the registry does not know, and opens no connection when declined', async () => {
+      // A real guard, and getOrg left unstubbed: nothing shows 'org-unknown'
+      // is a sandbox. It was classed as development, so the masking started
+      // without a word to the user.
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockClear();
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a4',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-unknown', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'UPDATE an unknown number of Contact record(s) on production org org-unknown [module: dataops]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+      const errors = postedMessages().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
     });
   });
 
@@ -880,6 +917,34 @@ describe('DataOpsHandler', () => {
         'Operation cancelled by user (production confirmation declined).',
       );
       expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('asks before restoring into an org stored with a type outside OrgType, and restores nothing when declined', async () => {
+      // The connection only opens for an org the registry holds, and the
+      // registry hands back whatever type was stored: it loads orgs without a
+      // shape check. A type outside OrgType shows nothing of a sandbox; it was
+      // classed as development, and the restore wrote over live data unasked.
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-A');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Unknown' });
+      const requestConfirmation = vi.fn().mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      deps.infraServices = {
+        productionGuard: guard,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(rollbackMsg('org-A'));
+
+      expect(requestConfirmation).toHaveBeenCalledWith(
+        'UPSERT 1 Account record(s) on production org org-A [module: dataops]',
+      );
+      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(upsert).not.toHaveBeenCalled();
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
     });
 
     it('tells the model the object and batch size a restore was writing with', async () => {

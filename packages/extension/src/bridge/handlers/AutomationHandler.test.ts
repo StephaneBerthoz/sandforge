@@ -738,7 +738,7 @@ describe('AutomationHandler', () => {
       });
     });
 
-    it('stops a Delay in progress when the pipeline timeout is spent, and runs nothing after it', async () => {
+    it('stops a run when the pipeline timeout is spent, answers it, and History records it failed', async () => {
       const { services, ends } = realServices(30);
       deps.services = services;
 
@@ -747,18 +747,109 @@ describe('AutomationHandler', () => {
         { type: 'delay', config: { seconds: 0 } },
       ]);
 
-      // The handler gave up at 30 ms and said so…
+      // The run stops where it is: the Delay stops waiting out its 60 s, and
+      // the step after it never starts…
+      expect(ends).toEqual([{ status: 'cancelled', executed: 1 }]);
+
+      // …and it is answered and recorded. It used to be dropped: no
+      // `pipeline:run:response`, so the page waited out a limit of its own,
+      // and no History entry.
+      const result = runResponse(deps);
+      expect(result.status).toBe('failed');
+      expect(result.error).toBe(
+        'Pipeline ran out of time: sandforge.pipeline.timeout stopped it after 30 ms.',
+      );
+      expect(result.stepResults).toEqual([
+        expect.objectContaining({ stepId: 's1', status: 'failed' }),
+      ]);
+
       const [failure] = posted(deps, 'operation:failed') as unknown as Array<{
         payload: { error: string; retryable: boolean };
       }>;
-      expect(failure.payload.error).toContain('timed out after 30ms');
+      expect(failure.payload.error).toBe(result.error);
       expect(failure.payload.retryable).toBe(true);
-      expect(posted(deps, 'pipeline:run:response')).toHaveLength(0);
 
-      // …and the run it gave up on stops too, instead of waiting out its 60 s
-      // and walking on to the next step unobserved.
-      await vi.waitFor(() => expect(ends).toEqual([{ status: 'cancelled', executed: 1 }]));
+      const entry = onlyHistoryEntry(deps);
+      expect(entry['status']).toBe('failed');
+      expect(entry['stepCount']).toBe(1);
+      expect(entry['errorCount']).toBe(1);
     });
+
+    it('does not send a run the pipeline timeout stopped to the model: SandForge wrote the reason', async () => {
+      const provider = vi.fn<AIProvider>(() =>
+        Promise.resolve(JSON.stringify({ explanation: 'why', suggestions: [], confidence: 0.4 })),
+      );
+      deps.errorResolver = new ErrorResolver(provider);
+      deps.broker = {
+        postToWebview: vi.fn(),
+        panelCount: 1,
+        showFixSuggestion: vi.fn(),
+      } as unknown as HandlerDeps['broker'];
+      deps.services = realServices(30).services;
+
+      await run([{ type: 'delay', config: { seconds: 60 } }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(runResponse(deps).status).toBe('failed');
+      expect(provider).not.toHaveBeenCalled();
+    });
+
+    it('holds back the steps after a Condition on a declared variable that does not hold', async () => {
+      deps.services = realServices().services;
+      const pipeline = pipelinePayload([
+        {
+          type: 'condition',
+          name: 'Only in prod',
+          condition: { field: 'env', operator: 'eq', value: 'prod' },
+        },
+        { type: 'delay', config: { seconds: 0 } },
+      ]);
+      pipeline['variables'] = [
+        { name: 'env', type: 'string', defaultValue: 'dev', required: false, description: '' },
+      ];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'run-gate',
+          type: 'pipeline:execute',
+          timestamp: Date.now(),
+          payload: { pipeline, variables: {} },
+        } as unknown as BaseMessage),
+      );
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('completed');
+      expect(result.stepResults).toEqual([
+        expect.objectContaining({
+          stepId: 's1',
+          status: 'completed',
+          output: { conditionMet: false },
+        }),
+        expect.objectContaining({ stepId: 's2', status: 'skipped' }),
+      ]);
+      // History says how many steps ran: the one passed over is not one of them.
+      expect(onlyHistoryEntry(deps)['stepCount']).toBe(1);
+    });
+  });
+
+  it('answers a run that throws on the error channel of its request, so the page stops waiting', async () => {
+    // No composition-root services: the handler throws before the run starts.
+    await handler.handle(
+      inboundRequest({
+        id: 'run-throws',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: pipelinePayload([{ type: 'delay', config: { seconds: 0 } }]) },
+      } as unknown as BaseMessage),
+    );
+
+    const [error] = posted(deps, 'pipeline:error') as unknown as Array<{
+      correlationId?: string;
+      payload: { message: string };
+    }>;
+    expect(error.correlationId).toBe('run-throws');
+    expect(error.payload.message).toContain('composition-root services not injected');
+    expect(posted(deps, 'operation:failed')).toHaveLength(1);
   });
 
   describe('payload validation', () => {

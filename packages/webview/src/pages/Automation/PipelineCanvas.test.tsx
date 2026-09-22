@@ -61,15 +61,49 @@ describe('PipelineCanvas', () => {
 
   it('should call onRemoveStep when remove clicked', () => {
     const onRemove = vi.fn();
-    render(<PipelineCanvas steps={steps} onRemoveStep={onRemove} />);
+    const onSelect = vi.fn();
+    render(<PipelineCanvas steps={steps} onRemoveStep={onRemove} onSelectStep={onSelect} />);
     fireEvent.click(screen.getByTestId('remove-step-s1'));
     expect(onRemove).toHaveBeenCalledWith('s1');
+    // Removing a step does not select it on the way out.
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('should highlight selected step', () => {
+  it('marks the selected step for assistive technology as well as on screen', () => {
     render(<PipelineCanvas steps={steps} selectedStepId="s2" />);
     const step = screen.getByTestId('canvas-step-s2');
-    expect(step.className).toContain('--sf-accent');
+    expect(step.getAttribute('aria-current')).toBe('true');
+    expect(step.parentElement?.className).toContain('--sf-accent');
+    expect(screen.getByTestId('canvas-step-s1').hasAttribute('aria-current')).toBe(false);
+  });
+
+  it('puts no control inside another: selecting and removing are two buttons side by side', () => {
+    // The step node was a role="button" div holding its remove button, which
+    // a screen reader announces as one control (axe: nested-interactive).
+    render(<PipelineCanvas steps={steps} onSelectStep={vi.fn()} onRemoveStep={vi.fn()} />);
+
+    const controls = screen.getAllByRole('button');
+    expect(controls).toHaveLength(steps.length * 2);
+    for (const control of controls) {
+      expect(control.tagName).toBe('BUTTON');
+      expect(control.querySelector('button, [role="button"], [tabindex]')).toBeNull();
+    }
+    expect(
+      screen.getByTestId('canvas-step-s1').contains(screen.getByTestId('remove-step-s1')),
+    ).toBe(false);
+  });
+
+  it('lists the steps in the order they run', () => {
+    render(<PipelineCanvas steps={steps} />);
+    const list = screen.getByRole('list', { name: 'Pipeline Canvas' });
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('Backup Data'),
+      expect.stringContaining('Anonymize PII'),
+      expect.stringContaining('Sync to Dev'),
+    ]);
+    expect(list.contains(items[0])).toBe(true);
   });
 
   it('marks each step that cannot run where it sits, with the reason', () => {

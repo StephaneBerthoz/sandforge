@@ -417,19 +417,6 @@ const RealtimeMessages = [
 ] as const;
 export const RealtimeMessageSchema = z.discriminatedUnion('type', RealtimeMessages);
 
-// ─── Domain: Conflict (scheduler — scheduled ops & conflict routing) ─────────
-const ConflictMessages = [
-  msg('scheduler:list'),
-  msg('scheduler:list:response'),
-  msg('scheduler:upsert'),
-  msg('scheduler:upsert:response'),
-  msg('scheduler:delete'),
-  msg('scheduler:delete:response'),
-  msg('scheduler:toggle'),
-  msg('scheduler:toggle:response'),
-] as const;
-export const ConflictMessageSchema = z.discriminatedUnion('type', ConflictMessages);
-
 // ─── Domain: SmartAction + QuickSync ─────────────────────────────────────────
 const SmartActionMessages = [
   msg('smart-action:analyze'),
@@ -497,7 +484,6 @@ export const BridgeMessageSchema = z.discriminatedUnion('type', [
   ...AIMessages,
   ...SettingsMessages,
   ...RealtimeMessages,
-  ...ConflictMessages,
   ...SmartActionMessages,
   ...FrozenMessages,
 ]);

@@ -339,8 +339,8 @@ describe('TrendStorage', () => {
         'DailyApiRequests',
         'DataStorageMB',
         'FileStorageMB',
-        'DailySoqlQueries',
-        'DailyDmlStatements',
+        'DailyBulkApiBatches',
+        'DailyBulkV2QueryJobs',
         'DailyAsyncApexExecutions',
       ];
       const others = Array.from({ length: 47 }, (_, i) => `HourlyPublishedPlatformEvents${i}`);
@@ -413,8 +413,8 @@ describe('TrendStorage', () => {
         'DailyApiRequests',
         'DataStorageMB',
         'FileStorageMB',
-        'DailySoqlQueries',
-        'DailyDmlStatements',
+        'DailyBulkApiBatches',
+        'DailyBulkV2QueryJobs',
         'DailyAsyncApexExecutions',
       ]);
     });

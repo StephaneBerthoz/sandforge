@@ -58,7 +58,7 @@ extension talks to no chat, mail or incident tool.
 
 ### Triggers
 
-> **Coming soon:** only **Manual** triggering is wired to an executor. The Automation scheduler is a no-op, so pipelines always start by hand. The other trigger types below can be added, but nothing fires them; the panel marks each one coming soon.
+> **Coming soon:** only **Manual** triggering is wired to an executor. SandForge has no pipeline scheduler, so pipelines always start by hand. The other trigger types below can be added, but nothing fires them; the panel marks each one coming soon.
 
 The Trigger Config Panel offers these trigger types:
 
@@ -66,14 +66,14 @@ The Trigger Config Panel offers these trigger types:
 - **Schedule** _(coming soon)_ -- Takes a cron expression
 - **Event** _(coming soon)_
 - **Webhook** _(coming soon)_
-- **Sandbox Refresh** _(coming soon)_
+- **Sandbox Refresh** _(coming soon)_ -- SandForge notices a sandbox refresh and warns you (see Monitor), but this trigger starts no pipeline: a pipeline runs only Delay and Condition steps, and the work a refresh calls for is made of data steps
 - **Deployment Complete** _(coming soon)_
 
 The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
 
 ### Scheduler
 
-> **Coming soon:** the scheduler backend is a no-op — no pipeline runs on a timer yet. The calendar view below describes the planned design.
+> **Coming soon:** there is no scheduler backend — no pipeline runs on a timer yet. The calendar view below describes the planned design.
 
 A calendar view showing scheduled pipeline runs:
 
@@ -88,8 +88,9 @@ ends, and the tab, which asks for the history again each time a run answers,
 lists them newest first. A pipeline refused before its first step is written as
 failed, with one error per step that cannot run, and the page says why under
 its header. A run cut off by the pipeline timeout is stopped where it is -- a
-Delay stops waiting and no later step starts -- and, like a run stopped by an
-error before it returns, leaves no entry. The tab shows for each run:
+Delay stops waiting and no later step starts -- and is written as failed, and
+the page says it ran out of time. A run stopped by an error before it returns
+leaves no entry. The tab shows for each run:
 
 - Its status, trigger, start time and duration
 - How many steps ran, and how many of them failed
