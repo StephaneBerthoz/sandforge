@@ -71,6 +71,10 @@ export const forgeConfigSchema = z.object({
   aiPrompt: z.string().min(1).max(4_000).optional(),
   depth: forgeDepthSchema,
   customDepth: z.number().int().positive().max(10).optional(),
+  // Bounded well below what an org holds: discovery describes and counts each
+  // object it reaches, and a cap in the thousands spends an API budget rather
+  // than producing a usable graph.
+  maxNodes: z.number().int().min(10).max(500).optional(),
   sourceOrgId: z.string().min(1).max(128),
   targetOrgId: z.string().min(1).max(128),
   anonymizePII: z.boolean(),

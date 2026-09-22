@@ -23,9 +23,8 @@
  *     --source SOURCE-UAT --target TARGET-DEV \
  *     --depth custom --custom-depth 5 --max 50 --dry-run
  */
-import { execFileSync } from 'node:child_process';
-import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
+import { loadOrg, makeConn } from './sfSession.js';
 
 import type { ForgeConfig } from '@sandforge/shared';
 import { forgeConfigSchemaStrict, duplicateRuleHeaders } from '@sandforge/shared';
@@ -73,13 +72,6 @@ interface CliArgs {
   fieldMappings: Record<string, Record<string, string>>;
   /** Output path for the remap-table CSV (sourceId,targetId). undefined = no export. */
   remapCsv: string | undefined;
-}
-
-interface SfOrg {
-  alias: string;
-  username: string;
-  instanceUrl: string;
-  accessToken: string;
 }
 
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox.
@@ -332,77 +324,6 @@ function parseArgs(argv: string[]): CliArgs {
     fieldMappings,
     remapCsv: get('--remap-csv'),
   };
-}
-
-/** SF alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
-const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
-
-function loadOrg(alias: string): SfOrg {
-  // shell:true on Windows is required to resolve `.cmd` files but lets cmd.exe
-  // interpret metacharacters (`&`, `|`, `>`, `^`, `"`). Validate alias before
-  // passing — block any shell-injection vector via crafted CLI args.
-  if (!SF_ALIAS_RE.test(alias)) {
-    throw new Error(
-      `Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`,
-    );
-  }
-  /*
-   * Two commands, because they answer two different questions.
-   *
-   * `sf org display` gives the org's CURRENT instance URL — after a sandbox
-   * refresh or a My Domain change the stored one points elsewhere, and even a
-   * live token is rejected there. But its `accessToken` is the stored one,
-   * dumped as-is: an org the CLI lists as "Connected" can hand out a token
-   * Salesforce refuses. `sf org auth show-access-token` is the only command
-   * that refreshes through the stored OAuth session.
-   *
-   * The extension learnt this on a live org in 2026-08 and says so at length
-   * in `core/connection/ConnectionHelper.ts` ("Refresh credentials via the SF
-   * CLI"). This script kept the display token, so every run of it ended in
-   * INVALID_AUTH_HEADER before reading a single object — which is what a first
-   * run against a real org found, the documented example in the header above
-   * having never been executed.
-   */
-  const run = (args: string[]): string =>
-    execFileSync('sf', args, {
-      encoding: 'utf8',
-      maxBuffer: 50 * 1024 * 1024,
-      shell: process.platform === 'win32',
-    });
-
-  const json = run(['org', 'display', '--target-org', alias, '--json']);
-  let liveToken: string | undefined;
-  try {
-    const shown = JSON.parse(run(['org', 'auth', 'show-access-token', '-o', alias, '--json'])) as {
-      result?: { accessToken?: string } | string;
-    };
-    // The command answers with a bare string on some CLI versions.
-    liveToken =
-      typeof shown.result === 'string' ? shown.result : (shown.result?.accessToken ?? undefined);
-  } catch {
-    // Older CLI without the command: fall back to the stored token below.
-    liveToken = undefined;
-  }
-  const parsed = JSON.parse(json) as {
-    result?: { accessToken?: string; instanceUrl?: string; username?: string };
-  };
-  if (!parsed.result?.accessToken || !parsed.result?.instanceUrl) {
-    throw new Error(`sf org display did not return a usable session for alias '${alias}'.`);
-  }
-  return {
-    alias,
-    username: parsed.result.username ?? '',
-    instanceUrl: parsed.result.instanceUrl,
-    accessToken: liveToken ?? parsed.result.accessToken,
-  };
-}
-
-function makeConn(org: SfOrg): Connection {
-  return new jsforce.Connection({
-    instanceUrl: org.instanceUrl,
-    accessToken: org.accessToken,
-    version: '66.0',
-  });
 }
 
 /** Shape a raw describe for the discovery service; exported so the field reading can be tested. */

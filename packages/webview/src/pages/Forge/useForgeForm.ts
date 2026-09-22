@@ -93,6 +93,10 @@ export interface ForgeFormState {
   depth: ForgeDepth;
   setDepth: (d: ForgeDepth) => void;
   customDepth: number;
+  /** Objects discovery may reach; undefined keeps the default cap. */
+  maxNodes: number | undefined;
+  /** Raise or clear the object cap. */
+  setMaxNodes: (value: number | undefined) => void;
   setCustomDepth: (n: number) => void;
   depthRefs: MutableRefObject<Partial<Record<ForgeDepth, HTMLButtonElement | null>>>;
   handleDepthKeyDown: (e: KeyboardEvent, currentDepth: ForgeDepth) => void;
@@ -176,6 +180,14 @@ export function useForgeForm(): ForgeFormState {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [depth, setDepth] = useState<ForgeDepth>('direct');
   const [customDepth, setCustomDepth] = useState(3);
+  /**
+   * How many objects discovery may reach, when the default is not enough.
+   *
+   * `undefined` leaves the service's own cap of fifty in place, which is what
+   * every run did before: the preview announced a truncated graph and there
+   * was nothing here to answer it with.
+   */
+  const [maxNodes, setMaxNodes] = useState<number | undefined>(undefined);
   const [sourceOrgId, setSourceOrgId] = useState('');
   const [targetOrgId, setTargetOrgId] = useState('');
   const [anonymize, setAnonymize] = useState(false);
@@ -448,6 +460,7 @@ export function useForgeForm(): ForgeFormState {
       ...runInput,
       depth,
       customDepth: depth === 'custom' ? customDepth : undefined,
+      maxNodes,
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
@@ -465,6 +478,7 @@ export function useForgeForm(): ForgeFormState {
     runInput,
     depth,
     customDepth,
+    maxNodes,
     anonymize,
     skipEmpty,
     expandOrphanParents,
@@ -541,6 +555,7 @@ export function useForgeForm(): ForgeFormState {
       ...runInput,
       depth,
       customDepth: depth === 'custom' ? customDepth : undefined,
+      maxNodes,
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
@@ -567,6 +582,7 @@ export function useForgeForm(): ForgeFormState {
     runInput,
     depth,
     customDepth,
+    maxNodes,
     anonymize,
     skipEmpty,
     expandOrphanParents,
@@ -629,6 +645,7 @@ export function useForgeForm(): ForgeFormState {
       inputMode,
       depth,
       customDepth: depth === 'custom' ? customDepth : undefined,
+      maxNodes,
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
@@ -643,6 +660,7 @@ export function useForgeForm(): ForgeFormState {
     inputMode,
     depth,
     customDepth,
+    maxNodes,
     anonymize,
     skipEmpty,
     expandOrphanParents,
@@ -663,6 +681,8 @@ export function useForgeForm(): ForgeFormState {
     setDepth,
     customDepth,
     setCustomDepth,
+    maxNodes,
+    setMaxNodes,
     depthRefs,
     handleDepthKeyDown,
     orgs,

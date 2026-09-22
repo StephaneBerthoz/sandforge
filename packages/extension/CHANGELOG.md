@@ -5,6 +5,61 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-09-22
+
+Sync had never been run against a real pair of orgs. Run for the first time,
+it could not write a single record of a single object. Three defects, each
+found by fixing the one before it, and every one of them invisible to the 4 282
+unit tests, the 351 end-to-end tests, the mutation suite and the six workflows
+that were green throughout.
+
+### Added
+
+- **`sandforge-sync`, a headless Sync runner.** It drives the same orchestrator,
+  writer and query path the panel drives, without the editor around it. It
+  exists because the only thing that ever found a real defect in this product
+  was running it against real orgs, and until now only the clone had a way to
+  be run that way.
+- **The panel can raise the object cap.** Discovery stops at fifty objects, the
+  preview said so, and there was nothing to do about it — the setting has been
+  on the command line since 1.26.0 and nowhere else. Depth says how far from
+  the record to walk; this says how wide. The notice on a cut-short graph now
+  says to raise it and discover again, instead of only announcing the loss.
+
+### Fixed
+
+- **A sync sends the fields the target will take, not every field it read.**
+  `SELECT FIELDS(ALL)` returns the audit fields, the compound address fields
+  and every formula and roll-up an object carries. With no field mapping to
+  narrow it, all of that went to the insert and Salesforce refused the whole
+  record — "Unable to create/update fields: LastModifiedDate, CreatedById,
+  BillingAddress, …" — for every record of every object. Quick Sync escaped it
+  by building its mappings from the createable fields; anything without
+  mappings did not. The payload is now settled against a describe of the
+  target, because a field the source lets you write is not necessarily one the
+  target does.
+- **A sync tells Salesforce its rows are meant to resemble the ones already
+  there.** It copies an org into one that looks like it, which is what a
+  duplicate rule exists to stop: fourteen of sixteen accounts were refused with
+  "You are creating a duplicate record". Forge learnt this on a live pair of
+  sandboxes in 1.25.3 and started sending the header Salesforce provides for
+  it; Sync did not. A unique index still refuses, which is right.
+- **A lookup the target does not have costs the field, not the record.** A
+  lookup holds an id from the source org, and unless the two orgs share that
+  record the target answers `insufficient access rights on cross-reference id`
+  and loses the whole row over one field. Sync has no id map to repair it with
+  — it copies fields, it does not walk a graph — so the row is written again
+  without its lookups, once, and the result names what was dropped.
+
+### Changed
+
+- **Both headless tools share one session.** They authenticate the same way,
+  and the way is not obvious: `sf org display` answers with the org's current
+  instance URL but hands back the stored access token, which Salesforce can
+  refuse on an org the CLI lists as connected. The extension learnt that in
+  August, the clone CLI had to learn it again in September; one copy now, so a
+  third tool does not learn it a third time.
+
 ## [1.27.1] - 2026-09-19
 
 The accessibility count reaches zero, and the rules that were warnings while it

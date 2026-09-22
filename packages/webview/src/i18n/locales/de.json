@@ -1280,7 +1280,9 @@
       "fullProductClone": "Eine Opportunity mit Produkten wird vollständig geklont",
       "fullProductCloneDesc": "Account, Preisbuch, Produkte, Preise und Positionen, samt der Beträge, die sich daraus ergeben. Dieser Weg hatte nie funktioniert: Das Standardpreisbuch wurde kopiert statt zugeordnet, seine Preise fehlten, und die Positionen wurden vor den Einträgen geschrieben, auf die sie zeigen.",
       "keyboardEverywhere": "Jedes Bedienelement im Panel antwortet auf die Tastatur",
-      "keyboardEverywhereDesc": "Unterhaltungen im KI-Panel sind jetzt echte Schaltflächen, die Graph-Steuerung lauscht nicht mehr auf die Maus, und die Barrierefreiheitsregeln — Warnungen, solange die Zahl von 86 auf null fiel — sind nun Fehler."
+      "keyboardEverywhereDesc": "Unterhaltungen im KI-Panel sind jetzt echte Schaltflächen, die Graph-Steuerung lauscht nicht mehr auf die Maus, und die Barrierefreiheitsregeln — Warnungen, solange die Zahl von 86 auf null fiel — sind nun Fehler.",
+      "syncFinishes": "Ein Sync kann einen Job zu Ende bringen",
+      "syncFinishesDesc": "Zum ersten Mal gegen zwei echte Orgs ausgeführt, schrieb Sync keinen einzigen Datensatz: Er schickte jedes gelesene Feld, sagte nicht, dass seine Zeilen den vorhandenen absichtlich gleichen, und ein im Ziel fehlender Lookup kostete den ganzen Datensatz. Alle drei sind behoben."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",
@@ -1565,6 +1567,9 @@
     "cancelEdit": "Abbrechen",
     "recordLimit": "Datensätze pro Objekt",
     "recordLimitHint": "Begrenzen Sie, wie viele Zeilen pro Objekt geklont werden. Niedriger = schneller und sicherer bei großen Orgs.",
+    "objectCap": "Objekte",
+    "objectCapHint": "wie viele Objekte die Erkennung erreichen darf; die Tiefe sagt wie weit, dies wie breit",
+    "objectCapDefault": "Standard (50)",
     "recordLimitSmart": "Smart (automatisch aus Vorschau)",
     "recordLimitAll": "Alle",
     "recordLimitOpt10": "10 / Objekt (Stichprobe)",
@@ -1605,6 +1610,7 @@
     "preview": {
       "title": "Was bei der Ausführung passiert",
       "truncated": "Graph gekürzt (Obergrenze von 50 Knoten erreicht)",
+      "truncatedAction": "Graph durch die Objektgrenze abgeschnitten — erhöhen Sie sie und erkennen Sie erneut, wenn etwas fehlt",
       "willClone": "Wird geklont",
       "willMap": "Wird zugeordnet",
       "skippedExcluded": "Übersprungen (ausgeschlossen)",

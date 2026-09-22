@@ -28,6 +28,16 @@ export interface ForgeConfig {
   depth: ForgeDepth;
   /** Maximum traversal levels when depth is 'custom' */
   customDepth?: number;
+  /**
+   * How many objects discovery may reach before it stops.
+   *
+   * Depth says how far from the root to walk; this says how much. A CRM graph
+   * is wide as well as deep, and the default of fifty is reached long before
+   * a real org runs out of objects a write depends on — the preview says so,
+   * and until this existed it said so with nothing to do about it. The CLI
+   * has had `--max-nodes` since 1.26.0; this is the same dial.
+   */
+  maxNodes?: number;
   /** Alias or ID of the source Salesforce org */
   sourceOrgId: string;
   /** Alias or ID of the target Salesforce org */

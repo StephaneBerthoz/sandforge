@@ -1,4 +1,5 @@
 import type { Connection } from 'jsforce';
+import { duplicateRuleHeaders } from '@sandforge/shared';
 import type { RetryConfig } from '../../core/engine/RetryStrategy.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
@@ -46,6 +47,16 @@ export interface BulkDataWriterDeps {
  * Extracted from SyncOpsHandler so the handler only orchestrates
  * message handling while this class owns the write mechanics.
  */
+/**
+ * A sync between two orgs writes rows that look exactly like rows the target
+ * already has — which is what a duplicate rule exists to stop. Forge learnt
+ * this on a live pair of sandboxes in 2026-09 and started sending the header
+ * Salesforce provides for it; Sync did not, and fourteen of sixteen accounts
+ * were refused with "You are creating a duplicate record" on the first real
+ * run of it. See `duplicate-rules.ts`: the header waives duplicate RULES only,
+ * a unique index still refuses, and what protects a production org is the
+ * production guard rather than a data-quality rule.
+ */
 export class BulkDataWriter {
   private readonly retryOp: RetryableOperation;
 
@@ -83,7 +94,10 @@ export class BulkDataWriter {
     return this.executeRestBatches(
       records,
       batchSize,
-      (batch) => this.deps.connection.sobject(objectName).create(batch) as Promise<JsforceResult[]>,
+      (batch) =>
+        this.deps.connection
+          .sobject(objectName)
+          .create(batch, { headers: duplicateRuleHeaders(true) }) as Promise<JsforceResult[]>,
       'Insert failed after retries',
     );
   }
@@ -113,9 +127,9 @@ export class BulkDataWriter {
       records,
       batchSize,
       (batch) =>
-        this.deps.connection
-          .sobject(objectName)
-          .upsert(batch, externalIdField) as unknown as Promise<JsforceResult[]>,
+        this.deps.connection.sobject(objectName).upsert(batch, externalIdField, {
+          headers: duplicateRuleHeaders(true),
+        }) as unknown as Promise<JsforceResult[]>,
       'Upsert failed after retries',
     );
   }

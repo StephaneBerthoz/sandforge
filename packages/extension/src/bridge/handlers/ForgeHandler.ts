@@ -615,6 +615,8 @@ export class ForgeHandler implements DomainHandler {
     try {
       logger.info('Forge discover started');
       const graph = await this.orchestrator.discover(config, {
+        // Absent, the discovery service keeps its own default.
+        maxNodes: config.maxNodes,
         signal: controller.signal,
         onProgress: (event) => {
           throttledProgress(event as unknown as Record<string, unknown>);

@@ -465,6 +465,43 @@ export const ForgeInput: React.FC = () => {
             depthRefs={form.depthRefs}
           />
 
+          {/* Object cap — how WIDE discovery may go, where depth says how far.
+              A CRM graph is wide as well as deep, and the preview announced a
+              truncated graph with nothing here to answer it. */}
+          <div>
+            <div className="text-[10px] text-text-secondary uppercase tracking-widest mb-2 flex items-center gap-2">
+              <label htmlFor="forge-max-nodes">{t('forge.objectCap')}</label>
+              <span
+                id="forge-max-nodes-hint"
+                className="text-text-secondary normal-case tracking-normal text-[10px]"
+              >
+                — {t('forge.objectCapHint')}
+              </span>
+            </div>
+            <select
+              id="forge-max-nodes"
+              aria-describedby="forge-max-nodes-hint"
+              data-testid="forge-max-nodes"
+              value={form.maxNodes === undefined ? 'default' : String(form.maxNodes)}
+              onChange={(e) =>
+                form.setMaxNodes(e.target.value === 'default' ? undefined : Number(e.target.value))
+              }
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs',
+                'bg-[var(--sf-bg-input)]',
+                'text-[var(--sf-text-input)]',
+                'border border-[var(--sf-border-input)]',
+                'focus:outline-none focus:border-forge/50',
+              )}
+            >
+              <option value="default">{t('forge.objectCapDefault')}</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="350">350</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+
           {/* Records-per-object cap — keeps big-org clones bounded */}
           <div>
             <div className="text-[10px] text-text-secondary uppercase tracking-widest mb-2 flex items-center gap-2">

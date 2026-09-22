@@ -1280,7 +1280,9 @@
       "fullProductClone": "Uma oportunidade com produtos é clonada por inteiro",
       "fullProductCloneDesc": "Conta, catálogo, produtos, preços e itens, com os valores que decorrem disso. Esse caminho nunca tinha funcionado: o catálogo padrão era copiado em vez de correspondido, seus preços ficavam de fora, e os itens eram gravados antes das entradas que referenciam.",
       "keyboardEverywhere": "Todo controle do painel responde ao teclado",
-      "keyboardEverywhereDesc": "As conversas do painel de IA agora são botões de verdade, os controles do grafo pararam de escutar o mouse, e as regras de acessibilidade — avisos enquanto a contagem caía de 86 para zero — agora são erros."
+      "keyboardEverywhereDesc": "As conversas do painel de IA agora são botões de verdade, os controles do grafo pararam de escutar o mouse, e as regras de acessibilidade — avisos enquanto a contagem caía de 86 para zero — agora são erros.",
+      "syncFinishes": "Um sync consegue terminar um trabalho",
+      "syncFinishesDesc": "Executado pela primeira vez entre duas orgs reais, o Sync não gravava um único registro: mandava todos os campos lidos, não avisava que suas linhas se parecem de propósito com as que já existem, e um lookup ausente no destino custava o registro inteiro. Os três foram corrigidos."
     },
     "heroTitle": "Preencha sua sandbox a partir de um registro real",
     "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
@@ -1565,6 +1567,9 @@
     "cancelEdit": "Cancelar",
     "recordLimit": "Registros por objeto",
     "recordLimitHint": "Limite quantas linhas são clonadas por objeto. Menor = mais rápido e mais seguro em orgs grandes.",
+    "objectCap": "Objetos",
+    "objectCapHint": "quantos objetos a descoberta pode alcançar; a profundidade diz até onde, isto diz até que largura",
+    "objectCapDefault": "Padrão (50)",
     "recordLimitSmart": "Inteligente (automático pela pré-visualização)",
     "recordLimitAll": "Todos",
     "recordLimitOpt10": "10 / objeto (amostra)",
@@ -1605,6 +1610,7 @@
     "preview": {
       "title": "O que vai acontecer na execução",
       "truncated": "Grafo truncado (limite de 50 nós atingido)",
+      "truncatedAction": "Grafo cortado pelo teto de objetos — aumente-o e descubra de novo se algo estiver faltando",
       "willClone": "Será clonado",
       "willMap": "Será mapeado",
       "skippedExcluded": "Ignorado (excluído)",

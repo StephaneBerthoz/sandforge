@@ -102,7 +102,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
             className="ml-auto text-[10px] text-status-warning flex items-center gap-1"
           >
             <AlertTriangle size={11} />
-            {t('forge.preview.truncated', 'Graph truncated (50-node cap hit)')}
+            {t('forge.preview.truncatedAction')}
           </span>
         )}
       </div>

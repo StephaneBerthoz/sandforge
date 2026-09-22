@@ -963,6 +963,33 @@ export class SyncOpsHandler implements DomainHandler {
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
       const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
 
+      // One describe of the target per object, kept for the run. Without it a
+      // sync with no field mappings sends every field it read — see
+      // `DataSyncDeps.describeCreateableFields`.
+      const targetFieldsByObject = new Map<
+        string,
+        { creatable: ReadonlySet<string>; references: ReadonlySet<string> }
+      >();
+      const describeTargetFields = async (
+        objectApiName: string,
+      ): Promise<{ creatable: ReadonlySet<string>; references: ReadonlySet<string> }> => {
+        const cached = targetFieldsByObject.get(objectApiName);
+        if (cached) return cached;
+        const described = await targetConn.describe(objectApiName);
+        const fields = described.fields as Array<{
+          name: string;
+          createable?: boolean;
+          type?: string;
+        }>;
+        const writable = fields.filter((f) => f.createable === true);
+        const answer = {
+          creatable: new Set(writable.map((f) => f.name)),
+          references: new Set(writable.filter((f) => f.type === 'reference').map((f) => f.name)),
+        };
+        targetFieldsByObject.set(objectApiName, answer);
+        return answer;
+      };
+
       const dataSync = new DataSync({
         upsert: (objectName, externalIdField, records, batchSize) =>
           writer.upsert(objectName, externalIdField, records, batchSize),
@@ -970,6 +997,7 @@ export class SyncOpsHandler implements DomainHandler {
         update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
         delete: (objectName, recordIds, batchSize) =>
           writer.delete(objectName, recordIds, batchSize),
+        describeTargetFields,
       });
       const metadataSync = new MetadataSync({
         fetchMetadata: async () => [],

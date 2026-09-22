@@ -193,3 +193,155 @@ describe('DataSync', () => {
     });
   });
 });
+
+describe('DataSync — what the target will take', () => {
+  it('sends only the fields the target accepts when no mapping says otherwise', async () => {
+    // `SELECT FIELDS(ALL)` returns the audit fields, the compound address
+    // fields and every formula the object carries. Sent, Salesforce refuses
+    // the whole record — which is every record of every object.
+    const insert = vi.fn().mockResolvedValue([{ id: '001', success: true, errors: [] }]);
+    const sync = new DataSync(
+      createDeps({
+        insert,
+        describeTargetFields: async () => ({
+          creatable: new Set(['Name', 'BillingCity']),
+          references: new Set(),
+        }),
+      }),
+    );
+
+    await sync.sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+      {
+        attributes: { type: 'Account' },
+        Id: '001SOURCE',
+        Name: 'Acme',
+        BillingCity: 'Lyon',
+        CreatedDate: '2026-01-01',
+        SystemModstamp: '2026-01-01',
+        BillingAddress: { city: 'Lyon' },
+      },
+    ]);
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(Object.keys(insert.mock.calls[0][1][0]).sort()).toEqual(['BillingCity', 'Name']);
+  });
+
+  it('keeps every field when nothing can describe the target', async () => {
+    const insert = vi.fn().mockResolvedValue([{ id: '001', success: true, errors: [] }]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: undefined }));
+
+    await sync.sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+      { Name: 'Acme', CreatedDate: '2026-01-01' },
+    ]);
+
+    expect(Object.keys(insert.mock.calls[0][1][0]).sort()).toEqual(['CreatedDate', 'Name']);
+  });
+
+  it('carries on when the describe fails', async () => {
+    const insert = vi.fn().mockResolvedValue([{ id: '001', success: true, errors: [] }]);
+    const sync = new DataSync(
+      createDeps({
+        insert,
+        describeTargetFields: async () => {
+          throw new Error('no describe today');
+        },
+      }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme' }],
+    );
+
+    expect(result.success).toBe(1);
+  });
+});
+
+describe('DataSync — a lookup the target does not have', () => {
+  const crossRef = {
+    id: '',
+    success: false,
+    errors: ['insufficient access rights on cross-reference id: 003AP00001VjQOS'],
+  };
+
+  function describeWithLookup() {
+    return async () => ({
+      creatable: new Set(['Name', 'ACC_ContactCle__c']),
+      references: new Set(['ACC_ContactCle__c']),
+    });
+  }
+
+  it('writes the record again without the lookup rather than losing it', async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef])
+      .mockResolvedValueOnce([{ id: '001NEW', success: true, errors: [] }]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+    );
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    // The second attempt carries the data and not the lookup.
+    expect(Object.keys(insert.mock.calls[1][1][0])).toEqual(['Name']);
+    expect(result.success).toBe(1);
+    expect(result.failed).toBe(0);
+  });
+
+  it('says which field it dropped', async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef])
+      .mockResolvedValueOnce([{ id: '001NEW', success: true, errors: [] }]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+    );
+
+    expect(result.errors.join(' ')).toContain('ACC_ContactCle__c');
+  });
+
+  it('does not try again for a failure that is not a cross-reference', async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValue([{ id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] }]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+    );
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(result.failed).toBe(1);
+  });
+
+  it('gives up after one retry', async () => {
+    const insert = vi.fn().mockResolvedValue([crossRef]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', ACC_ContactCle__c: '003AP00001VjQOS' }],
+    );
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(result.failed).toBe(1);
+  });
+
+  it('leaves a record alone when it carries no lookup value', async () => {
+    const insert = vi.fn().mockResolvedValue([crossRef]);
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    await sync.sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+      { Name: 'Acme' },
+    ]);
+
+    // Nothing to strip means nothing to try again.
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+});

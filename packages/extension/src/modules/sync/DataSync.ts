@@ -49,6 +49,34 @@ export interface DataSyncDeps {
   insert: InsertFn;
   update: UpdateFn;
   delete: DeleteFn;
+  /**
+   * What the TARGET org will take on a write, per object.
+   *
+   * Without it a sync sends every field it read. `SELECT FIELDS(ALL)` returns
+   * the audit fields, the compound address fields and every formula and
+   * roll-up the object carries, and Salesforce refuses the whole record:
+   * "Unable to create/update fields: LastModifiedDate, CreatedById,
+   * BillingAddress, …". Run for real between two orgs, that is every record of
+   * every object — a sync that cannot finish a single job, which is what a
+   * beta tester reported and what no test had ever seen, because every test
+   * supplied mappings and the mapped path builds its payload from those alone.
+   *
+   * Asked of the target rather than the source on purpose: a field the source
+   * lets you write is not necessarily one the target does, and the run is
+   * decided at the target.
+   *
+   * `references` names the lookups among them. A lookup carries an id from
+   * the SOURCE org, which means nothing in the target unless the two happen
+   * to share that record — so Salesforce answers
+   * `insufficient access rights on cross-reference id` and loses the whole
+   * row over one field. Knowing which fields those are is what lets the write
+   * be tried again without them.
+   *
+   * Optional, so a caller that cannot describe keeps the previous behaviour.
+   */
+  describeTargetFields?: (
+    objectApiName: string,
+  ) => Promise<{ creatable: ReadonlySet<string>; references: ReadonlySet<string> }>;
   /** Optional CRUD/FLS guard. When provided, permissions are re-verified before each DML operation. */
   crudFlsGuard?: CrudFlsGuard;
 }
@@ -73,8 +101,24 @@ export class DataSync {
     config: SyncObjectConfig,
     sourceRecords: Record<string, unknown>[],
   ): Promise<SyncObjectResult> {
+    // What the target will take. A failure to describe is not a reason to
+    // stop: the run then behaves as it did before this existed.
+    let target: { creatable: ReadonlySet<string>; references: ReadonlySet<string> } | null = null;
+    if (this.deps.describeTargetFields) {
+      try {
+        target = await this.deps.describeTargetFields(config.objectApiName);
+      } catch {
+        target = null;
+      }
+    }
+
     const mappedRecords = sourceRecords.map((record) =>
-      applyMappingsAndAddOns(record, config.fieldMappings, config.addOnFields),
+      applyMappingsAndAddOns(
+        record,
+        config.fieldMappings,
+        config.addOnFields,
+        target?.creatable ?? null,
+      ),
     );
 
     const outcomes = await this.executeOperation(
@@ -85,7 +129,92 @@ export class DataSync {
       config.externalIdField,
     );
 
-    return buildResult(config.objectApiName, config.operation, outcomes);
+    const retried = await this.retryWithoutCrossOrgReferences(
+      config,
+      mappedRecords,
+      outcomes,
+      target?.references ?? null,
+    );
+
+    return buildResult(config.objectApiName, config.operation, retried.outcomes, retried.notes);
+  }
+
+  /**
+   * Try once more, without the lookups, the rows a cross-reference refused.
+   *
+   * A lookup holds an id from the source org. Unless the two orgs share that
+   * record — which two sandboxes taken from the same production often do, and
+   * which is why this shows up on one field and not all of them — the target
+   * answers `insufficient access rights on cross-reference id` and loses the
+   * whole row over it. Run for real, that cost one account of sixteen its
+   * entire record for one custom Contact lookup.
+   *
+   * Sync has no id map to repair the lookup with: it copies fields, it does
+   * not walk a graph. So the row is written without them and the dropped
+   * fields are named in the result — the same trade Forge makes, and better
+   * than losing the row. Once, never in a loop: a second refusal is a real
+   * one.
+   */
+  private async retryWithoutCrossOrgReferences(
+    config: SyncObjectConfig,
+    records: Record<string, unknown>[],
+    outcomes: OperationOutcome[],
+    references: ReadonlySet<string> | null,
+  ): Promise<{ outcomes: OperationOutcome[]; notes: string[] }> {
+    if (!references || references.size === 0) return { outcomes, notes: [] };
+
+    const failedAt: number[] = [];
+    outcomes.forEach((outcome, index) => {
+      if (!outcome.success && outcome.errors.some((m) => isCrossReferenceFailure(m))) {
+        failedAt.push(index);
+      }
+    });
+    if (failedAt.length === 0) return { outcomes, notes: [] };
+
+    const withoutLookups: Record<string, unknown>[] = [];
+    const dropped = new Set<string>();
+    for (const index of failedAt) {
+      const record = records[index];
+      const stripped: Record<string, unknown> = {};
+      for (const key of Object.keys(record)) {
+        if (references.has(key) && record[key] !== null && record[key] !== undefined) {
+          dropped.add(key);
+          continue;
+        }
+        stripped[key] = record[key];
+      }
+      withoutLookups.push(stripped);
+    }
+    if (dropped.size === 0) return { outcomes, notes: [] };
+
+    const second = await this.executeOperation(
+      config.objectApiName,
+      config.operation,
+      withoutLookups,
+      config.batchSize,
+      config.externalIdField,
+    );
+
+    const merged = [...outcomes];
+    let recovered = 0;
+    second.forEach((outcome, position) => {
+      const at = failedAt[position];
+      if (outcome.success) {
+        merged[at] = outcome;
+        recovered++;
+      }
+    });
+    // Carried beside the outcomes, because a successful write has no error
+    // list anybody reads: the note has to reach the result on its own or the
+    // dropped field is never mentioned anywhere.
+    const notes =
+      recovered > 0
+        ? [
+            `${recovered} record(s) written without ${[...dropped].sort().join(', ')}: ` +
+              `the lookup held an id from the source org that the target does not have.`,
+          ]
+        : [];
+    return { outcomes: merged, notes };
   }
 
   private async executeOperation(
@@ -124,12 +253,25 @@ export class DataSync {
 }
 
 /**
+ * Salesforce refusing a row because a lookup points at something the target
+ * org does not have. The wording is the API's own and stays English even on a
+ * localised org; the code is matched too, for the shapes that carry it.
+ */
+function isCrossReferenceFailure(message: string): boolean {
+  return (
+    message.includes('INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY') ||
+    message.toLowerCase().includes('cross-reference id')
+  );
+}
+
+/**
  * Apply field mappings and add-on fields to a single source record.
  */
 function applyMappingsAndAddOns(
   record: Record<string, unknown>,
   mappings: FieldMapping[],
   addOns: AddOnField[],
+  creatable: ReadonlySet<string> | null,
 ): Record<string, unknown> {
   let result: Record<string, unknown>;
 
@@ -145,6 +287,9 @@ function applyMappingsAndAddOns(
     }
   }
 
+  // Add-ons are set by the person running the sync, so they are applied
+  // before the filter rather than after: an add-on naming a field the target
+  // will not take is a mistake worth surfacing, not one to hide.
   for (const addOn of addOns) {
     const fieldExists = addOn.fieldApiName in result;
     if (!fieldExists || addOn.overwriteExisting) {
@@ -152,7 +297,15 @@ function applyMappingsAndAddOns(
     }
   }
 
-  return result;
+  if (!creatable) return result;
+
+  // `attributes` is jsforce's own envelope and is never a field.
+  const filtered: Record<string, unknown> = {};
+  for (const key of Object.keys(result)) {
+    if (key === 'attributes') continue;
+    if (creatable.has(key)) filtered[key] = result[key];
+  }
+  return filtered;
 }
 
 /**
@@ -162,6 +315,7 @@ function buildResult(
   objectApiName: string,
   operation: SyncOperation,
   outcomes: OperationOutcome[],
+  notes: string[] = [],
 ): SyncObjectResult {
   let success = 0;
   let failed = 0;
@@ -184,6 +338,7 @@ function buildResult(
     failed,
     skipped: 0,
     conflictCount: 0,
-    errors,
+    // Notices last: what was refused matters more than what was recovered.
+    errors: [...errors, ...notes],
   };
 }

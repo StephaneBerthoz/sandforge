@@ -1280,7 +1280,9 @@
       "fullProductClone": "Une opportunité avec produits se clone entièrement",
       "fullProductCloneDesc": "Compte, catalogue, produits, prix et lignes, avec les montants qui en découlent. Ce chemin n'avait jamais fonctionné : le catalogue standard était copié au lieu d'être apparié, ses prix n'étaient pas repris, et les lignes s'écrivaient avant les entrées qu'elles référencent.",
       "keyboardEverywhere": "Chaque contrôle du panneau répond au clavier",
-      "keyboardEverywhereDesc": "Les conversations du panneau IA sont de vrais boutons, les contrôles du graphe n'écoutent plus la souris, et les règles d'accessibilité — qui étaient des avertissements tant que le compte descendait de 86 à zéro — sont désormais des erreurs."
+      "keyboardEverywhereDesc": "Les conversations du panneau IA sont de vrais boutons, les contrôles du graphe n'écoutent plus la souris, et les règles d'accessibilité — qui étaient des avertissements tant que le compte descendait de 86 à zéro — sont désormais des erreurs.",
+      "syncFinishes": "Un sync peut aller au bout d'un job",
+      "syncFinishesDesc": "Exécuté pour la première fois entre deux vraies orgs, Sync n'écrivait pas un seul enregistrement : il envoyait tous les champs lus, n'annonçait pas que ses lignes ressemblaient volontairement à celles déjà présentes, et un lookup absent de la cible coûtait l'enregistrement entier. Les trois sont corrigés."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
@@ -1565,6 +1567,9 @@
     "cancelEdit": "Annuler",
     "recordLimit": "Enregistrements / objet",
     "recordLimitHint": "Limite le nombre de lignes clonées par objet. Plus bas = plus rapide, plus sûr sur les grosses orgs.",
+    "objectCap": "Objets",
+    "objectCapHint": "combien d'objets la découverte peut atteindre ; la profondeur dit jusqu'où, ceci dit jusqu'à quelle largeur",
+    "objectCapDefault": "Par défaut (50)",
     "recordLimitSmart": "Smart (auto depuis preview)",
     "recordLimitAll": "Tout",
     "recordLimitOpt10": "10 / objet (échantillon)",
@@ -1605,6 +1610,7 @@
     "preview": {
       "title": "Ce qui va se passer à l'exécution",
       "truncated": "Graphe tronqué (limite de 50 nœuds atteinte)",
+      "truncatedAction": "Graphe coupé par le plafond d'objets — augmentez-le et relancez la découverte s'il manque quelque chose",
       "willClone": "Sera cloné",
       "willMap": "Sera mappé",
       "skippedExcluded": "Ignoré (exclu)",

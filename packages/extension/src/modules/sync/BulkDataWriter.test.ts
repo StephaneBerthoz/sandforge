@@ -207,8 +207,34 @@ describe('BulkDataWriter', () => {
       const outcomes = await h.writer.upsert('Account', 'External_Id__c', makeRecords(1), 200);
 
       expect(h.describe).not.toHaveBeenCalled();
-      expect(h.sobject.upsert).toHaveBeenCalledWith([{ Name: 'Acme 0' }], 'External_Id__c');
+      expect(h.sobject.upsert).toHaveBeenCalledWith(
+        [{ Name: 'Acme 0' }],
+        'External_Id__c',
+        expect.anything(),
+      );
       expect(outcomes[0].success).toBe(true);
+    });
+
+    it('tells Salesforce the rows are meant to look like the ones already there', async () => {
+      // A sync copies rows from an org into one that resembles it, which is
+      // what a duplicate rule exists to stop. Forge learnt this on a live pair
+      // of sandboxes; without it fourteen of sixteen accounts were refused on
+      // the first real run of Sync.
+      const h = createHarness();
+      h.sobject.upsert.mockResolvedValue(okResults(1));
+      h.sobject.create.mockResolvedValue(okResults(1));
+
+      await h.writer.upsert('Account', 'External_Id__c', makeRecords(1), 200);
+      await h.writer.insert('Account', makeRecords(1), 200);
+
+      const upsertOptions = h.sobject.upsert.mock.calls[0][2] as {
+        headers: Record<string, string>;
+      };
+      const insertOptions = h.sobject.create.mock.calls[0][1] as {
+        headers: Record<string, string>;
+      };
+      expect(upsertOptions.headers['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
+      expect(insertOptions.headers['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
     });
   });
 
