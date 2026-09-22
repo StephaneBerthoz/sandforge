@@ -7,6 +7,7 @@
 import type { ApiName } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { isUncopyableObject } from '@sandforge/shared';
+import { isExcludedFromCopy } from '../forge/excludedObjects.js';
 
 /** Abstraction over Salesforce describe API for testability. */
 export interface AutopilotConnection {
@@ -162,7 +163,9 @@ export class SchemaScanner {
      * deployed rather than inserted. A node that fails in wave one leaves every
      * later wave remapping foreign keys onto records that were never created.
      */
-    rootObjects = rootObjects.filter((name) => !isUncopyableObject(name));
+    rootObjects = rootObjects.filter(
+      (name) => !isUncopyableObject(name) && !isExcludedFromCopy(name),
+    );
 
     // Step 2: Describe all root objects on source
     const objectDescribes = await this.describeAll(sourceConn, rootObjects);
@@ -215,6 +218,18 @@ export class SchemaScanner {
     const newRefs = new Set<ApiName>();
     for (const desc of describes.values()) {
       for (const ref of this.extractReferences(desc)) {
+        // The same rule as the roots, and for the same reason: an object a
+        // copy cannot create is no more copyable for having been reached
+        // through a lookup than for having been asked for. Filtering only the
+        // entrance let the whole set back in through the walk —
+        // `Account.OwnerId` reaches `User`, `User.ProfileId` reaches
+        // `Profile`, and a plan asked for two objects came back with twenty,
+        // `UserLicense` first among them. The second list refuses what a copy
+        // has no business walking into at all — history, feeds, shares, a
+        // managed package's catalogue — which is how an `OpportunityHistory`
+        // reached a plan and the platform answered "entity type cannot be
+        // inserted".
+        if (isUncopyableObject(ref) || isExcludedFromCopy(ref)) continue;
         if (!visited.has(ref)) {
           newRefs.add(ref);
         }

@@ -45,6 +45,14 @@ export class RecordIdRemapper {
     let skipped = 0;
 
     for (const record of records) {
+      // A polymorphic lookup carries one edge per possible parent — `WhatId`
+      // has one for Account and one for Opportunity — and only one of them
+      // can match. Clearing on the first miss would wipe the value the other
+      // edge had just resolved, so the decision waits until every edge of the
+      // field has been tried.
+      const resolvedFields = new Set<string>();
+      const unresolvedFields = new Set<string>();
+
       for (const edge of relevantEdges) {
         const sourceId = record[edge.fieldApiName];
 
@@ -63,10 +71,25 @@ export class RecordIdRemapper {
 
         if (targetId !== undefined) {
           record[edge.fieldApiName] = targetId;
+          resolvedFields.add(edge.fieldApiName);
           remapped++;
         } else {
+          unresolvedFields.add(edge.fieldApiName);
           missing++;
         }
+      }
+
+      // Left in place, a source id is written into the target org where it
+      // means nothing: Salesforce answers `insufficient access rights on
+      // cross-reference id` and the whole record is lost over one field.
+      // Cleared, the record lands with the lookup empty — which is what Forge
+      // does with an unresolvable foreign key, and what a wave of mutually
+      // referencing objects makes unavoidable: `Account` and `Contact`
+      // reference each other, so they share a wave, so one of them is written
+      // before the other exists.
+      for (const fieldApiName of unresolvedFields) {
+        if (resolvedFields.has(fieldApiName)) continue;
+        record[fieldApiName] = null;
       }
     }
 

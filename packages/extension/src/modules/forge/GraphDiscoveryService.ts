@@ -2,7 +2,7 @@ import type { ForgeConfig, ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@s
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
-import { isForgeExcludedObject } from './excludedObjects.js';
+import { isExcludedFromCopy } from './excludedObjects.js';
 import { isRequiredLookup } from '@sandforge/shared';
 import { CONCURRENT_DESCRIBE_LIMIT } from './orgConcurrency.js';
 
@@ -259,7 +259,7 @@ export class GraphDiscoveryService {
     let skippedDueToCap = 0;
 
     const addEdge = (e: ForgeGraphEdge): void => {
-      if (isForgeExcludedObject(e.sourceObject) || isForgeExcludedObject(e.targetObject)) return;
+      if (isExcludedFromCopy(e.sourceObject) || isExcludedFromCopy(e.targetObject)) return;
       if (e.sourceObject === e.targetObject) return;
       const key = `${e.sourceObject}|${e.targetObject}`;
       const existing = edgeMap.get(key);
@@ -458,7 +458,7 @@ export class GraphDiscoveryService {
               const firstSighting = !visitedObjects.has(targetObject);
               if (
                 (firstSighting || (required && turnedAwayEarlier)) &&
-                !isForgeExcludedObject(targetObject)
+                !isExcludedFromCopy(targetObject)
               ) {
                 if (nodes.length + queue.length < nodeBudget) {
                   visitedObjects.add(targetObject);
@@ -489,7 +489,7 @@ export class GraphDiscoveryService {
             });
             if (
               !visitedObjects.has(child.childSObject) &&
-              !isForgeExcludedObject(child.childSObject)
+              !isExcludedFromCopy(child.childSObject)
             ) {
               visitedObjects.add(child.childSObject);
               if (nodes.length + queue.length < nodeBudget) {

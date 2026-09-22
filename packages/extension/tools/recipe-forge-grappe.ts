@@ -12,6 +12,7 @@
  * Default scenario: clone Case 500XX00000000001AAA from SOURCE-UAT → TARGET-DEV
  * with depth=custom=5 (matches the Forge wizard screenshot).
  */
+import { duplicateRuleHeaders } from '@sandforge/shared';
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
@@ -431,7 +432,11 @@ async function main(): Promise<void> {
         if (!conn) throw new Error(`No connection for ${orgId}`);
         const t = Date.now();
         try {
-          const results = await conn.sobject(objectName).create(records);
+          // The same waiver every other write path sends: this tool copies a
+          // record graph into an org that already resembles its source.
+          const results = await conn
+            .sobject(objectName)
+            .create(records, { headers: duplicateRuleHeaders(true) });
           const arr = Array.isArray(results) ? results : [results];
           let succ = 0;
           let fail = 0;

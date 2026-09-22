@@ -1284,7 +1284,9 @@
       "syncFinishes": "A sync can finish a job",
       "syncFinishesDesc": "Run against a real pair of orgs for the first time, Sync could not write one record: it sent every field it read, it did not say its rows were meant to resemble the ones already there, and one lookup the target did not have cost the whole record. All three are fixed.",
       "seedFills": "A seed fills an org instead of only saying it did",
-      "seedFillsDesc": "Run against a real org for the first time, Seed wrote nothing and reported a success, then filled the org with records attached to nothing. It now refuses a template that can only write nothing, stops before the children of an object it could not write, and drops a field the org does not have instead of losing the object over it."
+      "seedFillsDesc": "Run against a real org for the first time, Seed wrote nothing and reported a success, then filled the org with records attached to nothing. It now refuses a template that can only write nothing, stops before the children of an object it could not write, and drops a field the org does not have instead of losing the object over it.",
+      "autopilotCopies": "Autopilot copies what you asked for, and writes it",
+      "autopilotCopiesDesc": "A two-object request came back with twenty and wrote none of its records: it walked into users, profiles and history objects, sent every field it read, and put source ids into the target's lookups. All of it is fixed, and a gate now stops the next module forgetting the duplicate-rule waiver."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",

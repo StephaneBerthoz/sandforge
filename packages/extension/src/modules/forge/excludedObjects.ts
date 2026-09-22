@@ -1,11 +1,17 @@
 /**
- * Objects Forge neither discovers nor clones.
+ * Objects no copy discovers or writes.
  *
- * Discovery (BFS) and orphan-parent expansion used to keep separate lists
- * that had drifted both ways: expansion would fetch and insert an
+ * Forge's discovery and its orphan-parent expansion used to keep separate
+ * lists that had drifted both ways: expansion would fetch and insert an
  * `AsyncApexJob` or `CronTrigger` discovery refused to walk into, while
  * discovery counted `PermissionSet` rows expansion would never create. One
  * list keeps both stages refusing the same objects.
+ *
+ * Autopilot is the third caller. It had none of this and walked into whatever
+ * a lookup pointed at: a run asked for two objects came back with an
+ * `OpportunityHistory` in its plan and the platform answered "entity type
+ * cannot be inserted". The rule is about what a copy can carry, not about
+ * which module is asking — which is why this is no longer named for one.
  */
 
 /** Hub, system and non-queryable objects excluded by exact API name. */
@@ -76,8 +82,8 @@ const EXCLUDED_SUFFIXES: readonly string[] = [
  */
 const EXCLUDED_PREFIXES: readonly string[] = ['vlocity_'];
 
-/** Whether Forge refuses to discover or clone `objectApiName`. */
-export function isForgeExcludedObject(objectApiName: string): boolean {
+/** Whether a copy refuses to discover or write `objectApiName`. */
+export function isExcludedFromCopy(objectApiName: string): boolean {
   if (EXCLUDED_OBJECTS.has(objectApiName)) return true;
   if (EXCLUDED_PREFIXES.some((prefix) => objectApiName.startsWith(prefix))) return true;
   return EXCLUDED_SUFFIXES.some((suffix) => objectApiName.endsWith(suffix));

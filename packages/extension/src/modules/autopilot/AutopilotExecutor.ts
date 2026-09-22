@@ -112,6 +112,24 @@ export interface AutopilotExecutorDeps {
   remapper: RecordIdRemapper;
   /** Batch size for queries and inserts (default: 200) */
   batchSize?: number;
+  /**
+   * The fields the TARGET org will accept on a write, per object.
+   *
+   * Without it a run sends every field it read. `SELECT FIELDS(ALL)` returns
+   * the audit fields, the compound address fields and every formula and
+   * roll-up an object carries, and Salesforce refuses the whole record:
+   * "Unable to create/update fields: LastModifiedDate, CreatedById,
+   * BillingAddress, …". Run for real between two orgs, that was all one
+   * hundred and twenty-six records of a two-object run — every object, none
+   * written.
+   *
+   * Asked of the target and not the source, which is also what catches a
+   * field the source has and the target does not: a `Quote` was refused for
+   * "No such column" on a custom field never deployed there.
+   *
+   * Optional, so a caller that cannot describe keeps the previous behaviour.
+   */
+  describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
 }
 
 /** Result of executing a single object */
@@ -135,6 +153,33 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private pausePromise: Promise<void> | null = null;
   private pauseResolve: (() => void) | null = null;
   private skippedObjects = new Set<string>();
+  /** One describe of the target per object, kept for the run. */
+  private readonly creatableByObject = new Map<string, ReadonlySet<string> | null>();
+
+  /**
+   * What the target will take on a write, or `null` when nothing can say.
+   *
+   * A failed describe is not a reason to stop: the run then behaves as it did
+   * before this existed.
+   */
+  private async creatableFieldsOf(objectApiName: string): Promise<ReadonlySet<string> | null> {
+    if (!this.deps.describeCreateableFields) return null;
+    const cached = this.creatableByObject.get(objectApiName);
+    if (cached !== undefined) return cached;
+    try {
+      const answer = await this.deps.describeCreateableFields(objectApiName);
+      // An empty answer means the describe could not say, not that the object
+      // takes no field: filtering on it would send an empty record. An object
+      // that genuinely has no writable field cannot be written anyway, so
+      // letting the platform refuse it loses nothing and says more.
+      const usable = answer.size > 0 ? answer : null;
+      this.creatableByObject.set(objectApiName, usable);
+      return usable;
+    } catch {
+      this.creatableByObject.set(objectApiName, null);
+      return null;
+    }
+  }
 
   constructor(deps: AutopilotExecutorDeps) {
     super();
@@ -326,8 +371,22 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // 3. Remap lookup IDs
       this.deps.remapper.remapRecords(batch, edges, objectApiName);
 
-      // 4. Insert into target
-      const insertResult = await this.deps.insert(objectApiName, batch);
+      // 4. Insert into target, with the fields the target will take. `Id` and
+      //    `attributes` stay: the insert function strips them itself and
+      //    reads the source Id back for the remapper.
+      const writable = await this.creatableFieldsOf(objectApiName);
+      const payload = writable
+        ? batch.map((record) => {
+            const kept: Record<string, unknown> = {};
+            for (const key of Object.keys(record)) {
+              if (key === 'Id' || key === 'attributes' || writable.has(key)) {
+                kept[key] = record[key];
+              }
+            }
+            return kept;
+          })
+        : batch;
+      const insertResult = await this.deps.insert(objectApiName, payload);
       apiCallsUsed++;
 
       // 5. Register new ID mappings

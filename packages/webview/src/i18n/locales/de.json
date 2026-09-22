@@ -1284,7 +1284,9 @@
       "syncFinishes": "Ein Sync kann einen Job zu Ende bringen",
       "syncFinishesDesc": "Zum ersten Mal gegen zwei echte Orgs ausgeführt, schrieb Sync keinen einzigen Datensatz: Er schickte jedes gelesene Feld, sagte nicht, dass seine Zeilen den vorhandenen absichtlich gleichen, und ein im Ziel fehlender Lookup kostete den ganzen Datensatz. Alle drei sind behoben.",
       "seedFills": "Ein Seed füllt die Org, statt es nur zu behaupten",
-      "seedFillsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, schrieb Seed nichts und meldete Erfolg, und füllte die Org dann mit Datensätzen, die an nichts hängen. Jetzt lehnt er eine Vorlage ab, die nichts schreiben kann, hält vor den Kindern eines nicht geschriebenen Objekts an und lässt ein fehlendes Feld weg, statt das Objekt daran zu verlieren."
+      "seedFillsDesc": "Zum ersten Mal gegen eine echte Org ausgeführt, schrieb Seed nichts und meldete Erfolg, und füllte die Org dann mit Datensätzen, die an nichts hängen. Jetzt lehnt er eine Vorlage ab, die nichts schreiben kann, hält vor den Kindern eines nicht geschriebenen Objekts an und lässt ein fehlendes Feld weg, statt das Objekt daran zu verlieren.",
+      "autopilotCopies": "Autopilot kopiert, worum Sie gebeten haben — und schreibt es",
+      "autopilotCopiesDesc": "Eine Anfrage über zwei Objekte lieferte zwanzig und schrieb keinen Datensatz: Sie lief in Benutzer, Profile und Verlaufsobjekte, schickte jedes gelesene Feld und setzte Quell-IDs in die Lookups des Ziels. Alles behoben, und ein Gate hält das nächste Modul davon ab, die Dublettenregel-Freigabe zu vergessen."
     },
     "heroTitle": "Füllen Sie Ihre Sandbox aus einem echten Datensatz",
     "heroDesc": "Zeigen Sie SandForge auf einen Datensatz in einer beliebigen Org — der gesamte Beziehungsgraph wird in Ihre Sandbox kloniert. Nichts zu kopieren? Erzeugen oder wiederholen Sie stattdessen ein Dataset.",

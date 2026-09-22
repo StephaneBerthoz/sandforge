@@ -5,6 +5,62 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.0] - 2026-09-22
+
+Autopilot had never been run against a real pair of orgs. Run for the first
+time, a two-object request came back with a twenty-object plan and wrote none
+of its hundred and twenty-six records. Five defects, and a gate so the fifth
+kind stops recurring.
+
+### Added
+
+- **`sandforge-autopilot`, a headless Autopilot runner.** The fourth of these.
+  The first three found eighteen defects between them, every one against a real
+  org and none against any gate.
+- **A gate on the duplicate-rule waiver.** Every path that creates records in
+  an org now has to send the header, and the check counts the call sites rather
+  than trusting the next author to remember. Four modules had learnt it one at
+  a time — Forge in 1.25.3, Sync in 1.28.0, Seed in 1.29.0, Autopilot here —
+  and the gate found a fifth site on its first run, in a tool nobody had
+  thought of.
+
+### Fixed
+
+- **A plan carries the objects that were asked for, not everything a lookup
+  points at.** The rule that keeps `User`, `Profile`, `UserRole` and the rest
+  out of a copy was applied to the objects a run names and not to the ones its
+  walk discovers, so the whole set came back in through the side door:
+  `Account.OwnerId` reaches `User`, `User.ProfileId` reaches `Profile`, and a
+  request for two objects produced a plan of twenty with `UserLicense` in the
+  first wave.
+- **A plan no longer walks into history, feeds and shares.** Forge has refused
+  those since it shipped; Autopilot had no such list and put an
+  `OpportunityHistory` in its plan, which the platform answered with "entity
+  type cannot be inserted". The list is now named for what it is rather than
+  for the module that first needed it.
+- **Autopilot sends the fields the target will take.** It read every field and
+  stripped only the record id, so every object was refused — "Unable to
+  create/update fields: LastModifiedDate, CreatedById, BillingAddress, …". The
+  payload is now settled against a describe of the target, which also catches
+  a field the source has and the target does not.
+- **A lookup that cannot be resolved is cleared, not written as a source id.**
+  Objects that reference each other share a wave and a wave runs in parallel,
+  so one of them is always written before the other exists: `Account` and
+  `Contact` do exactly that. The unresolved id was sent as it stood, the target
+  answered `insufficient access rights on cross-reference id`, and the record
+  was lost over the one field. A polymorphic lookup is left alone until every
+  one of its edges has been tried, so clearing one cannot undo what another
+  resolved.
+- **Autopilot waives duplicate rules like every other write path.** Its
+  contacts were refused with "You're creating a duplicate record".
+
+### Changed
+
+- **An empty describe is read as "cannot say", not as "no field is
+  writable".** The filters above take a describe of the target; answered with
+  nothing, they would have stripped every field and written a blank row. Sync
+  had the same opening and is closed with it.
+
 ## [1.29.0] - 2026-09-22
 
 Seed had never been run against a real org either. Run for the first time, it

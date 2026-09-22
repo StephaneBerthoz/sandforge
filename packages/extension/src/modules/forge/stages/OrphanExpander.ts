@@ -24,7 +24,7 @@ import type { ForgeGraphNode } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
 import { logger } from '../../../logger.js';
-import { isForgeExcludedObject } from '../excludedObjects.js';
+import { isExcludedFromCopy } from '../excludedObjects.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
 import {
@@ -116,7 +116,7 @@ export class OrphanExpander {
           // history/feed/share/changeevent suffixes) can't be cloned in a
           // meaningful way and would just burn API calls + add noise to the
           // error report. Same list discovery uses, so the two cannot drift.
-          if (isForgeExcludedObject(target)) continue;
+          if (isExcludedFromCopy(target)) continue;
           const key = `${target}::${value}`;
           if (!requiredOrphans.has(key)) {
             requiredOrphans.set(key, { object: target, sourceId: value });

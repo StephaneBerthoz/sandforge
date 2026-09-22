@@ -207,7 +207,7 @@ describe('autopilotComposition', () => {
     expect(source.query).toHaveBeenCalledWith('SELECT FIELDS(ALL) FROM Account LIMIT 200 OFFSET 0');
     // The insert path strips the source Id and jsforce attributes before create.
     expect(target.create).toHaveBeenCalledTimes(1);
-    expect(target.create).toHaveBeenCalledWith([{ Name: 'Acme' }]);
+    expect(target.create).toHaveBeenCalledWith([{ Name: 'Acme' }], expect.anything());
   });
 
   it('uses the connections of the latest scan per execution ("latest wins")', async () => {
@@ -226,7 +226,7 @@ describe('autopilotComposition', () => {
 
     // The second execution ran against the second org pair, the first is untouched.
     expect(secondTarget.create).toHaveBeenCalledTimes(1);
-    expect(secondTarget.create).toHaveBeenCalledWith([{ Name: 'Second' }]);
+    expect(secondTarget.create).toHaveBeenCalledWith([{ Name: 'Second' }], expect.anything());
     expect(firstTarget.create).toHaveBeenCalledTimes(1);
   });
 });

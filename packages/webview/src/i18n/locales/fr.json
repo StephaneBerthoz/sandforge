@@ -1284,7 +1284,9 @@
       "syncFinishes": "Un sync peut aller au bout d'un job",
       "syncFinishesDesc": "Exécuté pour la première fois entre deux vraies orgs, Sync n'écrivait pas un seul enregistrement : il envoyait tous les champs lus, n'annonçait pas que ses lignes ressemblaient volontairement à celles déjà présentes, et un lookup absent de la cible coûtait l'enregistrement entier. Les trois sont corrigés.",
       "seedFills": "Un seed remplit l'org au lieu de seulement le prétendre",
-      "seedFillsDesc": "Exécuté pour la première fois contre une vraie org, Seed n'écrivait rien et annonçait une réussite, puis remplissait l'org d'enregistrements rattachés à rien. Il refuse désormais un modèle qui ne peut rien écrire, s'arrête avant les enfants d'un objet qu'il n'a pas pu écrire, et retire un champ absent de l'org plutôt que d'y perdre l'objet entier."
+      "seedFillsDesc": "Exécuté pour la première fois contre une vraie org, Seed n'écrivait rien et annonçait une réussite, puis remplissait l'org d'enregistrements rattachés à rien. Il refuse désormais un modèle qui ne peut rien écrire, s'arrête avant les enfants d'un objet qu'il n'a pas pu écrire, et retire un champ absent de l'org plutôt que d'y perdre l'objet entier.",
+      "autopilotCopies": "Autopilot copie ce que vous avez demandé, et l'écrit",
+      "autopilotCopiesDesc": "Une demande de deux objets en rendait vingt et n'écrivait aucun enregistrement : il entrait dans les utilisateurs, les profils et les objets d'historique, envoyait tous les champs lus, et posait des identifiants source dans les lookups de la cible. Tout est corrigé, et une porte empêche désormais le prochain module d'oublier la dérogation aux règles de doublon."
     },
     "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
     "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",

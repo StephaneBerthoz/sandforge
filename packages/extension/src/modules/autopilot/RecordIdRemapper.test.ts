@@ -80,7 +80,9 @@ describe('RecordIdRemapper', () => {
     expect(result.remapped).toBe(0);
     expect(result.missing).toBe(1);
     expect(result.skipped).toBe(0);
-    expect(records[0]['AccountId']).toBe('001xx9999');
+    // Cleared, not left as a source id: written to the target that id means
+    // nothing and Salesforce loses the whole record over the one field.
+    expect(records[0]['AccountId']).toBeNull();
   });
 
   it('should skip null and empty field values', () => {
@@ -273,5 +275,70 @@ describe('RecordIdRemapper', () => {
     expect(records[0]['ReportsToId']).toBe('003yy0010');
     expect(records[1]['AccountId']).toBe('001yy0001');
     expect(records[1]['ReportsToId']).toBeNull();
+  });
+});
+
+describe('RecordIdRemapper — a lookup that cannot be resolved', () => {
+  it('keeps the value a sibling edge resolved on a polymorphic field', () => {
+    // WhatId carries one edge per possible parent and only one can match.
+    // Clearing on the first miss wiped what the other had just resolved.
+    const remapper = new RecordIdRemapper();
+    remapper.registerMappings('Opportunity', [['006xx0001', '006yy0001']]);
+
+    const edges: AutopilotEdge[] = [
+      {
+        from: 'Account',
+        to: 'Task',
+        fieldApiName: 'WhatId',
+        relationshipType: 'lookup',
+        required: false,
+      },
+      {
+        from: 'Opportunity',
+        to: 'Task',
+        fieldApiName: 'WhatId',
+        relationshipType: 'lookup',
+        required: false,
+      },
+    ];
+    const records: Record<string, unknown>[] = [{ Id: '00Txx1', WhatId: '006xx0001' }];
+
+    remapper.remapRecords(records, edges, 'Task');
+
+    expect(records[0]['WhatId']).toBe('006yy0001');
+  });
+
+  it('clears a polymorphic field no edge could resolve', () => {
+    const remapper = new RecordIdRemapper();
+    const edges: AutopilotEdge[] = [
+      {
+        from: 'Account',
+        to: 'Task',
+        fieldApiName: 'WhatId',
+        relationshipType: 'lookup',
+        required: false,
+      },
+      {
+        from: 'Opportunity',
+        to: 'Task',
+        fieldApiName: 'WhatId',
+        relationshipType: 'lookup',
+        required: false,
+      },
+    ];
+    const records: Record<string, unknown>[] = [{ Id: '00Txx1', WhatId: '006xx9999' }];
+
+    remapper.remapRecords(records, edges, 'Task');
+
+    expect(records[0]['WhatId']).toBeNull();
+  });
+
+  it('leaves a field it was never asked about', () => {
+    const remapper = new RecordIdRemapper();
+    const records: Record<string, unknown>[] = [{ Id: '003x', AccountId: '001SOURCE' }];
+
+    remapper.remapRecords(records, [], 'Contact');
+
+    expect(records[0]['AccountId']).toBe('001SOURCE');
   });
 });

@@ -1284,7 +1284,9 @@
       "syncFinishes": "Un sync puede terminar un trabajo",
       "syncFinishesDesc": "Ejecutado por primera vez entre dos orgs reales, Sync no escribía ni un registro: enviaba todos los campos leídos, no avisaba de que sus filas se parecen a propósito a las ya existentes, y un lookup ausente en el destino costaba el registro entero. Los tres están corregidos.",
       "seedFills": "Un seed llena la org en vez de solo decirlo",
-      "seedFillsDesc": "Ejecutado por primera vez contra una org real, Seed no escribía nada y anunciaba éxito, y luego llenaba la org de registros colgados de nada. Ahora rechaza una plantilla que no puede escribir nada, se detiene antes de los hijos de un objeto que no pudo escribir, y descarta un campo que la org no tiene en vez de perder el objeto entero."
+      "seedFillsDesc": "Ejecutado por primera vez contra una org real, Seed no escribía nada y anunciaba éxito, y luego llenaba la org de registros colgados de nada. Ahora rechaza una plantilla que no puede escribir nada, se detiene antes de los hijos de un objeto que no pudo escribir, y descarta un campo que la org no tiene en vez de perder el objeto entero.",
+      "autopilotCopies": "Autopilot copia lo que pediste, y lo escribe",
+      "autopilotCopiesDesc": "Una petición de dos objetos devolvía veinte y no escribía ni un registro: entraba en usuarios, perfiles y objetos de historial, enviaba todos los campos leídos y ponía ids de origen en las búsquedas del destino. Todo corregido, y ahora una verja impide que el siguiente módulo olvide la exención de reglas de duplicados."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

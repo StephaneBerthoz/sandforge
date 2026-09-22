@@ -106,7 +106,11 @@ export class DataSync {
     let target: { creatable: ReadonlySet<string>; references: ReadonlySet<string> } | null = null;
     if (this.deps.describeTargetFields) {
       try {
-        target = await this.deps.describeTargetFields(config.objectApiName);
+        const answer = await this.deps.describeTargetFields(config.objectApiName);
+        // An empty creatable set means the describe could not say, not that
+        // the object takes no field: filtering on it would send an empty
+        // record to every row.
+        target = answer.creatable.size > 0 ? answer : null;
       } catch {
         target = null;
       }

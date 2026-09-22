@@ -566,3 +566,82 @@ describe('AutopilotExecutor', () => {
     expect(completedEvents).toEqual([]);
   });
 });
+
+describe('AutopilotExecutor — what the target will take', () => {
+  it('sends only the fields the target accepts', async () => {
+    // `SELECT FIELDS(ALL)` returns the audit fields, the compound address
+    // fields and every formula an object carries. Sent, Salesforce refuses
+    // the whole record — which was all 126 records of a two-object run.
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set(['Name']),
+    });
+    const executor = new AutopilotExecutor(deps);
+    vi.mocked(deps.query).mockResolvedValueOnce([
+      { Id: 'src1', Name: 'Acme', CreatedDate: '2026-01-01', BillingAddress: { city: 'Lyon' } },
+    ]);
+    vi.mocked(deps.insert).mockResolvedValue({
+      successIds: ['tgt1'],
+      sourceIds: ['src1'],
+      errors: [],
+    });
+
+    await executor.execute(
+      makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
+      [],
+      [],
+      new Map([['Account', 1]]),
+    );
+
+    // `Id` survives the filter: the insert function strips it itself and
+    // reads it back for the remapper.
+    expect(Object.keys(vi.mocked(deps.insert).mock.calls[0][1][0]).sort()).toEqual(['Id', 'Name']);
+  });
+
+  it('sends everything when the describe answers with nothing', async () => {
+    // An empty set means the describe could not say, not that the object
+    // takes no field — filtering on it would write a blank row.
+    const deps = makeDeps({
+      describeCreateableFields: async () => new Set<string>(),
+    });
+    const executor = new AutopilotExecutor(deps);
+    vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'src1', Name: 'Acme' }]);
+    vi.mocked(deps.insert).mockResolvedValue({
+      successIds: ['tgt1'],
+      sourceIds: ['src1'],
+      errors: [],
+    });
+
+    await executor.execute(
+      makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
+      [],
+      [],
+      new Map([['Account', 1]]),
+    );
+
+    expect(Object.keys(vi.mocked(deps.insert).mock.calls[0][1][0]).sort()).toEqual(['Id', 'Name']);
+  });
+
+  it('sends everything when the describe fails', async () => {
+    const deps = makeDeps({
+      describeCreateableFields: async () => {
+        throw new Error('no describe today');
+      },
+    });
+    const executor = new AutopilotExecutor(deps);
+    vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'src1', Name: 'Acme' }]);
+    vi.mocked(deps.insert).mockResolvedValue({
+      successIds: ['tgt1'],
+      sourceIds: ['src1'],
+      errors: [],
+    });
+
+    const result = await executor.execute(
+      makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
+      [],
+      [],
+      new Map([['Account', 1]]),
+    );
+
+    expect(result.totalSuccess).toBe(1);
+  });
+});

@@ -1,5 +1,5 @@
 import type { Connection } from 'jsforce';
-import { sanitizeSoqlObjectName } from '@sandforge/shared';
+import { duplicateRuleHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
 import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
@@ -94,6 +94,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           }
         }
 
+        const creatableByObject = new Map<string, ReadonlySet<string>>();
         const anonymizer = new SmartAnonymizer();
 
         const orchestrator = new AutopilotOrchestrator({
@@ -134,7 +135,12 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                   delete copy['attributes'];
                   return copy;
                 });
-                const results = await target.sobject(safeObj).create(cleaned);
+                // A copy writes rows that look like rows the target has,
+                // which is what a duplicate rule exists to stop. The fourth
+                // module to need this header; see `duplicate-rules.ts`.
+                const results = await target
+                  .sobject(safeObj)
+                  .create(cleaned, { headers: duplicateRuleHeaders(true) });
                 const arr = Array.isArray(results) ? results : [results];
                 const successIds: string[] = [];
                 const sourceIds: string[] = [];
@@ -158,6 +164,22 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               // a single run — a shared instance would remap lookups to IDs
               // inserted by a previous execution.
               remapper: new RecordIdRemapper(),
+              // What the target will take. Without it a run sends every field
+              // it read and the platform refuses every record — see
+              // `describeCreateableFields`. The cache is per composition, so
+              // successive runs against the same org describe once.
+              describeCreateableFields: async (objectApiName: string) => {
+                const cached = creatableByObject.get(objectApiName);
+                if (cached) return cached;
+                const described = await target.describe(objectApiName);
+                const names = new Set(
+                  (described.fields as Array<{ name: string; createable?: boolean }>)
+                    .filter((f) => f.createable === true)
+                    .map((f) => f.name),
+                );
+                creatableByObject.set(objectApiName, names);
+                return names;
+              },
             });
           },
           grappeAdapter: new AutopilotGrappeAdapter(),
