@@ -336,7 +336,9 @@ function orphanedCallbacks(files: readonly SourceFile[]): string[] {
   return orphaned;
 }
 
-describe('emitted channels (emission-side anti-drift)', () => {
+// These read every source file of the extension; on a loaded machine the
+// first read of the tree alone ran past the default five seconds.
+describe('emitted channels (emission-side anti-drift)', { timeout: 30_000 }, () => {
   it('extracts a non-trivial number of emitted channels (regex sanity guard)', () => {
     // 178 literals at introduction. If the emission helpers are renamed or
     // the idioms change, this fails loudly instead of silently passing with
@@ -920,271 +922,275 @@ function fixtureSubscriber(
   };
 }
 
-describe('emitted channels (driver-side: a subscription nothing starts)', () => {
-  it.each<[string, SourceFile[]]>([
-    [
-      'the HEAD shape: declared, then constructed and subscribed, never started (M1)',
+describe(
+  'emitted channels (driver-side: a subscription nothing starts)',
+  { timeout: 30_000 },
+  () => {
+    it.each<[string, SourceFile[]]>([
       [
-        FIXTURE_TRACKER,
-        fixtureSubscriber(
-          '',
-          'let tracker: FixtureTracker | undefined;\ntracker = new FixtureTracker();',
-        ),
-      ],
-    ],
-    [
-      'a driver call that only exists in a comment (M2)',
-      [FIXTURE_TRACKER, fixtureSubscriber("// TODO wire: tracker.startTicking('exec-1');")],
-    ],
-    [
-      'a driver call that only exists in a string',
-      [FIXTURE_TRACKER, fixtureSubscriber("log('call tracker.startTicking(id) once wired');")],
-    ],
-    [
-      'a typed const declaration (M3)',
-      [
-        FIXTURE_TRACKER,
-        fixtureSubscriber('', 'const tracker: FixtureTracker = new FixtureTracker();'),
-      ],
-    ],
-    [
-      'a union-typed let declaration (M3c)',
-      [
-        FIXTURE_TRACKER,
-        fixtureSubscriber('', 'let tracker: FixtureTracker | undefined = new FixtureTracker();'),
-      ],
-    ],
-    [
-      'the driver name called on an unrelated object in another file (M5)',
-      [
-        FIXTURE_TRACKER,
-        fixtureSubscriber(''),
-        {
-          file: 'core/engine/Unrelated.ts',
-          src: [
-            'export function perf(x: { startTicking(id: string): void }): void {',
-            "  x.startTicking('perf');",
-            '}',
+        'the HEAD shape: declared, then constructed and subscribed, never started (M1)',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber(
             '',
-          ].join('\n'),
-        },
+            'let tracker: FixtureTracker | undefined;\ntracker = new FixtureTracker();',
+          ),
+        ],
       ],
-    ],
-    [
-      'the driver called on a same-named variable in another scope',
       [
-        FIXTURE_TRACKER,
-        fixtureSubscriber(
-          '',
-          undefined,
-          [
-            '  other(): void {',
-            '    const tracker = new FixtureTracker();',
-            "    tracker.startTicking('other');",
-            '  }',
-          ].join('\n'),
-        ),
+        'a driver call that only exists in a comment (M2)',
+        [FIXTURE_TRACKER, fixtureSubscriber("// TODO wire: tracker.startTicking('exec-1');")],
       ],
-    ],
-    ['a generic driver method (M6)', [GENERIC_TRACKER, fixtureSubscriber('')]],
-    ['a class that declares no driver at all', [SINK_TRACKER, fixtureSubscriber('')]],
-    [
-      'an emitting callback passed by reference',
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/FixtureHandler.ts',
-          src: [
-            'export class FixtureHandler {',
-            '  run(): void {',
-            '    const tracker = new FixtureTracker();',
-            '    tracker.onTick(this.forward);',
-            '  }',
-            '  private forward(progress: number): void {',
-            "    this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
-            '  }',
-            '}',
+        'a driver call that only exists in a string',
+        [FIXTURE_TRACKER, fixtureSubscriber("log('call tracker.startTicking(id) once wired');")],
+      ],
+      [
+        'a typed const declaration (M3)',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber('', 'const tracker: FixtureTracker = new FixtureTracker();'),
+        ],
+      ],
+      [
+        'a union-typed let declaration (M3c)',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber('', 'let tracker: FixtureTracker | undefined = new FixtureTracker();'),
+        ],
+      ],
+      [
+        'the driver name called on an unrelated object in another file (M5)',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber(''),
+          {
+            file: 'core/engine/Unrelated.ts',
+            src: [
+              'export function perf(x: { startTicking(id: string): void }): void {',
+              "  x.startTicking('perf');",
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
+      ],
+      [
+        'the driver called on a same-named variable in another scope',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber(
             '',
-          ].join('\n'),
-        },
+            undefined,
+            [
+              '  other(): void {',
+              '    const tracker = new FixtureTracker();',
+              "    tracker.startTicking('other');",
+              '  }',
+            ].join('\n'),
+          ),
+        ],
       ],
-    ],
-    [
-      'an inline callback that emits through a chain of helper methods',
+      ['a generic driver method (M6)', [GENERIC_TRACKER, fixtureSubscriber('')]],
+      ['a class that declares no driver at all', [SINK_TRACKER, fixtureSubscriber('')]],
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/FixtureHandler.ts',
-          src: [
-            'export class FixtureHandler {',
-            '  run(): void {',
-            '    const tracker = new FixtureTracker();',
-            '    tracker.onTick((progress) => this.forward(progress));',
-            '  }',
-            '  private forward(progress: number): void {',
-            '    this.relay(progress);',
-            '  }',
-            '  private relay(progress: number): void {',
-            "    this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
-            '  }',
-            '}',
-            '',
-          ].join('\n'),
-        },
+        'an emitting callback passed by reference',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/FixtureHandler.ts',
+            src: [
+              'export class FixtureHandler {',
+              '  run(): void {',
+              '    const tracker = new FixtureTracker();',
+              '    tracker.onTick(this.forward);',
+              '  }',
+              '  private forward(progress: number): void {',
+              "    this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
       ],
-    ],
-    [
-      'an inline callback that emits through a function declared in scope',
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/FixtureHandler.ts',
-          src: [
-            'function relay(broker: Broker, progress: number): void {',
-            "  broker.postToWebview({ type: 'fixture:progress', payload: progress });",
-            '}',
-            'export class FixtureHandler {',
-            '  run(): void {',
-            '    const tracker = new FixtureTracker();',
-            '    tracker.onTick((progress) => relay(this.deps.broker, progress));',
-            '  }',
-            '}',
-            '',
-          ].join('\n'),
-        },
+        'an inline callback that emits through a chain of helper methods',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/FixtureHandler.ts',
+            src: [
+              'export class FixtureHandler {',
+              '  run(): void {',
+              '    const tracker = new FixtureTracker();',
+              '    tracker.onTick((progress) => this.forward(progress));',
+              '  }',
+              '  private forward(progress: number): void {',
+              '    this.relay(progress);',
+              '  }',
+              '  private relay(progress: number): void {',
+              "    this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
       ],
-    ],
-    [
-      'a driver call that only runs inside the callback it would have to fire',
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/FixtureHandler.ts',
-          src: [
-            'export class FixtureHandler {',
-            '  run(): void {',
-            '    const tracker = new FixtureTracker();',
-            '    tracker.onTick((progress) => {',
-            "      tracker.startTicking('again');",
-            "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
-            '    });',
-            '  }',
-            '}',
-            '',
-          ].join('\n'),
-        },
+        'an inline callback that emits through a function declared in scope',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/FixtureHandler.ts',
+            src: [
+              'function relay(broker: Broker, progress: number): void {',
+              "  broker.postToWebview({ type: 'fixture:progress', payload: progress });",
+              '}',
+              'export class FixtureHandler {',
+              '  run(): void {',
+              '    const tracker = new FixtureTracker();',
+              '    tracker.onTick((progress) => relay(this.deps.broker, progress));',
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
       ],
-    ],
-  ])('reports %s', (_label, files) => {
-    const dead = findDeadEmitters(files);
-    expect(dead).toHaveLength(1);
-    expect(dead[0]).toContain('fixture:progress');
-  });
+      [
+        'a driver call that only runs inside the callback it would have to fire',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/FixtureHandler.ts',
+            src: [
+              'export class FixtureHandler {',
+              '  run(): void {',
+              '    const tracker = new FixtureTracker();',
+              '    tracker.onTick((progress) => {',
+              "      tracker.startTicking('again');",
+              "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: progress });",
+              '    });',
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
+      ],
+    ])('reports %s', (_label, files) => {
+      const dead = findDeadEmitters(files);
+      expect(dead).toHaveLength(1);
+      expect(dead[0]).toContain('fixture:progress');
+    });
 
-  it.each<[string, SourceFile[]]>([
-    [
-      'the driver called on the instance',
-      [FIXTURE_TRACKER, fixtureSubscriber("tracker.startTicking('exec-1');")],
-    ],
-    [
-      'the driver called through optional chaining on a typed declaration',
+    it.each<[string, SourceFile[]]>([
       [
-        FIXTURE_TRACKER,
-        fixtureSubscriber(
-          "tracker?.startTicking('exec-1');",
-          'let tracker: FixtureTracker | undefined = new FixtureTracker();',
-        ),
+        'the driver called on the instance',
+        [FIXTURE_TRACKER, fixtureSubscriber("tracker.startTicking('exec-1');")],
       ],
-    ],
-    [
-      'a generic driver actually called',
-      [GENERIC_TRACKER, fixtureSubscriber("tracker.startTicking('exec-1', []);")],
-    ],
-    [
-      'a class field built in the constructor and driven from another method',
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/FieldHandler.ts',
-          src: [
-            'export class FieldHandler {',
-            '  private readonly tracker: FixtureTracker;',
-            '  constructor() {',
-            '    this.tracker = new FixtureTracker();',
-            '    this.tracker.onTick((n) => {',
-            "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: n });",
-            '    });',
-            '  }',
-            '  start(): void {',
-            "    this.tracker.startTicking('exec-1');",
-            '  }',
-            '}',
-            '',
-          ].join('\n'),
-        },
+        'the driver called through optional chaining on a typed declaration',
+        [
+          FIXTURE_TRACKER,
+          fixtureSubscriber(
+            "tracker?.startTicking('exec-1');",
+            'let tracker: FixtureTracker | undefined = new FixtureTracker();',
+          ),
+        ],
       ],
-    ],
-    [
-      'the driver called from another callback in the same scope',
-      [FIXTURE_TRACKER, fixtureSubscriber("setTimeout(() => tracker.startTicking('later'), 0);")],
-    ],
-  ])('accepts %s', (_label, files) => {
-    expect(findDeadEmitters(files)).toEqual([]);
-  });
-
-  it.each<[string, SourceFile[], string]>([
-    [
-      'a receiver that is not constructed in its scope',
       [
-        FIXTURE_TRACKER,
-        {
-          file: 'bridge/InjectedHandler.ts',
-          src: [
-            'export class InjectedHandler {',
-            '  run(): void {',
-            '    this.deps.tracker.onTick((n) => {',
-            "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: n });",
-            '    });',
-            '  }',
-            '}',
-            '',
-          ].join('\n'),
-        },
+        'a generic driver actually called',
+        [GENERIC_TRACKER, fixtureSubscriber("tracker.startTicking('exec-1', []);")],
       ],
-      'bridge/InjectedHandler.ts: this.deps.tracker.onTick',
-    ],
-    [
-      'an instance of a class the scan does not declare',
-      [fixtureSubscriber('', 'const tracker = new FixtureTracker();')],
-      'bridge/FixtureHandler.ts: tracker.onTick',
-    ],
-    [
-      'an instance of a class declared twice',
       [
-        FIXTURE_TRACKER,
-        { file: 'legacy/FixtureTracker.ts', src: FIXTURE_TRACKER.src },
-        fixtureSubscriber(''),
+        'a class field built in the constructor and driven from another method',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/FieldHandler.ts',
+            src: [
+              'export class FieldHandler {',
+              '  private readonly tracker: FixtureTracker;',
+              '  constructor() {',
+              '    this.tracker = new FixtureTracker();',
+              '    this.tracker.onTick((n) => {',
+              "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: n });",
+              '    });',
+              '  }',
+              '  start(): void {',
+              "    this.tracker.startTicking('exec-1');",
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
       ],
-      'bridge/FixtureHandler.ts: tracker.onTick',
-    ],
-  ])('lists as unverifiable, never skips, %s', (_label, files, site) => {
-    const audit = auditSubscriptions(files);
-    expect(audit.dead).toEqual([]);
-    expect(audit.unverifiable.map((u) => u.site)).toEqual([site]);
-  });
+      [
+        'the driver called from another callback in the same scope',
+        [FIXTURE_TRACKER, fixtureSubscriber("setTimeout(() => tracker.startTicking('later'), 0);")],
+      ],
+    ])('accepts %s', (_label, files) => {
+      expect(findDeadEmitters(files)).toEqual([]);
+    });
 
-  it('no extension channel is emitted from a subscription nothing ever starts', () => {
-    expect(auditSubscriptions(extensionFiles()).dead).toEqual([]);
-  });
+    it.each<[string, SourceFile[], string]>([
+      [
+        'a receiver that is not constructed in its scope',
+        [
+          FIXTURE_TRACKER,
+          {
+            file: 'bridge/InjectedHandler.ts',
+            src: [
+              'export class InjectedHandler {',
+              '  run(): void {',
+              '    this.deps.tracker.onTick((n) => {',
+              "      this.deps.broker.postToWebview({ type: 'fixture:progress', payload: n });",
+              '    });',
+              '  }',
+              '}',
+              '',
+            ].join('\n'),
+          },
+        ],
+        'bridge/InjectedHandler.ts: this.deps.tracker.onTick',
+      ],
+      [
+        'an instance of a class the scan does not declare',
+        [fixtureSubscriber('', 'const tracker = new FixtureTracker();')],
+        'bridge/FixtureHandler.ts: tracker.onTick',
+      ],
+      [
+        'an instance of a class declared twice',
+        [
+          FIXTURE_TRACKER,
+          { file: 'legacy/FixtureTracker.ts', src: FIXTURE_TRACKER.src },
+          fixtureSubscriber(''),
+        ],
+        'bridge/FixtureHandler.ts: tracker.onTick',
+      ],
+    ])('lists as unverifiable, never skips, %s', (_label, files, site) => {
+      const audit = auditSubscriptions(files);
+      expect(audit.dead).toEqual([]);
+      expect(audit.unverifiable.map((u) => u.site)).toEqual([site]);
+    });
 
-  it('every emitting subscription it cannot bind is listed with a reason, and none is stale', () => {
-    const seen = auditSubscriptions(extensionFiles()).unverifiable.map((u) => u.site);
-    const listed = UNVERIFIABLE_SUBSCRIPTIONS.map((u) => u.site);
-    expect({ unlisted: seen.filter((s) => !listed.includes(s)) }).toEqual({ unlisted: [] });
-    expect({ stale: listed.filter((s) => !seen.includes(s)) }).toEqual({ stale: [] });
-  });
+    it('no extension channel is emitted from a subscription nothing ever starts', () => {
+      expect(auditSubscriptions(extensionFiles()).dead).toEqual([]);
+    });
 
-  it('reads real class declarations (sanity: OfflineManager drivers are seen)', () => {
-    expect(classDrivers(extensionFiles()).get('OfflineManager')?.[0]).toContain('startProbing');
-  });
-});
+    it('every emitting subscription it cannot bind is listed with a reason, and none is stale', () => {
+      const seen = auditSubscriptions(extensionFiles()).unverifiable.map((u) => u.site);
+      const listed = UNVERIFIABLE_SUBSCRIPTIONS.map((u) => u.site);
+      expect({ unlisted: seen.filter((s) => !listed.includes(s)) }).toEqual({ unlisted: [] });
+      expect({ stale: listed.filter((s) => !seen.includes(s)) }).toEqual({ stale: [] });
+    });
+
+    it('reads real class declarations (sanity: OfflineManager drivers are seen)', () => {
+      expect(classDrivers(extensionFiles()).get('OfflineManager')?.[0]).toContain('startProbing');
+    });
+  },
+);

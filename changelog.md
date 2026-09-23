@@ -5,6 +5,71 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.0] - 2026-09-23
+
+Six screens said "coming soon" in 1.33.0. Five of them now do what they
+said: the audit trail and the lineage in Reports, the Quality tab of DataOps,
+relations between the objects Seed generates, the scheduler agenda and
+anonymization templates of your own. Pipelines run steps that back up,
+compare, check and notify. And every seed the wizard offers can start: a run
+of two to four objects was refused, every time.
+
+### Added
+
+- **The audit trail and the lineage.** Every run that writes to an org —
+  Forge, Sync, Seed, CSV import, clone, Autopilot, DataOps restore and
+  masking, Frozen Dataset loads — is recorded once: its outcome, the
+  Production Guard's decision and its counts per object, never a record id, a
+  field value or an error text. The runs the guard stopped are recorded too.
+  Each run also keeps where its data came from and went, per object. Reports
+  reads both, with filters, paging and a run picker.
+- **DataOps quality.** A read-only scan of up to ten objects: how often each
+  field is filled, required fields left empty, duplicates by a key you pick,
+  records not modified for N days. Every figure is an aggregate count the org
+  makes, never a record read one by one, and a bound the org enforces is
+  named in the result.
+- **Seed relations.** For a child object and one of its lookups: the parents
+  come from this run or from records already in the org, and the children are
+  spread per parent, over a range or by a ratio. Parents are written first and
+  the lookups filled from the ids they got. `sandforge-seed` takes
+  `--relation`.
+- **Pipeline steps that run.** Backup, Compare, Pre-check and Notification
+  run through the code their module pages use. Steps that write to an org
+  stay refused: a pipeline runs with nobody there to confirm. Each step's
+  configuration is checked before the run starts, the execution view follows
+  each step, Cancel stops a run, and the history lists each step with its
+  result.
+- **A scheduler agenda.** The Scheduler tab lists the sync schedules by the
+  day each next runs, with the actions of the Sync tab, and keeps them
+  current.
+- **Anonymization templates of your own**, saved from the rules on screen and
+  applied like the shipped ones.
+- **Compare can leave out managed packages** (`--exclude-managed` in the
+  CLI), and says when nothing differs.
+
+### Fixed
+
+- **Every seed the wizard offers can start.** A run of two to four objects
+  skipped the step where the fields were described and went out with no field
+  rules; the extension refused it every time. Run against a real org, three
+  more defects stopped every wizard run: an optional lookup made two objects
+  wait on each other, and the default numbers overran latitudes, two-digit
+  fields and percentages. A run holding Account or Contact was refused over
+  their lookups to themselves.
+- **A seed whose relation found no parent said "success".** Its child is now
+  skipped, and the run reports it.
+- **Autopilot links what the target already holds.** A duplicate the target
+  names, one it does not (found by its natural key), the standard price book
+  and the direct account-contact relation are linked instead of lost; Order
+  and Contract start as Draft and get their status last. Every refusal keeps
+  its status code and fields. A duplicate's id is read from a French answer
+  too, for Forge and Sync as well.
+- **The anonymization template view** showed ": " for every rule: it read
+  fields the host never sent.
+- **A pipeline payload without variables no longer fails**, a step timeout
+  past twenty-four days is refused where it fired after one millisecond, and
+  the API Limit Monitoring template's condition is one the router reads.
+
 ## [1.33.0] - 2026-09-23
 
 Compare said "modified" for anything two orgs listed differently — ids and
