@@ -152,6 +152,19 @@ export class SyncScheduleExecutor {
       if (!schedule.nextRunAt) continue;
 
       const nextRun = new Date(schedule.nextRunAt).getTime();
+      if (Number.isNaN(nextRun)) {
+        // A stored next run that reads as no date is neither before nor after
+        // any time, so the test below let it through as due and a sync ran on
+        // it. It is computed again from the expression instead, and saved, so
+        // it is corrected once; nothing runs on it.
+        const unreadable = schedule.nextRunAt;
+        schedule.nextRunAt = this.computeNextRunAt(schedule.cron, schedule.timezone);
+        this.deps.scheduleStore.save(schedule);
+        this.deps.log(
+          `[SyncScheduleExecutor] ${schedule.id}: next run "${unreadable}" cannot be read, replaced by ${schedule.nextRunAt || 'none'}`,
+        );
+        continue;
+      }
       if (nextRun > currentTime) continue;
       // Its start is being made here: the ticks that come round while the run
       // lasts see the same start due, and it is not made twice.

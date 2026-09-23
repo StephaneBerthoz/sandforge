@@ -33,6 +33,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
+import { IMPORTED_FORGE_TEMPLATES_KEY } from '../../core/config/ConfigProfileManager.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -486,7 +487,7 @@ export class ForgeHandler implements DomainHandler {
     const legacy = this.deps.configStore.get<ForgeTemplate[]>(TEMPLATES_KEY) ?? [];
     if (!this.templateStore) return legacy;
 
-    const fromFile = await this.templateStore.list();
+    const fromFile = await this.withImportedTemplates(this.templateStore);
     if (fromFile.length > 0) return fromFile;
 
     // One-shot migration: templates saved before recipes became portable live
@@ -498,6 +499,28 @@ export class ForgeHandler implements DomainHandler {
       return legacy;
     }
     return [];
+  }
+
+  /**
+   * The workspace file's templates, with the set a profile import left
+   * waiting merged in: by id, the file's own entry winning.
+   *
+   * An imported set used to be read only in a workspace whose file was empty;
+   * anywhere else the file's templates hid it. The set is merged once and then
+   * dropped, so a template deleted afterwards does not come back, and the
+   * ConfigStore copy is brought in line with the file, as a save does. A file
+   * still empty after it is left to the migration below.
+   *
+   * @param store - This workspace's template file.
+   */
+  private async withImportedTemplates(store: ForgeTemplateStore): Promise<ForgeTemplate[]> {
+    const imported = this.deps.configStore.get<unknown>(IMPORTED_FORGE_TEMPLATES_KEY);
+    if (imported === undefined) return store.list();
+    const merged = await store.merge(Array.isArray(imported) ? imported : []);
+    if (merged.length > 0) this.deps.configStore.set(TEMPLATES_KEY, merged, FORGE_CATEGORY);
+    this.deps.configStore.delete(IMPORTED_FORGE_TEMPLATES_KEY);
+    logger.info('Merged an imported set of forge templates into .sandforge/');
+    return merged;
   }
 
   /**

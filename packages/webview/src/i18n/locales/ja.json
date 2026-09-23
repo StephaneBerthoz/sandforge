@@ -2023,6 +2023,12 @@
         "clone": "クローン",
         "sync": "Sync"
       }
+    },
+    "opStatus": {
+      "success": "成功",
+      "running": "実行中",
+      "failed": "失敗",
+      "cancelled": "キャンセル済み"
     }
   },
   "commandPalette": {
@@ -2764,8 +2770,7 @@
       "syncMappings": "Syncマッピング",
       "forgePlans": "Forgeプラン",
       "pipelines": "パイプライン",
-      "anonymizationTemplates": "匿名化テンプレート",
-      "settings": "設定"
+      "anonymizationTemplates": "匿名化テンプレート"
     },
     "profiles": {
       "title": "構成プロファイル",

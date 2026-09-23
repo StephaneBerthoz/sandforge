@@ -2,20 +2,30 @@
  * Manages export and import of SandForge configuration profiles.
  *
  * A configuration profile is a JSON bundle containing sync mappings,
- * forge plans, pipeline definitions, anonymization templates,
- * and general settings. Profiles can be shared between team members.
+ * forge plans, pipeline definitions and anonymization templates. Profiles
+ * can be shared between team members.
  */
 
 import { z } from 'zod';
 import type { ConfigStore } from '../storage/ConfigStore.js';
 
 /** Categories of configuration that can be exported/imported. */
-export type ConfigCategory =
-  | 'syncMappings'
-  | 'forgePlans'
-  | 'pipelines'
-  | 'anonymizationTemplates'
-  | 'settings';
+export type ConfigCategory = 'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates';
+
+/**
+ * A category profiles listed up to 1.36, which none carries any more.
+ *
+ * `settings` exported the ConfigStore keys under a `settings:` prefix, and
+ * nothing writes any: SandForge's settings are VS Code settings
+ * (`sandforge.*`), so every profile carried the category empty. Those are not
+ * exported instead. VS Code shares them already, through Settings Sync or a
+ * workspace's `.vscode/settings.json`, and some are the user's own consent or
+ * safety switches (`sandforge.telemetry`, `sandforge.ai.enabled`,
+ * `sandforge.safety.requireProdConfirmation`), which a file received from
+ * someone else must not flip. A profile that still lists the category is
+ * read, and the category passed over.
+ */
+const RETIRED_CATEGORY = 'settings';
 
 /** Zod schema for validating imported config profiles. */
 export const ConfigProfileSchema = z.object({
@@ -23,10 +33,15 @@ export const ConfigProfileSchema = z.object({
   exportedAt: z.string(),
   exportedBy: z.string().optional(),
   categories: z.array(
-    z.enum(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', 'settings']),
+    z.enum(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', RETIRED_CATEGORY]),
   ),
   data: z.record(z.string(), z.unknown()),
 });
+
+/** Whether a category a profile lists is one this version exports and imports. */
+function isCurrentCategory(category: string): category is ConfigCategory {
+  return category !== RETIRED_CATEGORY;
+}
 
 /** A validated configuration profile. */
 export type ConfigProfile = z.infer<typeof ConfigProfileSchema>;
@@ -76,7 +91,6 @@ const CATEGORY_PREFIXES: Record<ConfigCategory, string> = {
   forgePlans: 'forge:templates',
   pipelines: 'pipeline:saved:',
   anonymizationTemplates: 'anonymization:',
-  settings: 'settings:',
 };
 
 /**
@@ -90,8 +104,24 @@ const STORE_CATEGORIES: Record<ConfigCategory, string> = {
   forgePlans: 'forge',
   pipelines: 'pipelines',
   anonymizationTemplates: 'anonymizationTemplates',
-  settings: 'settings',
 };
+
+/** The ConfigStore key of the Forge plans, which the forgePlans category exports. */
+const FORGE_TEMPLATES_KEY = 'forge:templates';
+
+/**
+ * Where a set of Forge plans a profile brought waits for a workspace file.
+ *
+ * With a folder open, Forge keeps its plans in the workspace's
+ * `.sandforge/forge-templates.json`, and read the ConfigStore's
+ * `forge:templates` only while that file was empty: an imported set was not
+ * listed beside the file's plans. That key cannot simply be merged in either.
+ * Every window writes its own list there, so it holds another project's plans
+ * as often as imported ones, and a plan deleted from the file would come back
+ * from it. The set is left here as well, and the next window that lists its
+ * plans merges it into its file once (see `ForgeHandler`).
+ */
+export const IMPORTED_FORGE_TEMPLATES_KEY = 'forge:imported-templates';
 
 /**
  * Service for exporting and importing SandForge configuration profiles.
@@ -179,9 +209,10 @@ export class ConfigProfileManager {
       }
 
       const profile = validation.data;
+      const categories = profile.categories.filter(isCurrentCategory);
       let entriesImported = 0;
 
-      for (const category of profile.categories) {
+      for (const category of categories) {
         const categoryData = profile.data[category] as Record<string, unknown> | undefined;
         if (!categoryData || typeof categoryData !== 'object') {
           warnings.push(`Category "${category}" has no data, skipped.`);
@@ -201,13 +232,16 @@ export class ConfigProfileManager {
             continue;
           }
           this.configStore.set(key, value, STORE_CATEGORIES[category]);
+          if (key === FORGE_TEMPLATES_KEY) {
+            this.configStore.set(IMPORTED_FORGE_TEMPLATES_KEY, value, STORE_CATEGORIES[category]);
+          }
           entriesImported++;
         }
       }
 
       return {
         success: true,
-        categoriesImported: profile.categories.length,
+        categoriesImported: categories.length,
         entriesImported,
         warnings,
       };
@@ -241,7 +275,7 @@ export class ConfigProfileManager {
 
       return {
         valid: true,
-        categories: validation.data.categories,
+        categories: validation.data.categories.filter(isCurrentCategory),
       };
     } catch (err: unknown) {
       return {

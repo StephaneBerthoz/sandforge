@@ -704,4 +704,33 @@ describe('SyncScheduleExecutor', () => {
       expect(deps.scheduleStore.save).not.toHaveBeenCalled();
     });
   });
+
+  describe('a schedule whose stored next run cannot be read', () => {
+    it('runs nothing on it, and has it computed again and saved, once', async () => {
+      // `new Date('not a date')` is NaN, which no time is greater than: the
+      // tick read the schedule as due and started a sync.
+      deps = createMockDeps();
+      vi.mocked(deps.scheduleStore.loadAll).mockReturnValue([
+        createScheduleEntry({ nextRunAt: 'not a date' }),
+      ]);
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(deps.onExecute).not.toHaveBeenCalled();
+      const replanned = executor.getSchedule('sched-1')!;
+      // `0 9 * * 1` from Friday 2026-03-27 12:00: the Monday after.
+      expect(replanned.nextRunAt).toBe('2026-03-30T09:00:00.000Z');
+      expect(deps.scheduleStore.save).toHaveBeenCalledTimes(1);
+      expect(deps.scheduleStore.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sched-1', nextRunAt: '2026-03-30T09:00:00.000Z' }),
+      );
+
+      await executor.tick();
+
+      expect(deps.onExecute).not.toHaveBeenCalled();
+      expect(deps.scheduleStore.save).toHaveBeenCalledTimes(1);
+    });
+  });
 });

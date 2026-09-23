@@ -175,6 +175,21 @@ describe('ConfigHandler', () => {
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
 
+    it('rejects config:export of the settings category, which no profile carries', async () => {
+      const msg = inboundRequest({
+        id: 'settings-export',
+        type: 'config:export',
+        timestamp: Date.now(),
+        payload: { categories: ['settings'] },
+      } as unknown as BaseMessage);
+
+      expect(await handler.handle(msg)).toBe(true);
+
+      const errMsg = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(errMsg.type).toBe('config:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
     it('rejects config:import without overwrite flag (INVALID_PAYLOAD)', async () => {
       const msg = inboundRequest({
         id: 'bad-import',

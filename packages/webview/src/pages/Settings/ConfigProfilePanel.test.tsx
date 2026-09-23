@@ -17,14 +17,20 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   }),
 }));
 
+/** The `mutate` of each bridge mutation the panel builds, by message type. */
+const mutations = vi.hoisted(() => new Map<string, ReturnType<typeof vi.fn>>());
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: vi.fn(),
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
-  }),
+  useBridgeMutation: (type: string) => {
+    if (!mutations.has(type)) mutations.set(type, vi.fn());
+    return {
+      mutate: mutations.get(type),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  },
 }));
 
 describe('ConfigProfilePanel', () => {
@@ -47,6 +53,22 @@ describe('ConfigProfilePanel', () => {
     render(<ConfigProfilePanel />);
     expect(screen.getByTestId('cat-toggle-syncMappings')).toBeTruthy();
     expect(screen.getByTestId('cat-toggle-pipelines')).toBeTruthy();
+  });
+
+  it('offers no Settings category, which exported nothing', () => {
+    render(<ConfigProfilePanel />);
+    expect(screen.queryByTestId('cat-toggle-settings')).toBeNull();
+  });
+
+  it('exports every category it offers when none is deselected', () => {
+    mutations.clear();
+    render(<ConfigProfilePanel />);
+
+    fireEvent.click(screen.getByTestId('export-btn'));
+
+    expect(mutations.get('config:export')).toHaveBeenCalledWith({
+      categories: ['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates'],
+    });
   });
 
   it('toggles category selection', () => {

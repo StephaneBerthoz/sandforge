@@ -220,31 +220,53 @@ export interface BackgroundNotificationDeps {
 }
 
 /**
+ * What the native notification says of an operation that ended: one sentence
+ * per way of ending, with and without the summary. Whole variants rather than
+ * one string plus a glued-on suffix: the summary separator and word order are
+ * not the translator's to guess.
+ */
+function endedLabel(
+  type: 'completed' | 'failed' | 'aborted',
+  module: string,
+  summary: string | undefined,
+): string {
+  switch (type) {
+    case 'completed':
+      return summary
+        ? vscode.l10n.t('SandForge: {0} completed — {1}', module, summary)
+        : vscode.l10n.t('SandForge: {0} completed', module);
+    case 'failed':
+      return summary
+        ? vscode.l10n.t('SandForge: {0} failed — {1}', module, summary)
+        : vscode.l10n.t('SandForge: {0} failed', module);
+    case 'aborted':
+      return summary
+        ? vscode.l10n.t('SandForge: {0} cancelled — {1}', module, summary)
+        : vscode.l10n.t('SandForge: {0} cancelled', module);
+  }
+}
+
+/**
  * Wire BackgroundOperationRegistry events to stateSync + native notifications.
  * Must be called after the panel manager exists (notifications deep-link into
- * the Monitor panel). Extracted from `activate()` — behaviour unchanged.
+ * the Monitor panel).
+ *
+ * An operation stopped through the registry (Cancel in Live Operations, a
+ * pipeline run stopped, a cancelled snapshot) ends with an `aborted` event,
+ * which used to be passed over: the operations the panels were sent still
+ * listed it as running, and nothing said it had stopped.
  */
 export function wireBackgroundNotifications(deps: BackgroundNotificationDeps): void {
   const { backgroundRegistry, stateSync, panelManager } = deps;
 
   backgroundRegistry.onEvent((operationId, type, operation) => {
-    if (type === 'completed' || type === 'failed') {
+    if (type === 'completed' || type === 'failed' || type === 'aborted') {
       stateSync.setActiveOperations(backgroundRegistry.getActiveOperations());
 
       // Native VSCode notification if no SandForge panel is visible
       if (!panelManager.isAnyPanelVisible() && !operation.notifiedNatively) {
         backgroundRegistry.markNotifiedNatively(operationId);
-        // Four variants rather than one string plus a glued-on suffix: the
-        // summary separator and word order are not the translator's to guess.
-        const summary = operation.resultSummary;
-        const label =
-          type === 'completed'
-            ? summary
-              ? vscode.l10n.t('SandForge: {0} completed — {1}', operation.module, summary)
-              : vscode.l10n.t('SandForge: {0} completed', operation.module)
-            : summary
-              ? vscode.l10n.t('SandForge: {0} failed — {1}', operation.module, summary)
-              : vscode.l10n.t('SandForge: {0} failed', operation.module);
+        const label = endedLabel(type, operation.module, operation.resultSummary);
         // Same label/equality coupling as the production modal above.
         const showDetails = vscode.l10n.t('Show Details');
         void vscode.window.showInformationMessage(label, showDetails).then((action) => {

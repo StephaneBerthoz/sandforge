@@ -8,7 +8,13 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { cn } from '../../theme';
 
-/** Available configuration categories for export/import. */
+/**
+ * Available configuration categories for export/import.
+ *
+ * There is no Settings category: SandForge's settings are VS Code settings,
+ * which VS Code itself shares, and the category this panel offered exported
+ * none of them.
+ */
 const CONFIG_CATEGORIES = [
   {
     key: 'syncMappings',
@@ -22,7 +28,6 @@ const CONFIG_CATEGORIES = [
     labelKey: 'config.categories.anonymizationTemplates',
     defaultLabel: 'Anonymization Templates',
   },
-  { key: 'settings', labelKey: 'config.categories.settings', defaultLabel: 'Settings' },
 ] as const;
 
 type CategoryKey = (typeof CONFIG_CATEGORIES)[number]['key'];
@@ -32,7 +37,7 @@ export const ConfigProfilePanel: React.FC = () => {
   const { save } = useFileSave();
   const { t } = useTranslation();
   const [selectedCategories, setSelectedCategories] = useState<Set<CategoryKey>>(
-    new Set(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', 'settings']),
+    () => new Set(CONFIG_CATEGORIES.map((cat) => cat.key)),
   );
   const [importJson, setImportJson] = useState('');
   const [overwrite, setOverwrite] = useState(true);

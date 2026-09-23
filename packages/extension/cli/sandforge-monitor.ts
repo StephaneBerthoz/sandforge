@@ -199,6 +199,11 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
         string,
         { sparklineData: number[]; direction: string }
       >;
+      // A sandbox answers with the creation date of the production org it was
+      // copied from: a refresh carries it along. The panel leaves it out there,
+      // and so does this line, rather than print it as the sandbox's own.
+      const created =
+        info && info.type !== 'Sandbox' ? `, created ${String(info.createdDate ?? '—')}` : '';
       return [
         `  health score ${String(p.healthScore)}; ${limits.length} limit(s), highest: ${someOf(
           top.map((l) => `${l.name} ${l.usedPercent}% (${l.max - l.remaining}/${l.max})`),
@@ -213,9 +218,7 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
               info.instanceName,
             )}, API ${String(info.apiVersion)}, namespace ${String(
               info.namespacePrefix ?? '—',
-            )}, created ${String(info.createdDate ?? '—')}, users ${String(
-              info.userCount,
-            )}, custom objects ${String(info.customObjectCount)}, Apex classes ${String(
+            )}${created}, users ${String(info.userCount)}, custom objects ${String(info.customObjectCount)}, Apex classes ${String(
               info.apexClassCount,
             )}, active flows ${String(info.flowCount)}`
           : '  org: no org info sent',

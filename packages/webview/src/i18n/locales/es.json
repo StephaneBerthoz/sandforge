@@ -2128,6 +2128,12 @@
         "clone": "Clonar",
         "sync": "Sync"
       }
+    },
+    "opStatus": {
+      "success": "Correcta",
+      "running": "En ejecución",
+      "failed": "Fallida",
+      "cancelled": "Cancelada"
     }
   },
   "commandPalette": {
@@ -2890,8 +2896,7 @@
       "syncMappings": "Mapeos de Sync",
       "forgePlans": "Planes de Forge",
       "pipelines": "Pipelines",
-      "anonymizationTemplates": "Plantillas de anonimización",
-      "settings": "Configuración"
+      "anonymizationTemplates": "Plantillas de anonimización"
     },
     "profiles": {
       "title": "Perfiles de configuración",

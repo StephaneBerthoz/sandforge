@@ -12,7 +12,7 @@ export default defineConfig({
     root: fileURLToPath(new URL('.', import.meta.url)),
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'cli/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'cli/**/*.test.ts', 'tools/**/*.test.ts'],
     /*
      * The smoke suite matches that glob but imports `vscode`, a module only the
      * extension host provides. Run by vitest it fails to load; it is compiled by

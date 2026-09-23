@@ -207,6 +207,24 @@ describe('SidePanel', () => {
     expect(screen.getByTestId('sidepanel-last-op')).toHaveTextContent('Clone Accounts');
   });
 
+  it('shows a cancelled last operation with its own icon, not the success tick', () => {
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'forge',
+          label: 'Discovering object graph',
+          status: 'cancelled',
+          timestamp: Date.now() - 60000,
+        },
+      ],
+    });
+    render(<SidePanel />);
+    const lastOp = screen.getByTestId('sidepanel-last-op');
+    expect(lastOp.querySelector('[data-testid="op-status-cancelled"]')).not.toBeNull();
+    expect(lastOp.querySelector('[data-testid="op-status-success"]')).toBeNull();
+  });
+
   it('renders running operation indicator when an op is running', () => {
     useRecentOpsStore.setState({
       ops: [

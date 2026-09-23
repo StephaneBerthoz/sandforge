@@ -130,6 +130,50 @@ describe('ForgeTemplateStore', () => {
     expect(written).toHaveLength(0);
   });
 
+  describe('merge', () => {
+    it('adds the templates whose id the file does not hold, and keeps the file’s own on one it does', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify([sampleTemplate]));
+      const store = createStore();
+
+      const merged = await store.merge([
+        { ...sampleTemplate, name: 'imported copy' },
+        { ...sampleTemplate, id: 'tpl-2', name: 'Imported' },
+      ]);
+
+      expect(merged.map((t) => [t.id, t.name])).toEqual([
+        ['tpl-1', 'Test Template'],
+        ['tpl-2', 'Imported'],
+      ]);
+      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(mockWriteFile.mock.calls[0][1])).toEqual(merged);
+    });
+
+    it('drops what no template operation could address, and a second entry of one id', async () => {
+      mockReadFile.mockResolvedValue('[]');
+      const store = createStore();
+
+      const merged = await store.merge([
+        null,
+        'tpl-3',
+        { name: 'no id' },
+        { ...sampleTemplate, id: 'tpl-3' },
+        { ...sampleTemplate, id: 'tpl-3', name: 'second of the id' },
+      ]);
+
+      expect(merged.map((t) => [t.id, t.name])).toEqual([['tpl-3', 'Test Template']]);
+    });
+
+    it('writes nothing when the file holds every id already', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify([sampleTemplate]));
+      const store = createStore();
+
+      expect(await store.merge([{ ...sampleTemplate, name: 'imported copy' }])).toEqual([
+        sampleTemplate,
+      ]);
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+  });
+
   it('should use .sandforge/forge-templates.json path', async () => {
     mockReadFile.mockResolvedValue('[]');
     const store = createStore();

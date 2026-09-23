@@ -28,6 +28,20 @@ function toRecentOpType(module: string): RecentOp['type'] {
   return KNOWN_MODULES.has(module) ? (module as RecentOp['type']) : 'automation';
 }
 
+/**
+ * The status an `operation:completed` result gives its operation.
+ *
+ * A completion is not always a success. A run that ends with a failure status
+ * — nothing written, or refused — failed, however it ended. A run that was
+ * stopped says so in one of two ways: `aborted: true` (a Forge discovery
+ * cancelled or replaced, a snapshot cancelled) or a `cancelled` status (a
+ * pipeline run). Both were listed as successes.
+ */
+function completedStatus(result: Record<string, unknown>): RecentOp['status'] {
+  if (result['aborted'] === true || result['status'] === 'cancelled') return 'cancelled';
+  return result['status'] === 'failure' ? 'failed' : 'success';
+}
+
 /** Extract a record count from the loose operation:completed result bag. */
 function extractRecordCount(result: Record<string, unknown>): number | undefined {
   for (const key of ['totalRecords', 'totalProcessed', 'totalSuccess', 'totalRestored']) {
@@ -74,11 +88,8 @@ export function useRecentOpsFeed(): void {
     'operation:completed',
     useCallback((msg) => {
       const recordCount = extractRecordCount(msg.payload.result);
-      // A run that ends with a failure status — nothing written, or refused —
-      // is a failed run, however it ended.
-      const failed = msg.payload.result['status'] === 'failure';
       useRecentOpsStore.getState().updateOp(msg.payload.operationId, {
-        status: failed ? 'failed' : 'success',
+        status: completedStatus(msg.payload.result),
         timestamp: Date.now(),
         ...(recordCount !== undefined ? { recordCount } : {}),
       });

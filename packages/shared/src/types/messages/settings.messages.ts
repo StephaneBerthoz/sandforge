@@ -119,9 +119,7 @@ export interface TelemetryToggleResponse extends BaseMessage {
 export interface ConfigExportRequest extends BaseMessage {
   type: 'config:export';
   payload: {
-    categories: Array<
-      'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates' | 'settings'
-    >;
+    categories: Array<'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates'>;
   };
 }
 

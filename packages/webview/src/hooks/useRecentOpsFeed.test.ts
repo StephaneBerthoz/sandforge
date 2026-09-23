@@ -122,6 +122,26 @@ describe('useRecentOpsFeed', () => {
     expect(useRecentOpsStore.getState().ops[0]?.status).toBe('failed');
   });
 
+  it.each([
+    ['a Forge discovery or a snapshot, completed as aborted', { aborted: true }],
+    ['a pipeline run, completed with a cancelled status', { status: 'cancelled', stepResults: 1 }],
+  ])('marks the op as cancelled, not as a success: %s', (_what, result) => {
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-5',
+        module: 'dataops',
+        description: 'Backup 3 object(s)',
+      });
+    });
+    act(() => {
+      dispatchMessage('operation:completed', { operationId: 'op-5', result });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.status).toBe('cancelled');
+  });
+
   it('marks the op as failed on operation:failed', () => {
     renderHook(() => useRecentOpsFeed());
 

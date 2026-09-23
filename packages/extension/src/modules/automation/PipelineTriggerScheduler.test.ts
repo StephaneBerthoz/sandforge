@@ -499,6 +499,29 @@ describe('PipelineTriggerScheduler', () => {
       h.scheduler.stop();
     });
 
+    it('plans afresh a next start stored as NaN, and starts nothing on it', async () => {
+      // What the sync schedules took as due. Written, a NaN reads back as
+      // null, and the plan is read through a schema that refuses it whole.
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.set(
+        'pipeline-trigger:p1:sched',
+        { cron: '0 2 * * *', timezone: 'UTC', nextRunAt: Number.NaN },
+        'pipeline-triggers',
+      );
+      const h = harness({ pipelines: [pipeline('p1', [schedule('0 2 * * *')])], store });
+      h.scheduler.start();
+      await settle();
+
+      expect(h.started).toEqual([]);
+      expect(h.history.size).toBe(0);
+      expect(h.store.get('pipeline-trigger:p1:sched')).toEqual({
+        cron: '0 2 * * *',
+        timezone: 'UTC',
+        nextRunAt: iso('2026-09-23T02:00:00.000Z'),
+      });
+      h.scheduler.stop();
+    });
+
     it('tells the user when a run it started failed', async () => {
       const h = harness({
         pipelines: [pipeline('p1', [schedule('0 2 * * *')], 'Nightly compare')],

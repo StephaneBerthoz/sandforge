@@ -8,6 +8,7 @@ import {
   ExternalLink,
   CheckCircle,
   XCircle,
+  Ban,
   Loader,
   Shield,
   Zap,
@@ -42,11 +43,21 @@ import type { OrgListResponse } from '@sandforge/shared';
 const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
   switch (status) {
     case 'success':
-      return <CheckCircle className="w-3.5 h-3.5 text-status-success" />;
+      return (
+        <CheckCircle className="w-3.5 h-3.5 text-status-success" data-testid="op-status-success" />
+      );
     case 'failed':
-      return <XCircle className="w-3.5 h-3.5 text-status-error" />;
+      return <XCircle className="w-3.5 h-3.5 text-status-error" data-testid="op-status-failed" />;
     case 'running':
-      return <Loader className="w-3.5 h-3.5 text-status-info animate-spin" />;
+      return (
+        <Loader
+          className="w-3.5 h-3.5 text-status-info animate-spin"
+          data-testid="op-status-running"
+        />
+      );
+    // A run someone stopped: neither the success tick nor the failure cross.
+    case 'cancelled':
+      return <Ban className="w-3.5 h-3.5 text-text-secondary" data-testid="op-status-cancelled" />;
   }
 };
 

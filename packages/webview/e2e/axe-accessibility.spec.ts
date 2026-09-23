@@ -391,6 +391,15 @@ async function contrastMeasuredIn(
   );
 }
 
+/** The `operation:started` the extension broadcasts when an operation begins. */
+function started(
+  operationId: string,
+  module: string,
+  description: string,
+): { type: string; payload: Record<string, unknown> } {
+  return { type: 'operation:started', payload: { operationId, module, description } };
+}
+
 /** Boot a module panel under a host theme, without waiting on any page. */
 async function openPanel(
   bridge: MockBridge,
@@ -1744,6 +1753,32 @@ for (const theme of STATE_THEMES) {
 
     test.beforeEach(() => {
       bridge = new MockBridge();
+    });
+
+    test('Home recent operations, one of each status', async ({ page }) => {
+      await openPanel(bridge, page, 'home', theme);
+      await page.getByTestId('home-page').waitFor({ timeout: 10_000 });
+      // Each status writes its own badge; a cancelled one is the neutral pill.
+      await bridge.stream([
+        started('op-ok', 'seed', 'Seed Accounts'),
+        { type: 'operation:completed', payload: { operationId: 'op-ok', result: {} } },
+        started('op-failed', 'sync', 'Sync Contacts'),
+        {
+          type: 'operation:failed',
+          payload: { operationId: 'op-failed', error: 'refused', retryable: false },
+        },
+        started('op-cancelled', 'dataops', 'Backup 3 object(s)'),
+        {
+          type: 'operation:completed',
+          payload: { operationId: 'op-cancelled', result: { aborted: true } },
+        },
+        started('op-running', 'forge', 'Discovering object graph'),
+      ]);
+      const card = page.getByTestId('recent-ops-card');
+      await expect(card.getByTestId('recent-op-item')).toHaveCount(4);
+      await expect(card).toContainText('Cancelled');
+
+      await expectReadable(page, theme, '[data-testid="recent-ops-card"]');
     });
 
     test('Compare result with its risk score card', async ({ page }) => {

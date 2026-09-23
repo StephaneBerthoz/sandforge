@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
@@ -454,6 +455,41 @@ describe('HomePage', () => {
     render(<HomePage />);
     expect(screen.getByText('Seed Accounts')).toBeDefined();
     expect(screen.getAllByTestId('recent-op-item').length).toBe(1);
+  });
+
+  it('says a cancelled op was cancelled, in the panel’s language and not as a success', async () => {
+    // A cancelled backup or Forge discovery used to read as a success here,
+    // and every status was printed as stored, in English.
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-2',
+          type: 'dataops',
+          label: 'Backup 3 object(s)',
+          status: 'cancelled',
+          timestamp: Date.now() - 60000,
+        },
+        {
+          id: 'op-1',
+          type: 'seed',
+          label: 'Seed Accounts',
+          status: 'success',
+          timestamp: Date.now() - 120000,
+        },
+      ],
+    });
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<HomePage />);
+
+      const [cancelled, succeeded] = screen.getAllByTestId('recent-op-item');
+      const cancelledBadge = within(cancelled).getByText('Annulée');
+      expect(cancelledBadge.className).not.toContain('bg-status-success');
+      expect(within(succeeded).getByText('Réussie').className).toContain('bg-status-success');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   /* ---------------------------------------------------------------- */

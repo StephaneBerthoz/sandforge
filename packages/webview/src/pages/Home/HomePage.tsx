@@ -6,11 +6,13 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
+import type { RecentOp } from '../../stores/useRecentOpsStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Icon } from '../../components/ui/Icon';
@@ -32,11 +34,18 @@ interface OrgListPayload {
   orgs: SalesforceOrg[];
 }
 
-/** Maps recent op status to badge variant. */
-const statusBadgeMap: Record<string, 'success' | 'warning' | 'error'> = {
-  success: 'success',
-  running: 'warning',
-  failed: 'error',
+/**
+ * How a recent op's status reads: its badge colour and its wording.
+ *
+ * The badge used to print the status as it is stored, in English whatever the
+ * language, and a stopped run could only read as one that succeeded. A
+ * cancelled one has its own wording, in the neutral colour: nothing failed.
+ */
+const STATUS_BADGES: Record<RecentOp['status'], { variant: BadgeVariant; labelKey: string }> = {
+  success: { variant: 'success', labelKey: 'home.opStatus.success' },
+  running: { variant: 'warning', labelKey: 'home.opStatus.running' },
+  failed: { variant: 'error', labelKey: 'home.opStatus.failed' },
+  cancelled: { variant: 'default', labelKey: 'home.opStatus.cancelled' },
 };
 
 /**
@@ -325,7 +334,9 @@ export const HomePage: React.FC = () => {
                       className="flex items-center gap-2 py-1 px-2 rounded text-xs bg-surface-2"
                       data-testid="recent-op-item"
                     >
-                      <Badge variant={statusBadgeMap[op.status] ?? 'default'}>{op.status}</Badge>
+                      <Badge variant={STATUS_BADGES[op.status].variant}>
+                        {t(STATUS_BADGES[op.status].labelKey)}
+                      </Badge>
                       <span className="flex-1 truncate text-text-primary">{op.label}</span>
                       <span className="text-text-secondary shrink-0">
                         {formatRelativeTimeI18n(op.timestamp, t, 'home')}

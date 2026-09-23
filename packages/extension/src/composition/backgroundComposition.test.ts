@@ -24,14 +24,18 @@ import * as vscode from 'vscode';
 import {
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
+  wireBackgroundNotifications,
   wireOfflineNotifications,
   wireOfflineReplay,
 } from './backgroundComposition';
 import type { Services } from '../services';
 import type { SafetyCheckResult } from '../core/precheck/ProductionGuard';
 import { OfflineManager } from '../core/connection/OfflineManager';
+import { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
+import type { WebviewStateSync } from '../bridge/WebviewStateSync';
+import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
 
 function createMockConfigStore(): ConfigStore {
   const data = new Map<string, unknown>();
@@ -280,5 +284,88 @@ describe('restore confirmation for an org a refresh replaced (localized)', () =>
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
 
     await expect(confirmRestoreIntoReplacedOrg(question)).resolves.toBe(false);
+  });
+});
+
+describe('wireBackgroundNotifications', () => {
+  /** A registry wired as activation wires it, with no SandForge panel on screen. */
+  function wired(): { registry: BackgroundOperationRegistry; stateSync: WebviewStateSync } {
+    const registry = new BackgroundOperationRegistry();
+    const stateSync = { setActiveOperations: vi.fn() } as unknown as WebviewStateSync;
+    const panelManager = {
+      isAnyPanelVisible: () => false,
+      openPanel: vi.fn(),
+    } as unknown as WebviewPanelManager;
+    wireBackgroundNotifications({ backgroundRegistry: registry, stateSync, panelManager });
+    return { registry, stateSync };
+  }
+
+  /** Register an operation of `module` that settles when `ends` does. */
+  function run(
+    registry: BackgroundOperationRegistry,
+    module: string,
+    ends: Promise<unknown>,
+  ): void {
+    registry.register('op-1', module, `${module} run`, ends, new AbortController());
+  }
+
+  /** A promise that never settles: an operation still going. */
+  const going = (): Promise<never> => new Promise<never>(() => undefined);
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showInformationMessage).mockReset();
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValue(undefined as never);
+    l10nBundle.current = {};
+  });
+
+  it.each([
+    [
+      'completed',
+      'SandForge: seed completed',
+      (r: BackgroundOperationRegistry) => run(r, 'seed', Promise.resolve()),
+    ],
+    [
+      'failed',
+      'SandForge: seed failed — refused',
+      (r: BackgroundOperationRegistry) => run(r, 'seed', Promise.reject(new Error('refused'))),
+    ],
+    [
+      'was cancelled',
+      'SandForge: seed cancelled',
+      (r: BackgroundOperationRegistry) => {
+        run(r, 'seed', going());
+        r.abort('op-1');
+      },
+    ],
+  ])('says an operation %s, and nothing else', async (_ending, sentence, end) => {
+    const { registry } = wired();
+
+    end(registry);
+    // The registry reads a settled promise on the next turns of the queue.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1);
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(sentence, 'Show Details');
+  });
+
+  it('says a cancelled operation was cancelled, translated, with how far it went', () => {
+    // A cancel ended with an event nothing listened to: not a word of it, and
+    // the operations the panels were sent still listed it as running.
+    l10nBundle.current = { 'SandForge: {0} cancelled — {1}': 'SandForge : {0} annulé — {1}' };
+    const { registry, stateSync } = wired();
+    run(registry, 'dataops', going());
+    registry.updateProgress('op-1', 40, '2 of 5 objects read');
+    vi.mocked(stateSync.setActiveOperations).mockClear();
+
+    registry.abort('op-1');
+
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      'SandForge : dataops annulé — 2 of 5 objects read',
+      'Show Details',
+    );
+    expect(stateSync.setActiveOperations).toHaveBeenCalledWith([
+      expect.objectContaining({ operationId: 'op-1', status: 'aborted' }),
+    ]);
   });
 });

@@ -76,6 +76,32 @@ export class ForgeTemplateStore {
     await this.write(templates);
   }
 
+  /**
+   * Add to the file the templates of a set whose id it does not hold.
+   *
+   * By id, the file wins: a template it already holds is kept as it is, and
+   * the set's copy of it is dropped. So is anything in the set no template
+   * operation could address, as `list` leaves it out, and a second entry of
+   * one id. The file is written once, and only when something is added.
+   *
+   * @param templates - The set to merge, as it was read: not trusted.
+   * @returns The templates the file holds now.
+   */
+  async merge(templates: readonly unknown[]): Promise<ForgeTemplate[]> {
+    const stored = await this.list();
+    const ids = new Set(stored.map((t) => t.id));
+    const added: ForgeTemplate[] = [];
+    for (const entry of templates) {
+      if (!isStoredTemplate(entry) || ids.has(entry.id)) continue;
+      ids.add(entry.id);
+      added.push(entry);
+    }
+    if (added.length === 0) return stored;
+    const merged = [...stored, ...added];
+    await this.write(merged);
+    return merged;
+  }
+
   /** Delete a template by id. */
   async delete(templateId: string): Promise<void> {
     const templates = await this.list();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ConfigProfileManager } from './ConfigProfileManager';
+import { ConfigProfileManager, IMPORTED_FORGE_TEMPLATES_KEY } from './ConfigProfileManager';
 import type { ConfigProfile } from './ConfigProfileManager';
 import { ConfigStore } from '../storage/ConfigStore.js';
 import type { ConfigStoreBackend, ConfigEntry } from '../storage/ConfigStoreBackend';
@@ -107,13 +107,13 @@ describe('ConfigProfileManager', () => {
     });
 
     it('exports empty categories without error', () => {
-      const result = manager.exportProfile(['settings']);
+      const result = manager.exportProfile(['anonymizationTemplates']);
       expect(result.success).toBe(true);
       expect(result.entriesExported).toBe(0);
     });
 
     it('includes exportedBy when provided', () => {
-      const result = manager.exportProfile(['settings'], 'alice@example.com');
+      const result = manager.exportProfile(['pipelines'], 'alice@example.com');
       const parsed = JSON.parse(result.json!) as ConfigProfile;
       expect(parsed.exportedBy).toBe('alice@example.com');
     });
@@ -245,6 +245,22 @@ describe('ConfigProfileManager', () => {
       expect(result.warnings).toEqual([expect.stringContaining('"pipeline:history:run-1"')]);
     });
 
+    it('leaves the Forge plans it imports for the next workspace file to merge, and exports them once', () => {
+      const plans = [{ id: 'tpl-1', name: 'Account 360' }];
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['forgePlans'],
+        data: { forgePlans: { 'forge:templates': plans } },
+      };
+
+      manager.importProfile(JSON.stringify(profile));
+
+      expect(store.get(IMPORTED_FORGE_TEMPLATES_KEY)).toEqual(plans);
+      const exported = JSON.parse(manager.exportProfile(['forgePlans']).json!) as ConfigProfile;
+      expect(exported.data.forgePlans).toEqual({ 'forge:templates': plans });
+    });
+
     it('warns about empty categories', () => {
       const profile: ConfigProfile = {
         version: '1.0.0',
@@ -257,6 +273,27 @@ describe('ConfigProfileManager', () => {
       expect(result.success).toBe(true);
       expect(result.warnings).toHaveLength(1);
     });
+
+    it('reads a profile that lists the settings category, and imports the rest of it', () => {
+      // What 1.36 exported by default: every category selected, settings empty.
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['syncMappings', 'settings'],
+        data: {
+          syncMappings: { 'sync:config:map-1': syncConfig('map-1') },
+          settings: {},
+        },
+      };
+
+      const result = manager.importProfile(JSON.stringify(profile));
+
+      expect(result.success).toBe(true);
+      expect(result.categoriesImported).toBe(1);
+      expect(result.entriesImported).toBe(1);
+      expect(result.warnings).toEqual([]);
+      expect(new SyncConfigStore(store).list().map((c) => c.id)).toEqual(['map-1']);
+    });
   });
 
   describe('validateProfile', () => {
@@ -264,12 +301,24 @@ describe('ConfigProfileManager', () => {
       const profile: ConfigProfile = {
         version: '1.0.0',
         exportedAt: new Date().toISOString(),
-        categories: ['settings'],
+        categories: ['pipelines'],
         data: {},
       };
       const result = manager.validateProfile(JSON.stringify(profile));
       expect(result.valid).toBe(true);
-      expect(result.categories).toEqual(['settings']);
+      expect(result.categories).toEqual(['pipelines']);
+    });
+
+    it('validates a profile that lists the settings category, naming only what it imports', () => {
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['forgePlans', 'settings'],
+        data: {},
+      };
+      const result = manager.validateProfile(JSON.stringify(profile));
+      expect(result.valid).toBe(true);
+      expect(result.categories).toEqual(['forgePlans']);
     });
 
     it('rejects invalid JSON', () => {
@@ -291,13 +340,24 @@ describe('ConfigProfileManager', () => {
       store.set('pipeline:history:run-1', { d: 4 }, 'pipeline-history');
 
       const categories = manager.listCategories();
-      expect(categories).toHaveLength(5);
+      expect(categories).toHaveLength(4);
 
       const syncCat = categories.find((c) => c.category === 'syncMappings');
       expect(syncCat?.entryCount).toBe(2);
 
       const pipelineCat = categories.find((c) => c.category === 'pipelines');
       expect(pipelineCat?.entryCount).toBe(1);
+    });
+
+    it('offers no settings category: the settings are VS Code settings, which a profile does not carry', () => {
+      // It exported the keys under a `settings:` prefix, and nothing writes
+      // any: the category was always empty.
+      expect(manager.listCategories().map((c) => c.category)).toEqual([
+        'syncMappings',
+        'forgePlans',
+        'pipelines',
+        'anonymizationTemplates',
+      ]);
     });
   });
 

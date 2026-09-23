@@ -13,7 +13,6 @@
  * with depth=custom=5 (matches the Forge wizard screenshot).
  */
 import { duplicateRuleHeaders } from '@sandforge/shared';
-import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
@@ -29,13 +28,8 @@ import type { ForgeExecutorDeps, FieldInfo } from '../src/modules/forge/ForgeExe
 import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
 import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
-
-interface SfOrg {
-  alias: string;
-  username: string;
-  instanceUrl: string;
-  accessToken: string;
-}
+import { loadOrg } from '../cli/sfSession.js';
+import type { SfOrg } from '../cli/sfSession.js';
 
 const SCENARIO = {
   sourceAlias: 'SOURCE-UAT',
@@ -56,26 +50,23 @@ const SCENARIO = {
   expandOrphanParents: true,
 };
 
-function loadSfOrgs(aliases: string[]): Map<string, SfOrg> {
-  // `sf org display --target-org X` forces a fresh access token via the
-  // sfdx auth refresh path, so jsforce sessions never start out stale
-  // (which is what `sf org list --json` cached tokens regularly become).
+/**
+ * The orgs the scenario names, by alias, each with a token Salesforce takes.
+ *
+ * Read through the session the command-line tools share. This recipe read
+ * `sf org display` itself and took the token it prints, which CLI 2.150 no
+ * longer prints: it answers "[REDACTED] Use 'sf org auth show-access-token' to
+ * view" there. Sent as the token, that sentence got INVALID_AUTH_HEADER from a
+ * sandbox before a single object was read.
+ *
+ * @param aliases - The `sf` aliases to read.
+ * @throws When the CLI has no usable session for one of them; the message says
+ *   how to sign in again.
+ */
+export async function loadSfOrgs(aliases: string[]): Promise<Map<string, SfOrg>> {
   const map = new Map<string, SfOrg>();
   for (const alias of aliases) {
-    const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
-      encoding: 'utf8',
-      maxBuffer: 50 * 1024 * 1024,
-      shell: process.platform === 'win32',
-    });
-    const parsed = JSON.parse(json) as {
-      result?: { accessToken?: string; instanceUrl?: string; username?: string; alias?: string };
-    };
-    const accessToken = parsed.result?.accessToken;
-    const instanceUrl = parsed.result?.instanceUrl;
-    const username = parsed.result?.username ?? '';
-    if (accessToken && instanceUrl) {
-      map.set(alias, { alias, username, instanceUrl, accessToken });
-    }
+    map.set(alias, await loadOrg(alias));
   }
   return map;
 }
@@ -286,8 +277,8 @@ function printAnomalies(graph: ForgeGraph): void {
 
 async function main(): Promise<void> {
   const t0 = Date.now();
-  console.log(`Loading sf orgs (forcing token refresh via 'sf org display')…`);
-  const orgs = loadSfOrgs([SCENARIO.sourceAlias, SCENARIO.targetAlias]);
+  console.log(`Loading sf orgs through the CLI session…`);
+  const orgs = await loadSfOrgs([SCENARIO.sourceAlias, SCENARIO.targetAlias]);
   const source = orgs.get(SCENARIO.sourceAlias);
   const target = orgs.get(SCENARIO.targetAlias);
   if (!source) throw new Error(`Source alias '${SCENARIO.sourceAlias}' not found in sf orgs`);

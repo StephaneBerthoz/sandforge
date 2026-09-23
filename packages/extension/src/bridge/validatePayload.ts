@@ -1076,7 +1076,6 @@ export const configCategorySchema = z.enum([
   'forgePlans',
   'pipelines',
   'anonymizationTemplates',
-  'settings',
 ]);
 
 export const configExportPayloadSchema = z.object({

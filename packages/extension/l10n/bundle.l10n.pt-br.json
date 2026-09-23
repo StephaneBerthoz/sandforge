@@ -14,6 +14,8 @@
   "SandForge: {0} completed — {1}": "SandForge: {0} concluído — {1}",
   "SandForge: {0} failed": "SandForge: {0} falhou",
   "SandForge: {0} failed — {1}": "SandForge: {0} falhou — {1}",
+  "SandForge: {0} cancelled": "SandForge: {0} cancelado",
+  "SandForge: {0} cancelled — {1}": "SandForge: {0} cancelado — {1}",
   "Show Details": "Ver detalhes",
   "SandForge: no org is registered yet — connect one from the Organizations page first.": "SandForge: nenhuma org registrada ainda — conecte uma primeiro pela página Organizações.",
   "SandForge: sandbox {0} was refreshed and is now a new org — what was written to it before the refresh is gone. SandForge dropped what it had cached about it.": "SandForge: o sandbox {0} foi atualizado e agora é uma nova org — o que foi gravado nele antes da atualização não existe mais. O SandForge descartou o que tinha em cache sobre ele.",

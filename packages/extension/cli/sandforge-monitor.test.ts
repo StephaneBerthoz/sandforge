@@ -176,6 +176,47 @@ describe('describeAnswer', () => {
     );
   });
 
+  /** The org line of a refresh answer about an org of type `type`, created on `createdDate`. */
+  function orgLine(type: string, createdDate: string): string | undefined {
+    return describeAnswer(
+      'monitor:refresh',
+      'refresh',
+      answered('monitor:data', {
+        healthScore: 90,
+        limits: [],
+        jobs: [],
+        orgInfo: {
+          type,
+          edition: 'Enterprise Edition',
+          instanceName: 'CS1',
+          apiVersion: '66.0',
+          createdDate,
+          userCount: 3,
+          customObjectCount: 1,
+          apexClassCount: 2,
+          flowCount: 0,
+        },
+      }),
+    ).find((line) => line.startsWith('  org:'));
+  }
+
+  it('leaves out the creation date a sandbox answers with, which is its production org’s', () => {
+    // A refresh copies production's date into the sandbox; the panel has left
+    // it out since 1.35, and this line printed it as the sandbox's own.
+    const line = orgLine('Sandbox', '2015-04-02T09:12:00.000Z');
+
+    expect(line).toContain('type Sandbox');
+    expect(line).not.toContain('created');
+    expect(line).not.toContain('2015-04-02');
+    expect(line).toContain('users 3');
+  });
+
+  it('prints the creation date of an org that is not a sandbox', () => {
+    expect(orgLine('Production', '2015-04-02T09:12:00.000Z')).toContain(
+      'created 2015-04-02T09:12:00.000Z, users 3',
+    );
+  });
+
   it('says how many counted objects the storage list stops short of', () => {
     const [, head] = describeAnswer(
       'monitor:storage',

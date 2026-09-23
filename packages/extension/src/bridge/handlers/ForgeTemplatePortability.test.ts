@@ -4,6 +4,9 @@ import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeTemplate } from '@sandforge/shared';
 import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
+import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 /** Where the store keeps its file, built as it builds it: a Windows path on Windows. */
@@ -263,5 +266,78 @@ describe('forge template portability', () => {
     await handler.handle(msg('forge:templates:save', { template: template('t2') }));
 
     expect(deps.configStore.get<unknown[]>('forge:templates')).toHaveLength(1);
+  });
+});
+
+describe('forge templates a profile imported', () => {
+  /** A handler over the ConfigStore every window shares, and a workspace file holding `inFile`. */
+  function workspaceWith(inFile: ForgeTemplate[]): {
+    handler: ForgeHandler;
+    configStore: ConfigStore;
+    files: Map<string, string>;
+    listed: () => Promise<string[]>;
+  } {
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    const handlerDeps = { ...createDeps(), configStore } as HandlerDeps;
+    const { files, store } = createFakeFs();
+    files.set(TEMPLATES_FILE, JSON.stringify(inFile));
+    const handler = new ForgeHandler(handlerDeps);
+    withStore(handler, store);
+    const listed = async (): Promise<string[]> => {
+      vi.mocked(handlerDeps.broker.postToWebview).mockClear();
+      await handler.handle(msg('forge:templates:list', {}));
+      const [response] = vi.mocked(handlerDeps.broker.postToWebview).mock.calls[0] as [
+        BaseMessage & { payload: { templates: ForgeTemplate[] } },
+      ];
+      return response.payload.templates.map((t) => `${t.id}:${t.name}`);
+    };
+    return { handler, configStore, files, listed };
+  }
+
+  /** A profile carrying `templates` as its Forge plans, as an export writes it. */
+  function profileOf(templates: ForgeTemplate[]): string {
+    return JSON.stringify({
+      version: '1.0.0',
+      exportedAt: '2026-09-01T00:00:00.000Z',
+      categories: ['forgePlans'],
+      data: { forgePlans: { 'forge:templates': templates } },
+    });
+  }
+
+  it('lists them beside the workspace file’s own, the file’s copy winning on an id both hold', async () => {
+    // The file's templates used to hide an imported set: it was read only in
+    // a workspace whose file was empty.
+    const ws = workspaceWith([
+      { ...template('shared'), name: 'kept from the file' },
+      template('a'),
+    ]);
+    new ConfigProfileManager(ws.configStore).importProfile(
+      profileOf([{ ...template('shared'), name: 'from the profile' }, template('b')]),
+    );
+
+    expect(await ws.listed()).toEqual(['shared:kept from the file', 'a:recipe-a', 'b:recipe-b']);
+    const inFile = JSON.parse(ws.files.get(TEMPLATES_FILE) as string) as ForgeTemplate[];
+    expect(inFile.map((t) => t.id)).toEqual(['shared', 'a', 'b']);
+  });
+
+  it('merges an imported set once: a template deleted afterwards stays deleted', async () => {
+    const ws = workspaceWith([template('a')]);
+    new ConfigProfileManager(ws.configStore).importProfile(profileOf([template('b')]));
+    expect(await ws.listed()).toEqual(['a:recipe-a', 'b:recipe-b']);
+
+    await ws.handler.handle(msg('forge:templates:delete', { templateId: 'b' }));
+
+    expect(await ws.listed()).toEqual(['a:recipe-a']);
+  });
+
+  it('leaves out the templates another workspace’s saves left in the ConfigStore copy', async () => {
+    // Every window writes its list to `forge:templates`: merging that in would
+    // write another project's templates into this project's file.
+    const ws = workspaceWith([template('a')]);
+    ws.configStore.set('forge:templates', [template('elsewhere')], 'forge');
+
+    expect(await ws.listed()).toEqual(['a:recipe-a']);
+    const inFile = JSON.parse(ws.files.get(TEMPLATES_FILE) as string) as ForgeTemplate[];
+    expect(inFile.map((t) => t.id)).toEqual(['a']);
   });
 });
