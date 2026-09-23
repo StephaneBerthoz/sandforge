@@ -9,7 +9,7 @@ import type { AlertInstance, SalesforceOrg } from '@sandforge/shared';
 const mockNavigate = vi.fn();
 vi.mock('../../stores/useAppStore', () => ({
   useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ navigate: mockNavigate, currentRoute: 'monitor' }),
+    selector({ navigate: mockNavigate, currentRoute: 'monitor', panelVisible: true }),
 }));
 
 /* Mock recharts ResponsiveContainer for TrendCharts and TrendChart */
