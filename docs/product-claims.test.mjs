@@ -1596,24 +1596,73 @@ function assertNoApiTimeoutSetting() {
   );
 }
 
-/** No channel deploys a Compare diff, and the Deploy tab says so. */
-function assertCompareDeploysNothing() {
+const VALIDATE_PAYLOAD_FILE = 'packages/extension/src/bridge/validatePayload.ts';
+
+/**
+ * The keys of a `z.object({…}).strict()` schema declared under `name`, in the
+ * order written; `null` when the declaration is not such a schema.
+ */
+function strictObjectKeys(relativePath, name) {
+  let keys = null;
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText() === name && node.initializer) {
+      const strict = unwrap(node.initializer);
+      const object =
+        ts.isCallExpression(strict) && invokedName(strict.expression) === 'strict'
+          ? unwrap(strict.expression.expression)
+          : undefined;
+      const literal =
+        object && ts.isCallExpression(object) && invokedName(object.expression) === 'object'
+          ? unwrap(object.arguments[0])
+          : undefined;
+      if (literal && ts.isObjectLiteralExpression(literal)) {
+        keys = literal.properties.map((property) => memberName(property));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parseFile(relativePath));
+  return keys;
+}
+
+/**
+ * A Compare diff is deployed only through a validation: the page validates
+ * what it picked, and the deployment request names that validation and
+ * nothing else, so no component reaches the target without the target having
+ * checked it first. "Deploy directly" stays false.
+ */
+function assertCompareDeploysOnlyAValidation() {
   const channels = SHIPPED_SOURCE_ROOTS.flatMap((root) => [...stringLiteralsUnder(root)]);
   assert.ok(
     channels.includes('compare:drift'),
     'the literal scan does not see compare:drift, a channel that exists — it is not reading ' +
-      'channel names, so the absence below proves nothing',
+      'channel names, so the list below proves nothing',
   );
   assert.deepEqual(
-    channels.filter((literal) => literal.startsWith('compare:deploy')),
-    [],
-    'a compare:deploy channel exists — Deploy from Diff may be wired. Re-read help.compareContent ' +
-      'in six locales before relaxing this.',
+    [...new Set(channels.filter((literal) => /^compare:(?:deploy|validate)/.test(literal)))].sort(),
+    [
+      'compare:deploy',
+      'compare:deploy:response',
+      'compare:validate-deployment',
+      'compare:validate-deployment:response',
+    ],
+    'the Compare deployment channels changed — a diff may deploy some other way now. Re-read ' +
+      'help.compareContent in six locales before relaxing this.',
+  );
+  // Positive control: the same walk reads the keys of a schema that has several.
+  assert.deepEqual(strictObjectKeys(VALIDATE_PAYLOAD_FILE, 'monitorOpenApexJobsPayloadSchema'), [
+    'orgId',
+  ]);
+  assert.deepEqual(
+    strictObjectKeys(VALIDATE_PAYLOAD_FILE, 'compareDeployPayloadSchema'),
+    ['validationId', 'targetOrgId'],
+    'compare:deploy no longer names a validation and nothing else — a page may describe what to ' +
+      'deploy, which the target never checked. Re-read help.compareContent in six locales.',
   );
   assert.deepEqual(
     comingSoonMounts(COMPARE_PAGE_FILE),
-    ['compare-deploy-soon'],
-    'ComparePage no longer mounts exactly the Deploy tab as coming soon',
+    [],
+    'ComparePage mounts a tab as coming soon again — the Deploy tab may no longer deploy',
   );
 }
 
@@ -1656,8 +1705,7 @@ function assertNoPipelineScheduler() {
 
 /** Compliance and Cleanup are the two DataOps tabs mounted as coming soon. */
 function assertDataOpsTabsAreComingSoon() {
-  // Positive control: the same walk reads the Deploy tab out of ComparePage.
-  assert.deepEqual(comingSoonMounts(COMPARE_PAGE_FILE), ['compare-deploy-soon']);
+  // The list below is not empty, so a walk that reads no mount fails it too.
   assert.deepEqual(
     comingSoonMounts(DATAOPS_PAGE_FILE),
     ['dataops-cleanup-soon', 'dataops-gdpr-soon'],
@@ -1730,7 +1778,8 @@ function assertNothingRunsOnCtrlEnter() {
  *  - A line carrying its bundle's "Coming soon" passes a disclaimable rule whatever else it says.
  *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
  *  - The pipeline-start rule's anchor reads channel names only: no `scheduler:*` channel is routed or declared. A scheduler wired under another name, or one that fires a pipeline's triggers from the host with no channel, is not seen. Webhook and event triggers have no executor either, and nothing here reads that absence.
- *  - The DataOps and Compare anchors read `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
+ *  - The DataOps anchor reads `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
+ *  - The Compare anchor reads the deployment channels and the keys of the `compare:deploy` schema. A deployment that reaches the target some other way, or a validation that is not check-only, is not seen here: `docs/modules/compare.docs.test.ts` and the handler's tests hold those.
  *  - The quality-scan anchor reads the checks `DataQualityCheckError` names. A check that reports its failures some other way is not seen.
  */
 const HELP_CLAIM_RULES = [
@@ -1799,7 +1848,7 @@ const HELP_CLAIM_RULES = [
     pattern:
       /deploy(?:ment)?s? directly|déploiement direct|direkte bereitstellung|despliegue directo|implanta[çc][ãa]o direta|直接デプロイ|impact analysis|analyse d'impact|auswirkungsanalyse|an[áa]lisis de impacto|an[áa]lise de impacto|影響分析/iu,
     disclaimable: true,
-    anchor: assertCompareDeploysNothing,
+    anchor: assertCompareDeploysOnlyAValidation,
     shipped: [
       '- Impact analysis graph',
       '- Deploy directly from diff results',
@@ -1815,7 +1864,7 @@ const HELP_CLAIM_RULES = [
       '- 差分結果からの直接デプロイ',
     ],
     honest: [
-      '- Deploy: coming soon, nothing is deployed from a diff yet',
+      '- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox',
       '- Diff viewer grouped by category and risk level',
     ],
   },

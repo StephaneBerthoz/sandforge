@@ -1,6 +1,6 @@
 # Compare
 
-Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface. Deploying those differences is not wired yet -- see [Deploy from Diff](#deploy-from-diff).
+Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface, and deploy to a sandbox what the source holds differently, validated first -- see [Deploy from Diff](#deploy-from-diff).
 
 ## Quick Start
 
@@ -84,7 +84,43 @@ tab, and listed side by side with whether each one matches:
 
 ### Deploy from Diff
 
-> **Coming soon:** the Deploy tab renders an empty state as of v1.16.0 -- no deployment channel is wired to it, so nothing can be pushed to the target org from here yet. Cherry-picking changes out of a diff and deploying them without leaving SandForge is the planned design.
+The Deploy tab deploys to the target the components the comparison found only
+in the source, or different in it. Nothing is deployed that was not validated
+first.
+
+1. **Pick.** The tab lists each component a deployment can carry, marked
+   _New_ (only the source holds it) or _Differs_, with the risk the Risk Score
+   Card gives it. Below the list, it says which components the comparison
+   found that cannot be deployed from it, and why:
+   - only the target holds it: taking it out is a destructive change, and
+     SandForge deploys none;
+   - a managed package installed it, and the package owns it;
+   - a profile or a permission set: retrieved on its own, it carries its
+     label, a few settings and its access to what is deployed with it -- not
+     the difference the comparison found;
+   - its content cannot be read, as with the Apex of a managed package, or it
+     was not compared.
+2. **Validate.** SandForge retrieves the picked components from the source
+   through the Metadata API, as one package, and deploys that package to the
+   target check-only: the target compiles everything and runs the Apex tests
+   you choose -- none, the target's own (what the Risk Score Card advises once
+   Apex is picked), or the test classes you name -- and keeps nothing. The
+   report lists every component the target reports on, with the line and
+   column of each error, each failed test with its line, and the coverage the
+   target found short. A component the source no longer holds is named and
+   left out of the package, and a validation that lacks one is no ground for a
+   deployment.
+3. **Deploy.** Only a validation that succeeded can be deployed, and only
+   after you type the target's name. SandForge deploys the package the target
+   validated, with the same tests, once: to deploy again, validate again. A
+   deployment is all or nothing: it rolls back on the first error.
+
+Each report gives the deployment's id, under which the target lists it in
+Setup › Deployment Status, validations included.
+
+A production target is refused, validation included, and so is an org whose
+type SandForge cannot tell: SandForge deploys metadata to sandboxes only. The
+Production Guard decides it, as it decides every write.
 
 ### Schema Advice
 
@@ -104,4 +140,4 @@ standard relationships. Each run returns a score out of 100.
 - Use the Risk Score Card to quickly assess whether changes are safe to deploy
 - Permission Presence answers "which permission sets and profiles is this org missing?", not "who can see what"
 - Re-run the Drift tab after each release to see whether those five Organization settings still match
-- Once Deploy from Diff ships, prefer it over deploying everything at once
+- Deploy a few components at a time: a validation of a handful says which one fails, and on which line

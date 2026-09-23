@@ -1,5 +1,11 @@
 import type { BaseMessage } from './base.messages.js';
-import type { CompareResult, MetadataComponentType } from '../compare.types.js';
+import type {
+  CompareResult,
+  DeploymentComponentRef,
+  DeploymentReport,
+  DeployTestLevel,
+  MetadataComponentType,
+} from '../compare.types.js';
 
 /** Compare messages (validated by compareExecutePayloadSchema). */
 export interface CompareExecuteRequest extends BaseMessage {
@@ -102,6 +108,45 @@ export interface CompareDriftResponse extends BaseMessage {
       detectedAt: string;
     };
   };
+}
+
+/**
+ * Validate a deployment of components of the source to the target: retrieve
+ * them from the source and deploy them to the target check-only, so the
+ * target compiles them and runs the tests and keeps nothing.
+ */
+export interface CompareValidateDeploymentRequest extends BaseMessage {
+  type: 'compare:validate-deployment';
+  payload: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    components: DeploymentComponentRef[];
+    testLevel: DeployTestLevel;
+    /** The test classes `RunSpecifiedTests` runs; left out for the other levels. */
+    runTests?: string[];
+  };
+}
+
+/** What the validation did in the target; `report.deployId` names it for the deployment. */
+export interface CompareValidateDeploymentResponse extends BaseMessage {
+  type: 'compare:validate-deployment:response';
+  payload: { report: DeploymentReport };
+}
+
+/**
+ * Deploy what a successful validation of this window validated, to the org
+ * it validated it in. The extension deploys the package it kept from that
+ * validation, never one the page describes.
+ */
+export interface CompareDeployRequest extends BaseMessage {
+  type: 'compare:deploy';
+  payload: { validationId: string; targetOrgId: string };
+}
+
+/** What the deployment did in the target. */
+export interface CompareDeployResponse extends BaseMessage {
+  type: 'compare:deploy:response';
+  payload: { report: DeploymentReport };
 }
 
 /** Error response for compare operations (emitted via sendHandlerError). */

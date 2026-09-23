@@ -194,6 +194,10 @@ const CompareMessages = [
   msg('compare:permissions:response'),
   msg('compare:snapshots:response'),
   msg('compare:drift:response'),
+  msg('compare:validate-deployment'),
+  msg('compare:validate-deployment:response'),
+  msg('compare:deploy'),
+  msg('compare:deploy:response'),
   msg('compare:error'),
 ] as const;
 export const CompareMessageSchema = z.discriminatedUnion('type', CompareMessages);

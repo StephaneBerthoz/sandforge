@@ -17,7 +17,6 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { ComingSoon } from '../../components/ui/ComingSoon';
 import { OrgSelector } from './OrgSelector';
 import { CategorySelector } from './CategorySelector';
 import { RiskScoreCard } from './RiskScoreCard';
@@ -30,6 +29,7 @@ import { SnapshotComparison, readSnapshotComparison } from './SnapshotComparison
 import type { OrgSnapshotComparison } from './SnapshotComparison';
 import { SettingsDrift, readSettingsDrift } from './SettingsDrift';
 import type { SettingsDriftReport } from './SettingsDrift';
+import { DeployPanel } from './DeployPanel';
 import { enrichDiffs } from './enrichDiffs';
 
 /** How long the page waits for a diff before it calls the comparison failed. */
@@ -444,16 +444,14 @@ export const ComparePage: React.FC = () => {
               />
             ))}
 
-          {/* No producer computes a DeploymentSuggestion anywhere in the
-              codebase, so DeployFromDiff was always mounted without one and
-              rendered "No data available" — which reads as "the diff holds
-              nothing deployable" when in fact nothing was ever computed. */}
-          {activeTab === 'deploy' && (
-            <ComingSoon
-              data-testid="compare-deploy-soon"
-              description={t('compare.buildDeployment')}
-            />
-          )}
+          {/* Mounted while the comparison is shown, hidden on the other tabs:
+              a validation runs for minutes, and a panel a tab change
+              unmounted would drop its answer. Keyed by the comparison: what
+              was picked and validated answers for one comparison, and a new
+              one starts the tab afresh. */}
+          <div hidden={activeTab !== 'deploy'} data-testid="compare-deploy-tab">
+            <DeployPanel key={result.configId} result={result} report={compareReport} orgs={orgs} />
+          </div>
 
           {/* Diff detail modal */}
           {selectedDiff && (

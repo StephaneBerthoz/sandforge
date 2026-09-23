@@ -328,7 +328,7 @@ describe('ComparePage', () => {
     expect(screen.getByText('Deploy from Diff')).toBeDefined();
   });
 
-  it('should say the deploy tab is not wired instead of claiming there is no data', () => {
+  it('offers the changes of the comparison for deployment, and refuses its production target', () => {
     mockCompareMutationState = {
       mutate: mockCompareMutate,
       data: {
@@ -368,12 +368,34 @@ describe('ComparePage', () => {
 
     fireEvent.click(screen.getByTestId('page-tab-deploy'));
 
-    // No producer computes a DeploymentSuggestion, so the tab must not render
-    // an empty deployment list -- that reads as "nothing is deployable".
-    expect(screen.getByTestId('compare-deploy-soon')).toBeDefined();
-    expect(screen.getByText('Coming soon')).toBeDefined();
-    expect(screen.queryByTestId('deploy-builder')).toBeNull();
-    expect(screen.queryByText('No data available')).toBeNull();
+    // The deployment is drawn from the comparison: its changes, between the
+    // two orgs it compared, whatever the selectors say by then.
+    expect(screen.getByTestId('compare-deploy')).toBeDefined();
+    expect(screen.getByText('Deploy from Dev to Prod')).toBeDefined();
+    expect(screen.getByTestId('deploy-pick-ApexClass:TestClass')).toBeDefined();
+    // Prod is a production org: the page says so, and sends nothing.
+    expect(screen.getByTestId('deploy-target-refused')).toBeDefined();
+    fireEvent.click(screen.getByTestId('deploy-pick-ApexClass:TestClass'));
+    expect((screen.getByTestId('deploy-validate-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('compare-deploy-soon')).toBeNull();
+  });
+
+  it('keeps what the Deploy tab holds across a visit to another tab', () => {
+    // A validation runs for minutes: a tab change must not drop its answer,
+    // nor what was picked for it.
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-deploy'));
+    fireEvent.click(screen.getByTestId('deploy-pick-ApexClass:TestClass'));
+    fireEvent.click(screen.getByTestId('page-tab-diff'));
+    expect(screen.getByTestId('compare-deploy-tab').hidden).toBe(true);
+    fireEvent.click(screen.getByTestId('page-tab-deploy'));
+
+    expect(screen.getByTestId('compare-deploy-tab').hidden).toBe(false);
+    expect(
+      (screen.getByTestId('deploy-pick-ApexClass:TestClass') as HTMLInputElement).checked,
+    ).toBe(true);
   });
 
   /* ---------------------------------------------------------------- */

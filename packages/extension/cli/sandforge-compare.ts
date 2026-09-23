@@ -6,15 +6,21 @@
  * pair of orgs; the five modules run against real orgs before it had yielded
  * twenty-five defects between them, none of which any gate had seen.
  *
- * It sends the Compare page's four requests through the extension's own
+ * It sends the Compare page's requests through the extension's own
  * composition (see `panelHost.ts`) and prints what the page would receive.
- * Every request only reads: the page deploys nothing, and neither does this.
+ * The four comparison requests only read. The fifth validates a deployment:
+ * the target compiles and tests the components check-only and keeps none of
+ * them. The page's other deployment request, the one that deploys, is not
+ * one this tool can send.
  *
  * Usage:
  *   npx tsx packages/extension/cli/sandforge-compare.ts \
  *     --source SRC --target TGT --type ApexClass --type Flow
  *   npx tsx packages/extension/cli/sandforge-compare.ts \
  *     --source SRC --target TGT --op permissions --op drift
+ *   npx tsx packages/extension/cli/sandforge-compare.ts \
+ *     --source SRC --target TGT --validate ApexClass:Invoicing \
+ *     --tests RunSpecifiedTests --run-test InvoicingTest
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -23,7 +29,20 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { CompareItem, CompareResult, MetadataComponentType } from '@sandforge/shared';
+import {
+  DEPLOYABLE_COMPONENT_TYPES,
+  DEPLOY_TEST_LEVELS,
+  DEPLOY_TEST_NAME_PATTERN,
+  DEPLOY_WAIT_MINUTES,
+} from '@sandforge/shared';
+import type {
+  CompareItem,
+  CompareResult,
+  DeploymentComponentRef,
+  DeploymentReport,
+  DeployTestLevel,
+  MetadataComponentType,
+} from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type { PanelAnswer } from './panelHost.js';
 
@@ -37,26 +56,41 @@ Required:
   --target <alias>       sf CLI alias of the target org
 
 Options:
-  --op <name>            execute | permissions | snapshots | drift; repeat for
-                         more                                 (default: all four)
+  --op <name>            execute | permissions | snapshots | drift |
+                         validate-deployment; repeat for more
+                         (default: the first four, or validate-deployment
+                         alone when --validate is given)
   --type <Type>          a metadata category to diff (execute); repeat for more
   --all-types            every category the page offers, as "Select all" does
   --exclude-managed      leave out what a managed package installed (execute),
                          as the page does with its box unticked
+  --validate <Type:Name> a component to validate a deployment of, from the
+                         source to the target; repeat for more
+  --tests <level>        the Apex tests the validation runs: NoTestRun |
+                         RunLocalTests | RunSpecifiedTests (default: NoTestRun)
+  --run-test <Class>     a test class RunSpecifiedTests runs; repeat for more
   --store <dir>          where the host keeps its config store (default: a temp directory)
   --wait <seconds>       how long to keep waiting for an answer     (default: 300)
   --json                 emit what the page would receive
   --help                 this text
 
-Nothing is written to either org.
+Nothing is written to either org. A validation deploys check-only: the
+target compiles the components and runs the tests, keeps none of them, and
+lists the validation in Setup › Deployment Status. This tool never deploys.
 
 Exit codes: 0 the run finished (read the answers), 1 it could not start,
 2 a bad command line.
 `;
 
-/** The four requests the page sends. */
-const OPERATIONS = ['execute', 'permissions', 'snapshots', 'drift'] as const;
+/**
+ * The requests this tool sends: the page's four comparison requests, and its
+ * validation. The page's `compare:deploy` is not among them.
+ */
+const OPERATIONS = ['execute', 'permissions', 'snapshots', 'drift', 'validate-deployment'] as const;
 type Operation = (typeof OPERATIONS)[number];
+
+/** What runs when no --op is given and no --validate either. */
+const READ_OPERATIONS: readonly Operation[] = ['execute', 'permissions', 'snapshots', 'drift'];
 
 /**
  * The categories the page's CategorySelector offers, in its order. "Select
@@ -86,6 +120,17 @@ export const PAGE_COMPONENT_TYPES: readonly MetadataComponentType[] = [
 /** How long the page waits for a diff (`COMPARE_TIMEOUT_MS` in ComparePage). */
 const PAGE_EXECUTE_TIMEOUT_MS = 5 * 60_000;
 
+/** How long the page waits for a validation (`VALIDATE_TIMEOUT_MS` in DeployPanel). */
+const PAGE_VALIDATE_TIMEOUT_MS =
+  (2 * DEPLOY_WAIT_MINUTES.retrieve + DEPLOY_WAIT_MINUTES.deploy + 1) * 60_000;
+
+/** The validation asked for: the components, and the tests the target runs. */
+interface ValidationArgs {
+  components: DeploymentComponentRef[];
+  testLevel: DeployTestLevel;
+  runTests: string[];
+}
+
 /** Everything the command line settled. */
 interface CliArgs {
   source: string;
@@ -94,6 +139,7 @@ interface CliArgs {
   types: MetadataComponentType[];
   /** Whether the diff compares what a managed package installed; the page's box. */
   includeManaged: boolean;
+  validation: ValidationArgs;
   storeDir: string;
   waitMs: number;
   json: boolean;
@@ -136,7 +182,17 @@ export function parseArgs(argv: string[]): CliArgs {
       refuse(`Not an operation: "${op}". One of: ${OPERATIONS.join(', ')}.`);
     }
   }
-  const operations = asked.length > 0 ? [...new Set(asked as Operation[])] : [...OPERATIONS];
+  const validation = parseValidation(collect, get, refuse);
+  const operations =
+    asked.length > 0
+      ? [...new Set(asked as Operation[])]
+      : validation.components.length > 0
+        ? (['validate-deployment'] as Operation[])
+        : [...READ_OPERATIONS];
+  if (operations.includes('validate-deployment') && validation.components.length === 0) {
+    // Nor does the page validate with nothing picked.
+    refuse('validate-deployment needs a component: give --validate Type:Name.');
+  }
 
   const named = collect('--type');
   for (const type of named) {
@@ -164,10 +220,80 @@ export function parseArgs(argv: string[]): CliArgs {
     operations,
     types,
     includeManaged: !args.includes('--exclude-managed'),
+    validation,
     storeDir: get('--store', join(tmpdir(), 'sandforge-compare')) ?? '',
     waitMs: waitSeconds * 1000,
     json: args.includes('--json'),
   };
+}
+
+/**
+ * The validation the command line asks for, refused where the page would not
+ * send it: a type a deployment does not carry, a test that is no class name,
+ * named tests at another level.
+ */
+function parseValidation(
+  collect: (flag: string) => string[],
+  get: (flag: string, fallback?: string) => string | undefined,
+  refuse: (line: string) => never,
+): ValidationArgs {
+  const components: DeploymentComponentRef[] = [];
+  for (const spec of collect('--validate')) {
+    const at = spec.indexOf(':');
+    const componentType = spec.slice(0, at);
+    const fullName = spec.slice(at + 1);
+    if (at < 1 || fullName === '') refuse(`--validate takes Type:Name, got "${spec}".`);
+    if (!(DEPLOYABLE_COMPONENT_TYPES as readonly string[]).includes(componentType)) {
+      refuse(`Not a type a deployment carries: "${componentType}".`);
+    }
+    components.push({ componentType: componentType as MetadataComponentType, fullName });
+  }
+  const level = get('--tests', 'NoTestRun') ?? 'NoTestRun';
+  if (!(DEPLOY_TEST_LEVELS as readonly string[]).includes(level)) {
+    refuse(`Not a test level: "${level}". One of: ${DEPLOY_TEST_LEVELS.join(', ')}.`);
+  }
+  const testLevel = level as DeployTestLevel;
+  const runTests = collect('--run-test');
+  for (const name of runTests) {
+    if (!DEPLOY_TEST_NAME_PATTERN.test(name)) refuse(`Not an Apex class name: "${name}".`);
+  }
+  if (testLevel === 'RunSpecifiedTests' && runTests.length === 0) {
+    refuse('RunSpecifiedTests needs a test class: give --run-test.');
+  }
+  if (testLevel !== 'RunSpecifiedTests' && runTests.length > 0) {
+    refuse('--run-test names the tests of --tests RunSpecifiedTests only.');
+  }
+  return { components, testLevel, runTests };
+}
+
+/** Lines for one deployment report: the verdict, each component, each failed test. */
+export function describeDeployment(report: DeploymentReport): string[] {
+  const { counts } = report;
+  const lines = [
+    `  ${report.checkOnly ? 'validation' : 'deployment'} ${report.deployId ?? '(none sent)'}: ` +
+      `${report.status}, ${report.success ? 'success' : 'no success'}` +
+      (report.errorMessage ? ` — ${report.errorMessage}` : ''),
+    `  components: ${counts.componentsDeployed} of ${counts.componentsTotal} without an error, ` +
+      `${counts.componentErrors} with one; tests (${report.testLevel}` +
+      `${report.runTests.length > 0 ? `: ${report.runTests.join(', ')}` : ''}): ` +
+      `${counts.testsCompleted} of ${counts.testsTotal} passed, ${counts.testErrors} failed`,
+  ];
+  for (const c of report.components) {
+    const at =
+      c.line !== undefined
+        ? ` (line ${c.line}${c.column !== undefined ? `, column ${c.column}` : ''})`
+        : '';
+    const problem = c.problem ? ` — ${c.problem}${at}` : '';
+    lines.push(`    ${c.outcome.padEnd(13)} ${c.componentType} ${c.fullName}${problem}`);
+  }
+  for (const f of report.testFailures) {
+    const name = f.methodName ? `${f.className}.${f.methodName}` : f.className;
+    const at = f.line !== undefined ? ` (line ${f.line})` : '';
+    lines.push(`    test failed  ${name}${at} — ${f.message}`);
+  }
+  for (const w of report.coverageWarnings) lines.push(`    coverage     ${w}`);
+  for (const p of report.retrieveProblems ?? []) lines.push(`    source said  ${p}`);
+  return lines;
 }
 
 /**
@@ -268,6 +394,10 @@ export function describeAnswer(op: Operation, answer: PanelAnswer): string[] {
     return lines;
   }
   if (op === 'execute') return [...lines, ...describeExecute(payload as unknown as CompareResult)];
+  if (op === 'validate-deployment') {
+    const report = payload.report as DeploymentReport | undefined;
+    return report ? [...lines, ...describeDeployment(report)] : [...lines, '  (no report)'];
+  }
   if (op === 'permissions') {
     const permissions = (payload.permissions ?? {}) as Record<
       string,
@@ -339,10 +469,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       payload.types = args.types;
       payload.includeManaged = args.includeManaged;
     }
+    if (op === 'validate-deployment') {
+      // What DeployPanel sends: the components, the level, and the names
+      // only for the level that runs named tests.
+      payload.components = args.validation.components;
+      payload.testLevel = args.validation.testLevel;
+      if (args.validation.testLevel === 'RunSpecifiedTests') {
+        payload.runTests = args.validation.runTests;
+      }
+    }
     const answer = await host.request({
       type: `compare:${op}`,
       payload,
       ...(op === 'execute' ? { timeoutMs: PAGE_EXECUTE_TIMEOUT_MS } : {}),
+      ...(op === 'validate-deployment' ? { timeoutMs: PAGE_VALIDATE_TIMEOUT_MS } : {}),
     });
     results.push({ op, answer });
     for (const line of describeAnswer(op, answer)) log(line);

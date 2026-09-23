@@ -335,7 +335,6 @@
       "leftOut": "Eine nicht verglichene Komponente ist weder eine Änderung noch eine Übereinstimmung: Der Risikowert lässt sie außen vor."
     },
     "driftScore": "Drift-Wert",
-    "buildDeployment": "Bereitstellung erstellen",
     "sameOrgWarning": "Quell- und Ziel-Org müssen unterschiedlich sein",
     "riskScore": "Risikowert",
     "category": "Kategorie",
@@ -375,6 +374,107 @@
       "apexTests": "Alle Apex-Tests ausführen.",
       "lowRisk": "Geringes Risiko. Bereitstellung unbedenklich.",
       "review": "Änderungen vor der Bereitstellung prüfen."
+    },
+    "deployment": {
+      "title": "Von {{source}} nach {{target}} bereitstellen",
+      "intro": "Wählen Sie, was {{source}} enthält und {{target}} nicht oder anders enthält. SandForge ruft es aus {{source}} ab und validiert es zuerst in {{target}}: Das Ziel kompiliert es, führt die gewählten Tests aus und behält nichts. Nur eine erfolgreiche Validierung kann bereitgestellt werden, nachdem Sie bestätigt haben. Aus dem Ziel wird nichts gelöscht.",
+      "targetRefused": "{{target}} ist eine Produktions-Org oder eine Org, von der SandForge nicht sagen kann, ob sie eine Sandbox ist. SandForge stellt nur in Sandboxes bereit.",
+      "pickLegend": "Bereitzustellende Komponenten: {{picked}} von {{total}} ausgewählt",
+      "noneDeployable": "Nichts, was dieser Vergleich gefunden hat, kann daraus bereitgestellt werden.",
+      "changeLegend": "Neu: Nur {{source}} enthält es, und die Bereitstellung erstellt es. Abweichend: Beide enthalten es, und die Bereitstellung ersetzt, was {{target}} enthält.",
+      "change": {
+        "removed": "Neu",
+        "modified": "Abweichend"
+      },
+      "risk": {
+        "none": "Kein Risiko",
+        "low": "Geringes Risiko",
+        "medium": "Mittleres Risiko",
+        "high": "Hohes Risiko",
+        "critical": "Kritisches Risiko"
+      },
+      "notDeployableTitle_one": "{{count}} Komponente kann aus diesem Vergleich nicht bereitgestellt werden",
+      "notDeployableTitle_other": "{{count}} Komponenten können aus diesem Vergleich nicht bereitgestellt werden",
+      "reason": {
+        "only_in_target": "Nur im Ziel: Das Entfernen ist eine destruktive Änderung, die SandForge nicht bereitstellt",
+        "managed": "Von einem verwalteten Paket installiert, dem sie gehört",
+        "permissions_in_part": "Ein Profil oder Berechtigungssatz: Allein abgerufen enthält er seine Bezeichnung, einige Einstellungen und seinen Zugriff auf das, was mit ihm bereitgestellt wird, nicht den gefundenen Unterschied",
+        "type_not_deployable": "Ein Typ, den die Metadata API nicht bereitstellt",
+        "unreadable": "Ihr Inhalt kann nicht gelesen werden, wie das Apex eines verwalteten Pakets",
+        "not_compared": "Nicht verglichen: Nichts deutet darauf hin, dass sie abweicht"
+      },
+      "andMore_one": "und {{count}} weitere",
+      "andMore_other": "und {{count}} weitere",
+      "testsLegend": "Apex-Tests in {{target}}",
+      "testLevel": {
+        "NoTestRun": "Keine Tests ausführen",
+        "RunLocalTests": "Die eigenen Tests des Ziels ausführen",
+        "RunSpecifiedTests": "Diese Testklassen ausführen"
+      },
+      "testNames": "Testklassen, durch Kommas oder Leerzeichen getrennt",
+      "testNamesMissing": "Nennen Sie mindestens eine Testklasse.",
+      "testNamesInvalid": "Kein Klassenname: {{names}}",
+      "testNamesTooMany": "Eine Bereitstellung nennt höchstens {{max}} Testklassen.",
+      "testsAdvised": "Ihre Auswahl enthält Apex: Wie die Risikokarte empfiehlt, laufen die eigenen Tests des Ziels, sofern Sie nichts anderes wählen.",
+      "validate": "In {{target}} validieren",
+      "deploy": "Nach {{target}} bereitstellen",
+      "progress": {
+        "waiting": "Warten auf die Orgs…",
+        "retrieve": "Abruf aus der Quelle: {{done}} von {{total}} Komponenten",
+        "components": "Prüfung der Komponenten: {{done}} von {{total}}",
+        "tests": "Ausführung der Apex-Tests: {{done}} von {{total}}"
+      },
+      "stale": "Die Auswahl oder die Tests haben sich seit dieser Validierung geändert: Validieren Sie erneut, um bereitzustellen.",
+      "confirmTitle": "Nach {{target}} bereitstellen",
+      "confirmDescription_one": "Die als {{id}} validierte Komponente wird mit denselben Tests nach {{target}} bereitgestellt, und {{target}} behält sie.",
+      "confirmDescription_other": "Die {{count}} als {{id}} validierten Komponenten werden mit denselben Tests nach {{target}} bereitgestellt, und {{target}} behält sie.",
+      "report": {
+        "badge": {
+          "validated": "Validiert",
+          "deployed": "Bereitgestellt",
+          "failed": "Fehlgeschlagen",
+          "notStarted": "Nicht gestartet"
+        },
+        "validated": "In {{target}} validiert: Alles wurde kompiliert, die angeforderten Tests liefen, und nichts wurde behalten.",
+        "validationFailed": "Die Validierung ist in {{target}} fehlgeschlagen: Nichts kann bereitgestellt werden, bis eine Validierung gelingt.",
+        "deployed": "Nach {{target}} bereitgestellt.",
+        "deployFailed": "Die Bereitstellung ist in {{target}} fehlgeschlagen und wurde zurückgesetzt: Das Ziel hat nichts behalten.",
+        "notStarted": "Nichts wurde an {{target}} gesendet: Die Quelle hat keine der Komponenten zurückgegeben.",
+        "notRetrieved_one": "Die Quelle hat {{count}} angeforderte Komponente nicht zurückgegeben: Wählen Sie sie ab und validieren Sie erneut.",
+        "notRetrieved_other": "Die Quelle hat {{count}} angeforderte Komponenten nicht zurückgegeben: Wählen Sie sie ab und validieren Sie erneut.",
+        "stopped": "Als Ganzes angehalten: {{message}}",
+        "where": "{{target}} führt sie unter Setup › Bereitstellungsstatus als {{id}}.",
+        "counts": "Komponenten: {{deployed}} von {{total}} ohne Fehler, {{errors}} mit Fehler.",
+        "tests": "Apex-Tests: {{completed}} von {{total}} bestanden, {{failed}} fehlgeschlagen.",
+        "noTests": "Kein Apex-Test wurde ausgeführt.",
+        "componentsCaption": "Komponenten, wie das Ziel sie meldet",
+        "column": {
+          "outcome": "Ergebnis",
+          "component": "Komponente",
+          "problem": "Problem"
+        },
+        "outcome": {
+          "created": "Erstellt",
+          "changed": "Geändert",
+          "unchanged": "Unverändert",
+          "failed": "Fehlgeschlagen",
+          "not_retrieved": "Von der Quelle nicht zurückgegeben"
+        },
+        "outcomeCheckOnly": {
+          "created": "Würde erstellt",
+          "changed": "Würde geändert",
+          "unchanged": "Unverändert",
+          "failed": "Fehlgeschlagen",
+          "not_retrieved": "Von der Quelle nicht zurückgegeben"
+        },
+        "at": "Zeile {{line}}, Spalte {{column}}",
+        "atLine": "Zeile {{line}}",
+        "warning": "Warnung",
+        "testFailuresTitle_one": "{{count}} Test fehlgeschlagen",
+        "testFailuresTitle_other": "{{count}} Tests fehlgeschlagen",
+        "coverageTitle": "Abdeckung, die das Ziel als zu gering befand",
+        "retrieveProblemsTitle": "Was die Quelle gemeldet hat"
+      }
     }
   },
   "seed": {
@@ -1342,7 +1442,8 @@
       "seed_csv_import": "CSV-Import",
       "seed_clone": "Datensatz-Klon",
       "autopilot_execute": "Autopilot-Lauf",
-      "frozen_load": "Eingefrorenen Datensatz laden"
+      "frozen_load": "Eingefrorenen Datensatz laden",
+      "metadata_deploy": "Metadaten-Bereitstellung"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",
@@ -1593,7 +1694,7 @@
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
     "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
-    "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Demnächst, aus einem Diff wird noch nichts bereitgestellt",
+    "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance und Bereinigung: Demnächst, hinter diesen Tabs läuft noch nichts",
     "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, und was jeder ihrer Schritte getan hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",

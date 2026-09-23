@@ -1095,6 +1095,22 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Compare deployment confirmation open over the Deploy tab', async ({ page }) => {
+      await openDeployTab(bridge, page, theme);
+      await validateInvoicing(page);
+      await bridge.waitForMessage('compare:validate-deployment', { timeout: 10_000 });
+      await answerAll(page, 'compare:validate-deployment', 'compare:validate-deployment:response', {
+        report: validationReport(),
+      });
+      await page.getByTestId('deploy-deploy-btn').click();
+
+      const dialog = page.getByRole('dialog', { name: 'Deploy to QASandbox' });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
     test('Settings page with tabs', async ({ page }) => {
       await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
 
@@ -1144,6 +1160,112 @@ async function openDeviceCode(bridge: MockBridge, page: Page, theme: StateTheme)
     expiresAt: Date.now() + 10 * 60_000,
   });
   await page.getByTestId('org-device-code').waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/**
+ * Open Compare's Deploy tab on a comparison holding a component of each kind
+ * the tab lists: one that differs, one only the source holds, one only the
+ * target holds, and one it could not read.
+ */
+async function openDeployTab(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'compare', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
+  await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+  await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+  await page.getByTestId('cat-ApexClass').click();
+  await page.getByTestId('run-compare-btn').click();
+  await bridge.waitForMessage('compare:execute', { timeout: 10_000 });
+  await answerAll(page, 'compare:execute', 'compare:execute:response', {
+    configId: '4f1a2b3c-0000-4000-8000-000000000004',
+    sourceOrgId: DEV_SANDBOX.id,
+    targetOrgId: QA_SANDBOX.id,
+    mode: 'metadata',
+    summary: {
+      totalItems: 4,
+      added: 1,
+      removed: 1,
+      modified: 1,
+      unchanged: 0,
+      notCompared: 1,
+      byType: {},
+    },
+    content: {
+      compared: 1,
+      notCompared: { unreadable: 1, read_failed: 0, over_budget: 0 },
+      budget: { components: 500, seconds: 90 },
+    },
+    diffs: [
+      {
+        componentType: 'ApexClass',
+        fullName: 'Invoicing',
+        status: 'modified',
+        severity: 'breaking',
+        deployable: true,
+      },
+      {
+        componentType: 'ApexClass',
+        fullName: 'Billing',
+        status: 'removed',
+        severity: 'breaking',
+        deployable: true,
+      },
+      {
+        componentType: 'ApexClass',
+        fullName: 'Legacy',
+        status: 'added',
+        severity: 'info',
+        deployable: true,
+      },
+      {
+        componentType: 'ApexClass',
+        fullName: 'pkg__Engine',
+        status: 'not_compared',
+        notComparedReason: 'unreadable',
+        severity: 'info',
+        deployable: false,
+        managed: true,
+      },
+    ],
+    timestamp: '2026-09-10T09:00:00.000Z',
+    duration: 1200,
+  });
+  await page.getByTestId('page-tab-deploy').click();
+  await page.getByTestId('compare-deploy').waitFor({ timeout: 10_000 });
+}
+
+/** A validation report, as the extension answers `compare:validate-deployment`. */
+function validationReport(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    deployId: '0Af000000000001',
+    checkOnly: true,
+    status: 'Succeeded',
+    success: true,
+    sourceOrgId: DEV_SANDBOX.id,
+    targetOrgId: QA_SANDBOX.id,
+    testLevel: 'RunSpecifiedTests',
+    runTests: ['InvoicingTest'],
+    components: [{ componentType: 'ApexClass', fullName: 'Invoicing', outcome: 'changed' }],
+    counts: {
+      componentsTotal: 1,
+      componentsDeployed: 1,
+      componentErrors: 0,
+      testsTotal: 1,
+      testsCompleted: 1,
+      testErrors: 0,
+    },
+    testFailures: [],
+    coverageWarnings: [],
+    ...overrides,
+  };
+}
+
+/** Pick one class, name its test, and send the validation. */
+async function validateInvoicing(page: Page): Promise<void> {
+  await page.getByTestId('deploy-pick-ApexClass:Invoicing').check();
+  await page.getByTestId('deploy-test-level-RunSpecifiedTests').check();
+  await page.getByTestId('deploy-test-names').fill('InvoicingTest');
+  await page.getByTestId('deploy-validate-btn').click();
 }
 
 /** Open the CSV import with a target org picked, so the drop zone takes files. */
@@ -1445,6 +1567,69 @@ for (const theme of STATE_THEMES) {
       });
       await expect(page.getByTestId('no-diffs')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('compare-coverage-managed-left-out')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Compare deploy tab after a validation that failed', async ({ page }) => {
+      await openDeployTab(bridge, page, theme);
+      await validateInvoicing(page);
+      await bridge.waitForMessage('compare:validate-deployment', { timeout: 10_000 });
+      // Every line a failed validation can paint: a component that failed on
+      // a line, a warning, one the source did not return, a failed test, a
+      // coverage warning, and what the source said.
+      await answerAll(page, 'compare:validate-deployment', 'compare:validate-deployment:response', {
+        report: validationReport({
+          status: 'Failed',
+          success: false,
+          components: [
+            {
+              componentType: 'ApexClass',
+              fullName: 'Invoicing',
+              outcome: 'failed',
+              problem: 'Variable does not exist: total',
+              problemType: 'Error',
+              fileName: 'classes/Invoicing.cls',
+              line: 12,
+              column: 5,
+            },
+            {
+              componentType: 'Layout',
+              fullName: 'Order-Order Layout',
+              outcome: 'failed',
+              problem: 'Cannot find the field in the target',
+              problemType: 'Warning',
+            },
+            {
+              componentType: 'ApexClass',
+              fullName: 'Billing',
+              outcome: 'not_retrieved',
+              problem: "Entity of type 'ApexClass' named 'Billing' cannot be found",
+            },
+          ],
+          counts: {
+            componentsTotal: 2,
+            componentsDeployed: 0,
+            componentErrors: 2,
+            testsTotal: 1,
+            testsCompleted: 0,
+            testErrors: 1,
+          },
+          testFailures: [
+            {
+              className: 'InvoicingTest',
+              methodName: 'charges',
+              message: 'System.AssertException: Assertion Failed',
+              line: 21,
+            },
+          ],
+          coverageWarnings: ['Invoicing: Test coverage of 40%'],
+          retrieveProblems: ['classes/Invoicing.cls: Unable to read file'],
+        }),
+      });
+      await expect(page.getByTestId('deploy-validation-report-test-failures')).toBeVisible({
+        timeout: 10_000,
+      });
 
       await expectReadable(page, theme);
     });

@@ -5,6 +5,7 @@ import {
   modifiedByType,
   describeCoverage,
   describeAnswer,
+  describeDeployment,
   PAGE_COMPONENT_TYPES,
 } from './sandforge-compare.js';
 
@@ -85,6 +86,125 @@ describe('parseArgs', () => {
 
   it('refuses an operation the page does not send', () => {
     expect(refuse('--source', 'S', '--target', 'T', '--op', 'deploy').code).toBe(2);
+  });
+});
+
+describe('parseArgs, validating a deployment', () => {
+  const base = ['--source', 'SRC', '--target', 'TGT'];
+
+  it('validates the components named, alone, with no tests unless asked', () => {
+    const args = parseArgs(
+      argv(...base, '--validate', 'ApexClass:Invoicing', '--validate', 'Layout:Order-Order Layout'),
+    );
+    expect(args.operations).toEqual(['validate-deployment']);
+    expect(args.validation).toEqual({
+      components: [
+        { componentType: 'ApexClass', fullName: 'Invoicing' },
+        { componentType: 'Layout', fullName: 'Order-Order Layout' },
+      ],
+      testLevel: 'NoTestRun',
+      runTests: [],
+    });
+  });
+
+  it('runs the test classes named for RunSpecifiedTests', () => {
+    const args = parseArgs(
+      argv(
+        ...base,
+        '--validate',
+        'ApexClass:Invoicing',
+        '--tests',
+        'RunSpecifiedTests',
+        '--run-test',
+        'InvoicingTest',
+      ),
+    );
+    expect(args.validation.testLevel).toBe('RunSpecifiedTests');
+    expect(args.validation.runTests).toEqual(['InvoicingTest']);
+  });
+
+  it('can send no request that deploys: a validation is the furthest it goes', () => {
+    const every = parseArgs(
+      argv(
+        ...base,
+        '--type',
+        'ApexClass',
+        '--validate',
+        'ApexClass:Invoicing',
+        ...['execute', 'permissions', 'snapshots', 'drift', 'validate-deployment'].flatMap((op) => [
+          '--op',
+          op,
+        ]),
+      ),
+    );
+    expect(every.operations.map((op) => `compare:${op}`)).not.toContain('compare:deploy');
+  });
+
+  it.each([
+    ['a type a deployment does not carry', ['--validate', 'Profile:Admin']],
+    ['a component with no name', ['--validate', 'ApexClass:']],
+    ['named tests with none named', ['--validate', 'ApexClass:A', '--tests', 'RunSpecifiedTests']],
+    ['a test named at another level', ['--validate', 'ApexClass:A', '--run-test', 'ATest']],
+    [
+      'a test that is no class name',
+      ['--validate', 'ApexClass:A', '--tests', 'RunSpecifiedTests', '--run-test', 'A;B'],
+    ],
+    ['a level the Metadata API does not name', ['--validate', 'ApexClass:A', '--tests', 'All']],
+    ['a validation of nothing', ['--op', 'validate-deployment']],
+  ])('refuses %s', (_what, extra) => {
+    expect(refuse(...base, ...extra).code).toBe(2);
+  });
+});
+
+describe('describeDeployment', () => {
+  it('prints the verdict, each component with where it fails, and each failed test', () => {
+    const lines = describeDeployment({
+      deployId: '0Af000000000001',
+      checkOnly: true,
+      status: 'Failed',
+      success: false,
+      sourceOrgId: 'src',
+      targetOrgId: 'tgt',
+      testLevel: 'RunSpecifiedTests',
+      runTests: ['InvoicingTest'],
+      components: [
+        {
+          componentType: 'ApexClass',
+          fullName: 'Invoicing',
+          outcome: 'failed',
+          problem: 'Variable does not exist: total',
+          line: 12,
+          column: 5,
+        },
+        { componentType: 'Layout', fullName: 'Order-Order Layout', outcome: 'changed' },
+      ],
+      counts: {
+        componentsTotal: 2,
+        componentsDeployed: 1,
+        componentErrors: 1,
+        testsTotal: 1,
+        testsCompleted: 0,
+        testErrors: 1,
+      },
+      testFailures: [
+        {
+          className: 'InvoicingTest',
+          methodName: 'charges',
+          message: 'Assertion Failed',
+          line: 21,
+        },
+      ],
+      coverageWarnings: [],
+    });
+
+    expect(lines).toEqual([
+      '  validation 0Af000000000001: Failed, no success',
+      '  components: 1 of 2 without an error, 1 with one; tests (RunSpecifiedTests: InvoicingTest): ' +
+        '0 of 1 passed, 1 failed',
+      '    failed        ApexClass Invoicing — Variable does not exist: total (line 12, column 5)',
+      '    changed       Layout Order-Order Layout',
+      '    test failed  InvoicingTest.charges (line 21) — Assertion Failed',
+    ]);
   });
 });
 

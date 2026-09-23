@@ -4,11 +4,11 @@
  * `docs/modules/compare.md` is the only public description of what Compare
  * offers, and it drifted far enough to describe a different product: it
  * advertised six tabs including an "Impact Graph" that exists in no package,
- * and sold Deploy as a working feature although `ComparePage` mounts
- * `<DeployFromDiff />` with no `suggestion`/`onDeploy`, so the tab can only
+ * and sold Deploy as a working feature while `ComparePage` mounted
+ * `<DeployFromDiff />` with no `suggestion`/`onDeploy`, so the tab could only
  * ever render `common.noData`. Every one of those claims was falsifiable
- * straight from `ComparePage.tsx`, so this test reads the source back and
- * fails when the prose and the tab table stop agreeing.
+ * straight from the source, so this test reads it back and fails when the
+ * prose and the code stop agreeing.
  *
  * It runs through the repo-root `vitest.config.ts`, whose `include` covers
  * every `.test.ts` under `docs/`, as `pnpm test:docs` inside `pnpm validate`.
@@ -130,13 +130,42 @@ describe('docs/modules/compare.md', () => {
     expect(section![2], 'the section must not put a model behind the button').not.toMatch(/\bAI\b/);
   });
 
-  it('marks Deploy as coming soon while the tab is mounted without deploy props', () => {
-    // The propless mount is what forces the empty state: DeployFromDiff only
-    // renders a builder (and a deploy button) when given `suggestion`/`onDeploy`.
-    const mountedPropless = /activeTab === 'deploy' && <DeployFromDiff \/>/.test(COMPARE_PAGE);
-    if (!mountedPropless) return;
+  it('describes the deployment the code runs: validated check-only first, nothing deleted', () => {
+    const handler = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/bridge/handlers/CompareHandler.ts'),
+      'utf8',
+    );
+    const deployer = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/modules/compare/MetadataDeployer.ts'),
+      'utf8',
+    );
+    const payloads = readFileSync(
+      resolve(REPO_ROOT, 'packages/extension/src/bridge/validatePayload.ts'),
+      'utf8',
+    );
+    // The tab holds the panel that sends both requests.
+    expect(COMPARE_PAGE).toMatch(/hidden=\{activeTab !== 'deploy'\}[^>]*>\s*<DeployPanel/);
+    // A validation deploys check-only; a deployment names a kept validation
+    // and nothing else, so it cannot carry what was not validated.
+    expect(handler).toMatch(/deployOptions\(true, payload\.testLevel/);
+    const deploySchema =
+      /compareDeployPayloadSchema = z\s*\.object\(\{([\s\S]*?)\n {2}\}\)\s*\.strict\(\);/.exec(
+        payloads,
+      )?.[1] ?? '';
+    expect([...deploySchema.matchAll(/^ {4}(\w+):/gm)].map((m) => m[1])).toEqual([
+      'validationId',
+      'targetOrgId',
+    ]);
+    // No destructive change: nothing is purged, and no manifest of deletions is built.
+    expect(deployer).toContain('purgeOnDelete: false');
+    expect(deployer).not.toMatch(/destructiveChanges/);
 
-    expect(sectionBody(DOC, 'Deploy from Diff')).toContain('> **Coming soon:**');
+    const section = sectionBody(DOC, 'Deploy from Diff');
+    expect(section).not.toContain('Coming soon');
+    expect(section).toContain('check-only');
+    expect(section).toMatch(/Only a validation that succeeded can be deployed/);
+    expect(section).toMatch(/destructive change, and\s+SandForge deploys none/);
+    expect(section).toMatch(/A production target is refused/);
   });
 
   it('promises no permission grid, since only names are read', () => {

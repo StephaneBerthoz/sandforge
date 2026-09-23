@@ -268,6 +268,60 @@ describe('ProductionGuard', () => {
     });
   });
 
+  describe('metadata deployments', () => {
+    const deploy = (overrides?: Partial<OperationRequest>): OperationRequest =>
+      createRequest({
+        operation: 'deploy',
+        objectName: 'ApexClass, Layout',
+        recordCount: 3,
+        module: 'compare',
+        ...overrides,
+      });
+
+    it('refuses a deployment to a production org', () => {
+      const result = guard.check(deploy({ orgTier: 'production' }));
+
+      expect(result.allowed).toBe(false);
+      expect(result.blockedReason).toContain('deploy is not allowed on production org org-001');
+      expect(result.blockedReason).toContain('sandboxes only');
+    });
+
+    it('refuses it even with a production override, which lifts only the delete block', () => {
+      guard.setProductionOverride('org-001', true);
+
+      expect(guard.check(deploy({ orgTier: 'production' })).allowed).toBe(false);
+    });
+
+    it('asks for a confirmation on a staging org, whatever the count', () => {
+      const result = guard.check(deploy({ orgTier: 'staging', recordCount: 1 }));
+
+      expect(result.allowed).toBe(true);
+      expect(result.requiresConfirmation).toBe(true);
+      expect(result.warnings).toContain(
+        'Metadata deployment on staging org — confirmation required',
+      );
+    });
+
+    it('lets a sandbox or a scratch org take one without a confirmation', () => {
+      for (const orgTier of ['development', 'scratch'] as const) {
+        const result = guard.check(deploy({ orgTier }));
+        expect(result.allowed).toBe(true);
+        expect(result.requiresConfirmation).toBe(false);
+      }
+    });
+
+    it('counts components, not records, in what it says', () => {
+      const result = guard.check(deploy({ orgTier: 'production' }));
+
+      expect(result.impactSummary).toBe(
+        'DEPLOY 3 component(s) (ApexClass, Layout) to production org org-001 [module: compare]',
+      );
+      expect(result.warnings[0]).toBe(
+        'Production operation: deploy on ApexClass, Layout (3 components)',
+      );
+    });
+  });
+
   describe('impactSummary', () => {
     it('should include operation, count, object, tier, orgId, and module', () => {
       const request = createRequest({

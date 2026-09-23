@@ -44,11 +44,26 @@ export interface MetadataComparison {
 const OWN_MANAGEABLE_STATES: ReadonlySet<string> = new Set(['unmanaged', 'beta', 'released']);
 
 /**
- * Whether a listing entry is a component a managed package installed: it
- * carries the package's namespace prefix, in a state that is not the org's
- * own. Two sandboxes listed their 22 Apex classes this way: 8 `installed`
- * under one namespace, 14 `unmanaged` with none; their standard objects carry
- * neither field.
+ * Whether what the Metadata API says of a component, in a listing or in a
+ * retrieval, makes it a component a managed package installed: it carries the
+ * package's namespace prefix, in a state that is not the org's own. Two
+ * sandboxes listed their 22 Apex classes this way: 8 `installed` under one
+ * namespace, 14 `unmanaged` with none; their standard objects carry neither
+ * field.
+ *
+ * @param entry - The component's `FileProperties`, or anything shaped like them.
+ */
+export function isInstalledByPackage(entry: {
+  namespacePrefix?: unknown;
+  manageableState?: unknown;
+}): boolean {
+  const { namespacePrefix, manageableState } = entry;
+  if (typeof namespacePrefix !== 'string' || namespacePrefix === '') return false;
+  return typeof manageableState !== 'string' || !OWN_MANAGEABLE_STATES.has(manageableState);
+}
+
+/**
+ * {@link isInstalledByPackage} of a listing entry.
  *
  * @param listing - The entry as `FetchMetadataFn` serialises it.
  */
@@ -60,9 +75,7 @@ export function installedByPackage(listing: string): boolean {
     return false;
   }
   if (typeof entry !== 'object' || entry === null) return false;
-  const { namespacePrefix, manageableState } = entry as Record<string, unknown>;
-  if (typeof namespacePrefix !== 'string' || namespacePrefix === '') return false;
-  return typeof manageableState !== 'string' || !OWN_MANAGEABLE_STATES.has(manageableState);
+  return isInstalledByPackage(entry as Record<string, unknown>);
 }
 
 /**
@@ -302,7 +315,15 @@ export class MetadataCompare {
       }
     }
 
-    return this.diffEngine.diff(source, target, componentType, reasons).map((item) => {
+    return this.diffEngine.diff(source, target, componentType, reasons).map((found) => {
+      // Said here, where the listings are: a deployment from the comparison
+      // must know which components a package owns, and nothing after this
+      // point still holds what either org listed.
+      const managed = [sourceListing, targetListing].some((listing) => {
+        const entry = listing.get(found.fullName);
+        return entry !== undefined && installedByPackage(entry);
+      });
+      const item = managed ? { ...found, managed } : found;
       if (item.status === 'modified') {
         const both = read.get(item.fullName);
         const excerpt = both ? firstDifference(both.source, both.target) : undefined;

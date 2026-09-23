@@ -7,6 +7,21 @@ import type {
   DeploymentAdvice,
 } from '@sandforge/shared';
 
+/**
+ * The groups the risk card sorts changes into, in the order a deployment
+ * reads them: the data model first, what runs on it next, what shows it last.
+ */
+export const GROUP_ORDER: readonly string[] = [
+  'Data Model',
+  'Apex Code',
+  'Lightning',
+  'Automation',
+  'Security',
+  'Configuration',
+  'Content',
+  'Other',
+];
+
 /** Group mapping for component types. */
 const GROUP_MAP: Partial<Record<MetadataComponentType, string>> = {
   ApexClass: 'Apex Code',
@@ -58,6 +73,22 @@ const CHANGE_MULT: Record<string, number> = {
   modified: 1.5,
   added: 0.5,
 };
+
+/** The risk card's group of a type. */
+export function groupOf(componentType: MetadataComponentType): string {
+  return GROUP_MAP[componentType] ?? 'Other';
+}
+
+/**
+ * Whether changes of these types call for the Apex tests: the rule behind the
+ * card's "Run all Apex tests", and behind the tests a deployment is advised.
+ */
+export function needsApexTests(types: Iterable<string>): boolean {
+  for (const type of types) {
+    if (type === 'ApexClass' || type === 'ApexTrigger') return true;
+  }
+  return false;
+}
 
 /** Compute item risk level. */
 function computeRisk(item: CompareItem): DiffRiskLevel {
@@ -127,7 +158,7 @@ export function enrichDiffs(items: CompareItem[]): CompareReport {
     targetValue: item.targetValue,
     riskLevel: computeRisk(item),
     riskReasons: riskReasons(item),
-    group: GROUP_MAP[item.componentType] ?? 'Other',
+    group: groupOf(item.componentType),
     dependencies: (DEPENDENCY_MAP[item.componentType] ?? []) as string[],
   }));
 
@@ -156,7 +187,7 @@ export function enrichDiffs(items: CompareItem[]): CompareReport {
   const hc = diffs.filter((d) => d.riskLevel === 'high').length;
   if (cc > 0) advice.push({ kind: 'critical', count: cc });
   if (hc > 0) advice.push({ kind: 'high', count: hc });
-  if (diffs.some((d) => d.category === 'ApexClass' || d.category === 'ApexTrigger')) {
+  if (needsApexTests(diffs.map((d) => d.category))) {
     advice.push({ kind: 'apexTests' });
   }
   if (riskScore < 25 && !notCompared) advice.push({ kind: 'lowRisk' });

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MetadataCompare, planReads, firstDifference, installedByPackage } from './MetadataCompare';
+import {
+  MetadataCompare,
+  planReads,
+  firstDifference,
+  installedByPackage,
+  isInstalledByPackage,
+} from './MetadataCompare';
 import type { FetchMetadataFn } from './MetadataCompare';
 import type { ContentReader, ReadContent } from './ContentReader';
 import { DiffEngine } from './DiffEngine';
@@ -336,6 +342,42 @@ describe('MetadataCompare', () => {
       expect(managedLeftOut).toBe(0);
     });
 
+    it('marks what a package installed as managed, and nothing else', async () => {
+      // A deployment from the comparison reads the mark: nothing after the
+      // comparison still holds what either org listed.
+      const { reader } = readerOf({
+        src: { Invoicing: body, ns__Helper: null },
+        tgt: { Invoicing: body, ns__Helper: null },
+      });
+
+      const { items } = await new MetadataCompare(
+        fetchFrom(listingsWithPackage()),
+        diffEngine,
+        reader,
+      ).compare('src', 'tgt', ['ApexClass']);
+
+      expect(byName(items).get('ns__Helper')?.managed).toBe(true);
+      expect(byName(items).get('ns__OnlyHere')?.managed).toBe(true);
+      expect(byName(items).get('Invoicing')).not.toHaveProperty('managed');
+    });
+
+    it('marks a component managed when only one org lists it as installed', async () => {
+      const fetchMetadata = fetchFrom({
+        src: { ApexClass: new Map([['ns__Helper', listed('ns__Helper', '01pA')]]) },
+        tgt: { ApexClass: new Map([['ns__Helper', installed('ns__Helper', '01pB')]]) },
+      });
+      const { reader } = readerOf({ src: { ns__Helper: 'x' }, tgt: { ns__Helper: 'y' } });
+
+      const { items } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
+        'src',
+        'tgt',
+        ['ApexClass'],
+      );
+
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ fullName: 'ns__Helper', status: 'modified', managed: true });
+    });
+
     it('leaves it out of both orgs when asked, reads none of it, and says how many it left out', async () => {
       const { reader, read } = readerOf({
         src: { Invoicing: body },
@@ -438,6 +480,22 @@ describe('installedByPackage', () => {
   it('keeps an entry that is not a listing', () => {
     expect(installedByPackage('v1')).toBe(false);
     expect(installedByPackage('null')).toBe(false);
+  });
+});
+
+describe('isInstalledByPackage', () => {
+  it('reads what a retrieval says of a component the way it reads a listing', () => {
+    // FileProperties of a retrieval carry the same two fields as a listing.
+    expect(isInstalledByPackage({ namespacePrefix: 'ns', manageableState: 'installed' })).toBe(
+      true,
+    );
+    expect(isInstalledByPackage({ namespacePrefix: 'ns', manageableState: 'released' })).toBe(
+      false,
+    );
+    expect(isInstalledByPackage({ manageableState: 'unmanaged' })).toBe(false);
+    expect(isInstalledByPackage({ namespacePrefix: null, manageableState: 'installed' })).toBe(
+      false,
+    );
   });
 });
 

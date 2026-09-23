@@ -335,7 +335,6 @@
       "leftOut": "Un componente sin comparar no es ni un cambio ni una coincidencia: el puntaje de riesgo lo deja fuera."
     },
     "driftScore": "Puntaje de drift",
-    "buildDeployment": "Crear despliegue",
     "sameOrgWarning": "Las orgs origen y destino deben ser diferentes",
     "riskScore": "Puntaje de riesgo",
     "category": "Categoría",
@@ -375,6 +374,107 @@
       "apexTests": "Ejecute todas las pruebas de Apex.",
       "lowRisk": "Riesgo bajo. Despliegue seguro.",
       "review": "Revise los cambios antes de desplegar."
+    },
+    "deployment": {
+      "title": "Desplegar de {{source}} a {{target}}",
+      "intro": "Elija lo que {{source}} contiene y {{target}} no, o contiene de otra forma. SandForge lo recupera de {{source}} y lo valida primero en {{target}}: el destino lo compila, ejecuta las pruebas que elija y no conserva nada. Solo se puede desplegar una validación que haya tenido éxito, una vez que confirme. No se elimina nada del destino.",
+      "targetRefused": "{{target}} es una org de producción, o una org de la que SandForge no puede saber si es un sandbox. SandForge solo despliega en sandboxes.",
+      "pickLegend": "Componentes para desplegar: {{picked}} de {{total}} elegidos",
+      "noneDeployable": "Nada de lo que encontró esta comparación se puede desplegar desde ella.",
+      "changeLegend": "Nuevo: solo {{source}} lo contiene, y el despliegue lo crea. Difiere: ambas lo contienen, y el despliegue reemplaza lo que contiene {{target}}.",
+      "change": {
+        "removed": "Nuevo",
+        "modified": "Difiere"
+      },
+      "risk": {
+        "none": "Sin riesgo",
+        "low": "Riesgo bajo",
+        "medium": "Riesgo medio",
+        "high": "Riesgo alto",
+        "critical": "Riesgo crítico"
+      },
+      "notDeployableTitle_one": "{{count}} componente no se puede desplegar desde esta comparación",
+      "notDeployableTitle_other": "{{count}} componentes no se pueden desplegar desde esta comparación",
+      "reason": {
+        "only_in_target": "Solo en el destino: quitarlo es un cambio destructivo, que SandForge no despliega",
+        "managed": "Instalado por un paquete gestionado, que es su propietario",
+        "permissions_in_part": "Un perfil o conjunto de permisos: recuperado solo, lleva su etiqueta, algunos ajustes y su acceso a lo que se despliega con él, no la diferencia encontrada",
+        "type_not_deployable": "Un tipo que la Metadata API no despliega",
+        "unreadable": "Su contenido no se puede leer, como el Apex de un paquete gestionado",
+        "not_compared": "No comparado: nada indica que difiera"
+      },
+      "andMore_one": "y {{count}} más",
+      "andMore_other": "y {{count}} más",
+      "testsLegend": "Pruebas Apex en {{target}}",
+      "testLevel": {
+        "NoTestRun": "No ejecutar pruebas",
+        "RunLocalTests": "Ejecutar las pruebas propias del destino",
+        "RunSpecifiedTests": "Ejecutar estas clases de prueba"
+      },
+      "testNames": "Clases de prueba, separadas por comas o espacios",
+      "testNamesMissing": "Indique al menos una clase de prueba.",
+      "testNamesInvalid": "No es un nombre de clase: {{names}}",
+      "testNamesTooMany": "Un despliegue indica como máximo {{max}} clases de prueba.",
+      "testsAdvised": "Su selección contiene Apex: como aconseja la tarjeta de riesgo, se ejecutan las pruebas propias del destino, salvo que elija otra cosa.",
+      "validate": "Validar en {{target}}",
+      "deploy": "Desplegar en {{target}}",
+      "progress": {
+        "waiting": "Esperando a las orgs…",
+        "retrieve": "Recuperando del origen: {{done}} de {{total}} componentes",
+        "components": "Comprobando los componentes: {{done}} de {{total}}",
+        "tests": "Ejecutando las pruebas Apex: {{done}} de {{total}}"
+      },
+      "stale": "La selección o las pruebas cambiaron desde esta validación: vuelva a validar para desplegar.",
+      "confirmTitle": "Desplegar en {{target}}",
+      "confirmDescription_one": "El componente validado como {{id}} se desplegará en {{target}}, con las mismas pruebas, y {{target}} lo conservará.",
+      "confirmDescription_other": "Los {{count}} componentes validados como {{id}} se desplegarán en {{target}}, con las mismas pruebas, y {{target}} los conservará.",
+      "report": {
+        "badge": {
+          "validated": "Validado",
+          "deployed": "Desplegado",
+          "failed": "Fallido",
+          "notStarted": "No iniciado"
+        },
+        "validated": "Validado en {{target}}: se compiló todo, se ejecutaron las pruebas pedidas y no se conservó nada.",
+        "validationFailed": "La validación falló en {{target}}: no se puede desplegar nada hasta que una validación tenga éxito.",
+        "deployed": "Desplegado en {{target}}.",
+        "deployFailed": "El despliegue falló en {{target}} y se revirtió: el destino no conservó nada.",
+        "notStarted": "No se envió nada a {{target}}: el origen no devolvió ninguno de los componentes.",
+        "notRetrieved_one": "El origen no devolvió {{count}} componente pedido: desmárquelo y vuelva a validar.",
+        "notRetrieved_other": "El origen no devolvió {{count}} componentes pedidos: desmárquelos y vuelva a validar.",
+        "stopped": "Detenido en su conjunto: {{message}}",
+        "where": "{{target}} lo lista en Configuración › Estado de la implementación, como {{id}}.",
+        "counts": "Componentes: {{deployed}} de {{total}} sin error, {{errors}} con error.",
+        "tests": "Pruebas Apex: {{completed}} de {{total}} superadas, {{failed}} fallidas.",
+        "noTests": "No se ejecutó ninguna prueba Apex.",
+        "componentsCaption": "Componentes, tal como los informa el destino",
+        "column": {
+          "outcome": "Resultado",
+          "component": "Componente",
+          "problem": "Problema"
+        },
+        "outcome": {
+          "created": "Creado",
+          "changed": "Modificado",
+          "unchanged": "Sin cambios",
+          "failed": "Fallido",
+          "not_retrieved": "No devuelto por el origen"
+        },
+        "outcomeCheckOnly": {
+          "created": "Se crearía",
+          "changed": "Se modificaría",
+          "unchanged": "Sin cambios",
+          "failed": "Fallido",
+          "not_retrieved": "No devuelto por el origen"
+        },
+        "at": "línea {{line}}, columna {{column}}",
+        "atLine": "línea {{line}}",
+        "warning": "Advertencia",
+        "testFailuresTitle_one": "{{count}} prueba fallida",
+        "testFailuresTitle_other": "{{count}} pruebas fallidas",
+        "coverageTitle": "Cobertura que el destino consideró insuficiente",
+        "retrieveProblemsTitle": "Lo que indicó el origen"
+      }
     }
   },
   "seed": {
@@ -1342,7 +1442,8 @@
       "seed_csv_import": "Importación CSV",
       "seed_clone": "Clonación de registros",
       "autopilot_execute": "Ejecución de Autopilot",
-      "frozen_load": "Carga del dataset congelado"
+      "frozen_load": "Carga del dataset congelado",
+      "metadata_deploy": "Despliegue de metadatos"
     },
     "filterByAction": "Filtrar por acción",
     "filterByModule": "Filtrar por módulo",
@@ -1593,7 +1694,7 @@
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
     "seedContent": "El asistente de Seed genera datos de prueba realistas:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental, delta y CDC no están implementados)\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas y minúsculas y espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; la asignación de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Sin deshacer: una ejecución no se puede revertir, así que haga primero un respaldo DataOps de la org de destino (cubre Account y Contact)",
-    "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Instantáneas: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Drift: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: próximamente, todavía no se despliega nada desde un diff",
+    "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Instantáneas: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Drift: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox",
     "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea completa de Account y Contact, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos en su lugar con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento y Limpieza: próximamente, todavía no se ejecuta nada detrás de estas pestañas",
     "automationContent": "Constructor visual de pipelines:\n- 15 tipos de pasos en 4 categorías. Respaldo, Comparación, Pre-verificación, Notificación, Retraso y Condición se ejecutan; un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Los pipelines se inician a mano, con el botón Ejecutar pipeline; nada más los inicia todavía\n- Historial de ejecución: estado, duración total y errores de cada ejecución, y lo que hizo cada uno de sus pasos\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "Forge clona un registro real, y los registros a su alrededor, de una org a otra:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",

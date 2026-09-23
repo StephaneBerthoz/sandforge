@@ -573,7 +573,14 @@ export class ExtensionHandlers {
 
     // Compare
     route(
-      ['compare:execute', 'compare:permissions', 'compare:snapshots', 'compare:drift'],
+      [
+        'compare:execute',
+        'compare:permissions',
+        'compare:snapshots',
+        'compare:drift',
+        'compare:validate-deployment',
+        'compare:deploy',
+      ],
       this.compareHandler,
     );
 

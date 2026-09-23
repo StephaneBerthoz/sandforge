@@ -9,6 +9,11 @@ import {
   QuickSyncConfigSchema,
   QUALITY_SCAN_MAX_OBJECTS,
   QUALITY_SCAN_MAX_STALE_DAYS,
+  DEPLOYABLE_COMPONENT_TYPES,
+  DEPLOY_MAX_COMPONENTS,
+  DEPLOY_MAX_TESTS,
+  DEPLOY_TEST_LEVELS,
+  DEPLOY_TEST_NAME_PATTERN,
   SAVED_TEMPLATE_METHODS,
   TEMPLATE_FIELD_PATTERN,
   TEMPLATE_MAX_RULES,
@@ -556,6 +561,64 @@ export const compareExecutePayloadSchema = compareOrgsPayloadSchema.extend({
   /** False leaves out what a managed package installed; absent compares it. */
   includeManaged: z.boolean().optional(),
 });
+
+/**
+ * A component a deployment is asked to carry. Only a type a deployment
+ * carries passes (a profile, a permission set or a name that is no Metadata
+ * API type is refused); its name as listMetadata gave it, with no control
+ * character — it goes into the package manifest the source is asked for.
+ */
+const deploymentComponentSchema = z.object({
+  componentType: z.enum(DEPLOYABLE_COMPONENT_TYPES),
+  fullName: z
+    .string()
+    .min(1)
+    .max(400)
+    // eslint-disable-next-line no-control-regex -- the control characters are what is refused.
+    .regex(/^[^\u0000-\u001f\u007f]+$/, 'A component name holds no control character'),
+});
+
+/** `compare:validate-deployment`: what to retrieve from the source, and the tests to run in the target. */
+export const compareValidateDeploymentPayloadSchema = compareOrgsPayloadSchema
+  .extend({
+    components: z
+      .array(deploymentComponentSchema)
+      .min(1)
+      .max(DEPLOY_MAX_COMPONENTS)
+      .refine(
+        (components) =>
+          new Set(components.map((c) => `${c.componentType}:${c.fullName}`)).size ===
+          components.length,
+        { message: 'Each component may be named once per deployment' },
+      ),
+    testLevel: z.enum(DEPLOY_TEST_LEVELS),
+    runTests: z
+      .array(z.string().max(255).regex(DEPLOY_TEST_NAME_PATTERN, 'Not an Apex class name'))
+      .max(DEPLOY_MAX_TESTS)
+      .optional(),
+  })
+  .refine((p) => p.sourceOrgId !== p.targetOrgId, {
+    message: 'The source and the target are the same org',
+    path: ['targetOrgId'],
+  })
+  .refine((p) => p.testLevel !== 'RunSpecifiedTests' || (p.runTests?.length ?? 0) > 0, {
+    message: 'RunSpecifiedTests names at least one test class',
+    path: ['runTests'],
+  });
+
+/**
+ * `compare:deploy`: the validation to deploy and the org it was run in.
+ * Strict: what is deployed is the package the extension kept from that
+ * validation, so a page that sends components or options is refused.
+ */
+export const compareDeployPayloadSchema = z
+  .object({
+    validationId: z
+      .string()
+      .regex(/^0Af[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/, 'Not a deployment id'),
+    targetOrgId: orgIdSchema,
+  })
+  .strict();
 
 // ── frozen:* payload schemas ──────────────────────────────────────────────
 // Mirror the FrozenProjectConfig DTO (shared/types/frozen.types.ts). Every

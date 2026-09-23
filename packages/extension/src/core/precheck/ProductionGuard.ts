@@ -5,7 +5,12 @@ export type SafetyTier = 'production' | 'staging' | 'development' | 'scratch';
 export interface OperationRequest {
   orgId: string;
   orgTier: SafetyTier;
-  operation: 'insert' | 'update' | 'upsert' | 'delete' | 'hardDelete';
+  /**
+   * What the operation writes. `deploy` is a Metadata API deployment: it
+   * writes components, not records, so `objectName` names their types and
+   * `recordCount` counts the components.
+   */
+  operation: 'insert' | 'update' | 'upsert' | 'delete' | 'hardDelete' | 'deploy';
   objectName: string;
   /**
    * Records the operation plans to write. Callers that cannot know it
@@ -169,8 +174,24 @@ export class ProductionGuard {
 
     warnings.push(
       `Production operation: ${request.operation} on ${request.objectName} ` +
-        `(${describeCount(request.recordCount)} records)`,
+        `(${describeCount(request.recordCount)} ${unitOf(request)})`,
     );
+
+    if (request.operation === 'deploy') {
+      // No override lifts this one. A metadata deployment changes what every
+      // user of the org runs, and SandForge offers it to move changes between
+      // sandboxes; an org of unknown type is here too (orgTypeToGuardTier).
+      return {
+        allowed: false,
+        requiresConfirmation: false,
+        requiresApproval: false,
+        blockedReason:
+          `deploy is not allowed on production org ${request.orgId}: ` +
+          'SandForge deploys metadata to sandboxes only',
+        warnings,
+        impactSummary: buildImpactSummary(request),
+      };
+    }
 
     if (isDestructive && !isOverridden) {
       return {
@@ -202,13 +223,19 @@ export class ProductionGuard {
   private checkStaging(request: OperationRequest): SafetyCheckResult {
     const warnings: string[] = [];
     const isDestructive = DESTRUCTIVE_OPERATIONS.has(request.operation);
+    const isDeploy = request.operation === 'deploy';
     const requiresConfirmation =
-      isDestructive || countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD;
+      isDestructive ||
+      isDeploy ||
+      countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD;
 
     if (isDestructive) {
       warnings.push(
         `Destructive operation (${request.operation}) on staging org — confirmation required`,
       );
+    }
+    if (isDeploy) {
+      warnings.push('Metadata deployment on staging org — confirmation required');
     }
 
     if (countForThreshold(request.recordCount) > STAGING_CONFIRMATION_THRESHOLD) {
@@ -258,8 +285,19 @@ function countForThreshold(recordCount: number | 'unknown'): number {
   return recordCount === 'unknown' ? 0 : recordCount;
 }
 
+/** What the operation's count counts: components for a deployment, records otherwise. */
+function unitOf(request: OperationRequest): string {
+  return request.operation === 'deploy' ? 'components' : 'records';
+}
+
 /** Build a human-readable impact summary for an operation */
 function buildImpactSummary(request: OperationRequest): string {
+  if (request.operation === 'deploy') {
+    return (
+      `DEPLOY ${describeCount(request.recordCount)} component(s) (${request.objectName}) ` +
+      `to ${request.orgTier} org ${request.orgId} [module: ${request.module}]`
+    );
+  }
   return (
     `${request.operation.toUpperCase()} ${describeCount(request.recordCount)} ` +
     `${request.objectName} record(s) on ${request.orgTier} org ${request.orgId} ` +

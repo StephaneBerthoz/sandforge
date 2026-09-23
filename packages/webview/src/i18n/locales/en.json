@@ -335,7 +335,6 @@
       "leftOut": "A component not compared is neither a change nor a match: the risk score leaves it out."
     },
     "driftScore": "Drift Score",
-    "buildDeployment": "Build Deployment",
     "sameOrgWarning": "Source and target orgs must be different",
     "riskScore": "Risk Score",
     "category": "Category",
@@ -375,6 +374,107 @@
       "apexTests": "Run all Apex tests.",
       "lowRisk": "Low risk. Safe to deploy.",
       "review": "Review changes before deploying."
+    },
+    "deployment": {
+      "title": "Deploy from {{source}} to {{target}}",
+      "intro": "Pick what {{source}} holds that {{target}} does not, or holds differently. SandForge retrieves it from {{source}} and validates it in {{target}} first: the target compiles it, runs the tests you choose, and keeps nothing. Only a validation that succeeded can be deployed, once you confirm. Nothing is deleted from the target.",
+      "targetRefused": "{{target}} is a production org, or one SandForge cannot tell is a sandbox. SandForge deploys to sandboxes only.",
+      "pickLegend": "Components to deploy: {{picked}} of {{total}} picked",
+      "noneDeployable": "Nothing this comparison found can be deployed from it.",
+      "changeLegend": "New: only {{source}} holds it, and the deployment creates it. Differs: both hold it, and the deployment replaces what {{target}} holds.",
+      "change": {
+        "removed": "New",
+        "modified": "Differs"
+      },
+      "risk": {
+        "none": "No risk",
+        "low": "Low risk",
+        "medium": "Medium risk",
+        "high": "High risk",
+        "critical": "Critical risk"
+      },
+      "notDeployableTitle_one": "{{count}} component cannot be deployed from this comparison",
+      "notDeployableTitle_other": "{{count}} components cannot be deployed from this comparison",
+      "reason": {
+        "only_in_target": "Only in the target: taking it out is a destructive change, which SandForge does not deploy",
+        "managed": "Installed by a managed package, which owns it",
+        "permissions_in_part": "A profile or permission set: retrieved on its own, it carries its label, a few settings and its access to what is deployed with it, not the difference found",
+        "type_not_deployable": "A type the Metadata API does not deploy",
+        "unreadable": "Its content cannot be read, as with the Apex of a managed package",
+        "not_compared": "Not compared: nothing says it differs"
+      },
+      "andMore_one": "and {{count}} more",
+      "andMore_other": "and {{count}} more",
+      "testsLegend": "Apex tests in {{target}}",
+      "testLevel": {
+        "NoTestRun": "Run no tests",
+        "RunLocalTests": "Run the target's own tests",
+        "RunSpecifiedTests": "Run these test classes"
+      },
+      "testNames": "Test classes, separated by commas or spaces",
+      "testNamesMissing": "Name at least one test class.",
+      "testNamesInvalid": "Not a class name: {{names}}",
+      "testNamesTooMany": "A deployment names at most {{max}} test classes.",
+      "testsAdvised": "What you picked holds Apex: as the risk card advises, the target's own tests run unless you choose otherwise.",
+      "validate": "Validate in {{target}}",
+      "deploy": "Deploy to {{target}}",
+      "progress": {
+        "waiting": "Waiting for the orgs…",
+        "retrieve": "Retrieving from the source: {{done}} of {{total}} components",
+        "components": "Checking the components: {{done}} of {{total}}",
+        "tests": "Running the Apex tests: {{done}} of {{total}}"
+      },
+      "stale": "What is picked, or the tests, changed since this validation: validate again to deploy.",
+      "confirmTitle": "Deploy to {{target}}",
+      "confirmDescription_one": "The component validated as {{id}} will be deployed to {{target}}, with the same tests, and {{target}} keeps it.",
+      "confirmDescription_other": "The {{count}} components validated as {{id}} will be deployed to {{target}}, with the same tests, and {{target}} keeps them.",
+      "report": {
+        "badge": {
+          "validated": "Validated",
+          "deployed": "Deployed",
+          "failed": "Failed",
+          "notStarted": "Not started"
+        },
+        "validated": "Validated in {{target}}: it compiled everything, ran the tests asked for, and kept nothing.",
+        "validationFailed": "The validation failed in {{target}}: nothing can be deployed until a validation succeeds.",
+        "deployed": "Deployed to {{target}}.",
+        "deployFailed": "The deployment failed in {{target}} and was rolled back: the target kept nothing.",
+        "notStarted": "Nothing was sent to {{target}}: the source returned none of the components.",
+        "notRetrieved_one": "The source did not return {{count}} component asked for: untick it and validate again.",
+        "notRetrieved_other": "The source did not return {{count}} components asked for: untick them and validate again.",
+        "stopped": "Stopped as a whole: {{message}}",
+        "where": "{{target}} lists it in Setup › Deployment Status, as {{id}}.",
+        "counts": "Components: {{deployed}} of {{total}} without an error, {{errors}} with one.",
+        "tests": "Apex tests: {{completed}} of {{total}} passed, {{failed}} failed.",
+        "noTests": "No Apex test ran.",
+        "componentsCaption": "Components, as the target reports them",
+        "column": {
+          "outcome": "Result",
+          "component": "Component",
+          "problem": "Problem"
+        },
+        "outcome": {
+          "created": "Created",
+          "changed": "Changed",
+          "unchanged": "Unchanged",
+          "failed": "Failed",
+          "not_retrieved": "Not returned by the source"
+        },
+        "outcomeCheckOnly": {
+          "created": "Would be created",
+          "changed": "Would change",
+          "unchanged": "Unchanged",
+          "failed": "Failed",
+          "not_retrieved": "Not returned by the source"
+        },
+        "at": "line {{line}}, column {{column}}",
+        "atLine": "line {{line}}",
+        "warning": "Warning",
+        "testFailuresTitle_one": "{{count}} test failed",
+        "testFailuresTitle_other": "{{count}} tests failed",
+        "coverageTitle": "Coverage the target found short",
+        "retrieveProblemsTitle": "What the source said"
+      }
     }
   },
   "seed": {
@@ -1342,7 +1442,8 @@
       "seed_csv_import": "CSV Import",
       "seed_clone": "Record Clone",
       "autopilot_execute": "Autopilot Run",
-      "frozen_load": "Frozen Dataset Load"
+      "frozen_load": "Frozen Dataset Load",
+      "metadata_deploy": "Metadata Deployment"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",
@@ -1593,7 +1694,7 @@
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
     "seedContent": "The Seed wizard generates realistic test data:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
     "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
-    "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: coming soon, nothing is deployed from a diff yet",
+    "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a full snapshot of Account and Contact, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet",
     "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Backup, Compare, Pre-Check, Notification, Delay and Condition run; a pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration and errors of each run, and what each of its steps did\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",

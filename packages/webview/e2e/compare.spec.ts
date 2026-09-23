@@ -680,32 +680,170 @@ test.describe('Compare panel — results tabs', () => {
   });
 
   /**
-   * The deploy tab has no producer anywhere in the extension — no
-   * `compare:deploy` handler, no `DeploymentSuggestion` ever computed. The
-   * page says so instead of mounting an empty deployment list, and that
-   * honesty is what this test protects: a regression that swaps the notice
-   * back for a component fed hardcoded emptiness would read to the user as
-   * "this diff holds nothing deployable".
+   * The deploy tab validates first: the page sends the components picked to
+   * `compare:validate-deployment`, and only the validation that succeeded can
+   * be deployed — by name, once the target's alias is typed. The deployment
+   * request carries the validation's id and nothing that describes what to
+   * deploy, so what the target takes is what it checked.
    */
-  test('deploy tab says the capability is not wired yet', async ({ page }) => {
+  test('deploy tab validates what is picked, then deploys that validation once confirmed', async ({
+    page,
+  }) => {
     await page.getByTestId('page-tab-deploy').click();
+    await expect(page.getByTestId('compare-deploy')).toBeVisible();
 
-    const notice = page.getByTestId('compare-deploy-soon');
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText('Coming soon');
-    await expect(notice).toContainText('Build Deployment');
-    // No request is fired for a surface nothing answers.
-    const deployRequests = await page.evaluate(() => {
-      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      return msgs
-        .map((m) => {
-          const envelope = m as Record<string, unknown>;
-          return (envelope.payload as Record<string, unknown> | undefined) ?? envelope;
-        })
-        .filter(
-          (m) => typeof m.type === 'string' && (m.type as string).startsWith('compare:deploy'),
-        ).length;
+    // The trigger differs and the helper is only in the source: both can go.
+    // The class only the target holds, and the one it cannot read, cannot.
+    await expect(page.getByTestId('deploy-pick-ApexTrigger:AccountTrigger')).toBeVisible();
+    await expect(page.getByTestId('deploy-pick-ApexClass:OldHelper')).toBeVisible();
+    await expect(page.getByTestId('deploy-reason-only_in_target')).toContainText('MyClass');
+    await expect(page.getByTestId('deploy-reason-unreadable')).toContainText('pkg__Engine');
+
+    await page.getByTestId('deploy-pick-ApexTrigger:AccountTrigger').check();
+    // Apex picked: the risk card advises the target's own tests.
+    await expect(page.getByTestId('deploy-test-level-RunLocalTests')).toBeChecked();
+    await page.getByTestId('deploy-validate-btn').click();
+
+    const validation = await lastRequest(page, 'compare:validate-deployment');
+    expect(validation.payload).toEqual({
+      sourceOrgId: DEV_SANDBOX.id,
+      targetOrgId: QA_SANDBOX.id,
+      components: [{ componentType: 'ApexTrigger', fullName: 'AccountTrigger' }],
+      testLevel: 'RunLocalTests',
     });
-    expect(deployRequests).toBe(0);
+    await answerAll(page, 'compare:validate-deployment', 'compare:validate-deployment:response', {
+      report: deploymentReport({ checkOnly: true, deployId: '0Af000000000001' }),
+    });
+    await expect(page.getByTestId('deploy-validation-report-verdict')).toHaveText(
+      'Validated in QASandbox: it compiled everything, ran the tests asked for, and kept nothing.',
+    );
+    await expect(page.getByTestId('deploy-validation-report-where')).toHaveText(
+      'QASandbox lists it in Setup › Deployment Status, as 0Af000000000001.',
+    );
+
+    await page.getByTestId('deploy-deploy-btn').click();
+    await page.getByTestId('danger-input').fill('QASandbox');
+    await page.getByTestId('danger-confirm-btn').click();
+
+    const deployment = await lastRequest(page, 'compare:deploy');
+    expect(deployment.payload).toEqual({
+      validationId: '0Af000000000001',
+      targetOrgId: QA_SANDBOX.id,
+    });
+    await answerAll(page, 'compare:deploy', 'compare:deploy:response', {
+      report: deploymentReport({ checkOnly: false, deployId: '0Af000000000002' }),
+    });
+    await expect(page.getByTestId('deploy-deployment-report-verdict')).toHaveText(
+      'Deployed to QASandbox.',
+    );
+    // One validation, one deployment: the button does not come back.
+    await expect(page.getByTestId('deploy-deploy-btn')).toHaveCount(0);
+  });
+
+  test('deploy tab shows why a validation failed, line by line, and offers no deployment', async ({
+    page,
+  }) => {
+    await page.getByTestId('page-tab-deploy').click();
+    await page.getByTestId('deploy-pick-ApexClass:OldHelper').check();
+    await page.getByTestId('deploy-test-level-RunSpecifiedTests').check();
+    await page.getByTestId('deploy-test-names').fill('OldHelperTest');
+    await page.getByTestId('deploy-validate-btn').click();
+
+    await answerAll(page, 'compare:validate-deployment', 'compare:validate-deployment:response', {
+      report: deploymentReport({
+        checkOnly: true,
+        deployId: '0Af000000000003',
+        status: 'Failed',
+        success: false,
+        components: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'OldHelper',
+            outcome: 'failed',
+            problem: 'Variable does not exist: total',
+            problemType: 'Error',
+            fileName: 'classes/OldHelper.cls',
+            line: 12,
+            column: 5,
+          },
+        ],
+        testFailures: [
+          {
+            className: 'OldHelperTest',
+            methodName: 'charges',
+            message: 'System.AssertException: Assertion Failed',
+            line: 21,
+          },
+        ],
+      }),
+    });
+
+    await expect(page.getByTestId('deploy-validation-report-verdict')).toHaveText(
+      'The validation failed in QASandbox: nothing can be deployed until a validation succeeds.',
+    );
+    await expect(
+      page.getByTestId('deploy-validation-report-component-ApexClass-OldHelper'),
+    ).toContainText('line 12, column 5');
+    await expect(page.getByTestId('deploy-validation-report-test-failures')).toContainText(
+      'OldHelperTest.charges',
+    );
+    await expect(page.getByTestId('deploy-validation-report-test-failures')).toContainText(
+      'line 21',
+    );
+    await expect(page.getByTestId('deploy-deploy-btn')).toHaveCount(0);
   });
 });
+
+/** A deployment report, as the extension answers a validation or a deployment. */
+function deploymentReport(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    status: 'Succeeded',
+    success: true,
+    sourceOrgId: DEV_SANDBOX.id,
+    targetOrgId: QA_SANDBOX.id,
+    testLevel: 'RunLocalTests',
+    runTests: [],
+    components: [{ componentType: 'ApexTrigger', fullName: 'AccountTrigger', outcome: 'changed' }],
+    counts: {
+      componentsTotal: 1,
+      componentsDeployed: 1,
+      componentErrors: 0,
+      testsTotal: 2,
+      testsCompleted: 2,
+      testErrors: 0,
+    },
+    testFailures: [],
+    coverageWarnings: [],
+    ...overrides,
+  };
+}
+
+/** The most recent outgoing request of a type, as the page sent it. */
+async function lastRequest(
+  page: Page,
+  requestType: string,
+): Promise<{ id: string; payload: unknown }> {
+  await page.waitForFunction(
+    (type) => {
+      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      return msgs.some((m) => {
+        const envelope = m as Record<string, unknown>;
+        const inner = (envelope.payload as Record<string, unknown> | undefined) ?? envelope;
+        return inner.type === type;
+      });
+    },
+    requestType,
+    { timeout: 10_000 },
+  );
+  return page.evaluate((type) => {
+    const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    const match = [...msgs]
+      .map((m) => {
+        const envelope = m as Record<string, unknown>;
+        return (envelope.payload as Record<string, unknown> | undefined) ?? envelope;
+      })
+      .reverse()
+      .find((m) => m.type === type) as Record<string, unknown>;
+    return { id: match.id as string, payload: match.payload };
+  }, requestType);
+}

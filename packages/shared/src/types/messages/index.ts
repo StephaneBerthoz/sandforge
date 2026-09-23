@@ -164,12 +164,16 @@ import type {
   ComparePermissionsResponse,
   CompareSnapshotsResponse,
   CompareDriftResponse,
+  CompareValidateDeploymentResponse,
+  CompareDeployResponse,
   CompareErrorResponse,
 } from './compare.messages.js';
 import type {
   ComparePermissionsRequest,
   CompareSnapshotsRequest,
   CompareDriftRequest,
+  CompareValidateDeploymentRequest,
+  CompareDeployRequest,
 } from './compare.messages.js';
 import type {
   BackupExecuteRequest,
@@ -464,6 +468,8 @@ export type WebViewToExtensionMessage =
   | ComparePermissionsRequest
   | CompareSnapshotsRequest
   | CompareDriftRequest
+  | CompareValidateDeploymentRequest
+  | CompareDeployRequest
   | BackupExecuteRequest
   | BackupListRequest
   | BackupExportRequest
@@ -638,6 +644,8 @@ export type ExtensionToWebViewMessage =
   | ComparePermissionsResponse
   | CompareSnapshotsResponse
   | CompareDriftResponse
+  | CompareValidateDeploymentResponse
+  | CompareDeployResponse
   | CompareErrorResponse
   // DataOps
   | AnonymizationTemplatesResponse
