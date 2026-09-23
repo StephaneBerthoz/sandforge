@@ -130,7 +130,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                         Apply: one handler was wired to both. `dataops:anonymize`
                         carries no dry-run flag, so no simulation is possible
                         today. The button stays visible and inert, the way the
-                        gdpr/cleanup/quality tabs stay visible — a missing
+                        gdpr and cleanup tabs stay visible — a missing
                         control does not tell the reader the capability is
                         planned, and a live one here masked real records. */}
                     <Button

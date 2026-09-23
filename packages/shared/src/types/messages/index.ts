@@ -173,9 +173,11 @@ import type {
   PIIScanResponse,
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
+  DataOpsQualityScanRequest,
   DataOpsBackupResponse,
   DataOpsRollbackResponse,
   DataOpsAnonymizeResponse,
+  DataOpsQualityScanResponse,
   DataOpsErrorResponse,
   GovernancePoliciesListRequest,
   GovernancePoliciesListResult,
@@ -451,6 +453,7 @@ export type WebViewToExtensionMessage =
   | PIIScanRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
+  | DataOpsQualityScanRequest
   // Governance
   | GovernancePoliciesListRequest
   | GovernancePolicySaveRequest
@@ -620,6 +623,7 @@ export type ExtensionToWebViewMessage =
   | DataOpsBackupResponse
   | DataOpsRollbackResponse
   | DataOpsAnonymizeResponse
+  | DataOpsQualityScanResponse
   | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult

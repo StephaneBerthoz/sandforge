@@ -295,11 +295,21 @@ describe('DataOpsPage', () => {
     expect(screen.queryByTestId('gdpr-panel')).toBeNull();
   });
 
-  it('should tell the user the quality tab is not built rather than show an empty list', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
+  it('should open the quality scan on the quality tab, for the selected org', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Quality'));
-    expect(screen.getByTestId('dataops-quality-soon')).toBeDefined();
+    // A coming-soon notice stood here while nothing produced a quality result.
+    expect(screen.getByTestId('quality-panel')).toBeDefined();
+    expect(screen.queryByTestId('dataops-quality-soon')).toBeNull();
+  });
+
+  it('should offer no quality scan while no org is selected', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
+    render(<DataOpsPage />);
+    fireEvent.click(screen.getByText('Quality'));
+    expect(screen.queryByTestId('quality-panel')).toBeNull();
+    expect(screen.getByTestId('dataops-no-org')).toBeDefined();
   });
 
   it('should display error from bridge hook', () => {
@@ -434,6 +444,16 @@ describe('DataOpsPage', () => {
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(screen.getByTestId('dataops-cleanup-soon')).toBeDefined();
+    });
+
+    it('should not skeleton the quality tab on the backup or template queries', () => {
+      mockBackupsQueryState = loading();
+      mockTemplatesQueryState = loading();
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Quality'));
+
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('quality-panel')).toBeDefined();
     });
   });
   describe('anonymize safety', () => {

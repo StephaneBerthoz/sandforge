@@ -207,7 +207,9 @@ const DataOpsMessages = [
   msg('dataops:backup:response'),
   msg('dataops:rollback:response'),
   msg('dataops:anonymize:response'),
-  // Error channel for backup/rollback/anonymize failures.
+  msg('dataops:quality-scan'),
+  msg('dataops:quality-scan:response'),
+  // Error channel for backup/rollback/anonymize/quality-scan failures.
   msg('dataops:error'),
   msg('dataops:anonymization-templates'),
   msg('dataops:anonymization-templates:response'),

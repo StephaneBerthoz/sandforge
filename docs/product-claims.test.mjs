@@ -80,7 +80,7 @@
  * nothing reads, an API-timeout setting the manifest never declared, Grappe as
  * the cure for a slow run, deploying straight from a Compare diff, pipelines
  * started by schedules and webhooks, DSR handling, quality scans and mass
- * deletes that are coming-soon tabs, and two Ctrl shortcuts no listener
+ * deletes that were coming-soon tabs, and two Ctrl shortcuts no listener
  * answered. Those rules are vocabularies scoped by key, each tied to the code
  * that makes it false.
  *
@@ -1653,15 +1653,48 @@ function assertNoPipelineScheduler() {
   }
 }
 
-/** Compliance, Cleanup and Quality are the three DataOps tabs mounted as coming soon. */
+/** Compliance and Cleanup are the two DataOps tabs mounted as coming soon. */
 function assertDataOpsTabsAreComingSoon() {
   // Positive control: the same walk reads the Deploy tab out of ComparePage.
   assert.deepEqual(comingSoonMounts(COMPARE_PAGE_FILE), ['compare-deploy-soon']);
   assert.deepEqual(
     comingSoonMounts(DATAOPS_PAGE_FILE),
-    ['dataops-cleanup-soon', 'dataops-gdpr-soon', 'dataops-quality-soon'],
-    'DataOpsPage no longer mounts Compliance, Cleanup and Quality as coming soon — one of them may ' +
-      'be built. Re-read help.dataopsContent and dataops.emptyState in six locales.',
+    ['dataops-cleanup-soon', 'dataops-gdpr-soon'],
+    'DataOpsPage no longer mounts Compliance and Cleanup as coming soon — one of them may be ' +
+      'built. Re-read help.dataopsContent and dataops.emptyState in six locales.',
+  );
+}
+
+/**
+ * The Quality tab runs three checks — fill counts, repeated values, stale
+ * records — and names them in the one type every check's error carries. No
+ * format, range or referential check exists, so no count of rule types that
+ * includes them is true.
+ */
+function assertQualityScanRunsThreeChecks() {
+  const typesFile = 'packages/shared/src/types/dataops.types.ts';
+  const source = ts.createSourceFile(typesFile, read(typesFile), ts.ScriptTarget.Latest, true);
+  const error = source.statements.find(
+    (node) => ts.isInterfaceDeclaration(node) && node.name.text === 'DataQualityCheckError',
+  );
+  assert.ok(error, `DataQualityCheckError is no longer declared in ${typesFile}`);
+  const check = error.members.find((member) => member.name?.getText(source) === 'check');
+  assert.ok(
+    check?.type && ts.isUnionTypeNode(check.type),
+    'DataQualityCheckError.check is no longer the union of the checks a scan runs — re-point this',
+  );
+  const checks = check.type.types.map((type) => type.getText(source).replace(/'/g, '')).sort();
+  // Positive control: the walk reads the check the fill counts report under.
+  assert.ok(
+    checks.includes('fill'),
+    `the walk read ${checks.join(', ')} from DataQualityCheckError — not the checks a scan ` +
+      'runs, so the check below proves nothing',
+  );
+  assert.deepEqual(
+    checks,
+    ['duplicates', 'fill', 'stale'],
+    'the quality scan runs another check — it may test formats or ranges now. Re-read ' +
+      'help.dataopsContent in six locales before relaxing this.',
   );
 }
 
@@ -1726,6 +1759,7 @@ function assertHistoryKeepsNoStepDetail() {
  *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
  *  - The pipeline-start rule's anchor reads channel names only: no `scheduler:*` channel is routed or declared. A scheduler wired under another name, or one that fires a pipeline's triggers from the host with no channel, is not seen. Webhook and event triggers have no executor either, and nothing here reads that absence.
  *  - The DataOps and Compare anchors read `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
+ *  - The quality-scan anchor reads the checks `DataQualityCheckError` names. A check that reports its failures some other way is not seen.
  *  - The run-history anchor reads the fields of `PipelineHistoryEntry` and whether the page opens a run. Step results fetched some other way, into another view, are not seen.
  */
 const HELP_CLAIM_RULES = [
@@ -1855,42 +1889,55 @@ const HELP_CLAIM_RULES = [
     honest: ['- Execution history: status, total duration, step count and errors for each run'],
   },
   {
-    name: 'DataOps tabs that are not built: DSR, quality, cleanup, mass delete',
+    name: 'DataOps tabs that are not built: DSR, cleanup, mass delete',
     keys: HELP_AND_DATAOPS_WELCOME_KEYS,
     pattern:
-      /\bDSR\b|data subject request|sujets de donn[ée]es|betroffenenanfrage|titulares de datos|titulares de dados|データ主体|quality|qualit[éeä]|qualitaet|(?<!\p{L})calidad|qualidade|品質|clean(?:s|ing)? ?up|nettoi|nettoy|bereinig|limpi|limpa\b|limpez|クリーンアップ|mass delete|en masse|massenl(?:ö|oe)sch|eliminaci[óo]n masiva|em massa|一括削除|storage optimi|optimisation du stockage|speicheroptimierung|optimizaci[óo]n de almacenamiento|otimiza[çc][ãa]o de armazenamento|ストレージ最適化/iu,
+      /\bDSR\b|data subject request|sujets de donn[ée]es|betroffenenanfrage|titulares de datos|titulares de dados|データ主体|clean(?:s|ing)? ?up|nettoi|nettoy|bereinig|limpi|limpa\b|limpez|クリーンアップ|mass delete|en masse|massenl(?:ö|oe)sch|eliminaci[óo]n masiva|em massa|一括削除|storage optimi|optimisation du stockage|speicheroptimierung|optimizaci[óo]n de almacenamiento|otimiza[çc][ãa]o de armazenamento|ストレージ最適化/iu,
     disclaimable: true,
     anchor: assertDataOpsTabsAreComingSoon,
     shipped: [
-      '- Data quality scanning with 7 rule types',
       '- Mass delete and storage optimization',
       '- Data Subject Request (DSR) management',
       'DataOps backs up, restores, anonymizes and cleans up your org data — with GDPR tooling and quality dashboards built in.',
       'Schedule cleanups and track data quality',
-      '- Scan de qualité des données avec 7 types de règles',
       '- Suppression en masse et optimisation du stockage',
       '- Gestion des demandes de sujets de données (DSR)',
       'Planifiez les nettoyages et suivez la qualité des données',
-      '- Datenqualitaets-Scan mit 7 Regeltypen',
       '- Massenloeschung und Speicheroptimierung',
       '- Verwaltung von Betroffenenanfragen (DSR)',
-      '- Escaneo de calidad de datos con 7 tipos de reglas',
       '- Eliminacion masiva y optimizacion de almacenamiento',
       'DataOps respalda, restaura, anonimiza y limpia los datos de su org — con herramientas GDPR y paneles de calidad integrados.',
-      '- Escaneamento de qualidade de dados com 7 tipos de regras',
       '- Exclusao em massa e otimizacao de armazenamento',
       'O DataOps faz backup, restaura, anonimiza e limpa os dados da sua org — com ferramentas GDPR e painéis de qualidade integrados.',
-      '- 7つのルールタイプによるデータ品質スキャン',
       '- 一括削除とストレージ最適化',
       '- データ主体リクエスト（DSR）管理',
       'クリーンアップを計画しデータ品質を追跡',
     ],
     honest: [
-      '- Compliance, Cleanup and Quality: coming soon, nothing runs behind these tabs yet',
+      '- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet',
       '- Anonymize: masks fields in place with the built-in GDPR, CCPA and HIPAA templates',
       'Restore a backup into the org it was taken from',
-      // "localidade" carries the Spanish "calidad" inside it.
-      '- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário)',
+      '- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written',
+    ],
+  },
+  {
+    name: 'a quality scan of seven rule types',
+    keys: HELP_AND_DATAOPS_WELCOME_KEYS,
+    pattern:
+      /\b7\s*(?:rule types|types de r[èe]gles|regeltypen|tipos de reglas|tipos de regras)|7\s*つのルールタイプ/iu,
+    disclaimable: false,
+    anchor: assertQualityScanRunsThreeChecks,
+    shipped: [
+      '- Data quality scanning with 7 rule types',
+      '- Scan de qualité des données avec 7 types de règles',
+      '- Datenqualitaets-Scan mit 7 Regeltypen',
+      '- Escaneo de calidad de datos con 7 tipos de reglas',
+      '- Escaneamento de qualidade de dados com 7 tipos de regras',
+      '- 7つのルールタイプによるデータ品質スキャン',
+    ],
+    honest: [
+      '- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written',
+      '- 品質：選択したオブジェクトについて、各項目の入力件数、Name や Email などのキーで複数のレコードが共有する値、指定した日数のあいだ誰も更新していないレコード数を数えます。数えるのは Org 自身で、レコードを 1 件ずつ読むことも書き込むこともありません',
     ],
   },
   {

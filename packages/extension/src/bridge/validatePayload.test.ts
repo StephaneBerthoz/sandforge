@@ -12,6 +12,7 @@ import {
   dataOpsBackupPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  dataOpsQualityScanPayloadSchema,
   monitorOpenApexJobsPayloadSchema,
   compareExecutePayloadSchema,
 } from './validatePayload.js';
@@ -318,6 +319,44 @@ describe('dataops payload schemas', () => {
         objects: ['Contact'],
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('dataOpsQualityScanPayloadSchema', () => {
+  const scan = (overrides: Record<string, unknown>) =>
+    dataOpsQualityScanPayloadSchema.safeParse({
+      orgId: 'o',
+      objects: [{ objectApiName: 'Contact', duplicateKey: 'Email' }, { objectApiName: 'Account' }],
+      staleDays: 365,
+      ...overrides,
+    }).success;
+
+  it('accepts objects with or without a duplicate key', () => {
+    expect(scan({})).toBe(true);
+  });
+
+  it('refuses a duplicate key that is not an API name, since it lands in the query text', () => {
+    expect(
+      scan({ objects: [{ objectApiName: 'Contact', duplicateKey: 'Email) FROM User --' }] }),
+    ).toBe(false);
+  });
+
+  it('refuses the same object twice in one scan', () => {
+    expect(scan({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'account' }] })).toBe(
+      false,
+    );
+  });
+
+  it('refuses more objects than one scan reads', () => {
+    const objects = Array.from({ length: 11 }, (_, i) => ({ objectApiName: `Object${i}__c` }));
+    expect(scan({ objects })).toBe(false);
+  });
+
+  it('refuses a staleness threshold that is not a whole number of days in range', () => {
+    expect(scan({ staleDays: 0 })).toBe(false);
+    expect(scan({ staleDays: 1.5 })).toBe(false);
+    expect(scan({ staleDays: 3651 })).toBe(false);
+    expect(scan({ staleDays: 3650 })).toBe(true);
   });
 });
 

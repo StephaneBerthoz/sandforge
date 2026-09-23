@@ -564,6 +564,7 @@ export class ExtensionHandlers {
         'dataops:rollback',
         'dataops:anonymize',
         'dataops:anonymization-templates',
+        'dataops:quality-scan',
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,

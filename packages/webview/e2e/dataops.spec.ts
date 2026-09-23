@@ -300,20 +300,18 @@ test.describe('DataOps — with a connected org', () => {
     await expect(page.getByTestId('backup-panel')).toBeVisible();
   });
 
-  test('the three tabs with no producer say so instead of showing empty results', async ({
+  test('the two tabs with no producer say so instead of showing empty results', async ({
     page,
   }) => {
     await answerMountQueries(page, bridge);
 
-    // Nothing in the codebase produces a DSR list, a StorageRecommendation or
-    // a DataQualityScanResult. These tabs used to mount their panels against
-    // hardcoded empty arrays, which reads as "the scan ran and found nothing".
-    // They now name the gap, and must keep doing so — and must never spin on a
-    // query they do not read.
+    // Nothing in the codebase produces a DSR list or a StorageRecommendation.
+    // These tabs used to mount their panels against hardcoded empty arrays,
+    // which reads as "the scan ran and found nothing". They now name the gap,
+    // and must keep doing so — and must never spin on a query they do not read.
     for (const [tab, testid] of [
       ['gdpr', 'dataops-gdpr-soon'],
       ['cleanup', 'dataops-cleanup-soon'],
-      ['quality', 'dataops-quality-soon'],
     ] as const) {
       await page.getByTestId(`page-tab-${tab}`).click();
       await expect(page.getByTestId(testid)).toBeVisible();
@@ -337,5 +335,164 @@ test.describe('DataOps — with a connected org', () => {
 
     await banner.getByRole('button', { name: 'Dismiss' }).click();
     await expect(banner).toHaveCount(0);
+  });
+});
+
+/** A scan of Contact as `dataops:quality-scan:response` carries it: every figure a count. */
+function qualityAnswer(duplicateKey: 'Email' | 'Phone'): Record<string, unknown> {
+  return {
+    orgId: 'org-src-1',
+    staleDays: 365,
+    scannedAt: '2026-09-01T10:00:00.000Z',
+    bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
+    objects: [
+      {
+        status: 'scanned',
+        objectApiName: 'Contact',
+        label: 'Contact',
+        totalRecords: 18,
+        fields: [
+          { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
+          { fieldApiName: 'Salutation', label: 'Salutation', filled: 7, required: false },
+          { fieldApiName: 'Phone', label: 'Business Phone', filled: 13, required: false },
+          { fieldApiName: 'Email', label: 'Email', filled: 17, required: false },
+          { fieldApiName: 'LastName', label: 'Last Name', filled: 18, required: true },
+        ],
+        unmeasured: [
+          { fieldApiName: 'Description', label: 'Description', reason: 'not-countable' },
+        ],
+        duplicates:
+          duplicateKey === 'Email'
+            ? {
+                keyField: 'Email',
+                keyLabel: 'Email',
+                groups: [{ value: 'shared@example.com', count: 2 }],
+                groupCount: 1,
+                recordCount: 2,
+                truncated: false,
+              }
+            : {
+                keyField: 'Phone',
+                keyLabel: 'Business Phone',
+                groups: [
+                  { value: '+33 1 00 00 00 01', count: 3 },
+                  { value: '+33 1 00 00 00 02', count: 2 },
+                ],
+                groupCount: 2,
+                recordCount: 5,
+                truncated: false,
+              },
+        stale: { days: 365, records: 3 },
+        keyFields: [
+          { fieldApiName: 'Phone', label: 'Business Phone' },
+          { fieldApiName: 'Email', label: 'Email' },
+        ],
+        errors: [],
+      },
+    ],
+  };
+}
+
+test.describe('DataOps — Quality', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openDataOps(page);
+    await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-quality').click();
+    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+    await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+      objects: [
+        { apiName: 'Account', label: 'Account' },
+        { apiName: 'Contact', label: 'Contact' },
+        { apiName: 'Opportunity', label: 'Opportunity' },
+      ],
+    });
+  });
+
+  test('scans the objects picked and shows what the org counted', async ({ page }) => {
+    // It was a coming-soon notice while nothing produced a quality result.
+    await expect(page.getByTestId('dataops-quality-soon')).toHaveCount(0);
+
+    await page.getByTestId('quality-object-option-Contact').check();
+    await page.getByTestId('quality-scan-btn').click();
+    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
+    const [request] = await outgoing(page, 'dataops:quality-scan');
+    expect(request.payload).toEqual({
+      orgId: 'org-src-1',
+      objects: [{ objectApiName: 'Contact' }],
+      staleDays: 365,
+    });
+
+    await respondToAll(
+      page,
+      'dataops:quality-scan',
+      'dataops:quality-scan:response',
+      qualityAnswer('Email'),
+    );
+
+    const contact = page.getByTestId('quality-object-Contact');
+    await expect(contact).toBeVisible({ timeout: 10_000 });
+    await expect(contact.getByTestId('quality-total')).toHaveText('18 records');
+    await expect(contact.getByTestId('quality-summary-empty')).toHaveText('2 of 5 counted');
+    await expect(contact.getByTestId('quality-summary-stale')).toHaveText('3 (16.7%)');
+    await expect(contact.getByTestId('quality-duplicate-summary')).toHaveText(
+      '1 value of Email is carried by 2 records.',
+    );
+    await expect(contact.getByTestId('quality-field-Fax').first()).toContainText('Always empty');
+    await expect(contact.getByTestId('quality-unmeasured-not-countable')).toContainText(
+      'Description',
+    );
+  });
+
+  test('looks for duplicates by another field when one is picked, for that object alone', async ({
+    page,
+  }) => {
+    await page.getByTestId('quality-object-option-Contact').check();
+    await page.getByTestId('quality-scan-btn').click();
+    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'dataops:quality-scan',
+      'dataops:quality-scan:response',
+      qualityAnswer('Email'),
+    );
+
+    const contact = page.getByTestId('quality-object-Contact');
+    await contact.getByLabel('Find duplicates by').selectOption('Phone');
+
+    await expect.poll(async () => (await outgoing(page, 'dataops:quality-scan')).length).toBe(2);
+    const [, rescan] = await outgoing(page, 'dataops:quality-scan');
+    expect(rescan.payload).toEqual({
+      orgId: 'org-src-1',
+      objects: [{ objectApiName: 'Contact', duplicateKey: 'Phone' }],
+      staleDays: 365,
+    });
+    await respondToAll(
+      page,
+      'dataops:quality-scan',
+      'dataops:quality-scan:response',
+      qualityAnswer('Phone'),
+    );
+
+    await expect(contact.getByTestId('quality-duplicate-summary')).toHaveText(
+      '2 values of Business Phone are each carried by more than one record: 5 records in all.',
+      { timeout: 10_000 },
+    );
+  });
+
+  test('shows the extension refusing a scan', async ({ page }) => {
+    await page.getByTestId('quality-object-option-Account').check();
+    await page.getByTestId('quality-scan-btn').click();
+    await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
+    await respondToAll(page, 'dataops:quality-scan', 'dataops:error', {
+      message: 'INVALID_SESSION_ID: Session expired or invalid',
+      code: 'UNKNOWN',
+      retryable: false,
+    });
+
+    await expect(page.getByTestId('quality-scan-error')).toContainText('INVALID_SESSION_ID', {
+      timeout: 10_000,
+    });
   });
 });

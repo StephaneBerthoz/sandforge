@@ -2,15 +2,15 @@
 
 Back up your org data and anonymize sensitive fields from a single tabbed page.
 
-> **Status.** Backup, Restore and Anonymize are wired end to end. Compliance,
-> Cleanup and Data Quality ship as previews: the tabs render, but are not yet
+> **Status.** Backup, Restore, Anonymize and Data Quality are wired end to end.
+> Compliance and Cleanup ship as previews: the tabs render, but are not yet
 > connected to a backend. Each section below says which it is.
 
 ## Quick Start
 
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
-3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (Backup, Restore and Anonymize are wired today)
+3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (Backup, Restore, Anonymize and Quality are wired today)
 4. Start with a backup before other operations
 
 ## Features
@@ -90,7 +90,52 @@ Mask sensitive data using the built-in anonymization templates:
 
 ### Data Quality
 
-> **Coming soon.** The tab shows a coming-soon notice: no quality scan runs yet, so there is no score or result to show.
+Measure how the records of a few objects are kept, read-only:
+
+- Pick up to 10 objects of the selected org -- the list is the org's objects a
+  record can be created in, the same one Seed offers -- and a number of days
+- **Fill counts.** For every field a person or an integration fills in, how
+  many records hold a value, and the share of the total. Fields filled on fewer
+  than half of the records are listed as mostly empty, and a field no record
+  fills is flagged. Checkboxes, formulas and the fields the org keeps itself
+  (the Id, the audit stamps) are left out: a checkbox is never empty, and
+  nobody types the others
+- **Required fields left empty.** Fields the org requires on a new record --
+  required at insert by the describe, or by the platform whatever the describe
+  says -- that some existing records leave empty. Validation rules are not
+  read, so a field only a validation rule requires is not flagged
+- **Likely duplicates.** The values of a key that more than one record carries,
+  most repeated first. The key is `Email` when the object has one, else the
+  record's name; any field the org can group by can be picked instead, and
+  picking one rescans that object alone. Records with no value are not
+  duplicates of each other
+- **Stale records.** How many records nobody has modified in the number of days
+  given (`LastModifiedDate` older than `LAST_N_DAYS:n`, 365 by default)
+
+How it counts, and where it stops:
+
+- Every figure is a count the org makes: `SELECT COUNT()`, `COUNT(field)` and a
+  `GROUP BY … HAVING COUNT(Id) > 1`. No query returns a record and nothing is
+  written, so a scan needs neither a backup nor a confirmation, and the number
+  of queries it sends depends on the fields, never on the number of records.
+  The org still counts every record: on a very large object a count can run
+  long enough for the org to stop it, and the result then says so
+- Counts cover the records the connected user can see
+- At most 100 fields are counted per query, the most one query may alias; an
+  object with more takes several queries
+- A multi-select picklist cannot be aggregated, only filtered, so it takes a
+  query of its own; past 20 such fields per object the rest are listed as not
+  counted rather than queried
+- A field the org can neither aggregate nor filter -- a long or rich text area,
+  an encrypted field -- is listed as not counted: only reading the records would
+  tell, and the scan reads none
+- A duplicate search reads at most 2,000 repeated values: an aggregate query
+  cannot be paged, and the org refuses one past 2,000 rows. When the search
+  reaches that limit the result says the counts are a floor. The 20 most
+  repeated values are shown
+- An object the org will not describe or count is reported as failed, and the
+  others are still scanned; a check the org refuses on one object shows what
+  the org said, next to the checks that ran
 
 ## Tips
 

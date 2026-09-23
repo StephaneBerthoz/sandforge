@@ -1330,6 +1330,94 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps quality scan results, with every note a scan can carry', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-quality').click();
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [
+          { apiName: 'Account', label: 'Account' },
+          { apiName: 'Contact', label: 'Contact' },
+        ],
+      });
+      await page.getByTestId('quality-object-option-Contact').check();
+      await page.getByTestId('quality-object-option-Account').check();
+      await page.getByTestId('quality-scan-btn').click();
+      await bridge.waitForMessage('dataops:quality-scan', { timeout: 10_000 });
+      // One object with every section a scan can fill — a required field left
+      // empty, a search that reached its limit, fields of each kind not counted,
+      // a refused check — and one the org would not describe.
+      await answerAll(page, 'dataops:quality-scan', 'dataops:quality-scan:response', {
+        orgId: DEV_SANDBOX.id,
+        staleDays: 365,
+        scannedAt: '2026-09-01T10:00:00.000Z',
+        bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
+        objects: [
+          {
+            status: 'scanned',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            totalRecords: 4200,
+            fields: [
+              { fieldApiName: 'Fax', label: 'Fax', filled: 0, required: false },
+              { fieldApiName: 'Title', label: 'Title', filled: 900, required: false },
+              { fieldApiName: 'LastName', label: 'Last Name', filled: 4100, required: true },
+              { fieldApiName: 'Email', label: 'Email', filled: 4150, required: false },
+            ],
+            unmeasured: [
+              { fieldApiName: 'Description', label: 'Description', reason: 'not-countable' },
+              { fieldApiName: 'Interests__c', label: 'Interests', reason: 'query-budget' },
+              { fieldApiName: 'Region__c', label: 'Region', reason: 'refused' },
+            ],
+            duplicates: {
+              keyField: 'Email',
+              keyLabel: 'Email',
+              groups: [
+                { value: 'shared@example.com', count: 4 },
+                { value: 'twice@example.com', count: 2 },
+              ],
+              groupCount: 2000,
+              recordCount: 4006,
+              truncated: true,
+            },
+            stale: { days: 365, records: 1300 },
+            keyFields: [
+              { fieldApiName: 'Email', label: 'Email' },
+              { fieldApiName: 'Title', label: 'Title' },
+            ],
+            errors: [
+              {
+                check: 'fill',
+                message: 'QUERY_TIMEOUT: Your query request was running for too long.',
+              },
+            ],
+          },
+          {
+            status: 'failed',
+            objectApiName: 'Account',
+            message: 'INVALID_TYPE: sObject type is not supported.',
+          },
+        ],
+      });
+      const contact = page.getByTestId('quality-object-Contact');
+      await contact.waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(contact.getByTestId('quality-duplicates-truncated')).toBeVisible();
+      await contact.getByTestId('quality-all-fields').locator('summary').click();
+      await expect(contact.getByTestId('quality-all-fields-table')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Analytics chart tooltips, on the Reports charts the panel does not feed yet', async ({
       page,
     }) => {

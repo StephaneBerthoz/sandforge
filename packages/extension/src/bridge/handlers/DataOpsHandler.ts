@@ -37,11 +37,13 @@ import {
   dataOpsBackupExportPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
+  dataOpsQualityScanPayloadSchema,
   piiScanPayloadSchema,
 } from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
+import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -109,6 +111,7 @@ const DATAOPS_TYPES = new Set([
   'dataops:rollback',
   'dataops:anonymize',
   'dataops:anonymization-templates',
+  'dataops:quality-scan',
   'precheck:pii-scan',
 ]);
 
@@ -154,7 +157,7 @@ function plannedAnonymizeObjects(payload: { templateId: string; objects?: string
  * Domain handler for DataOps-related webview-to-extension messages.
  *
  * Manages backup, rollback, anonymization, anonymization templates,
- * and PII scanning operations.
+ * data-quality scans and PII scanning operations.
  */
 export class DataOpsHandler implements DomainHandler {
   /**
@@ -225,6 +228,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'dataops:anonymization-templates':
         this.handleAnonymizationTemplates(msg);
+        return true;
+      case 'dataops:quality-scan':
+        await this.handleQualityScan(msg);
         return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
@@ -1185,6 +1191,52 @@ export class DataOpsHandler implements DomainHandler {
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
+  }
+
+  /**
+   * Answer `dataops:quality-scan`: fill counts, repeated values and stale
+   * records for the objects the page picked, each a count the org made.
+   *
+   * Read-only by construction — describes and aggregate queries, nothing else
+   * — so it takes no org lock and passes no Production Guard: there is no
+   * write for either to hold back. An object the org will not describe or
+   * count comes back failed inside the result; only a scan that cannot start
+   * at all, such as an org with no session, answers on `dataops:error`.
+   */
+  private async handleQualityScan(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsQualityScanPayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const result = await scanDataQuality(
+        {
+          describe: (objectApiName) => conn.describe(objectApiName),
+          query: async (soql) => {
+            const answer = await conn.query<Record<string, unknown>>(soql);
+            checkApiLimits(conn.limitInfo, 'dataops:quality-scan');
+            return { totalSize: answer.totalSize, records: answer.records };
+          },
+        },
+        parsed,
+      );
+      const response = buildResponse(this.deps, msg, 'dataops:quality-scan:response', {
+        ...result,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id} objects=${result.objects.length}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:quality-scan', 'dataops:error', msg, err);
+    }
   }
 
   private async handlePIIScan(msg: InboundRequest): Promise<void> {

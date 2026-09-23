@@ -7,6 +7,8 @@ import {
   complianceFrameworkTypeSchema,
   anonymizationMethodSchema,
   QuickSyncConfigSchema,
+  QUALITY_SCAN_MAX_OBJECTS,
+  QUALITY_SCAN_MAX_STALE_DAYS,
 } from '@sandforge/shared';
 import { z } from 'zod';
 import {
@@ -479,6 +481,29 @@ export const dataOpsAnonymizePayloadSchema = z.object({
 export const piiScanPayloadSchema = z.object({
   orgId: orgIdSchema,
   objectNames: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+});
+/**
+ * `dataops:quality-scan`: a few objects, each at most once, a duplicate key
+ * each may name, and the staleness threshold in whole days. Both names reach
+ * SOQL text, so both are held to the API-name shape here.
+ */
+export const dataOpsQualityScanPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objects: z
+    .array(
+      z.object({
+        objectApiName: sfApiNameSchema,
+        duplicateKey: sfApiNameSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(QUALITY_SCAN_MAX_OBJECTS)
+    .refine(
+      (objects) =>
+        new Set(objects.map((o) => o.objectApiName.toLowerCase())).size === objects.length,
+      { message: 'Each object may be named once per scan' },
+    ),
+  staleDays: z.number().int().min(1).max(QUALITY_SCAN_MAX_STALE_DAYS),
 });
 
 // ── monitor:* payload schemas ─────────────────────────────────────────────

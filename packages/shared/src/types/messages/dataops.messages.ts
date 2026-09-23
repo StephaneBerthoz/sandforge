@@ -1,5 +1,9 @@
 import type { BaseMessage } from './base.messages.js';
-import type { BackupStatus } from '../dataops.types.js';
+import type {
+  BackupStatus,
+  DataQualityScanResult,
+  DataQualityScanTarget,
+} from '../dataops.types.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
 
 /** Backup messages */
@@ -125,8 +129,24 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
 }
 
 /**
- * Error response for dataops backup/rollback/anonymize failures (emitted via
- * sendHandlerError). Dual-channel note: `operation:failed` carries the
+ * Measure the records of a few objects: fill counts, repeated values of a key,
+ * records not modified for `staleDays` (validated by
+ * dataOpsQualityScanPayloadSchema). Read-only: aggregate queries and describes.
+ */
+export interface DataOpsQualityScanRequest extends BaseMessage {
+  type: 'dataops:quality-scan';
+  payload: { orgId: string; objects: DataQualityScanTarget[]; staleDays: number };
+}
+
+/** Result of `dataops:quality-scan`; a scan that could not start fails on `dataops:error`. */
+export interface DataOpsQualityScanResponse extends BaseMessage {
+  type: 'dataops:quality-scan:response';
+  payload: DataQualityScanResult;
+}
+
+/**
+ * Error response for dataops backup/rollback/anonymize/quality-scan failures
+ * (emitted via sendHandlerError). Dual-channel note: `operation:failed` carries the
  * lifecycle, `dataops:error` settles the in-flight webview mutation — the
  * webview surfaces the error from this channel only (see DataOpsHandler).
  */
