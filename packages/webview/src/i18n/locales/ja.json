@@ -299,6 +299,7 @@
     "selectSource": "ソースOrgを選択",
     "selectTarget": "ターゲットOrgを選択",
     "categories": "カテゴリ",
+    "includeManaged": "管理パッケージのコンポーネントを含める",
     "run": "比較を実行",
     "running": "比較中...",
     "diff": "差分ビューア",
@@ -307,6 +308,7 @@
     "drift": "組織設定の差分",
     "deploy": "差分からデプロイ",
     "noResults": "比較結果はまだありません",
+    "nothingDiffers": "差分はありません。両方のOrgに同じコンポーネントがあり、内容を比較したものはすべて一致しています。",
     "added": "追加",
     "removed": "削除",
     "modified": "変更",
@@ -314,6 +316,7 @@
     "notCompared": "未比較",
     "coverage": {
       "compared": "両方のOrgにある{{inBoth}}件のコンポーネントのうち、{{compared}}件の内容を比較しました。",
+      "managedLeftOut": "管理パッケージがインストールしたもの（指定どおり除外）: {{count}}",
       "overBudget": "1回の実行で読み取る範囲外（Orgごとに{{components}}件、{{seconds}}秒）: {{count}}",
       "unreadable": "読み取れない内容（管理パッケージのApexなど）: {{count}}",
       "readFailed": "読み取り失敗: {{count}}",
@@ -881,6 +884,8 @@
       "lastRun": "前回実行",
       "pause": "一時停止",
       "resume": "再開",
+      "editNamed": "{{name}} を編集",
+      "deleteNamed": "{{name}} を削除",
       "result_success": "成功",
       "result_partial": "一部成功",
       "result_failure": "失敗"
@@ -983,6 +988,11 @@
     "selectTemplate": "テンプレートを選択",
     "noTemplates": "テンプレートがありません",
     "createTemplate": "テンプレートを作成",
+    "savedTemplateOption": "{{name}}（保存済み）",
+    "savedTemplate": "保存済み",
+    "deleteTemplate": "テンプレートを削除",
+    "templateSaved": "テンプレート「{{name}}」を保存しました。",
+    "ruleCount_other": "{{count}} 件のルール",
     "previewAnonymization": "プレビュー",
     "applyAnonymization": "適用",
     "compliance": "コンプライアンスフレームワーク",
@@ -1062,13 +1072,29 @@
       "fillRefused": "入力件数: {{message}}",
       "duplicatesRefused": "重複: {{message}}",
       "staleRefused": "未更新のレコード: {{message}}"
+    },
+    "templateEditor": {
+      "title": "新しいテンプレート",
+      "intro": "ルールのセットに名前を付けてテンプレートとして保存します。SandForge はこのマシンに保存し、付属のテンプレートと同じように適用します。",
+      "startsFrom": "{{name}} のルールから始めます。変更、追加、削除してから、独自の名前で保存してください。",
+      "name": "テンプレート名",
+      "nameTaken": "この名前のテンプレートは既にあります。",
+      "rule": "ルール {{n}}",
+      "field": "フィールド（オブジェクト.フィールド）",
+      "method": "方法",
+      "removeRule": "ルール {{n}} を削除",
+      "addRule": "ルールを追加",
+      "noRules": "テンプレートを保存するには、ルールを1つ以上追加してください。",
+      "fieldInvalid": "フィールドは「オブジェクト.フィールド」の形式で入力してください（例: Contact.Email）。",
+      "fieldDuplicate": "このフィールドには既にルールがあります。",
+      "methodUnavailable": "{{method}} には、このページでは設定できない値が必要です。別の方法を選んでください。",
+      "save": "テンプレートを保存"
     }
   },
   "automation": {
     "title": "自動化",
     "createPipeline": "パイプラインを作成",
     "newPipeline": "新規パイプライン",
-    "noPipelines": "パイプラインが設定されていません",
     "steps": "ステップ",
     "stepsCount": "パイプラインステップ",
     "triggersCount": "アクティブトリガー",
@@ -1127,9 +1153,8 @@
       "skipped": "スキップ"
     },
     "scheduler": "スケジューラー",
+    "schedulerIntro": "各同期スケジュールを、次回実行日ごとに表示します。パイプラインはスケジュールでは実行されず、「パイプラインを実行」ボタンから開始します。",
     "cronExpression": "Cron式",
-    "timezone": "タイムゾーン",
-    "nextRun": "次回実行",
     "canvas": "パイプラインキャンバス",
     "dragStep": "ステップをキャンバスにドラッグしてください",
     "connectSteps": "ステップを接続してフローを定義してください",
@@ -1179,6 +1204,13 @@
       "title": "最初のパイプラインを作成",
       "description": "ビジュアルキャンバスでパイプラインを作成して保存できます。現時点で、パイプラインで実行できるのは遅延ステップだけです。",
       "cta": "Orgを選択"
+    },
+    "agenda": {
+      "due": "実行待ち",
+      "dueHint": "予定時刻を過ぎています。VS Code が開いている間、次回のチェック（1分以内）で実行されるか、現在実行中です。",
+      "today": "今日",
+      "tomorrow": "明日",
+      "unplanned": "実行予定なし: cron 式から次回時刻が得られません"
     }
   },
   "ai": {

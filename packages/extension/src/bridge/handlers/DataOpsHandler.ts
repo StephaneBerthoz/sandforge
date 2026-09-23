@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import type { BackupSummary } from '@sandforge/shared';
+import type { BackupSummary, ListedAnonymizationTemplate } from '@sandforge/shared';
 import {
   duplicateRuleHeaders,
   sanitizeSoqlObjectName,
@@ -38,12 +38,15 @@ import {
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsQualityScanPayloadSchema,
+  anonymizationTemplateSavePayloadSchema,
+  anonymizationTemplateDeletePayloadSchema,
   piiScanPayloadSchema,
 } from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
+import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -112,6 +115,8 @@ const DATAOPS_TYPES = new Set([
   'dataops:anonymize',
   'dataops:anonymization-templates',
   'dataops:quality-scan',
+  'dataops:anonymization-template:save',
+  'dataops:anonymization-template:delete',
   'precheck:pii-scan',
 ]);
 
@@ -141,12 +146,14 @@ function collectDmlError(
 
 /**
  * Objects a masking run addresses: the ones the request names, otherwise
- * the ones the template's rules address. Empty for an unknown template id —
+ * the ones the template's rules address. Empty for an unknown template —
  * such a request stops at the template lookup, before any write.
  */
-function plannedAnonymizeObjects(payload: { templateId: string; objects?: string[] }): string[] {
+function plannedAnonymizeObjects(
+  payload: { objects?: string[] },
+  template: ListedAnonymizationTemplate | undefined,
+): string[] {
   if (payload.objects) return payload.objects;
-  const template = ANONYMIZATION_TEMPLATES.find((t) => t.id === payload.templateId);
   if (!template) return [];
   return template.rules
     .map((r) => r.fieldPattern.split('.')[0])
@@ -193,6 +200,19 @@ export class DataOpsHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
+  /** The masking templates the user saved, kept in the config store. */
+  private get savedTemplates(): AnonymizationTemplateStore {
+    return new AnonymizationTemplateStore(this.deps.configStore);
+  }
+
+  /** A template that ships, or else one the user saved; undefined for an id neither holds. */
+  private findTemplate(templateId: string): ListedAnonymizationTemplate | undefined {
+    return (
+      ANONYMIZATION_TEMPLATES.find((t) => t.id === templateId) ??
+      this.savedTemplates.load(templateId)
+    );
+  }
+
   /**
    * Inject the file-backed record store so backups stop inflating globalState.
    * Called from composition, which owns the extension's storage path.
@@ -231,6 +251,12 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'dataops:quality-scan':
         await this.handleQualityScan(msg);
+        return true;
+      case 'dataops:anonymization-template:save':
+        this.handleTemplateSave(msg);
+        return true;
+      case 'dataops:anonymization-template:delete':
+        this.handleTemplateDelete(msg);
         return true;
       case 'precheck:pii-scan':
         await this.handlePIIScan(msg);
@@ -971,7 +997,9 @@ export class DataOpsHandler implements DomainHandler {
     // Follows the object in progress (see handleBackup).
     const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
 
-    const plannedObjects = plannedAnonymizeObjects(payload);
+    // A template the user saved is applied the way one that ships is.
+    const template = this.findTemplate(payload.templateId);
+    const plannedObjects = plannedAnonymizeObjects(payload, template);
 
     try {
       if (this.deps.infraServices?.productionGuard) {
@@ -1018,7 +1046,6 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const template = ANONYMIZATION_TEMPLATES.find((t) => t.id === payload.templateId);
       if (!template) {
         sendNotification(
           this.deps,
@@ -1186,8 +1213,12 @@ export class DataOpsHandler implements DomainHandler {
 
   private handleAnonymizationTemplates(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const templates: ListedAnonymizationTemplate[] = [
+      ...ANONYMIZATION_TEMPLATES,
+      ...this.savedTemplates.list(),
+    ];
     const response = buildResponse(this.deps, msg, 'dataops:anonymization-templates:response', {
-      templates: ANONYMIZATION_TEMPLATES,
+      templates,
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
@@ -1236,6 +1267,104 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id} objects=${result.objects.length}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'dataops:quality-scan', 'dataops:error', msg, err);
+    }
+  }
+
+  /**
+   * Save the rules the page sends as a template of the user's.
+   *
+   * The library used to be the four templates that ship: nothing could be
+   * added to it, and the Create Template button said so. A name any template
+   * already goes by is refused, since the picker lists templates by name.
+   */
+  private handleTemplateSave(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      anonymizationTemplateSavePayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const name = parsed.name.trim();
+      const taken = [...ANONYMIZATION_TEMPLATES, ...this.savedTemplates.list()].some(
+        (t) => t.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (taken) {
+        sendHandlerError(
+          this.deps,
+          'dataops:anonymization-template:save',
+          'dataops:error',
+          msg,
+          new Error(`A template named "${name}" already exists. Pick another name.`),
+          { code: 'DUPLICATE_NAME' },
+        );
+        return;
+      }
+      const template = {
+        id: `tpl-saved-${crypto.randomUUID()}`,
+        name,
+        description: '',
+        complianceFramework: 'custom' as const,
+        rules: parsed.rules.map((rule) => ({ ...rule, description: '' })),
+        saved: true as const,
+        createdAt: new Date().toISOString(),
+      };
+      this.savedTemplates.save(template);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'dataops:anonymization-template:save:response',
+        { template },
+      );
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'dataops:anonymization-template:save', 'dataops:error', msg, err);
+    }
+  }
+
+  /** Delete a template the user saved. One that ships is code, and is refused. */
+  private handleTemplateDelete(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      anonymizationTemplateDeletePayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { templateId } = parsed;
+    if (ANONYMIZATION_TEMPLATES.some((t) => t.id === templateId)) {
+      sendHandlerError(
+        this.deps,
+        'dataops:anonymization-template:delete',
+        'dataops:error',
+        msg,
+        new Error(`Template "${templateId}" ships with SandForge and cannot be deleted.`),
+        { code: 'BUILT_IN' },
+      );
+      return;
+    }
+    try {
+      const deleted = this.savedTemplates.delete(templateId);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'dataops:anonymization-template:delete:response',
+        { templateId, deleted },
+      );
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(
+        this.deps,
+        'dataops:anonymization-template:delete',
+        'dataops:error',
+        msg,
+        err,
+      );
     }
   }
 

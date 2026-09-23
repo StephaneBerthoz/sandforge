@@ -39,6 +39,7 @@ const NO_PLURAL_NEEDED: Record<string, string> = {
   'compare.coverage.overBudget': 'a label and a number ("… (500 per org, 120 s): 1")',
   'compare.coverage.unreadable': 'a label and a number ("Content that cannot be read…: 1")',
   'compare.coverage.readFailed': 'a label and a number ("Read failed: 1")',
+  'compare.coverage.managedLeftOut': 'a label and a number ("…, left out as asked: 1")',
 };
 
 /** Every string of a catalogue, as `a.b.c` → value. */

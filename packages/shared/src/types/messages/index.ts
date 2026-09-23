@@ -169,6 +169,10 @@ import type {
   BackupExportResult,
   AnonymizationTemplatesRequest,
   AnonymizationTemplatesResponse,
+  AnonymizationTemplateSaveRequest,
+  AnonymizationTemplateSaveResponse,
+  AnonymizationTemplateDeleteRequest,
+  AnonymizationTemplateDeleteResponse,
   PIIScanRequest,
   PIIScanResponse,
   DataOpsRollbackRequest,
@@ -450,6 +454,8 @@ export type WebViewToExtensionMessage =
   | BackupListRequest
   | BackupExportRequest
   | AnonymizationTemplatesRequest
+  | AnonymizationTemplateSaveRequest
+  | AnonymizationTemplateDeleteRequest
   | PIIScanRequest
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
@@ -617,6 +623,8 @@ export type ExtensionToWebViewMessage =
   | CompareErrorResponse
   // DataOps
   | AnonymizationTemplatesResponse
+  | AnonymizationTemplateSaveResponse
+  | AnonymizationTemplateDeleteResponse
   | PIIScanResponse
   | BackupListResult
   | BackupExportResult

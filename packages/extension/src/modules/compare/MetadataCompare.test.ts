@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MetadataCompare, planReads, firstDifference } from './MetadataCompare';
+import { MetadataCompare, planReads, firstDifference, installedByPackage } from './MetadataCompare';
 import type { FetchMetadataFn } from './MetadataCompare';
 import type { ContentReader, ReadContent } from './ContentReader';
 import { DiffEngine } from './DiffEngine';
@@ -73,7 +73,7 @@ describe('MetadataCompare', () => {
     });
     const { reader, read } = readerOf({});
 
-    const items = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
+    const { items } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
       'src',
       'tgt',
       ['ApexClass'],
@@ -94,11 +94,11 @@ describe('MetadataCompare', () => {
     const body = 'public class Invoicing {\n  Integer total;\n}';
     const { reader } = readerOf({ src: { Invoicing: body }, tgt: { Invoicing: body } });
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
-      'src',
-      'tgt',
-      ['ApexClass'],
-    );
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare('src', 'tgt', [
+      'ApexClass',
+    ]);
 
     expect(item.status).toBe('unchanged');
     expect(item.sourceValue).toBeUndefined();
@@ -116,11 +116,11 @@ describe('MetadataCompare', () => {
       tgt: { Invoicing: 'public class Invoicing {\n  Decimal total;\n}' },
     });
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
-      'src',
-      'tgt',
-      ['ApexClass'],
-    );
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare('src', 'tgt', [
+      'ApexClass',
+    ]);
 
     expect(item.status).toBe('modified');
     expect(item.sourceValue).toBe('1│ public class Invoicing {\n2│   Integer total;\n3│ }');
@@ -134,11 +134,11 @@ describe('MetadataCompare', () => {
     });
     const { reader } = readerOf({ src: { pkg__Engine: null }, tgt: { pkg__Engine: null } });
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
-      'src',
-      'tgt',
-      ['ApexClass'],
-    );
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare('src', 'tgt', [
+      'ApexClass',
+    ]);
 
     expect(item.status).toBe('not_compared');
     expect(item.notComparedReason).toBe('unreadable');
@@ -155,7 +155,9 @@ describe('MetadataCompare', () => {
       return Promise.resolve(new Map([['Onboarding', 'status: "Active"']]));
     });
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, {
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, {
       batchSize: () => 10,
       read,
     }).compare('src', 'tgt', ['Flow']);
@@ -172,11 +174,11 @@ describe('MetadataCompare', () => {
     });
     const { reader } = readerOf({ src: { 'Account.Region__c': 'type: "Text"' }, tgt: {} });
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
-      'src',
-      'tgt',
-      ['CustomField'],
-    );
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare('src', 'tgt', [
+      'CustomField',
+    ]);
 
     expect(item.status).toBe('not_compared');
     expect(item.notComparedReason).toBe('read_failed');
@@ -189,11 +191,11 @@ describe('MetadataCompare', () => {
     });
     const { reader, read } = readerOf({}, 'unreadable');
 
-    const [item] = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
-      'src',
-      'tgt',
-      ['Other'],
-    );
+    const {
+      items: [item],
+    } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare('src', 'tgt', [
+      'Other',
+    ]);
 
     expect(item.status).toBe('not_compared');
     expect(item.notComparedReason).toBe('unreadable');
@@ -209,7 +211,7 @@ describe('MetadataCompare', () => {
     const everything = Object.fromEntries(names.map((n) => [n, 'type: "Text"']));
     const { reader, read } = readerOf({ src: everything, tgt: everything });
 
-    const items = await new MetadataCompare(fetchMetadata, diffEngine, reader, {
+    const { items } = await new MetadataCompare(fetchMetadata, diffEngine, reader, {
       budget: { components: 12, seconds: 90 },
     }).compare('src', 'tgt', ['CustomField']);
 
@@ -254,7 +256,7 @@ describe('MetadataCompare', () => {
     let minute = 0;
     const now = () => minute++ * 60_000;
 
-    const items = await new MetadataCompare(fetchMetadata, diffEngine, reader, {
+    const { items } = await new MetadataCompare(fetchMetadata, diffEngine, reader, {
       budget: { components: 500, seconds: 90 },
       now,
     }).compare('src', 'tgt', ['Layout']);
@@ -293,11 +295,94 @@ describe('MetadataCompare', () => {
     expect(read).toHaveBeenCalledTimes(20);
   });
 
+  describe('what a managed package installed', () => {
+    /** A listing entry the way listMetadata answers for a component a package installed. */
+    const installed = (fullName: string, id: string) =>
+      JSON.stringify({ fullName, id, namespacePrefix: 'ns', manageableState: 'installed' });
+    const own = (fullName: string, id: string) =>
+      JSON.stringify({ fullName, id, manageableState: 'unmanaged' });
+
+    const listingsWithPackage = (): Listings => ({
+      src: {
+        ApexClass: new Map([
+          ['ns__Helper', installed('ns__Helper', '01pA')],
+          ['ns__OnlyHere', installed('ns__OnlyHere', '01pB')],
+          ['Invoicing', own('Invoicing', '01pC')],
+        ]),
+      },
+      tgt: {
+        ApexClass: new Map([
+          ['ns__Helper', installed('ns__Helper', '01pD')],
+          ['Invoicing', own('Invoicing', '01pE')],
+        ]),
+      },
+    });
+    const body = 'public class Invoicing {}';
+
+    it('compares it with the rest unless asked not to', async () => {
+      const { reader } = readerOf({
+        src: { Invoicing: body, ns__Helper: null },
+        tgt: { Invoicing: body, ns__Helper: null },
+      });
+
+      const { items, managedLeftOut } = await new MetadataCompare(
+        fetchFrom(listingsWithPackage()),
+        diffEngine,
+        reader,
+      ).compare('src', 'tgt', ['ApexClass']);
+
+      expect(byName(items).get('ns__Helper')?.status).toBe('not_compared');
+      expect(byName(items).get('ns__OnlyHere')?.status).toBe('removed');
+      expect(managedLeftOut).toBe(0);
+    });
+
+    it('leaves it out of both orgs when asked, reads none of it, and says how many it left out', async () => {
+      const { reader, read } = readerOf({
+        src: { Invoicing: body },
+        tgt: { Invoicing: body },
+      });
+
+      const { items, managedLeftOut } = await new MetadataCompare(
+        fetchFrom(listingsWithPackage()),
+        diffEngine,
+        reader,
+      ).compare('src', 'tgt', ['ApexClass'], { includeManaged: false });
+
+      expect(items.map((item) => [item.fullName, item.status])).toEqual([
+        ['Invoicing', 'unchanged'],
+      ]);
+      // One class both orgs hold and one the source alone holds: two components.
+      expect(managedLeftOut).toBe(2);
+      expect(read).toHaveBeenCalled();
+      for (const [, , names] of read.mock.calls) {
+        expect(names).toEqual(['Invoicing']);
+      }
+    });
+
+    it('leaves a component out of both orgs when only one lists it as installed', async () => {
+      // Left in the other org's listing, it would read as added or removed.
+      const fetchMetadata = fetchFrom({
+        src: { ApexClass: new Map([['ns__Helper', installed('ns__Helper', '01pA')]]) },
+        tgt: { ApexClass: new Map([['ns__Helper', listed('ns__Helper', '01pB')]]) },
+      });
+      const { reader } = readerOf({});
+
+      const { items, managedLeftOut } = await new MetadataCompare(
+        fetchMetadata,
+        diffEngine,
+        reader,
+      ).compare('src', 'tgt', ['ApexClass'], { includeManaged: false });
+
+      expect(items).toEqual([]);
+      expect(managedLeftOut).toBe(1);
+    });
+  });
+
   it('should return empty array when no types are provided', async () => {
     const fetchMetadata = fetchFrom({});
     const { reader } = readerOf({});
 
-    const items = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
+    const { items } = await new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
       'org-1',
       'org-2',
       [],
@@ -318,6 +403,41 @@ describe('MetadataCompare', () => {
         'ApexClass',
       ]),
     ).rejects.toThrow('Connection failed');
+  });
+});
+
+describe('installedByPackage', () => {
+  it.each(['installed', 'installedEditable', 'deprecated', 'deprecatedEditable'])(
+    'calls a namespaced component in the %s state one a package installed',
+    (manageableState) => {
+      expect(installedByPackage(JSON.stringify({ namespacePrefix: 'ns', manageableState }))).toBe(
+        true,
+      );
+    },
+  );
+
+  it('calls a namespaced component with no state one a package installed', () => {
+    expect(installedByPackage(JSON.stringify({ namespacePrefix: 'ns' }))).toBe(true);
+  });
+
+  it.each(['unmanaged', 'beta', 'released'])(
+    "keeps a namespaced org's own component in the %s state",
+    (manageableState) => {
+      expect(installedByPackage(JSON.stringify({ namespacePrefix: 'ns', manageableState }))).toBe(
+        false,
+      );
+    },
+  );
+
+  it('keeps a component with no namespace, whatever its state', () => {
+    expect(installedByPackage(JSON.stringify({ manageableState: 'unmanaged' }))).toBe(false);
+    expect(installedByPackage(JSON.stringify({ namespacePrefix: '' }))).toBe(false);
+    expect(installedByPackage(JSON.stringify({ fullName: 'Account' }))).toBe(false);
+  });
+
+  it('keeps an entry that is not a listing', () => {
+    expect(installedByPackage('v1')).toBe(false);
+    expect(installedByPackage('null')).toBe(false);
   });
 });
 

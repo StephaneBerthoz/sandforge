@@ -8,7 +8,6 @@ describe('queryLimits', () => {
       expect(limits.defaultQueryLimit).toBe(2000);
       expect(limits.previewQueryLimit).toBe(2000);
       expect(limits.exportQueryLimit).toBe(5000);
-      expect(limits.permissionSetLimit).toBe(100);
     });
 
     it('should return production limits for production tier', () => {
@@ -16,8 +15,16 @@ describe('queryLimits', () => {
       expect(limits.defaultQueryLimit).toBe(500);
       expect(limits.previewQueryLimit).toBe(200);
       expect(limits.exportQueryLimit).toBe(1000);
-      expect(limits.permissionSetLimit).toBe(50);
     });
+
+    it.each(['sandbox', 'production'] as const)(
+      'gives the %s tier no permission set limit, which no query reads any more',
+      (tier) => {
+        // Compare's Permissions tab pages through every row of both orgs: a
+        // LIMIT with no ORDER BY handed back a different slice of each.
+        expect(getQueryLimits(tier)).not.toHaveProperty('permissionSetLimit');
+      },
+    );
 
     it('should return a copy, not the original object', () => {
       const limits1 = getQueryLimits('sandbox');

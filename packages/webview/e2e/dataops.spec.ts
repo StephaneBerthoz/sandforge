@@ -107,11 +107,11 @@ const MOCK_BACKUPS = [
 ];
 
 /**
- * Templates as `dataops:anonymization-templates:response` carries them.
- *
- * `AnonymizationTemplate` rules carry `method` (an `AnonymizationMethod`) and
- * a `config` object; `strategy` / `fakerType` / `maskPattern` are fields of no
- * type in the codebase and would render blank badges.
+ * Templates as `dataops:anonymization-templates:response` carries them: each
+ * rule an `Object.Field` in `fieldPattern` and its method in `ruleType`
+ * (`ListedAnonymizationTemplate`). This fixture used the domain
+ * `AnonymizationTemplate` shape, `fieldApiName` and `method`, which the host
+ * never sends, so the page passed here while its rules named no field.
  */
 const MOCK_TEMPLATES = [
   {
@@ -119,21 +119,9 @@ const MOCK_TEMPLATES = [
     name: 'GDPR Compliance',
     description: 'Anonymize all PII fields for GDPR compliance',
     complianceFramework: 'gdpr',
-    tags: ['gdpr'],
-    createdAt: '2026-03-01T09:00:00Z',
     rules: [
-      {
-        objectApiName: 'Contact',
-        fieldApiName: 'Email',
-        method: 'hash',
-        config: { hashAlgorithm: 'sha256' },
-      },
-      {
-        objectApiName: 'Contact',
-        fieldApiName: 'Phone',
-        method: 'mask',
-        config: { maskChar: '*', maskStart: 0, maskEnd: 6 },
-      },
+      { fieldPattern: 'Contact.Email', ruleType: 'hash', description: 'Hash the email.' },
+      { fieldPattern: 'Contact.Phone', ruleType: 'mask', description: 'Mask the phone.' },
     ],
   },
   {
@@ -141,16 +129,7 @@ const MOCK_TEMPLATES = [
     name: 'Dev Sandbox Mask',
     description: 'Light masking for development sandboxes',
     complianceFramework: 'custom',
-    tags: ['dev'],
-    createdAt: '2026-03-02T09:00:00Z',
-    rules: [
-      {
-        objectApiName: 'Account',
-        fieldApiName: 'Name',
-        method: 'fake',
-        config: { fakerMethod: 'company.name' },
-      },
-    ],
+    rules: [{ fieldPattern: 'Account.Name', ruleType: 'fake', description: 'A fake name.' }],
   },
 ];
 
@@ -298,6 +277,72 @@ test.describe('DataOps — with a connected org', () => {
     await page.getByTestId('page-tab-backup').click();
     await expect(page.getByTestId('page-tab-backup')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('backup-panel')).toBeVisible();
+  });
+
+  test('lists each rule of a template by the field it masks and its method', async ({ page }) => {
+    await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-anonymize').click();
+    await page.getByTestId('template-select').selectOption('tpl-gdpr');
+
+    const detail = page.getByTestId('template-detail');
+    await expect(detail).toContainText('Contact.Email: Hash');
+    await expect(detail).toContainText('Contact.Phone: Mask');
+    await expect(page.getByTestId('template-rule-count')).toHaveText('2 rules');
+  });
+
+  test('saves the rules on screen as a template of the user’s, then picks it', async ({ page }) => {
+    await answerMountQueries(page, bridge);
+    await page.getByTestId('page-tab-anonymize').click();
+    await page.getByTestId('template-select').selectOption('tpl-gdpr');
+    await page.getByTestId('create-template-btn').click();
+
+    // The hash rule cannot run without a salt: the template waits for a change.
+    await page.getByTestId('template-name-input').fill('Support desk');
+    await expect(page.getByTestId('template-save')).toBeDisabled();
+    await page.getByTestId('template-rule-method-0').selectOption('fake');
+    await page.getByTestId('template-save').click();
+
+    const [save] = await outgoing(page, 'dataops:anonymization-template:save');
+    expect(save.payload).toEqual({
+      name: 'Support desk',
+      rules: [
+        { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'mask' },
+      ],
+    });
+
+    const saved = {
+      id: 'tpl-saved-1',
+      name: 'Support desk',
+      description: '',
+      complianceFramework: 'custom',
+      rules: [
+        { fieldPattern: 'Contact.Email', ruleType: 'fake', description: '' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'mask', description: '' },
+      ],
+      saved: true,
+    };
+    await respondToAll(
+      page,
+      'dataops:anonymization-template:save',
+      'dataops:anonymization-template:save:response',
+      { template: saved },
+    );
+    // The page asks the host for the list again rather than patching its own.
+    await expect
+      .poll(async () => (await outgoing(page, 'dataops:anonymization-templates')).length)
+      .toBeGreaterThan(1);
+    await respondToAll(
+      page,
+      'dataops:anonymization-templates',
+      'dataops:anonymization-templates:response',
+      { templates: [...MOCK_TEMPLATES, saved] },
+    );
+
+    await expect(page.getByTestId('template-editor')).toHaveCount(0);
+    await expect(page.getByTestId('template-select')).toHaveValue('tpl-saved-1');
+    await expect(page.getByTestId('template-saved-badge')).toHaveText('Saved');
+    await expect(page.getByTestId('delete-template-btn')).toBeVisible();
   });
 
   test('the two tabs with no producer say so instead of showing empty results', async ({

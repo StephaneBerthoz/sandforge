@@ -179,6 +179,25 @@ const MARKETPLACE_TEMPLATES = [
   },
 ];
 
+/** A sync schedule as `sync:schedule:list:response` carries it, next run tomorrow. */
+const SYNC_SCHEDULE = {
+  id: 'sched-1',
+  name: 'Nightly accounts',
+  configId: 'cfg-1',
+  cron: '0 2 * * *',
+  timezone: 'UTC',
+  enabled: true,
+  maxRetries: 3,
+  notifyOnComplete: false,
+  notifyOnFailure: true,
+  nextRunAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+  lastRunAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+  lastResult: 'success',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+  version: 1,
+};
+
 /** Pipeline `marketplace:install:response` hands back for `mkt-1`. */
 const INSTALLED_PIPELINE = {
   name: 'Standard Data Refresh',
@@ -327,9 +346,13 @@ test.describe('Automation page — tabs', () => {
 
     await page.getByTestId('page-tab-scheduler').click();
     await expect(page.getByTestId('scheduler-calendar')).toBeVisible();
-    // The scheduler ships disabled and says so; asserting the badge keeps a
-    // silent re-enable from passing as "still coming soon".
-    await expect(page.getByTestId('scheduler-coming-soon')).toBeVisible();
+    // The calendar is the sync schedules: it asks the host for them and lays
+    // out what it answers, where a "Coming soon" badge used to sit.
+    await respondToAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
+      schedules: [SYNC_SCHEDULE],
+    });
+    await expect(page.getByTestId('scheduler-entry-sched-1')).toContainText('Nightly accounts');
+    await expect(page.getByTestId('scheduler-coming-soon')).toHaveCount(0);
 
     await page.getByTestId('page-tab-history').click();
     await expect(page.getByTestId('history-run-1')).toContainText('Nightly Sync');

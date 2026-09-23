@@ -59,8 +59,12 @@ export interface CompareConfig {
   thirdOrgId?: UUID;
   mode: CompareMode;
   componentTypes: MetadataComponentType[];
+  /**
+   * Whether the components a managed package installed are compared with the
+   * rest. When false they are left out of both listings, and the result says
+   * how many (`CompareContentCoverage.managedLeftOut`).
+   */
   includeManaged: boolean;
-  includeUnmanaged: boolean;
   createdAt: ISODateString;
 }
 
@@ -100,6 +104,12 @@ export interface CompareContentCoverage {
   compared: number;
   /** Not compared, by reason; together they are `summary.notCompared`. */
   notCompared: Record<NotComparedReason, number>;
+  /**
+   * Components a managed package installed, left out of both listings because
+   * the run was asked to leave them out: they are in no other count. Absent
+   * when none were left out.
+   */
+  managedLeftOut?: number;
   /**
    * The bound one run reads within: at most `components` from each org, and
    * no read started after `seconds`.

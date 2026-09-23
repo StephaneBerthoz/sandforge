@@ -7,7 +7,6 @@ import type {
 } from '@sandforge/shared';
 import type { PipelineBuilder } from './PipelineBuilder';
 import type { TriggerEngine } from './TriggerEngine';
-import type { SchedulerService } from './SchedulerService';
 import type { StepLibrary } from './StepLibrary';
 import type { StepExecutor } from './StepExecutor';
 import type { ConditionalRouter } from './ConditionalRouter';
@@ -25,7 +24,6 @@ export type PipelineEventHandler = (event: PipelineEvent, data: unknown) => void
 export interface PipelineOrchestratorDependencies {
   builder: PipelineBuilder;
   triggerEngine: TriggerEngine;
-  scheduler: SchedulerService;
   stepLibrary: StepLibrary;
   stepExecutor: StepExecutor;
   conditionalRouter: ConditionalRouter;

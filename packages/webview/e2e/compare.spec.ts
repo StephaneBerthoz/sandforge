@@ -374,6 +374,50 @@ test.describe('Compare panel — running a comparison', () => {
     await expect(page.getByTestId('diff-detail-modal')).toHaveCount(0);
   });
 
+  test('leaves managed package components out when the box is unticked, and says how many', async ({
+    page,
+  }) => {
+    const includeManaged = page.getByLabel('Include managed package components');
+    await expect(includeManaged).toBeChecked();
+    await includeManaged.uncheck();
+    await startComparison(page);
+
+    const [request] = await page.evaluate(() => {
+      const posted = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      return posted
+        .map((m) => ((m as Record<string, unknown>).payload ?? m) as Record<string, unknown>)
+        .filter((m) => m.type === 'compare:execute');
+    });
+    expect(request.payload).toMatchObject({ includeManaged: false });
+
+    await answerAll(page, 'compare:execute', 'compare:execute:response', {
+      ...MOCK_COMPARE_RESULT,
+      content: { ...MOCK_COMPARE_RESULT.content, managedLeftOut: 4 },
+    });
+    await expect(page.getByTestId('compare-coverage-managed-left-out')).toHaveText(
+      'Installed by a managed package, left out as asked: 4',
+    );
+    // The subtitle no longer says no comparison has run.
+    await expect(page.getByTestId('compare-page')).not.toContainText('No comparison results yet');
+  });
+
+  test('says nothing differs when a comparison found no difference', async ({ page }) => {
+    await startComparison(page);
+    await answerAll(page, 'compare:execute', 'compare:execute:response', {
+      ...MOCK_COMPARE_RESULT,
+      summary: { ...MOCK_COMPARE_RESULT.summary, added: 0, removed: 0, modified: 0 },
+      diffs: MOCK_COMPARE_RESULT.diffs.filter(
+        (diff) => diff.status === 'unchanged' || diff.status === 'not_compared',
+      ),
+    });
+
+    await expect(page.getByTestId('no-diffs')).toHaveText(
+      'Nothing differs: both orgs hold the same components, and each one compared by content ' +
+        'is the same in both.',
+    );
+    await expect(page.getByTestId('compare-page')).not.toContainText('No comparison results yet');
+  });
+
   test('error banner surfaces a failed comparison and can be dismissed', async ({ page }) => {
     await startComparison(page);
 

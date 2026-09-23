@@ -48,6 +48,12 @@ describe('parseArgs', () => {
     expect(args.operations).toEqual(['execute', 'permissions', 'snapshots', 'drift']);
   });
 
+  it('compares what a managed package installed unless told to leave it out, as the page does', () => {
+    const base = ['--source', 'SRC', '--target', 'TGT', '--type', 'ApexClass'];
+    expect(parseArgs(argv(...base)).includeManaged).toBe(true);
+    expect(parseArgs(argv(...base, '--exclude-managed')).includeManaged).toBe(false);
+  });
+
   it('sends every category the page offers for --all-types, as "Select all" does', () => {
     const args = parseArgs(argv('--source', 'SRC', '--target', 'TGT', '--all-types'));
     expect(args.types).toEqual([...PAGE_COMPONENT_TYPES]);
@@ -147,6 +153,17 @@ describe('describeCoverage', () => {
     expect(describeCoverage(RESULT)).toBe(
       '  content compared for 3 of 5 in both orgs; not compared: 1 over the budget ' +
         '(500 per org, 90 s), 1 unreadable, 0 read failed',
+    );
+  });
+});
+
+describe('describeCoverage with managed packages left out', () => {
+  it('says how many components a managed package installed the run left out', () => {
+    const leftOut = { ...RESULT, content: { ...RESULT.content, managedLeftOut: 8 } };
+    expect(describeCoverage(leftOut)).toBe(
+      '  content compared for 3 of 5 in both orgs; not compared: 1 over the budget ' +
+        '(500 per org, 90 s), 1 unreadable, 0 read failed; left out, as asked: 8 installed by ' +
+        'a managed package',
     );
   });
 });

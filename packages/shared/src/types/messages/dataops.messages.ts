@@ -4,6 +4,7 @@ import type {
   DataQualityScanResult,
   DataQualityScanTarget,
 } from '../dataops.types.js';
+import type { SavedTemplateMethod } from '../../constants/saved-anonymization-templates.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
 
 /** Backup messages */
@@ -57,18 +58,58 @@ export interface AnonymizationTemplatesRequest extends BaseMessage {
   type: 'dataops:anonymization-templates';
 }
 
+/** One rule of a masking template as the host lists it: the `Object.Field` it masks, and how. */
+export interface AnonymizationTemplateRule {
+  fieldPattern: string;
+  ruleType: string;
+  description: string;
+}
+
+/** A masking template as the host lists it: one that ships, or one the user saved. */
+export interface ListedAnonymizationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  complianceFramework: string;
+  rules: readonly AnonymizationTemplateRule[];
+  /** True for a template the user saved, which can be deleted; absent for one that ships. */
+  saved?: boolean;
+}
+
 /** Response containing available anonymization templates with their rules */
 export interface AnonymizationTemplatesResponse extends BaseMessage {
   type: 'dataops:anonymization-templates:response';
+  payload: { templates: ListedAnonymizationTemplate[] };
+}
+
+/**
+ * Save rules as a named template of the user's, kept in extension storage
+ * (validated by anonymizationTemplateSavePayloadSchema).
+ */
+export interface AnonymizationTemplateSaveRequest extends BaseMessage {
+  type: 'dataops:anonymization-template:save';
   payload: {
-    templates: Array<{
-      id: string;
-      name: string;
-      description: string;
-      complianceFramework: string;
-      rules: Array<{ fieldPattern: string; ruleType: string; description: string }>;
-    }>;
+    name: string;
+    rules: Array<{ fieldPattern: string; ruleType: SavedTemplateMethod }>;
   };
+}
+
+/** The template saved, as the host will list it. */
+export interface AnonymizationTemplateSaveResponse extends BaseMessage {
+  type: 'dataops:anonymization-template:save:response';
+  payload: { template: ListedAnonymizationTemplate };
+}
+
+/** Delete a template the user saved; one that ships is refused. */
+export interface AnonymizationTemplateDeleteRequest extends BaseMessage {
+  type: 'dataops:anonymization-template:delete';
+  payload: { templateId: string };
+}
+
+/** Whether the template was there to delete. */
+export interface AnonymizationTemplateDeleteResponse extends BaseMessage {
+  type: 'dataops:anonymization-template:delete:response';
+  payload: { templateId: string; deleted: boolean };
 }
 
 /** PII detection pre-check */

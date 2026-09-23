@@ -64,6 +64,20 @@ describe('ContentCoverage', () => {
     expect(screen.queryByTestId('compare-coverage-left-out')).toBeNull();
   });
 
+  it('says how many components a managed package installed the run left out, as asked', () => {
+    render(<ContentCoverage coverage={{ ...coverage({}, 14), managedLeftOut: 8 }} />);
+
+    expect(screen.getByTestId('compare-coverage-managed-left-out').textContent).toBe(
+      'Installed by a managed package, left out as asked: 8',
+    );
+  });
+
+  it('says nothing of managed packages when the run compared them', () => {
+    render(<ContentCoverage coverage={coverage({}, 14)} />);
+
+    expect(screen.queryByTestId('compare-coverage-managed-left-out')).toBeNull();
+  });
+
   it('shows nothing for a result that does not say what it read', () => {
     const { container } = render(<ContentCoverage coverage={undefined} />);
 

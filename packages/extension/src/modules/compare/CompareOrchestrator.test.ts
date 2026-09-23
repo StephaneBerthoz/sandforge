@@ -9,7 +9,7 @@ const BUDGET = { components: 500, seconds: 90 };
 function createMockDeps(): CompareDependencies {
   return {
     metadataCompare: {
-      compare: vi.fn().mockResolvedValue([]),
+      compare: vi.fn().mockResolvedValue({ items: [], managedLeftOut: 0 }),
       budget: BUDGET,
     } as unknown as CompareDependencies['metadataCompare'],
     diffEngine: new DiffEngine(),
@@ -24,8 +24,7 @@ function createConfig(overrides?: Partial<CompareConfig>): CompareConfig {
     targetOrgId: 'target-org',
     mode: 'metadata',
     componentTypes: ['ApexClass'],
-    includeManaged: false,
-    includeUnmanaged: true,
+    includeManaged: true,
     createdAt: '2026-02-20T00:00:00Z',
     ...overrides,
   };
@@ -59,20 +58,51 @@ describe('CompareOrchestrator', () => {
     it('compares the configured types between the two orgs', async () => {
       await orchestrator.execute(createConfig({ componentTypes: ['ApexClass', 'Flow'] }));
 
-      expect(deps.metadataCompare.compare).toHaveBeenCalledWith('source-org', 'target-org', [
-        'ApexClass',
-        'Flow',
-      ]);
+      expect(deps.metadataCompare.compare).toHaveBeenCalledWith(
+        'source-org',
+        'target-org',
+        ['ApexClass', 'Flow'],
+        { includeManaged: true },
+      );
+    });
+
+    it('asks the listing to leave out what a managed package installed when the config says so', async () => {
+      await orchestrator.execute(createConfig({ includeManaged: false }));
+
+      expect(deps.metadataCompare.compare).toHaveBeenCalledWith(
+        'source-org',
+        'target-org',
+        ['ApexClass'],
+        { includeManaged: false },
+      );
+    });
+
+    it('says how many components a managed package installed were left out', async () => {
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue({
+        items: [createItem('Same', 'unchanged')],
+        managedLeftOut: 8,
+      });
+
+      const result = await orchestrator.execute(createConfig({ includeManaged: false }));
+
+      expect(result.content.managedLeftOut).toBe(8);
+      // They are in no other count: neither compared, nor not compared.
+      expect(result.content.compared).toBe(1);
+      expect(result.summary.notCompared).toBe(0);
+      expect(result.summary.totalItems).toBe(1);
     });
 
     it('counts a component left unread apart from the changes and the matches', async () => {
-      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([
-        createItem('Added', 'added'),
-        createItem('Edited', 'modified'),
-        createItem('Same', 'unchanged'),
-        createItem('Managed', 'not_compared', 'unreadable'),
-        createItem('Late', 'not_compared', 'over_budget'),
-      ]);
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue({
+        items: [
+          createItem('Added', 'added'),
+          createItem('Edited', 'modified'),
+          createItem('Same', 'unchanged'),
+          createItem('Managed', 'not_compared', 'unreadable'),
+          createItem('Late', 'not_compared', 'over_budget'),
+        ],
+        managedLeftOut: 0,
+      });
 
       const result = await orchestrator.execute(createConfig());
 
@@ -88,14 +118,17 @@ describe('CompareOrchestrator', () => {
     });
 
     it('says how many components were compared by content, how many were not and why, and within what budget', async () => {
-      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([
-        createItem('Edited', 'modified'),
-        createItem('Same', 'unchanged'),
-        createItem('Managed', 'not_compared', 'unreadable'),
-        createItem('Broken', 'not_compared', 'read_failed'),
-        createItem('Late', 'not_compared', 'over_budget'),
-        createItem('Later', 'not_compared', 'over_budget'),
-      ]);
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue({
+        items: [
+          createItem('Edited', 'modified'),
+          createItem('Same', 'unchanged'),
+          createItem('Managed', 'not_compared', 'unreadable'),
+          createItem('Broken', 'not_compared', 'read_failed'),
+          createItem('Late', 'not_compared', 'over_budget'),
+          createItem('Later', 'not_compared', 'over_budget'),
+        ],
+        managedLeftOut: 0,
+      });
 
       const result = await orchestrator.execute(createConfig());
 
@@ -108,7 +141,7 @@ describe('CompareOrchestrator', () => {
 
     it('returns the diffs it was given, in order', async () => {
       const items = [createItem('B', 'modified'), createItem('A', 'unchanged')];
-      vi.mocked(deps.metadataCompare.compare).mockResolvedValue(items);
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue({ items, managedLeftOut: 0 });
 
       const result = await orchestrator.execute(createConfig());
 

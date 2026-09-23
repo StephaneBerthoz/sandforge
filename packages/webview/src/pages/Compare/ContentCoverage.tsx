@@ -23,6 +23,7 @@ export const ContentCoverage: React.FC<ContentCoverageProps> = ({ coverage }) =>
 
   const { over_budget: overBudget, unreadable, read_failed: readFailed } = coverage.notCompared;
   const notCompared = overBudget + unreadable + readFailed;
+  const managedLeftOut = coverage.managedLeftOut ?? 0;
 
   return (
     <div
@@ -35,6 +36,11 @@ export const ContentCoverage: React.FC<ContentCoverageProps> = ({ coverage }) =>
           inBoth: coverage.compared + notCompared,
         })}
       </p>
+      {managedLeftOut > 0 && (
+        <p className="m-0" data-testid="compare-coverage-managed-left-out">
+          {t('compare.coverage.managedLeftOut', { count: managedLeftOut })}
+        </p>
+      )}
       {notCompared > 0 && (
         <>
           <ul className="m-0 pl-[var(--sf-space-4)] list-disc">

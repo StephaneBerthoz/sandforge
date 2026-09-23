@@ -44,8 +44,11 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   instanceUrl,
   className,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dotClass = statusColors[status] ?? statusColors.error;
+  // A status the catalogue has no word for is read as the host wrote it.
+  const statusKey = `org.status_${status}`;
+  const statusLabel = i18n.exists(statusKey) ? t(statusKey) : status;
   const typeInfo = orgTypeConfig[orgType] ?? {
     label: orgType.slice(0, 3).toUpperCase(),
     bg: 'bg-status-info',
@@ -76,7 +79,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
         className={cn('inline-block w-2 h-2 rounded-full shrink-0', dotClass)}
         data-testid="org-badge-status-dot"
         role="img"
-        aria-label={t('a11y.orgStatus', { status: t(`org.status_${status}`) })}
+        aria-label={t('a11y.orgStatus', { status: statusLabel })}
       />
 
       {/* Alias */}

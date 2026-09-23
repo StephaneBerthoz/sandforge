@@ -224,7 +224,6 @@ describe('services', () => {
       const automation = services.automationOrchestrator({
         builder: { validate: vi.fn().mockReturnValue([]) },
         triggerEngine: {},
-        scheduler: {},
         stepLibrary: {},
         stepExecutor: { execute: vi.fn() },
         conditionalRouter: { evaluate: vi.fn(), getNextStep: vi.fn() },

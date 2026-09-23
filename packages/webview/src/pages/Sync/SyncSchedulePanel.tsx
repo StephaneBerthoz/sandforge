@@ -35,6 +35,99 @@ function configLabel(config: SyncConfigListResponse['payload']['configs'][number
     : `${config.name} · ${format(savedAt, 'yyyy-MM-dd HH:mm:ss')}`;
 }
 
+/** How often the host looks for a due schedule: SyncScheduleExecutor's tick. */
+const HOST_TICK_MS = 60_000;
+
+/** The longest one timer waits: setTimeout fires at once past 2^31 - 1 ms. */
+const MAX_REFRESH_WAIT_MS = 6 * 60 * 60_000;
+
+/**
+ * How long until the list is worth asking for again: one tick after the
+ * soonest run an active schedule plans, then every tick while one is due,
+ * since the host moves `nextRunAt` and writes `lastResult` only once that run
+ * has ended. Undefined when no active schedule plans a run.
+ *
+ * The host answers the list when asked and never on its own: without asking
+ * again, the next run and the last result stay as they were read, over a run
+ * that has happened since.
+ */
+export function nextRefreshDelay(
+  schedules: readonly SyncScheduleEntry[],
+  now: number,
+): number | undefined {
+  let soonest = Number.POSITIVE_INFINITY;
+  for (const schedule of schedules) {
+    if (!schedule.enabled || !schedule.nextRunAt) continue;
+    const at = Date.parse(schedule.nextRunAt);
+    if (Number.isFinite(at)) soonest = Math.min(soonest, at);
+  }
+  if (soonest === Number.POSITIVE_INFINITY) return undefined;
+  return Math.min(Math.max(soonest - now, 0) + HOST_TICK_MS, MAX_REFRESH_WAIT_MS);
+}
+
+/** What a layout of the schedules is given: the list, and each schedule's buttons. */
+export interface ScheduleLayoutProps {
+  schedules: SyncScheduleEntry[];
+  /** Pause or resume, edit, and delete behind a confirmation: what the host lets a schedule do. */
+  actionsFor: (schedule: SyncScheduleEntry) => React.ReactNode;
+}
+
+/** SyncSchedulePanel props. */
+export interface SyncSchedulePanelProps {
+  /**
+   * How the schedules are laid out. The Sync tab lists them as cards; the
+   * Automation calendar lays them out by the day they next run.
+   */
+  layout?: React.ComponentType<ScheduleLayoutProps>;
+}
+
+/** The Sync tab's layout: one card per schedule, in the order the host lists them. */
+const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      {schedules.map((schedule) => (
+        <Card key={schedule.id} data-testid={`schedule-card-${schedule.id}`}>
+          <CardBody>
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-[var(--sf-space-2)]">
+                  <span className="text-xs font-semibold text-text-primary">{schedule.name}</span>
+                  <Badge variant={schedule.enabled ? 'success' : 'default'}>
+                    {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
+                  </Badge>
+                  {schedule.lastResult && (
+                    <Badge variant={resultVariant[schedule.lastResult] ?? 'default'}>
+                      {t(`sync.schedules.result_${schedule.lastResult}`)}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex gap-[var(--sf-space-3)] text-[10px] text-text-secondary">
+                  <span>{cronToHuman(schedule.cron)}</span>
+                  <span>{schedule.timezone}</span>
+                  {schedule.nextRunAt && (
+                    <span>
+                      {t('sync.schedules.nextRun')}:{' '}
+                      {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}
+                    </span>
+                  )}
+                  {schedule.lastRunAt && (
+                    <span>
+                      {t('sync.schedules.lastRun')}:{' '}
+                      {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {actionsFor(schedule)}
+            </div>
+          </CardBody>
+        </Card>
+      ))}
+    </>
+  );
+};
+
 /**
  * SyncSchedulePanel lists all sync schedules with management actions
  * (pause/resume, edit, delete) and a "New Schedule" button.
@@ -44,7 +137,9 @@ function configLabel(config: SyncConfigListResponse['payload']['configs'][number
  * used to offer one made-up `cfg-default`, and every schedule built on it
  * named a configuration the executor could never load.
  */
-export const SyncSchedulePanel: React.FC = () => {
+export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
+  layout: Layout = ScheduleCards,
+}) => {
   const { t } = useTranslation();
   const {
     schedules,
@@ -87,6 +182,14 @@ export const SyncSchedulePanel: React.FC = () => {
     fetchSchedules();
   }, [fetchSchedules]);
 
+  // Ask again once the soonest planned run is past: see nextRefreshDelay.
+  useEffect(() => {
+    const delay = nextRefreshDelay(schedules, Date.now());
+    if (delay === undefined) return undefined;
+    const timer = setTimeout(fetchSchedules, delay);
+    return () => clearTimeout(timer);
+  }, [schedules, fetchSchedules]);
+
   const handleSubmit = useCallback(
     (data: CronScheduleFormData) => {
       const payload: SyncScheduleUpsertPayload = {
@@ -127,6 +230,61 @@ export const SyncSchedulePanel: React.FC = () => {
     setShowBuilder(false);
     setEditingSchedule(null);
   }, []);
+
+  // Edit and delete are icons: without a name of their own, a screen reader
+  // announced two unnamed buttons after Pause.
+  const actionsFor = (schedule: SyncScheduleEntry): React.ReactNode => (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+        onClick={() => toggleSchedule(schedule.id, !schedule.enabled)}
+        data-testid={`toggle-btn-${schedule.id}`}
+      >
+        {schedule.enabled ? t('sync.schedules.pause') : t('sync.schedules.resume')}
+      </button>
+      <button
+        type="button"
+        className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)] disabled:opacity-50"
+        onClick={() => handleEdit(schedule)}
+        disabled={!canCreate}
+        aria-label={t('sync.schedules.editNamed', { name: schedule.name })}
+        data-testid={`edit-btn-${schedule.id}`}
+      >
+        <Icon name="edit" />
+      </button>
+      {confirmDeleteId === schedule.id ? (
+        <div className="flex gap-1">
+          <button
+            type="button"
+            className="text-[10px] px-2 py-1 rounded bg-status-error text-[var(--sf-bg-primary)]"
+            onClick={() => handleDelete(schedule.id)}
+            data-testid={`confirm-delete-btn-${schedule.id}`}
+          >
+            {t('common.confirm')}
+          </button>
+          <button
+            type="button"
+            className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]"
+            onClick={() => setConfirmDeleteId(null)}
+            data-testid={`cancel-delete-btn-${schedule.id}`}
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
+          onClick={() => setConfirmDeleteId(schedule.id)}
+          aria-label={t('sync.schedules.deleteNamed', { name: schedule.name })}
+          data-testid={`delete-btn-${schedule.id}`}
+        >
+          <Icon name="trash" />
+        </button>
+      )}
+    </div>
+  );
 
   if (showBuilder) {
     return (
@@ -205,92 +363,7 @@ export const SyncSchedulePanel: React.FC = () => {
         </button>
       </div>
 
-      {/* Schedule list */}
-      {schedules.map((schedule) => (
-        <Card key={schedule.id} data-testid={`schedule-card-${schedule.id}`}>
-          <CardBody>
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-[var(--sf-space-2)]">
-                  <span className="text-xs font-semibold text-text-primary">{schedule.name}</span>
-                  <Badge variant={schedule.enabled ? 'success' : 'default'}>
-                    {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
-                  </Badge>
-                  {schedule.lastResult && (
-                    <Badge variant={resultVariant[schedule.lastResult] ?? 'default'}>
-                      {t(`sync.schedules.result_${schedule.lastResult}`)}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex gap-[var(--sf-space-3)] text-[10px] text-text-secondary">
-                  <span>{cronToHuman(schedule.cron)}</span>
-                  <span>{schedule.timezone}</span>
-                  {schedule.nextRunAt && (
-                    <span>
-                      {t('sync.schedules.nextRun')}:{' '}
-                      {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}
-                    </span>
-                  )}
-                  {schedule.lastRunAt && (
-                    <span>
-                      {t('sync.schedules.lastRun')}:{' '}
-                      {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
-                  onClick={() => toggleSchedule(schedule.id, !schedule.enabled)}
-                  data-testid={`toggle-btn-${schedule.id}`}
-                >
-                  {schedule.enabled ? t('sync.schedules.pause') : t('sync.schedules.resume')}
-                </button>
-                <button
-                  type="button"
-                  className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)] disabled:opacity-50"
-                  onClick={() => handleEdit(schedule)}
-                  disabled={!canCreate}
-                  data-testid={`edit-btn-${schedule.id}`}
-                >
-                  <Icon name="edit" />
-                </button>
-                {confirmDeleteId === schedule.id ? (
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      className="text-[10px] px-2 py-1 rounded bg-status-error text-[var(--sf-bg-primary)]"
-                      onClick={() => handleDelete(schedule.id)}
-                      data-testid={`confirm-delete-btn-${schedule.id}`}
-                    >
-                      {t('common.confirm')}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]"
-                      onClick={() => setConfirmDeleteId(null)}
-                      data-testid={`cancel-delete-btn-${schedule.id}`}
-                    >
-                      {t('common.cancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="text-[10px] px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
-                    onClick={() => setConfirmDeleteId(schedule.id)}
-                    data-testid={`delete-btn-${schedule.id}`}
-                  >
-                    <Icon name="trash" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-      ))}
+      <Layout schedules={schedules} actionsFor={actionsFor} />
     </div>
   );
 };

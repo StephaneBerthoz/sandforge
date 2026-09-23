@@ -9,6 +9,10 @@ import {
   QuickSyncConfigSchema,
   QUALITY_SCAN_MAX_OBJECTS,
   QUALITY_SCAN_MAX_STALE_DAYS,
+  SAVED_TEMPLATE_METHODS,
+  TEMPLATE_FIELD_PATTERN,
+  TEMPLATE_MAX_RULES,
+  TEMPLATE_NAME_MAX_LENGTH,
 } from '@sandforge/shared';
 import { z } from 'zod';
 import {
@@ -478,6 +482,28 @@ export const dataOpsAnonymizePayloadSchema = z.object({
   templateId: opaqueIdSchema,
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
 });
+/**
+ * Rules the user saves as a template of their own: each an `Object.Field` and
+ * a method a DataOps run applies with no setting (SAVED_TEMPLATE_METHODS), no
+ * field twice.
+ */
+export const anonymizationTemplateSavePayloadSchema = z.object({
+  name: z.string().trim().min(1).max(TEMPLATE_NAME_MAX_LENGTH),
+  rules: z
+    .array(
+      z.object({
+        fieldPattern: z.string().max(170).regex(TEMPLATE_FIELD_PATTERN, 'Expected Object.Field'),
+        ruleType: z.enum(SAVED_TEMPLATE_METHODS),
+      }),
+    )
+    .min(1)
+    .max(TEMPLATE_MAX_RULES)
+    .refine(
+      (rules) => new Set(rules.map((r) => r.fieldPattern.toLowerCase())).size === rules.length,
+      'A field has two rules',
+    ),
+});
+export const anonymizationTemplateDeletePayloadSchema = z.object({ templateId: opaqueIdSchema });
 export const piiScanPayloadSchema = z.object({
   orgId: orgIdSchema,
   objectNames: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
@@ -525,6 +551,8 @@ export const compareOrgsPayloadSchema = z.object({
 });
 export const compareExecutePayloadSchema = compareOrgsPayloadSchema.extend({
   types: z.array(z.string().min(1).max(80)).min(1).max(50),
+  /** False leaves out what a managed package installed; absent compares it. */
+  includeManaged: z.boolean().optional(),
 });
 
 // ── frozen:* payload schemas ──────────────────────────────────────────────

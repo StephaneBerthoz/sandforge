@@ -146,11 +146,13 @@ export class DiffEngine {
 
   /**
    * What the items say was compared by content, and what was not and why,
-   * beside the budget the reading kept within.
+   * beside the budget the reading kept within and, when the run left them out,
+   * how many components a managed package installed.
    */
   computeCoverage(
     items: readonly CompareItem[],
     budget: CompareContentCoverage['budget'],
+    managedLeftOut = 0,
   ): CompareContentCoverage {
     const notCompared: Record<NotComparedReason, number> = {
       unreadable: 0,
@@ -165,7 +167,12 @@ export class DiffEngine {
         notCompared[item.notComparedReason]++;
       }
     }
-    return { compared, notCompared, budget: { ...budget } };
+    return {
+      compared,
+      notCompared,
+      ...(managedLeftOut > 0 ? { managedLeftOut } : {}),
+      budget: { ...budget },
+    };
   }
 
   /** Whether a status is a difference between the orgs: not a match, nor a component left unread. */

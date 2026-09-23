@@ -1175,6 +1175,176 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Compare result that found nothing different, managed packages left out', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'compare', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
+      await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+      await page.getByTestId('cat-ApexClass').click();
+      await page.getByLabel('Include managed package components').uncheck();
+      await page.getByTestId('run-compare-btn').click();
+      await bridge.waitForMessage('compare:execute', { timeout: 10_000 });
+      await answerAll(page, 'compare:execute', 'compare:execute:response', {
+        configId: '4f1a2b3c-0000-4000-8000-000000000003',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        mode: 'metadata',
+        summary: {
+          totalItems: 1,
+          added: 0,
+          removed: 0,
+          modified: 0,
+          unchanged: 1,
+          notCompared: 0,
+          byType: {},
+        },
+        content: {
+          compared: 1,
+          notCompared: { unreadable: 0, read_failed: 0, over_budget: 0 },
+          managedLeftOut: 8,
+          budget: { components: 500, seconds: 90 },
+        },
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'Invoicing',
+            status: 'unchanged',
+            severity: 'info',
+            deployable: false,
+          },
+        ],
+        timestamp: '2026-09-10T09:00:00.000Z',
+        duration: 900,
+      });
+      await expect(page.getByTestId('no-diffs')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('compare-coverage-managed-left-out')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Automation scheduler laying the sync schedules out by day', async ({ page }) => {
+      await openPanel(bridge, page, 'automation', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('automation-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('page-tab-scheduler').click();
+      await bridge.waitForMessage('sync:schedule:list', { timeout: 10_000 });
+      await answerAll(page, 'sync:config:list', 'sync:config:list:response', {
+        configs: [
+          { id: 'cfg-1', name: 'Dev to QA', description: '', updatedAt: '2026-09-01T09:00:00Z' },
+        ],
+      });
+      const now = Date.now();
+      const at = (offsetMs: number): string => new Date(now + offsetMs).toISOString();
+      const schedule = (id: string, name: string, extra: Record<string, unknown>) => ({
+        id,
+        name,
+        configId: 'cfg-1',
+        cron: '0 2 * * *',
+        timezone: 'UTC',
+        enabled: true,
+        maxRetries: 3,
+        notifyOnComplete: false,
+        notifyOnFailure: true,
+        createdAt: '2026-09-01T00:00:00Z',
+        updatedAt: '2026-09-01T00:00:00Z',
+        version: 1,
+        ...extra,
+      });
+      // A run past its time, one to come, one days away and one paused, with
+      // a last result of each kind: every group and every badge is painted.
+      await answerAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
+        schedules: [
+          schedule('due', 'Accounts', {
+            nextRunAt: at(-5 * 60_000),
+            lastRunAt: at(-86_400_000),
+            lastResult: 'failure',
+          }),
+          schedule('soon', 'Contacts', {
+            nextRunAt: at(2 * 3_600_000),
+            lastRunAt: at(-3_600_000),
+            lastResult: 'success',
+          }),
+          schedule('later', 'Cases', {
+            nextRunAt: at(4 * 86_400_000),
+            lastRunAt: at(-2 * 86_400_000),
+            lastResult: 'partial',
+          }),
+          schedule('paused', 'Leads', { enabled: false, nextRunAt: at(3_600_000) }),
+        ],
+      });
+      await expect(page.getByTestId('scheduler-group-due')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('scheduler-group-paused')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps template editor over a rule whose method cannot run here', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-ccpa',
+              name: 'CCPA California',
+              description: 'Consumer personal information.',
+              complianceFramework: 'ccpa',
+              rules: [
+                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
+                { fieldPattern: 'Contact.Phone', ruleType: 'nullify', description: '' },
+              ],
+            },
+          ],
+        },
+      );
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-ccpa');
+      await page.getByTestId('create-template-btn').click();
+      // A name taken and a method that needs a salt: both reasons are on screen.
+      await page.getByTestId('template-name-input').fill('CCPA California');
+      await expect(page.getByTestId('template-name-taken')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps template the user saved, with its delete', async ({ page }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        {
+          templates: [
+            {
+              id: 'tpl-saved-1',
+              name: 'Support desk',
+              description: '',
+              complianceFramework: 'custom',
+              rules: [{ fieldPattern: 'Case.SuppliedEmail', ruleType: 'nullify', description: '' }],
+              saved: true,
+            },
+          ],
+        },
+      );
+      await page.getByTestId('page-tab-anonymize').click();
+      await page.getByTestId('template-select').selectOption('tpl-saved-1');
+      await page.getByTestId('delete-template-btn').click();
+      await expect(page.getByTestId('confirm-delete-template-btn')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Monitor predictions tile at every urgency', async ({ page }) => {
       await openPanel(bridge, page, 'monitor', theme);
       await bridge.seedOrgs(MOCK_ORGS);

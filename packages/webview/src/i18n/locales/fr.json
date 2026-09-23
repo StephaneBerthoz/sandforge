@@ -307,6 +307,7 @@
     "selectSource": "Sélectionnez l'org source",
     "selectTarget": "Sélectionnez l'org cible",
     "categories": "Catégories",
+    "includeManaged": "Inclure les composants des packages gérés",
     "run": "Lancer la comparaison",
     "running": "Comparaison en cours...",
     "diff": "Visionneuse de diff",
@@ -315,6 +316,7 @@
     "drift": "Écarts de paramètres d'org",
     "deploy": "Déployer depuis le diff",
     "noResults": "Pas encore de résultats",
+    "nothingDiffers": "Aucune différence : les deux orgs contiennent les mêmes composants, et chacun de ceux comparés par contenu est identique des deux côtés.",
     "added": "Ajouté",
     "removed": "Supprimé",
     "modified": "Modifié",
@@ -322,6 +324,7 @@
     "notCompared": "Non comparé",
     "coverage": {
       "compared": "Contenu comparé pour {{compared}} des {{inBoth}} composants présents dans les deux orgs.",
+      "managedLeftOut": "Installés par un package géré, laissés de côté comme demandé : {{count}}",
       "overBudget": "Au-delà de ce qu'une exécution lit ({{components}} par org, {{seconds}} s) : {{count}}",
       "unreadable": "Contenu illisible, comme l'Apex d'un package géré : {{count}}",
       "readFailed": "Lecture en échec : {{count}}",
@@ -906,6 +909,8 @@
       "lastRun": "Dernière exécution",
       "pause": "Mettre en pause",
       "resume": "Reprendre",
+      "editNamed": "Modifier {{name}}",
+      "deleteNamed": "Supprimer {{name}}",
       "result_success": "Réussi",
       "result_partial": "Partiel",
       "result_failure": "Échoué"
@@ -1009,6 +1014,12 @@
     "selectTemplate": "Sélectionner un modèle",
     "noTemplates": "Aucun modèle disponible",
     "createTemplate": "Créer un modèle",
+    "savedTemplateOption": "{{name}} (enregistré)",
+    "savedTemplate": "Enregistré",
+    "deleteTemplate": "Supprimer le modèle",
+    "templateSaved": "Modèle « {{name}} » enregistré.",
+    "ruleCount_one": "{{count}} règle",
+    "ruleCount_other": "{{count}} règles",
     "previewAnonymization": "Aperçu",
     "applyAnonymization": "Appliquer",
     "compliance": "Cadre de conformité",
@@ -1091,13 +1102,29 @@
       "fillRefused": "Comptage du remplissage : {{message}}",
       "duplicatesRefused": "Doublons : {{message}}",
       "staleRefused": "Enregistrements non modifiés : {{message}}"
+    },
+    "templateEditor": {
+      "title": "Nouveau modèle",
+      "intro": "Nommez un ensemble de règles et enregistrez-le comme modèle : SandForge le conserve sur cette machine et l'applique comme les modèles fournis.",
+      "startsFrom": "Part des règles de {{name}}. Modifiez-les, ajoutez-en ou retirez-en, puis enregistrez-les sous un nom à vous.",
+      "name": "Nom du modèle",
+      "nameTaken": "Un modèle porte déjà ce nom.",
+      "rule": "Règle {{n}}",
+      "field": "Champ (Objet.Champ)",
+      "method": "Méthode",
+      "removeRule": "Retirer la règle {{n}}",
+      "addRule": "Ajouter une règle",
+      "noRules": "Ajoutez au moins une règle pour enregistrer le modèle.",
+      "fieldInvalid": "Écrivez le champ sous la forme Objet.Champ, par exemple Contact.Email.",
+      "fieldDuplicate": "Ce champ a déjà une règle.",
+      "methodUnavailable": "{{method}} nécessite un réglage que cette page ne peut pas lui donner : choisissez une autre méthode.",
+      "save": "Enregistrer le modèle"
     }
   },
   "automation": {
     "title": "Automatisation",
     "createPipeline": "Créer un pipeline",
     "newPipeline": "Nouveau Pipeline",
-    "noPipelines": "Aucun pipeline configure",
     "steps": "Étapes",
     "stepsCount": "Étapes du pipeline",
     "triggersCount": "Déclencheurs actifs",
@@ -1156,9 +1183,8 @@
       "skipped": "Ignoré"
     },
     "scheduler": "Planificateur",
+    "schedulerIntro": "Chaque planification de synchronisation, par jour de sa prochaine exécution. Un pipeline ne s'exécute pas selon une planification : il démarre depuis son bouton Exécuter le pipeline.",
     "cronExpression": "Expression Cron",
-    "timezone": "Fuseau horaire",
-    "nextRun": "Prochaine exécution",
     "canvas": "Canvas du pipeline",
     "dragStep": "Glissez une étape sur le canvas",
     "connectSteps": "Connectez les étapes pour définir le flux",
@@ -1208,6 +1234,13 @@
       "title": "Créez votre premier pipeline",
       "description": "Composez des pipelines sur un canevas visuel et enregistrez-les. Pour l'instant, seules les étapes Délai peuvent s'exécuter dans un pipeline.",
       "cta": "Sélectionner un org"
+    },
+    "agenda": {
+      "due": "À exécuter maintenant",
+      "dueHint": "Leur heure prévue est passée : chacune s'exécute au prochain contrôle, dans la minute tant que VS Code est ouvert, ou est en cours d'exécution.",
+      "today": "Aujourd'hui",
+      "tomorrow": "Demain",
+      "unplanned": "Aucune exécution prévue : l'expression cron ne donne pas de prochaine heure"
     }
   },
   "ai": {

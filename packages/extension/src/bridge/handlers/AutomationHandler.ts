@@ -100,7 +100,6 @@ export class AutomationHandler implements DomainHandler {
     try {
       const { PipelineBuilder } = await import('../../modules/automation/PipelineBuilder.js');
       const { TriggerEngine } = await import('../../modules/automation/TriggerEngine.js');
-      const { SchedulerService } = await import('../../modules/automation/SchedulerService.js');
       const { StepLibrary } = await import('../../modules/automation/StepLibrary.js');
       const { StepExecutor } = await import('../../modules/automation/StepExecutor.js');
       const { ConditionalRouter } = await import('../../modules/automation/ConditionalRouter.js');
@@ -108,7 +107,6 @@ export class AutomationHandler implements DomainHandler {
 
       const builder = new PipelineBuilder();
       const triggerEngine = new TriggerEngine();
-      const scheduler = new SchedulerService({ triggerEngine });
       const stepLibrary = new StepLibrary();
       const stepExecutor = new StepExecutor();
       const conditionalRouter = new ConditionalRouter();
@@ -122,7 +120,6 @@ export class AutomationHandler implements DomainHandler {
       const orchestrator = this.deps.services.automationOrchestrator({
         builder,
         triggerEngine,
-        scheduler,
         stepLibrary,
         stepExecutor,
         conditionalRouter,

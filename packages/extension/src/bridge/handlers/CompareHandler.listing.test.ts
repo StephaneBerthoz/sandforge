@@ -39,7 +39,12 @@ function orgListing(folders: Record<string, string[]>, filed: Record<string, str
       queries.flatMap((q) => {
         const names =
           q.folder === undefined ? (folders[q.type] ?? []) : (filed[`${q.type}:${q.folder}`] ?? []);
-        return names.map((fullName) => ({ fullName, type: q.type }));
+        // What an org lists for a component a managed package installed.
+        return names.map((fullName) =>
+          fullName.startsWith('ns__')
+            ? { fullName, type: q.type, namespacePrefix: 'ns', manageableState: 'installed' }
+            : { fullName, type: q.type, manageableState: 'unmanaged' },
+        );
       }),
     );
   });
@@ -89,13 +94,16 @@ describe('compare:execute listing', () => {
     handler = new CompareHandler(deps);
   });
 
-  async function compare(types: string[]): Promise<CompareResult> {
+  async function compare(
+    types: string[],
+    options: { includeManaged?: boolean } = {},
+  ): Promise<CompareResult> {
     await handler.handle(
       inboundRequest({
         id: 'req-cmp-list',
         type: 'compare:execute',
         timestamp: Date.now(),
-        payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types },
+        payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types, ...options },
       }),
     );
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -171,5 +179,38 @@ describe('compare:execute listing', () => {
     expect(byName(result.diffs)).toEqual({ Invoicing: 'unchanged', Billing: 'removed' });
     expect(source.metadata.list).toHaveBeenCalledTimes(1);
     expect(source.metadata.list).toHaveBeenCalledWith([{ type: 'ApexClass' }]);
+  });
+
+  describe('what a managed package installed', () => {
+    beforeEach(() => {
+      const source = orgListing({ ApexClass: ['Invoicing', 'ns__Helper', 'ns__Extra'] }, {});
+      const target = orgListing({ ApexClass: ['Invoicing', 'ns__Helper'] }, {});
+      mockGetConn.mockImplementation((orgId: string) =>
+        Promise.resolve((orgId === 'src' ? source : target) as never),
+      );
+    });
+
+    it('compares it with the rest when the page does not say otherwise', async () => {
+      const result = await compare(['ApexClass']);
+
+      // Listed in both orgs, the managed class is not compared: an org hides
+      // its Apex, and this stand-in's query does not answer for it either.
+      expect(byName(result.diffs)).toEqual({
+        Invoicing: 'unchanged',
+        ns__Helper: 'not_compared',
+        ns__Extra: 'removed',
+      });
+      expect(result.content.managedLeftOut).toBeUndefined();
+    });
+
+    it('leaves it out of both orgs when the page asks, and says how many it left out', async () => {
+      // `includeManaged` was set to false here and read by nothing: every run
+      // compared the packages all the same.
+      const result = await compare(['ApexClass'], { includeManaged: false });
+
+      expect(byName(result.diffs)).toEqual({ Invoicing: 'unchanged' });
+      expect(result.content.managedLeftOut).toBe(2);
+      expect(result.summary.removed).toBe(0);
+    });
   });
 });

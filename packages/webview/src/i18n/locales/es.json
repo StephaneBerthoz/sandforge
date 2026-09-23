@@ -307,6 +307,7 @@
     "selectSource": "Seleccione la org origen",
     "selectTarget": "Seleccione la org destino",
     "categories": "Categorías",
+    "includeManaged": "Incluir los componentes de paquetes gestionados",
     "run": "Ejecutar comparación",
     "running": "Comparando...",
     "diff": "Visor de diferencias",
@@ -315,6 +316,7 @@
     "drift": "Desvío de ajustes de la org",
     "deploy": "Desplegar desde diff",
     "noResults": "Sin resultados de comparación",
+    "nothingDiffers": "No hay diferencias: ambas orgs tienen los mismos componentes, y cada uno comparado por contenido es igual en las dos.",
     "added": "Agregado",
     "removed": "Eliminado",
     "modified": "Modificado",
@@ -322,6 +324,7 @@
     "notCompared": "Sin comparar",
     "coverage": {
       "compared": "Contenido comparado en {{compared}} de los {{inBoth}} componentes presentes en ambas orgs.",
+      "managedLeftOut": "Instalados por un paquete gestionado, omitidos como se pidió: {{count}}",
       "overBudget": "Más allá de lo que lee una ejecución ({{components}} por org, {{seconds}} s): {{count}}",
       "unreadable": "Contenido que no se puede leer, como el Apex de un paquete gestionado: {{count}}",
       "readFailed": "Lectura fallida: {{count}}",
@@ -906,6 +909,8 @@
       "lastRun": "Última ejecución",
       "pause": "Pausar",
       "resume": "Reanudar",
+      "editNamed": "Editar {{name}}",
+      "deleteNamed": "Eliminar {{name}}",
       "result_success": "Correcto",
       "result_partial": "Parcial",
       "result_failure": "Con errores"
@@ -1009,6 +1014,12 @@
     "selectTemplate": "Seleccionar una plantilla",
     "noTemplates": "No hay plantillas disponibles",
     "createTemplate": "Crear plantilla",
+    "savedTemplateOption": "{{name}} (guardada)",
+    "savedTemplate": "Guardada",
+    "deleteTemplate": "Eliminar plantilla",
+    "templateSaved": "Plantilla «{{name}}» guardada.",
+    "ruleCount_one": "{{count}} regla",
+    "ruleCount_other": "{{count}} reglas",
     "previewAnonymization": "Vista previa",
     "applyAnonymization": "Aplicar",
     "compliance": "Marco de cumplimiento",
@@ -1091,13 +1102,29 @@
       "fillRefused": "Recuento de relleno: {{message}}",
       "duplicatesRefused": "Duplicados: {{message}}",
       "staleRefused": "Registros sin modificar: {{message}}"
+    },
+    "templateEditor": {
+      "title": "Nueva plantilla",
+      "intro": "Dé nombre a un conjunto de reglas y guárdelo como plantilla: SandForge la conserva en esta máquina y la aplica como las plantillas incluidas.",
+      "startsFrom": "Parte de las reglas de {{name}}. Cámbielas, añada o quite algunas y guárdelas con un nombre propio.",
+      "name": "Nombre de la plantilla",
+      "nameTaken": "Ya hay una plantilla con este nombre.",
+      "rule": "Regla {{n}}",
+      "field": "Campo (Objeto.Campo)",
+      "method": "Método",
+      "removeRule": "Quitar la regla {{n}}",
+      "addRule": "Añadir una regla",
+      "noRules": "Añada al menos una regla para guardar la plantilla.",
+      "fieldInvalid": "Escriba el campo como Objeto.Campo, por ejemplo Contact.Email.",
+      "fieldDuplicate": "Este campo ya tiene una regla.",
+      "methodUnavailable": "{{method}} necesita un ajuste que esta página no puede darle: elija otro método.",
+      "save": "Guardar plantilla"
     }
   },
   "automation": {
     "title": "Automatización",
     "createPipeline": "Crear pipeline",
     "newPipeline": "Nuevo Pipeline",
-    "noPipelines": "No hay pipelines configurados",
     "steps": "Pasos",
     "stepsCount": "Pasos de pipeline",
     "triggersCount": "Disparadores activos",
@@ -1156,9 +1183,8 @@
       "skipped": "Omitido"
     },
     "scheduler": "Programador",
+    "schedulerIntro": "Cada programación de sincronización, por el día de su próxima ejecución. Un pipeline no se ejecuta según una programación: se inicia desde su botón Ejecutar pipeline.",
     "cronExpression": "Expresión Cron",
-    "timezone": "Zona horaria",
-    "nextRun": "Próxima ejecución",
     "canvas": "Canvas del pipeline",
     "dragStep": "Arrastre un paso al canvas",
     "connectSteps": "Conecte los pasos para definir el flujo",
@@ -1208,6 +1234,13 @@
       "title": "Cree su primer pipeline",
       "description": "Componga pipelines en un lienzo visual y guárdelos. Por ahora, solo los pasos Retraso pueden ejecutarse en un pipeline.",
       "cta": "Seleccionar una org"
+    },
+    "agenda": {
+      "due": "Pendientes ahora",
+      "dueHint": "Su hora prevista ya pasó: cada una se ejecuta en la próxima comprobación, en menos de un minuto mientras VS Code está abierto, o se está ejecutando.",
+      "today": "Hoy",
+      "tomorrow": "Mañana",
+      "unplanned": "Ninguna ejecución prevista: la expresión cron no da una próxima hora"
     }
   },
   "ai": {

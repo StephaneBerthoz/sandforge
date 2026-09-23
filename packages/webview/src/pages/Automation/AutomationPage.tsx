@@ -57,7 +57,6 @@ export const AutomationPage: React.FC = () => {
     marketplaceLoading,
     marketplaceError,
     marketplaceTemplates,
-    scheduledPipelines,
     pipelineGen,
     stepCount,
     triggerCount,
@@ -330,7 +329,7 @@ export const AutomationPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'scheduler' && <SchedulerCalendar scheduled={scheduledPipelines} />}
+          {activeTab === 'scheduler' && <SchedulerCalendar />}
 
           {activeTab === 'history' && <PipelineHistoryView entries={historyEntries} />}
 

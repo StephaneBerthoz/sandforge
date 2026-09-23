@@ -34,13 +34,6 @@ function createMockDeps(): PipelineOrchestratorDependencies {
       getNextFireTime: vi.fn(),
       getActiveTriggers: vi.fn().mockReturnValue([]),
     } as unknown as PipelineOrchestratorDependencies['triggerEngine'],
-    scheduler: {
-      schedule: vi.fn(),
-      unschedule: vi.fn(),
-      getScheduledPipelines: vi.fn().mockReturnValue([]),
-      isScheduled: vi.fn().mockReturnValue(false),
-      getSchedule: vi.fn(),
-    } as unknown as PipelineOrchestratorDependencies['scheduler'],
     stepLibrary: {
       getStepTypes: vi.fn().mockReturnValue([]),
       getStepType: vi.fn(),

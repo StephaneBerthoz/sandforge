@@ -21,6 +21,70 @@ export type FetchMetadataFn = (
 /** How much one comparison reads by content. */
 export type ReadBudget = CompareContentCoverage['budget'];
 
+/** What a comparison leaves out of the listings before it compares anything. */
+export interface CompareScope {
+  /** Whether the components a managed package installed are compared; see {@link installedByPackage}. */
+  includeManaged: boolean;
+}
+
+/** The verdict on every component compared, and what the scope left out. */
+export interface MetadataComparison {
+  items: CompareItem[];
+  /** Components a managed package installed, left out of both listings; 0 when they were compared. */
+  managedLeftOut: number;
+}
+
+/**
+ * The manageable states a namespaced org gives its own components. What a
+ * package installed is `installed`, `installedEditable`, `deprecated` or
+ * `deprecatedEditable`; an org with a namespace of its own lists its own
+ * components under that namespace too, so the prefix alone would leave out
+ * everything a packaging org holds.
+ */
+const OWN_MANAGEABLE_STATES: ReadonlySet<string> = new Set(['unmanaged', 'beta', 'released']);
+
+/**
+ * Whether a listing entry is a component a managed package installed: it
+ * carries the package's namespace prefix, in a state that is not the org's
+ * own. Two sandboxes listed their 22 Apex classes this way: 8 `installed`
+ * under one namespace, 14 `unmanaged` with none; their standard objects carry
+ * neither field.
+ *
+ * @param listing - The entry as `FetchMetadataFn` serialises it.
+ */
+export function installedByPackage(listing: string): boolean {
+  let entry: unknown;
+  try {
+    entry = JSON.parse(listing);
+  } catch {
+    return false;
+  }
+  if (typeof entry !== 'object' || entry === null) return false;
+  const { namespacePrefix, manageableState } = entry as Record<string, unknown>;
+  if (typeof namespacePrefix !== 'string' || namespacePrefix === '') return false;
+  return typeof manageableState !== 'string' || !OWN_MANAGEABLE_STATES.has(manageableState);
+}
+
+/**
+ * Both listings of one type without what a managed package installed, and how
+ * many components that was. A component either org lists as installed leaves
+ * both: left out of one side alone, it would read as added or removed.
+ */
+function withoutManaged(
+  source: Map<string, string>,
+  target: Map<string, string>,
+): { source: Map<string, string>; target: Map<string, string>; leftOut: number } {
+  const managed = new Set<string>();
+  for (const listing of [source, target]) {
+    for (const [name, entry] of listing) {
+      if (installedByPackage(entry)) managed.add(name);
+    }
+  }
+  const keep = (listing: Map<string, string>) =>
+    new Map([...listing].filter(([name]) => !managed.has(name)));
+  return { source: keep(source), target: keep(target), leftOut: managed.size };
+}
+
 /**
  * Five hundred components from each org, and no read started after ninety
  * seconds.
@@ -99,20 +163,28 @@ export class MetadataCompare {
 
   /**
    * Compare metadata between source and target orgs for the given component types.
-   * Lists each type in both orgs, reads what both hold within the budget, and
-   * produces a unified diff list.
+   * Lists each type in both orgs, leaves out what the scope excludes, reads
+   * what both hold within the budget, and produces a unified diff list.
    */
   async compare(
     sourceOrgId: string,
     targetOrgId: string,
     types: MetadataComponentType[],
-  ): Promise<CompareItem[]> {
+    scope: CompareScope = { includeManaged: true },
+  ): Promise<MetadataComparison> {
     const listings: Listing[] = [];
+    let managedLeftOut = 0;
     for (const componentType of types) {
-      const [source, target] = await Promise.all([
+      const [listedInSource, listedInTarget] = await Promise.all([
         this.fetchMetadata(sourceOrgId, componentType),
         this.fetchMetadata(targetOrgId, componentType),
       ]);
+      if (scope.includeManaged) {
+        listings.push({ componentType, source: listedInSource, target: listedInTarget });
+        continue;
+      }
+      const { source, target, leftOut } = withoutManaged(listedInSource, listedInTarget);
+      managedLeftOut += leftOut;
       listings.push({ componentType, source, target });
     }
 
@@ -136,7 +208,7 @@ export class MetadataCompare {
         ),
       );
     }
-    return allItems;
+    return { items: allItems, managedLeftOut };
   }
 
   /** Read every planned batch from both orgs, a few at a time, until the time runs out. */

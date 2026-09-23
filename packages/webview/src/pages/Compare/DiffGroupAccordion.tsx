@@ -162,7 +162,9 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
         }}
         data-testid="no-diffs"
       >
-        {t('compare.noResults', 'No comparison results yet')}
+        {/* Shown only once a comparison has answered: it read "No comparison
+            results yet" over a run that had found nothing different. */}
+        {t('compare.nothingDiffers')}
       </p>
     );
   }

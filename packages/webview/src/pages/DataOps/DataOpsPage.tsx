@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import type { BackupSummary, AnonymizationTemplate } from '@sandforge/shared';
+import type { BackupSummary, ListedAnonymizationTemplate } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useLatestRef } from '../../hooks/useLatestRef';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
@@ -22,6 +23,7 @@ import { BackupPanel } from './BackupPanel';
 import { RestorePanel } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { QualityPanel } from './QualityPanel';
+import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { ComingSoon } from '../../components/ui/ComingSoon';
 import { uiLocale } from '../../utils/formatters';
 
@@ -102,11 +104,29 @@ export const DataOpsPage: React.FC = () => {
     timeoutMs: 120_000,
   });
 
-  /** Bridge query: load anonymization templates. */
-  const templatesQuery = useBridgeQuery<{ templates: AnonymizationTemplate[] }>(
+  /**
+   * Bridge query: load anonymization templates.
+   *
+   * Typed on what the host sends, `ListedAnonymizationTemplate`: it was typed
+   * on the domain `AnonymizationTemplate`, whose rules carry `fieldApiName`
+   * and `method`, and the rules on screen named no field.
+   */
+  const templatesQuery = useBridgeQuery<{ templates: ListedAnonymizationTemplate[] }>(
     'dataops:anonymization-templates',
     undefined,
     { responseType: 'dataops:anonymization-templates:response' },
+  );
+
+  /** Bridge mutation: save rules as a template of the user's, kept in extension storage. */
+  const saveTemplateMutation = useBridgeMutation<{ template: ListedAnonymizationTemplate }>(
+    'dataops:anonymization-template:save',
+    { responseType: 'dataops:anonymization-template:save:response', errorType: 'dataops:error' },
+  );
+
+  /** Bridge mutation: delete a template the user saved. */
+  const deleteTemplateMutation = useBridgeMutation<{ templateId: string; deleted: boolean }>(
+    'dataops:anonymization-template:delete',
+    { responseType: 'dataops:anonymization-template:delete:response', errorType: 'dataops:error' },
   );
 
   // Derive backups from bridge query + mutation results
@@ -122,7 +142,9 @@ export const DataOpsPage: React.FC = () => {
       rollbackMutation.error ??
       exportMutation.error ??
       anonymizeMutation.error ??
-      templatesQuery.error;
+      templatesQuery.error ??
+      saveTemplateMutation.error ??
+      deleteTemplateMutation.error;
     if (bridgeError) {
       setError(bridgeError);
       addNotification({
@@ -139,9 +161,38 @@ export const DataOpsPage: React.FC = () => {
     exportMutation.error,
     anonymizeMutation.error,
     templatesQuery.error,
+    saveTemplateMutation.error,
+    deleteTemplateMutation.error,
     addNotification,
     t,
   ]);
+
+  // A saved template is listed and picked, so Apply is one click away. The
+  // list is asked for again rather than patched: the host is what lists it.
+  // Each answer is taken up once: the effects below run on the answer alone.
+  const adoptSavedTemplate = useLatestRef((template: ListedAnonymizationTemplate) => {
+    templatesQuery.refetch();
+    setSelectedTemplateId(template.id);
+    addNotification({
+      level: 'success',
+      title: t('dataops.title'),
+      message: t('dataops.templateSaved', { name: template.name }),
+      autoDismissMs: 3000,
+    });
+  });
+  const saved = saveTemplateMutation.data;
+  useEffect(() => {
+    if (saved) adoptSavedTemplate.current(saved.template);
+  }, [saved, adoptSavedTemplate]);
+
+  const forgetDeletedTemplate = useLatestRef((templateId: string) => {
+    templatesQuery.refetch();
+    setSelectedTemplateId((current) => (current === templateId ? '' : current));
+  });
+  const deleted = deleteTemplateMutation.data;
+  useEffect(() => {
+    if (deleted) forgetDeletedTemplate.current(deleted.templateId);
+  }, [deleted, forgetDeletedTemplate]);
 
   // Both handlers previously targeted `orgs[0]` — the first org in the list,
   // not the one the user selected — while the page header read "Select Org".
@@ -183,6 +234,16 @@ export const DataOpsPage: React.FC = () => {
     save(payload.filename, payload.data);
     exportMutation.reset();
   }, [exportMutation, save]);
+
+  const handleSaveTemplate = (draft: AnonymizationTemplateDraft) => {
+    setError(null);
+    saveTemplateMutation.mutate({ name: draft.name, rules: draft.rules });
+  };
+
+  const handleDeleteTemplate = (templateId: string) => {
+    setError(null);
+    deleteTemplateMutation.mutate({ templateId });
+  };
 
   const handleApplyAnonymize = (templateId: string) => {
     if (!currentOrg) return;
@@ -339,6 +400,10 @@ export const DataOpsPage: React.FC = () => {
               templates={templatesQuery.data?.templates ?? []}
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
+              onSaveTemplate={handleSaveTemplate}
+              savingTemplate={saveTemplateMutation.loading}
+              saveTemplateError={saveTemplateMutation.error}
+              onDeleteTemplate={handleDeleteTemplate}
               // onPreview was this same handler: clicking "Preview" masked the
               // org's data for real. AnonymizePanel now inerts that button.
               onApply={handleApplyAnonymize}

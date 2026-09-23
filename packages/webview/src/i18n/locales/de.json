@@ -307,6 +307,7 @@
     "selectSource": "Quell-Org auswählen",
     "selectTarget": "Ziel-Org auswählen",
     "categories": "Kategorien",
+    "includeManaged": "Komponenten verwalteter Pakete einbeziehen",
     "run": "Vergleich starten",
     "running": "Vergleich läuft...",
     "diff": "Diff-Ansicht",
@@ -315,6 +316,7 @@
     "drift": "Abweichung der Org-Einstellungen",
     "deploy": "Aus Diff bereitstellen",
     "noResults": "Noch keine Vergleichsergebnisse",
+    "nothingDiffers": "Keine Unterschiede: Beide Orgs enthalten dieselben Komponenten, und jede inhaltlich verglichene ist in beiden gleich.",
     "added": "Hinzugefügt",
     "removed": "Entfernt",
     "modified": "Geändert",
@@ -322,6 +324,7 @@
     "notCompared": "Nicht verglichen",
     "coverage": {
       "compared": "Inhalt verglichen für {{compared}} der {{inBoth}} Komponenten, die beide Orgs enthalten.",
+      "managedLeftOut": "Von einem verwalteten Paket installiert, wie gewünscht ausgelassen: {{count}}",
       "overBudget": "Mehr, als ein Lauf liest ({{components}} pro Org, {{seconds}} s): {{count}}",
       "unreadable": "Nicht lesbarer Inhalt, etwa Apex aus einem verwalteten Paket: {{count}}",
       "readFailed": "Lesen fehlgeschlagen: {{count}}",
@@ -906,6 +909,8 @@
       "lastRun": "Letzte Ausführung",
       "pause": "Pausieren",
       "resume": "Fortsetzen",
+      "editNamed": "{{name}} bearbeiten",
+      "deleteNamed": "{{name}} löschen",
       "result_success": "Erfolgreich",
       "result_partial": "Teilweise",
       "result_failure": "Fehlgeschlagen"
@@ -1009,6 +1014,12 @@
     "selectTemplate": "Vorlage auswählen",
     "noTemplates": "Keine Vorlagen verfügbar",
     "createTemplate": "Vorlage erstellen",
+    "savedTemplateOption": "{{name}} (gespeichert)",
+    "savedTemplate": "Gespeichert",
+    "deleteTemplate": "Vorlage löschen",
+    "templateSaved": "Vorlage „{{name}}“ gespeichert.",
+    "ruleCount_one": "{{count}} Regel",
+    "ruleCount_other": "{{count}} Regeln",
     "previewAnonymization": "Vorschau",
     "applyAnonymization": "Anwenden",
     "compliance": "Compliance-Framework",
@@ -1091,13 +1102,29 @@
       "fillRefused": "Füllzählung: {{message}}",
       "duplicatesRefused": "Duplikate: {{message}}",
       "staleRefused": "Nicht geänderte Datensätze: {{message}}"
+    },
+    "templateEditor": {
+      "title": "Neue Vorlage",
+      "intro": "Benennen Sie eine Gruppe von Regeln und speichern Sie sie als Vorlage: SandForge bewahrt sie auf diesem Rechner auf und wendet sie wie die mitgelieferten Vorlagen an.",
+      "startsFrom": "Beginnt mit den Regeln von {{name}}. Ändern Sie sie, fügen Sie welche hinzu oder entfernen Sie welche, und speichern Sie sie unter einem eigenen Namen.",
+      "name": "Name der Vorlage",
+      "nameTaken": "Eine Vorlage trägt bereits diesen Namen.",
+      "rule": "Regel {{n}}",
+      "field": "Feld (Objekt.Feld)",
+      "method": "Methode",
+      "removeRule": "Regel {{n}} entfernen",
+      "addRule": "Regel hinzufügen",
+      "noRules": "Fügen Sie mindestens eine Regel hinzu, um die Vorlage zu speichern.",
+      "fieldInvalid": "Schreiben Sie das Feld als Objekt.Feld, zum Beispiel Contact.Email.",
+      "fieldDuplicate": "Dieses Feld hat bereits eine Regel.",
+      "methodUnavailable": "{{method}} braucht eine Einstellung, die diese Seite nicht setzen kann: Wählen Sie eine andere Methode.",
+      "save": "Vorlage speichern"
     }
   },
   "automation": {
     "title": "Automatisierung",
     "createPipeline": "Pipeline erstellen",
     "newPipeline": "Neue Pipeline",
-    "noPipelines": "Keine Pipelines konfiguriert",
     "steps": "Schritte",
     "stepsCount": "Pipeline-Schritte",
     "triggersCount": "Aktive Auslöser",
@@ -1156,9 +1183,8 @@
       "skipped": "Übersprungen"
     },
     "scheduler": "Planer",
+    "schedulerIntro": "Jeder Sync-Zeitplan, nach dem Tag seiner nächsten Ausführung. Eine Pipeline läuft nicht nach Zeitplan: Sie startet über ihre Schaltfläche „Pipeline ausführen“.",
     "cronExpression": "Cron-Ausdruck",
-    "timezone": "Zeitzone",
-    "nextRun": "Nächste Ausführung",
     "canvas": "Pipeline-Canvas",
     "dragStep": "Ziehen Sie einen Schritt auf den Canvas",
     "connectSteps": "Verbinden Sie Schritte, um den Ablauf zu definieren",
@@ -1208,6 +1234,13 @@
       "title": "Erstellen Sie Ihre erste Pipeline",
       "description": "Stellen Sie Pipelines auf einer visuellen Arbeitsfläche zusammen und speichern Sie sie. Bisher können nur Verzögerungsschritte in einer Pipeline laufen.",
       "cta": "Org auswählen"
+    },
+    "agenda": {
+      "due": "Jetzt fällig",
+      "dueHint": "Ihre geplante Zeit ist verstrichen: Jeder läuft bei der nächsten Prüfung, innerhalb einer Minute, solange VS Code geöffnet ist, oder läuft gerade.",
+      "today": "Heute",
+      "tomorrow": "Morgen",
+      "unplanned": "Keine Ausführung geplant: Der Cron-Ausdruck ergibt keinen nächsten Zeitpunkt"
     }
   },
   "ai": {

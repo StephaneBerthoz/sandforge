@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { OrgBadge } from './OrgBadge';
 
 describe('OrgBadge', () => {
@@ -36,10 +38,8 @@ describe('OrgBadge', () => {
 
   it('names the status dot as an image, the role that lets its label be read', () => {
     render(<OrgBadge {...defaultProps} status="connected" />);
-    // The catalogue is not loaded here: the label reads as its key.
-    expect(screen.getByRole('img', { name: 'a11y.orgStatus' })).toBe(
-      screen.getByTestId('org-badge-status-dot'),
-    );
+    const name = i18n.t('a11y.orgStatus', { status: i18n.t('org.status_connected') });
+    expect(screen.getByRole('img', { name })).toBe(screen.getByTestId('org-badge-status-dot'));
   });
 
   it('should apply connected status color on dot', () => {
@@ -97,6 +97,28 @@ describe('OrgBadge', () => {
     render(<OrgBadge {...defaultProps} orgType="Sandbox" />);
     const badge = screen.getByTestId('org-badge-type');
     expect(badge.className).toContain('bg-status-info');
+  });
+
+  it('reads a status it has no word for as the host wrote it', () => {
+    render(<OrgBadge {...defaultProps} status="unknown" />);
+    expect(screen.getByTestId('org-badge-status-dot').getAttribute('aria-label')).toBe(
+      i18n.t('a11y.orgStatus', { status: 'unknown' }),
+    );
+  });
+
+  describe('in another language', () => {
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('names its status in the language the panel is set to', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr, true, true);
+      await i18n.changeLanguage('fr');
+      render(<OrgBadge {...defaultProps} status="connected" />);
+      expect(screen.getByTestId('org-badge-status-dot').getAttribute('aria-label')).toBe(
+        fr.a11y.orgStatus.replace('{{status}}', fr.org.status_connected),
+      );
+    });
   });
 
   it('should have Scratch badge with success background', () => {

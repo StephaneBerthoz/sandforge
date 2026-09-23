@@ -73,13 +73,21 @@ The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit
 
 ### Scheduler
 
-> **Coming soon:** there is no scheduler backend — no pipeline runs on a timer yet. The calendar view below describes the planned design.
+> **Coming soon:** no pipeline runs on a timer yet: a pipeline starts from its Run Pipeline button. The scheduler behind this tab runs saved Sync configurations only.
 
-A calendar view showing scheduled pipeline runs:
+The tab lists the sync schedules, the ones the Sync page's Schedules tab keeps
+(see [Sync](sync.md#schedules)), by the day each next runs:
 
-- Visual timeline of upcoming executions
-- Calendar-based exclusion dates (holidays, maintenance windows)
-- Timezone-aware scheduling
+- Today, tomorrow and each later day, with the time of each run. A run whose
+  time has passed is listed as due until it has run: the extension runs it at
+  its next check, once a minute while VS Code is open
+- For each schedule, its cron expression and time zone, and how its last run
+  went and when. A paused schedule is listed apart, with no run time
+- Pause or resume, edit and delete, as on the Sync page, and **New schedule**
+  to create one. A schedule runs a saved Sync configuration, so one has to be
+  saved from the Sync page first
+- The tab asks for the schedules again once the soonest run is past, so the
+  next run and the last result follow the runs while it is open
 
 ### Execution History
 

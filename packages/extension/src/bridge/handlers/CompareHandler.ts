@@ -144,8 +144,9 @@ export class CompareHandler implements DomainHandler {
         targetOrgId: payload.targetOrgId,
         mode: 'metadata',
         componentTypes: payload.types as import('@sandforge/shared').MetadataComponentType[],
-        includeManaged: false,
-        includeUnmanaged: true,
+        // Compared unless the page says otherwise: this was `false` and read by
+        // nothing, so every run compared them all the same.
+        includeManaged: payload.includeManaged ?? true,
         createdAt: new Date().toISOString(),
       };
 

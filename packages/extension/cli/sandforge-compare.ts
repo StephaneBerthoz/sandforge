@@ -41,6 +41,8 @@ Options:
                          more                                 (default: all four)
   --type <Type>          a metadata category to diff (execute); repeat for more
   --all-types            every category the page offers, as "Select all" does
+  --exclude-managed      leave out what a managed package installed (execute),
+                         as the page does with its box unticked
   --store <dir>          where the host keeps its config store (default: a temp directory)
   --wait <seconds>       how long to keep waiting for an answer     (default: 300)
   --json                 emit what the page would receive
@@ -90,6 +92,8 @@ interface CliArgs {
   target: string;
   operations: Operation[];
   types: MetadataComponentType[];
+  /** Whether the diff compares what a managed package installed; the page's box. */
+  includeManaged: boolean;
   storeDir: string;
   waitMs: number;
   json: boolean;
@@ -159,6 +163,7 @@ export function parseArgs(argv: string[]): CliArgs {
     target: target as string,
     operations,
     types,
+    includeManaged: !args.includes('--exclude-managed'),
     storeDir: get('--store', join(tmpdir(), 'sandforge-compare')) ?? '',
     waitMs: waitSeconds * 1000,
     json: args.includes('--json'),
@@ -186,10 +191,13 @@ export function describeCoverage(result: Pick<CompareResult, 'summary' | 'conten
   const { content, summary } = result;
   const inBoth = summary.modified + summary.unchanged + summary.notCompared;
   const { over_budget: overBudget, unreadable, read_failed: readFailed } = content.notCompared;
+  const leftOut = content.managedLeftOut
+    ? `; left out, as asked: ${content.managedLeftOut} installed by a managed package`
+    : '';
   return (
     `  content compared for ${content.compared} of ${inBoth} in both orgs; not compared: ` +
     `${overBudget} over the budget (${content.budget.components} per org, ${content.budget.seconds} s), ` +
-    `${unreadable} unreadable, ${readFailed} read failed`
+    `${unreadable} unreadable, ${readFailed} read failed${leftOut}`
   );
 }
 
@@ -327,7 +335,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const results: Array<{ op: Operation; answer: PanelAnswer }> = [];
   for (const op of args.operations) {
     const payload: Record<string, unknown> = { sourceOrgId: source.id, targetOrgId: target.id };
-    if (op === 'execute') payload.types = args.types;
+    if (op === 'execute') {
+      payload.types = args.types;
+      payload.includeManaged = args.includeManaged;
+    }
     const answer = await host.request({
       type: `compare:${op}`,
       payload,

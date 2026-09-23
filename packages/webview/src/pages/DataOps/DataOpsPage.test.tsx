@@ -76,6 +76,24 @@ let mockAnonymizeMutationState = {
   reset: mockAnonymizeReset,
 };
 
+/** Mutable mutation state for dataops:anonymization-template:save. */
+let mockSaveTemplateMutationState = {
+  mutate: vi.fn(),
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
+/** Mutable mutation state for dataops:anonymization-template:delete. */
+let mockDeleteTemplateMutationState = {
+  mutate: vi.fn(),
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
+};
+
 /** Mutable mutation state for backup:export. */
 let mockExportMutationState = {
   mutate: vi.fn(),
@@ -110,6 +128,12 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'backup:export') {
       return mockExportMutationState;
+    }
+    if (type === 'dataops:anonymization-template:save') {
+      return mockSaveTemplateMutationState;
+    }
+    if (type === 'dataops:anonymization-template:delete') {
+      return mockDeleteTemplateMutationState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -165,6 +189,20 @@ describe('DataOpsPage', () => {
       reset: vi.fn(),
     };
     mockExportMutationState = {
+      mutate: vi.fn(),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+    mockSaveTemplateMutationState = {
+      mutate: vi.fn(),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+    mockDeleteTemplateMutationState = {
       mutate: vi.fn(),
       data: null,
       loading: false,
@@ -463,17 +501,9 @@ describe('DataOpsPage', () => {
           id: 'tpl-1',
           name: 'GDPR Template',
           description: 'Anonymize PII',
-          rules: [
-            {
-              objectApiName: 'Contact',
-              fieldApiName: 'Email',
-              method: 'mask',
-              config: { maskChar: '*' },
-            },
-          ],
+          // What the host sends: `Object.Field` and the method.
+          rules: [{ fieldPattern: 'Contact.Email', ruleType: 'mask', description: '' }],
           complianceFramework: 'gdpr',
-          tags: ['gdpr'],
-          createdAt: '2026-01-01T00:00:00Z',
         },
       ],
     };
@@ -514,6 +544,107 @@ describe('DataOpsPage', () => {
       fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 
       expect(mockAnonymizeMutate).toHaveBeenCalledWith({ orgId: 'org-1', templateId: 'tpl-1' });
+    });
+  });
+
+  describe('templates the user saves', () => {
+    const shipped = {
+      id: 'tpl-1',
+      name: 'GDPR Template',
+      description: 'Anonymize PII',
+      complianceFramework: 'gdpr',
+      rules: [{ fieldPattern: 'Contact.Email', ruleType: 'mask', description: '' }],
+    };
+    const saved = {
+      id: 'tpl-saved-1',
+      name: 'Support desk',
+      description: '',
+      complianceFramework: 'custom',
+      rules: [{ fieldPattern: 'Contact.Email', ruleType: 'fake', description: '' }],
+      saved: true,
+    };
+
+    const openAnonymize = (templates: unknown[] = [shipped]) => {
+      mockTemplatesQueryState = {
+        data: { templates },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      const view = render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+      return view;
+    };
+
+    it('sends the rules on screen, under the name given, to be saved', () => {
+      openAnonymize();
+      fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
+      fireEvent.click(screen.getByTestId('create-template-btn'));
+      fireEvent.change(screen.getByTestId('template-name-input'), {
+        target: { value: 'Support desk' },
+      });
+      fireEvent.change(screen.getByTestId('template-rule-method-0'), {
+        target: { value: 'fake' },
+      });
+      fireEvent.click(screen.getByTestId('template-save'));
+
+      expect(mockSaveTemplateMutationState.mutate).toHaveBeenCalledWith({
+        name: 'Support desk',
+        rules: [{ fieldPattern: 'Contact.Email', ruleType: 'fake' }],
+      });
+    });
+
+    it('lists the saved template again from the host, picks it, and says it is saved', () => {
+      const view = openAnonymize();
+      mockSaveTemplateMutationState = {
+        ...mockSaveTemplateMutationState,
+        data: { template: saved },
+      };
+      mockTemplatesQueryState = {
+        ...mockTemplatesQueryState,
+        data: { templates: [shipped, saved] },
+      };
+      view.rerender(<DataOpsPage />);
+
+      expect(mockTemplatesQueryState.refetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('template-detail').textContent).toContain('Support desk');
+      expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe(
+        'tpl-saved-1',
+      );
+    });
+
+    it('shows why the host refused a save', () => {
+      mockSaveTemplateMutationState = {
+        ...mockSaveTemplateMutationState,
+        error: 'A template named "GDPR Template" already exists. Pick another name.',
+      };
+      openAnonymize();
+
+      expect(screen.getByTestId('dataops-error').textContent).toContain('already exists');
+    });
+
+    it('deletes a saved template, lists the templates again, and lets go of it', () => {
+      const view = openAnonymize([shipped, saved]);
+      fireEvent.change(screen.getByTestId('template-select'), {
+        target: { value: 'tpl-saved-1' },
+      });
+      fireEvent.click(screen.getByTestId('delete-template-btn'));
+      fireEvent.click(screen.getByTestId('confirm-delete-template-btn'));
+      expect(mockDeleteTemplateMutationState.mutate).toHaveBeenCalledWith({
+        templateId: 'tpl-saved-1',
+      });
+
+      mockDeleteTemplateMutationState = {
+        ...mockDeleteTemplateMutationState,
+        data: { templateId: 'tpl-saved-1', deleted: true },
+      };
+      mockTemplatesQueryState = { ...mockTemplatesQueryState, data: { templates: [shipped] } };
+      view.rerender(<DataOpsPage />);
+
+      expect(mockTemplatesQueryState.refetch).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('template-detail')).toBeNull();
+      expect((screen.getByTestId('template-select') as HTMLSelectElement).value).toBe('');
     });
   });
 

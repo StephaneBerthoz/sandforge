@@ -32,6 +32,18 @@ with the reason: beyond what one run reads, content that cannot be read (the
 Apex of a managed package is hidden), or a read that failed. It is neither a
 change nor a match.
 
+What a managed package installed -- a component an org lists under the
+package's namespace prefix, as installed -- is compared with the rest while
+**Include managed package components** is ticked, as it is by default.
+Unticked, those components are left out of both orgs' listings before anything
+is read, and the result says how many were left out: they are in no other
+count. An org's own components stay in, even in an org with a namespace of its
+own.
+
+When a comparison finds no component added, removed or modified, the Diff tab
+says that nothing differs; the line above it says how many components were
+compared by content.
+
 - **Summary Bar** -- Counts of added (+), removed (-), modified (~), unchanged (=) and not compared (?) components, and how many of the components both orgs hold were compared by content
 - **Risk Score Card** -- An enriched risk assessment computed from the changes; components not compared are left out of it, and it does not call a comparison safe to deploy while some were
 - **Diff Group Accordion** -- Changes grouped by type, expandable to see individual changes

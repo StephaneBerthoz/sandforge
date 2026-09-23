@@ -109,6 +109,14 @@ export {
   exclusiveFieldsToDrop,
   type ExclusiveFieldGroup,
 } from './constants/exclusive-fields.js';
+export {
+  SAVED_TEMPLATE_METHODS,
+  isSavedTemplateMethod,
+  TEMPLATE_FIELD_PATTERN,
+  TEMPLATE_NAME_MAX_LENGTH,
+  TEMPLATE_MAX_RULES,
+  type SavedTemplateMethod,
+} from './constants/saved-anonymization-templates.js';
 
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';

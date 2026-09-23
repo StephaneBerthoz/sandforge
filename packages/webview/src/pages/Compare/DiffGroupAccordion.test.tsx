@@ -41,6 +41,14 @@ describe('DiffGroupAccordion', () => {
     expect(screen.getByTestId('no-diffs')).toBeDefined();
   });
 
+  it('says nothing differs when a comparison found no difference, not that none has run', () => {
+    // The accordion is only mounted once a comparison has answered.
+    render(<DiffGroupAccordion diffs={[]} />);
+    const text = screen.getByTestId('no-diffs').textContent ?? '';
+    expect(text).toMatch(/^Nothing differs: both orgs hold the same components/);
+    expect(text).not.toMatch(/yet/i);
+  });
+
   it('should render groups from diffs', () => {
     const diffs = [
       createDiff({ group: 'Apex Code' }),

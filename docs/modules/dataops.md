@@ -63,22 +63,33 @@ not, and nothing records where it stopped, so finishing is the safer outcome.
 
 ### Anonymize
 
-Mask sensitive data using the built-in anonymization templates:
+Mask sensitive data using the built-in anonymization templates, or templates of
+your own:
 
-- Browse anonymization templates from the template library
+- Browse anonymization templates from the template library; each rule is
+  listed by the `Object.Field` it masks and its method
 - Apply a template to replace PII with realistic but fake data
 - **No preview.** The Preview button is disabled: the preview it used to run
   applied the mask to the org for real, so it was inerted rather than left in
   place. Apply is the only path, and it is irreversible -- back up first.
-- **The library is read-only.** It exposes lookups only,
-  and no channel creates, edits, imports or exports a template. The templates
-  that ship with the extension are the whole set.
+- **Your own templates.** **Create Template** opens an editor on the rules of
+  the template on screen, or on none: change a rule's field or method, add or
+  remove rules, name the set and save it. A rule names its field as
+  `Object.Field`, one rule per field, and uses a method that needs no setting
+  of its own -- Fake, Mask, Nullify, Shuffle or Preserve Format. Hash needs a
+  salt, Constant a value and Truncate a length, and the editor sets none of
+  them: a rule it starts from that uses one is shown with the reason, and the
+  template cannot be saved until that rule is changed or removed. A name
+  another template already goes by is refused.
+- A saved template is kept in extension storage on this machine, listed after
+  the ones that ship, marked as saved, and applied like them. It can be deleted;
+  a template that ships cannot. There is no import or export.
 - **Reproducibility.** A rule that carries a hash salt gives the same
   replacement for the same input on every run and on every machine: the salt
   is the whole key. A rule without one -- which is every rule in the templates
-  that ship -- draws from a key the window generates when it starts, so two
-  runs in one window mask a record identically and the next window masks it
-  differently.
+  that ship and in those you save -- draws from a key the window generates when
+  it starts, so two runs in one window mask a record identically and the next
+  window masks it differently.
 
 ### Compliance (GDPR/CCPA)
 

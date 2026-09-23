@@ -307,6 +307,7 @@
     "selectSource": "Selecione a org de origem",
     "selectTarget": "Selecione a org de destino",
     "categories": "Categorias",
+    "includeManaged": "Incluir os componentes de pacotes gerenciados",
     "run": "Executar comparação",
     "running": "Comparando...",
     "diff": "Visualizador de diferenças",
@@ -315,6 +316,7 @@
     "drift": "Desvio das configurações da org",
     "deploy": "Implantar a partir do diff",
     "noResults": "Sem resultados de comparação",
+    "nothingDiffers": "Nada difere: as duas orgs têm os mesmos componentes, e cada um comparado pelo conteúdo é igual nas duas.",
     "added": "Adicionado",
     "removed": "Removido",
     "modified": "Modificado",
@@ -322,6 +324,7 @@
     "notCompared": "Não comparado",
     "coverage": {
       "compared": "Conteúdo comparado em {{compared}} dos {{inBoth}} componentes presentes nas duas orgs.",
+      "managedLeftOut": "Instalados por um pacote gerenciado, deixados de fora como pedido: {{count}}",
       "overBudget": "Além do que uma execução lê ({{components}} por org, {{seconds}} s): {{count}}",
       "unreadable": "Conteúdo que não pode ser lido, como o Apex de um pacote gerenciado: {{count}}",
       "readFailed": "Falha na leitura: {{count}}",
@@ -906,6 +909,8 @@
       "lastRun": "Última execução",
       "pause": "Pausar",
       "resume": "Retomar",
+      "editNamed": "Editar {{name}}",
+      "deleteNamed": "Excluir {{name}}",
       "result_success": "Concluído",
       "result_partial": "Parcial",
       "result_failure": "Com falha"
@@ -1009,6 +1014,12 @@
     "selectTemplate": "Selecionar um modelo",
     "noTemplates": "Nenhum modelo disponível",
     "createTemplate": "Criar modelo",
+    "savedTemplateOption": "{{name}} (salvo)",
+    "savedTemplate": "Salvo",
+    "deleteTemplate": "Excluir modelo",
+    "templateSaved": "Modelo “{{name}}” salvo.",
+    "ruleCount_one": "{{count}} regra",
+    "ruleCount_other": "{{count}} regras",
     "previewAnonymization": "Pré-visualizar",
     "applyAnonymization": "Aplicar",
     "compliance": "Framework de conformidade",
@@ -1091,13 +1102,29 @@
       "fillRefused": "Contagem de preenchimento: {{message}}",
       "duplicatesRefused": "Duplicatas: {{message}}",
       "staleRefused": "Registros sem modificação: {{message}}"
+    },
+    "templateEditor": {
+      "title": "Novo modelo",
+      "intro": "Dê um nome a um conjunto de regras e salve-o como modelo: o SandForge o guarda nesta máquina e o aplica como os modelos incluídos.",
+      "startsFrom": "Parte das regras de {{name}}. Altere-as, adicione ou remova algumas e salve-as com um nome seu.",
+      "name": "Nome do modelo",
+      "nameTaken": "Já existe um modelo com este nome.",
+      "rule": "Regra {{n}}",
+      "field": "Campo (Objeto.Campo)",
+      "method": "Método",
+      "removeRule": "Remover a regra {{n}}",
+      "addRule": "Adicionar uma regra",
+      "noRules": "Adicione pelo menos uma regra para salvar o modelo.",
+      "fieldInvalid": "Escreva o campo como Objeto.Campo, por exemplo Contact.Email.",
+      "fieldDuplicate": "Este campo já tem uma regra.",
+      "methodUnavailable": "{{method}} precisa de uma configuração que esta página não pode dar: escolha outro método.",
+      "save": "Salvar modelo"
     }
   },
   "automation": {
     "title": "Automação",
     "createPipeline": "Criar pipeline",
     "newPipeline": "Novo Pipeline",
-    "noPipelines": "Nenhum pipeline configurado",
     "steps": "Etapas",
     "stepsCount": "Etapas do pipeline",
     "triggersCount": "Gatilhos ativos",
@@ -1156,9 +1183,8 @@
       "skipped": "Ignorada"
     },
     "scheduler": "Agendador",
+    "schedulerIntro": "Cada agendamento de sincronização, pelo dia da sua próxima execução. Um pipeline não é executado por agendamento: ele começa pelo botão Executar pipeline.",
     "cronExpression": "Expressão Cron",
-    "timezone": "Fuso horário",
-    "nextRun": "Próxima execução",
     "canvas": "Canvas do pipeline",
     "dragStep": "Arraste uma etapa para o canvas",
     "connectSteps": "Conecte as etapas para definir o fluxo",
@@ -1208,6 +1234,13 @@
       "title": "Crie seu primeiro pipeline",
       "description": "Monte pipelines em uma tela visual e salve-os. Por enquanto, só as etapas Atraso podem ser executadas em um pipeline.",
       "cta": "Selecionar uma org"
+    },
+    "agenda": {
+      "due": "Pendentes agora",
+      "dueHint": "O horário previsto já passou: cada um é executado na próxima verificação, em até um minuto enquanto o VS Code está aberto, ou está em execução.",
+      "today": "Hoje",
+      "tomorrow": "Amanhã",
+      "unplanned": "Nenhuma execução prevista: a expressão cron não dá um próximo horário"
     }
   },
   "ai": {

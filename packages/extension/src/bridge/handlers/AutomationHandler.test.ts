@@ -709,6 +709,20 @@ describe('AutomationHandler', () => {
       expect(posted(deps, 'operation:completed')).toHaveLength(1);
     });
 
+    it('builds the orchestrator without a pipeline scheduler, since nothing would read one', async () => {
+      const { services } = realServices();
+      deps.services = services;
+
+      await run([{ type: 'delay', config: { seconds: 0 } }]);
+
+      expect(runResponse(deps).status).toBe('completed');
+      const build = services?.automationOrchestrator as unknown as ReturnType<typeof vi.fn>;
+      expect(build).toHaveBeenCalledTimes(1);
+      // A scheduler was built for every run and handed to an orchestrator that
+      // never read it: no pipeline has ever started on a timer.
+      expect(build.mock.calls[0][0]).not.toHaveProperty('scheduler');
+    });
+
     it('refuses a Delay step with no duration rather than calling a 0 ms wait done', async () => {
       deps.services = realServices().services;
 

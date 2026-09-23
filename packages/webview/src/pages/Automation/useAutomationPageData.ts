@@ -12,7 +12,6 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
-import type { ScheduledPipeline } from './SchedulerCalendar';
 import { blockedSteps, typeBlocker } from './stepRunnability';
 import type { BlockedStep } from './stepRunnability';
 
@@ -192,8 +191,6 @@ export interface AutomationPageData {
   marketplaceError: string | null;
   /** Marketplace templates array. */
   marketplaceTemplates: MarketplaceTemplate[];
-  /** Scheduled pipelines for the calendar view. */
-  scheduledPipelines: ScheduledPipeline[];
   /** Pipeline generator mutation (AI feature). */
   pipelineGen: ReturnType<typeof usePipelineGenerator>;
   /** Number of steps in the current pipeline. */
@@ -300,9 +297,6 @@ export function useAutomationPageData(): AutomationPageData {
   // Pipeline state
   const [pipeline, setPipeline] = useState<PipelineDefinition | undefined>();
   const [error, setError] = useState<string | null>(null);
-
-  // Scheduled pipelines (local state for now)
-  const [scheduledPipelines] = useState<ScheduledPipeline[]>([]);
 
   // Bridge query: load saved pipelines
   const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>('pipeline:list');
@@ -664,7 +658,6 @@ export function useAutomationPageData(): AutomationPageData {
     marketplaceLoading: marketplaceList.loading,
     marketplaceError: marketplaceList.error,
     marketplaceTemplates: marketplaceList.data?.templates ?? [],
-    scheduledPipelines,
     pipelineGen,
     stepCount,
     triggerCount,

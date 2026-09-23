@@ -120,8 +120,10 @@ test('the Tips section does not sell triggers as automation', () => {
 });
 
 test('the Triggers and Scheduler sections keep their coming-soon banners', () => {
-  // These two sections describe the planned design in the present tense; the
-  // banners are the only thing that makes that legitimate.
+  // Triggers describes the planned design in the present tense, and the
+  // Scheduler tab, which lists the sync schedules, sits on a page about
+  // pipelines: the banners are what keep either from reading as a pipeline
+  // started on a timer.
   for (const heading of ['### Triggers', '### Scheduler']) {
     assert.match(
       section(automation, heading),
@@ -131,8 +133,32 @@ test('the Triggers and Scheduler sections keep their coming-soon banners', () =>
   }
   assert.match(
     section(automation, '### Scheduler'),
-    /there is no scheduler backend/,
-    'the Scheduler banner must state there is no scheduler backend, not merely hedge',
+    /no pipeline runs on a timer/,
+    'the Scheduler banner must state that no pipeline runs on a timer, not merely hedge',
+  );
+  assert.match(
+    section(automation, '### Scheduler'),
+    /runs saved Sync configurations only/,
+    'the Scheduler banner must say what the scheduler behind the tab does run',
+  );
+});
+
+test('the Scheduler section describes the tab the page renders: the sync schedules', () => {
+  // The tab was a "Coming soon" badge over an empty calendar of pipelines;
+  // it now lays out the `sync:schedule:*` schedules by day.
+  const calendar = readFileSync(
+    join(repoRoot, 'packages', 'webview', 'src', 'pages', 'Automation', 'SchedulerCalendar.tsx'),
+    'utf8',
+  );
+  assert.match(calendar, /<SyncSchedulePanel layout=\{ScheduleAgenda\} \/>/);
+  assert.doesNotMatch(calendar, /comingSoon/);
+
+  const scheduler = section(automation, '### Scheduler');
+  assert.match(scheduler, /sync schedules/);
+  assert.doesNotMatch(
+    scheduler,
+    /exclusion dates|holidays|maintenance windows/i,
+    'the Scheduler section promises calendar features the tab does not have',
   );
 });
 

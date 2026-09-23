@@ -1,10 +1,16 @@
 import type { BaseMessage } from './base.messages.js';
-import type { CompareResult } from '../compare.types.js';
+import type { CompareResult, MetadataComponentType } from '../compare.types.js';
 
-/** Compare messages */
+/** Compare messages (validated by compareExecutePayloadSchema). */
 export interface CompareExecuteRequest extends BaseMessage {
   type: 'compare:execute';
-  payload: { configId: string };
+  payload: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    types: MetadataComponentType[];
+    /** Leave the components a managed package installed out when false; compared when absent. */
+    includeManaged?: boolean;
+  };
 }
 
 /**

@@ -307,6 +307,7 @@
     "selectSource": "Select source org",
     "selectTarget": "Select target org",
     "categories": "Categories",
+    "includeManaged": "Include managed package components",
     "run": "Run Comparison",
     "running": "Comparing...",
     "diff": "Diff Viewer",
@@ -315,6 +316,7 @@
     "drift": "Org Settings Drift",
     "deploy": "Deploy from Diff",
     "noResults": "No comparison results yet",
+    "nothingDiffers": "Nothing differs: both orgs hold the same components, and each one compared by content is the same in both.",
     "added": "Added",
     "removed": "Removed",
     "modified": "Modified",
@@ -322,6 +324,7 @@
     "notCompared": "Not compared",
     "coverage": {
       "compared": "Content compared for {{compared}} of the {{inBoth}} components both orgs hold.",
+      "managedLeftOut": "Installed by a managed package, left out as asked: {{count}}",
       "overBudget": "Beyond what one run reads ({{components}} per org, {{seconds}} s): {{count}}",
       "unreadable": "Content that cannot be read, such as Apex from a managed package: {{count}}",
       "readFailed": "Read failed: {{count}}",
@@ -905,6 +908,8 @@
       "lastRun": "Last run",
       "pause": "Pause",
       "resume": "Resume",
+      "editNamed": "Edit {{name}}",
+      "deleteNamed": "Delete {{name}}",
       "builderTitle": "Schedule Builder",
       "result_success": "Succeeded",
       "result_partial": "Partial",
@@ -1009,6 +1014,12 @@
     "selectTemplate": "Select a template",
     "noTemplates": "No templates available",
     "createTemplate": "Create Template",
+    "savedTemplateOption": "{{name}} (saved)",
+    "savedTemplate": "Saved",
+    "deleteTemplate": "Delete template",
+    "templateSaved": "Template “{{name}}” saved.",
+    "ruleCount_one": "{{count}} rule",
+    "ruleCount_other": "{{count}} rules",
     "previewAnonymization": "Preview",
     "applyAnonymization": "Apply",
     "compliance": "Compliance Framework",
@@ -1091,13 +1102,29 @@
       "fillRefused": "Fill counts: {{message}}",
       "duplicatesRefused": "Duplicates: {{message}}",
       "staleRefused": "Records not modified: {{message}}"
+    },
+    "templateEditor": {
+      "title": "New template",
+      "intro": "Name a set of rules and save it as a template: SandForge keeps it on this machine and applies it like the templates that ship.",
+      "startsFrom": "Starts from the rules of {{name}}. Change them, add or remove some, and save them under a name of your own.",
+      "name": "Template name",
+      "nameTaken": "A template already has this name.",
+      "rule": "Rule {{n}}",
+      "field": "Field (Object.Field)",
+      "method": "Method",
+      "removeRule": "Remove rule {{n}}",
+      "addRule": "Add a rule",
+      "noRules": "Add at least one rule to save the template.",
+      "fieldInvalid": "Write the field as Object.Field, for example Contact.Email.",
+      "fieldDuplicate": "This field already has a rule.",
+      "methodUnavailable": "{{method}} needs a setting this page cannot give it: pick another method.",
+      "save": "Save template"
     }
   },
   "automation": {
     "title": "Automation",
     "createPipeline": "Create Pipeline",
     "newPipeline": "New Pipeline",
-    "noPipelines": "No pipelines configured",
     "steps": "Steps",
     "stepsCount": "Pipeline Steps",
     "triggersCount": "Active Triggers",
@@ -1156,9 +1183,8 @@
       "skipped": "Skipped"
     },
     "scheduler": "Scheduler",
+    "schedulerIntro": "Each sync schedule, by the day it next runs. A pipeline does not run on a schedule: it starts from its Run Pipeline button.",
     "cronExpression": "Cron Expression",
-    "timezone": "Timezone",
-    "nextRun": "Next Run",
     "canvas": "Pipeline Canvas",
     "dragStep": "Drag a step to the canvas",
     "connectSteps": "Connect steps to define flow",
@@ -1208,6 +1234,13 @@
       "title": "Build Your First Pipeline",
       "description": "Compose pipelines on a visual canvas and save them. So far, only Delay steps can run in a pipeline.",
       "cta": "Select an Org"
+    },
+    "agenda": {
+      "due": "Due now",
+      "dueHint": "Their planned time has passed: each runs at the next check, within a minute while VS Code is open, or is running now.",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "unplanned": "No run planned: the cron expression gives no next time"
     }
   },
   "ai": {

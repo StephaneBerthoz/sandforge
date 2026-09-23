@@ -305,6 +305,21 @@ describe('DiffEngine', () => {
         budget: { components: 500, seconds: 90 },
       });
     });
+
+    it('says how many managed components the run left out, apart from every other count', () => {
+      const coverage = engine.computeCoverage(
+        [createItem('ApexClass', 'A', 'unchanged')],
+        { components: 500, seconds: 90 },
+        8,
+      );
+
+      expect(coverage).toEqual({
+        compared: 1,
+        notCompared: { unreadable: 0, read_failed: 0, over_budget: 0 },
+        managedLeftOut: 8,
+        budget: { components: 500, seconds: 90 },
+      });
+    });
   });
 
   describe('determineSeverity', () => {

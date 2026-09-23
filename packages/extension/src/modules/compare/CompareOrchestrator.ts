@@ -31,14 +31,19 @@ export class CompareOrchestrator {
   async execute(config: CompareConfig): Promise<CompareResult> {
     const startTime = Date.now();
 
-    const diffs = await this.deps.metadataCompare.compare(
+    const { items: diffs, managedLeftOut } = await this.deps.metadataCompare.compare(
       config.sourceOrgId,
       config.targetOrgId,
       config.componentTypes,
+      { includeManaged: config.includeManaged },
     );
 
     const summary = this.deps.diffEngine.computeSummary(diffs);
-    const content = this.deps.diffEngine.computeCoverage(diffs, this.deps.metadataCompare.budget);
+    const content = this.deps.diffEngine.computeCoverage(
+      diffs,
+      this.deps.metadataCompare.budget,
+      managedLeftOut,
+    );
     const duration = Date.now() - startTime;
 
     const result: CompareResult = {

@@ -15,8 +15,6 @@ export interface QueryLimitConfig {
   previewQueryLimit: number;
   /** Maximum records for backup/export queries */
   exportQueryLimit: number;
-  /** Maximum permission sets to query */
-  permissionSetLimit: number;
 }
 
 /** Conservative limits for production orgs */
@@ -24,7 +22,6 @@ const PRODUCTION_LIMITS: QueryLimitConfig = {
   defaultQueryLimit: 500,
   previewQueryLimit: 200,
   exportQueryLimit: 1000,
-  permissionSetLimit: 50,
 };
 
 /** Higher limits for sandbox orgs */
@@ -32,7 +29,6 @@ const SANDBOX_LIMITS: QueryLimitConfig = {
   defaultQueryLimit: 2000,
   previewQueryLimit: 2000,
   exportQueryLimit: 5000,
-  permissionSetLimit: 100,
 };
 
 /**

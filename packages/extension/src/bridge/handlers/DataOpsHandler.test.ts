@@ -7,6 +7,8 @@ import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -33,6 +35,8 @@ function createMockDeps(): HandlerDeps {
       // and a store that throws there is a different test from the one each
       // case here is written for.
       getKeysByPrefix: vi.fn(() => [] as string[]),
+      // The template list reads the templates the user saved from here.
+      getByCategory: vi.fn(() => ({})),
     } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
@@ -1540,5 +1544,217 @@ describe('DataOpsHandler — housekeeping after a written snapshot', () => {
       .mock.calls.map((c) => (c[0] as { type?: string }).type);
     expect(posted).toContain('dataops:backup:response');
     expect(posted.some((t) => t === 'dataops:error')).toBe(false);
+  });
+});
+
+/**
+ * Templates of the user's own. The library used to be the four that ship:
+ * nothing could be added to it, and the Create Template button said so.
+ */
+describe('DataOpsHandler — templates the user saves', () => {
+  let deps: HandlerDeps;
+  let handler: DataOpsHandler;
+
+  beforeEach(() => {
+    deps = createMockDeps();
+    // The real store over memory, as globalState keeps it between sessions.
+    let data: Record<string, ConfigEntry> = {};
+    const configStore = new ConfigStore({
+      getData: () => data,
+      setData: (next) => {
+        data = next;
+      },
+    });
+    configStore.initialize();
+    deps.configStore = configStore;
+    handler = new DataOpsHandler(deps);
+  });
+
+  /** Everything the handler posted, in order. */
+  function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+    return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+  }
+
+  /** The last message of a type the handler posted. */
+  function last(type: string): (BaseMessage & { payload: Record<string, unknown> }) | undefined {
+    return posted()
+      .filter((m) => m.type === type)
+      .at(-1);
+  }
+
+  async function send(type: string, payload: Record<string, unknown>, id = type): Promise<void> {
+    await handler.handle(
+      inboundRequest({ id, type, timestamp: Date.now(), payload } as BaseMessage),
+    );
+  }
+
+  async function listed(): Promise<Array<Record<string, unknown>>> {
+    await send('dataops:anonymization-templates', {}, `list-${posted().length}`);
+    const response = last('dataops:anonymization-templates:response');
+    return response?.payload.templates as Array<Record<string, unknown>>;
+  }
+
+  const rules = [
+    { fieldPattern: 'Contact.FirstName', ruleType: 'fake' },
+    { fieldPattern: 'Contact.Phone', ruleType: 'mask' },
+  ];
+
+  it('saves rules as a named template, listed after the ones that ship and marked as saved', async () => {
+    const shipped = await listed();
+
+    await send('dataops:anonymization-template:save', { name: '  Support desk  ', rules });
+
+    const saved = last('dataops:anonymization-template:save:response')?.payload.template as Record<
+      string,
+      unknown
+    >;
+    expect(saved).toMatchObject({
+      name: 'Support desk',
+      complianceFramework: 'custom',
+      saved: true,
+      rules: [
+        { fieldPattern: 'Contact.FirstName', ruleType: 'fake', description: '' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'mask', description: '' },
+      ],
+    });
+    const all = await listed();
+    expect(all).toHaveLength(shipped.length + 1);
+    expect(all.at(-1)).toEqual(saved);
+    expect(shipped.every((t) => t.saved === undefined)).toBe(true);
+  });
+
+  it('keeps a saved template for the next session, which opens the same store', async () => {
+    await send('dataops:anonymization-template:save', { name: 'Support desk', rules });
+
+    handler = new DataOpsHandler(deps);
+    expect((await listed()).map((t) => t.name)).toContain('Support desk');
+  });
+
+  it('masks with a saved template the way it masks with one that ships', async () => {
+    await send('dataops:anonymization-template:save', {
+      name: 'First names only',
+      rules: [{ fieldPattern: 'Contact.FirstName', ruleType: 'nullify' }],
+    });
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () => ({
+        records: [{ Id: '003000000000001', FirstName: 'Ada', LastName: 'Lovelace' }],
+        done: true,
+      })),
+      describe: vi.fn().mockResolvedValue({
+        name: 'Contact',
+        label: 'Contact',
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: [
+          { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+          {
+            name: 'FirstName',
+            label: 'First Name',
+            type: 'string',
+            createable: true,
+            updateable: true,
+          },
+          {
+            name: 'LastName',
+            label: 'Last Name',
+            type: 'string',
+            createable: true,
+            updateable: true,
+          },
+        ],
+        recordTypeInfos: [],
+        childRelationships: [],
+      }),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+    // No object named: the run addresses the objects the template's rules do.
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    expect(last('dataops:error')).toBeUndefined();
+    expect(update).toHaveBeenCalledTimes(1);
+    const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(record.FirstName).toBeNull();
+    expect(record.LastName).toBe('Lovelace');
+    expect(last('dataops:anonymize:response')?.payload).toMatchObject({
+      templateId,
+      status: 'success',
+      recordsProcessed: 1,
+    });
+  });
+
+  it('refuses a name a template already goes by, whatever its case', async () => {
+    await send('dataops:anonymization-template:save', { name: 'gdpr standard', rules });
+
+    expect(last('dataops:anonymization-template:save:response')).toBeUndefined();
+    expect(last('dataops:error')?.payload).toMatchObject({ code: 'DUPLICATE_NAME' });
+    expect(String(last('dataops:error')?.payload.message)).toContain('already exists');
+  });
+
+  it.each([
+    ['a method that needs a salt', [{ fieldPattern: 'Contact.Email', ruleType: 'hash' }]],
+    ['a field written without its object', [{ fieldPattern: 'Email', ruleType: 'fake' }]],
+    [
+      'a field with two rules',
+      [
+        { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+        { fieldPattern: 'contact.email', ruleType: 'mask' },
+      ],
+    ],
+    ['no rule at all', []],
+  ])('refuses %s, and saves nothing', async (_what, badRules) => {
+    await send('dataops:anonymization-template:save', { name: 'Bad', rules: badRules });
+
+    expect(last('dataops:error')?.payload).toMatchObject({ code: 'INVALID_PAYLOAD' });
+    expect((await listed()).map((t) => t.name)).not.toContain('Bad');
+  });
+
+  it('deletes a saved template, which is then neither listed nor applied', async () => {
+    await send('dataops:anonymization-template:save', { name: 'Support desk', rules });
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+
+    await send('dataops:anonymization-template:delete', { templateId });
+
+    expect(last('dataops:anonymization-template:delete:response')?.payload).toEqual({
+      templateId,
+      deleted: true,
+    });
+    expect((await listed()).map((t) => t.id)).not.toContain(templateId);
+
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    const update = vi.fn();
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('says so when the template to delete was not there', async () => {
+    await send('dataops:anonymization-template:delete', { templateId: 'tpl-saved-gone' });
+
+    expect(last('dataops:anonymization-template:delete:response')?.payload).toEqual({
+      templateId: 'tpl-saved-gone',
+      deleted: false,
+    });
+  });
+
+  it('refuses to delete a template that ships', async () => {
+    await send('dataops:anonymization-template:delete', { templateId: 'tpl-gdpr-standard' });
+
+    expect(last('dataops:anonymization-template:delete:response')).toBeUndefined();
+    expect(last('dataops:error')?.payload).toMatchObject({ code: 'BUILT_IN' });
+    expect((await listed()).map((t) => t.id)).toContain('tpl-gdpr-standard');
   });
 });

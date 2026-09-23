@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
-import { SyncSchedulePanel } from './SyncSchedulePanel';
+import { SyncSchedulePanel, nextRefreshDelay } from './SyncSchedulePanel';
 import { useSyncScheduleStore } from '../../stores/useSyncScheduleStore';
 import type { SyncConfigListResponse, SyncScheduleEntry } from '@sandforge/shared';
 
@@ -369,5 +369,114 @@ describe('SyncSchedulePanel', () => {
     expect((screen.getByTestId('edit-btn-s-1') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId('edit-btn-s-1'));
     expect(screen.queryByTestId('cron-schedule-builder')).toBeNull();
+  });
+
+  it('names the edit and delete buttons after their schedule', () => {
+    // Both are icons: a screen reader announced two unnamed buttons after Pause.
+    useSyncScheduleStore.setState({
+      schedules: [makeMockSchedule('s-1', { name: 'Nightly accounts' })],
+    });
+    render(<SyncSchedulePanel />);
+
+    expect(screen.getByRole('button', { name: 'Edit Nightly accounts' })).toBe(
+      screen.getByTestId('edit-btn-s-1'),
+    );
+    expect(screen.getByRole('button', { name: 'Delete Nightly accounts' })).toBe(
+      screen.getByTestId('delete-btn-s-1'),
+    );
+  });
+
+  describe('once the next run is past', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The `sync:schedule:list` requests the panel has posted. */
+    const listRequests = () =>
+      mockVSCodeApi.postMessage.mock.calls.filter(
+        ([envelope]) =>
+          (envelope as { payload: { type: string } }).payload.type === 'sync:schedule:list',
+      );
+
+    it('asks the host for the schedules again, a check after the run was due', () => {
+      // The host answers the list when asked and never on its own: the next
+      // run and the last result stayed as they were read, over a run that had
+      // happened.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-08T13:00:00Z'));
+      render(<SyncSchedulePanel />);
+      fromHost({
+        id: 'ext-9',
+        type: 'sync:schedule:list:response',
+        payload: { schedules: [makeMockSchedule('s-1', { nextRunAt: '2024-01-08T14:00:00Z' })] },
+      });
+      expect(listRequests()).toHaveLength(1);
+
+      act(() => {
+        vi.advanceTimersByTime(60 * 60_000);
+      });
+      expect(listRequests()).toHaveLength(1);
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(listRequests()).toHaveLength(2);
+    });
+
+    it('does not ask again for schedules that plan no run', () => {
+      vi.useFakeTimers();
+      useSyncScheduleStore.setState({
+        schedules: [makeMockSchedule('s-1', { enabled: false })],
+      });
+      render(<SyncSchedulePanel />);
+
+      act(() => {
+        vi.advanceTimersByTime(24 * 60 * 60_000);
+      });
+      expect(listRequests()).toHaveLength(1);
+    });
+  });
+});
+
+describe('nextRefreshDelay', () => {
+  const now = Date.parse('2024-01-08T13:00:00Z');
+
+  it('waits one host check past the soonest run an active schedule plans', () => {
+    expect(
+      nextRefreshDelay(
+        [
+          makeMockSchedule('late', { nextRunAt: '2024-01-08T15:00:00Z' }),
+          makeMockSchedule('soon', { nextRunAt: '2024-01-08T13:30:00Z' }),
+        ],
+        now,
+      ),
+    ).toBe(30 * 60_000 + 60_000);
+  });
+
+  it('checks every minute while a run is due, since its time moves on only once it ends', () => {
+    expect(
+      nextRefreshDelay([makeMockSchedule('due', { nextRunAt: '2024-01-08T12:00:00Z' })], now),
+    ).toBe(60_000);
+  });
+
+  it('ignores a paused schedule and a schedule with no planned run', () => {
+    expect(
+      nextRefreshDelay(
+        [
+          makeMockSchedule('paused', { enabled: false, nextRunAt: '2024-01-08T13:30:00Z' }),
+          makeMockSchedule('none', { nextRunAt: '' }),
+        ],
+        now,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('never waits longer than a timer can', () => {
+    // setTimeout fires at once past 2^31 - 1 ms, about 24.8 days.
+    const delay = nextRefreshDelay(
+      [makeMockSchedule('yearly', { nextRunAt: '2025-01-08T13:00:00Z' })],
+      now,
+    );
+    expect(delay).toBe(6 * 60 * 60_000);
   });
 });

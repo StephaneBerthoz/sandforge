@@ -191,6 +191,67 @@ describe('ComparePage', () => {
     expect(screen.getAllByText('No comparison results yet').length).toBeGreaterThan(0);
   });
 
+  it('does not say no comparison has run above the results of one', () => {
+    // The header subtitle read "No comparison results yet" whatever the page showed.
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    render(<ComparePage />);
+    expect(screen.getByTestId('compare-summary')).toBeDefined();
+    expect(screen.queryByText('No comparison results yet')).toBeNull();
+  });
+
+  it('says nothing differs in the diff tab when a comparison found no difference', () => {
+    mockCompareMutationState = {
+      ...mockCompareMutationState,
+      data: {
+        ...RESULT_WITH_TABS,
+        summary: { ...RESULT_WITH_TABS.summary, added: 0, removed: 0, modified: 0 },
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'TestClass',
+            status: 'unchanged',
+            severity: 'info',
+            deployable: false,
+          },
+        ],
+      },
+    };
+    render(<ComparePage />);
+    expect(screen.getByTestId('no-diffs').textContent).toMatch(/^Nothing differs/);
+    expect(screen.queryByText('No comparison results yet')).toBeNull();
+  });
+
+  /** Pick two orgs and a category, as the Run button requires. */
+  function readyToRun(): void {
+    fireEvent.change(screen.getByLabelText('Source Org'), { target: { value: 'org-1' } });
+    fireEvent.change(screen.getByLabelText('Target Org'), { target: { value: 'org-2' } });
+    fireEvent.click(screen.getByTestId('cat-ApexClass'));
+  }
+
+  it('compares what a managed package installed unless the box is unticked', () => {
+    render(<ComparePage />);
+    const box = screen.getByLabelText('Include managed package components') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+
+    readyToRun();
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+
+    expect(mockCompareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ types: ['ApexClass'], includeManaged: true }),
+    );
+  });
+
+  it('asks the extension to leave managed package components out once the box is unticked', () => {
+    render(<ComparePage />);
+    readyToRun();
+    fireEvent.click(screen.getByLabelText('Include managed package components'));
+    fireEvent.click(screen.getByTestId('run-compare-btn'));
+
+    expect(mockCompareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ includeManaged: false }),
+    );
+  });
+
   it('should show summary when compare mutation returns data', () => {
     mockCompareMutationState = {
       mutate: mockCompareMutate,

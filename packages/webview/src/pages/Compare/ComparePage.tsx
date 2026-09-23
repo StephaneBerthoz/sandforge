@@ -53,6 +53,9 @@ export const ComparePage: React.FC = () => {
   const [sourceOrgId, setSourceOrgId] = useState('');
   const [targetOrgId, setTargetOrgId] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<MetadataComponentType[]>([]);
+  // What a managed package installed is compared with the rest unless the box
+  // is unticked; the result then says how many components it left out.
+  const [includeManaged, setIncludeManaged] = useState(true);
   const [activeTab, setActiveTab] = useState('diff');
   const [selectedDiff, setSelectedDiff] = useState<EnrichedDiff | undefined>();
   const [error, setError] = useState<string | null>(null);
@@ -138,6 +141,7 @@ export const ComparePage: React.FC = () => {
       sourceOrgId,
       targetOrgId,
       types: selectedTypes as unknown as Record<string, unknown>[],
+      includeManaged,
     });
   };
 
@@ -175,7 +179,8 @@ export const ComparePage: React.FC = () => {
       {/* Header */}
       <PageHeader
         title={t('compare.title')}
-        subtitle={t('compare.noResults')}
+        // It read "No comparison results yet" above the results of a run.
+        subtitle={result ? undefined : t('compare.noResults')}
         icon="git-compare"
         actions={
           <div className="flex items-center gap-[var(--sf-space-3)]">
@@ -340,6 +345,16 @@ export const ComparePage: React.FC = () => {
 
       {/* Category selection */}
       <CategorySelector selected={selectedTypes} onChange={setSelectedTypes} />
+
+      <label className="flex items-center gap-2 text-xs text-text-secondary">
+        <input
+          type="checkbox"
+          checked={includeManaged}
+          onChange={(e) => setIncludeManaged(e.target.checked)}
+          data-testid="compare-include-managed"
+        />
+        {t('compare.includeManaged')}
+      </label>
 
       {/* Results tabs */}
       {result && compareReport && (
