@@ -32,6 +32,14 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
   [],
 ];
 
+/**
+ * The code the org refuses a delete with while other records still hang from
+ * the one deleted — "associated with the following opportunities", "some
+ * opportunities of this account were closed won". A record refused with it is
+ * tried again once the rest of the pass is gone.
+ */
+const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
+
 /** What the removal of a run's records needs from the org it wrote to. */
 export type RemovalOrg = Pick<OrgSession, 'query' | 'destroy' | 'describe' | 'describeGlobal'>;
 
@@ -106,13 +114,6 @@ function describeError(error: DeleteError): string {
   return code && message ? `${code}: ${message}` : code || message || 'The org gave no reason.';
 }
 
-/** Keep a reason once, and only the first few. */
-function addReason(result: ForgeUndoObjectResult, reason: string): void {
-  if (!result.reasons.includes(reason) && result.reasons.length < REASON_LIMIT) {
-    result.reasons.push(reason);
-  }
-}
-
 /** What the org holds of one object's records now, before anything is deleted. */
 interface ObjectSnapshot {
   /** Record key -> when the record was last modified, for the records still there. */
@@ -121,16 +122,88 @@ interface ObjectSnapshot {
   error?: string;
 }
 
+/** Why the org refused to delete one record. */
+interface Refusal {
+  /** In the org's words. */
+  reason: string;
+  /** Refused for records still hanging from it: tried again once the rest of the pass is gone. */
+  dependency: boolean;
+}
+
+/** Where a removal stands with one object's records. */
+class ObjectRemoval {
+  readonly result: ForgeUndoObjectResult;
+  /** Why the object as a whole could not be read or checked. */
+  private readonly notes: string[] = [];
+  /** Records the org refused, by id. */
+  readonly refused = new Map<string, Refusal>();
+  /** Records kept because records that stay depend on them. */
+  held: string[] = [];
+
+  constructor(objectApiName: string, planned: number) {
+    this.result = {
+      objectApiName,
+      planned,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    };
+  }
+
+  /** Note why the object as a whole could not be read or checked. */
+  note(reason: string): void {
+    if (!this.notes.includes(reason)) this.notes.push(reason);
+  }
+
+  /**
+   * The records worth another try once the rest of the pass is gone: the ones
+   * refused for a dependency and the ones held by one. They keep their count
+   * until they are settled again, so a removal stopped meanwhile still
+   * accounts for them.
+   */
+  waiting(): string[] {
+    return [
+      ...[...this.refused].filter(([, refusal]) => refusal.dependency).map(([id]) => id),
+      ...this.held,
+    ];
+  }
+
+  /** The object's result, its counts and reasons as they stand. */
+  settle(): ForgeUndoObjectResult {
+    this.result.keptDependents = this.held.length;
+    this.result.refused = this.refused.size;
+    if (this.held.length === 0) this.result.heldBy = [];
+    const reasons = [...this.notes, ...[...this.refused.values()].map((r) => r.reason)];
+    this.result.reasons = [...new Set(reasons)].slice(0, REASON_LIMIT);
+    return this.result;
+  }
+}
+
 /**
- * Remove from the org the records a Forge run created, one object after the
- * other in the order given — children before their parents — and say what
- * became of each.
+ * Remove from the org the records a Forge run created, each object after the
+ * objects of the run whose records point at it, and say what became of each.
  *
  * Nothing is deleted before every object has been read: deleting a child can
  * stamp its parent as modified (a roll-up recalculated), and a parent read
  * afterwards would look changed since the run. A record no longer in the org
  * is counted as already gone; one modified after the run ended is kept unless
- * `includeChanged` says otherwise.
+ * `includeChanged` says otherwise. What the removal itself stamps — a refused
+ * delete, a child deleted under a record — is never read as a change, because
+ * that reading is the one taken before the first delete.
+ *
+ * The objects go in the order their records can go, not the reverse of the
+ * one they were written in. A clone writes its root first and its optional
+ * parents after, so reversed, the root opportunity came last: its account
+ * was refused ("some opportunities of this account were closed won"), its
+ * price book too ("associated with the following opportunities"), and the
+ * removal ended partial with both left behind. What the org still refuses
+ * for records hanging from it — a cycle no order breaks — is tried again once
+ * the rest of the pass is gone, with the records held back for such a record.
  *
  * A record is also kept while records that stay in the org would be deleted
  * along with it — the org deletes what cascades from a record, and those are
@@ -146,7 +219,8 @@ interface ObjectSnapshot {
  * object when one cannot be read at all.
  *
  * @param org - The run's target org.
- * @param plan - The run's records, in the order they are to be removed.
+ * @param plan - The run's records, children before their parents as far as
+ *   the run knows — the reverse of the order it wrote them.
  * @param options - The run's time span, whether changed records go, the stop signal.
  */
 export async function removeRunRecords(
@@ -175,9 +249,26 @@ export async function removeRunRecords(
     }
   }
 
+  // Each object described once: the order and the dependents check read it.
+  const describes = new Map<string, Promise<unknown>>();
+  const session: RemovalOrg = {
+    query: (soql) => org.query(soql),
+    destroy: (objectApiName, ids) => org.destroy(objectApiName, ids),
+    describeGlobal: () => org.describeGlobal(),
+    describe: (objectApiName) => {
+      let described = describes.get(objectApiName);
+      if (!described) {
+        described = org.describe(objectApiName);
+        describes.set(objectApiName, described);
+      }
+      return described;
+    },
+  };
+  const order = await removalOrder(session, plan);
+
   /** Records of the run whose object the removal has been through. */
   const reached = new Set<string>();
-  const dependents = new DependentsCheck(org, {
+  const dependents = new DependentsCheck(session, {
     runRecords,
     reached,
     stays: (key) => changed.has(key) && !options.includeChanged,
@@ -186,28 +277,21 @@ export async function removeRunRecords(
     includeChanged: options.includeChanged,
   });
 
-  const objects: ForgeUndoObjectResult[] = [];
+  const removals: ObjectRemoval[] = [];
+  const outcome = (cancelled: boolean): RunRemovalOutcome => ({
+    objects: removals.map((removal) => removal.settle()),
+    cancelled,
+  });
   let settled = 0;
-  for (const { objectApiName, ids } of plan) {
-    if (stopped()) return { objects, cancelled: true };
-    const result: ForgeUndoObjectResult = {
-      objectApiName,
-      planned: ids.length,
-      deleted: 0,
-      alreadyGone: 0,
-      keptChanged: 0,
-      keptDependents: 0,
-      refused: 0,
-      heldBy: [],
-      unchecked: [],
-      reasons: [],
-    };
-    objects.push(result);
+  for (const { objectApiName, ids } of order) {
+    if (stopped()) return outcome(true);
+    const removal = new ObjectRemoval(objectApiName, ids.length);
+    removals.push(removal);
     const snapshot = snapshots.get(objectApiName);
 
     if (!snapshot || snapshot.error !== undefined) {
-      result.refused = ids.length;
-      addReason(result, snapshot?.error ?? 'The org gave no reason.');
+      const reason = snapshot?.error ?? 'The org gave no reason.';
+      for (const id of ids) removal.refused.set(id, { reason, dependency: false });
       ids.forEach((id) => reached.add(recordKey(id)));
       settled += ids.length;
       options.onProgress?.(settled, total, objectApiName);
@@ -218,29 +302,151 @@ export async function removeRunRecords(
     for (const id of ids) {
       const key = recordKey(id);
       reached.add(key);
-      if (!snapshot.lastModified.has(key)) result.alreadyGone++;
-      else if (changed.has(key) && !options.includeChanged) result.keptChanged++;
+      if (!snapshot.lastModified.has(key)) removal.result.alreadyGone++;
+      else if (changed.has(key) && !options.includeChanged) removal.result.keptChanged++;
       else candidates.push(id);
     }
+    settled += ids.length - candidates.length;
 
-    const held = await dependents.heldAmong(objectApiName, candidates, result);
-    const toDelete = candidates.filter((id) => !held.has(recordKey(id)));
-    result.keptDependents = candidates.length - toDelete.length;
-    settled += ids.length - toDelete.length;
-    options.onProgress?.(settled, total, objectApiName);
+    const cancelledPart = await removeCandidates(session, dependents, removal, candidates, {
+      stopped,
+      onDeleted: (count) => {
+        settled += count;
+        options.onProgress?.(settled, total, objectApiName);
+      },
+      onHeld: (count) => {
+        settled += count;
+        options.onProgress?.(settled, total, objectApiName);
+      },
+    });
+    if (cancelledPart) return outcome(true);
+  }
 
-    for (let at = 0; at < toDelete.length; at += RECORDS_PER_CALL) {
-      if (stopped()) return { objects, cancelled: true };
-      const batch = toDelete.slice(at, at + RECORDS_PER_CALL);
-      await deleteBatch(org, objectApiName, batch, result);
-      settled += batch.length;
-      options.onProgress?.(settled, total, objectApiName);
+  // Once the rest of the pass is gone, what waited for it — refused while
+  // records still hung from it, or held by one of those — goes again, until
+  // a round takes nothing more. Settled already, it is not counted twice.
+  for (let progress = removals.some((r) => r.result.deleted > 0); progress; ) {
+    progress = false;
+    for (const removal of removals) {
+      const waiting = removal.waiting();
+      if (waiting.length === 0) continue;
+      if (stopped()) return outcome(true);
+      const deletedBefore = removal.result.deleted;
+      const cancelledPart = await removeCandidates(session, dependents, removal, waiting, {
+        stopped,
+      });
+      if (cancelledPart) return outcome(true);
+      if (removal.result.deleted > deletedBefore) progress = true;
     }
   }
-  return { objects, cancelled: false };
+  return outcome(false);
 }
 
-/** Which of an object's records are still in the org, and when each was last modified. */
+/**
+ * The plan's objects in the order their records can go: each one after every
+ * other object of the plan whose records point at it, and otherwise in the
+ * order given. Where objects point at each other, the order given decides,
+ * and what the org refuses for it is tried again once the rest is gone.
+ *
+ * Read from the child relationships the org lists for each object: which
+ * objects hold a lookup to it. An object the org cannot describe keeps its
+ * place.
+ */
+async function removalOrder(
+  org: RemovalOrg,
+  plan: readonly ForgeRunObjectRecords[],
+): Promise<ForgeRunObjectRecords[]> {
+  const inPlan = new Set(plan.map((object) => object.objectApiName));
+  /** Per object, the objects of the plan it points at. */
+  const pointsAt = new Map<string, Set<string>>();
+  for (const { objectApiName } of plan) {
+    let children: string[];
+    try {
+      const described = describedObjectSchema.parse(await org.describe(objectApiName));
+      children = (described.childRelationships ?? []).map((r) => r.childSObject);
+    } catch {
+      continue;
+    }
+    for (const child of children) {
+      if (child === objectApiName || !inPlan.has(child)) continue;
+      const parents = pointsAt.get(child) ?? new Set<string>();
+      parents.add(objectApiName);
+      pointsAt.set(child, parents);
+    }
+  }
+  const remaining = [...plan];
+  const ordered: ForgeRunObjectRecords[] = [];
+  while (remaining.length > 0) {
+    const free = remaining.findIndex(
+      (object) =>
+        !remaining.some(
+          (other) =>
+            other !== object && pointsAt.get(other.objectApiName)?.has(object.objectApiName),
+        ),
+    );
+    ordered.push(...remaining.splice(free >= 0 ? free : 0, 1));
+  }
+  return ordered;
+}
+
+/** How {@link removeCandidates} reports as it goes. */
+interface CandidateHooks {
+  stopped: () => boolean;
+  /** Records deleted, or found gone, by one call. */
+  onDeleted?: (count: number) => void;
+  /** Records kept for their dependents or left for the org's refusal to be read. */
+  onHeld?: (count: number) => void;
+}
+
+/**
+ * Settle `candidates` of one object: keep the ones records that stay depend
+ * on, delete the rest, and count each in `removal`.
+ *
+ * @returns Whether the removal was stopped part way.
+ */
+async function removeCandidates(
+  org: RemovalOrg,
+  dependents: DependentsCheck,
+  removal: ObjectRemoval,
+  candidates: readonly string[],
+  hooks: CandidateHooks,
+): Promise<boolean> {
+  const { objectApiName } = removal.result;
+  const verdict = await dependents.heldAmong(objectApiName, candidates);
+  if (verdict.reason !== undefined) removal.note(verdict.reason);
+  for (const name of verdict.unchecked) {
+    if (!removal.result.unchecked.includes(name)) removal.result.unchecked.push(name);
+  }
+  // Every record held before is among the candidates: the held ones are
+  // settled afresh, and a record refused before and held now is held.
+  removal.held = candidates.filter((id) => verdict.held.has(recordKey(id)));
+  for (const id of removal.held) removal.refused.delete(id);
+  // The objects are named, never their records: a person reads which kind of
+  // record stays, the org can show which ones.
+  removal.result.heldBy = [...verdict.holders];
+  hooks.onHeld?.(removal.held.length);
+
+  const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
+  for (let at = 0; at < toDelete.length; at += RECORDS_PER_CALL) {
+    if (hooks.stopped()) return true;
+    const batch = toDelete.slice(at, at + RECORDS_PER_CALL);
+    const outcomes = await deleteBatch(org, objectApiName, batch);
+    batch.forEach((id, index) => {
+      const result = outcomes[index];
+      if (result.kind === 'refused') {
+        removal.refused.set(id, { reason: result.reason, dependency: result.dependency });
+        return;
+      }
+      removal.refused.delete(id);
+      if (result.kind === 'deleted') removal.result.deleted++;
+      else removal.result.alreadyGone++;
+    });
+    hooks.onDeleted?.(batch.length);
+  }
+  return false;
+}
+
+/** Which records of one object are still in the org, and when each was last modified. */
 async function snapshotOf(
   org: RemovalOrg,
   objectApiName: string,
@@ -260,39 +466,40 @@ async function snapshotOf(
   }
 }
 
+/** What a delete did to one record. */
+type DeleteOutcome =
+  | { kind: 'deleted' }
+  | { kind: 'gone' }
+  | { kind: 'refused'; reason: string; dependency: boolean };
+
 /**
- * Delete one batch and count each record: deleted, already gone — deleted
- * since it was read, often along with a parent — or refused, with the org's
- * reason. A call the org refuses whole refuses every record of it.
+ * Delete one batch and say what became of each record: deleted, already gone
+ * — deleted since it was read, often along with a parent — or refused, with
+ * the org's reason. A call the org refuses whole refuses every record of it.
  */
 async function deleteBatch(
   org: RemovalOrg,
   objectApiName: string,
   batch: readonly string[],
-  result: ForgeUndoObjectResult,
-): Promise<void> {
+): Promise<DeleteOutcome[]> {
   let answer: unknown;
   try {
     answer = await org.destroy(objectApiName, [...batch]);
   } catch (err: unknown) {
-    result.refused += batch.length;
-    addReason(result, extractErrorMessage(err));
-    return;
+    const reason = extractErrorMessage(err);
+    return batch.map(() => ({ kind: 'refused', reason, dependency: false }));
   }
   const rows = Array.isArray(answer) ? answer : [answer];
-  batch.forEach((_, index) => {
+  return batch.map((_, index): DeleteOutcome => {
     const row = deleteResultSchema.safeParse(rows[index]);
-    if (row.success && row.data.success) {
-      result.deleted++;
-      return;
-    }
+    if (row.success && row.data.success) return { kind: 'deleted' };
     const errors = row.success ? (row.data.errors ?? []) : [];
-    if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) {
-      result.alreadyGone++;
-      return;
-    }
-    result.refused++;
-    addReason(result, errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.');
+    if (errors.some((error) => codeOf(error) === 'ENTITY_IS_DELETED')) return { kind: 'gone' };
+    return {
+      kind: 'refused',
+      reason: errors.length > 0 ? describeError(errors[0]) : 'The org gave no reason.',
+      dependency: errors.some((error) => codeOf(error) === DEPENDENCY_REFUSAL),
+    };
   });
 }
 
@@ -310,6 +517,18 @@ interface DependentsContext {
   includeChanged: boolean;
 }
 
+/** What {@link DependentsCheck.heldAmong} found for some records of one object. */
+interface HeldVerdict {
+  /** Keys of the records that records staying in the org depend on. */
+  held: Set<string>;
+  /** The objects whose staying records hold them, by API name. */
+  holders: Set<string>;
+  /** Relationships the org deletes along that could not be read by the record, by child object. */
+  unchecked: Set<string>;
+  /** Why the object's relationships could not be read at all; every record is then held. */
+  reason?: string;
+}
+
 /**
  * Finds, among records about to be deleted, the ones records that stay in the
  * org hang from: the children the org would delete along with them.
@@ -323,54 +542,40 @@ class DependentsCheck {
   ) {}
 
   /**
-   * The keys of the records among `candidates` that a record staying in the
-   * org depends on, through a relationship the org deletes along.
+   * The records among `candidates` that a record staying in the org depends
+   * on, through a relationship the org deletes along.
    *
    * Only the objects a person works with are read — queryable, createable and
    * given a page layout: an object's history, sharing rows and feed are the
    * org's own bookkeeping and go with it. An object that cannot be described
    * keeps every candidate, with the org's reason; a relationship the org does
    * not let be read by the record it depends on is named as not checked.
-   *
-   * @param result - Where the objects that hold records, the ones not
-   *   checked, and the reasons, go.
    */
-  async heldAmong(
-    objectApiName: string,
-    candidates: readonly string[],
-    result: ForgeUndoObjectResult,
-  ): Promise<Set<string>> {
-    const held = new Set<string>();
-    if (candidates.length === 0) return held;
+  async heldAmong(objectApiName: string, candidates: readonly string[]): Promise<HeldVerdict> {
+    const verdict: HeldVerdict = { held: new Set(), holders: new Set(), unchecked: new Set() };
+    if (candidates.length === 0) return verdict;
     let relationships: Array<{ childSObject: string; field: string }>;
-    let worked: ReadonlyMap<string, string>;
     try {
       const described = describedObjectSchema.parse(await this.org.describe(objectApiName));
-      worked = await this.workedObjects();
+      const worked = await this.workedObjects();
       relationships = (described.childRelationships ?? []).filter(
         (r) => r.cascadeDelete === true && worked.has(r.childSObject),
       );
     } catch (err: unknown) {
-      addReason(result, extractErrorMessage(err));
-      candidates.forEach((id) => held.add(recordKey(id)));
-      return held;
+      verdict.reason = extractErrorMessage(err);
+      candidates.forEach((id) => verdict.held.add(recordKey(id)));
+      return verdict;
     }
 
-    const holders = new Set<string>();
     for (const relationship of relationships) {
       for (let at = 0; at < candidates.length; at += RECORDS_PER_CALL) {
         const chunk = candidates.slice(at, at + RECORDS_PER_CALL);
-        const holding = await this.holdingIn(relationship, chunk, result);
-        if (holding.size > 0) holders.add(relationship.childSObject);
-        holding.forEach((key) => held.add(key));
+        const holding = await this.holdingIn(relationship, chunk, verdict);
+        if (holding.size > 0) verdict.holders.add(relationship.childSObject);
+        holding.forEach((key) => verdict.held.add(key));
       }
     }
-    // The objects are named, never their records: a person reads which kind
-    // of record stays, the org can show which ones.
-    for (const holder of holders) {
-      if (!result.heldBy.includes(holder)) result.heldBy.push(holder);
-    }
-    return held;
+    return verdict;
   }
 
   /**
@@ -389,7 +594,7 @@ class DependentsCheck {
   private async holdingIn(
     relationship: { childSObject: string; field: string },
     chunk: readonly string[],
-    result: ForgeUndoObjectResult,
+    verdict: HeldVerdict,
   ): Promise<Set<string>> {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
@@ -418,9 +623,7 @@ class DependentsCheck {
       }
       return holding;
     }
-    if (!result.unchecked.includes(relationship.childSObject)) {
-      result.unchecked.push(relationship.childSObject);
-    }
+    verdict.unchecked.add(relationship.childSObject);
     return new Set();
   }
 

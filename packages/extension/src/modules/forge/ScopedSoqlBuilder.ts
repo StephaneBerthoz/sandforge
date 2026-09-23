@@ -347,10 +347,48 @@ export class ScopedSoqlBuilder {
     };
   }
 
+  /**
+   * Rows of an object whose two lookups both land among the ids given: the
+   * rows that join two sets of records the run holds.
+   *
+   * The ids of `split` are laid over as many statements as fit a query URI;
+   * those of `whole` are carried by every statement, so `whole` has to be
+   * the short list — a handful of selling models against the products.
+   */
+  buildJoining(opts: JoiningOpts): string[] {
+    const objectName = assertSoqlIdentifier(opts.objectApiName);
+    const prefix = `SELECT ${this.formatSelect(opts.selectFields)} FROM ${objectName} WHERE `;
+    const whole = [...opts.whole.ids].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+    const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
+    return packInClauses(
+      {
+        prefix,
+        suffix: ` AND (${assertSoqlIdentifier(opts.whole.field)} IN (${whole}))${extraSuffix}`,
+        wrap: true,
+        objectApiName: opts.objectApiName,
+      },
+      [{ field: assertSoqlIdentifier(opts.split.field), ids: opts.split.ids }],
+    );
+  }
+
   private formatSelect(selectFields: string[]): string {
     if (selectFields.length === 0) return 'Id';
     return selectFields.map((f) => assertSoqlIdentifier(f)).join(', ');
   }
+}
+
+/** Inputs to {@link ScopedSoqlBuilder.buildJoining}. */
+export interface JoiningOpts {
+  /** The object read. */
+  objectApiName: string;
+  /** Fields of the SELECT clause. */
+  selectFields: string[];
+  /** The lookup whose ids are split over statements, and the ids. */
+  split: { field: string; ids: ReadonlySet<string> };
+  /** The lookup every statement carries whole, and the ids. */
+  whole: { field: string; ids: ReadonlySet<string> };
+  /** Extra WHERE fragment, appended as `AND (...)` as in {@link ScopedSoqlBuildOpts}. */
+  extraWhere?: string;
 }
 
 /**

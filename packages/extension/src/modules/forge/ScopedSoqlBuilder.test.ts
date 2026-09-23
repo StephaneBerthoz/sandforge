@@ -924,6 +924,31 @@ describe('ScopedSoqlBuilder', () => {
     expect(result.statements.join(' | ')).not.toContain('Pricebook2Id');
   });
 
+  describe('rows joining two sets of records', () => {
+    it('splits the long list over statements and carries the short one in each', () => {
+      const products = Array.from({ length: 1300 }, (_, i) => `01t${String(i).padStart(15, '0')}`);
+
+      const statements = new ScopedSoqlBuilder().buildJoining({
+        objectApiName: 'ProductSellingModelOption',
+        selectFields: ['Id', 'Product2Id'],
+        split: { field: 'Product2Id', ids: new Set(products) },
+        whole: { field: 'ProductSellingModelId', ids: new Set(['0jP000000000001AAA']) },
+        extraWhere: 'IsDefault = true',
+      });
+
+      expect(statements.length).toBe(3);
+      for (const soql of statements) {
+        expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+        expect(
+          soql.endsWith(
+            ") AND (ProductSellingModelId IN ('0jP000000000001AAA')) AND (IsDefault = true)",
+          ),
+        ).toBe(true);
+      }
+      expect(statements.flatMap((soql) => soql.match(/01t\d{15}/g) ?? [])).toEqual(products);
+    });
+  });
+
   describe('a catalog', () => {
     const CATALOG: ReadonlySet<string> = new Set(['PricebookEntry', 'Product2', 'Pricebook2']);
     const READ = new Set(['Opportunity', 'Quote', 'QuoteLineItem', ...CATALOG]);

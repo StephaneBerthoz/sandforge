@@ -70,7 +70,40 @@ export function splitStandardPricebookEntries<T extends Record<string, unknown>>
 export const PRICEBOOK_ENTRY_PRODUCT_FIELD = 'Product2Id';
 
 /**
- * Keep one entry per (book, product), preferring the active one.
+ * The field naming the selling model a price applies to, in an org that sells
+ * by selling models: one-time, evergreen, term-defined.
+ */
+export const PRICEBOOK_ENTRY_SELLING_MODEL_FIELD = 'ProductSellingModelId';
+
+/** A selling model: how a product is sold, one per type, term and unit. */
+export const SELLING_MODEL_OBJECT = 'ProductSellingModel';
+
+/**
+ * What lets a product be sold under a selling model.
+ *
+ * The same kind of rule as the standard price, and as invisible: the
+ * platform refuses a price for a product under a selling model the product
+ * has no option for — "add a product selling model option to the product
+ * first" — standard price included. Run between two sandboxes, every price
+ * of a cloned opportunity was refused that way, and every line item behind
+ * them was skipped.
+ */
+export const SELLING_MODEL_OPTION_OBJECT = 'ProductSellingModelOption';
+
+/** How {@link dedupePricebookEntries} tells two entries apart. */
+export interface PricebookEntryKey {
+  /**
+   * Whether the entry's selling model is part of its key. True when the
+   * clone carries the selling models, so the lookup is written: a book then
+   * holds one entry per product and selling model, and a product priced both
+   * with a selling model and without one keeps both prices.
+   */
+  sellingModel?: boolean;
+}
+
+/**
+ * Keep one entry per (book, product), preferring the active one — per (book,
+ * product, selling model) when `key.sellingModel` says so.
  *
  * A price book holds at most one entry per product, and the target enforces
  * it on insert whatever `IsActive` says. A source org can still hold two —
@@ -78,11 +111,18 @@ export const PRICEBOOK_ENTRY_PRODUCT_FIELD = 'Product2Id';
  * cost the second a `DUPLICATE_VALUE`, and with it the mapping every line
  * item needed to point at its price.
  *
+ * Those two differed by their selling model: the deactivated price had none,
+ * the live one had the org's one-time model. Written without selling models
+ * they are the same entry, and the rule above holds. Written with them they
+ * are two, and read the first way the clone dropped half the standard prices
+ * of the products it carried — the ones its custom prices needed.
+ *
  * Order is otherwise preserved, and a row missing either field is left alone:
  * it cannot collide on a pair it does not have.
  */
 export function dedupePricebookEntries<T extends Record<string, unknown>>(
   records: readonly T[],
+  key: PricebookEntryKey = {},
 ): T[] {
   const byPair = new Map<string, number>();
   const kept: T[] = [];
@@ -93,7 +133,10 @@ export function dedupePricebookEntries<T extends Record<string, unknown>>(
       kept.push(record);
       continue;
     }
-    const pair = `${book}|${product}`;
+    const sellingModel = key.sellingModel
+      ? `|${String(record[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`
+      : '';
+    const pair = `${book}|${product}${sellingModel}`;
     const seenAt = byPair.get(pair);
     if (seenAt === undefined) {
       byPair.set(pair, kept.length);

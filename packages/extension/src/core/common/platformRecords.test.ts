@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   directAccountContactRelations,
   draftStartOf,
+  existingSellingModelOptions,
   recordsByNaturalKey,
   statusCategories,
   type SoqlQuery,
@@ -43,6 +44,48 @@ describe('directAccountContactRelations', () => {
     }));
 
     await directAccountContactRelations(query, payloads);
+
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('existingSellingModelOptions', () => {
+  it('finds the option the target holds for a product and selling model, and no other', async () => {
+    const query = vi.fn<SoqlQuery>(async () => [
+      { Id: '0iOHELD', Product2Id: '01tHELD', ProductSellingModelId: '0jPONCE' },
+    ]);
+
+    const found = await existingSellingModelOptions(query, [
+      { Product2Id: '01tNEW', ProductSellingModelId: '0jPONCE' },
+      { Product2Id: '01tHELD', ProductSellingModelId: '0jPONCE' },
+      // The product the target holds, under a model it has no option for.
+      { Product2Id: '01tHELD', ProductSellingModelId: '0jPYEARLY' },
+    ]);
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT Id, Product2Id, ProductSellingModelId FROM ProductSellingModelOption ' +
+        "WHERE Product2Id IN ('01tNEW', '01tHELD')",
+    );
+    expect([...found]).toEqual([[1, '0iOHELD']]);
+  });
+
+  it('asks nothing when no payload names a product', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+
+    const found = await existingSellingModelOptions(query, [{ ProductSellingModelId: '0jP' }]);
+
+    expect(query).not.toHaveBeenCalled();
+    expect(found.size).toBe(0);
+  });
+
+  it('asks for two hundred products at a time', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+    const payloads = Array.from({ length: 201 }, (_, i) => ({
+      Product2Id: `01tP${String(i).padStart(3, '0')}`,
+      ProductSellingModelId: '0jPONCE',
+    }));
+
+    await existingSellingModelOptions(query, payloads);
 
     expect(query).toHaveBeenCalledTimes(2);
   });

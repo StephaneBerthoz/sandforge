@@ -98,4 +98,41 @@ describe('dedupePricebookEntries', () => {
     const kept = dedupePricebookEntries([{ Id: 'a' }, { Id: 'b' }]);
     expect(kept).toHaveLength(2);
   });
+
+  describe('with the selling model in the key', () => {
+    // What a real source org held for most of its products: the price from
+    // before selling models, deactivated, and the live one-time price.
+    const both = [
+      { Id: 'a', Pricebook2Id: book, Product2Id: '01t1', IsActive: false },
+      {
+        Id: 'b',
+        Pricebook2Id: book,
+        Product2Id: '01t1',
+        ProductSellingModelId: '0jP1',
+        IsActive: true,
+      },
+    ];
+
+    it('keeps a price with a selling model and one without, which the book holds apart', () => {
+      expect(dedupePricebookEntries(both, { sellingModel: true }).map((r) => r.Id)).toEqual([
+        'a',
+        'b',
+      ]);
+    });
+
+    it('still keeps one of two prices under the same selling model, the active one', () => {
+      const kept = dedupePricebookEntries(
+        [
+          { ...both[1], Id: 'c', IsActive: false },
+          { ...both[1], Id: 'd', IsActive: true },
+        ],
+        { sellingModel: true },
+      );
+      expect(kept.map((r) => r.Id)).toEqual(['d']);
+    });
+
+    it('reads them as one entry when the selling model is not written', () => {
+      expect(dedupePricebookEntries(both).map((r) => r.Id)).toEqual(['b']);
+    });
+  });
 });

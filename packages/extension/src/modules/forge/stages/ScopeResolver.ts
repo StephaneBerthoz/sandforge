@@ -9,15 +9,24 @@
  */
 
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
-import { PRICEBOOK_ENTRY_OBJECT, PRICEBOOK_OBJECT } from '@sandforge/shared';
+import {
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_OBJECT,
+  SELLING_MODEL_OBJECT,
+  SELLING_MODEL_OPTION_OBJECT,
+} from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
-import type { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
+import { UNSCOPED_NO_PARENT_REASON, type ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
+
+/** The product every price, option and line of the catalog names. */
+export const PRODUCT_OBJECT = 'Product2';
 
 /**
- * The catalog — prices, products, price books — in the order a record-scoped
- * run reads it when nothing reaches it from above.
+ * The catalog — prices, products, selling models and the options that join
+ * the two, price books — in the order a record-scoped run reads it when
+ * nothing reaches it from above.
  *
  * Every sale priced from the catalog points at it, so its scope is what the
  * clone's records name, and it is read once they all have been: its turn in
@@ -26,11 +35,18 @@ import type { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
  * opportunity's own, and the standard book matched for the standard prices —
  * and run between two sandboxes, an opportunity with three line items
  * brought 171 prices and all 146 products. Prices come first here because a
- * price names its product and its book.
+ * price names its product, its selling model and its book; the options come
+ * after the products and selling models they join.
+ *
+ * A selling model is as shared as a price book: every price sold under it
+ * points at it, and read as any parent in scope is, the one-time model of a
+ * real org would have brought its 275 prices.
  */
 export const CATALOG_READ_ORDER: readonly string[] = [
   PRICEBOOK_ENTRY_OBJECT,
-  'Product2',
+  PRODUCT_OBJECT,
+  SELLING_MODEL_OBJECT,
+  SELLING_MODEL_OPTION_OBJECT,
   PRICEBOOK_OBJECT,
 ];
 
@@ -69,9 +85,15 @@ export function sortNodesForExecution(
  * So the order is settled on the required edges alone, which in practice do
  * not form cycles, and the optional ones only break ties. A graph with no
  * required edges sorts exactly as before.
+ *
+ * @param orderEdges - Orders the graph does not hold as lookups, kept like
+ *   required edges: the catalog's, see {@link catalogWriteEdges}.
  */
-export function sortNodesForWriting(graph: ForgeGraph): ForgeGraphNode[] {
-  const requiredEdges = graph.edges.filter((e) => e.required === true);
+export function sortNodesForWriting(
+  graph: ForgeGraph,
+  orderEdges: readonly ForgeGraphEdge[] = [],
+): ForgeGraphNode[] {
+  const requiredEdges = [...graph.edges.filter((e) => e.required === true), ...orderEdges];
   if (requiredEdges.length === 0) return topologicalSort(graph);
   const byRequired = topologicalSort(graph, requiredEdges);
   const rank = new Map<string, number>();
@@ -84,6 +106,47 @@ export function sortNodesForWriting(graph: ForgeGraph): ForgeGraphNode[] {
       (rank.get(a.objectApiName) ?? 0) - (rank.get(b.objectApiName) ?? 0) ||
       full.indexOf(a) - full.indexOf(b),
   );
+}
+
+/**
+ * The order the catalog is written in, whatever order discovery met it in:
+ * products and selling models, then the options that join them, then the
+ * prices — the standard ones first, inside the prices' own write — then
+ * every line that prices from them.
+ *
+ * Discovery only knows an edge it walked, and at the edge of a graph it
+ * walks nothing: two levels around an opportunity, the price, the quote line
+ * and the order item were all met and none of them walked, so nothing said a
+ * line needs its price, and the lines went first. The product came before its
+ * prices only because discovery happened to meet it first. An option is no
+ * lookup at all — the platform refuses a price without one, and no describe
+ * says so.
+ *
+ * @param objects - The objects the run writes; an edge is kept between two of them only.
+ * @param lines - Of those, the ones whose records point at a price.
+ */
+export function catalogWriteEdges(
+  objects: ReadonlySet<string>,
+  lines: readonly string[],
+): ForgeGraphEdge[] {
+  const order: Array<readonly [string, string]> = [
+    [PRODUCT_OBJECT, SELLING_MODEL_OPTION_OBJECT],
+    [SELLING_MODEL_OBJECT, SELLING_MODEL_OPTION_OBJECT],
+    [PRODUCT_OBJECT, PRICEBOOK_ENTRY_OBJECT],
+    [SELLING_MODEL_OBJECT, PRICEBOOK_ENTRY_OBJECT],
+    [SELLING_MODEL_OPTION_OBJECT, PRICEBOOK_ENTRY_OBJECT],
+    [PRICEBOOK_OBJECT, PRICEBOOK_ENTRY_OBJECT],
+    ...lines.map((line) => [PRICEBOOK_ENTRY_OBJECT, line] as const),
+  ];
+  return order
+    .filter(([before, after]) => before !== after && objects.has(before) && objects.has(after))
+    .map(([sourceObject, targetObject]) => ({
+      sourceObject,
+      targetObject,
+      relationshipName: `${sourceObject}Before${targetObject}`,
+      type: 'lookup',
+      required: true,
+    }));
 }
 
 /**
@@ -167,7 +230,30 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
 
   let statements: string[];
   let byIdCount = 0;
-  if (input.scopedBuilder && input.scopeCache && input.rootObjectApiName && input.rootRecordId) {
+  if (
+    input.scopedBuilder &&
+    input.scopeCache &&
+    input.rootObjectApiName &&
+    input.rootRecordId &&
+    input.node.objectApiName === SELLING_MODEL_OPTION_OBJECT &&
+    input.node.objectApiName !== input.rootObjectApiName &&
+    input.catalog?.has(SELLING_MODEL_OPTION_OBJECT)
+  ) {
+    const options = sellingModelOptionStatements(
+      input.scopedBuilder,
+      input.scopeCache,
+      queryFields,
+      input.extraWhere,
+    );
+    if (!options) return { kind: 'skip', reason: UNSCOPED_NO_PARENT_REASON };
+    statements = options;
+    byIdCount = statements.length;
+  } else if (
+    input.scopedBuilder &&
+    input.scopeCache &&
+    input.rootObjectApiName &&
+    input.rootRecordId
+  ) {
     const scopeFields = input.fieldInfos
       .filter((f) => f.isReference)
       .map((f) => ({
@@ -223,6 +309,35 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     }
   }
   return { kind: 'query', statements, ...byId };
+}
+
+/**
+ * The statements that read the options of the products in scope under the
+ * selling models in scope — however either was reached — or `undefined` when
+ * the run holds none of one of them.
+ *
+ * Not a row shared by every sale, as the rest of the catalog is, but part of
+ * the product it belongs to: the platform will not take a price for the
+ * product under the model without it. Held to the selling models in scope,
+ * which the prices name, because an option cannot be written without its
+ * model. Read by these ids alone, so no option brings anything under it.
+ */
+function sellingModelOptionStatements(
+  builder: ScopedSoqlBuilder,
+  cache: RecordScopeCache,
+  selectFields: string[],
+  extraWhere: string | undefined,
+): string[] | undefined {
+  const products = cache.scopeOf(PRODUCT_OBJECT);
+  const models = cache.scopeOf(SELLING_MODEL_OBJECT);
+  if (!products || products.size === 0 || !models || models.size === 0) return undefined;
+  return builder.buildJoining({
+    objectApiName: SELLING_MODEL_OPTION_OBJECT,
+    selectFields,
+    split: { field: 'Product2Id', ids: products },
+    whole: { field: 'ProductSellingModelId', ids: models },
+    extraWhere,
+  });
 }
 
 /** Whether a node's query reads any row from above: the root, or rows under a parent in scope. */

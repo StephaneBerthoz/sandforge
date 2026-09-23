@@ -1,6 +1,7 @@
 import type {
   ForgeCreatedRecords,
   ForgeGraph,
+  ForgeGraphEdge,
   ForgeGraphNode,
   ForgeNodeStatus,
   ForgeRemapObjectCounts,
@@ -19,6 +20,8 @@ import {
   buildNodeQuery,
   CATALOG_OBJECTS,
   CATALOG_READ_ORDER,
+  catalogWriteEdges,
+  PRODUCT_OBJECT,
   queryNodeRecords,
   readsFromAbove,
   seedOwnIds,
@@ -43,6 +46,10 @@ import {
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   PRICEBOOK_ENTRY_BOOK_FIELD,
+  PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  SELLING_MODEL_OBJECT,
+  SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
@@ -596,6 +603,12 @@ interface ExecutionState {
    */
   readonly readObjects: Set<string>;
   /**
+   * Whether the run carries selling models, so a price keeps its own: a book
+   * then holds one price per product and selling model, and a custom price
+   * needs the standard one of its selling model.
+   */
+  readonly sellingModels: boolean;
+  /**
    * The source org's standard price book, once looked up. `null` when the run
    * carries no price book entries, or when the lookup found nothing.
    */
@@ -775,11 +788,14 @@ export class ForgeExecutor {
     this.pauseResolve = null;
 
     const config = resolveStageConfig(options);
+    const runGraph = config.isScoped
+      ? await this.withSellingModelOptions(graph, sourceOrgId)
+      : graph;
     const state: ExecutionState = {
       config,
       sourceOrgId,
       targetOrgId,
-      graph,
+      graph: runGraph,
       onProgress,
       remapper: new IdRemapper(),
       scopeCache: config.isScoped ? new RecordScopeCache() : null,
@@ -799,7 +815,10 @@ export class ForgeExecutor {
       deferredNodes: [],
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
-      readObjects: new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
+      readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
+      sellingModels: runGraph.nodes.some(
+        (n) => n.included && n.objectApiName === SELLING_MODEL_OBJECT,
+      ),
       standardPricebookId: null,
       existingRecords: [],
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
@@ -854,7 +873,6 @@ export class ForgeExecutor {
      * two would hold every row of every object in memory to no purpose.
      */
     const twoPhase = config.isScoped === true;
-    const writeOrder = twoPhase ? sortNodesForWriting(graph) : sortedNodes;
 
     // The standard price book, when the run carries prices at all. See
     // `standard-pricebook.ts`: the platform refuses a custom price for a
@@ -1071,9 +1089,11 @@ export class ForgeExecutor {
 
     // The write pass. Every row is in hand, so the order is free to be the
     // one writing needs: parents first, the root no longer pulled to the
-    // front because nothing is being scoped any more.
+    // front because nothing is being scoped any more — and the catalog in the
+    // order the platform takes it, which the fields read say more about than
+    // the graph does.
     if (twoPhase) {
-      for (const node of writeOrder) {
+      for (const node of this.writeOrderOf(state)) {
         if (this.isAborted) {
           throw new ForgeAbortedError(
             'Forge execution was aborted by user request. Remaining objects were not processed.',
@@ -1137,6 +1157,91 @@ export class ForgeExecutor {
     }
 
     return this.summaryOf(state);
+  }
+
+  /**
+   * The order a record-scoped run writes its nodes in, once every one of
+   * them has been read: required parents first, and the catalog as
+   * `catalogWriteEdges` lays it out — its lines being the nodes whose fields,
+   * as read, point at a price.
+   */
+  private writeOrderOf(state: ExecutionState): ForgeGraphNode[] {
+    const objects = new Set(
+      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    );
+    const lines = [...state.preread]
+      .filter(([, read]) =>
+        read.fieldInfos.some(
+          (f) => f.isReference && (f.referenceTo ?? []).includes(PRICEBOOK_ENTRY_OBJECT),
+        ),
+      )
+      .map(([objectApiName]) => objectApiName);
+    return sortNodesForWriting(state.graph, catalogWriteEdges(objects, lines));
+  }
+
+  /**
+   * The graph of a record-scoped run, with the selling model options its
+   * prices need when it carries prices, products and selling models and
+   * discovery left the options out.
+   *
+   * They sit two levels past the line items that name the prices: out of
+   * reach of the depth a clone of an opportunity is usually asked for, and
+   * past the cap on any graph that walks further. Without them the platform
+   * refused every price sold under a selling model, and every line item
+   * behind the prices went with them. Added only when the source can describe
+   * them — an org that sells by selling models has them — and never over a
+   * node the user left out.
+   */
+  private async withSellingModelOptions(
+    graph: ForgeGraph,
+    sourceOrgId: string,
+  ): Promise<ForgeGraph> {
+    const included = (name: string): ForgeGraphNode | undefined =>
+      graph.nodes.find((n) => n.included && n.objectApiName === name);
+    const product = included(PRODUCT_OBJECT);
+    const model = included(SELLING_MODEL_OBJECT);
+    if (!included(PRICEBOOK_ENTRY_OBJECT) || !product || !model) return graph;
+    if (graph.nodes.some((n) => n.objectApiName === SELLING_MODEL_OPTION_OBJECT)) return graph;
+    let fields: FieldInfo[];
+    try {
+      fields = await this.deps.describeFields(sourceOrgId, SELLING_MODEL_OPTION_OBJECT);
+    } catch {
+      return graph;
+    }
+    const option: ForgeGraphNode = {
+      objectApiName: SELLING_MODEL_OPTION_OBJECT,
+      recordCount: 0,
+      fieldCount: fields.length,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: Math.max(product.level, model.level) + 1,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: fields.filter((f) => f.createable).length,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 0,
+      batchStrategy: 'auto',
+    };
+    const joins = (parent: string, field: string): ForgeGraphEdge => ({
+      sourceObject: parent,
+      targetObject: SELLING_MODEL_OPTION_OBJECT,
+      relationshipName: field,
+      type: 'lookup',
+      required: true,
+    });
+    return {
+      ...graph,
+      nodes: [...graph.nodes, option],
+      edges: [
+        ...graph.edges,
+        joins(PRODUCT_OBJECT, 'Product2Id'),
+        joins(SELLING_MODEL_OBJECT, 'ProductSellingModelId'),
+      ],
+    };
   }
 
   /** What a run has done so far: the summary a finished run returns. */
@@ -1325,9 +1430,10 @@ export class ForgeExecutor {
       // without it. Ask for them by name, for exactly the products in hand.
       if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
         await this.addStandardPricebookEntries(node, state, records, fieldInfos);
-        // A book holds one entry per product, and the target enforces that on
-        // insert whatever `IsActive` says. The source can still hold two.
-        const deduped = dedupePricebookEntries(records);
+        // A book holds one entry per product — per product and selling model
+        // when the run keeps them — and the target enforces that on insert
+        // whatever `IsActive` says. The source can still hold two.
+        const deduped = dedupePricebookEntries(records, { sellingModel: state.sellingModels });
         if (deduped.length !== records.length) {
           records.length = 0;
           records.push(...deduped);
@@ -1418,6 +1524,11 @@ export class ForgeExecutor {
    * and these belong to the same node. Rows already present are not fetched
    * twice, and a failure here leaves the run as it was: the custom prices
    * will be refused, which is what happened before this existed.
+   *
+   * A run that keeps selling models takes, of a product's standard prices,
+   * the ones of the selling models its custom prices are sold under: that is
+   * the standard price each needs. A real org held two per product — the
+   * price from before selling models, deactivated, and the one-time one.
    */
   private async addStandardPricebookEntries(
     node: ForgeGraphNode,
@@ -1427,14 +1538,20 @@ export class ForgeExecutor {
   ): Promise<void> {
     const standardId = state.standardPricebookId;
     if (!standardId) return;
+    const pairOf = (row: Record<string, unknown>): string =>
+      `${String(row[PRICEBOOK_ENTRY_PRODUCT_FIELD])}|${String(row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`;
     const productIds = new Set<string>();
+    const pricedPairs = new Set<string>();
     const seen = new Set<string>();
     for (const record of records) {
       const id = record['Id'];
       if (typeof id === 'string') seen.add(id);
       if (record[PRICEBOOK_ENTRY_BOOK_FIELD] === standardId) continue;
-      const productId = record['Product2Id'];
-      if (typeof productId === 'string' && productId) productIds.add(productId);
+      const productId = record[PRICEBOOK_ENTRY_PRODUCT_FIELD];
+      if (typeof productId === 'string' && productId) {
+        productIds.add(productId);
+        pricedPairs.add(pairOf(record));
+      }
     }
     if (productIds.size === 0) return;
 
@@ -1454,6 +1571,7 @@ export class ForgeExecutor {
       for (const row of standardRows) {
         const id = row['Id'];
         if (typeof id === 'string' && seen.has(id)) continue;
+        if (state.sellingModels && !pricedPairs.has(pairOf(row))) continue;
         records.push(row);
         added++;
       }

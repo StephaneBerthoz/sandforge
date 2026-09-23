@@ -19,13 +19,16 @@ unscoped one read about 262 000. That is one measurement on one dataset, not
 a guaranteed ratio: the reduction depends on how wide the root's graph is.
 
 The catalog is the exception to "children through reverse-lookup". A price
-book, a product or a price that the clone only reaches through a lookup (an
-opportunity's price book, a line item's price) is cloned for what points at
-it and brings none of the rows under it: it is read once those records have
-been read, and the clone takes the prices its line items use, the standard
-price of each of their products, those products and the books the prices
-belong to. A clone rooted at a price book or a product still reads the
-prices under it.
+book, a product, a selling model or a price that the clone only reaches
+through a lookup (an opportunity's price book, a line item's price) is cloned
+for what points at it and brings none of the rows under it: it is read once
+those records have been read, and the clone takes the prices its line items
+use, the standard price of each of their products under the same selling
+model, those products and their selling model options, the selling models
+and the books the prices belong to. It writes them in the order the platform
+takes them: products and selling models, their options, standard prices,
+custom prices, then the lines. A clone rooted at a price book or a product
+still reads the prices under it.
 
 ## Pipeline
 

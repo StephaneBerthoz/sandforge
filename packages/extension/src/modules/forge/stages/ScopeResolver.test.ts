@@ -3,12 +3,14 @@ import {
   buildNodeQuery,
   CATALOG_OBJECTS,
   CATALOG_READ_ORDER,
+  catalogWriteEdges,
   getParentObjects,
   queryNodeRecords,
   readsFromAbove,
   seedOwnIds,
   seedScopeCache,
   sortNodesForExecution,
+  sortNodesForWriting,
 } from './ScopeResolver.js';
 import { RecordScopeCache } from '../RecordScopeCache.js';
 import { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
@@ -484,9 +486,21 @@ describe('the catalog', () => {
     type: 'lookup',
   };
 
-  it('is read prices first, then products and price books', () => {
-    expect(CATALOG_READ_ORDER).toEqual(['PricebookEntry', 'Product2', 'Pricebook2']);
-    expect([...CATALOG_OBJECTS].sort()).toEqual(['Pricebook2', 'PricebookEntry', 'Product2']);
+  it('is read prices first, then products and selling models, their options, and price books', () => {
+    expect(CATALOG_READ_ORDER).toEqual([
+      'PricebookEntry',
+      'Product2',
+      'ProductSellingModel',
+      'ProductSellingModelOption',
+      'Pricebook2',
+    ]);
+    expect([...CATALOG_OBJECTS].sort()).toEqual([
+      'Pricebook2',
+      'PricebookEntry',
+      'Product2',
+      'ProductSellingModel',
+      'ProductSellingModelOption',
+    ]);
   });
 
   it('reads the prices a record names by id, and not under the book an opportunity named', () => {
@@ -535,6 +549,134 @@ describe('the catalog', () => {
 
     expect(result.kind).toBe('query');
     if (result.kind === 'query') expect(readsFromAbove(result)).toBe(true);
+  });
+
+  describe('the selling model options', () => {
+    const optionFields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'Product2Id',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Product2'],
+        nillable: false,
+      },
+      {
+        name: 'ProductSellingModelId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['ProductSellingModel'],
+        nillable: false,
+      },
+    ];
+    const readOptions = (cache: RecordScopeCache) =>
+      buildNodeQuery({
+        node: makeNode('ProductSellingModelOption'),
+        // As a graph that walked the catalog holds them: every option under a
+        // product and under a selling model.
+        edges: [
+          { ...pricesOfBook, sourceObject: 'Product2', targetObject: 'ProductSellingModelOption' },
+          {
+            ...pricesOfBook,
+            sourceObject: 'ProductSellingModel',
+            targetObject: 'ProductSellingModelOption',
+          },
+        ],
+        fieldInfos: optionFields,
+        scopedBuilder: new ScopedSoqlBuilder(),
+        scopeCache: cache,
+        rootObjectApiName: 'Opportunity',
+        rootRecordId: '006000000000001AAA',
+        readObjects: new Set(['Opportunity', ...CATALOG_OBJECTS]),
+        catalog: CATALOG_OBJECTS,
+      });
+
+    it('reads the options of the products in scope under the selling models in scope, however they were reached', () => {
+      // Both only named, by the prices: neither brings anything else under it.
+      const cache = new RecordScopeCache();
+      cache.addRead('Product2', ['01t000000000001AAA', '01t000000000002AAA']);
+      cache.addRead('ProductSellingModel', ['0jP000000000001AAA']);
+
+      const result = readOptions(cache);
+
+      expect(result).toEqual({
+        kind: 'query',
+        statements: [
+          'SELECT Id, Product2Id, ProductSellingModelId FROM ProductSellingModelOption WHERE ' +
+            "(Product2Id IN ('01t000000000001AAA', '01t000000000002AAA')) " +
+            "AND (ProductSellingModelId IN ('0jP000000000001AAA'))",
+        ],
+        byIdCount: 1,
+      });
+      if (result.kind === 'query') expect(readsFromAbove(result)).toBe(false);
+    });
+
+    it('reads none while the run holds no selling model', () => {
+      const cache = new RecordScopeCache();
+      cache.addRead('Product2', ['01t000000000001AAA']);
+
+      expect(readOptions(cache).kind).toBe('skip');
+    });
+  });
+});
+
+describe('the catalog write order', () => {
+  const nodes = (...names: string[]) => names.map((name) => makeNode(name));
+  const lineEdge = (parent: string, child: string, required = false): ForgeGraphEdge => ({
+    sourceObject: parent,
+    targetObject: child,
+    relationshipName: `${parent}To${child}`,
+    type: 'lookup',
+    required,
+  });
+
+  it('writes products and selling models, their options, prices and then lines, whatever order discovery met them in', () => {
+    // Two levels around an opportunity: the lines, the price and the product
+    // at the edge of the graph, unwalked, with no edge between them.
+    const graph = makeGraph(
+      nodes(
+        'Opportunity',
+        'Quote',
+        'ProductSellingModel',
+        'QuoteLineItem',
+        'OrderItem',
+        'PricebookEntry',
+        'Pricebook2',
+        'ProductSellingModelOption',
+        'Product2',
+      ),
+      [lineEdge('Opportunity', 'Quote'), lineEdge('Quote', 'QuoteLineItem', true)],
+    );
+    const objects = new Set(graph.nodes.map((n) => n.objectApiName));
+
+    const order = sortNodesForWriting(
+      graph,
+      catalogWriteEdges(objects, ['QuoteLineItem', 'OrderItem']),
+    ).map((n) => n.objectApiName);
+
+    const before = (a: string, b: string): boolean => order.indexOf(a) < order.indexOf(b);
+    expect(before('Product2', 'ProductSellingModelOption')).toBe(true);
+    expect(before('ProductSellingModel', 'ProductSellingModelOption')).toBe(true);
+    expect(before('ProductSellingModelOption', 'PricebookEntry')).toBe(true);
+    expect(before('Pricebook2', 'PricebookEntry')).toBe(true);
+    expect(before('PricebookEntry', 'QuoteLineItem')).toBe(true);
+    expect(before('PricebookEntry', 'OrderItem')).toBe(true);
+    expect(before('Quote', 'QuoteLineItem')).toBe(true);
+  });
+
+  it('orders only the objects the run writes', () => {
+    const edges = catalogWriteEdges(new Set(['Product2', 'PricebookEntry', 'OrderItem']), [
+      'OrderItem',
+      'QuoteLineItem',
+    ]);
+
+    expect(edges.map((e) => `${e.sourceObject}>${e.targetObject}`)).toEqual([
+      'Product2>PricebookEntry',
+      'PricebookEntry>OrderItem',
+    ]);
+    expect(edges.every((e) => e.required === true)).toBe(true);
   });
 });
 

@@ -107,6 +107,10 @@ export {
   splitStandardPricebookEntries,
   dedupePricebookEntries,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
+  PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  SELLING_MODEL_OBJECT,
+  SELLING_MODEL_OPTION_OBJECT,
+  type PricebookEntryKey,
 } from './constants/standard-pricebook.js';
 export {
   EXCLUSIVE_FIELD_GROUPS,

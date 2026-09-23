@@ -516,6 +516,37 @@ describe('BatchWriter — relations the platform creates', () => {
       { objectApiName: 'AccountContactRelation', created: 1, linked: 1 },
     ]);
   });
+
+  it('links a selling model option the target holds for the product and model instead of inserting it', async () => {
+    // The product was one the target already held; its option came with it.
+    const insertRecords = vi
+      .fn<InsertImpl>()
+      .mockImplementation(async (_org, _obj, recs) =>
+        recs.map((_, i) => ({ id: `0iONEW${i}`, success: true, errors: [] })),
+      );
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '0iOHELD', Product2Id: '01tHELD', ProductSellingModelId: '0jPONCE' },
+    ]);
+    const payloads = [
+      { Product2Id: '01tHELD', ProductSellingModelId: '0jPONCE', IsDefault: true },
+      { Product2Id: '01tNEW', ProductSellingModelId: '0jPONCE', IsDefault: true },
+    ];
+    const input = makeInput([], {
+      node: makeNode('ProductSellingModelOption', 2),
+      records: payloads,
+      cleanedRecords: [
+        { source: { Id: '0iOSRC1' }, cleaned: payloads[0], nullifiedFks: [] },
+        { source: { Id: '0iOSRC2' }, cleaned: payloads[1], nullifiedFks: [] },
+      ],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(insertRecords.mock.calls[0][2]).toEqual([payloads[1]]);
+    expect(input.remapper.get('0iOSRC1')).toBe('0iOHELD');
+    expect(input.remapper.existingSourceIds()).toEqual(['0iOSRC1']);
+    expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
+  });
 });
 
 describe('BatchWriter — duplicates found by their natural key', () => {

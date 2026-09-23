@@ -19,12 +19,13 @@ import type {
   ForgeProgressEvent,
 } from '../ForgeExecutor.js';
 import type { ForgeGraphNode } from '@sandforge/shared';
-import { isAlreadyExistsError } from '@sandforge/shared';
+import { SELLING_MODEL_OPTION_OBJECT, isAlreadyExistsError } from '@sandforge/shared';
 import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
 import {
   ACCOUNT_CONTACT_RELATION,
   NATURAL_KEYS,
   directAccountContactRelations,
+  existingSellingModelOptions,
   recordsByNaturalKey,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
@@ -203,11 +204,9 @@ export class BatchWriter {
     // platform, and the relation read from the source is that one: inserted
     // again it is refused — "the contact already has a relationship with
     // this account" — and the refusal names no record to link to. The one
-    // the platform made is found instead, and linked.
-    const direct =
-      node.objectApiName === ACCOUNT_CONTACT_RELATION
-        ? await this.directRelations(targetOrgId, input.records)
-        : new Map<number, string>();
+    // the platform made is found instead, and linked. A selling model option
+    // of a product the target already held is found and linked the same way.
+    const direct = await this.heldBeforeInsert(node.objectApiName, targetOrgId, input.records);
     for (const [index, id] of direct) {
       const oldId = input.cleanedRecords[index]?.source['Id'];
       if (typeof oldId === 'string') remapper.addExisting(oldId, id, node.objectApiName);
@@ -445,16 +444,26 @@ export class BatchWriter {
   }
 
   /**
-   * The direct relations the platform created for the contacts this run
-   * inserted, by the index of the payload that describes each.
+   * The records the target already holds for these payloads, found before
+   * the insert, by the index of the payload that describes each: the direct
+   * relations the platform created for the contacts this run inserted, and
+   * the selling model options of products the target already held.
    */
-  private async directRelations(
+  private async heldBeforeInsert(
+    objectApiName: string,
     targetOrgId: string,
     records: readonly Record<string, unknown>[],
   ): Promise<Map<number, string>> {
     const query = this.deps.queryRecords;
     if (!query) return new Map();
-    return directAccountContactRelations((soql) => query(targetOrgId, soql), records);
+    const target = (soql: string): Promise<Record<string, unknown>[]> => query(targetOrgId, soql);
+    if (objectApiName === ACCOUNT_CONTACT_RELATION) {
+      return directAccountContactRelations(target, records);
+    }
+    if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
+      return existingSellingModelOptions(target, records);
+    }
+    return new Map();
   }
 
   /**

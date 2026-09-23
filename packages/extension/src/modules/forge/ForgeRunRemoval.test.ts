@@ -30,6 +30,8 @@ class FakeOrg implements RemovalOrg {
   readonly notWorked = new Set<string>();
   /** Ids the org refuses to delete, with the error it answers. */
   readonly refusals = new Map<string, { statusCode: string; message: string }>();
+  /** A refusal that depends on what the org holds at the time of the delete. */
+  refuse?: (object: string, row: Row) => { statusCode: string; message: string } | undefined;
   /** Queries that fail, by a pattern of their text. */
   readonly failingQueries: RegExp[] = [];
   /** The columns an object keeps, where it keeps fewer than every column asked for. */
@@ -94,7 +96,8 @@ class FakeOrg implements RemovalOrg {
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     this.deletes.push({ object: objectApiName, ids: [...ids] });
     return ids.map((recordId) => {
-      const refusal = this.refusals.get(recordId);
+      const row = (this.rows.get(objectApiName) ?? []).find((r) => r.Id === recordId);
+      const refusal = this.refusals.get(recordId) ?? (row && this.refuse?.(objectApiName, row));
       if (refusal) return { id: recordId, success: false, errors: [{ ...refusal, fields: [] }] };
       if (!this.has(objectApiName, recordId)) {
         return {
@@ -505,6 +508,139 @@ describe('removeRunRecords', () => {
     expect(outcome.objects).toEqual([
       expect.objectContaining({ objectApiName: 'Contact', deleted: 200 }),
     ]);
+  });
+
+  describe('a clone whose root the run wrote first', () => {
+    const ACCOUNT = id('001', 1);
+    const BOOK = id('01s', 1);
+    const OPPORTUNITY = id('006', 1);
+
+    /**
+     * What a clone of a closed-won opportunity leaves: the opportunity, its
+     * account, its contact and its price book. The run wrote the opportunity
+     * first and its parents after, so reversed, the plan names it last. The
+     * org refuses an account while a closed-won opportunity hangs from it,
+     * and a price book while an opportunity is priced from it.
+     */
+    function closedWonClone(): { org: FakeOrg; plan: ForgeRunObjectRecords[] } {
+      const org = new FakeOrg();
+      org.add('Account', runRow(ACCOUNT));
+      org.add('Pricebook2', runRow(BOOK));
+      org.add('Contact', runRow(id('003', 1), { AccountId: ACCOUNT }));
+      org.add(
+        'Opportunity',
+        runRow(OPPORTUNITY, { AccountId: ACCOUNT, Pricebook2Id: BOOK, StageName: 'Closed Won' }),
+      );
+      org.relationships.set('Account', [
+        { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+        { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+      ]);
+      org.relationships.set('Pricebook2', [
+        { childSObject: 'Opportunity', field: 'Pricebook2Id', cascadeDelete: false },
+      ]);
+      org.refuse = (object, row) => {
+        const opportunities = org.rows.get('Opportunity') ?? [];
+        if (object === 'Account' && opportunities.some((o) => o.AccountId === row.Id)) {
+          return {
+            statusCode: 'DELETE_FAILED',
+            message: 'some opportunities of this account were closed won',
+          };
+        }
+        if (object === 'Pricebook2' && opportunities.some((o) => o.Pricebook2Id === row.Id)) {
+          return {
+            statusCode: 'DELETE_FAILED',
+            message: 'this price book is associated with the following opportunities',
+          };
+        }
+        return undefined;
+      };
+      const plan = [
+        { objectApiName: 'Contact', ids: [id('003', 1)] },
+        { objectApiName: 'Pricebook2', ids: [BOOK] },
+        { objectApiName: 'Account', ids: [ACCOUNT] },
+        { objectApiName: 'Opportunity', ids: [OPPORTUNITY] },
+      ];
+      return { org, plan };
+    }
+
+    it('removes the root before the account and the price book it points at, in one pass', async () => {
+      const { org, plan } = closedWonClone();
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.refused])).toEqual([
+        ['Contact', 1, 0],
+        ['Opportunity', 1, 0],
+        ['Pricebook2', 1, 0],
+        ['Account', 1, 0],
+      ]);
+      expect([...org.rows.values()].flat()).toEqual([]);
+      // Each record asked for once: nothing was refused on the way.
+      expect(org.deletes.map((d) => d.object)).toEqual([
+        'Contact',
+        'Opportunity',
+        'Pricebook2',
+        'Account',
+      ]);
+    });
+
+    it('tries a record refused for what hung from it again once the rest is gone', async () => {
+      // An org that cannot say which objects point at the account: the plan's
+      // order stands, and the account's turn comes before the opportunity's.
+      const { org, plan } = closedWonClone();
+      org.relationships.delete('Account');
+      org.relationships.delete('Pricebook2');
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.refused])).toEqual([
+        ['Contact', 1, 0],
+        ['Pricebook2', 1, 0],
+        ['Account', 1, 0],
+        ['Opportunity', 1, 0],
+      ]);
+      expect(outcome.objects.flatMap((o) => o.reasons)).toEqual([]);
+      expect([...org.rows.values()].flat()).toEqual([]);
+    });
+
+    it('does not read the stamp its own refused delete left as a change made since the run', async () => {
+      const { org, plan } = closedWonClone();
+      org.relationships.delete('Account');
+      org.relationships.delete('Pricebook2');
+      const refuse = org.refuse;
+      org.refuse = (object, row) => {
+        const refusal = refuse?.(object, row);
+        // A refused delete still leaves the record modified at that moment.
+        if (refusal) row.LastModifiedDate = AFTER_RUN;
+        return refusal;
+      };
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects.map((o) => o.keptChanged)).toEqual([0, 0, 0, 0]);
+      expect([...org.rows.values()].flat()).toEqual([]);
+    });
+
+    it('stops trying once a round deletes nothing more, and says why', async () => {
+      const { org, plan } = closedWonClone();
+      // Another opportunity, from before the run, hangs from the account.
+      org.add('Opportunity', {
+        Id: id('006', 9),
+        AccountId: ACCOUNT,
+        CreatedDate: BEFORE_RUN,
+        LastModifiedDate: BEFORE_RUN,
+      });
+      org.relationships.set('Account', []);
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+        deleted: 0,
+        refused: 1,
+        reasons: ['DELETE_FAILED: some opportunities of this account were closed won'],
+      });
+      expect(org.deletes.filter((d) => d.object === 'Account')).toHaveLength(2);
+    });
   });
 
   it('says how many of the run records are settled as it goes', async () => {

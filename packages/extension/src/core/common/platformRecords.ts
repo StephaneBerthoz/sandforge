@@ -9,6 +9,7 @@
  * it here instead of rediscovering it on a live run.
  */
 
+import { SELLING_MODEL_OPTION_OBJECT } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from './soqlValidator.js';
 
 /** A SOQL query against the target org, answering the rows it read. */
@@ -91,6 +92,58 @@ export async function directAccountContactRelations(
   }
   records.forEach((r, i) => {
     const id = byPair.get(`${String(r['AccountId'])}|${String(r['ContactId'])}`);
+    if (id) found.set(i, id);
+  });
+  return found;
+}
+
+/** Products per `IN` list when the selling model options are looked up. */
+const OPTION_CHUNK = 200;
+
+/**
+ * The selling model options the target already holds for the product and
+ * selling model a payload names, by the index of the payload.
+ *
+ * A product sells under a model through one option, and a clone whose
+ * product the target already held — linked, not created — finds that option
+ * there. Looked up before the insert rather than read from a refusal: which
+ * words the platform refuses a second option in is not something a copy
+ * should have to learn. The payloads carry target ids already.
+ */
+export async function existingSellingModelOptions(
+  query: SoqlQuery,
+  records: readonly Record<string, unknown>[],
+): Promise<Map<number, string>> {
+  const found = new Map<number, string>();
+  const products = [
+    ...new Set(
+      records
+        .map((r) => r['Product2Id'])
+        .filter((id): id is string => typeof id === 'string' && id !== ''),
+    ),
+  ];
+  if (products.length === 0) return found;
+  const byPair = new Map<string, string>();
+  for (let i = 0; i < products.length; i += OPTION_CHUNK) {
+    const inList = products
+      .slice(i, i + OPTION_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    const rows = await query(
+      `SELECT Id, Product2Id, ProductSellingModelId FROM ${SELLING_MODEL_OPTION_OBJECT} ` +
+        `WHERE Product2Id IN (${inList})`,
+    );
+    for (const row of rows) {
+      if (typeof row['Id'] === 'string') {
+        byPair.set(
+          `${String(row['Product2Id'])}|${String(row['ProductSellingModelId'])}`,
+          row['Id'],
+        );
+      }
+    }
+  }
+  records.forEach((r, i) => {
+    const id = byPair.get(`${String(r['Product2Id'])}|${String(r['ProductSellingModelId'])}`);
     if (id) found.set(i, id);
   });
   return found;

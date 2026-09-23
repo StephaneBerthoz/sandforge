@@ -1102,6 +1102,19 @@ describe('ForgeExecutor', () => {
       return { orgDeps, inserted, updated };
     }
 
+    /** The ids of the rows each object's reads returned, whatever the statement. */
+    function recordReads(orgDeps: ForgeExecutorDeps): Record<string, Set<string>> {
+      const read: Record<string, Set<string>> = {};
+      const query = orgDeps.queryRecords;
+      orgDeps.queryRecords = async (org, soql, onTruncated) => {
+        const rows = await query(org, soql, onTruncated);
+        const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+        for (const row of rows) (read[object] ??= new Set()).add(String(row['Id']));
+        return rows;
+      };
+      return read;
+    }
+
     const ACCOUNT = '001000000000001AAA';
     const KEY_CONTACT = '003000000000001AAA';
     const OTHER_CONTACT = '003000000000002AAA';
@@ -1543,18 +1556,6 @@ describe('ForgeExecutor', () => {
           text('UnitPrice'),
         ],
       };
-      /** The ids of the rows each object's reads returned, whatever the statement. */
-      function recordReads(orgDeps: ForgeExecutorDeps): Record<string, Set<string>> {
-        const read: Record<string, Set<string>> = {};
-        const query = orgDeps.queryRecords;
-        orgDeps.queryRecords = async (org, soql, onTruncated) => {
-          const rows = await query(org, soql, onTruncated);
-          const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
-          for (const row of rows) (read[object] ??= new Set()).add(String(row['Id']));
-          return rows;
-        };
-        return read;
-      }
 
       it('reads the prices its line items use and their standard prices, not the whole price book', async () => {
         // The opportunity's price book holds six prices and its line items
@@ -1839,6 +1840,365 @@ describe('ForgeExecutor', () => {
           'Widget 3 custom',
           'Widget 4 custom',
         ]);
+        expect(summary.errors).toEqual([]);
+      });
+    });
+
+    describe('a catalog sold under selling models', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const OTHER_OPPORTUNITY = '006000000000002AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const STANDARD = '01s000000000001AAA';
+      const CUSTOM = '01s000000000002AAA';
+      const ONE_TIME = '0jP000000000001AAA';
+      const YEARLY = '0jP000000000002AAA';
+      const product = (n: number): string => `01t00000000000${n}AAA`;
+      /** Each model a number, each book a digit: a price's id says what it is. */
+      const MODELS: Record<string, [string | null, number]> = {
+        none: [null, 0],
+        once: [ONE_TIME, 1],
+        yearly: [YEARLY, 2],
+      };
+      const price = (book: 'standard' | 'custom', model: string, n: number): string =>
+        `01u00000000${book === 'standard' ? 1 : 2}${MODELS[model][1]}${n}0AAA`;
+      const priceRow = (
+        book: 'standard' | 'custom',
+        model: string,
+        n: number,
+        active = true,
+      ): FakeRow => ({
+        Id: price(book, model, n),
+        Name: `Widget ${n} ${book} ${model}`,
+        Pricebook2Id: book === 'standard' ? STANDARD : CUSTOM,
+        Product2Id: product(n),
+        ProductSellingModelId: MODELS[model][0],
+        IsActive: active,
+      });
+      const line = (id: string, n: number, model: string): FakeRow => ({
+        Id: id,
+        OpportunityId: OPPORTUNITY,
+        PricebookEntryId: price('custom', model, n),
+        Product2Id: product(n),
+      });
+
+      /**
+       * A source org sold as a real one was: every widget priced from before
+       * selling models, deactivated, and again under the one-time model; the
+       * first also sold yearly, and a fourth only on another opportunity.
+       */
+      function tables(): Record<string, FakeRow[]> {
+        return {
+          Pricebook2: [
+            { Id: STANDARD, Name: 'Standard', IsStandard: true },
+            { Id: CUSTOM, Name: 'Custom', IsStandard: false },
+          ],
+          Product2: [1, 2, 3, 4].map((n) => ({ Id: product(n), Name: `Widget ${n}` })),
+          ProductSellingModel: [
+            { Id: ONE_TIME, Name: 'One time', SellingModelType: 'OneTime' },
+            { Id: YEARLY, Name: 'Yearly', SellingModelType: 'TermDefined' },
+          ],
+          ProductSellingModelOption: [
+            ...[1, 2, 3, 4].map((n) => ({
+              Id: `0iO00000000000${n}AAA`,
+              Product2Id: product(n),
+              ProductSellingModelId: ONE_TIME,
+              IsDefault: true,
+            })),
+            {
+              Id: '0iO000000000009AAA',
+              Product2Id: product(1),
+              ProductSellingModelId: YEARLY,
+              IsDefault: false,
+            },
+          ],
+          PricebookEntry: [
+            ...[1, 2, 3, 4].flatMap((n) => [
+              priceRow('standard', 'none', n, false),
+              priceRow('standard', 'once', n),
+              priceRow('custom', 'none', n, false),
+              priceRow('custom', 'once', n),
+            ]),
+            priceRow('standard', 'yearly', 1),
+            priceRow('custom', 'yearly', 1),
+          ],
+          Opportunity: [
+            { Id: OPPORTUNITY, Name: 'Deal', Pricebook2Id: CUSTOM },
+            { Id: OTHER_OPPORTUNITY, Name: 'Other deal', Pricebook2Id: CUSTOM },
+          ],
+          OpportunityLineItem: [
+            line('00k000000000001AAA', 1, 'once'),
+            line('00k000000000002AAA', 2, 'once'),
+            // Lines from before selling models, on their old prices: one of a
+            // widget another line buys under the one-time model.
+            line('00k000000000003AAA', 3, 'none'),
+            line('00k000000000005AAA', 1, 'none'),
+            { ...line('00k000000000004AAA', 4, 'once'), OpportunityId: OTHER_OPPORTUNITY },
+          ],
+          Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+          QuoteLineItem: [
+            {
+              Id: '0QL000000000001AAA',
+              QuoteId: QUOTE,
+              PricebookEntryId: price('custom', 'once', 2),
+              Product2Id: product(2),
+            },
+          ],
+        };
+      }
+      const fields: Record<string, FieldInfo[]> = {
+        Pricebook2: [idField, text('Name'), { ...text('IsStandard'), createable: false }],
+        Product2: [idField, text('Name')],
+        ProductSellingModel: [idField, text('Name'), text('SellingModelType')],
+        ProductSellingModelOption: [
+          idField,
+          lookup('Product2Id', 'Product2', true),
+          lookup('ProductSellingModelId', 'ProductSellingModel', true),
+          text('IsDefault'),
+        ],
+        PricebookEntry: [
+          idField,
+          text('Name'),
+          lookup('Pricebook2Id', 'Pricebook2', true),
+          lookup('Product2Id', 'Product2', true),
+          lookup('ProductSellingModelId', 'ProductSellingModel'),
+          text('IsActive'),
+        ],
+        Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+        OpportunityLineItem: [
+          idField,
+          lookup('OpportunityId', 'Opportunity', true),
+          lookup('PricebookEntryId', 'PricebookEntry'),
+          lookup('Product2Id', 'Product2'),
+        ],
+        Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+        QuoteLineItem: [
+          idField,
+          lookup('QuoteId', 'Quote', true),
+          lookup('PricebookEntryId', 'PricebookEntry', true),
+          lookup('Product2Id', 'Product2', true),
+        ],
+      };
+      /**
+       * The graph two levels around the opportunity, in the order discovery
+       * met it: the prices before the products, the quote line before the
+       * prices, and nothing walked at the edge — no option, no edge from a
+       * price to the quote line or from a product to a price.
+       */
+      function graph(): ForgeGraph {
+        return makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Pricebook2'),
+            makeNode('Quote'),
+            makeNode('ProductSellingModel'),
+            makeNode('QuoteLineItem'),
+            makeNode('PricebookEntry'),
+            makeNode('OpportunityLineItem'),
+            makeNode('Product2'),
+          ],
+          [
+            edge('Pricebook2', 'Opportunity'),
+            edge('Opportunity', 'Quote'),
+            { ...edge('Quote', 'QuoteLineItem'), required: true },
+            edge('Opportunity', 'OpportunityLineItem'),
+            { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+            edge('Product2', 'OpportunityLineItem'),
+            edge('Pricebook2', 'PricebookEntry'),
+          ],
+        );
+      }
+
+      /**
+       * A target that refuses what the platform refuses: a price whose product
+       * is not there, a price under a model its product has no option for, a
+       * custom price with no standard price of the same product and model,
+       * and a line whose price is not there.
+       */
+      function platform(
+        orgDeps: ForgeExecutorDeps,
+        inserted: Record<string, Array<Record<string, unknown>>>,
+      ) {
+        const insert = orgDeps.insertRecords;
+        const refused: string[] = [];
+        const has = (object: string, test: (row: Record<string, unknown>) => boolean): boolean =>
+          (inserted[object] ?? []).some(test);
+        orgDeps.insertRecords = async (org, object, rows) => {
+          const why = rows.map((row): string | undefined => {
+            if (object === 'PricebookEntry') {
+              if (!String(row['Product2Id'] ?? '').startsWith('Product2:')) {
+                return 'REQUIRED_FIELD_MISSING: Product2Id';
+              }
+              const model = row['ProductSellingModelId'] ?? null;
+              if (
+                model !== null &&
+                !has(
+                  'ProductSellingModelOption',
+                  (o) =>
+                    o['Product2Id'] === row['Product2Id'] && o['ProductSellingModelId'] === model,
+                )
+              ) {
+                return 'FIELD_INTEGRITY_EXCEPTION: add a product selling model option to the product first';
+              }
+              if (
+                row['Pricebook2Id'] !== STANDARD &&
+                !has(
+                  'PricebookEntry',
+                  (p) =>
+                    p['Pricebook2Id'] === STANDARD &&
+                    p['Product2Id'] === row['Product2Id'] &&
+                    (p['ProductSellingModelId'] ?? null) === model,
+                )
+              ) {
+                return 'STANDARD_PRICE_NOT_DEFINED: no standard price for this product';
+              }
+            }
+            if (
+              (object === 'OpportunityLineItem' || object === 'QuoteLineItem') &&
+              !String(row['PricebookEntryId'] ?? '').startsWith('PricebookEntry:')
+            ) {
+              return 'FIELD_INTEGRITY_EXCEPTION: must specify pricebook entry id';
+            }
+            return undefined;
+          });
+          const accepted = rows.filter((_, i) => why[i] === undefined);
+          const results = accepted.length > 0 ? await insert(org, object, accepted) : [];
+          let next = 0;
+          return rows.map((row, i) => {
+            const reason = why[i];
+            if (reason === undefined) return results[next++];
+            refused.push(`${object} ${String(row['Name'] ?? row['Product2Id'])}: ${reason}`);
+            return { id: '', success: false, errors: [reason] };
+          });
+        };
+        return refused;
+      }
+
+      it('clones the options of the products it prices, and every price and line sold under them', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const refused = platform(orgDeps, inserted);
+        const read = recordReads(orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+          },
+        );
+
+        expect(refused).toEqual([]);
+        // The options of the three products, under the one model the prices
+        // name: not the yearly one, not the fourth product's.
+        expect(inserted['ProductSellingModelOption']).toEqual(
+          [1, 2, 3].map((n) => ({
+            Product2Id: `Product2:Widget ${n}`,
+            ProductSellingModelId: 'ProductSellingModel:One time',
+            IsDefault: true,
+          })),
+        );
+        expect(inserted['ProductSellingModel'].map((r) => r['Name'])).toEqual(['One time']);
+        expect([...read['PricebookEntry']].filter((id) => id.endsWith('40AAA'))).toEqual([]);
+        // Each custom price with the standard price of its own selling model:
+        // the first widget keeps both of its prices, old and one-time.
+        expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+          'Widget 1 standard none',
+          'Widget 1 standard once',
+          'Widget 2 standard once',
+          'Widget 3 standard none',
+          'Widget 1 custom none',
+          'Widget 1 custom once',
+          'Widget 2 custom once',
+          'Widget 3 custom none',
+        ]);
+        expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+          'PricebookEntry:Widget 1 custom once',
+          'PricebookEntry:Widget 2 custom once',
+          'PricebookEntry:Widget 3 custom none',
+          'PricebookEntry:Widget 1 custom none',
+        ]);
+        expect(inserted['QuoteLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+          'PricebookEntry:Widget 2 custom once',
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('writes products and selling models, their options, prices and lines in that order', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        platform(orgDeps, inserted);
+
+        await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        const written = Object.keys(inserted);
+        const before = (a: string, b: string): boolean => written.indexOf(a) < written.indexOf(b);
+        expect(before('Product2', 'ProductSellingModelOption')).toBe(true);
+        expect(before('ProductSellingModel', 'ProductSellingModelOption')).toBe(true);
+        expect(before('ProductSellingModelOption', 'PricebookEntry')).toBe(true);
+        expect(before('PricebookEntry', 'QuoteLineItem')).toBe(true);
+        expect(before('PricebookEntry', 'OpportunityLineItem')).toBe(true);
+      });
+
+      it('reads none of the prices sold under a selling model its lines name', async () => {
+        // A deeper graph walks the selling model, whose prices are its
+        // children, and a quote line names it before any price is read. Read
+        // as any parent in scope is, the one-time model of a real org would
+        // have brought its 275 prices.
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...tables(),
+            QuoteLineItem: tables().QuoteLineItem.map((row) => ({
+              ...row,
+              ProductSellingModelId: ONE_TIME,
+            })),
+          },
+          {
+            ...fields,
+            QuoteLineItem: [
+              ...fields.QuoteLineItem,
+              lookup('ProductSellingModelId', 'ProductSellingModel'),
+            ],
+          },
+        );
+        platform(orgDeps, inserted);
+        const read = recordReads(orgDeps);
+        const walked = graph();
+        walked.edges.push(edge('ProductSellingModel', 'PricebookEntry'));
+
+        const summary = await new ForgeExecutor(orgDeps).execute(walked, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        // Nothing of the fourth widget, sold under the same model.
+        expect([...read['PricebookEntry']].filter((id) => id.endsWith('40AAA'))).toEqual([]);
+        expect(inserted['PricebookEntry']).toHaveLength(8);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('names the options it would write in a dry run', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            dryRun: true,
+          },
+        );
+
+        expect(inserted).toEqual({});
+        expect(progressEvents.map((e) => e.message)).toContain(
+          '[dry-run] ProductSellingModelOption: 3 record(s) would be inserted',
+        );
         expect(summary.errors).toEqual([]);
       });
     });
