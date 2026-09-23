@@ -981,6 +981,48 @@ describe('ForgeHandler', () => {
       expect(options.signal?.aborted).toBe(true);
       expect(orchestrator.abort).not.toHaveBeenCalled();
     });
+
+    it('records a discovery a newer one replaced as aborted, not as completed', async () => {
+      // Stopped by its controller alone, the replaced walk settled with no
+      // error, and the registry listed it completed: Live Operations said it
+      // had finished, and "forge completed" popped up with no panel open.
+      const resolvers: Array<(graph: ForgeGraph) => void> = [];
+      vi.mocked(orchestrator.discover).mockImplementation(
+        () =>
+          new Promise<ForgeGraph>((resolve) => {
+            resolvers.push(resolve);
+          }),
+      );
+
+      const first = handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+      await vi.waitFor(() => expect(registry.getRunning()).toHaveLength(1));
+      const [replaced] = registry.getRunning().map((o) => o.operationId);
+      const second = handler.handle(
+        // Its own id: two messages built in the same millisecond share one.
+        inboundRequest({
+          id: 'newer-discover',
+          type: 'forge:discover',
+          timestamp: Date.now(),
+          payload: { config: createMockConfig() },
+        } as BaseMessage),
+      );
+      await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+
+      // The replaced walk hands back the partial graph it had reached.
+      resolvers[0]({ ...createMockGraph(), nodes: [] });
+      await first;
+
+      expect(events.filter(([id]) => id === replaced)).toEqual([
+        [replaced, 'started'],
+        [replaced, 'aborted'],
+      ]);
+      // The newer discovery is the one still running.
+      expect(registry.getRunning().map((o) => o.operationId)).not.toContain(replaced);
+      expect(registry.getRunning()).toHaveLength(1);
+
+      resolvers[1](createMockGraph());
+      await second;
+    });
   });
 
   describe('forge:execute duplicate guard', () => {

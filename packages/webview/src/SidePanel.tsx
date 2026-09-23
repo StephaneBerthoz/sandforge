@@ -39,25 +39,61 @@ import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
 import type { OrgListResponse } from '@sandforge/shared';
 
-/** Status icon component for a recent operation. */
+/**
+ * The word each status is read by: the one Home's badges print, so a status
+ * reads the same on both.
+ */
+const STATUS_NAME_KEYS: Record<RecentOp['status'], string> = {
+  success: 'home.opStatus.success',
+  failed: 'home.opStatus.failed',
+  running: 'home.opStatus.running',
+  cancelled: 'home.opStatus.cancelled',
+};
+
+/**
+ * Status icon component for a recent operation.
+ *
+ * An image named by its status. The icons said it by shape and colour alone:
+ * a screen reader read the operation's label and its time, and nothing of
+ * whether it had succeeded, failed or been cancelled.
+ */
 const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
+  const { t } = useTranslation();
+  const name = { role: 'img', 'aria-label': t(STATUS_NAME_KEYS[status]) };
   switch (status) {
     case 'success':
       return (
-        <CheckCircle className="w-3.5 h-3.5 text-status-success" data-testid="op-status-success" />
+        <CheckCircle
+          className="w-3.5 h-3.5 text-status-success"
+          data-testid="op-status-success"
+          {...name}
+        />
       );
     case 'failed':
-      return <XCircle className="w-3.5 h-3.5 text-status-error" data-testid="op-status-failed" />;
+      return (
+        <XCircle
+          className="w-3.5 h-3.5 text-status-error"
+          data-testid="op-status-failed"
+          {...name}
+        />
+      );
     case 'running':
       return (
         <Loader
           className="w-3.5 h-3.5 text-status-info animate-spin"
           data-testid="op-status-running"
+          {...name}
         />
       );
     // A run someone stopped: neither the success tick nor the failure cross.
     case 'cancelled':
-      return <Ban className="w-3.5 h-3.5 text-text-secondary" data-testid="op-status-cancelled" />;
+      return (
+        <Ban
+          className="w-3.5 h-3.5 text-text-secondary"
+          data-testid="op-status-cancelled"
+          {...name}
+        />
+      );
   }
 };
 

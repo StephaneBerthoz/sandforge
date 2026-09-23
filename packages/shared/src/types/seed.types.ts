@@ -132,6 +132,12 @@ export interface SeedExecutionResult {
   totalRecordsFailed: number;
   duration: number;
   timestamp: ISODateString;
+  /**
+   * Set when a cancel stopped the run before it had written every object. The
+   * objects listed are the ones it reached, and the records they created stay
+   * in the org; its status is never `success`.
+   */
+  cancelled?: boolean;
 }
 
 /** Per-object seed result */

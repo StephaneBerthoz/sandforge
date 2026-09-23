@@ -121,3 +121,65 @@ describe('SidePanel favourite stars', () => {
     );
   });
 });
+
+/**
+ * The last operation's status was an icon and nothing else: its shape and
+ * colour said it, and a screen reader read the operation's label and time
+ * with nothing of how it ended.
+ */
+describe('SidePanel last operation status', () => {
+  /** The panel, with the catalogue of a language. */
+  const renderIn = async (lng: 'en' | 'fr'): Promise<void> => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, fr: { translation: fr } },
+      interpolation: { escapeValue: false },
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SidePanel />
+      </I18nextProvider>,
+    );
+  };
+
+  /** A last operation that ended this way a minute ago. */
+  const endedAs = (status: 'success' | 'failed' | 'cancelled'): void => {
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'seed',
+          label: 'Seed data generation',
+          status,
+          timestamp: Date.now() - 60_000,
+        },
+      ],
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useFavoritesStore.setState({ favorites: [] });
+  });
+
+  it.each([
+    ['success', 'Succeeded'],
+    ['failed', 'Failed'],
+    ['cancelled', 'Cancelled'],
+  ] as const)('names a %s operation by how it ended', async (status, name) => {
+    endedAs(status);
+    await renderIn('en');
+
+    const lastOp = within(screen.getByTestId('sidepanel-last-op'));
+    expect(lastOp.getByRole('img', { name })).toBe(screen.getByTestId(`op-status-${status}`));
+  });
+
+  it('names the status in the language of the panel', async () => {
+    endedAs('cancelled');
+    await renderIn('fr');
+
+    expect(screen.getByTestId('op-status-cancelled').getAttribute('aria-label')).toBe('Annulée');
+  });
+});

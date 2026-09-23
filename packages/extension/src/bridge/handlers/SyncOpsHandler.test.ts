@@ -2565,4 +2565,185 @@ describe('SyncOpsHandler', () => {
       expect(describe.mock.calls.length - callsBefore).toBe(1);
     });
   });
+
+  describe('a sync a cancel stopped', () => {
+    /** Settles once the signal is aborted, at once when it already is. */
+    function whenAborted(signal: AbortSignal): Promise<void> {
+      if (signal.aborted) return Promise.resolve();
+      return new Promise((resolve) => signal.addEventListener('abort', () => resolve()));
+    }
+
+    /** What the orchestrator answers for a run stopped after its first object. */
+    const stoppedAfterAccount = {
+      configId: 'cfg-1',
+      operationId: 'sync-run',
+      status: 'partial',
+      cancelled: true,
+      error: 'Cancelled before Contact was synced.',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          processed: 2,
+          success: 2,
+          failed: 0,
+          skipped: 0,
+          conflictCount: 0,
+          errors: [],
+        },
+      ],
+      totalProcessed: 2,
+      totalSuccess: 2,
+      totalFailed: 0,
+      totalSkipped: 0,
+      duration: 5,
+      timestamp: '2026-09-23T10:00:00.000Z',
+    };
+
+    /** An orchestrator that runs until the cancel, then does what `onCancel` says. */
+    function orchestratorUntilTheCancel(onCancel: () => unknown): {
+      signal: () => AbortSignal | undefined;
+    } {
+      let handed: AbortSignal | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function (orchestratorDeps: { signal?: AbortSignal }) {
+          handed = orchestratorDeps.signal;
+          return {
+            execute: vi.fn(async () => {
+              if (!handed) throw new Error('the run was handed no signal');
+              await whenAborted(handed);
+              return onCancel();
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+      return { signal: () => handed };
+    }
+
+    /** A connection the run gets through: both describes answer, nothing is refused. */
+    function mockWorkingConnection(): void {
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+    }
+
+    /** The `operation:*` messages that ended the run: completed or failed. */
+    function runEnds(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'operation:completed' || m.type === 'operation:failed');
+    }
+
+    function startSync(id: string): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id,
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
+    }
+
+    it('hands the orchestrator the signal Live Operations aborts', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      const run = orchestratorUntilTheCancel(() => stoppedAfterAccount);
+      mockWorkingConnection();
+
+      await startSync('sync-cancel-signal');
+      await vi.waitFor(() => expect(run.signal()).toBeDefined());
+      expect(run.signal()?.aborted).toBe(false);
+
+      // What execution:abort does with the id Live Operations sends.
+      registry.abort('sync-cancel-signal');
+
+      expect(run.signal()?.aborted).toBe(true);
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+    });
+
+    it('ends as aborted, not with the status its objects came to, everywhere the run is listed', async () => {
+      const registry = new BackgroundOperationRegistry();
+      const registryEvents: string[] = [];
+      registry.onEvent((_id, type) => registryEvents.push(type));
+      handler.setRegistry(registry);
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      orchestratorUntilTheCancel(() => stoppedAfterAccount);
+      mockWorkingConnection();
+
+      await startSync('sync-cancel-ends');
+      registry.abort('sync-cancel-ends');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      // What the recent operations and Home read: a completion that says it
+      // was aborted, never the partial status of what it reached.
+      expect(runEnds()[0]).toMatchObject({
+        type: 'operation:completed',
+        payload: { operationId: 'sync-cancel-ends', result: { aborted: true } },
+      });
+      expect(registry.get('sync-cancel-ends')?.status).toBe('aborted');
+      expect(registryEvents).toEqual(['started', 'aborted']);
+      expect(tracker.get('sync-cancel-ends')?.status).toBe('cancelled');
+      // The page still hears what the run wrote before it stopped.
+      const answer = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .find((m) => m.type === 'sync:execute:response');
+      expect(answer?.payload).toMatchObject({ cancelled: true, totalSuccess: 2 });
+      // And the audit trail keeps the records it wrote.
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'sync-cancel-ends',
+          outcome: 'partial',
+          objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
+        }),
+      ]);
+      tracker.dispose();
+    });
+
+    it('still ends as failed when the run fails while the cancel is pending', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      orchestratorUntilTheCancel(() => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      });
+      mockWorkingConnection();
+
+      await startSync('sync-cancel-fails');
+      registry.abort('sync-cancel-fails');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      expect(runEnds()[0]).toMatchObject({
+        type: 'operation:failed',
+        payload: {
+          operationId: 'sync-cancel-fails',
+          error: 'INVALID_SESSION_ID: Session expired or invalid',
+        },
+      });
+    });
+
+    it('answers a scheduled run with what it reached, cancelled, for the schedule to say so', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      orchestratorUntilTheCancel(() => stoppedAfterAccount);
+      mockWorkingConnection();
+
+      const scheduled = handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+      await vi.waitFor(() => expect(registry.getRunning()).toHaveLength(1));
+      registry.abort(registry.getRunning()[0].operationId);
+
+      await expect(scheduled).resolves.toMatchObject({ cancelled: true, status: 'partial' });
+      expect(runEnds().map((m) => m.payload.result)).toEqual([{ aborted: true }]);
+    });
+  });
 });

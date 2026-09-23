@@ -399,3 +399,127 @@ describe('a mapped sync writes each mapping once', () => {
     ]);
   });
 });
+
+describe('a cancel stops the run before what it has not reached', () => {
+  /** Account, then Contact, then Opportunity. */
+  const threeObjects = (): SyncConfig =>
+    createConfig({
+      objects: [
+        createObjectConfig({ objectApiName: 'Account', insertOrder: 0 }),
+        createObjectConfig({ objectApiName: 'Contact', insertOrder: 1 }),
+        createObjectConfig({ objectApiName: 'Opportunity', insertOrder: 2 }),
+      ],
+    });
+
+  it('syncs no object after the cancel, and answers with the ones it reached', async () => {
+    // Nothing but an upload of more than ten thousand records looked at the
+    // cancel: the two objects after it were read and written all the same.
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.dataSync = {
+      sync: vi.fn(async (objectConfig: SyncObjectConfig) => {
+        stop.abort();
+        return createSuccessResult(objectConfig.objectApiName);
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+
+    const result = await new SyncOrchestrator(deps).execute(threeObjects());
+
+    expect(deps.querySource).toHaveBeenCalledTimes(1);
+    expect(deps.dataSync.sync).toHaveBeenCalledTimes(1);
+    expect(result.cancelled).toBe(true);
+    expect(result.objectResults.map((r) => r.objectApiName)).toEqual(['Account']);
+    expect(result.totalSuccess).toBe(1);
+    // The object it reached succeeded, and the run is still not a success.
+    expect(result.status).toBe('partial');
+    expect(result.error).toBe('Cancelled before Contact, Opportunity were synced.');
+    // Nothing is marked synced: the next run reads again what this one skipped.
+    expect(deps.incrementalTracker.recordSync).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing of an object the cancel came while it was being read', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.querySource = vi.fn(async () => {
+      stop.abort();
+      return [{ Id: '001', Name: 'Acme' }];
+    });
+
+    const result = await new SyncOrchestrator(deps).execute(createConfig());
+
+    expect(deps.dataSync.sync).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      cancelled: true,
+      status: 'partial',
+      objectResults: [],
+      totalProcessed: 0,
+      error: 'Cancelled before Account was synced.',
+    });
+  });
+
+  it('keeps the failure of a run whose every object it reached failed', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.dataSync = {
+      sync: vi.fn(async () => {
+        stop.abort();
+        return { ...createSuccessResult('Account'), success: 0, failed: 1, errors: ['refused'] };
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+
+    const result = await new SyncOrchestrator(deps).execute(threeObjects());
+
+    expect(result).toMatchObject({ cancelled: true, status: 'failure', totalFailed: 1 });
+  });
+
+  it('still fails, and says why, when an object fails while a cancel is pending', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.querySource = vi.fn(async () => {
+      stop.abort();
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+
+    const failure = await new SyncOrchestrator(deps).execute(threeObjects()).then(
+      () => undefined,
+      (err: unknown) => err as SyncRunFailure,
+    );
+
+    expect(failure).toBeInstanceOf(SyncRunFailure);
+    expect(failure?.message).toBe('INVALID_SESSION_ID: Session expired or invalid');
+    expect(failure?.result.cancelled).toBeUndefined();
+  });
+
+  it('tells the Grappe view the run is over', async () => {
+    const stop = new AbortController();
+    const events: SyncGrappeEvent[] = [];
+    const deps = createMockDeps();
+    deps.signal = stop.signal;
+    deps.grappeConfig = { ...DEFAULT_GRAPPE_CONFIG, enabled: true, autoActivateThreshold: 1 };
+    deps.countSource = vi.fn(async () => 5_000);
+    deps.onGrappeEvent = (event) => events.push(event);
+    deps.dataSync = {
+      sync: vi.fn(async () => {
+        stop.abort();
+        return createSuccessResult('Account');
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+
+    const result = await new SyncOrchestrator(deps).execute(threeObjects());
+
+    expect(events.map((event) => event.type)).toEqual([
+      'grappe:started',
+      'grappe:partitionProgress',
+      'grappe:completed',
+    ]);
+    expect(events[2].payload).toMatchObject({
+      operationId: result.operationId,
+      totalProcessed: 1,
+      totalFailed: 0,
+    });
+  });
+});

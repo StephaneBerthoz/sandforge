@@ -736,6 +736,11 @@ export class SeedOpsHandler implements DomainHandler {
    * 'completed' and fire a lying "seed completed" notification); a rejection
    * would double-emit on the no-registry fallback path where handleExecute
    * awaits this promise inside its own try/catch.
+   *
+   * A run the registry's abort stopped ends as cancelled, with the objects it
+   * reached answered to the page and recorded. An error thrown while a cancel
+   * is pending is still a failure: only the orchestrator, stopping at the
+   * cancel, says a run was cancelled.
    */
   private async executeSeed(
     msg: InboundRequest,
@@ -806,6 +811,9 @@ export class SeedOpsHandler implements DomainHandler {
           return {
             successIds: streamResult.successIds,
             errors: streamResult.errors,
+            // An upload the cancel stopped answers with nothing written: told
+            // nothing more, the run went on to the next object.
+            ...(streamResult.aborted ? { stopped: true } : {}),
           };
         }
 
@@ -934,6 +942,9 @@ export class SeedOpsHandler implements DomainHandler {
           runProgress.total = event.totalRecords;
           reportInsertProgress(0, event.totalRecords, `Insert ${event.objectApiName}`);
         },
+        // The controller the registry aborts: the Seed page's Cancel and Live
+        // Operations' both reach the run through it.
+        signal: abortController.signal,
       };
       if (!this.deps.services) {
         throw new Error(
@@ -952,22 +963,36 @@ export class SeedOpsHandler implements DomainHandler {
         'Validating template and building plan',
       );
       const result = await orchestrator.execute(template, payload.orgId);
-      sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
+      if (!result.cancelled) {
+        sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
+      }
       // What the orchestrator reports it wrote. A cast to an `insertedIds`
       // array no result ever carried reported every finished run as 0 records.
       const totalRecords = result.totalRecordsCreated;
       this.deps.infraServices?.performanceTracker?.update(operationId, totalRecords, 1);
       this.deps.infraServices?.performanceTracker?.complete(operationId);
-      // The run's own status, the way the other write paths report theirs. A
-      // template the validator refused, or one whose every record the org
-      // turned down, ends here with a failure status, and was announced as
-      // completed: Live Operations listed it done, "seed completed" popped up
-      // and Home showed a success.
-      sendOperationCompleted(this.deps, operationId, { status: result.status, totalRecords });
-      if (result.status === 'failure') {
-        this.liveTracker?.fail(operationId, seedFailureReason(result));
+      if (result.cancelled) {
+        // Ended the way a cancelled backup ends: aborted in the registry —
+        // already, when the cancel came through it; this lists a run stopped
+        // any other way as aborted too — and posted as a completion that
+        // says so. A stopped seed was posted with the status its objects came
+        // to, so the recent operations and Home listed a run the user had
+        // stopped as failed or succeeded, and Live Operations kept it running.
+        this.registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true, totalRecords });
+        this.liveTracker?.cancel(operationId);
       } else {
-        this.liveTracker?.complete(operationId);
+        // The run's own status, the way the other write paths report theirs.
+        // A template the validator refused, or one whose every record the org
+        // turned down, ends here with a failure status, and was announced as
+        // completed: Live Operations listed it done, "seed completed" popped
+        // up and Home showed a success.
+        sendOperationCompleted(this.deps, operationId, { status: result.status, totalRecords });
+        if (result.status === 'failure') {
+          this.liveTracker?.fail(operationId, seedFailureReason(result));
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
       }
       recordWriteRun(this.deps, {
         action: 'seed_execute',
@@ -993,8 +1018,9 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
       // A failure status, not a bare resolve, so the registry marks the run
-      // failed — see the method docstring for the contract.
-      if (result.status === 'failure') return { status: 'failure' };
+      // failed — see the method docstring for the contract. A cancelled run
+      // is aborted there already.
+      if (result.status === 'failure' && !result.cancelled) return { status: 'failure' };
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));

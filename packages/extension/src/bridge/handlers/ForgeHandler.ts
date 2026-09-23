@@ -679,6 +679,12 @@ export class ForgeHandler implements DomainHandler {
     // A discovery still running belongs to a screen the user has left (Back,
     // then Discover again). Overwriting its controller without aborting it
     // left that BFS running beside the new one with nothing able to stop it.
+    // Stopped through the registry first, as forge:abort stops one: stopped
+    // by its controller alone, it settled with no error and the registry
+    // recorded the replaced walk as completed.
+    if (this.discoverOperationId) {
+      this.deps.infraServices?.backgroundRegistry?.abort(this.discoverOperationId);
+    }
     this.discoverAbortController?.abort();
     const controller = new AbortController();
     this.discoverAbortController = controller;

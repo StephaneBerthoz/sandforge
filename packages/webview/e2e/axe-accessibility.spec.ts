@@ -1781,6 +1781,43 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="recent-ops-card"]');
     });
 
+    test('Side panel last operation, named by how it ended', async ({ page }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      // The panel shows the last operation only: each ending in turn, each
+      // status icon named, and each state scanned.
+      const endings: Array<[string, { type: string; payload: Record<string, unknown> }]> = [
+        [
+          'Succeeded',
+          { type: 'operation:completed', payload: { operationId: 'op-ok', result: {} } },
+        ],
+        [
+          'Failed',
+          {
+            type: 'operation:failed',
+            payload: { operationId: 'op-failed', error: 'refused', retryable: false },
+          },
+        ],
+        [
+          'Cancelled',
+          {
+            type: 'operation:completed',
+            payload: { operationId: 'op-cancelled', result: { aborted: true } },
+          },
+        ],
+      ];
+      for (const [name, ended] of endings) {
+        await bridge.stream([
+          started(String(ended.payload.operationId), 'seed', 'Seed data generation'),
+          ended,
+        ]);
+        const lastOp = page.getByTestId('sidepanel-last-op');
+        await expect(lastOp.getByRole('img', { name })).toBeVisible();
+
+        await expectReadable(page, theme, '[data-testid="sidepanel-last-op"]');
+      }
+    });
+
     test('Compare result with its risk score card', async ({ page }) => {
       await openPanel(bridge, page, 'compare', theme);
       await bridge.seedOrgs(MOCK_ORGS);

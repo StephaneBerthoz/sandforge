@@ -874,6 +874,25 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /**
+   * End a run a cancel stopped, the way a cancelled backup ends: aborted in
+   * the registry, and posted as a completion that says it was aborted.
+   *
+   * A cancelled sync was posted with the status its objects came to, so the
+   * recent operations and Home listed a run the user had stopped as succeeded
+   * or failed, and Live Operations kept it running until it was done.
+   *
+   * @param operationId - The run's id.
+   */
+  private endCancelled(operationId: string): void {
+    // Aborted already when the cancel came through the registry, which is
+    // then a no-op: a run stopped any other way is listed aborted too, rather
+    // than completed once its promise settles.
+    this.registry?.abort(operationId);
+    sendOperationCompleted(this.deps, operationId, { aborted: true });
+    this.liveTracker?.cancel(operationId);
+  }
+
+  /**
    * Execute sync operation in the background.
    * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
    *
@@ -881,6 +900,9 @@ export class SyncOpsHandler implements DomainHandler {
    * (`executeScheduled`) can persist lastRunAt/lastResult; failures are
    * reported on `operation:failed` and converted to a failure-status result
    * rather than a rejection, keeping the registry's monitored promise clean.
+   * A run the registry's abort stopped resolves with the objects it reached,
+   * `cancelled` set, and ends as cancelled; an error thrown while a cancel is
+   * pending is still a failure.
    */
   private async executeSync(
     msg: InboundRequest,
@@ -1136,6 +1158,8 @@ export class SyncOpsHandler implements DomainHandler {
         grappeConfig: readGrappeConfig(this.deps.services),
         onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
         countSource,
+        // The controller the registry aborts: Live Operations' Cancel.
+        signal: abortController.signal,
       };
       if (!this.deps.services) {
         throw new Error(
@@ -1153,11 +1177,15 @@ export class SyncOpsHandler implements DomainHandler {
 
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
       const result = await orchestrator.execute(config);
-      sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Sync complete');
-      sendOperationCompleted(this.deps, operationId, {
-        status: (result as { status?: string }).status ?? 'completed',
-      });
-      this.liveTracker?.complete(operationId);
+      if (result.cancelled) {
+        this.endCancelled(operationId);
+      } else {
+        sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Sync complete');
+        sendOperationCompleted(this.deps, operationId, {
+          status: (result as { status?: string }).status ?? 'completed',
+        });
+        this.liveTracker?.complete(operationId);
+      }
       this.dmlTracker.markCompleted(operationId);
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');

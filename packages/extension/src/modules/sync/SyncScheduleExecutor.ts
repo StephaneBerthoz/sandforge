@@ -88,7 +88,8 @@ export class SyncScheduleExecutor {
 
   /**
    * A schedule as it was loaded, with its next run computed again when none
-   * computed now could be that far: more than a year ahead.
+   * computed now could be that far — more than a year ahead — or when it
+   * cannot be read as a date at all.
    *
    * Before 1.36.0 the search for the next run was unbounded, and an
    * expression naming a day its months do not have (`0 0 31 2,4 *`) was
@@ -98,19 +99,26 @@ export class SyncScheduleExecutor {
    * the past is kept: it is a start missed while no window was open, and the
    * first tick makes it.
    *
+   * One that cannot be read was kept as stored until the first tick, up to
+   * a minute later, and the schedule list is read from here: formatting it
+   * threw ("Invalid time value") and the Sync tab's schedules did not render,
+   * and the Scheduler listed the schedule as having no next run.
+   *
    * @param entry - The schedule as stored.
    * @param now - When the schedules were loaded.
    */
   private withPlausibleNextRun(entry: SyncScheduleEntry, now: number): SyncScheduleEntry {
-    const stored = entry.nextRunAt ? new Date(entry.nextRunAt).getTime() : Number.NaN;
-    if (!(stored > now + SCHEDULE_HORIZON_MS)) return entry;
+    if (!entry.nextRunAt) return entry;
+    const stored = new Date(entry.nextRunAt).getTime();
+    const unreadable = Number.isNaN(stored);
+    if (!unreadable && stored <= now + SCHEDULE_HORIZON_MS) return entry;
     const corrected: SyncScheduleEntry = {
       ...entry,
       nextRunAt: this.computeNextRunAt(entry.cron, entry.timezone),
     };
     this.deps.scheduleStore.save(corrected);
     this.deps.log(
-      `[SyncScheduleExecutor] ${entry.id}: next run ${entry.nextRunAt} replaced by ${corrected.nextRunAt || 'none'}`,
+      `[SyncScheduleExecutor] ${entry.id}: next run ${unreadable ? `"${entry.nextRunAt}" cannot be read,` : entry.nextRunAt} replaced by ${corrected.nextRunAt || 'none'}`,
     );
     return corrected;
   }
@@ -220,10 +228,21 @@ export class SyncScheduleExecutor {
         schedule.updatedAt = new Date(currentTime).toISOString();
         this.deps.scheduleStore.save(schedule);
 
-        // The engine answers a run that failed (connection, Bulk API, abort)
-        // with a failure-status result instead of rejecting, so it is reported
-        // here as a failure, never as completed.
-        if (result.status === 'failure') {
+        // The engine answers a run that failed (connection, Bulk API) with a
+        // failure-status result instead of rejecting, so it is reported here
+        // as a failure, never as completed. A run cancelled from Live
+        // Operations answers with the objects it reached and, unless they all
+        // failed, a partial status: said to have completed with errors, it
+        // read as a run that had had records refused.
+        if (result.cancelled) {
+          if (schedule.notifyOnComplete) {
+            this.deps.notificationCenter.notify(
+              'info',
+              'Sync schedule cancelled',
+              `${schedule.name}: ${result.error ?? 'the run was cancelled.'} Its entry in the sync history has what it wrote.`,
+            );
+          }
+        } else if (result.status === 'failure') {
           if (schedule.notifyOnFailure) {
             const firstError = result.objectResults.flatMap((o) => o.errors)[0];
             this.deps.notificationCenter.notify(

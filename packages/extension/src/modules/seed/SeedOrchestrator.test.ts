@@ -1084,3 +1084,114 @@ describe('SeedOrchestrator — relations', () => {
     ]);
   });
 });
+
+describe('SeedOrchestrator — a cancel stops the run', () => {
+  /** Account, then Contact, then Case: two records each. */
+  function threeObjects(): SeedTemplate {
+    return createTemplate({
+      objects: ['Account', 'Contact', 'Case'].map((objectApiName, insertOrder) => ({
+        objectApiName,
+        recordCount: 2,
+        fieldRules: [],
+        excludedFields: [],
+        insertOrder,
+        batchSize: 200,
+      })),
+    });
+  }
+
+  it('inserts no object after the cancel, and answers with the ones it reached', async () => {
+    // The Seed page's Cancel promises to stop the seed, and nothing but an
+    // insert of more than ten thousand records looked at it.
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    const insert = vi.fn<InsertFn>(async () => {
+      stop.abort();
+      return { successIds: ['001A', '001B'], errors: [] };
+    });
+
+    const result = await new SeedOrchestrator({ ...deps, insert, signal: stop.signal }).execute(
+      threeObjects(),
+      'org-1',
+    );
+
+    expect(insert.mock.calls.map((call) => call[1])).toEqual(['Account']);
+    expect(result.cancelled).toBe(true);
+    expect(result.objectResults.map((r) => r.objectApiName)).toEqual(['Account']);
+    expect(result.totalRecordsCreated).toBe(2);
+    // What it reached was written, and the run is still not a success.
+    expect(result.status).toBe('partial');
+  });
+
+  it('inserts nothing of an object whose records were being generated when the cancel came', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    vi.mocked(deps.fieldMapper.mapFields).mockImplementation(async () => {
+      stop.abort();
+      return [{ Name: 'Record 1' }, { Name: 'Record 2' }];
+    });
+
+    const result = await new SeedOrchestrator({ ...deps, signal: stop.signal }).execute(
+      threeObjects(),
+      'org-1',
+    );
+
+    expect(deps.insert).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ cancelled: true, objectResults: [], totalRecordsCreated: 0 });
+  });
+
+  it('ends cancelled when the insert of its last object was stopped partway', async () => {
+    // An upload the cancel stopped wrote nothing and the run went on: on its
+    // last object, the seed ended a success.
+    const deps = createMockDeps();
+    const insert = vi.fn<InsertFn>(async () => ({ successIds: [], errors: [], stopped: true }));
+
+    const result = await new SeedOrchestrator({ ...deps, insert }).execute(
+      createTemplate(),
+      'org-1',
+    );
+
+    expect(result.cancelled).toBe(true);
+    expect(result.status).not.toBe('success');
+  });
+
+  it('keeps the partitions written before the cancel, and inserts no other', async () => {
+    const stop = new AbortController();
+    const deps = partitionedDeps(createMockDeps(), 1);
+    const events: string[] = [];
+    const insert = vi.fn<InsertFn>(async () => {
+      stop.abort();
+      return { successIds: ['001A'], errors: [] };
+    });
+
+    const result = await new SeedOrchestrator({
+      ...deps,
+      insert,
+      signal: stop.signal,
+      onGrappeEvent: (event) => events.push(event.type),
+    }).execute(threeObjects(), 'org-1');
+
+    // Two partitions of one record planned for Account: only the first went.
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ cancelled: true, status: 'partial', totalRecordsCreated: 1 });
+    expect(result.objectResults.map((r) => r.objectApiName)).toEqual(['Account']);
+    // The Grappe view is told the run is over.
+    expect(events.at(-1)).toBe('grappe:completed');
+  });
+
+  it('still fails with its error when an insert throws while the cancel is pending', async () => {
+    const stop = new AbortController();
+    const deps = createMockDeps();
+    const insert = vi.fn<InsertFn>(async () => {
+      stop.abort();
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+
+    await expect(
+      new SeedOrchestrator({ ...deps, insert, signal: stop.signal }).execute(
+        threeObjects(),
+        'org-1',
+      ),
+    ).rejects.toThrow('INVALID_SESSION_ID: Session expired or invalid');
+  });
+});

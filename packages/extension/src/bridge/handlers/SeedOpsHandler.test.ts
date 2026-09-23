@@ -914,6 +914,24 @@ describe('SeedOpsHandler', () => {
       expect(result.successIds).toEqual(['001AAA', '001BBB']);
       expect(result.errors).toEqual(['DUPLICATE_VALUE']);
     });
+
+    it('says the insert stopped when the cancel stopped a streamed upload', async () => {
+      // The upload answers a cancel with nothing written; passed on as an
+      // empty insert, the run went on to the next object.
+      vi.spyOn(ChunkedBulkExecutor.prototype, 'executeChunked').mockResolvedValue({
+        totalRecords: 2000,
+        successCount: 0,
+        failureCount: 0,
+        successIds: [],
+        errors: [],
+        aborted: true,
+      });
+
+      const insert = await captureInsert();
+      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+    });
   });
 
   describe('seed:template CRUD handlers', () => {
@@ -1726,6 +1744,144 @@ describe('SeedOpsHandler', () => {
 
       await vi.waitFor(() => expect(registry.get(operationId!)?.status).toBe('completed'));
       registry.dispose();
+    });
+  });
+
+  describe('a seed a cancel stopped', () => {
+    /** Settles once the signal is aborted, at once when it already is. */
+    function whenAborted(signal: AbortSignal): Promise<void> {
+      if (signal.aborted) return Promise.resolve();
+      return new Promise((resolve) => signal.addEventListener('abort', () => resolve()));
+    }
+
+    /** What the orchestrator answers for a run stopped after its first object. */
+    const stoppedAfterAccount: SeedExecutionResult = {
+      ...seedResult(5),
+      status: 'partial',
+      cancelled: true,
+    };
+
+    /** An orchestrator that runs until the cancel, then does what `onCancel` says. */
+    function orchestratorUntilTheCancel(onCancel: () => unknown): {
+      signal: () => AbortSignal | undefined;
+    } {
+      let handed: AbortSignal | undefined;
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: { signal?: AbortSignal }) => {
+          handed = seedDeps.signal;
+          return {
+            execute: vi.fn(async () => {
+              if (!handed) throw new Error('the run was handed no signal');
+              await whenAborted(handed);
+              return onCancel();
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+      return { signal: () => handed };
+    }
+
+    function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> });
+    }
+
+    /** The `operation:*` messages that ended the run: completed or failed. */
+    function runEnds(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return posted().filter(
+        (m) => m.type === 'operation:completed' || m.type === 'operation:failed',
+      );
+    }
+
+    function startSeed(id: string): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id,
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+    }
+
+    it('hands the orchestrator the signal a Cancel from the Seed page aborts', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      const run = orchestratorUntilTheCancel(() => stoppedAfterAccount);
+
+      await startSeed('seed-cancel-signal');
+      await vi.waitFor(() => expect(run.signal()).toBeDefined());
+      expect(run.signal()?.aborted).toBe(false);
+
+      // What execution:abort does with the id the Seed page sends.
+      registry.abort('seed-cancel-signal');
+
+      expect(run.signal()?.aborted).toBe(true);
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+    });
+
+    it('ends as aborted, not with the status its objects came to, everywhere the run is listed', async () => {
+      const registry = new BackgroundOperationRegistry();
+      const registryEvents: string[] = [];
+      registry.onEvent((_id, type) => registryEvents.push(type));
+      handler.setRegistry(registry);
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      orchestratorUntilTheCancel(() => stoppedAfterAccount);
+
+      await startSeed('seed-cancel-ends');
+      registry.abort('seed-cancel-ends');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      // What the recent operations and Home read: aborted, with the records
+      // it did create, never the status of the objects it reached.
+      expect(runEnds()[0]).toMatchObject({
+        type: 'operation:completed',
+        payload: { operationId: 'seed-cancel-ends', result: { aborted: true, totalRecords: 5 } },
+      });
+      expect(registry.get('seed-cancel-ends')?.status).toBe('aborted');
+      expect(registryEvents).toEqual(['started', 'aborted']);
+      expect(tracker.get('seed-cancel-ends')?.status).toBe('cancelled');
+      // No bar at 100% for a run that stopped.
+      expect(posted().some((m) => m.payload.currentStep === 'Seed complete')).toBe(false);
+      // The page still hears what was inserted before the stop, and the audit
+      // trail keeps it: those records stay in the org.
+      expect(posted().find((m) => m.type === 'seed:execute:response')?.payload).toMatchObject({
+        cancelled: true,
+        totalRecordsCreated: 5,
+      });
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'seed-cancel-ends',
+          outcome: 'partial',
+          objects: [expect.objectContaining({ objectApiName: 'Account', created: 5 })],
+        }),
+      ]);
+      tracker.dispose();
+    });
+
+    it('still ends as failed when the run fails while the cancel is pending', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      orchestratorUntilTheCancel(() => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      });
+
+      await startSeed('seed-cancel-fails');
+      registry.abort('seed-cancel-fails');
+      await vi.waitFor(() => expect(runEnds()).toHaveLength(1));
+
+      expect(runEnds()[0]).toMatchObject({
+        type: 'operation:failed',
+        payload: {
+          operationId: 'seed-cancel-fails',
+          error: 'INVALID_SESSION_ID: Session expired or invalid',
+        },
+      });
     });
   });
 

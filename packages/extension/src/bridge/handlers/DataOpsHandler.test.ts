@@ -2422,5 +2422,32 @@ describe('DataOpsHandler — a snapshot taken for a pipeline', () => {
       expect(lifecycle(deps).at(-1)?.type).toBe('operation:failed');
       await vi.waitFor(() => expect(registry.get('snap-7')?.status).toBe('failed'));
     });
+
+    it('still ends as failed when the org refuses a query while the cancel is pending', async () => {
+      // Read off the signal, any error thrown once a cancel had been asked for
+      // made a cancelled snapshot: the org's refusal was listed as a cancel.
+      const { deps, registry } = depsWithRegistry();
+      const query = vi.fn(async () => {
+        registry.abort('snap-8');
+        throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+      const handler = new DataOpsHandler(deps);
+
+      const taking = handler.backupForPipeline({
+        operationId: 'snap-8',
+        orgId: 'org-1',
+        objects: ['Account', 'Contact'],
+      });
+
+      // A failure, which the step executor may try again, not a cancel.
+      await expect(taking).rejects.toThrow('REQUEST_LIMIT_EXCEEDED');
+      await expect(taking).rejects.not.toBeInstanceOf(StepCancelledError);
+      expect(lifecycle(deps).at(-1)).toMatchObject({
+        type: 'operation:failed',
+        payload: { operationId: 'snap-8' },
+      });
+    });
   });
 });

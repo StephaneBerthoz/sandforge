@@ -163,6 +163,31 @@ describe('SyncScheduleHandler', () => {
     ).toContain('sched-1');
   });
 
+  it('lists a stored schedule whose next run cannot be read with the one computed again', async () => {
+    // Listed as stored, the Sync tab failed to render its schedules on the
+    // date, until the tick corrected it up to a minute later.
+    const stored = { ...validSchedule(), cron: '0 9 * * 1', nextRunAt: 'not a date' };
+    deps.store.set('schedule:sync:sched-1', JSON.stringify(stored));
+    vi.mocked(deps.configStore.getByCategory).mockReturnValue({ 'schedule:sync:sched-1': stored });
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-list-unreadable',
+        type: 'sync:schedule:list',
+        timestamp: Date.now(),
+      }),
+    );
+
+    const listResp = deps.posted.find((m) => m.type === 'sync:schedule:list:response');
+    // `0 9 * * 1` from Friday 2026-03-27 12:00: the Monday after.
+    expect(
+      (listResp!.payload as { schedules: Array<{ nextRunAt?: string }> }).schedules.map(
+        (s) => s.nextRunAt,
+      ),
+    ).toEqual(['2026-03-30T09:00:00.000Z']);
+    expect(persistedSchedule(deps)?.nextRunAt).toBe('2026-03-30T09:00:00.000Z');
+  });
+
   it('rejects an invalid upsert payload on sync:schedule:error', async () => {
     const msg = inboundRequest({
       id: 'req-bad',

@@ -53,12 +53,23 @@ export interface SyncOrchestratorDeps {
    */
   countSource?: OrchestratorCountFn;
   /**
+   * The run's cancel: Live Operations' Cancel, through the registry the run
+   * is listed in. Honoured before each object and between an object's reads
+   * and its write. A write already sent is not taken back, and a Bulk API job
+   * runs to its end; the objects after it are not synced, and the run answers
+   * with the ones it reached, `cancelled` set.
+   */
+  signal?: AbortSignal;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
    */
   services?: CoreServices;
 }
+
+/** What {@link SyncOrchestrator.syncObject} answers for an object a cancel stopped before its write. */
+const NOT_WRITTEN: unique symbol = Symbol('not written');
 
 /**
  * Central orchestrator that coordinates all sync sub-services.
@@ -101,9 +112,37 @@ export class SyncOrchestrator {
       });
     }
 
+    /** Tell the Grappe view the run is over, with what its objects came to. */
+    const endGrappe = (): void => {
+      if (!grappeActive) return;
+      let totalProcessed = 0;
+      let totalFailed = 0;
+      for (const r of objectResults) {
+        totalProcessed += r.processed;
+        totalFailed += r.failed;
+      }
+      this.deps.onGrappeEvent?.({
+        type: 'grappe:completed',
+        payload: { operationId, totalProcessed, totalFailed },
+      });
+    };
+
+    /*
+     * A cancel stops the run before its next object, or before the write of
+     * the object being read. Nothing but a Bulk API upload of more than ten
+     * thousand records used to look at it: every other object went on being
+     * read and written, and the run was reported by its objects' counts as if
+     * nobody had stopped it.
+     */
+    const stopHere = (notReached: readonly SyncObjectConfig[]): SyncExecutionResult => {
+      endGrappe();
+      return stoppedResult(config.id, operationId, objectResults, startTime, notReached);
+    };
+
     let partitionIndex = 0;
-    for (const objectConfig of sortedObjects) {
-      let result: SyncObjectResult;
+    for (const [index, objectConfig] of sortedObjects.entries()) {
+      if (this.deps.signal?.aborted) return stopHere(sortedObjects.slice(index));
+      let result: SyncObjectResult | typeof NOT_WRITTEN;
       try {
         result = await this.syncObject(config, objectConfig);
       } catch (err: unknown) {
@@ -127,6 +166,7 @@ export class SyncOrchestrator {
           err,
         );
       }
+      if (result === NOT_WRITTEN) return stopHere(sortedObjects.slice(index));
       objectResults.push(result);
 
       if (grappeActive) {
@@ -149,18 +189,7 @@ export class SyncOrchestrator {
 
     const status = determineStatus(objectResults);
 
-    if (grappeActive) {
-      let totalProcessed = 0;
-      let totalFailed = 0;
-      for (const r of objectResults) {
-        totalProcessed += r.processed;
-        totalFailed += r.failed;
-      }
-      this.deps.onGrappeEvent?.({
-        type: 'grappe:completed',
-        payload: { operationId, totalProcessed, totalFailed },
-      });
-    }
+    endGrappe();
 
     return buildResult(config.id, operationId, objectResults, startTime, status);
   }
@@ -198,10 +227,14 @@ export class SyncOrchestrator {
     );
   }
 
+  /**
+   * Read, map and write one object: its result, or {@link NOT_WRITTEN} when a
+   * cancel came while it was being read, before anything of it was written.
+   */
   private async syncObject(
     config: SyncConfig,
     objectConfig: SyncObjectConfig,
-  ): Promise<SyncObjectResult> {
+  ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const sourceRecords = await this.deps.querySource(config.sourceOrgId, objectConfig);
 
     if (sourceRecords.length === 0) {
@@ -245,6 +278,10 @@ export class SyncOrchestrator {
       }
     }
 
+    // Reading a large object takes a while: a cancel that came meanwhile is
+    // honoured before its first record is written.
+    if (this.deps.signal?.aborted) return NOT_WRITTEN;
+
     // The records are mapped, transformed and carry their add-ons, so DataSync
     // is handed nothing left to apply — as Real-time hands it. Given the
     // object's own mappings, it mapped every record a second time, by source
@@ -270,6 +307,27 @@ function createEmptyResult(objectConfig: SyncObjectConfig): SyncObjectResult {
     skipped: 0,
     conflictCount: 0,
     errors: [],
+  };
+}
+
+/**
+ * The result of a run a cancel stopped: the objects it reached, and a status
+ * that is never `success`, since the objects after the cancel were not synced.
+ * `error` names them, for the history entry that says why the run ended early.
+ */
+function stoppedResult(
+  configId: string,
+  operationId: string,
+  objectResults: SyncObjectResult[],
+  startTime: number,
+  notReached: readonly SyncObjectConfig[],
+): SyncExecutionResult {
+  const reached = determineStatus(objectResults) === 'failure' ? 'failure' : 'partial';
+  const names = notReached.map((o) => o.objectApiName);
+  return {
+    ...buildResult(configId, operationId, objectResults, startTime, reached),
+    cancelled: true,
+    error: `Cancelled before ${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} synced.`,
   };
 }
 

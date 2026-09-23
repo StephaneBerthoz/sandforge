@@ -30,6 +30,11 @@ export type InsertFn = (
 export interface InsertResult {
   successIds: string[];
   errors: string[];
+  /**
+   * Set when the run's cancel stopped the insert before all of its records
+   * were sent: the ids and errors are those of the records sent before it.
+   */
+  stopped?: boolean;
 }
 
 /** Function signature for generating unique IDs */
@@ -101,6 +106,14 @@ export interface SeedOrchestratorDependencies {
   ) => Promise<string[]>;
   /** Draws the children of a `range` relation; `Math.random` unless a caller fixes it. */
   random?: () => number;
+  /**
+   * The run's cancel: the Seed page's Cancel, or Live Operations', through
+   * the registry the run is listed in. Honoured before each object, before
+   * each insert and each partition, and by an insert that stops partway. The
+   * records already inserted stay in the org; the run answers with the
+   * objects it reached, `cancelled` set.
+   */
+  signal?: AbortSignal;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -207,6 +220,12 @@ export class SeedOrchestrator {
     const plannedRecords = template.objects.reduce((sum, o) => sum + o.recordCount, 0);
 
     for (const obj of sortedObjects) {
+      // The Seed page's Cancel promises "Stop the running seed", and only an
+      // insert of more than ten thousand records looked at it: every other
+      // object went on being generated and inserted.
+      if (this.deps.signal?.aborted) {
+        return this.stoppedResult(template, operationId, run, startTime);
+      }
       const ready = await this.readyToWrite(obj, run, plannedRecords);
       if (!ready) continue;
 
@@ -217,8 +236,13 @@ export class SeedOrchestrator {
             fallback.aiFallback = aiFallback;
           });
       fillLookup(records, ready.relation, ready.placed);
+      // Generating the records can take a while when AI fills them.
+      if (this.deps.signal?.aborted) {
+        return this.stoppedResult(template, operationId, run, startTime);
+      }
       const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
       recordWrite(run, obj, insertResult, ready.notes, fallback);
+      if (insertResult.stopped) return this.stoppedResult(template, operationId, run, startTime);
     }
 
     return buildSuccessResult(
@@ -432,7 +456,25 @@ export class SeedOrchestrator {
     let processedPartitions = 0;
     const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
 
+    /** Tell the Grappe view the run is over, with what its objects wrote. */
+    const endGrappe = (): void => {
+      const totalProcessed = run.objectResults.reduce((s, r) => s + r.recordsCreated, 0);
+      const totalFailed = run.objectResults.reduce((s, r) => s + r.recordsFailed, 0);
+
+      this.deps.onGrappeEvent?.({
+        type: 'grappe:completed',
+        payload: { operationId, totalProcessed, totalFailed },
+      });
+    };
+
+    /** End the run at a cancel: the Grappe view is told it is over, as at the end of a run. */
+    const stopHere = (): SeedExecutionResult => {
+      endGrappe();
+      return this.stoppedResult(template, operationId, run, startTime);
+    };
+
     for (const obj of sortedObjects) {
+      if (this.deps.signal?.aborted) return stopHere();
       // As many as the adapter planned for the object, from the same size.
       const planned = Math.ceil(obj.recordCount / grappeSize);
       const ready = await this.readyToWrite(obj, run, totalRecords);
@@ -459,8 +501,14 @@ export class SeedOrchestrator {
       let objFailed = 0;
       const objErrors: string[] = [];
       const objCreatedIds: string[] = [];
+      /** Partitions of the object inserted before a cancel stopped it, if one did. */
+      let stoppedAfter: number | undefined;
 
       for (const [chunkIndex, chunk] of chunks.entries()) {
+        if (this.deps.signal?.aborted) {
+          stoppedAfter = chunkIndex;
+          break;
+        }
         if (chunkIndex > 0) {
           this.reportProgress(
             obj.objectApiName,
@@ -500,6 +548,24 @@ export class SeedOrchestrator {
           type: 'grappe:partitionProgress',
           payload: { grappeId: partitionId, percentage, processedRecords: objSuccess + objFailed },
         });
+        if (insertResult.stopped) {
+          stoppedAfter = chunkIndex + 1;
+          break;
+        }
+      }
+      if (stoppedAfter !== undefined) {
+        // What its partitions wrote before the cancel is kept, for the objects
+        // after it and in its result.
+        if (stoppedAfter > 0) {
+          recordWrite(
+            run,
+            obj,
+            { successIds: objCreatedIds, errors: objErrors },
+            ready.notes,
+            fallback,
+          );
+        }
+        return stopHere();
       }
       processedPartitions = this.settleUnusedPartitions(
         partitions,
@@ -517,13 +583,7 @@ export class SeedOrchestrator {
       );
     }
 
-    const totalProcessed = run.objectResults.reduce((s, r) => s + r.recordsCreated, 0);
-    const totalFailed = run.objectResults.reduce((s, r) => s + r.recordsFailed, 0);
-
-    this.deps.onGrappeEvent?.({
-      type: 'grappe:completed',
-      payload: { operationId, totalProcessed, totalFailed },
-    });
+    endGrappe();
 
     return buildSuccessResult(
       template.id,
@@ -532,6 +592,31 @@ export class SeedOrchestrator {
       startTime,
       this.deps.now(),
     );
+  }
+
+  /**
+   * The run as a cancel left it: the objects it reached, `cancelled` set, and
+   * a status that is never `success`, since the objects after the cancel were
+   * not written.
+   */
+  private stoppedResult(
+    template: SeedTemplate,
+    operationId: UUID,
+    run: SeedRun,
+    startTime: number,
+  ): SeedExecutionResult {
+    const reached = buildSuccessResult(
+      template.id,
+      operationId,
+      run.objectResults,
+      startTime,
+      this.deps.now(),
+    );
+    return {
+      ...reached,
+      status: reached.status === 'success' ? 'partial' : reached.status,
+      cancelled: true,
+    };
   }
 
   /**

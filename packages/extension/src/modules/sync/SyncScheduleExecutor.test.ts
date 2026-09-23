@@ -619,6 +619,46 @@ describe('SyncScheduleExecutor', () => {
       );
       expect(entry.lastResult).toBe('partial');
     });
+
+    it('announces a run cancelled from Live Operations as cancelled, not as one with errors', async () => {
+      const entry = createScheduleEntry({
+        notifyOnComplete: true,
+        notifyOnFailure: true,
+        nextRunAt: '2026-03-27T09:00:00.000Z',
+      });
+      const cancelledRun: SyncExecutionResult = {
+        ...createSuccessResult(),
+        status: 'partial',
+        cancelled: true,
+        error: 'Cancelled before Contact was synced.',
+        totalProcessed: 40,
+        totalSuccess: 40,
+      };
+      deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [entry]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        onExecute: vi.fn(async () => cancelledRun),
+      });
+      executor = new SyncScheduleExecutor(deps);
+      executor.start();
+
+      await executor.tick();
+
+      expect(vi.mocked(deps.notificationCenter.notify).mock.calls.slice(1)).toEqual([
+        [
+          'info',
+          'Sync schedule cancelled',
+          'Daily Account Sync: Cancelled before Contact was synced. Its entry in the sync history has what it wrote.',
+        ],
+      ]);
+      expect(entry.lastResult).toBe('partial');
+    });
   });
 
   describe('getSchedules', () => {
@@ -731,6 +771,39 @@ describe('SyncScheduleExecutor', () => {
 
       expect(deps.onExecute).not.toHaveBeenCalled();
       expect(deps.scheduleStore.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('lists the next run computed again as soon as the schedules are loaded, before any tick', () => {
+      // The list is read from the loaded schedules. Kept as stored until the
+      // first tick, the next run reached the Sync tab unreadable, and its
+      // schedules did not render for up to a minute.
+      deps = createMockDeps();
+      vi.mocked(deps.scheduleStore.loadAll).mockReturnValue([
+        createScheduleEntry({ nextRunAt: 'not a date' }),
+      ]);
+      executor = new SyncScheduleExecutor(deps);
+
+      executor.start();
+
+      expect(executor.getSchedules().map((s) => s.nextRunAt)).toEqual(['2026-03-30T09:00:00.000Z']);
+      expect(deps.scheduleStore.save).toHaveBeenCalledTimes(1);
+      expect(deps.log).toHaveBeenCalledWith(
+        '[SyncScheduleExecutor] sched-1: next run "not a date" cannot be read, replaced by 2026-03-30T09:00:00.000Z',
+      );
+    });
+
+    it('keeps a schedule with no next run as it is', () => {
+      // An expression with no run in the coming year is stored with none.
+      deps = createMockDeps();
+      vi.mocked(deps.scheduleStore.loadAll).mockReturnValue([
+        createScheduleEntry({ nextRunAt: '' }),
+      ]);
+      executor = new SyncScheduleExecutor(deps);
+
+      executor.start();
+
+      expect(executor.getSchedule('sched-1')?.nextRunAt).toBe('');
+      expect(deps.scheduleStore.save).not.toHaveBeenCalled();
     });
   });
 });

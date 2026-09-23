@@ -119,7 +119,8 @@ export interface SyncExecutionResult {
   duration: number;
   timestamp: ISODateString;
   /**
-   * Why the run ended, when it ended on an error. Absent on a clean run.
+   * Why the run ended early: the error it ended on, or the cancel that stopped
+   * it. Absent on a clean run.
    *
    * A run that threw was stored as "failure, 0 ms, 0 objects" and nothing
    * else: the message went to the output channel and to a toast, and the
@@ -129,6 +130,12 @@ export interface SyncExecutionResult {
    * object has none.
    */
   error?: string;
+  /**
+   * Set when a cancel stopped the run before it had synced every object. The
+   * objects listed are the ones it reached; its status is never `success`,
+   * since the objects after the cancel were not synced.
+   */
+  cancelled?: boolean;
 }
 
 /** A snapshot of a sync execution for history tracking and re-run support. */

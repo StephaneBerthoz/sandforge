@@ -155,6 +155,17 @@ const BACKUP_CANCELLED =
   'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.';
 
 /**
+ * What a snapshot throws where it stops at a cancel, told apart from the
+ * errors it can fail on while one is pending.
+ */
+class BackupCancelledError extends Error {
+  constructor() {
+    super(BACKUP_CANCELLED);
+    this.name = 'BackupCancelledError';
+  }
+}
+
+/**
  * The three words Seed, Sync and Clone already use for a write that did not
  * fully land. Reused here rather than invented: a restore or a masking run
  * that only partly succeeded is the same event those modules name `partial`.
@@ -576,7 +587,7 @@ export class DataOpsHandler implements DomainHandler {
       let processedObjects = 0;
       for (const objectApiName of payload.objects) {
         if (stop.signal.aborted) {
-          throw new Error(BACKUP_CANCELLED);
+          throw new BackupCancelledError();
         }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
@@ -627,7 +638,7 @@ export class DataOpsHandler implements DomainHandler {
       // object was saved and called taken, after Live Operations had said it
       // was stopped.
       if (stop.signal.aborted) {
-        throw new Error(BACKUP_CANCELLED);
+        throw new BackupCancelledError();
       }
 
       const backupKey = `backup:${operationId}`;
@@ -693,7 +704,11 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       backupError = err;
       this.dmlTracker.markFailed(operationId);
-      const cancelled = stop.signal.aborted;
+      // Only a stop at the cancel is one. Read off the signal, a query the org
+      // refused while a cancel was pending made a cancelled snapshot: the
+      // activity feed listed it cancelled, and a pipeline's Backup step ended
+      // cancelled rather than failed, and was not tried again.
+      const cancelled = err instanceof BackupCancelledError;
       // Stopped through the run's signal rather than from Live Operations, the
       // snapshot is still listed as running there, and the error it settles
       // with below would list it as failed.
