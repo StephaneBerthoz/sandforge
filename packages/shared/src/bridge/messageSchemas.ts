@@ -51,6 +51,9 @@ const OrgMessages = [
   msg('org:list'),
   msg('org:list:response'),
   msg('org:connect'),
+  msg('org:connect:cancel'),
+  // A device-flow sign-in's code, correlated to the org:connect that asked for it.
+  msg('org:device-code'),
   msg('org:disconnect'),
   msg('org:select'),
   msg('org:update'),

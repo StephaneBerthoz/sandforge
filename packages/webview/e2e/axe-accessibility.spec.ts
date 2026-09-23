@@ -1118,6 +1118,34 @@ async function expectReadable(page: Page, theme: StateTheme, include?: string): 
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
 }
 
+/** Open the Org Manager's JWT form, with its key file hint and placeholders on screen. */
+async function openJwtForm(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'orgs', theme);
+  await page.getByTestId('org-manager-page').waitFor({ timeout: 10_000 });
+  await page.getByTestId('org-auth-jwt').click();
+  await page.getByTestId('inline-key-file-input').waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/**
+ * Start a device sign-in in the Org Manager and answer it with a code, the
+ * way the host does while it waits for the approval. `org:connect` itself is
+ * left unanswered, so the code stays on screen for the scan.
+ */
+async function openDeviceCode(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'orgs', theme);
+  await page.getByTestId('org-manager-page').waitFor({ timeout: 10_000 });
+  await page.getByTestId('org-auth-oauth_device').click();
+  await page.getByTestId('inline-alias-input').fill('uat');
+  await page.getByTestId('inline-client-id-input').fill('3MVG9FakeConsumerKey.ForTests_Only');
+  await page.getByTestId('org-inline-connect').click();
+  await bridge.respondToNext('org:connect', 'org:device-code', {
+    userCode: 'AB12CD34',
+    verificationUri: 'https://test.salesforce.com/setup/connect',
+    expiresAt: Date.now() + 10 * 60_000,
+  });
+  await page.getByTestId('org-device-code').waitFor({ state: 'visible', timeout: 5000 });
+}
+
 /** Open the CSV import with a target org picked, so the drop zone takes files. */
 async function openCsvImport(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
   await openPanel(bridge, page, 'seed', theme);
@@ -1701,6 +1729,20 @@ for (const theme of STATE_THEMES) {
       await expect(dropArea).toHaveClass(/bg-status-info/);
 
       await expectReadable(page, theme);
+    });
+
+    test('Organizations JWT sign-in form, with its key file hint', async ({ page }) => {
+      await openJwtForm(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="org-inline-form"]');
+    });
+
+    test('Organizations device sign-in showing its code while it waits', async ({ page }) => {
+      await openDeviceCode(bridge, page, theme);
+      // The code replaced the form whose button asked for it: focus is on the code.
+      await expect(page.getByRole('status').filter({ hasText: 'AB12CD34' })).toBeFocused();
+
+      await expectReadable(page, theme, '[data-testid="org-device-code"]');
     });
 
     test('Frozen dataset extraction form with its placeholders', async ({ page }) => {

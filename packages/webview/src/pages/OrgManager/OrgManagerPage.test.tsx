@@ -412,21 +412,24 @@ describe('OrgManagerPage', () => {
     expect(screen.getByTestId('org-card-org-1')).toBeDefined();
   });
 
-  describe('auth methods that are not implemented', () => {
-    it.each(['jwt', 'oauth_device'])(
-      'should mark %s as coming soon and send no org:connect when it is clicked',
-      (method) => {
+  describe('JWT and device flow cards', () => {
+    it.each([
+      ['jwt', 'Log in with your own app'],
+      ['oauth_device', 'Log in with a code you approve in a browser'],
+    ])(
+      'should offer %s like the other methods, with a tooltip saying what it does',
+      (method, tooltip) => {
         render(<OrgManagerPage />);
         const card = screen.getByTestId(`org-auth-${method}`);
 
-        expect(card.getAttribute('aria-disabled')).toBe('true');
-        expect(card.getAttribute('title')).toBe('Coming soon');
-        expect(card.textContent).toContain('Coming soon');
+        expect(card.getAttribute('aria-disabled')).toBeNull();
+        expect(card.getAttribute('title')).toContain(tooltip);
+        expect(card.textContent).not.toContain('Coming soon');
 
         fireEvent.click(card);
 
         expect(mockConnectMutate).not.toHaveBeenCalled();
-        expect(screen.getByTestId('org-inline-not-supported')).toBeDefined();
+        expect(screen.getByTestId('org-inline-form')).toBeDefined();
       },
     );
 
@@ -434,13 +437,8 @@ describe('OrgManagerPage', () => {
       // An icon-only X: announced as "button" and nothing else.
       render(<OrgManagerPage />);
       fireEvent.click(screen.getByTestId('org-auth-jwt'));
-      const panel = screen.getByTestId('org-inline-not-supported');
+      const panel = screen.getByTestId('org-inline-form');
       expect(within(panel).getByRole('button', { name: 'Close' })).toBeDefined();
-    });
-
-    it('should leave the implemented methods enabled', () => {
-      render(<OrgManagerPage />);
-      expect(screen.getByTestId('org-auth-oauth_web').getAttribute('aria-disabled')).toBeNull();
     });
   });
 

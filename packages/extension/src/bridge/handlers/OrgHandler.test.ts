@@ -268,7 +268,7 @@ describe('OrgHandler', () => {
   });
 
   describe('org:connect with a method that is not implemented', () => {
-    it.each(['jwt', 'oauth_device'])(
+    it.each(['saml', 'oauth_password_grant'])(
       'answers %s with UNSUPPORTED_AUTH and touches nothing',
       async (authMethod) => {
         await handler.handle(createMsg('org:connect', { orgId: '', authMethod }));
@@ -590,6 +590,36 @@ describe('OrgHandler', () => {
         expect(reloaded.getAllOrgs().map((o) => o.id)).toEqual([FORMER_ORG_ID]);
       },
     );
+
+    it('updates, through a JWT sign-in, the entry the detector saw refreshed into the org signed into', async () => {
+      const { orgManager, detector } = harness();
+      detector.observe(FORMER_ORG_ID, { organizationId: REFRESHED_ORG_ID }, 'connection');
+      const imported = listed();
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        loginJwt: vi.fn().mockResolvedValue({ username: USERNAME }),
+        findOrg: vi.fn().mockResolvedValue(imported),
+      } as unknown as HandlerDeps['sfdxBridge'];
+
+      await handler.handle(
+        createMsg('org:connect', {
+          orgId: '',
+          authMethod: 'jwt',
+          alias: 'uat',
+          loginUrl: 'https://test.salesforce.com',
+          username: USERNAME,
+          clientId: '3MVG9FakeConsumerKey.ForTests_Only',
+          jwtKeyFile: '/tmp/keys/server.key',
+        }),
+      );
+
+      expect(orgManager.getAllOrgs().map((o) => o.id)).toEqual([FORMER_ORG_ID]);
+      expect(orgManager.getOrg(FORMER_ORG_ID)).toMatchObject({
+        orgId: REFRESHED_ORG_ID,
+        alias: 'UAT',
+      });
+      expect(acknowledged()).toBe(FORMER_ORG_ID);
+    });
 
     it('adds the import as it comes when no refresh into its org is on record', async () => {
       const { orgManager } = harness();

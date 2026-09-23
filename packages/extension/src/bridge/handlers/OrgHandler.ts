@@ -9,34 +9,67 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
+  orgConnectCancelPayloadSchema,
   orgConnectPayloadSchema,
+  orgDeviceConnectPayloadSchema,
   orgDisconnectPayloadSchema,
+  orgJwtConnectPayloadSchema,
   orgSelectPayloadSchema,
   orgUpdatePayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
-import type { SfdxImportResult } from '../../core/connection/SfdxBridge.js';
+import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
+import type { CliLogin, SfdxImportResult } from '../../core/connection/SfdxBridge.js';
+import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set([
   'org:list',
   'org:connect',
+  'org:connect:cancel',
   'org:disconnect',
   'org:select',
   'org:update',
 ]);
 
+/** What OrgHandler reaches outside the extension through; tests pass stand-ins. */
+export interface OrgHandlerServices {
+  /** Opens the device flow's verification page. */
+  browser?: ExternalBrowserAdapter;
+  /** Speaks the device flow to Salesforce. */
+  deviceLogin?: DeviceLogin;
+}
+
 /**
  * Domain handler for org-related webview-to-extension messages.
  *
  * Routes org:* message types to org listing, connection (sfdx import,
- * username/password, OAuth web), metadata edits and disconnection operations.
+ * username/password, OAuth web, JWT bearer, OAuth device flow), metadata edits
+ * and disconnection operations.
  */
 export class OrgHandler implements DomainHandler {
-  /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  private readonly browser: ExternalBrowserAdapter;
+  private readonly deviceLogin: DeviceLogin;
+
+  /**
+   * Device sign-ins still waiting, by the id of the `org:connect` request that
+   * started them, so `org:connect:cancel` can stop one.
+   */
+  private readonly pendingSignIns = new Map<string, AbortController>();
+
+  /**
+   * @param deps - Injected handler dependencies.
+   * @param services - Stand-ins for the browser and the device flow; the real ones by default.
+   */
+  constructor(
+    private readonly deps: HandlerDeps,
+    services: OrgHandlerServices = {},
+  ) {
+    this.browser = services.browser ?? new ExternalBrowserAdapter();
+    this.deviceLogin = services.deviceLogin ?? new DeviceLogin();
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -53,6 +86,9 @@ export class OrgHandler implements DomainHandler {
         return true;
       case 'org:connect':
         await this.handleOrgConnect(msg);
+        return true;
+      case 'org:connect:cancel':
+        this.handleConnectCancel(msg);
         return true;
       case 'org:disconnect':
         await this.handleOrgDisconnect(msg);
@@ -93,6 +129,12 @@ export class OrgHandler implements DomainHandler {
         break;
       case 'oauth_web':
         await this.handleOAuthWeb(msg, payload);
+        break;
+      case 'jwt':
+        await this.handleJwt(msg);
+        break;
+      case 'oauth_device':
+        await this.handleOAuthDevice(msg);
         break;
       default:
         sendNotification(
@@ -359,7 +401,7 @@ export class OrgHandler implements DomainHandler {
    */
   private resolveLoginUrl(
     msg: InboundRequest,
-    payload: OrgConnectRequest['payload'],
+    payload: Pick<OrgConnectRequest['payload'], 'loginUrl'>,
   ): string | undefined {
     const loginUrl = payload.loginUrl ?? 'https://login.salesforce.com';
     const parsed = parseSalesforceLoginUrl(loginUrl);
@@ -424,6 +466,164 @@ export class OrgHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'OAuth Failed', message);
       this.failConnect(msg, message, 'OAUTH_WEB_FAILED');
     }
+  }
+
+  /**
+   * Sign in with the JWT bearer flow, through `sf org login jwt`.
+   *
+   * The private key never passes through SandForge: the webview sends the
+   * file's path, the path reaches the CLI as one argv entry, and the CLI reads
+   * the key. Nothing here opens, copies, logs or stores the file.
+   */
+  private async handleJwt(msg: InboundRequest): Promise<void> {
+    const input = validatePayload(orgJwtConnectPayloadSchema, msg, 'org:error', this.deps);
+    if (!input) return;
+    const loginUrl = this.resolveLoginUrl(msg, input);
+    if (!loginUrl) return;
+
+    try {
+      if (!(await this.requireCli(msg, 'JWT sign-in runs through it.'))) return;
+      const login = await this.deps.sfdxBridge.loginJwt({
+        username: input.username,
+        clientId: input.clientId,
+        keyFile: input.jwtKeyFile,
+        loginUrl,
+        alias: input.alias || undefined,
+      });
+      await this.importSignedInOrg(msg, login, 'JWT');
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] org:jwt: ${message}`);
+      sendNotification(this.deps, 'error', 'JWT Sign-in Failed', message);
+      this.failConnect(msg, message, 'JWT_LOGIN_FAILED');
+    }
+  }
+
+  /**
+   * Sign in with the OAuth device flow: show a code, let the user approve it
+   * in the browser, then hand the session to the CLI and import the org.
+   *
+   * The CLI has no device command left (see DeviceLogin), so the code is
+   * asked for and the approval awaited here; `sf org login sfdx-url` then
+   * takes the session, and from there the org is the CLI's like any other.
+   * The wait ends when the code is approved, refused or expires — ten minutes
+   * at most — or when `org:connect:cancel` names this request.
+   */
+  private async handleOAuthDevice(msg: InboundRequest): Promise<void> {
+    const input = validatePayload(orgDeviceConnectPayloadSchema, msg, 'org:error', this.deps);
+    if (!input) return;
+    const loginUrl = this.resolveLoginUrl(msg, input);
+    if (!loginUrl) return;
+
+    const controller = new AbortController();
+    this.pendingSignIns.set(msg.id, controller);
+    try {
+      // Checked before any code is issued: the approval is lost if the CLI
+      // that has to keep the session turns out to be missing afterwards.
+      if (!(await this.requireCli(msg, 'The device sign-in hands its session to it.'))) return;
+
+      const authorization = await this.deviceLogin.authorize(
+        loginUrl,
+        input.clientId,
+        controller.signal,
+      );
+      const codeMsg = buildResponse(this.deps, msg, 'org:device-code', {
+        userCode: authorization.userCode,
+        verificationUri: authorization.verificationUri,
+        expiresAt: authorization.expiresAt,
+      });
+      this.deps.broker.postToWebview(codeMsg);
+      this.deps.log(`[TX] ${codeMsg.type} id=${codeMsg.id}`);
+
+      // The page shows the link as well, so a browser that did not open
+      // costs the user one click, not the sign-in.
+      const opened = await this.browser.open(authorization.verificationUri);
+      if (opened.status === 'error') {
+        this.deps.log(`[WARN] org:oauth-device: verification page not opened: ${opened.message}`);
+      }
+
+      const approval = await this.deviceLogin.awaitApproval(
+        loginUrl,
+        input.clientId,
+        authorization,
+        controller.signal,
+      );
+      // A cancel that lands after the approval still wins: nothing has been
+      // handed to the CLI yet.
+      if (controller.signal.aborted) throw new Error('Sign-in cancelled.');
+
+      const login = await this.deps.sfdxBridge.loginWithRefreshToken({
+        clientId: input.clientId,
+        refreshToken: approval.refreshToken,
+        instanceUrl: approval.instanceUrl,
+        alias: input.alias || undefined,
+      });
+      await this.importSignedInOrg(msg, login, 'Device Sign-in');
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        this.deps.log(`[INFO] org:oauth-device cancelled id=${msg.id}`);
+        this.failConnect(msg, 'Sign-in cancelled.', 'CANCELLED');
+        return;
+      }
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] org:oauth-device: ${message}`);
+      sendNotification(this.deps, 'error', 'Device Sign-in Failed', message);
+      this.failConnect(msg, message, 'OAUTH_DEVICE_FAILED');
+    } finally {
+      this.pendingSignIns.delete(msg.id);
+    }
+  }
+
+  /**
+   * Stop the device sign-in an `org:connect` request is waiting on. That
+   * request answers for itself, on `org:error` with `CANCELLED`; one that has
+   * already finished is left as it ended.
+   */
+  private handleConnectCancel(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(orgConnectCancelPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+    this.pendingSignIns.get(parsed.requestId)?.abort();
+  }
+
+  /**
+   * Whether the CLI is on PATH. When it is not, says so — with the install
+   * link — and answers the request.
+   *
+   * @param why - What the CLI is needed for, appended to the message.
+   */
+  private async requireCli(msg: InboundRequest, why: string): Promise<boolean> {
+    if (await this.deps.sfdxBridge.isCliAvailable()) return true;
+    this.notifyCliMissing(why);
+    this.failConnect(msg, SF_CLI_MISSING_MESSAGE, 'SF_CLI_NOT_FOUND');
+    return false;
+  }
+
+  /**
+   * Register the org a CLI sign-in just authorized, the way an SFDX import
+   * registers it: read back from `sf org list`, typed and tiered from the
+   * CLI's entry, and left to the CLI to refresh — which is also why it is
+   * recorded as an SFDX import, so Reconnect imports it again. Only this org
+   * is saved; the other orgs the CLI holds wait for an import the user asks for.
+   *
+   * @param via - The sign-in's name, for the success toast title.
+   */
+  private async importSignedInOrg(
+    msg: InboundRequest,
+    login: CliLogin,
+    via: string,
+  ): Promise<void> {
+    const imported = await this.deps.sfdxBridge.findOrg(login.username);
+    if (!imported) {
+      throw new Error(
+        `Signed in as ${login.username}, but "sf org list" does not list that org as connected.`,
+      );
+    }
+    // A sandbox signed into again after a refresh keeps its entry, as an
+    // SFDX import of it does.
+    const [savedId] = await this.saveImported([imported]);
+    sendNotification(this.deps, 'success', via, `${imported.org.alias} connected.`);
+    this.ackConnect(msg, savedId ?? imported.org.id);
   }
 
   private async handleOrgDisconnect(msg: InboundRequest): Promise<void> {

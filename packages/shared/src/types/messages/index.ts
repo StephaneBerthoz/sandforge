@@ -38,10 +38,12 @@ import type {
   OrgDisconnectRequest,
   OrgSelectRequest,
   OrgUpdateRequest,
+  OrgConnectCancelRequest,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
   OrgErrorResponse,
+  OrgDeviceCodeMessage,
 } from './org.messages.js';
 import type {
   BridgeErrorMessage,
@@ -411,6 +413,7 @@ export type WebViewToExtensionMessage =
   | OrgDisconnectRequest
   | OrgSelectRequest
   | OrgUpdateRequest
+  | OrgConnectCancelRequest
   // Seed
   | SeedExecuteRequest
   | SeedDescribeGlobalRequest
@@ -574,6 +577,7 @@ export type ExtensionToWebViewMessage =
   | OrgStatusChanged
   | OrgSelected
   | OrgErrorResponse
+  | OrgDeviceCodeMessage
   // Bridge control
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage

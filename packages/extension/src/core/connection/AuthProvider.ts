@@ -56,8 +56,12 @@ export class AuthProvider {
   async authenticate(credentials: AuthCredentials): Promise<AuthResult> {
     switch (credentials.method) {
       case 'oauth_web':
-      case 'oauth_device':
         return this.authenticateOAuth(credentials);
+      case 'oauth_device':
+        return {
+          success: false,
+          error: 'OAuth device flow handled via DeviceLogin and SfdxBridge.loginWithRefreshToken()',
+        };
       case 'jwt':
         return this.authenticateJwt(credentials);
       case 'usernamePassword':
@@ -153,7 +157,7 @@ export class AuthProvider {
   }
 
   private async authenticateJwt(_credentials: AuthCredentials): Promise<AuthResult> {
-    return { success: false, error: 'JWT authentication not yet supported' };
+    return { success: false, error: 'JWT handled via SfdxBridge.loginJwt()' };
   }
 
   private async authenticateUsernamePassword(credentials: AuthCredentials): Promise<AuthResult> {

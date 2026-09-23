@@ -446,7 +446,14 @@ export class ExtensionHandlers {
 
     // Org
     route(
-      ['org:list', 'org:connect', 'org:disconnect', 'org:select', 'org:update'],
+      [
+        'org:list',
+        'org:connect',
+        'org:connect:cancel',
+        'org:disconnect',
+        'org:select',
+        'org:update',
+      ],
       this.orgHandler,
     );
 

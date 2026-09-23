@@ -30,7 +30,46 @@ export interface OrgConnectRequest extends BaseMessage {
     username?: string;
     password?: string;
     securityToken?: string;
+    /** JWT and device flow: the consumer key of the app the user signs in through. */
+    clientId?: string;
+    /**
+     * JWT: the path of the private key file. The host hands the path to
+     * `sf org login jwt` and never opens the file.
+     */
+    jwtKeyFile?: string;
   };
+}
+
+/**
+ * What a device-flow sign-in shows while it waits for approval: the code to
+ * type, the Salesforce page to type it on, and when the code stops working.
+ */
+export interface OrgDeviceCode {
+  /** The code the user enters on the verification page. */
+  userCode: string;
+  /** Salesforce's verification page, on a Salesforce login host. */
+  verificationUri: string;
+  /** When Salesforce stops accepting the code, in epoch milliseconds. */
+  expiresAt: number;
+}
+
+/**
+ * Posted, correlated to its `org:connect` request, once Salesforce has issued a
+ * device code. The request itself ends later, on `org:statusChanged` or
+ * `org:error`, when the sign-in is approved, refused, expired or cancelled.
+ */
+export interface OrgDeviceCodeMessage extends BaseMessage {
+  type: 'org:device-code';
+  payload: OrgDeviceCode;
+}
+
+/**
+ * Stop the sign-in an `org:connect` request started and is still waiting on.
+ * That request then ends on `org:error` with code `CANCELLED`.
+ */
+export interface OrgConnectCancelRequest extends BaseMessage {
+  type: 'org:connect:cancel';
+  payload: { requestId: string };
 }
 
 /** Request to disconnect a Salesforce org */

@@ -1,13 +1,18 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from 'lucide-react';
-import type { SalesforceOrg, AuthMethod } from '@sandforge/shared';
-import { SF_CLI_INSTALL_URL, SF_CLI_MISSING_MESSAGE } from '@sandforge/shared';
+import type { SalesforceOrg, AuthMethod, BaseMessage, OrgDeviceCode } from '@sandforge/shared';
+import {
+  SF_CLI_INSTALL_URL,
+  SF_CLI_MISSING_MESSAGE,
+  SF_DEVICE_CODE_LIFETIME_MS,
+} from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -16,6 +21,7 @@ import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { OrgCard } from './OrgCard';
 import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
+import { DeviceCodePanel } from './DeviceCodePanel';
 
 /** What the inline connect form submits for a new org. */
 interface ConnectOrgPayload {
@@ -25,6 +31,28 @@ interface ConnectOrgPayload {
   username?: string;
   password?: string;
   securityToken?: string;
+  /** JWT and device flow: the consumer key of the user's own app. */
+  clientId?: string;
+  /** JWT: the private key file's path, which the host hands to the CLI unopened. */
+  jwtKeyFile?: string;
+}
+
+/**
+ * How long the page waits on a device sign-in: the code's ten minutes, plus
+ * what the host may spend around them, each step bounded there — the CLI
+ * check and the code request before, and after an approval given at the last
+ * moment, the last poll, the hand-off to the CLI and the import (under three
+ * minutes in all).
+ */
+const DEVICE_SIGN_IN_TIMEOUT_MS = SF_DEVICE_CODE_LIFETIME_MS + 240_000;
+
+/** The device code a host message carries, or null when it carries none that can be shown. */
+function readDeviceCode(payload: unknown): OrgDeviceCode | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { userCode, verificationUri, expiresAt } = payload as Record<string, unknown>;
+  if (typeof userCode !== 'string' || userCode.length === 0) return null;
+  if (typeof verificationUri !== 'string' || typeof expiresAt !== 'number') return null;
+  return { userCode, verificationUri, expiresAt };
 }
 
 /** Payload shape returned by org:list:response. */
@@ -49,14 +77,8 @@ interface AuthMethodCard {
   method: AuthMethod;
   icon: React.ReactNode;
   labelKey: string;
-  /** Absent on a `comingSoon` card: the tooltip says so instead. */
-  descKey?: string;
+  descKey: string;
   needsForm: boolean;
-  /**
-   * The host answers these with UNSUPPORTED_AUTH. Their cards looked like the
-   * working ones, and the tooltip described a login that does not exist.
-   */
-  comingSoon: boolean;
 }
 
 /** Available auth methods shown in the banner. */
@@ -67,7 +89,6 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.sfdxImport',
     descKey: 'auth.sfdxImportDesc',
     needsForm: false,
-    comingSoon: false,
   },
   {
     method: 'oauth_web',
@@ -75,7 +96,6 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.oauthWeb',
     descKey: 'auth.oauthWebDesc',
     needsForm: true,
-    comingSoon: false,
   },
   {
     method: 'usernamePassword',
@@ -83,21 +103,20 @@ const AUTH_METHODS: AuthMethodCard[] = [
     labelKey: 'auth.usernamePassword',
     descKey: 'auth.usernamePasswordDesc',
     needsForm: true,
-    comingSoon: false,
   },
   {
     method: 'jwt',
     icon: <Key className="w-4 h-4" />,
     labelKey: 'auth.jwt',
-    needsForm: false,
-    comingSoon: true,
+    descKey: 'auth.jwtDesc',
+    needsForm: true,
   },
   {
     method: 'oauth_device',
     icon: <Smartphone className="w-4 h-4" />,
     labelKey: 'auth.oauthDevice',
-    needsForm: false,
-    comingSoon: true,
+    descKey: 'auth.oauthDeviceDesc',
+    needsForm: true,
   },
 ];
 
@@ -156,6 +175,14 @@ export const OrgManagerPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [securityToken, setSecurityToken] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [jwtKeyFile, setJwtKeyFile] = useState('');
+  // The code of a device sign-in, kept with the request it answers so a code
+  // from an earlier attempt is never shown for the current one.
+  const [deviceCode, setDeviceCode] = useState<{ requestId: string; code: OrgDeviceCode } | null>(
+    null,
+  );
+  const submitRef = useRef<HTMLButtonElement>(null);
 
   const loginUrlOptions = [
     { value: 'https://login.salesforce.com', label: t('auth.loginProduction') },
@@ -180,6 +207,14 @@ export const OrgManagerPage: React.FC = () => {
     timeoutMs: 180_000,
   });
 
+  // A device sign-in waits for the user to approve a code in the browser, for
+  // up to ten minutes: far past what any other method may take before the
+  // page should call it lost, so it runs on a request of its own.
+  const deviceMutation = useBridgeMutation<OrgStatusPayload>('org:connect', {
+    responseType: 'org:statusChanged',
+    timeoutMs: DEVICE_SIGN_IN_TIMEOUT_MS,
+  });
+
   const disconnectMutation = useBridgeMutation<OrgStatusPayload>('org:disconnect', {
     responseType: 'org:statusChanged',
   });
@@ -197,13 +232,31 @@ export const OrgManagerPage: React.FC = () => {
     }
   }, [updateMutation.data]);
 
-  const isConnecting = connectMutation.loading;
-  const connectError = connectMutation.error;
+  const isConnecting = connectMutation.loading || deviceMutation.loading;
+  const connectError = connectMutation.error ?? deviceMutation.error;
 
   const connectMutate = connectMutation.mutate;
+  const connectReset = connectMutation.reset;
+  const deviceMutate = deviceMutation.mutate;
+  const deviceReset = deviceMutation.reset;
+  const deviceLoading = deviceMutation.loading;
+  const deviceRequestId = deviceMutation.requestId;
+
+  /**
+   * End the device sign-in on this page: the host is told to stop waiting
+   * when one is still in flight, and the request's state is cleared either way.
+   */
+  const stopDeviceSignIn = useCallback(() => {
+    if (deviceLoading && deviceRequestId) {
+      sendBridgeMessage('org:connect:cancel', { requestId: deviceRequestId });
+    }
+    deviceReset();
+    setDeviceCode(null);
+  }, [deviceLoading, deviceRequestId, deviceReset]);
+
   const handleConnect = useCallback(
     (payload: ConnectOrgPayload) => {
-      connectMutate({
+      const message = {
         orgId: '',
         authMethod: payload.authMethod,
         alias: payload.alias,
@@ -211,23 +264,67 @@ export const OrgManagerPage: React.FC = () => {
         username: payload.username,
         password: payload.password,
         securityToken: payload.securityToken,
-      });
+        clientId: payload.clientId,
+        jwtKeyFile: payload.jwtKeyFile,
+      };
+      // The request that is not starting is cleared, so an earlier failure of
+      // one method never sits in the banner above an attempt with the other —
+      // and a device sign-in still waiting (the empty state and Reconnect can
+      // start an import meanwhile) is stopped rather than left to finish unseen.
+      if (payload.authMethod === 'oauth_device') {
+        connectReset();
+        deviceMutate(message);
+      } else {
+        stopDeviceSignIn();
+        connectMutate(message);
+      }
     },
-    [connectMutate],
+    [connectMutate, connectReset, deviceMutate, stopDeviceSignIn],
   );
 
   // Collapse inline form when the connect mutation completes *successfully*.
   // On failure the form used to close silently: the typed credentials were
   // wiped and the user was left believing the org had been added. Keep the
   // form and its input open so the error can be read and the attempt retried.
-  const prevConnecting = useRef(isConnecting);
+  const connectLoading = connectMutation.loading;
+  const connectFailure = connectMutation.error;
+  const prevConnecting = useRef(connectLoading);
   useEffect(() => {
-    if (prevConnecting.current && !isConnecting && !connectError) {
+    if (prevConnecting.current && !connectLoading && !connectFailure) {
       setActiveMethod(null);
       resetForm();
     }
-    prevConnecting.current = isConnecting;
-  }, [isConnecting, connectError]);
+    prevConnecting.current = connectLoading;
+  }, [connectLoading, connectFailure]);
+
+  // A device sign-in collapses the form on its answer alone: a cancelled one
+  // also stops loading without an error, and must leave the form open.
+  const deviceSignedIn = deviceMutation.data;
+  useEffect(() => {
+    if (deviceSignedIn) {
+      setActiveMethod(null);
+      resetForm();
+    }
+  }, [deviceSignedIn]);
+
+  useMessageListener('org:device-code', (message: BaseMessage) => {
+    if (!deviceRequestId || message.correlationId !== deviceRequestId) return;
+    const code = readDeviceCode((message as BaseMessage & { payload?: unknown }).payload);
+    if (code) setDeviceCode({ requestId: deviceRequestId, code });
+  });
+  const shownDeviceCode =
+    deviceLoading && deviceCode !== null && deviceCode.requestId === deviceRequestId
+      ? deviceCode.code
+      : null;
+
+  // The code panel replaces the form, the button with focus included; when it
+  // goes — cancelled, refused or expired — focus returns to the button that
+  // starts a new attempt instead of falling to the page.
+  const hadDeviceCode = useRef(false);
+  useEffect(() => {
+    if (hadDeviceCode.current && shownDeviceCode === null) submitRef.current?.focus();
+    hadDeviceCode.current = shownDeviceCode !== null;
+  }, [shownDeviceCode]);
 
   const resetForm = (): void => {
     setAlias('');
@@ -235,6 +332,15 @@ export const OrgManagerPage: React.FC = () => {
     setUsername('');
     setPassword('');
     setSecurityToken('');
+    setClientId('');
+    setJwtKeyFile('');
+  };
+
+  /** Close the method panel, stopping a device sign-in still waiting in it. */
+  const closeMethodPanel = (): void => {
+    if (deviceLoading) stopDeviceSignIn();
+    setActiveMethod(null);
+    resetForm();
   };
 
   /** Handle clicking an auth method button. */
@@ -250,10 +356,6 @@ export const OrgManagerPage: React.FC = () => {
       // Methods that trigger immediately
       if (card.method === 'sfdx_import') {
         handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' });
-        return;
-      }
-      if (card.method === 'jwt' || card.method === 'oauth_device') {
-        setActiveMethod(card.method);
         return;
       }
 
@@ -272,15 +374,44 @@ export const OrgManagerPage: React.FC = () => {
       ...(activeMethod === 'usernamePassword'
         ? { username: username.trim(), password, securityToken: securityToken.trim() }
         : {}),
+      ...(activeMethod === 'jwt'
+        ? { username: username.trim(), clientId: clientId.trim(), jwtKeyFile: jwtKeyFile.trim() }
+        : {}),
+      ...(activeMethod === 'oauth_device' ? { clientId: clientId.trim() } : {}),
     });
-  }, [activeMethod, alias, loginUrl, username, password, securityToken, handleConnect]);
+  }, [
+    activeMethod,
+    alias,
+    loginUrl,
+    username,
+    password,
+    securityToken,
+    clientId,
+    jwtKeyFile,
+    handleConnect,
+  ]);
 
+  const hasAlias = alias.trim().length > 0;
   const canSubmit =
     activeMethod === 'oauth_web'
-      ? alias.trim().length > 0
+      ? hasAlias
       : activeMethod === 'usernamePassword'
-        ? alias.trim().length > 0 && username.trim().length > 0 && password.length > 0
-        : false;
+        ? hasAlias && username.trim().length > 0 && password.length > 0
+        : activeMethod === 'jwt'
+          ? hasAlias &&
+            username.trim().length > 0 &&
+            clientId.trim().length > 0 &&
+            jwtKeyFile.trim().length > 0
+          : activeMethod === 'oauth_device'
+            ? hasAlias && clientId.trim().length > 0
+            : false;
+
+  const submitLabel =
+    activeMethod === 'oauth_web'
+      ? t('auth.openBrowser')
+      : activeMethod === 'oauth_device'
+        ? t('auth.deviceStart')
+        : t('org.connect');
 
   // An expired or failed org used to show its badge and nothing else. Reconnect
   // replays the method it was added with: a CLI import runs again, a browser or
@@ -292,6 +423,8 @@ export const OrgManagerPage: React.FC = () => {
         handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' });
         return;
       }
+      // The form it reopens replaces a device code still waiting, if any.
+      if (deviceLoading) stopDeviceSignIn();
       resetForm();
       setActiveMethod(org.authMethod);
       setAlias(org.alias);
@@ -302,7 +435,7 @@ export const OrgManagerPage: React.FC = () => {
       );
       if (org.authMethod === 'usernamePassword') setUsername(org.username);
     },
-    [handleConnect],
+    [handleConnect, deviceLoading, stopDeviceSignIn],
   );
 
   const handleEdit = useCallback((org: SalesforceOrg) => {
@@ -355,8 +488,9 @@ export const OrgManagerPage: React.FC = () => {
   // Fetching the registry, or importing from the CLI, used to paint nothing at
   // all: `orgs` is still empty, so the grid rendered zero cards and the empty
   // state was suppressed. A first-time user saw a blank panel and no way to
-  // tell the import from a dead extension.
-  const isLoadingOrgs = (orgListQuery.loading || isConnecting) && orgs.length === 0;
+  // tell the import from a dead extension. A device sign-in waiting for its
+  // approval is not a load: the panel above already says what it waits for.
+  const isLoadingOrgs = (orgListQuery.loading || connectMutation.loading) && orgs.length === 0;
 
   return (
     <div className="flex flex-col gap-4" data-testid="org-manager-page">
@@ -382,8 +516,6 @@ export const OrgManagerPage: React.FC = () => {
         <div className="flex items-center gap-2 px-4 pb-3 flex-wrap" data-testid="org-auth-methods">
           {AUTH_METHODS.map((card) => {
             const isActive = activeMethod === card.method;
-            // Still clickable: the click opens the panel that says why, which a
-            // `disabled` button would swallow.
             return (
               <button
                 key={card.method}
@@ -397,21 +529,15 @@ export const OrgManagerPage: React.FC = () => {
                 )}
                 onClick={() => handleMethodClick(card)}
                 disabled={isConnecting}
-                aria-disabled={card.comingSoon || undefined}
-                title={card.descKey ? t(card.descKey) : t('common.comingSoon')}
+                title={t(card.descKey)}
                 data-testid={`org-auth-${card.method}`}
               >
-                {card.method === 'sfdx_import' && isConnecting ? (
+                {card.method === 'sfdx_import' && connectMutation.loading ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   card.icon
                 )}
                 <span>{t(card.labelKey)}</span>
-                {card.comingSoon && (
-                  <span className="px-1 py-px text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]">
-                    {t('common.comingSoon')}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -457,7 +583,7 @@ export const OrgManagerPage: React.FC = () => {
         )}
 
         {/* Inline form — expands when a method with form is selected */}
-        {activeMethod && (activeMethod === 'oauth_web' || activeMethod === 'usernamePassword') && (
+        {activeMethod && activeMethod !== 'sfdx_import' && (
           <div
             className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-3"
             data-testid="org-inline-form"
@@ -469,10 +595,7 @@ export const OrgManagerPage: React.FC = () => {
               <button
                 type="button"
                 className="text-text-secondary hover:text-text-primary transition-colors"
-                onClick={() => {
-                  setActiveMethod(null);
-                  resetForm();
-                }}
+                onClick={closeMethodPanel}
                 aria-label={t('common.close')}
                 data-testid="org-inline-close"
               >
@@ -480,24 +603,33 @@ export const OrgManagerPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid gap-3 max-w-lg">
-              <Select
-                label={t('auth.loginUrl')}
-                options={loginUrlOptions}
-                value={loginUrl}
-                onChange={(e) => setLoginUrl(e.target.value)}
-              />
+            {shownDeviceCode ? (
+              <DeviceCodePanel code={shownDeviceCode} onCancel={stopDeviceSignIn} />
+            ) : (
+              <div className="grid gap-3 max-w-lg">
+                {activeMethod === 'jwt' && (
+                  <p className="text-xs text-text-secondary">{t('auth.jwtHelp')}</p>
+                )}
+                {activeMethod === 'oauth_device' && (
+                  <p className="text-xs text-text-secondary">{t('auth.deviceHelp')}</p>
+                )}
 
-              <Input
-                label={t('org.alias')}
-                value={alias}
-                onChange={(e) => setAlias(e.target.value)}
-                placeholder={t('org.aliasPlaceholder')}
-                data-testid="inline-alias-input"
-              />
+                <Select
+                  label={t('auth.loginUrl')}
+                  options={loginUrlOptions}
+                  value={loginUrl}
+                  onChange={(e) => setLoginUrl(e.target.value)}
+                />
 
-              {activeMethod === 'usernamePassword' && (
-                <>
+                <Input
+                  label={t('org.alias')}
+                  value={alias}
+                  onChange={(e) => setAlias(e.target.value)}
+                  placeholder={t('org.aliasPlaceholder')}
+                  data-testid="inline-alias-input"
+                />
+
+                {(activeMethod === 'usernamePassword' || activeMethod === 'jwt') && (
                   <Input
                     label={t('auth.username')}
                     value={username}
@@ -505,63 +637,67 @@ export const OrgManagerPage: React.FC = () => {
                     placeholder={t('auth.usernamePlaceholder')}
                     data-testid="inline-username-input"
                   />
-                  <Input
-                    label={t('auth.password')}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    type="password"
-                    data-testid="inline-password-input"
-                  />
-                  <Input
-                    label={t('auth.securityToken')}
-                    value={securityToken}
-                    onChange={(e) => setSecurityToken(e.target.value)}
-                    placeholder={t('auth.securityTokenHint')}
-                    data-testid="inline-token-input"
-                  />
-                </>
-              )}
+                )}
 
-              <div className="flex items-center gap-2 pt-1">
-                <Button
-                  onClick={handleInlineSubmit}
-                  loading={isConnecting}
-                  disabled={!canSubmit}
-                  data-testid="org-inline-connect"
-                >
-                  {activeMethod === 'oauth_web' ? t('auth.openBrowser') : t('org.connect')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setActiveMethod(null);
-                    resetForm();
-                  }}
-                >
-                  {t('common.cancel')}
-                </Button>
+                {activeMethod === 'usernamePassword' && (
+                  <>
+                    <Input
+                      label={t('auth.password')}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      type="password"
+                      data-testid="inline-password-input"
+                    />
+                    <Input
+                      label={t('auth.securityToken')}
+                      value={securityToken}
+                      onChange={(e) => setSecurityToken(e.target.value)}
+                      placeholder={t('auth.securityTokenHint')}
+                      data-testid="inline-token-input"
+                    />
+                  </>
+                )}
+
+                {(activeMethod === 'jwt' || activeMethod === 'oauth_device') && (
+                  <Input
+                    label={t('auth.clientId')}
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    data-testid="inline-client-id-input"
+                  />
+                )}
+
+                {activeMethod === 'jwt' && (
+                  <Input
+                    label={t('auth.jwtKeyFile')}
+                    value={jwtKeyFile}
+                    onChange={(e) => setJwtKeyFile(e.target.value)}
+                    placeholder={t('auth.jwtKeyFilePlaceholder')}
+                    hint={t('auth.jwtKeyFileHint')}
+                    autoComplete="off"
+                    spellCheck={false}
+                    data-testid="inline-key-file-input"
+                  />
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <Button
+                    ref={submitRef}
+                    onClick={handleInlineSubmit}
+                    loading={isConnecting}
+                    disabled={!canSubmit}
+                    data-testid="org-inline-connect"
+                  >
+                    {submitLabel}
+                  </Button>
+                  <Button variant="ghost" onClick={closeMethodPanel}>
+                    {t('common.cancel')}
+                  </Button>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Not supported message for JWT / Device */}
-        {activeMethod && (activeMethod === 'jwt' || activeMethod === 'oauth_device') && (
-          <div
-            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-3"
-            data-testid="org-inline-not-supported"
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-text-secondary">{t('auth.notSupported')}</p>
-              <button
-                type="button"
-                className="text-text-secondary hover:text-text-primary transition-colors"
-                onClick={() => setActiveMethod(null)}
-                aria-label={t('common.close')}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            )}
           </div>
         )}
       </div>

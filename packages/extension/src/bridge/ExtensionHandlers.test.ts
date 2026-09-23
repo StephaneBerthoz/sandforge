@@ -398,7 +398,7 @@ describe('ExtensionHandlers', () => {
 
   describe('org:connect — unsupported', () => {
     it('should send warning for unsupported auth methods', async () => {
-      broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'jwt' }));
+      broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'saml' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {

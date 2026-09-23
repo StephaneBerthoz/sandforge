@@ -180,6 +180,14 @@ export const SF_CLI_MISSING_MESSAGE = 'Salesforce CLI (sf) not found on PATH.';
 /** Salesforce's own install page for the `sf` CLI. */
 export const SF_CLI_INSTALL_URL = 'https://developer.salesforce.com/tools/salesforcecli';
 
+/**
+ * How long a device-flow code stays valid when Salesforce does not say: ten
+ * minutes, the lifetime its device flow documentation gives the code. The
+ * host stops waiting for approval when the code expires, and the Org Manager
+ * waits that long, plus the hand-off to the CLI, before it gives up.
+ */
+export const SF_DEVICE_CODE_LIFETIME_MS = 10 * 60_000;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

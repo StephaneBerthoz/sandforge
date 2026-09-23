@@ -14,6 +14,7 @@ import {
   TEMPLATE_MAX_RULES,
   TEMPLATE_NAME_MAX_LENGTH,
 } from '@sandforge/shared';
+import { isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
   isSafeSoqlOrderBy,
@@ -875,8 +876,86 @@ export const orgConnectPayloadSchema = z
     username: z.string().max(300).optional(),
     password: z.string().max(500).optional(),
     securityToken: z.string().max(100).optional(),
+    clientId: z.string().max(256).optional(),
+    jwtKeyFile: z.string().max(4096).optional(),
   })
   .passthrough();
+
+/**
+ * An alias the CLI is given: letters, digits, dots, dashes and underscores, as
+ * `SfdxBridge.loginWeb` already requires. Empty means none.
+ */
+const cliAliasSchema = z
+  .string()
+  .trim()
+  .max(100)
+  .regex(/^[\w.-]*$/, 'an alias is letters, digits, dots, dashes and underscores')
+  .optional();
+
+/**
+ * A Salesforce username, in the character set `refreshTokenViaCli` accepts:
+ * an org signed in under any other could never have its session refreshed.
+ */
+const sfUsernameSchema = z
+  .string()
+  .trim()
+  .min(1, 'the username is required')
+  .max(80)
+  .regex(/^[\w.@+-]+$/, 'a username is written like an email address');
+
+/**
+ * A consumer key (client id), in the character set the CLI accepts for one in
+ * an SFDX authorization URL.
+ */
+const consumerKeySchema = z
+  .string()
+  .trim()
+  .min(1, 'the consumer key is required')
+  .max(256)
+  .regex(
+    /^[A-Za-z0-9._-]+={0,2}$/,
+    'a consumer key is letters, digits, dots, dashes and underscores',
+  );
+
+/**
+ * The private key's location, as a path: absolute, since the CLI would resolve
+ * a relative one against the extension host's working directory, which the
+ * user never chose.
+ */
+const keyFilePathSchema = z
+  .string()
+  .trim()
+  .min(1, 'the private key file is required')
+  .max(4096)
+  // eslint-disable-next-line no-control-regex -- control characters are what this refuses
+  .regex(/^[^\u0000-\u001f\u007f]+$/, 'the private key file path holds a control character')
+  .refine((keyFile) => isAbsolute(keyFile), 'give the private key file as an absolute path');
+
+/**
+ * What a JWT bearer sign-in reads from `org:connect`. The key file is a path
+ * for `sf org login jwt`; SandForge never opens it.
+ */
+export const orgJwtConnectPayloadSchema = z
+  .object({
+    alias: cliAliasSchema,
+    loginUrl: z.string().max(500).optional(),
+    username: sfUsernameSchema,
+    clientId: consumerKeySchema,
+    jwtKeyFile: keyFilePathSchema,
+  })
+  .passthrough();
+
+/** What a device-flow sign-in reads from `org:connect`: the app and the login host. */
+export const orgDeviceConnectPayloadSchema = z
+  .object({
+    alias: cliAliasSchema,
+    loginUrl: z.string().max(500).optional(),
+    clientId: consumerKeySchema,
+  })
+  .passthrough();
+
+/** Stop the sign-in the `org:connect` request `requestId` is waiting on. */
+export const orgConnectCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
 export const orgDisconnectPayloadSchema = z.object({ orgId: orgIdSchema });
 export const orgSelectPayloadSchema = z.object({ orgId: orgIdSchema });
 /**

@@ -69,12 +69,14 @@ Top to bottom, the launcher gives you:
    - **SFDX Import** -- Imports orgs already authenticated via Salesforce CLI (fastest option)
    - **OAuth Web** -- Opens a browser window for standard OAuth flow
    - **Username/Password** -- Direct login with username, password, and security token
-   - **JWT** -- JSON Web Token authentication (coming soon)
-   - **Device Flow** -- OAuth device flow for headless environments (coming soon)
+   - **JWT** -- JWT bearer flow through `sf org login jwt`: the consumer key of a connected app or external client app that holds your certificate, a username pre-authorized on it, and the path of the private key file
+   - **Device Flow** -- OAuth device flow: SandForge shows a code, opens the Salesforce page to enter it on, and waits up to ten minutes for your approval. It needs your own external client app with the device flow enabled
 3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically
 4. Once connected, your org appears as a card with its alias, type badge (PROD/SBX), and status dot
 
-OAuth Web and Username/Password log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
+OAuth Web, Username/Password, JWT and Device Flow log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
+
+JWT and Device Flow leave the session with the Salesforce CLI, as SFDX Import does: SandForge adds the one org you signed in to, and the CLI refreshes its session from then on. For JWT, SandForge passes the path of the private key file to `sf org login jwt` and never opens the file; the path must be absolute. The Salesforce CLI has had no device command since 2.119.8, and Salesforce blocks the device flow for the CLI's own connected app, so SandForge asks Salesforce for the code itself, then hands the approved session to the CLI with `sf org login sfdx-url`. The app must grant the `refresh_token` scope and accept the refresh token without the consumer secret, since the CLI refreshes the session with the consumer key alone. Salesforce no longer lets a connected app enable the device flow, and from 30 November 2026 accepts it only from a local external client app with a localhost callback URL. **Cancel sign-in** stops the wait.
 
 An org on another Salesforce cloud (for example Government Cloud Plus, on `salesforce.mil`) is added in two steps: authenticate it with `sf org login web --instance-url <url>`, then click **SFDX Import**.
 
