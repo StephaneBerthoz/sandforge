@@ -5,6 +5,73 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.0] - 2026-09-23
+
+Forge can copy the files of what it clones, when you ask for it, and an
+opportunity clone now brings the catalog its lines use rather than all of it.
+Run against a real pair of sandboxes, that clone met the rest of what a Sales
+Cloud org holds: selling models, activated orders, quotes the running user
+cannot write. It now writes every price and line, restores each order's
+status, and its removal goes in one pass.
+
+### Added
+
+- **Forge copies files, on request.** The Salesforce Files and attachments of
+  the records a run clones are copied to the records it creates, each file in
+  its own call, after the records it hangs on. Off by default; while a run
+  anonymizes, refused unless you accept that files are copied as they are,
+  since their content cannot be anonymized. Each file is capped (10 MB by
+  default, 35 at most) and the total is checked against the target's file
+  storage before anything is written. A dry run lists them; removing the run
+  removes them too. `sandforge-clone` gains `--files`, `--max-file-size` and
+  `--files-as-is`.
+
+### Fixed
+
+- **A clone no longer writes a file's content as its address.** Discovery
+  left file objects in the graph, and a clone that met one wrote each file's
+  body as the text of its URL. File objects are now left to the file copy, and
+  every other field holding a file's content — a quote's generated document —
+  is left empty and named in the summary.
+- **An opportunity clone brings the catalog its lines use.** Prices and
+  products were read as children of every price book in scope, the standard
+  one included: 171 prices and 146 products for an opportunity of three line
+  items. The clone now
+  brings the prices its opportunity, quote and order lines use, their
+  products, the standard prices those need and their price books — and keeps
+  the quote and order lines priced from other books, which it dropped.
+- **Catalogs sold under selling models clone.** Every price under a selling
+  model was refused for want of the product's selling-model option: the
+  options are now cloned, or linked, before the prices, and each price gets
+  the standard price of its own selling model.
+- **Prices are written before every line that uses them, and an opportunity
+  after its account.** The order no longer depends on which object discovery
+  met first.
+- **Activated orders clone.** An order or contract past Draft is written as a
+  draft and gets its status back once the run has written everything.
+- **A record whose optional parent could not be written is written with that
+  lookup empty**, and the run says which lookups it left empty, all of them —
+  it counted three at most. Orders whose quote was held back were skipped
+  whole.
+- **A large scoped clone no longer overflows the query URI**: a parent's whole
+  id list was repeated in every statement.
+- **Removing a run goes in one pass.** Records are deleted after whatever still
+  points at them, the root included; a refusal for a dependency is retried; a
+  record the removal itself causes — a feed item, a duplicate-rule entry, a
+  file's link — no longer holds anything back; custom prices go before
+  standard ones; activated orders go back to Draft first. Every date is read
+  from the org's clock, not this machine's.
+- **The Forge dependency graph works from the keyboard.** A node was a button
+  around its own checkbox, which a screen reader could not tell apart; its
+  name now selects it.
+
+### Changed
+
+- **jsforce stays at 3.10.14.** Later releases send their requests through a
+  transport of their own that skips the proxy VS Code applies to the
+  extension; a gate now refuses a jsforce that does, until the proxy is wired
+  to it.
+
 ## [1.37.0] - 2026-09-23
 
 Forge can now take back what it cloned: a run's history entry removes, from

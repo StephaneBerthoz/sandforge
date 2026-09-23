@@ -1921,6 +1921,10 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "forgeFiles": "Forge kopiert die Dateien dessen, was es klont",
+      "forgeFilesDesc": "Auf Wunsch: die Salesforce-Dateien und Anhänge der Datensätze, die ein Lauf klont, mit einer Obergrenze pro Datei und geprüft gegen den Dateispeicher des Ziels – während einer Anonymisierung verweigert, außer Sie akzeptieren, dass Dateien unverändert kopiert werden.",
+      "forgeCatalog": "Ein Opportunity-Klon bringt seinen eigenen Katalog mit",
+      "forgeCatalogDesc": "Nur die Preise, Produkte und Preisbücher, die seine Positionen verwenden, samt Verkaufsmodell-Optionen, geschrieben vor den Positionen, die sie brauchen; aktivierte Aufträge erhalten ihren Status zurück, und das Entfernen des Laufs gelingt in einem Durchgang.",
       "forgeRemoveRun": "Zurücknehmen, was ein Forge-Lauf erstellt hat",
       "forgeRemoveRunDesc": "Jeder Lauf im Forge-Verlauf kann die Datensätze, die er erstellt hat, aus seinem Ziel entfernen – und nur diese: Datensätze, mit denen er nur verknüpft hat, und solche, von denen später Hinzugefügtes noch abhängt, bleiben erhalten.",
       "cancelStops": "Abbrechen stoppt, was abgebrochen wird",

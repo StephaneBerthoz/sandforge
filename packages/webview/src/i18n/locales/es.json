@@ -1921,6 +1921,10 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeFiles": "Forge copia los archivos de lo que clona",
+      "forgeFilesDesc": "A petición: los archivos de Salesforce y los adjuntos de los registros que una ejecución clona, con un límite por archivo y comprobados frente al almacenamiento del destino — rechazados mientras la ejecución anonimiza, salvo que acepte que los archivos se copian tal cual.",
+      "forgeCatalog": "Una clonación de oportunidad trae su propio catálogo",
+      "forgeCatalogDesc": "Solo los precios, productos y listas de precios que usan sus líneas, con las opciones de modelo de venta, escritos antes de las líneas que los necesitan; los pedidos activados recuperan su estado y la eliminación de la ejecución se hace en una sola pasada.",
       "forgeRemoveRun": "Deshacer lo que creó una ejecución de Forge",
       "forgeRemoveRunDesc": "Cada ejecución del historial de Forge puede quitar de su destino los registros que creó, y solo esos: se conservan los registros a los que solo se vinculó y aquellos de los que aún depende algo añadido después.",
       "cancelStops": "Cancelar detiene lo que se cancela",

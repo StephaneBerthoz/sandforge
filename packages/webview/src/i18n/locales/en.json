@@ -1921,6 +1921,10 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "forgeFiles": "Forge copies the files of what it clones",
+      "forgeFilesDesc": "On request: the Salesforce Files and attachments of the records a run clones, capped per file and checked against the target's storage — refused while the run anonymizes unless you accept that files are copied as they are.",
+      "forgeCatalog": "An opportunity clone brings its own catalog",
+      "forgeCatalogDesc": "Only the prices, products and price books its lines use, selling-model options included, written before the lines that need them; activated orders get their status back, and removing the run goes in one pass.",
       "forgeRemoveRun": "Take back what a Forge run created",
       "forgeRemoveRunDesc": "Each run in the Forge history can remove from its target the records it created, and only those: records it linked to, and records something added since still depends on, are kept.",
       "cancelStops": "Cancel stops what it cancels",
