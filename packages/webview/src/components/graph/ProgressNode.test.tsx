@@ -181,18 +181,24 @@ describe('ProgressNode', () => {
     expect(checkbox.hasAttribute('readonly')).toBe(false);
   });
 
-  it('should call onSelect with the object name when clicked', () => {
+  it('selects the node from a button on its name, beside the checkbox and not around it', () => {
     const handler = vi.fn();
-    render(<ProgressNode {...makeNodeProps({ onSelect: handler })} />);
-    fireEvent.click(screen.getByTestId('progress-node'));
+    render(<ProgressNode {...makeNodeProps({ onSelect: handler, onIncludeToggle: vi.fn() })} />);
+    const node = screen.getByTestId('progress-node');
+    // The card itself is no control: a control inside a control is one a
+    // screen reader cannot tell apart.
+    expect(node.getAttribute('role')).toBeNull();
+    expect(node.hasAttribute('tabindex')).toBe(false);
+    const select = screen.getByRole('button', { name: 'Show the details of Account' });
+    expect(select.contains(screen.getByTestId('include-checkbox'))).toBe(false);
+    fireEvent.click(select);
     expect(handler).toHaveBeenCalledWith('Account');
   });
 
-  it('should call onSelect when Enter key is pressed', () => {
-    const handler = vi.fn();
-    render(<ProgressNode {...makeNodeProps({ onSelect: handler })} />);
-    fireEvent.keyDown(screen.getByTestId('progress-node'), { key: 'Enter' });
-    expect(handler).toHaveBeenCalledWith('Account');
+  it('shows the name as plain text where the graph selects nothing', () => {
+    render(<ProgressNode {...makeNodeProps({ onSelect: undefined })} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText('Account')).toBeDefined();
   });
 
   it('should apply green border when done', () => {

@@ -2592,7 +2592,8 @@
     "node": {
       "records": "{{records}} registros",
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)",
-      "notMeasured": "Volume ainda não medido"
+      "notMeasured": "Volume ainda não medido",
+      "showDetails": "Mostrar os detalhes de {{object}}"
     },
     "statusFilterLabel": "Filtrar por status",
     "files": {

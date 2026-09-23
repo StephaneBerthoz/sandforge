@@ -713,10 +713,10 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-execute-btn').click();
 
       // The copy turned on: the size, and the confirmation that holds Execute.
-      // The dependency graph beside it is left out of these two scans: its
-      // nodes are buttons holding buttons (nested-interactive), a finding of
-      // the graph's own that no scan of the Review step had met before.
-      const reviewScan = { exclude: ['.react-flow'] };
+      // The dependency graph beside it is scanned too: its nodes were buttons
+      // holding their own checkbox (nested-interactive) until the card
+      // stopped being one.
+      const reviewScan = {};
       await page.getByTestId('forge-files-toggle').check();
       await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
       await expect(page.getByTestId('execute-button')).toBeDisabled();

@@ -188,6 +188,10 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
+        // React Flow makes each node's wrapper a focusable "button" around the
+        // card, whose own controls then sat inside it: the name and the
+        // checkbox are the node's keyboard stops.
+        nodesFocusable={false}
         fitView
         proOptions={{ hideAttribution: true }}
       >

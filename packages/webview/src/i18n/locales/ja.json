@@ -2466,7 +2466,8 @@
     "node": {
       "records": "{{records}} 件のレコード",
       "fieldsCloneable": "{{total}} 項目（うち {{cloneable}} 件が複製可能）",
-      "notMeasured": "件数は未計測です"
+      "notMeasured": "件数は未計測です",
+      "showDetails": "{{object}} の詳細を表示"
     },
     "statusFilterLabel": "ステータスで絞り込む",
     "files": {

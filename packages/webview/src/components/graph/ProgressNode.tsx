@@ -97,15 +97,6 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
     onSelect?.(objectApiName);
   }, [onSelect, objectApiName]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        onSelect?.(objectApiName);
-      }
-    },
-    [onSelect, objectApiName],
-  );
-
   const handleCheckboxChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       e.stopPropagation();
@@ -117,12 +108,12 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
   const showProgress = status === 'scanning' || status === 'running';
 
   return (
+    // Not a button itself: the card held its own checkbox, and a control
+    // inside a control is one a screen reader cannot tell apart (axe
+    // `nested-interactive`). The graph selects a node on a click anywhere on
+    // it; the keyboard reaches the name, a button of its own beside the box.
     <div
       data-testid="progress-node"
-      role="button"
-      tabIndex={0}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
         'bg-surface-2 rounded-lg border p-3 min-w-[200px] cursor-pointer transition-colors',
         borderByStatus[status],
@@ -145,7 +136,21 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               aria-label={t('a11y.includeObject', { object: objectApiName })}
             />
           )}
-          <span className="text-xs font-semibold text-text-primary truncate">{objectApiName}</span>
+          {onSelect ? (
+            <button
+              type="button"
+              data-testid="progress-node-select"
+              onClick={handleClick}
+              aria-label={t('forge.node.showDetails', { object: objectApiName })}
+              className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)] rounded-sm"
+            >
+              {objectApiName}
+            </button>
+          ) : (
+            <span className="text-xs font-semibold text-text-primary truncate">
+              {objectApiName}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {edgeType && (
