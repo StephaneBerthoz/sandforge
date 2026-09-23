@@ -306,6 +306,11 @@ export class SeedCsvHandler implements DomainHandler {
       }
       const failedCount = outcomes.length - insertedCount;
       const reached = failedCount === 0 ? 'success' : insertedCount > 0 ? 'partial' : 'failure';
+      /** Why the import ended failed — it wrote no row — or nothing when it did not. */
+      const importFailed =
+        !cancelled && reached === 'failure'
+          ? (errors[0] ?? 'No row could be imported.')
+          : undefined;
       unrecorded = false;
       recordWriteRun(this.deps, {
         ...run,
@@ -339,10 +344,15 @@ export class SeedCsvHandler implements DomainHandler {
         });
         this.liveTracker?.cancel(operationId);
       } else {
-        sendOperationCompleted(this.deps, operationId, { insertedCount, failedCount });
-        // An import that wrote no row ends failed there, as a Seed run does.
-        if (reached === 'failure') {
-          this.liveTracker?.fail(operationId, errors[0] ?? 'No row could be imported.');
+        // With its status, as every write run posts it: without one, an
+        // import that wrote no row read as succeeded in the recent operations.
+        sendOperationCompleted(this.deps, operationId, {
+          status: reached,
+          insertedCount,
+          failedCount,
+        });
+        if (importFailed !== undefined) {
+          this.liveTracker?.fail(operationId, importFailed);
         } else {
           this.liveTracker?.complete(operationId);
         }
@@ -357,7 +367,9 @@ export class SeedCsvHandler implements DomainHandler {
       this.deps.log(
         `[TX] ${response.type} id=${response.id} inserted=${insertedCount} failed=${failedCount}`,
       );
-      settle();
+      // In the registry as everywhere else: resolved, an import that wrote no
+      // row was listed completed and announced as such.
+      settle(importFailed === undefined ? undefined : new Error(importFailed));
     } catch (err: unknown) {
       if (unrecorded) recordWriteRun(this.deps, run);
       // Single failure emission: `operation:failed` only (same convention as

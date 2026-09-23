@@ -29,10 +29,10 @@ export class IdRemapper {
   private readonly objectOf = new Map<string, string>();
 
   /**
-   * Register a mapping from old ID to new ID.
+   * Register a record this run created: a mapping from old ID to new ID.
    *
-   * @param objectApiName - The object of the record this run created, when
-   *   the mapping is one; left out for a mapping to a row the run only found.
+   * @param objectApiName - The object of the record created. A mapping
+   *   registered without one is counted in no object.
    */
   add(oldId: string, newId: string, objectApiName?: string): void {
     this.map.set(oldId, newId);
@@ -56,10 +56,13 @@ export class IdRemapper {
   }
 
   /**
-   * Register a source record the target org refused because it already holds
-   * it, mapped onto that existing record so its children link to it.
+   * Register a source record whose counterpart the target org already held —
+   * it refused the row as a duplicate and named that record, or the run found
+   * it by name — mapped onto that record so its children link to it.
    *
-   * @param objectApiName - The object both records belong to.
+   * @param objectApiName - The object both records belong to; left out for a
+   *   row the run only found and never set out to write, such as reference
+   *   data matched by name or the standard price book.
    */
   addExisting(oldId: string, existingId: string, objectApiName?: string): void {
     this.map.set(oldId, existingId);
@@ -135,6 +138,11 @@ export class IdRemapper {
   /** Source ids mapped onto records the target already held, in registration order. */
   existingSourceIds(): string[] {
     return [...this.existing];
+  }
+
+  /** Source ids an upsert matched by their external id and wrote over, in registration order. */
+  updatedSourceIds(): string[] {
+    return [...this.updated];
   }
 
   /** Get the new ID for an old ID. Returns undefined if not mapped. */

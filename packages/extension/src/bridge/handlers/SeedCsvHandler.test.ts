@@ -552,6 +552,68 @@ describe('SeedCsvHandler', () => {
     });
   });
 
+  describe('how an import ends, in the recent operations and the registry', () => {
+    /** The id the import runs under: its request's. */
+    const OPERATION_ID = 'msg-seed:csv:execute';
+
+    let registry: BackgroundOperationRegistry;
+    beforeEach(() => {
+      registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+    });
+
+    /** Two rows to import: the writer's answer decides how the import ends. */
+    const twoRows = (): Record<string, unknown> =>
+      csvPayload({ records: [{ name: 'Acme' }, { name: 'Beta' }] });
+
+    it('ends an import that wrote no row as failed, with the first refusal', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(buildMsg('seed:csv:execute', twoRows()));
+
+      // `failure` is what the recent operations read as Failed.
+      expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+        operationId: OPERATION_ID,
+        result: { status: 'failure', insertedCount: 0, failedCount: 2 },
+      });
+      await vi.waitFor(() => expect(registry.get(OPERATION_ID)?.status).toBe('failed'));
+      expect(registry.get(OPERATION_ID)?.resultSummary).toBe('REQUIRED_FIELD_MISSING: Name');
+    });
+
+    it('ends an import that wrote some rows as partial', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '001TGT1', success: true, errors: [] },
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(buildMsg('seed:csv:execute', twoRows()));
+
+      expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+        operationId: OPERATION_ID,
+        result: { status: 'partial', insertedCount: 1, failedCount: 1 },
+      });
+      await vi.waitFor(() => expect(registry.get(OPERATION_ID)?.status).toBe('completed'));
+    });
+
+    it('ends an import that wrote every row as a success', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '001TGT1', success: true, errors: [] },
+        { id: '001TGT2', success: true, errors: [] },
+      ]);
+
+      await handler.handle(buildMsg('seed:csv:execute', twoRows()));
+
+      expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+        operationId: OPERATION_ID,
+        result: { status: 'success', insertedCount: 2, failedCount: 0 },
+      });
+      await vi.waitFor(() => expect(registry.get(OPERATION_ID)?.status).toBe('completed'));
+    });
+  });
+
   describe('production guard', () => {
     /** Wire a mock ProductionGuard into deps.infraServices and return its spies. */
     function wireGuard(behavior: {

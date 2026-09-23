@@ -1793,6 +1793,7 @@ describe('ForgeHandler', () => {
         successCount: 5,
         updatedCount: 0,
         linkedCount: 0,
+        wouldInsertCount: 0,
         failedCount: 1,
         skippedCount: 0,
         remapCount: 5,
@@ -1809,6 +1810,7 @@ describe('ForgeHandler', () => {
         remapTable: {},
         existingRecords: [],
         existingSourceIds: [],
+        updatedSourceIds: [],
         remapByObject: [
           { objectApiName: 'Account', created: 2, linked: 0 },
           { objectApiName: 'Contact', created: 3, linked: 0 },
@@ -1860,6 +1862,7 @@ describe('ForgeHandler', () => {
         successCount: createdOne ? 1 : 0,
         updatedCount: 0,
         linkedCount: 1,
+        wouldInsertCount: 0,
         failedCount: 0,
         skippedCount: 0,
         remapCount: createdOne ? 2 : 1,
@@ -1871,6 +1874,7 @@ describe('ForgeHandler', () => {
         },
         existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
         existingSourceIds: [LINKED_SOURCE],
+        updatedSourceIds: [],
         remapByObject: [{ objectApiName: 'Account', created: createdOne ? 1 : 0, linked: 1 }],
         createdByObject: createdOne
           ? [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }]

@@ -7,6 +7,7 @@ const TWO_ACCOUNTS: ExecutionSummary = {
   successCount: 2,
   updatedCount: 0,
   linkedCount: 0,
+  wouldInsertCount: 0,
   failedCount: 0,
   skippedCount: 0,
   remapCount: 2,
@@ -15,6 +16,7 @@ const TWO_ACCOUNTS: ExecutionSummary = {
   remapTable: { '001000000000001': '001000000000901', '001000000000002': '001000000000902' },
   existingRecords: [],
   existingSourceIds: [],
+  updatedSourceIds: [],
   remapByObject: [{ objectApiName: 'Account', created: 2, linked: 0 }],
   createdByObject: [
     { objectApiName: 'Account', sourceIds: ['001000000000001', '001000000000002'] },

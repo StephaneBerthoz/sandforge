@@ -116,6 +116,8 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
 
 The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)).
 
+With `--json`, the clone prints its summary as JSON. `remapTable` maps each source Id to its target Id; `existingSourceIds` names the rows the target already held (linked to, or matched by name) and `updatedSourceIds` the rows `--upsert` wrote over, so every other row of the table is a record the run created. A `--dry-run` creates nothing: what it would insert is counted in `wouldInsertCount`, and `successCount` stays at 0.
+
 The clone's exit code is `1` when the run produced **only** failures and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, or a name that is not an API name. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
 
 ## Common errors and what they mean

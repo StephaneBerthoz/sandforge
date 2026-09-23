@@ -404,15 +404,14 @@ export async function describeObjectInfo(
 
 /**
  * Whether a run failed outright: records failed and none was created, updated
- * or linked. A run that linked what it could not create, or wrote over what
- * its external ids matched, has done part of its job. Exported so it can be
- * tested.
+ * or linked, nor — for a dry run — would have been inserted. A run that linked
+ * what it could not create, or wrote over what its external ids matched, has
+ * done part of its job. Exported so it can be tested.
  */
 export function failedOutright(summary: ExecutionSummary): boolean {
-  return (
-    summary.failedCount > 0 &&
-    summary.successCount + summary.updatedCount + summary.linkedCount === 0
-  );
+  const settled =
+    summary.successCount + summary.updatedCount + summary.linkedCount + summary.wouldInsertCount;
+  return summary.failedCount > 0 && settled === 0;
 }
 
 /**
@@ -424,6 +423,10 @@ export function failedOutright(summary: ExecutionSummary): boolean {
 export function summaryLines(summary: ExecutionSummary): string[] {
   const lines = [
     `success: ${summary.successCount}`,
+    // A dry run creates nothing: what it would have inserted, under its own name.
+    ...(summary.wouldInsertCount > 0
+      ? [`would be inserted: ${summary.wouldInsertCount} (dry run, nothing written)`]
+      : []),
     // Only an `--upsert` run updates: a row matched by its external id is a
     // record the target held, written over and not created.
     ...(summary.updatedCount > 0
@@ -455,6 +458,45 @@ export function summaryLines(summary: ExecutionSummary): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * The `result` of the `--json` summary, a stable schema for CI.
+ *
+ * `remapTable` maps every source id the run gave a counterpart in the target.
+ * `existingSourceIds` names the entries the target already held and
+ * `updatedSourceIds` the ones `--upsert` wrote over, so the table's other
+ * entries are exactly the records the run created. Exported so it can be
+ * tested.
+ */
+export function jsonResult(summary: ExecutionSummary) {
+  return {
+    successCount: summary.successCount,
+    // Written over by `--upsert`: the target held them before the run.
+    updatedCount: summary.updatedCount,
+    // Neither created nor failed: the target already held these records —
+    // it named them, or they were matched by name — and their children link
+    // to them.
+    linkedCount: summary.linkedCount,
+    // What a dry run would have inserted: it writes nothing.
+    wouldInsertCount: summary.wouldInsertCount,
+    failedCount: summary.failedCount,
+    skippedCount: summary.skippedCount,
+    remapCount: summary.remapCount,
+    existingRecords: summary.existingRecords,
+    errors: summary.errors.map((e) => ({
+      objectApiName: e.objectApiName,
+      stage: e.stage,
+      failedCount: e.failedCount,
+      attemptedCount: e.attemptedCount,
+      samples: e.samples,
+    })),
+    // remapTable only included in JSON output for CI consumers; the
+    // text output stays terse (use --remap-csv for the file dump).
+    remapTable: summary.remapTable,
+    existingSourceIds: summary.existingSourceIds,
+    updatedSourceIds: summary.updatedSourceIds,
+  };
 }
 
 /**
@@ -789,30 +831,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             cycles: plan.cycleResolutions.length,
             truncated: graph.truncated ?? false,
           },
-          result: {
-            successCount: summary.successCount,
-            // Neither created nor failed: the target already held these
-            // records and named them, and their children link to them.
-            // Written over by `--upsert`: the target held them before the run.
-            updatedCount: summary.updatedCount,
-            linkedCount: summary.linkedCount,
-            failedCount: summary.failedCount,
-            skippedCount: summary.skippedCount,
-            remapCount: summary.remapCount,
-            existingRecords: summary.existingRecords,
-            errors: summary.errors.map((e) => ({
-              objectApiName: e.objectApiName,
-              stage: e.stage,
-              failedCount: e.failedCount,
-              attemptedCount: e.attemptedCount,
-              samples: e.samples,
-            })),
-            // remapTable only included in JSON output for CI consumers; the
-            // text output stays terse (use --remap-csv for the file dump).
-            remapTable: summary.remapTable,
-            // Which remapTable entries are records the target already held.
-            existingSourceIds: summary.existingSourceIds,
-          },
+          result: jsonResult(summary),
           elapsedMs: elapsed,
         },
         null,

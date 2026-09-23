@@ -46,8 +46,9 @@ const DEFAULT_MATCH_FIELD: Record<string, 'Name' | 'DeveloperName'> = {
 
 /**
  * Resolve reference-data rows on the target org by name match instead of
- * cloning them. Use the result via `IdRemapper.add(sourceId, targetId)`
- * so downstream lookups remap transparently.
+ * cloning them. Use the result via `IdRemapper.addExisting(sourceId, targetId)`
+ * so downstream lookups remap transparently, and the row counts as one the
+ * target already held.
  */
 export class ReferenceDataMapper {
   constructor(private readonly query: RefDataQuery) {}

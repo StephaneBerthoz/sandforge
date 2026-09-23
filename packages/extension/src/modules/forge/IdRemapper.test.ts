@@ -93,6 +93,14 @@ describe('IdRemapper', () => {
       ]);
     });
 
+    it('names them, in the order they were registered', () => {
+      remapper.add('001A', '001CREATED', 'Account');
+      remapper.addUpdated('003B', '003MATCHED', 'Contact');
+      remapper.addUpdated('001C', '001MATCHED', 'Account');
+
+      expect(remapper.updatedSourceIds()).toEqual(['003B', '001C']);
+    });
+
     it('counts a matched row the run created after all as created', () => {
       remapper.addUpdated('001A', '001MATCHED', 'Account');
       remapper.add('001A', '001CREATED', 'Account');

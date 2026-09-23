@@ -654,6 +654,9 @@ export class SeedCloneHandler implements DomainHandler {
       };
       unrecorded = false;
       recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts));
+      /** Why the clone ended failed — it wrote nothing — or nothing when it did not. */
+      const cloneFailed =
+        !cancelled && result.status === 'failure' ? 'No record could be cloned.' : undefined;
 
       if (cancelled) {
         // Ended the way a cancelled Sync or Seed ends: aborted in the registry
@@ -672,8 +675,8 @@ export class SeedCloneHandler implements DomainHandler {
           totalInserted,
           totalFailed,
         });
-        if (result.status === 'failure') {
-          this.liveTracker?.fail(operationId, 'No record could be cloned.');
+        if (cloneFailed !== undefined) {
+          this.liveTracker?.fail(operationId, cloneFailed);
         } else {
           this.liveTracker?.complete(operationId);
         }
@@ -686,7 +689,9 @@ export class SeedCloneHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
-      settle();
+      // In the registry as everywhere else: resolved, a clone that wrote
+      // nothing was listed completed and announced as such.
+      settle(cloneFailed === undefined ? undefined : new Error(cloneFailed));
     } catch (err: unknown) {
       if (unrecorded) {
         recordWriteRun(this.deps, cloneRun(run, 'failure', objectResults, upserts));

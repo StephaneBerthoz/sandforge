@@ -559,6 +559,7 @@ describe('forge:undo', () => {
         successCount: 3,
         updatedCount: 0,
         linkedCount: 1,
+        wouldInsertCount: 0,
         failedCount: 0,
         skippedCount: 0,
         remapCount: 4,
@@ -567,6 +568,7 @@ describe('forge:undo', () => {
         remapTable: entry.idRemapTable ?? {},
         existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
         existingSourceIds: entry.idRemapExisting ?? [],
+        updatedSourceIds: [],
         remapByObject: [
           { objectApiName: 'Account', created: 1, linked: 1 },
           { objectApiName: 'Contact', created: 2, linked: 0 },

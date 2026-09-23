@@ -11,6 +11,7 @@ import {
   describeObjectInfo,
   executeOptions,
   failedOutright,
+  jsonResult,
   loadRecordTypes,
   main,
   parseArgs,
@@ -226,6 +227,7 @@ describe('sandforge-clone summary', () => {
     successCount: 4,
     updatedCount: 0,
     linkedCount: 0,
+    wouldInsertCount: 0,
     failedCount: 0,
     skippedCount: 0,
     remapCount: 4,
@@ -234,6 +236,7 @@ describe('sandforge-clone summary', () => {
     remapTable: {},
     existingRecords: [],
     existingSourceIds: [],
+    updatedSourceIds: [],
     remapByObject: [],
     createdByObject: [],
     ...overrides,
@@ -270,6 +273,47 @@ describe('sandforge-clone summary', () => {
       'success: 3',
       'updated: 2 (matched by their external id, not created)',
       'linked:  0 (already in the target, not created)',
+    ]);
+  });
+
+  it('counts what a dry run would insert under its own name, never as created', () => {
+    const lines = summaryLines(summary({ successCount: 0, wouldInsertCount: 7 }));
+
+    expect(lines.slice(0, 2)).toEqual([
+      'success: 0',
+      'would be inserted: 7 (dry run, nothing written)',
+    ]);
+    expect(jsonResult(summary({ successCount: 0, wouldInsertCount: 7 }))).toMatchObject({
+      successCount: 0,
+      wouldInsertCount: 7,
+    });
+  });
+
+  it('does not call a dry run that found records to insert a failure', () => {
+    expect(failedOutright(summary({ successCount: 0, wouldInsertCount: 3, failedCount: 1 }))).toBe(
+      false,
+    );
+  });
+
+  it('lets a CI job tell the rows of the remap table the run created from the rest', () => {
+    const result = jsonResult(
+      summary({
+        remapTable: {
+          '001000000000001SRC': '001000000000001AAA',
+          '001000000000002SRC': '001000000000002AAA',
+          '001000000000003SRC': '001000000000003AAA',
+          '01m000000000001SRC': '01m000000000001AAA',
+        },
+        // Linked to the account the target held, and business hours matched by name.
+        existingSourceIds: ['001000000000002SRC', '01m000000000001SRC'],
+        // Written over by `--upsert`.
+        updatedSourceIds: ['001000000000003SRC'],
+      }),
+    );
+
+    const notCreated = new Set([...result.existingSourceIds, ...result.updatedSourceIds]);
+    expect(Object.keys(result.remapTable).filter((id) => !notCreated.has(id))).toEqual([
+      '001000000000001SRC',
     ]);
   });
 

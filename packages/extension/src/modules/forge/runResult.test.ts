@@ -17,6 +17,7 @@ function summary(overrides: Partial<ExecutionSummary> = {}): ExecutionSummary {
     successCount: 2,
     updatedCount: 0,
     linkedCount: 1,
+    wouldInsertCount: 0,
     failedCount: 0,
     skippedCount: 0,
     remapCount: 3,
@@ -29,6 +30,7 @@ function summary(overrides: Partial<ExecutionSummary> = {}): ExecutionSummary {
     },
     existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
     existingSourceIds: ['001000000000002SRC'],
+    updatedSourceIds: [],
     remapByObject: [
       { objectApiName: 'Account', created: 1, linked: 1 },
       { objectApiName: 'Contact', created: 1, linked: 0 },

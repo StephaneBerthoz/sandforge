@@ -585,6 +585,37 @@ describe('SeedCloneHandler', () => {
     });
   });
 
+  describe('how a clone ends in the registry', () => {
+    /** The id the clone runs under: its request's. */
+    const OPERATION_ID = 'msg-seed:clone:execute';
+
+    let registry: BackgroundOperationRegistry;
+    beforeEach(() => {
+      registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+    });
+
+    it('ends a clone that wrote nothing as failed, as it ends everywhere else', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      await vi.waitFor(() => expect(registry.get(OPERATION_ID)?.status).toBe('failed'));
+      expect(registry.get(OPERATION_ID)?.resultSummary).toBe('No record could be cloned.');
+      expect(posted(deps, 'operation:completed')[0].payload as unknown).toMatchObject({
+        result: { status: 'failure' },
+      });
+    });
+
+    it('ends a clone that wrote its records as completed', async () => {
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      await vi.waitFor(() => expect(registry.get(OPERATION_ID)?.status).toBe('completed'));
+    });
+  });
+
   describe('audit trail', () => {
     const SOURCE_ACCOUNT_ID = '001Fk00000SoUrCIAV';
     const EXISTING_ACCOUNT_ID = '001Fk00000ExIsTIAV';

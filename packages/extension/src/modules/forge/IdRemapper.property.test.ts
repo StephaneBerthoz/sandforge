@@ -75,6 +75,40 @@ describe('IdRemapper — property-based', () => {
     );
   });
 
+  it('every row of the table was created, found in the target, or written over — only one of them', () => {
+    /** How a row was registered: created, found (with its object or without), or written over. */
+    const registrationArb = fc.array(
+      fc.tuple(
+        fc.constantFrom('created', 'linked', 'found', 'updated'),
+        sfIdArb,
+        sfIdArb,
+        fc.constantFrom('Account', 'Contact', 'Case'),
+      ),
+      { maxLength: 60 },
+    );
+    fc.assert(
+      fc.property(registrationArb, (registrations) => {
+        const remapper = new IdRemapper();
+        for (const [kind, source, target, object] of registrations) {
+          if (kind === 'created') remapper.add(source, target, object);
+          else if (kind === 'linked') remapper.addExisting(source, target, object);
+          else if (kind === 'found') remapper.addExisting(source, target);
+          else remapper.addUpdated(source, target, object);
+        }
+
+        const existing = new Set(remapper.existingSourceIds());
+        const updated = new Set(remapper.updatedSourceIds());
+        const created = remapper.createdByObject().flatMap((o) => o.sourceIds);
+        const rows = Object.keys(remapper.toJSON());
+        expect([...existing].filter((id) => updated.has(id))).toEqual([]);
+        expect(rows.filter((id) => !existing.has(id) && !updated.has(id)).sort()).toEqual(
+          [...created].sort(),
+        );
+      }),
+      { numRuns: 100 },
+    );
+  });
+
   it('a later mapping for the same source Id wins', () => {
     fc.assert(
       fc.property(sfIdArb, sfIdArb, sfIdArb, (source, first, second) => {

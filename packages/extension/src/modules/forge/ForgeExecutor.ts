@@ -458,10 +458,16 @@ export interface ExecutionSummary {
    */
   updatedCount: number;
   /**
-   * Records the target already held and named when it refused them: linked
-   * to, never written. Counted in neither `successCount` nor `failedCount`.
+   * Records the target already held, linked to and never written: the rows
+   * it refused as duplicates and named, and reference data matched by name.
+   * Counted in neither `successCount` nor `failedCount`.
    */
   linkedCount: number;
+  /**
+   * Records a dry run read and would have inserted. It writes nothing, so
+   * they are counted here and never as created. Zero on a real run.
+   */
+  wouldInsertCount: number;
   /** Number of records that failed to insert. */
   failedCount: number;
   /** Number of skipped objects. */
@@ -490,8 +496,17 @@ export interface ExecutionSummary {
    * linked, or not identified. Empty when the target held none.
    */
   existingRecords: ExistingRecordReport[];
-  /** Source ids whose `remapTable` entry is a record the target already held. */
+  /**
+   * Source ids whose `remapTable` entry is a record the target already held:
+   * linked to, matched by name, or the standard price book.
+   */
   existingSourceIds: string[];
+  /**
+   * Source ids whose `remapTable` entry is a record an upsert matched by its
+   * external id and wrote over. The table's other entries, neither these nor
+   * `existingSourceIds`, are the records this run created.
+   */
+  updatedSourceIds: string[];
   /**
    * Per object, the rows of `remapTable` this run created and the ones it
    * linked to a record the target already held — the table counted by object.
@@ -585,6 +600,7 @@ interface ExecutionState {
   successCount: number;
   updatedCount: number;
   linkedCount: number;
+  wouldInsertCount: number;
   failedCount: number;
   skippedCount: number;
 }
@@ -781,6 +797,7 @@ export class ForgeExecutor {
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
+      wouldInsertCount: 0,
       failedCount: 0,
       skippedCount: 0,
     };
@@ -844,8 +861,9 @@ export class ForgeExecutor {
         if (typeof sourceId === 'string' && typeof targetId === 'string') {
           state.standardPricebookId = sourceId;
           // Never cloned — every org has exactly one and it cannot be
-          // created. Registered so entries pointing at it remap.
-          state.remapper.add(sourceId, targetId);
+          // created. Registered so entries pointing at it remap, as a record
+          // the target already held: the run did not create it.
+          state.remapper.addExisting(sourceId, targetId);
           // Put it in scope so the standard entries of the products in scope
           // are read alongside the custom ones, instead of being filtered out
           // as belonging to a book outside the graph.
@@ -1103,6 +1121,7 @@ export class ForgeExecutor {
       successCount: state.successCount,
       updatedCount: state.updatedCount,
       linkedCount: state.linkedCount,
+      wouldInsertCount: state.wouldInsertCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
       remapCount: state.remapper.count,
@@ -1115,6 +1134,7 @@ export class ForgeExecutor {
       remapTable: state.remapper.toJSON(),
       existingRecords: [...state.existingRecords],
       existingSourceIds: state.remapper.existingSourceIds(),
+      updatedSourceIds: state.remapper.updatedSourceIds(),
       remapByObject: state.remapper.countsByObject(),
       createdByObject: state.remapper.createdByObject(),
     };
@@ -1217,8 +1237,10 @@ export class ForgeExecutor {
           records,
           targetOrgId,
         );
+        // Records the target already held, found by name: linked, never
+        // created. Counted as created, they inflated what the run said it wrote.
         for (const m of refResolve.mappings) {
-          remapper.add(m.sourceId, m.targetId);
+          remapper.addExisting(m.sourceId, m.targetId);
         }
         if (refResolve.unmatched.length > 0) {
           state.errors.push({
@@ -1236,7 +1258,7 @@ export class ForgeExecutor {
         if (state.scopeCache) {
           seedOwnIds(state.scopeCache, node.objectApiName, records);
         }
-        state.successCount += refResolve.mappings.length;
+        state.linkedCount += refResolve.mappings.length;
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
@@ -1287,7 +1309,8 @@ export class ForgeExecutor {
           progress: 100,
           message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted`,
         });
-        state.successCount += records.length;
+        // Counted under their own name: a dry run creates nothing.
+        state.wouldInsertCount += records.length;
         return false;
       }
 

@@ -3,6 +3,7 @@ import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
 import { partialSummaryOf } from './interruptedRun.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
+import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import { logger } from '../../logger.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
@@ -1798,6 +1799,49 @@ describe('ForgeExecutor', () => {
       );
     });
 
+    it('tells the table rows the run created from the ones an upsert wrote over', async () => {
+      const MATCHED_ID = '500XX00000000002AAA';
+      const upsertRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
+        .mockResolvedValue([
+          { id: '500NEW', success: true, created: true, errors: [] },
+          { id: '500HELD', success: true, created: false, errors: [] },
+        ]);
+      const upsertExecutor = new ForgeExecutor({ ...deps, upsertRecords });
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, ExternalKey__c: 'KEY-001', Subject: 'Created' },
+        { Id: MATCHED_ID, ExternalKey__c: 'KEY-002', Subject: 'Matched' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Subject', queryable: true, createable: true, isReference: false },
+        {
+          name: 'ExternalKey__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          externalId: true,
+        },
+      ]);
+
+      const summary = await upsertExecutor.execute(
+        makeGraph([makeNode('Case')]),
+        'src',
+        'tgt',
+        onProgress,
+        { rootRecordId: ROOT_ID, rootObjectApiName: 'Case', upsertMode: 'auto' },
+      );
+
+      expect(summary.updatedSourceIds).toEqual([MATCHED_ID]);
+      // The table less the rows the target held and the ones written over:
+      // exactly what the run created.
+      const notCreated = new Set([...summary.existingSourceIds, ...summary.updatedSourceIds]);
+      expect(Object.keys(summary.remapTable).filter((id) => !notCreated.has(id))).toEqual(
+        summary.createdByObject.flatMap((object) => object.sourceIds),
+      );
+      expect(summary.createdByObject).toEqual([{ objectApiName: 'Case', sourceIds: [ROOT_ID] }]);
+    });
+
     it('falls back to insert when no externalId field is present', async () => {
       const upsertRecords = vi
         .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
@@ -2480,7 +2524,21 @@ describe('ForgeExecutor', () => {
 
       expect(deps.queryRecords).toHaveBeenCalled();
       expect(deps.insertRecords).not.toHaveBeenCalled();
-      expect(summary.successCount).toBe(1);
+      expect(summary.remapCount).toBe(0);
+    });
+
+    it('counts what a dry run would insert under its own name, and nothing as created', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, Name: 'Test' }]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        dryRun: true,
+      });
+
+      expect(summary.successCount).toBe(0);
+      expect(summary.wouldInsertCount).toBe(1);
     });
 
     it('should emit a [dry-run] message in progress events', async () => {
@@ -2542,6 +2600,52 @@ describe('ForgeExecutor', () => {
         .mock.calls.find((c) => c[1].includes('FROM CaseHistory'));
       expect(historyCall).toBeDefined();
       expect(historyCall![1]).toContain(`CaseId IN ('${ROOT_ID}')`);
+    });
+  });
+
+  describe('rows the run finds in the target instead of writing them', () => {
+    it('counts reference data matched by name as linked, not created', async () => {
+      const SOURCE_HOURS = '01m000000000001SRC';
+      const TARGET_HOURS = '01m000000000001AAA';
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt'
+          ? [{ Id: TARGET_HOURS, Name: 'Default' }]
+          : [{ Id: SOURCE_HOURS, Name: 'Default' }],
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('BusinessHours')]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(summary.successCount).toBe(0);
+      expect(summary.linkedCount).toBe(1);
+      expect(summary.remapTable).toEqual({ [SOURCE_HOURS]: TARGET_HOURS });
+      expect(summary.existingSourceIds).toEqual([SOURCE_HOURS]);
+      expect(summary.createdByObject).toEqual([]);
+    });
+
+    it('names the standard price book among the records the target already held', async () => {
+      const SOURCE_BOOK = '01s000000000001SRC';
+      const TARGET_BOOK = '01s000000000001AAA';
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId, soql) => {
+        if (soql !== STANDARD_PRICEBOOK_SOQL) return [];
+        return [{ Id: orgId === 'tgt' ? TARGET_BOOK : SOURCE_BOOK }];
+      });
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('PricebookEntry')]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary.remapTable).toEqual({ [SOURCE_BOOK]: TARGET_BOOK });
+      expect(summary.existingSourceIds).toEqual([SOURCE_BOOK]);
+      expect(summary.createdByObject).toEqual([]);
     });
   });
 
