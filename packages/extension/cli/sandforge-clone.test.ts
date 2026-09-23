@@ -14,8 +14,9 @@ import {
   main,
   parseArgs,
   summaryLines,
+  objectOutcomeLine,
 } from './sandforge-clone';
-import type { ExecutionSummary } from '../src/modules/forge/ForgeExecutor.js';
+import type { ExecutionSummary, ForgeProgressEvent } from '../src/modules/forge/ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 
 const mockExecFileSync = vi.mocked(execFileSync);
@@ -287,6 +288,28 @@ describe('sandforge-clone summary', () => {
     expect(lines).toContain(
       '      └ RECORD_TYPE_UNAVAILABLE: 2 Case records use record type Partner_Case.',
     );
+  });
+});
+
+describe('sandforge-clone object outcomes', () => {
+  const event = (status: ForgeProgressEvent['status'], message: string): ForgeProgressEvent => ({
+    objectName: 'Contact',
+    status,
+    progress: 100,
+    message,
+  });
+
+  it("prints what each object came to, a dry run's counts included", () => {
+    expect(
+      objectOutcomeLine(event('done', '[dry-run] Contact: 2 record(s) would be inserted')),
+    ).toBe('  [dry-run] Contact: 2 record(s) would be inserted');
+    expect(objectOutcomeLine(event('error', 'Contact: 1 failed'))).toBe('  Contact: 1 failed');
+  });
+
+  it('prints nothing for a step on the way or a skipped object', () => {
+    expect(objectOutcomeLine(event('running', 'Contact: reading'))).toBeUndefined();
+    expect(objectOutcomeLine(event('skipped', 'Contact: nothing to clone'))).toBeUndefined();
+    expect(objectOutcomeLine(event('done', ''))).toBeUndefined();
   });
 });
 

@@ -40,6 +40,7 @@ import type {
   ExecuteOptions,
   ExecutionSummary,
   ForgeExecutorDeps,
+  ForgeProgressEvent,
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
@@ -439,6 +440,17 @@ export function summaryLines(summary: ExecutionSummary): string[] {
 }
 
 /**
+ * The line an object's end of run prints, or nothing for a step on the way.
+ * The executor says what each object came to — `--dry-run`'s "would be
+ * inserted" counts among them — and the run passed it a callback that
+ * dropped every word. Exported so it can be tested.
+ */
+export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined {
+  if (event.status !== 'done' && event.status !== 'error') return undefined;
+  return event.message ? `  ${event.message}` : undefined;
+}
+
+/**
  * What the executor is asked to do, from the command line and the graph
  * discovery built. Exported so it can be tested.
  *
@@ -688,7 +700,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     graph,
     args.source,
     args.target,
-    () => undefined,
+    (event) => {
+      const line = args.json ? undefined : objectOutcomeLine(event);
+      if (line) console.log(line);
+    },
     executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
   );
 
