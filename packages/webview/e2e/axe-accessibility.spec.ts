@@ -2391,6 +2391,257 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps compliance: an inventory, a request found, its erasure reviewed, and the log', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-gdpr').click();
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [
+          { apiName: 'Contact', label: 'Contact' },
+          { apiName: 'Case', label: 'Case' },
+        ],
+      });
+      await page.getByTestId('compliance-object-option-Contact').check();
+      await page.getByTestId('compliance-object-option-Case').check();
+      await page.getByTestId('inventory-run-btn').click();
+      await bridge.waitForMessage('dataops:pii-inventory', { timeout: 10_000 });
+      // Every note an inventory can carry: a field found from its values, one
+      // empty in the sample, a sample the org refused, an object it refused.
+      await answerAll(page, 'dataops:pii-inventory', 'dataops:pii-inventory:response', {
+        orgId: DEV_SANDBOX.id,
+        scannedAt: '2026-09-23T10:00:00.000Z',
+        sampleSize: 200,
+        objects: [
+          {
+            status: 'scanned',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            sampled: 18,
+            fields: [
+              {
+                fieldApiName: 'Email',
+                label: 'Email',
+                classification: 'PII',
+                detectedBy: 'name',
+                pattern: 'email',
+                filled: 17,
+                searchedFor: 'email',
+              },
+              {
+                fieldApiName: 'Notes__c',
+                label: 'Notes',
+                classification: 'PII',
+                detectedBy: 'content',
+                pattern: 'email_content',
+                filled: 12,
+                matched: 3,
+              },
+              {
+                fieldApiName: 'Fax',
+                label: 'Fax',
+                classification: 'PII',
+                detectedBy: 'type',
+                pattern: 'phone_type',
+                filled: 0,
+                searchedFor: 'phone',
+              },
+            ],
+            nameField: { fieldApiName: 'Name', label: 'Full Name' },
+          },
+          {
+            status: 'scanned',
+            objectApiName: 'Case',
+            label: 'Case',
+            sampled: 0,
+            fields: [],
+            nameField: null,
+            sampleError: 'QUERY_TIMEOUT: Your query request was running for too long.',
+          },
+          {
+            status: 'failed',
+            objectApiName: 'Nope__c',
+            message: 'INVALID_TYPE: sObject type is not supported.',
+          },
+        ],
+      });
+      await expect(page.getByTestId('inventory-field-Fax')).toBeVisible({ timeout: 10_000 });
+
+      await page.getByLabel('Email address').fill('jane.doe@example.com');
+      await page.getByTestId('dsr-search-btn').click();
+      await bridge.waitForMessage('dataops:dsr:search', { timeout: 10_000 });
+      await answerAll(page, 'dataops:dsr:search', 'dataops:dsr:search:response', {
+        requestId: '5b0a9b8c-3333-4000-8000-000000000000',
+        orgId: DEV_SANDBOX.id,
+        searchedAt: '2026-09-23T10:01:00.000Z',
+        limit: 200,
+        objects: [
+          {
+            status: 'searched',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            counted: 350,
+            records: [
+              { id: '003000000000001AAA', name: 'Jane Doe', matchedBy: ['Email'] },
+              { id: '003000000000002AAA', name: null, matchedBy: ['Email'] },
+            ],
+            truncated: true,
+            searched: [{ fieldApiName: 'Email', label: 'Email', kind: 'email' }],
+          },
+        ],
+      });
+      await expect(page.getByTestId('dsr-object-truncated')).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('dsr-review-btn').click();
+      await bridge.waitForMessage('dataops:dsr:erase', { timeout: 10_000 });
+      await answerAll(page, 'dataops:dsr:erase', 'dataops:dsr:erase:response', {
+        requestId: '5b0a9b8c-3333-4000-8000-000000000000',
+        mode: 'anonymize',
+        dryRun: true,
+        plan: [
+          {
+            objectApiName: 'Contact',
+            label: 'Contact',
+            records: 2,
+            fields: [
+              { fieldApiName: 'Email', label: 'Email', method: 'fake' },
+              { fieldApiName: 'Fax', label: 'Fax', method: 'nullify' },
+            ],
+            kept: [{ fieldApiName: 'Birthdate', label: 'Birthdate' }],
+          },
+        ],
+      });
+      await expect(page.getByTestId('removal-plan-kept')).toBeVisible({ timeout: 10_000 });
+      await answerAll(page, 'dataops:dsr:log', 'dataops:dsr:log:response', {
+        entries: [
+          {
+            requestId: '5b0a9b8c-3333-4000-8000-000000000000',
+            orgId: DEV_SANDBOX.id,
+            openedAt: '2026-09-23T10:01:00.000Z',
+            events: [
+              {
+                kind: 'searched',
+                at: '2026-09-23T10:01:00.000Z',
+                searchedBy: ['email'],
+                objects: [{ objectApiName: 'Contact', found: 2, truncated: true }],
+              },
+              {
+                kind: 'erased',
+                at: '2026-09-23T10:02:00.000Z',
+                mode: 'delete',
+                outcome: 'stopped',
+                operationId: 'op-1',
+                objects: [],
+              },
+            ],
+          },
+        ],
+      });
+      await expect(page.getByTestId('dsr-log-entries')).toBeVisible({ timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('DataOps cleanup: every recommendation, a delete reviewed, and what the org refused', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', { backups: [] });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-cleanup').click();
+      await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+        objects: [{ apiName: 'Contact', label: 'Contact' }],
+      });
+      await page.getByTestId('cleanup-object-option-Contact').check();
+      await page.getByTestId('cleanup-scan-btn').click();
+      await bridge.waitForMessage('dataops:cleanup:scan', { timeout: 10_000 });
+      await answerAll(page, 'dataops:cleanup:scan', 'dataops:cleanup:scan:response', {
+        orgId: DEV_SANDBOX.id,
+        staleDays: 365,
+        scannedAt: '2026-09-23T10:00:00.000Z',
+        orphanThreshold: 0.9,
+        bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
+        objects: [
+          {
+            status: 'scanned',
+            objectApiName: 'Contact',
+            label: 'Contact',
+            totalRecords: 4200,
+            stale: { days: 365, records: 1300 },
+            orphans: [
+              {
+                fieldApiName: 'AccountId',
+                label: 'Account ID',
+                referenceTo: 'Account',
+                filled: 4150,
+                empty: 50,
+              },
+            ],
+            duplicates: {
+              keyField: 'Email',
+              keyLabel: 'Email',
+              groups: [{ value: 'shared@example.com', count: 4 }],
+              groupCount: 2000,
+              recordCount: 4006,
+              truncated: true,
+            },
+            keyFields: [
+              { fieldApiName: 'Email', label: 'Email' },
+              { fieldApiName: 'Phone', label: 'Business Phone' },
+            ],
+            errors: [
+              {
+                check: 'fill',
+                message: 'QUERY_TIMEOUT: Your query request was running for too long.',
+              },
+            ],
+          },
+          {
+            status: 'failed',
+            objectApiName: 'Nope__c',
+            message: 'INVALID_TYPE: sObject type is not supported.',
+          },
+        ],
+      });
+      await page.getByTestId('cleanup-stale-delete').click();
+      await bridge.waitForMessage('dataops:cleanup:delete', { timeout: 10_000 });
+      await answerAll(page, 'dataops:cleanup:delete', 'dataops:cleanup:delete:response', {
+        objectApiName: 'Contact',
+        dryRun: true,
+        plan: {
+          objectApiName: 'Contact',
+          label: 'Contact',
+          records: 1000,
+          related: [{ objectApiName: 'Task', label: 'Task', records: 1200 }],
+          uncounted: ['Actionable List Member'],
+        },
+        truncated: true,
+      });
+      await expect(page.getByTestId('cleanup-review-truncated')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('removal-plan-uncounted')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Analytics chart tooltips, on the Reports charts the panel does not feed yet', async ({
       page,
     }) => {

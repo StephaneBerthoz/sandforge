@@ -196,6 +196,22 @@ import type {
   DataOpsRollbackResponse,
   DataOpsAnonymizeResponse,
   DataOpsQualityScanResponse,
+  DataOpsPiiInventoryRequest,
+  DataOpsPiiInventoryResponse,
+  DataOpsSubjectSearchRequest,
+  DataOpsSubjectSearchResponse,
+  DataOpsSubjectExportRequest,
+  DataOpsSubjectExportResponse,
+  DataOpsSubjectEraseRequest,
+  DataOpsSubjectEraseResponse,
+  DataOpsSubjectLogRequest,
+  DataOpsSubjectLogResponse,
+  DataOpsCleanupScanRequest,
+  DataOpsCleanupScanResponse,
+  DataOpsCleanupExportRequest,
+  DataOpsCleanupExportResponse,
+  DataOpsCleanupDeleteRequest,
+  DataOpsCleanupDeleteResponse,
   DataOpsErrorResponse,
   GovernancePoliciesListRequest,
   GovernancePoliciesListResult,
@@ -485,6 +501,14 @@ export type WebViewToExtensionMessage =
   | DataOpsRollbackRequest
   | DataOpsAnonymizeRequest
   | DataOpsQualityScanRequest
+  | DataOpsPiiInventoryRequest
+  | DataOpsSubjectSearchRequest
+  | DataOpsSubjectExportRequest
+  | DataOpsSubjectEraseRequest
+  | DataOpsSubjectLogRequest
+  | DataOpsCleanupScanRequest
+  | DataOpsCleanupExportRequest
+  | DataOpsCleanupDeleteRequest
   // Governance
   | GovernancePoliciesListRequest
   | GovernancePolicySaveRequest
@@ -665,6 +689,14 @@ export type ExtensionToWebViewMessage =
   | DataOpsRollbackResponse
   | DataOpsAnonymizeResponse
   | DataOpsQualityScanResponse
+  | DataOpsPiiInventoryResponse
+  | DataOpsSubjectSearchResponse
+  | DataOpsSubjectExportResponse
+  | DataOpsSubjectEraseResponse
+  | DataOpsSubjectLogResponse
+  | DataOpsCleanupScanResponse
+  | DataOpsCleanupExportResponse
+  | DataOpsCleanupDeleteResponse
   | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import type { DataQualityObjectResult, DataQualityScanResult } from '@sandforge/shared';
-import { QualityPanel, LISTED_OBJECTS, mergeObjectResults, parseStaleDays } from './QualityPanel';
+import { QualityPanel, mergeObjectResults, parseStaleDays } from './QualityPanel';
+import { LISTED_OBJECTS } from './ObjectPicker';
 
 /* ------------------------------------------------------------------ */
 /* Bridge hooks                                                        */

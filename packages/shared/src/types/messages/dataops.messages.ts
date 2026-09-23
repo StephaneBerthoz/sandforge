@@ -1,8 +1,17 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
   BackupStatus,
+  CleanupRecommendation,
+  CleanupScanResult,
   DataQualityScanResult,
   DataQualityScanTarget,
+  PiiInventoryResult,
+  RemovalOutcome,
+  RemovalPlanObject,
+  SubjectEraseMode,
+  SubjectIdentifiers,
+  SubjectRequestLogEntry,
+  SubjectSearchResult,
 } from '../dataops.types.js';
 import type { SavedTemplateMethod } from '../../constants/saved-anonymization-templates.js';
 import type { GovernancePolicySummary } from '../governance.types.js';
@@ -183,6 +192,170 @@ export interface DataOpsQualityScanRequest extends BaseMessage {
 export interface DataOpsQualityScanResponse extends BaseMessage {
   type: 'dataops:quality-scan:response';
   payload: DataQualityScanResult;
+}
+
+/**
+ * Which fields of a few objects hold personal data: the pre-flight PII
+ * detector, confirmed on a bounded sample (validated by
+ * dataOpsPiiInventoryPayloadSchema). Reads only.
+ */
+export interface DataOpsPiiInventoryRequest extends BaseMessage {
+  type: 'dataops:pii-inventory';
+  payload: { orgId: string; objects: string[] };
+}
+
+/** Result of `dataops:pii-inventory`: counts per field, never a value. */
+export interface DataOpsPiiInventoryResponse extends BaseMessage {
+  type: 'dataops:pii-inventory:response';
+  payload: PiiInventoryResult;
+}
+
+/**
+ * Find the records of a few objects that hold one person's address, name or
+ * number (validated by dataOpsSubjectSearchPayloadSchema). Counted first, then
+ * listed up to a bound. A search opens a request in the local log, or adds to
+ * the one it names.
+ */
+export interface DataOpsSubjectSearchRequest extends BaseMessage {
+  type: 'dataops:dsr:search';
+  payload: SubjectIdentifiers & { orgId: string; objects: string[]; requestId?: string };
+}
+
+/** Result of `dataops:dsr:search`. */
+export interface DataOpsSubjectSearchResponse extends BaseMessage {
+  type: 'dataops:dsr:search:response';
+  payload: SubjectSearchResult;
+}
+
+/**
+ * Save every field of the records a request found to a JSON file the user
+ * picks. The host reads, asks where, and writes: the records never cross the
+ * bridge.
+ */
+export interface DataOpsSubjectExportRequest extends BaseMessage {
+  type: 'dataops:dsr:export';
+  payload: { orgId: string; requestId: string };
+}
+
+/** Result of `dataops:dsr:export`: how many records, and whether the file was written. */
+export interface DataOpsSubjectExportResponse extends BaseMessage {
+  type: 'dataops:dsr:export:response';
+  payload: {
+    requestId: string;
+    records: number;
+    saved:
+      | { status: 'saved'; path: string }
+      | { status: 'cancelled' }
+      | { status: 'error'; message: string };
+  };
+}
+
+/**
+ * Erase records a request found: overwrite their personal data with the
+ * DataOps anonymizer, or delete them — both through Production Guard. A dry
+ * run answers what it would do and writes nothing.
+ */
+export interface DataOpsSubjectEraseRequest extends BaseMessage {
+  type: 'dataops:dsr:erase';
+  payload: {
+    orgId: string;
+    requestId: string;
+    mode: SubjectEraseMode;
+    /** The records to erase, each one the request found. */
+    records: Array<{ objectApiName: string; ids: string[] }>;
+    dryRun: boolean;
+  };
+}
+
+/** Result of `dataops:dsr:erase`: the plan of a dry run, or what the run did. */
+export interface DataOpsSubjectEraseResponse extends BaseMessage {
+  type: 'dataops:dsr:erase:response';
+  payload: {
+    requestId: string;
+    mode: SubjectEraseMode;
+    dryRun: boolean;
+    plan: RemovalPlanObject[];
+    /** Absent on a dry run. */
+    outcome?: RemovalOutcome;
+  };
+}
+
+/** The local log of subject requests, newest first. */
+export interface DataOpsSubjectLogRequest extends BaseMessage {
+  type: 'dataops:dsr:log';
+}
+
+/** Result of `dataops:dsr:log`. */
+export interface DataOpsSubjectLogResponse extends BaseMessage {
+  type: 'dataops:dsr:log:response';
+  payload: { entries: SubjectRequestLogEntry[] };
+}
+
+/**
+ * Count, for a few objects, the records a cleanup would look at: not modified
+ * for `staleDays`, orphans of a lookup the business relies on, repeated values
+ * of a key. The quality scan's own request (validated by
+ * dataOpsQualityScanPayloadSchema). Reads only.
+ */
+export interface DataOpsCleanupScanRequest extends BaseMessage {
+  type: 'dataops:cleanup:scan';
+  payload: { orgId: string; objects: DataQualityScanTarget[]; staleDays: number };
+}
+
+/** Result of `dataops:cleanup:scan`. */
+export interface DataOpsCleanupScanResponse extends BaseMessage {
+  type: 'dataops:cleanup:scan:response';
+  payload: CleanupScanResult;
+}
+
+/** Save the records a recommendation names to a JSON file the user picks. */
+export interface DataOpsCleanupExportRequest extends BaseMessage {
+  type: 'dataops:cleanup:export';
+  payload: { orgId: string; objectApiName: string; recommendation: CleanupRecommendation };
+}
+
+/** Result of `dataops:cleanup:export`. */
+export interface DataOpsCleanupExportResponse extends BaseMessage {
+  type: 'dataops:cleanup:export:response';
+  payload: {
+    objectApiName: string;
+    records: number;
+    /** More records are recommended than one export reads. */
+    truncated: boolean;
+    saved:
+      | { status: 'saved'; path: string }
+      | { status: 'cancelled' }
+      | { status: 'error'; message: string };
+  };
+}
+
+/**
+ * Delete the records a recommendation names, through Production Guard. A dry
+ * run answers how many it would delete and what the org would delete along
+ * with them, and deletes nothing.
+ */
+export interface DataOpsCleanupDeleteRequest extends BaseMessage {
+  type: 'dataops:cleanup:delete';
+  payload: {
+    orgId: string;
+    objectApiName: string;
+    recommendation: CleanupRecommendation;
+    dryRun: boolean;
+  };
+}
+
+/** Result of `dataops:cleanup:delete`. */
+export interface DataOpsCleanupDeleteResponse extends BaseMessage {
+  type: 'dataops:cleanup:delete:response';
+  payload: {
+    objectApiName: string;
+    dryRun: boolean;
+    plan: RemovalPlanObject;
+    /** More records are recommended than one delete reads. */
+    truncated: boolean;
+    /** Absent on a dry run. */
+    outcome?: RemovalOutcome;
+  };
 }
 
 /**

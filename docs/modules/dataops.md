@@ -1,16 +1,16 @@
 # DataOps
 
-Back up your org data and anonymize sensitive fields from a single tabbed page.
+Back up your org data, anonymize sensitive fields, find and erase one person's
+records, and clean up the records nobody needs, from a single tabbed page.
 
-> **Status.** Backup, Restore, Anonymize and Data Quality are wired end to end.
-> Compliance and Cleanup ship as previews: the tabs render, but are not yet
-> connected to a backend. Each section below says which it is.
+> **Status.** Backup, Restore, Anonymize, Compliance, Cleanup and Data Quality
+> are wired end to end. Each section below says what it does and where it stops.
 
 ## Quick Start
 
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
-3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (Backup, Restore, Anonymize and Quality are wired today)
+3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
 4. Start with a backup before other operations
 
 ## Features
@@ -100,11 +100,108 @@ your own:
 
 ### Compliance (GDPR/CCPA)
 
-> **Coming soon.** The tab shows a coming-soon notice and nothing else: there is no request form, no PII list and no backend behind it. PII _detection_ is live and already runs in the Seed and Sync pre-flight checks.
+Find which fields hold personal data, then handle a data subject request: find
+one person's records, export them, and erase them.
+
+**Personal data inventory.** Pick up to 10 objects and **Find personal data**:
+
+- The fields are named by the detector the Seed and Sync pre-flight checks
+  run, from their API names, labels and types (an `email` or `phone` type, a
+  name like `Birthdate` or `MailingStreet`)
+- A sample then confirms them: the **last 200 records of each object by Id**,
+  the newest ones. For each field the inventory says how many sampled records
+  fill it, so a field the detector names but nobody fills shows as empty in
+  the sample
+- The sample's text values are handed to the same detector, which names the
+  fields whose values look like an email address, a phone number, a card or
+  an account number, whatever they are called. That is a pattern match: a
+  company registration number reads as a phone number to it, and the
+  inventory says how many of the sampled values matched
+- Checkboxes and lookups are left out (they hold a flag or a pointer, not a
+  value), and so are the values the org writes itself, such as a photo URL
+- Only counts come back to the page: no value read leaves the extension
+
+**Data subject request.** Type the person's email address, name, phone
+number, or several, and **Search**. It looks in the objects the inventory read:
+
+- An address is looked for in the email fields, a number in the phone fields
+  (and in a text field named like one, such as a case's Web Phone), and a name
+  in the record's name field. A number is compared by its **last 8 digits**,
+  however it was typed: `+33 1 23 45 67 89` and `01.23.45.67.89` are the same
+  number. An address and a name are compared whatever their case
+- Each object is **counted first** (`SELECT COUNT()`), and only an object that
+  holds something is read, **at most 200 records per object**. When more
+  match, the result says so, and only the records listed can be exported or
+  erased
+- Records are found by what they hold, not by what points at them: a case
+  whose contact is the person is found by its own email and phone fields, not
+  through the contact
+- **Export** writes every field of every record found to a JSON file you pick.
+  The records go straight from the org to the file: they never reach the page
+- **Erase** acts on the records you leave ticked, one of two ways:
+  - **Anonymize in place**: the DataOps anonymizer overwrites the fields that
+    hold personal data — those the detector names on these very records, by
+    name, by type, or by an email address or social security number in their
+    values — and the person's name (the name field where it can be written, an
+    account's; else first, middle and last name). A made-up value where the
+    anonymizer knows one (a name, an email, a phone, an address), nothing where
+    the field may be empty. A field that held nothing is left empty, and a
+    field you may not edit is left as it is and named
+  - **Delete**: the records go to the org's recycle bin, with what the org
+    deletes along with them (a contact's tasks, an account's contacts and
+    opportunities). Records stay in the recycle bin until it is emptied
+- Both start with a review that writes nothing: the fields each object would
+  have overwritten and how, or how many related records the org would delete
+  along with them. Then a typed confirmation, then **Production Guard**:
+  refused on production for a delete, a confirmation where the org's tier
+  asks for one. Every erasure is recorded in the audit trail (Reports)
+- A backup taken before the erasure still holds the person's records;
+  restoring it brings them back
+
+**Request log.** Each request is logged on this machine: when it was opened,
+what its searches found, when it was exported and how it was erased. Counts
+and object names only — never an identifier, a record Id or a value — so the
+log can be saved as a file and handed on. It keeps the last 500 requests.
+
+What is typed in the search stays on the page: the extension searches with it
+and keeps none of it, in the log or in its output channel. The records a
+search found are held by Id, in memory, for the last 20 requests of the
+window, so an export or an erasure only ever acts on what a search found;
+after a restart, search again.
 
 ### Cleanup
 
-> **Coming soon.** The tab shows a coming-soon notice: no scan finds stale, orphaned or duplicate records yet, and nothing deletes them from here.
+Find the records nobody needs, and export or delete them. Pick up to 10
+objects and a number of days, and **Scan**:
+
+- **Not modified for a while**: records whose `LastModifiedDate` is older than
+  `LAST_N_DAYS:n` (365 days by default)
+- **Records without their parent**: a lookup counts as one the business relies
+  on when **at least 90% of the object's records fill it**; the records that
+  leave it empty are listed. Only a lookup a person fills, that points at one
+  object, and that the org lets be empty, is looked at: a required lookup is
+  never empty, and one to a user, a queue or a record type names no parent
+- **Extra copies of a repeated value**: the duplicate search of the Quality
+  tab, by `Email`, else the record's name, or any field picked. A delete keeps,
+  for each value, the record modified last, and deletes the other copies. It
+  does not merge them: what points at a copy is deleted with it or left
+  without it
+
+The scan counts with the Quality tab's own queries and reads no record.
+Each recommendation can be:
+
+- **Exported**: every field of the records it names, to a JSON file you pick
+- **Deleted**: a review first says how many records go and how many records of
+  other objects the org deletes along with them (counted per object people
+  work with; the org's own history, sharing and feed rows are not), then a
+  typed confirmation, then **Production Guard**. Deleted records go to the
+  recycle bin. Every delete is recorded in the audit trail
+
+An export or a delete takes **at most 1,000 records at a time** (stale records
+the oldest first); run it again for the rest. The records are read again when
+the delete runs, so a record modified since the scan is no longer stale and is
+left alone. There is no scheduled cleanup, no archive, and no delete by a query
+of your own.
 
 ### Data Quality
 

@@ -38,7 +38,9 @@ export type AuditAction =
   | 'autopilot_execute'
   | 'frozen_load'
   | 'metadata_deploy'
-  | 'realtime_sync';
+  | 'realtime_sync'
+  | 'subject_erase'
+  | 'cleanup_delete';
 
 /**
  * How a recorded run ended. `stopped` is a run Production Guard stopped before

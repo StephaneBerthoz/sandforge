@@ -58,7 +58,12 @@ export const DUPLICATE_SAMPLE = 20;
  */
 export const SINGLE_FIELD_QUERIES = 20;
 
-/** The describe attributes a scan reads, checked before they are trusted. */
+/**
+ * The describe attributes a scan reads, checked before they are trusted. The
+ * cleanup scan and the compliance work read the same describe, with the few
+ * attributes they add: what a lookup points at, and whether the org numbers a
+ * name itself.
+ */
 const describedFieldSchema = z
   .object({
     name: z.string(),
@@ -72,19 +77,40 @@ const describedFieldSchema = z
     groupable: z.boolean().optional(),
     filterable: z.boolean().optional(),
     nameField: z.boolean().optional(),
+    autoNumber: z.boolean().optional(),
+    calculated: z.boolean().optional(),
+    referenceTo: z.array(z.string()).optional(),
   })
   .passthrough();
 
-const describedObjectSchema = z
+/** An object's describe, as far as a scan reads it. */
+export const describedObjectSchema = z
   .object({
     name: z.string(),
     label: z.string(),
     queryable: z.boolean().optional(),
+    updateable: z.boolean().optional(),
+    deletable: z.boolean().optional(),
     fields: z.array(describedFieldSchema),
+    childRelationships: z
+      .array(
+        z
+          .object({
+            childSObject: z.string(),
+            field: z.string(),
+            cascadeDelete: z.boolean().optional(),
+          })
+          .passthrough(),
+      )
+      .optional(),
   })
   .passthrough();
 
-type DescribedField = z.infer<typeof describedFieldSchema>;
+/** A described object, checked. */
+export type DescribedObject = z.infer<typeof describedObjectSchema>;
+
+/** A described field, checked. */
+export type DescribedField = z.infer<typeof describedFieldSchema>;
 
 /** One row of a fill query: `expr0`, `expr1`… in the order the counts were asked. */
 const aggregateRowSchema = z.record(z.string(), z.unknown());
@@ -102,7 +128,7 @@ const duplicateRowSchema = z
  * write — the Id, the audit stamps, a formula, a roll-up — says nothing about
  * how the data is kept, and a checkbox is never empty: unticked is false.
  */
-function isFilledIn(field: DescribedField): boolean {
+export function isFilledIn(field: DescribedField): boolean {
   return (field.createable === true || field.updateable === true) && field.type !== 'boolean';
 }
 
@@ -114,7 +140,7 @@ function isFilledIn(field: DescribedField): boolean {
  * itself group too, and grouping records by who last touched them finds no
  * duplicate.
  */
-function isDuplicateKey(field: DescribedField): boolean {
+export function isDuplicateKey(field: DescribedField): boolean {
   return field.groupable === true && (isFilledIn(field) || field.nameField === true);
 }
 
@@ -144,7 +170,7 @@ function report(
 }
 
 /** What the fill counts found, and what they could not count. */
-interface FillCounts {
+export interface FillCounts {
   fields: DataQualityFieldFill[];
   unmeasured: DataQualityUnmeasuredField[];
   errors: DataQualityCheckError[];
@@ -156,7 +182,7 @@ interface FillCounts {
  * Fields the org will not aggregate but will filter take a `SELECT COUNT()` of
  * their own; fields it will do neither for are named, not guessed.
  */
-async function countFills(
+export async function countFills(
   conn: QualityScanConnection,
   objectApiName: string,
   fields: readonly DescribedField[],
@@ -238,7 +264,7 @@ async function countFills(
  * none named, `Email`, else the record's name. Records with no value are left
  * out: two records without an email are not duplicates of each other.
  */
-async function findDuplicates(
+export async function findDuplicates(
   conn: QualityScanConnection,
   objectApiName: string,
   keyFields: readonly DescribedField[],
@@ -270,24 +296,15 @@ async function findDuplicates(
   if (totalRecords === 0) return { duplicates: none, errors };
 
   try {
-    const field = assertSoqlIdentifier(key.name);
-    const answer = await conn.query(
-      `SELECT ${field} k, COUNT(Id) n FROM ${objectApiName} WHERE ${field} != null ` +
-        `GROUP BY ${field} HAVING COUNT(Id) > 1 ORDER BY COUNT(Id) DESC LIMIT ${DUPLICATE_GROUP_LIMIT}`,
-    );
-    const rows: Array<{ value: string; count: number }> = [];
-    for (const record of answer.records) {
-      const row = duplicateRowSchema.safeParse(record);
-      if (!row.success || row.data.k === null) continue;
-      rows.push({ value: String(row.data.k), count: row.data.n });
-    }
+    const repeated = await repeatedValues(conn, objectApiName, key.name);
+    const rows = repeated.rows.map((row) => ({ value: String(row.value), count: row.count }));
     return {
       duplicates: {
         ...none,
         groups: rows.slice(0, DUPLICATE_SAMPLE),
         groupCount: rows.length,
         recordCount: rows.reduce((sum, row) => sum + row.count, 0),
-        truncated: answer.records.length >= DUPLICATE_GROUP_LIMIT,
+        truncated: repeated.truncated,
       },
       errors,
     };
@@ -298,11 +315,39 @@ async function findDuplicates(
 }
 
 /**
+ * Every value of `fieldName` more than one record carries, the most repeated
+ * first, as the org returns it — a number stays a number — up to
+ * {@link DUPLICATE_GROUP_LIMIT}. The query the duplicate search counts with,
+ * and the one a cleanup reads the copies to delete from.
+ */
+export async function repeatedValues(
+  conn: Pick<QualityScanConnection, 'query'>,
+  objectApiName: string,
+  fieldName: string,
+): Promise<{
+  rows: Array<{ value: string | number | boolean; count: number }>;
+  truncated: boolean;
+}> {
+  const field = assertSoqlIdentifier(fieldName);
+  const answer = await conn.query(
+    `SELECT ${field} k, COUNT(Id) n FROM ${objectApiName} WHERE ${field} != null ` +
+      `GROUP BY ${field} HAVING COUNT(Id) > 1 ORDER BY COUNT(Id) DESC LIMIT ${DUPLICATE_GROUP_LIMIT}`,
+  );
+  const rows: Array<{ value: string | number | boolean; count: number }> = [];
+  for (const record of answer.records) {
+    const row = duplicateRowSchema.safeParse(record);
+    if (!row.success || row.data.k === null) continue;
+    rows.push({ value: row.data.k, count: row.data.n });
+  }
+  return { rows, truncated: answer.records.length >= DUPLICATE_GROUP_LIMIT };
+}
+
+/**
  * Records nobody has modified for `days`. `LAST_N_DAYS:n` starts at midnight
  * n days ago, in the running user's time zone, so "older than" it is older
  * than the whole of that window.
  */
-async function countStale(
+export async function countStale(
   conn: QualityScanConnection,
   objectApiName: string,
   fields: readonly DescribedField[],

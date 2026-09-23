@@ -23,8 +23,9 @@ import { BackupPanel } from './BackupPanel';
 import { RestorePanel } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { QualityPanel } from './QualityPanel';
+import { CompliancePanel } from './CompliancePanel';
+import { CleanupPanel } from './CleanupPanel';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
-import { ComingSoon } from '../../components/ui/ComingSoon';
 import { uiLocale } from '../../utils/formatters';
 
 /** Main DataOps page — wired to extension via bridge hooks. */
@@ -282,8 +283,8 @@ export const DataOpsPage: React.FC = () => {
 
   // A tab waits only on the query it actually reads. Gating the skeleton on
   // both queries at once let a slow templates response paint a skeleton on top
-  // of an already-loaded backup list; the two ComingSoon tabs read neither
-  // query and must never spin, and Quality says what it waits on itself.
+  // of an already-loaded backup list; Compliance, Cleanup and Quality read
+  // neither query, and each says what it waits on itself.
   const tabLoading =
     activeTab === 'anonymize'
       ? templatesQuery.loading
@@ -410,25 +411,17 @@ export const DataOpsPage: React.FC = () => {
             />
           )}
 
-          {/* These two tabs used to mount their panels against hardcoded
-              empty arrays, so they rendered an ordinary "nothing found" list.
-              A user who clicks Cleanup and sees an empty list concludes the
-              scan ran and found nothing. It never ran: there is no producer
-              for StorageRecommendation or the DSR list anywhere in the
-              codebase. */}
-          {activeTab === 'gdpr' && (
-            <ComingSoon data-testid="dataops-gdpr-soon" description={t('dataops.soon.gdpr')} />
+          {/* Keyed by org, the three panels below: results read on one org —
+              a person's records above all — must not stay on screen under the
+              name of the next. */}
+          {activeTab === 'gdpr' && currentOrg && (
+            <CompliancePanel key={currentOrg.id} orgId={currentOrg.id} />
           )}
 
-          {activeTab === 'cleanup' && (
-            <ComingSoon
-              data-testid="dataops-cleanup-soon"
-              description={t('dataops.soon.cleanup')}
-            />
+          {activeTab === 'cleanup' && currentOrg && (
+            <CleanupPanel key={currentOrg.id} orgId={currentOrg.id} />
           )}
 
-          {/* Keyed by org: results counted on one org must not stay on screen
-              under the name of the next. */}
           {activeTab === 'quality' && currentOrg && (
             <QualityPanel key={currentOrg.id} orgId={currentOrg.id} />
           )}

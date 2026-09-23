@@ -1787,14 +1787,87 @@ function assertNoPipelineStepRestores() {
   );
 }
 
-/** Compliance and Cleanup are the two DataOps tabs mounted as coming soon. */
-function assertDataOpsTabsAreComingSoon() {
-  // The list below is not empty, so a walk that reads no mount fails it too.
+/** The string literals passed as the first argument of every call to `name` in a file. */
+function channelsPassedTo(relativePath, name) {
+  return callsWithin(parseFile(relativePath))
+    .filter((call) => call.name === name && call.args.length > 0)
+    .flatMap(({ args }) => {
+      const first = unwrap(args[0]);
+      const channels = ts.isArrayLiteralExpression(first) ? first.elements : [first];
+      return channels.filter(ts.isStringLiteralLike).map((channel) => channel.text);
+    });
+}
+
+/** How many times a page mounts a JSX element of this name. */
+function jsxMountCount(relativePath, tagName) {
+  const source = parseFile(relativePath);
+  let count = 0;
+  const visit = (node) => {
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText(source) === tagName
+    ) {
+      count++;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return count;
+}
+
+/**
+ * Compliance and Cleanup run, and Cleanup deletes only what a scan recommends:
+ * the DataOps page mounts both panels and no coming-soon notice; a cleanup
+ * request names one of the three recommendations a scan makes — no query of
+ * the user's own; and the only cleanup channels are the scan, the export and
+ * the delete — nothing runs one on a schedule, and nothing archives.
+ */
+function assertCleanupDeletesOnlyWhatAScanRecommends() {
+  // Positive control: the walk reads the page's panels.
+  assert.equal(
+    jsxMountCount(DATAOPS_PAGE_FILE, 'QualityPanel'),
+    1,
+    'the JSX walk does not see the Quality panel in DataOpsPage — it is not reading the page',
+  );
   assert.deepEqual(
-    comingSoonMounts(DATAOPS_PAGE_FILE),
-    ['dataops-cleanup-soon', 'dataops-gdpr-soon'],
-    'DataOpsPage no longer mounts Compliance and Cleanup as coming soon — one of them may be ' +
-      'built. Re-read help.dataopsContent and dataops.emptyState in six locales.',
+    [
+      jsxMountCount(DATAOPS_PAGE_FILE, 'CompliancePanel'),
+      jsxMountCount(DATAOPS_PAGE_FILE, 'CleanupPanel'),
+    ],
+    [1, 1],
+    'DataOpsPage no longer mounts the Compliance and Cleanup panels. Re-read help.dataopsContent ' +
+      'and dataops.emptyState in six locales.',
+  );
+  assert.deepEqual(comingSoonMounts(DATAOPS_PAGE_FILE), [], 'a DataOps tab is coming soon again');
+
+  const schemas = parseFile(VALIDATE_PAYLOAD_FILE);
+  const recommendation = schemas.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => statement.declarationList.declarations)
+    .find((declaration) => declaration.name.getText(schemas) === 'cleanupRecommendationSchema');
+  assert.ok(
+    recommendation?.initializer,
+    `${VALIDATE_PAYLOAD_FILE} no longer declares cleanupRecommendationSchema — re-point this`,
+  );
+  const kinds = callsWithin(recommendation.initializer)
+    .filter((call) => call.name === 'literal')
+    .flatMap(({ args }) => args.filter(ts.isStringLiteralLike).map((arg) => arg.text))
+    .sort();
+  assert.deepEqual(
+    kinds,
+    ['duplicates', 'orphans', 'stale'],
+    'a cleanup request may name something other than the three recommendations a scan makes — ' +
+      'a delete by query may exist now. Re-read help.dataopsContent in six locales.',
+  );
+
+  const cleanupChannels = channelsPassedTo(HANDLERS_FILE, 'route')
+    .filter((channel) => channel.startsWith('dataops:cleanup:'))
+    .sort();
+  assert.deepEqual(
+    cleanupChannels,
+    ['dataops:cleanup:delete', 'dataops:cleanup:export', 'dataops:cleanup:scan'],
+    'a cleanup channel was added — cleanups may run on a schedule, or archive. Re-read ' +
+      'help.dataopsContent in six locales.',
   );
 }
 
@@ -1863,7 +1936,7 @@ function assertNothingRunsOnCtrlEnter() {
  *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
  *  - The webhook rule's anchor reads the trigger types the trigger scheduler fires and the modules the extension imports. An HTTP listener built on another module, or a webhook fired through a type the scheduler reads under another name, is not seen. Event triggers have no executor either, and no rule here refuses them.
  *  - The scheduled-restore rule's anchor reads the step types a pipeline runs. A restore scheduled some other way than a pipeline step is not seen.
- *  - The DataOps anchor reads `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
+ *  - The DataOps cleanup anchor reads the recommendation kinds a cleanup request may name and the cleanup channels routed. A delete by query hidden behind one of those kinds, or a schedule that runs cleanups with no channel of their own, is not seen.
  *  - The Compare anchor reads the deployment channels and the keys of the `compare:deploy` schema. A deployment that reaches the target some other way, or a validation that is not check-only, is not seen here: `docs/modules/compare.docs.test.ts` and the handler's tests hold those.
  *  - The quality-scan anchor reads the checks `DataQualityCheckError` names. A check that reports its failures some other way is not seen.
  */
@@ -1993,34 +2066,32 @@ const HELP_CLAIM_RULES = [
     ],
   },
   {
-    name: 'DataOps tabs that are not built: DSR, cleanup, mass delete',
+    // Data subject requests and the cleanup of stale, orphaned and duplicate
+    // records run since the Compliance and Cleanup tabs were built. What the
+    // Help page sold beside them still does not: a delete by a query of the
+    // user's own, storage optimization, cleanups on a schedule.
+    name: 'DataOps work that is not built: a mass delete, storage optimization, scheduled cleanups',
     keys: HELP_AND_DATAOPS_WELCOME_KEYS,
     pattern:
-      /\bDSR\b|data subject request|sujets de donn[ée]es|betroffenenanfrage|titulares de datos|titulares de dados|データ主体|clean(?:s|ing)? ?up|nettoi|nettoy|bereinig|limpi|limpa\b|limpez|クリーンアップ|mass delete|en masse|massenl(?:ö|oe)sch|eliminaci[óo]n masiva|em massa|一括削除|storage optimi|optimisation du stockage|speicheroptimierung|optimizaci[óo]n de almacenamiento|otimiza[çc][ãa]o de armazenamento|ストレージ最適化/iu,
+      /mass delete|en masse|massenl(?:ö|oe)sch|eliminaci[óo]n masiva|em massa|一括削除|storage optimi|optimisation du stockage|speicheroptimierung|optimizaci[óo]n de almacenamiento|otimiza[çc][ãa]o de armazenamento|ストレージ最適化|schedul\w* (?:the )?clean ?ups?|clean ?ups? on a schedule|planifi\w* (?:les )?nettoyages?|bereinigungen? (?:planen|zeitlich)|program\w* (?:las )?limpiezas?|agend\w* (?:as )?limpezas?|クリーンアップを計画/iu,
     disclaimable: true,
-    anchor: assertDataOpsTabsAreComingSoon,
+    anchor: assertCleanupDeletesOnlyWhatAScanRecommends,
     shipped: [
       '- Mass delete and storage optimization',
-      '- Data Subject Request (DSR) management',
-      'DataOps backs up, restores, anonymizes and cleans up your org data — with GDPR tooling and quality dashboards built in.',
       'Schedule cleanups and track data quality',
       '- Suppression en masse et optimisation du stockage',
-      '- Gestion des demandes de sujets de données (DSR)',
       'Planifiez les nettoyages et suivez la qualité des données',
       '- Massenloeschung und Speicheroptimierung',
-      '- Verwaltung von Betroffenenanfragen (DSR)',
       '- Eliminacion masiva y optimizacion de almacenamiento',
-      'DataOps respalda, restaura, anonimiza y limpia los datos de su org — con herramientas GDPR y paneles de calidad integrados.',
       '- Exclusao em massa e otimizacao de armazenamento',
-      'O DataOps faz backup, restaura, anonimiza e limpa os dados da sua org — com ferramentas GDPR e painéis de qualidade integrados.',
       '- 一括削除とストレージ最適化',
-      '- データ主体リクエスト（DSR）管理',
       'クリーンアップを計画しデータ品質を追跡',
     ],
     honest: [
-      '- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet',
+      "- Compliance: finds the fields of the objects you pick that hold personal data, confirmed on a sample of their last 200 records; then finds one person's records by email, name or phone, exports them to a file, and erases them in place or deletes them, after a review, a typed confirmation and Production Guard; a local log keeps counts of each request, never who it was about",
+      '- Cleanup: counts the records nobody has modified in a number of days, those that leave empty a lookup the business relies on, and the extra copies of a repeated value; each can be exported, or deleted after a review, a typed confirmation and Production Guard, at most 1,000 at a time',
+      'DataOps backs up, restores and anonymizes your org data, answers a data subject request, and cleans up the records nobody needs.',
       '- Anonymize: masks fields in place with the built-in GDPR, CCPA and HIPAA templates',
-      'Restore a backup into the org it was taken from',
       '- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written',
     ],
   },

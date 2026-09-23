@@ -240,7 +240,7 @@ test.describe('DataOps — with a connected org', () => {
       'Backup',
       'Restore',
       'Anonymize',
-      'Compliance Framework',
+      'Compliance',
       'Cleanup',
       'Quality',
     ]);
@@ -345,24 +345,23 @@ test.describe('DataOps — with a connected org', () => {
     await expect(page.getByTestId('delete-template-btn')).toBeVisible();
   });
 
-  test('the two tabs with no producer say so instead of showing empty results', async ({
+  test('the compliance and cleanup tabs open their panels, and never spin on a query they do not read', async ({
     page,
   }) => {
     await answerMountQueries(page, bridge);
 
-    // Nothing in the codebase produces a DSR list or a StorageRecommendation.
-    // These tabs used to mount their panels against hardcoded empty arrays,
-    // which reads as "the scan ran and found nothing". They now name the gap,
-    // and must keep doing so — and must never spin on a query they do not read.
+    // Both were coming-soon notices while nothing produced a subject request
+    // or a cleanup recommendation.
     for (const [tab, testid] of [
-      ['gdpr', 'dataops-gdpr-soon'],
-      ['cleanup', 'dataops-cleanup-soon'],
+      ['gdpr', 'compliance-panel'],
+      ['cleanup', 'cleanup-panel'],
     ] as const) {
       await page.getByTestId(`page-tab-${tab}`).click();
       await expect(page.getByTestId(testid)).toBeVisible();
-      await expect(page.getByTestId(testid)).toContainText('Coming soon');
       await expect(page.getByTestId('dataops-skeleton')).toHaveCount(0);
     }
+    await expect(page.getByTestId('dataops-gdpr-soon')).toHaveCount(0);
+    await expect(page.getByTestId('dataops-cleanup-soon')).toHaveCount(0);
   });
 
   test('error banner appears on error and can be dismissed', async ({ page }) => {
@@ -539,5 +538,318 @@ test.describe('DataOps — Quality', () => {
     await expect(page.getByTestId('quality-scan-error')).toContainText('INVALID_SESSION_ID', {
       timeout: 10_000,
     });
+  });
+});
+
+/**
+ * Answer only the newest request of a type. The review of an erasure and the
+ * erasure itself go out on one channel, each answered by its own reply.
+ */
+async function respondToLast(
+  page: Page,
+  requestType: string,
+  responseType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const requests = await outgoing(page, requestType);
+  const last = requests.at(-1);
+  if (!last) throw new Error(`no ${requestType} was sent`);
+  const correlationId = last.id as string;
+  await sendExtensionMessage(page, {
+    type: responseType,
+    id: `resp-${correlationId}`,
+    correlationId,
+    payload,
+  });
+}
+
+/** Open a tab whose panel asks for the org's objects, and answer with a few. */
+async function openObjectTab(
+  page: Page,
+  bridge: MockBridge,
+  tab: 'gdpr' | 'cleanup',
+): Promise<void> {
+  await answerMountQueries(page, bridge);
+  await page.getByTestId(`page-tab-${tab}`).click();
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [
+      { apiName: 'Account', label: 'Account' },
+      { apiName: 'Contact', label: 'Contact' },
+    ],
+  });
+}
+
+const REQUEST_ID = '5b0a9b8c-2222-4000-8000-000000000000';
+
+test.describe('DataOps — Compliance', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openDataOps(page);
+    await openObjectTab(page, bridge, 'gdpr');
+  });
+
+  test('finds personal data, then one person’s records, and erases them after a review', async ({
+    page,
+  }) => {
+    await page.getByTestId('compliance-object-option-Contact').check();
+    await page.getByTestId('inventory-run-btn').click();
+    await bridge.waitForMessage('dataops:pii-inventory', { timeout: 10_000 });
+    const [inventory] = await outgoing(page, 'dataops:pii-inventory');
+    expect(inventory.payload).toEqual({ orgId: 'org-src-1', objects: ['Contact'] });
+    await respondToAll(page, 'dataops:pii-inventory', 'dataops:pii-inventory:response', {
+      orgId: 'org-src-1',
+      scannedAt: '2026-09-23T10:00:00.000Z',
+      sampleSize: 200,
+      objects: [
+        {
+          status: 'scanned',
+          objectApiName: 'Contact',
+          label: 'Contact',
+          sampled: 18,
+          fields: [
+            {
+              fieldApiName: 'Email',
+              label: 'Email',
+              classification: 'PII',
+              detectedBy: 'name',
+              pattern: 'email',
+              filled: 17,
+              searchedFor: 'email',
+            },
+          ],
+          nameField: { fieldApiName: 'Name', label: 'Full Name' },
+        },
+      ],
+    });
+    await expect(page.getByTestId('inventory-field-Email')).toContainText('17 of 18 filled', {
+      timeout: 10_000,
+    });
+
+    await page.getByLabel('Email address').fill('jane.doe@example.com');
+    await page.getByTestId('dsr-search-btn').click();
+    await bridge.waitForMessage('dataops:dsr:search', { timeout: 10_000 });
+    const [search] = await outgoing(page, 'dataops:dsr:search');
+    expect(search.payload).toEqual({
+      orgId: 'org-src-1',
+      objects: ['Contact'],
+      email: 'jane.doe@example.com',
+    });
+    await respondToAll(page, 'dataops:dsr:search', 'dataops:dsr:search:response', {
+      requestId: REQUEST_ID,
+      orgId: 'org-src-1',
+      searchedAt: '2026-09-23T10:01:00.000Z',
+      limit: 200,
+      objects: [
+        {
+          status: 'searched',
+          objectApiName: 'Contact',
+          label: 'Contact',
+          counted: 1,
+          records: [{ id: '003000000000001AAA', name: 'Jane Doe', matchedBy: ['Email'] }],
+          truncated: false,
+          searched: [{ fieldApiName: 'Email', label: 'Email', kind: 'email' }],
+        },
+      ],
+    });
+    await expect(page.getByTestId('dsr-request')).toHaveText('Request 5b0a9b8c: 1 record found.', {
+      timeout: 10_000,
+    });
+
+    await page.getByTestId('dsr-review-btn').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:dsr:erase')).length).toBe(1);
+    const [review] = await outgoing(page, 'dataops:dsr:erase');
+    expect(review.payload).toMatchObject({
+      mode: 'anonymize',
+      dryRun: true,
+      requestId: REQUEST_ID,
+    });
+    await respondToLast(page, 'dataops:dsr:erase', 'dataops:dsr:erase:response', {
+      requestId: REQUEST_ID,
+      mode: 'anonymize',
+      dryRun: true,
+      plan: [
+        {
+          objectApiName: 'Contact',
+          label: 'Contact',
+          records: 1,
+          fields: [{ fieldApiName: 'Email', label: 'Email', method: 'fake' }],
+          kept: [],
+        },
+      ],
+    });
+    await expect(page.getByTestId('removal-plan-fields')).toHaveText(
+      'Overwrites: Email (made up)',
+      { timeout: 10_000 },
+    );
+
+    // Nothing goes out until the confirmation is typed.
+    await page.getByTestId('dsr-erase-btn').click();
+    await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
+    await page.getByTestId('danger-input').fill('erase');
+    await page.getByTestId('danger-confirm-btn').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:dsr:erase')).length).toBe(2);
+    const [, erase] = await outgoing(page, 'dataops:dsr:erase');
+    expect(erase.payload).toEqual({
+      orgId: 'org-src-1',
+      requestId: REQUEST_ID,
+      mode: 'anonymize',
+      records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+      dryRun: false,
+    });
+    await respondToLast(page, 'dataops:dsr:erase', 'dataops:dsr:erase:response', {
+      requestId: REQUEST_ID,
+      mode: 'anonymize',
+      dryRun: false,
+      plan: [],
+      outcome: {
+        status: 'success',
+        done: 1,
+        failed: 0,
+        objects: [{ objectApiName: 'Contact', done: 1, failed: 0 }],
+        errors: [],
+      },
+    });
+    await expect(page.getByTestId('removal-outcome')).toHaveText('1 record overwritten.', {
+      timeout: 10_000,
+    });
+
+    // The log is asked for again, and lists the request in counts.
+    await expect
+      .poll(async () => (await outgoing(page, 'dataops:dsr:log')).length)
+      .toBeGreaterThan(1);
+    await respondToAll(page, 'dataops:dsr:log', 'dataops:dsr:log:response', {
+      entries: [
+        {
+          requestId: REQUEST_ID,
+          orgId: 'org-src-1',
+          openedAt: '2026-09-23T10:01:00.000Z',
+          events: [
+            {
+              kind: 'searched',
+              at: '2026-09-23T10:01:00.000Z',
+              searchedBy: ['email'],
+              objects: [{ objectApiName: 'Contact', found: 1, truncated: false }],
+            },
+          ],
+        },
+      ],
+    });
+    await expect(page.getByTestId('dsr-log-5b0a9b8c')).toContainText('1 record found', {
+      timeout: 10_000,
+    });
+  });
+
+  test('shows the extension refusing an inventory', async ({ page }) => {
+    await page.getByTestId('compliance-object-option-Contact').check();
+    await page.getByTestId('inventory-run-btn').click();
+    await bridge.waitForMessage('dataops:pii-inventory', { timeout: 10_000 });
+    await respondToAll(page, 'dataops:pii-inventory', 'dataops:error', {
+      message: 'INVALID_SESSION_ID: Session expired or invalid',
+      code: 'UNKNOWN',
+      retryable: false,
+    });
+
+    await expect(page.getByTestId('inventory-error')).toContainText('INVALID_SESSION_ID', {
+      timeout: 10_000,
+    });
+  });
+});
+
+test.describe('DataOps — Cleanup', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openDataOps(page);
+    await openObjectTab(page, bridge, 'cleanup');
+  });
+
+  test('scans, says what a delete takes, and deletes only after the confirmation', async ({
+    page,
+  }) => {
+    await page.getByTestId('cleanup-object-option-Account').check();
+    await page.getByTestId('cleanup-scan-btn').click();
+    await bridge.waitForMessage('dataops:cleanup:scan', { timeout: 10_000 });
+    const [scan] = await outgoing(page, 'dataops:cleanup:scan');
+    expect(scan.payload).toEqual({
+      orgId: 'org-src-1',
+      objects: [{ objectApiName: 'Account' }],
+      staleDays: 365,
+    });
+    await respondToAll(page, 'dataops:cleanup:scan', 'dataops:cleanup:scan:response', {
+      orgId: 'org-src-1',
+      staleDays: 365,
+      scannedAt: '2026-09-23T10:00:00.000Z',
+      orphanThreshold: 0.9,
+      bounds: { duplicateGroupLimit: 2000, duplicateSample: 20, singleFieldQueries: 20 },
+      objects: [
+        {
+          status: 'scanned',
+          objectApiName: 'Account',
+          label: 'Account',
+          totalRecords: 40,
+          stale: { days: 365, records: 3 },
+          orphans: [],
+          duplicates: null,
+          keyFields: [],
+          errors: [],
+        },
+      ],
+    });
+    await expect(page.getByTestId('cleanup-stale-count')).toHaveText(
+      '3 records not modified in the last 365 days.',
+      { timeout: 10_000 },
+    );
+
+    await page.getByTestId('cleanup-stale-delete').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:cleanup:delete')).length).toBe(1);
+    const [plan] = await outgoing(page, 'dataops:cleanup:delete');
+    expect(plan.payload).toEqual({
+      orgId: 'org-src-1',
+      objectApiName: 'Account',
+      recommendation: { kind: 'stale', days: 365 },
+      dryRun: true,
+    });
+    await respondToLast(page, 'dataops:cleanup:delete', 'dataops:cleanup:delete:response', {
+      objectApiName: 'Account',
+      dryRun: true,
+      plan: {
+        objectApiName: 'Account',
+        label: 'Account',
+        records: 3,
+        related: [{ objectApiName: 'Contact', label: 'Contact', records: 7 }],
+        uncounted: [],
+      },
+      truncated: false,
+    });
+    await expect(page.getByTestId('removal-plan-related')).toContainText('Contact: 7 records', {
+      timeout: 10_000,
+    });
+
+    await page.getByTestId('cleanup-delete-btn').click();
+    await page.getByTestId('danger-input').fill('delete');
+    await page.getByTestId('danger-confirm-btn').click();
+    await expect.poll(async () => (await outgoing(page, 'dataops:cleanup:delete')).length).toBe(2);
+    const [, remove] = await outgoing(page, 'dataops:cleanup:delete');
+    expect((remove.payload as Record<string, unknown>).dryRun).toBe(false);
+    await respondToLast(page, 'dataops:cleanup:delete', 'dataops:cleanup:delete:response', {
+      objectApiName: 'Account',
+      dryRun: false,
+      plan: { objectApiName: 'Account', label: 'Account', records: 3 },
+      truncated: false,
+      outcome: {
+        status: 'success',
+        done: 3,
+        failed: 0,
+        objects: [{ objectApiName: 'Account', done: 3, failed: 0 }],
+        errors: [],
+      },
+    });
+    await expect(page.getByTestId('removal-outcome')).toHaveText('3 records deleted.', {
+      timeout: 10_000,
+    });
+    // The counts on screen predate the delete: the object is scanned again.
+    await expect.poll(async () => (await outgoing(page, 'dataops:cleanup:scan')).length).toBe(2);
   });
 });

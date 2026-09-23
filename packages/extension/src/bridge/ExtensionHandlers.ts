@@ -43,6 +43,8 @@ import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
 import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
+import { DataOpsComplianceHandler } from './handlers/DataOpsComplianceHandler.js';
+import { DataOpsCleanupHandler } from './handlers/DataOpsCleanupHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import type { PipelineTriggerWiring } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
@@ -133,6 +135,8 @@ export class ExtensionHandlers {
   private readonly syncHistoryHandler: SyncHistoryHandler;
   private readonly compareHandler: CompareHandler;
   private readonly dataOpsHandler: DataOpsHandler;
+  private readonly complianceHandler: DataOpsComplianceHandler;
+  private readonly cleanupHandler: DataOpsCleanupHandler;
   private readonly automationHandler: AutomationHandler;
   private readonly aiHandler: AIHandler;
   private readonly autopilotHandler: AutopilotHandler;
@@ -201,6 +205,8 @@ export class ExtensionHandlers {
     );
     this.compareHandler = new CompareHandler(this.handlerDeps);
     this.dataOpsHandler = new DataOpsHandler(this.handlerDeps);
+    this.complianceHandler = new DataOpsComplianceHandler(this.handlerDeps);
+    this.cleanupHandler = new DataOpsCleanupHandler(this.handlerDeps);
     this.automationHandler = new AutomationHandler(this.handlerDeps);
     this.aiHandler = new AIHandler(this.handlerDeps);
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
@@ -641,6 +647,24 @@ export class ExtensionHandlers {
         'precheck:pii-scan',
       ],
       this.dataOpsHandler,
+    );
+
+    // DataOps — Compliance
+    route(
+      [
+        'dataops:pii-inventory',
+        'dataops:dsr:search',
+        'dataops:dsr:export',
+        'dataops:dsr:erase',
+        'dataops:dsr:log',
+      ],
+      this.complianceHandler,
+    );
+
+    // DataOps — Cleanup
+    route(
+      ['dataops:cleanup:scan', 'dataops:cleanup:export', 'dataops:cleanup:delete'],
+      this.cleanupHandler,
     );
 
     // Automation

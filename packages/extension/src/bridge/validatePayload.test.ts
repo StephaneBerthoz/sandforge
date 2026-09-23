@@ -13,6 +13,9 @@ import {
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsQualityScanPayloadSchema,
+  dataOpsSubjectSearchPayloadSchema,
+  dataOpsSubjectErasePayloadSchema,
+  dataOpsCleanupDeletePayloadSchema,
   monitorOpenApexJobsPayloadSchema,
   compareExecutePayloadSchema,
 } from './validatePayload.js';
@@ -357,6 +360,82 @@ describe('dataOpsQualityScanPayloadSchema', () => {
     expect(scan({ staleDays: 1.5 })).toBe(false);
     expect(scan({ staleDays: 3651 })).toBe(false);
     expect(scan({ staleDays: 3650 })).toBe(true);
+  });
+});
+
+describe('dataOpsSubjectSearchPayloadSchema', () => {
+  const search = (overrides: Record<string, unknown>) =>
+    dataOpsSubjectSearchPayloadSchema.safeParse({ orgId: 'o', objects: ['Contact'], ...overrides })
+      .success;
+
+  it('takes an address, a name or a number, each on its own', () => {
+    expect(search({ email: 'jane@example.com' })).toBe(true);
+    expect(search({ name: 'Jane Doe' })).toBe(true);
+    expect(search({ phone: '+33 1 23 45 67 89' })).toBe(true);
+  });
+
+  it('refuses a search with nothing to look for', () => {
+    expect(search({})).toBe(false);
+  });
+
+  it('refuses what is not an address, a name or a number', () => {
+    expect(search({ email: 'not an address' })).toBe(false);
+    expect(search({ name: 'Jane\nDoe' })).toBe(false);
+    expect(search({ phone: '12 34' })).toBe(false);
+  });
+
+  it('names a request only by the id the extension gave it', () => {
+    expect(search({ email: 'jane@example.com', requestId: '../../log' })).toBe(false);
+  });
+});
+
+describe('dataOpsSubjectErasePayloadSchema', () => {
+  const erase = (overrides: Record<string, unknown>) =>
+    dataOpsSubjectErasePayloadSchema.safeParse({
+      orgId: 'o',
+      requestId: '5b0a9b8c-0000-4000-8000-000000000000',
+      mode: 'delete',
+      records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+      dryRun: false,
+      ...overrides,
+    }).success;
+
+  it('accepts records named by their Ids', () => {
+    expect(erase({})).toBe(true);
+  });
+
+  it('refuses an Id that would change the query it lands in', () => {
+    expect(erase({ records: [{ objectApiName: 'Contact', ids: ["003' OR Id != '"] }] })).toBe(
+      false,
+    );
+  });
+
+  it('refuses a way of erasing it does not know', () => {
+    expect(erase({ mode: 'hardDelete' })).toBe(false);
+  });
+});
+
+describe('dataOpsCleanupDeletePayloadSchema', () => {
+  const remove = (recommendation: unknown) =>
+    dataOpsCleanupDeletePayloadSchema.safeParse({
+      orgId: 'o',
+      objectApiName: 'Contact',
+      recommendation,
+      dryRun: true,
+    }).success;
+
+  it('accepts the three recommendations a scan makes', () => {
+    expect(remove({ kind: 'stale', days: 365 })).toBe(true);
+    expect(remove({ kind: 'orphans', fieldApiName: 'AccountId' })).toBe(true);
+    expect(remove({ kind: 'duplicates', keyField: 'Email' })).toBe(true);
+  });
+
+  it('refuses a field that is not an API name, since it lands in the query text', () => {
+    expect(remove({ kind: 'orphans', fieldApiName: 'AccountId = null OR Id' })).toBe(false);
+  });
+
+  it('refuses a recommendation no scan makes', () => {
+    expect(remove({ kind: 'everything' })).toBe(false);
   });
 });
 

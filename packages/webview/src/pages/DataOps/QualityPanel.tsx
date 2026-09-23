@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   QUALITY_SCAN_DEFAULT_STALE_DAYS,
@@ -11,21 +11,12 @@ import type {
   DataQualityScanResult,
   DataQualityScanTarget,
 } from '@sandforge/shared';
-import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Input } from '../../components/ui/Input';
+import { ObjectPicker } from './ObjectPicker';
 import { QualityObjectResult } from './QualityObjectResult';
-
-/** Objects listed at once; the filter reaches the others. */
-export const LISTED_OBJECTS = 50;
-
-/** An object of the org, as `seed:describe-global` lists it. */
-interface OrgObject {
-  apiName: string;
-  label: string;
-}
 
 /** Props for {@link QualityPanel}. */
 export interface QualityPanelProps {
@@ -45,10 +36,10 @@ interface Report {
  * kept, in the order they were first shown. A change of duplicate key rescans
  * one object; the page must not lose the others to it.
  */
-export function mergeObjectResults(
-  previous: readonly DataQualityObjectResult[],
-  incoming: readonly DataQualityObjectResult[],
-): DataQualityObjectResult[] {
+export function mergeObjectResults<T extends { objectApiName: string }>(
+  previous: readonly T[],
+  incoming: readonly T[],
+): T[] {
   const byName = new Map(incoming.map((o) => [o.objectApiName, o]));
   const merged = previous.map((o) => byName.get(o.objectApiName) ?? o);
   const shown = new Set(previous.map((o) => o.objectApiName));
@@ -74,14 +65,8 @@ export function parseStaleDays(value: string): number | null {
  */
 export const QualityPanel: React.FC<QualityPanelProps> = ({ orgId }) => {
   const { t } = useTranslation();
-  const filterId = useId();
   const staleId = useId();
 
-  const objectsQuery = useBridgeQuery<{ objects: OrgObject[] }>(
-    'seed:describe-global',
-    { orgId },
-    { responseType: 'seed:describe-global:response', errorType: 'seed:error' },
-  );
   const scan = useBridgeMutation<DataQualityScanResult>('dataops:quality-scan', {
     responseType: 'dataops:quality-scan:response',
     errorType: 'dataops:error',
@@ -90,7 +75,6 @@ export const QualityPanel: React.FC<QualityPanelProps> = ({ orgId }) => {
     timeoutMs: 300_000,
   });
 
-  const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [staleInput, setStaleInput] = useState(String(QUALITY_SCAN_DEFAULT_STALE_DAYS));
   const [keys, setKeys] = useState<Record<string, string>>({});
@@ -106,24 +90,7 @@ export const QualityPanel: React.FC<QualityPanelProps> = ({ orgId }) => {
     }));
   }, [scan.data]);
 
-  const objects = useMemo(() => objectsQuery.data?.objects ?? [], [objectsQuery.data]);
-  const matching = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return needle
-      ? objects.filter(
-          (o) => o.label.toLowerCase().includes(needle) || o.apiName.toLowerCase().includes(needle),
-        )
-      : objects;
-  }, [objects, filter]);
-  const listed = matching.slice(0, LISTED_OBJECTS);
-  const full = selected.length >= QUALITY_SCAN_MAX_OBJECTS;
   const staleDays = parseStaleDays(staleInput);
-
-  const toggle = (apiName: string): void => {
-    setSelected((current) =>
-      current.includes(apiName) ? current.filter((n) => n !== apiName) : [...current, apiName],
-    );
-  };
 
   const target = (objectApiName: string): DataQualityScanTarget =>
     keys[objectApiName] ? { objectApiName, duplicateKey: keys[objectApiName] } : { objectApiName };
@@ -152,84 +119,14 @@ export const QualityPanel: React.FC<QualityPanelProps> = ({ orgId }) => {
       <h2 className="text-sm font-semibold text-text-primary">{t('dataops.quality')}</h2>
       <p className="text-xs text-text-secondary">{t('dataops.qualityScan.intro')}</p>
 
-      <fieldset className="flex flex-col gap-2" data-testid="quality-objects">
-        <legend className="mb-1 text-xs font-medium text-text-primary">
-          {t('dataops.qualityScan.objectsLegend', { max: QUALITY_SCAN_MAX_OBJECTS })}
-        </legend>
-        {objectsQuery.error && (
-          <ErrorBanner message={objectsQuery.error} data-testid="quality-objects-error" />
-        )}
-        {objectsQuery.loading && (
-          <p role="status" className="text-xs text-text-secondary">
-            {t('dataops.qualityScan.loadingObjects')}
-          </p>
-        )}
-        {objects.length > 0 && (
-          <>
-            <div className="max-w-xs">
-              <Input
-                id={filterId}
-                type="search"
-                label={t('dataops.qualityScan.filterObjects')}
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                data-testid="quality-object-filter"
-              />
-            </div>
-            <ul
-              className="flex max-h-64 flex-col gap-0.5 overflow-y-auto rounded border border-[var(--sf-border)] p-1"
-              data-testid="quality-object-list"
-            >
-              {listed.map((o) => {
-                const checked = selected.includes(o.apiName);
-                return (
-                  <li key={o.apiName}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-[var(--sf-bg-hover)]">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!checked && full}
-                        onChange={() => toggle(o.apiName)}
-                        data-testid={`quality-object-option-${o.apiName}`}
-                      />
-                      <span className="flex-1 text-text-primary">{o.label}</span>
-                      {/* Primary, not secondary: the row's hover fill takes
-                          secondary text under AA on the dark default theme. */}
-                      {o.label !== o.apiName && (
-                        <span className="font-mono text-text-primary">{o.apiName}</span>
-                      )}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-            {matching.length === 0 && (
-              <p className="text-xs text-text-secondary">
-                {t('dataops.qualityScan.noObjectMatch')}
-              </p>
-            )}
-            {matching.length > listed.length && (
-              <p className="text-xs text-text-secondary" data-testid="quality-more-objects">
-                {t('dataops.qualityScan.moreObjects', {
-                  shown: listed.length,
-                  total: matching.length,
-                })}
-              </p>
-            )}
-          </>
-        )}
-        <p
-          aria-live="polite"
-          className="text-xs text-text-secondary"
-          data-testid="quality-selected"
-        >
-          {t('dataops.qualityScan.selected', {
-            part: selected.length,
-            max: QUALITY_SCAN_MAX_OBJECTS,
-          })}
-          {selected.length > 0 && `: ${selected.join(', ')}`}
-        </p>
-      </fieldset>
+      <ObjectPicker
+        orgId={orgId}
+        selected={selected}
+        onChange={setSelected}
+        max={QUALITY_SCAN_MAX_OBJECTS}
+        legend={t('dataops.qualityScan.objectsLegend', { max: QUALITY_SCAN_MAX_OBJECTS })}
+        testIdPrefix="quality"
+      />
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-40">

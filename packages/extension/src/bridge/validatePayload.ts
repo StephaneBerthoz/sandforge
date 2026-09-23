@@ -7,6 +7,10 @@ import {
   complianceFrameworkTypeSchema,
   anonymizationMethodSchema,
   QuickSyncConfigSchema,
+  COMPLIANCE_MAX_OBJECTS,
+  isSubjectEmail,
+  isSubjectName,
+  isSubjectPhone,
   QUALITY_SCAN_MAX_OBJECTS,
   QUALITY_SCAN_MAX_STALE_DAYS,
   DEPLOYABLE_COMPONENT_TYPES,
@@ -14,6 +18,7 @@ import {
   DEPLOY_MAX_TESTS,
   DEPLOY_TEST_LEVELS,
   DEPLOY_TEST_NAME_PATTERN,
+  SUBJECT_SEARCH_LIMIT,
   SAVED_TEMPLATE_METHODS,
   TEMPLATE_FIELD_PATTERN,
   TEMPLATE_MAX_RULES,
@@ -599,6 +604,90 @@ export const dataOpsQualityScanPayloadSchema = z.object({
       { message: 'Each object may be named once per scan' },
     ),
   staleDays: z.number().int().min(1).max(QUALITY_SCAN_MAX_STALE_DAYS),
+});
+
+/** A few objects, each named once: what an inventory or a subject search reads. */
+const complianceObjectsSchema = z
+  .array(sfApiNameSchema)
+  .min(1)
+  .max(COMPLIANCE_MAX_OBJECTS)
+  .refine((objects) => new Set(objects.map((o) => o.toLowerCase())).size === objects.length, {
+    message: 'Each object may be named once per request',
+  });
+
+/** `dataops:pii-inventory`: the objects whose personal data to list. */
+export const dataOpsPiiInventoryPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objects: complianceObjectsSchema,
+});
+
+/**
+ * `dataops:dsr:search`: at least one identifier, each held to the rule the
+ * page offers it under. All three reach SOQL text — escaped there — so their
+ * shape is checked here too.
+ */
+export const dataOpsSubjectSearchPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    objects: complianceObjectsSchema,
+    requestId: z.string().uuid().optional(),
+    email: z.string().trim().refine(isSubjectEmail, 'Not an email address').optional(),
+    name: z.string().refine(isSubjectName, 'Not a name').optional(),
+    phone: z.string().refine(isSubjectPhone, 'Not a phone number').optional(),
+  })
+  .refine((p) => p.email !== undefined || p.name !== undefined || p.phone !== undefined, {
+    message: 'A search needs an email address, a name or a phone number',
+  });
+
+/** A request the local log holds, on one org. */
+export const dataOpsSubjectRequestPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  requestId: z.string().uuid(),
+});
+
+/** A Salesforce record Id, 15 or 18 characters. */
+const recordIdSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/, 'Not a record Id');
+
+/** `dataops:dsr:erase`: records of the request, per object, and how to erase them. */
+export const dataOpsSubjectErasePayloadSchema = dataOpsSubjectRequestPayloadSchema.extend({
+  mode: z.enum(['anonymize', 'delete']),
+  records: z
+    .array(
+      z.object({
+        objectApiName: sfApiNameSchema,
+        ids: z.array(recordIdSchema).min(1).max(SUBJECT_SEARCH_LIMIT),
+      }),
+    )
+    .min(1)
+    .max(COMPLIANCE_MAX_OBJECTS)
+    .refine(
+      (records) =>
+        new Set(records.map((r) => r.objectApiName.toLowerCase())).size === records.length,
+      { message: 'Each object may be named once per request' },
+    ),
+  dryRun: z.boolean(),
+});
+
+/** A cleanup recommendation, as the page names one. */
+const cleanupRecommendationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('stale'),
+    days: z.number().int().min(1).max(QUALITY_SCAN_MAX_STALE_DAYS),
+  }),
+  z.object({ kind: z.literal('orphans'), fieldApiName: sfApiNameSchema }),
+  z.object({ kind: z.literal('duplicates'), keyField: sfApiNameSchema }),
+]);
+
+/** `dataops:cleanup:export`: the records one recommendation names. */
+export const dataOpsCleanupExportPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objectApiName: sfApiNameSchema,
+  recommendation: cleanupRecommendationSchema,
+});
+
+/** `dataops:cleanup:delete`: the same, and whether to delete or only say what would go. */
+export const dataOpsCleanupDeletePayloadSchema = dataOpsCleanupExportPayloadSchema.extend({
+  dryRun: z.boolean(),
 });
 
 // ── monitor:* payload schemas ─────────────────────────────────────────────
