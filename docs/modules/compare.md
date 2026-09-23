@@ -16,8 +16,10 @@ Compare metadata, permission names, and five Organization settings between two S
 
 The primary tab shows a side-by-side comparison of metadata between the two orgs.
 
-Each chosen type is listed in both orgs. A component only one org holds is
-added (+) or removed (-). A component both hold is read from each and its two
+Each chosen type is listed in both orgs. A component only the source holds is
+marked + in green: a deployment creates it in the target. One only the target
+holds is marked - in red: a deployment leaves it there, since SandForge deploys
+no deletion. A component both hold is read from each and its two
 copies compared by content: Apex source by query, everything else through the
 Metadata API. What differs between any two orgs by nature is set aside first --
 line endings, the order of keys and of entries that state their own order,
@@ -40,11 +42,11 @@ is read, and the result says how many were left out: they are in no other
 count. An org's own components stay in, even in an org with a namespace of its
 own.
 
-When a comparison finds no component added, removed or modified, the Diff tab
-says that nothing differs; the line above it says how many components were
-compared by content.
+When a comparison finds no component only one org holds and none modified, the
+Diff tab says that nothing differs; the line above it says how many components
+were compared by content.
 
-- **Summary Bar** -- Counts of added (+), removed (-), modified (~), unchanged (=) and not compared (?) components, and how many of the components both orgs hold were compared by content
+- **Summary Bar** -- Counts of the components only in the source (+), only in the target (-), modified (~), unchanged (=) and not compared (?), a line saying what each of the first three means for a deployment, and how many of the components both orgs hold were compared by content
 - **Risk Score Card** -- An enriched risk assessment computed from the changes; components not compared are left out of it, and it does not call a comparison safe to deploy while some were
 - **Diff Group Accordion** -- Changes grouped by type, expandable to see individual changes
 - **Diff Detail Modal** -- Click any change to see it; for a modified component, the lines where the two copies first differ

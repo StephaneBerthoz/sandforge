@@ -267,7 +267,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
                         {c.fullName}
                       </span>
                       <Badge variant={riskBadge[c.riskLevel]}>
-                        {t(`compare.deployment.risk.${c.riskLevel}`)}
+                        {t(`compare.riskLevel.${c.riskLevel}`)}
                       </Badge>
                     </label>
                   </li>

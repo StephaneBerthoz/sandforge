@@ -314,8 +314,8 @@
       "loginTime": "Heure de connexion",
       "sourceIp": "IP source"
     },
-    "remainingCount_one": "{{count}} restant",
-    "remainingCount_other": "{{count}} restants",
+    "remainingCount_one": "{{count}} restante",
+    "remainingCount_other": "{{count}} restantes",
     "runCount_one": "{{count}} exécution",
     "runCount_other": "{{count}} exécutions",
     "failedCount_one": "{{count}} en échec",
@@ -344,10 +344,13 @@
     "deploy": "Déployer depuis le diff",
     "noResults": "Pas encore de résultats",
     "nothingDiffers": "Aucune différence : les deux orgs contiennent les mêmes composants, et chacun de ceux comparés par contenu est identique des deux côtés.",
-    "added": "Ajouté",
-    "removed": "Supprimé",
-    "modified": "Modifié",
-    "unchanged": "Inchangé",
+    "change": {
+      "added": "Seulement dans la cible",
+      "removed": "Seulement dans la source",
+      "modified": "Modifié",
+      "unchanged": "Inchangé"
+    },
+    "changeLegend": "Seulement dans la source (+) : un déploiement le crée dans la cible. Seulement dans la cible (-) : un déploiement l'y laisse, car SandForge ne déploie aucune suppression. Modifié (~) : un déploiement remplace ce que la cible contient.",
     "coverage": {
       "compared": "Contenu comparé pour {{compared}} des {{inBoth}} composants présents dans les deux orgs.",
       "managedLeftOut": "Installés par un package géré, laissés de côté comme demandé : {{count}}",
@@ -405,7 +408,7 @@
     },
     "deployment": {
       "title": "Déployer de {{source}} vers {{target}}",
-      "intro": "Choisissez ce que {{source}} contient et que {{target}} n'a pas, ou a autrement. SandForge le récupère depuis {{source}} et le valide d'abord dans {{target}} : la cible le compile, exécute les tests que vous choisissez, et ne garde rien. Seule une validation réussie peut être déployée, une fois que vous confirmez. Rien n'est supprimé de la cible.",
+      "intro": "Choisissez ce que {{source}} contient et que {{target}} n'a pas, ou pas à l'identique. SandForge le récupère depuis {{source}} et le valide d'abord dans {{target}} : la cible le compile, exécute les tests que vous choisissez, et ne garde rien. Seule une validation réussie peut être déployée, une fois que vous confirmez. Rien n'est supprimé de la cible.",
       "targetRefused": "{{target}} est une org de production, ou une org dont SandForge ne peut pas dire qu'elle est une sandbox. SandForge ne déploie que vers des sandboxes.",
       "pickLegend": "Composants à déployer : {{picked}} sur {{total}} choisis",
       "noneDeployable": "Rien de ce que cette comparaison a trouvé ne peut en être déployé.",
@@ -413,13 +416,6 @@
       "change": {
         "removed": "Nouveau",
         "modified": "Diffère"
-      },
-      "risk": {
-        "none": "Sans risque",
-        "low": "Risque faible",
-        "medium": "Risque moyen",
-        "high": "Risque élevé",
-        "critical": "Risque critique"
       },
       "notDeployableTitle_one": "{{count}} composant ne peut pas être déployé depuis cette comparaison",
       "notDeployableTitle_other": "{{count}} composants ne peuvent pas être déployés depuis cette comparaison",
@@ -448,7 +444,7 @@
       "deploy": "Déployer vers {{target}}",
       "progress": {
         "waiting": "En attente des orgs…",
-        "retrieve": "Récupération depuis la source : {{done}} composants sur {{total}}",
+        "retrieve": "Récupération depuis la source : {{done}} sur {{total}} composants",
         "components": "Vérification des composants : {{done}} sur {{total}}",
         "tests": "Exécution des tests Apex : {{done}} sur {{total}}"
       },
@@ -505,10 +501,10 @@
       }
     },
     "count": {
-      "added_one": "{{count}} ajouté",
-      "added_other": "{{count}} ajoutés",
-      "removed_one": "{{count}} supprimé",
-      "removed_other": "{{count}} supprimés",
+      "added_one": "{{count}} seulement dans la cible",
+      "added_other": "{{count}} seulement dans la cible",
+      "removed_one": "{{count}} seulement dans la source",
+      "removed_other": "{{count}} seulement dans la source",
       "modified_one": "{{count}} modifié",
       "modified_other": "{{count}} modifiés",
       "unchanged_one": "{{count}} inchangé",
@@ -529,6 +525,13 @@
       "high_other": "{{count}} élevés",
       "critical_one": "{{count}} critique",
       "critical_other": "{{count}} critiques"
+    },
+    "riskLevel": {
+      "none": "Sans risque",
+      "low": "Risque faible",
+      "medium": "Risque moyen",
+      "high": "Risque élevé",
+      "critical": "Risque critique"
     }
   },
   "seed": {
@@ -978,9 +981,9 @@
       "match": {
         "id": "ID d'enregistrement (orgs copiées de la même production)",
         "externalId": "ID externe {{field}}",
-        "syncConfig": "Mappage de la sync enregistrée « {{name}} »"
+        "syncConfig": "Mapping de la sync enregistrée « {{name}} »"
       },
-      "conflictLabel": "{{object}} : quand l'enregistrement cible a été modifié après la modification",
+      "conflictLabel": "{{object}} : quand l'enregistrement cible a été modifié après le changement",
       "applyDeletes": "Appliquer les suppressions",
       "sessionError": "Sync temps réel : {{message}}",
       "refusedTitle": "L'org source a refusé ces objets :",
@@ -989,7 +992,7 @@
         "applied": "Écrit dans la cible",
         "failed": "Non écrit",
         "watched": "Seulement observé, non écrit",
-        "kept-target": "Non écrit : l'enregistrement cible a été modifié après cette modification",
+        "kept-target": "Non écrit : l'enregistrement cible a été modifié après ce changement",
         "held": "En attente d'une décision dans l'onglet Conflits",
         "deletes-off": "Suppression non appliquée : les suppressions sont désactivées pour cet objet",
         "own-write": "Écrit par cette session ; non réappliqué"
@@ -1322,10 +1325,10 @@
     },
     "inventory": {
       "title": "Données personnelles",
-      "intro": "Trouve, dans les objets que vous choisissez, les champs qui contiennent des données personnelles. Le détecteur des vérifications préalables de Seed et de Sync les repère à leur nom et à leur type ; un échantillon d'enregistrements montre ensuite lesquels sont remplis, et quels autres champs texte contiennent des valeurs qui ressemblent à une adresse e-mail, à un numéro de téléphone, de carte ou de compte. Seuls des comptes reviennent : aucune valeur lue ne quitte l'extension.",
+      "intro": "Trouve, dans les objets que vous choisissez, les champs qui contiennent des données personnelles. Le détecteur des vérifications préalables de Seed et de Sync les repère à leur nom et à leur type ; un échantillon d'enregistrements montre ensuite lesquels sont remplis, et quels autres champs texte contiennent des valeurs qui ressemblent à une adresse e-mail, à un numéro de téléphone, de carte ou de compte. Seuls des décomptes reviennent : aucune valeur lue ne quitte l'extension.",
       "objectsLegend": "Objets à examiner (jusqu'à {{max}})",
       "run": "Trouver les données personnelles",
-      "method": "Chaque échantillon est fait des {{sample}} derniers enregistrements de l'objet par Id, les plus récents. Un champ repéré à ses valeurs l'est par un motif : pour lui, un numéro d'immatriculation d'entreprise peut ressembler à un numéro de téléphone.",
+      "method": "Chaque échantillon est fait des {{sample}} derniers enregistrements de l'objet par Id, les plus récents. Un champ repéré à ses valeurs l'est par un motif, pour lequel un numéro d'immatriculation d'entreprise peut ressembler à un numéro de téléphone.",
       "objectFailed": "Impossible de lire {{object}} : {{message}}",
       "sampled_one": "{{formatted}} enregistrement échantillonné",
       "sampled_other": "{{formatted}} enregistrements échantillonnés",
@@ -1362,7 +1365,7 @@
     },
     "dsr": {
       "title": "Demande de personne concernée",
-      "intro": "Trouvez les enregistrements d'une personne par son adresse e-mail, son nom ou son numéro de téléphone, exportez-les et effacez-les. Ce que vous saisissez ici ne sert qu'à la recherche : SandForge ne le garde pas, et le journal des demandes ci-dessous ne note que des comptes, jamais un identifiant, un Id d'enregistrement ni une valeur.",
+      "intro": "Trouvez les enregistrements d'une personne par son adresse e-mail, son nom ou son numéro de téléphone, exportez-les et effacez-les. Ce que vous saisissez ici ne sert qu'à la recherche : SandForge ne le garde pas, et le journal des demandes ci-dessous ne note que des décomptes, jamais un identifiant, un Id d'enregistrement ni une valeur.",
       "needsInventory": "Trouvez d'abord les données personnelles : une demande cherche dans les objets lus par l'inventaire, dans les champs qu'il a trouvés.",
       "searchesIn": "Cherche dans : {{objects}}",
       "email": "Adresse e-mail",
@@ -1391,8 +1394,8 @@
       "export_one": "Exporter {{formatted}} enregistrement",
       "export_other": "Exporter {{formatted}} enregistrements",
       "exportHint": "Tous les champs de tous les enregistrements trouvés, dans un fichier JSON que vous enregistrez où vous voulez : la copie due à la personne qui la demande.",
-      "exported_one": "{{formatted}} enregistrement enregistré dans {{path}}.",
-      "exported_other": "{{formatted}} enregistrements enregistrés dans {{path}}.",
+      "exported_one": "{{formatted}} enregistrement écrit dans {{path}}.",
+      "exported_other": "{{formatted}} enregistrements écrits dans {{path}}.",
       "exportCancelled": "Export annulé : aucun fichier n'a été écrit.",
       "eraseLegend": "Effacer les enregistrements cochés ci-dessus",
       "modeAnonymize": "Anonymiser sur place : l'anonymiseur de DataOps remplace les champs qui contiennent des données personnelles, et le nom, par des valeurs inventées ou par rien.",
@@ -1411,7 +1414,7 @@
     },
     "dsrLog": {
       "title": "Journal des demandes",
-      "intro": "Conservé sur cette machine : quand chaque demande a été ouverte, et ce qu'elle a trouvé, exporté et effacé — des comptes et des noms d'objets, jamais la personne concernée.",
+      "intro": "Conservé sur cette machine : quand chaque demande a été ouverte, et ce qu'elle a trouvé, exporté et effacé — des décomptes et des noms d'objets, jamais la personne concernée.",
       "empty": "Aucune demande n'a encore été traitée sur cette org.",
       "save": "Enregistrer le journal",
       "entry": "Demande {{id}}, ouverte le {{at}}",
@@ -1419,20 +1422,20 @@
       "searched_other": "{{at}} : recherche par {{by}} dans {{objects}} — {{formatted}} enregistrements trouvés",
       "exported_one": "{{at}} : {{formatted}} enregistrement exporté",
       "exported_other": "{{at}} : {{formatted}} enregistrements exportés",
-      "anonymized_one": "{{at}} : anonymisation sur place — {{outcome}} : {{formatted}} enregistrement remplacé, {{failed}} refusés",
-      "anonymized_other": "{{at}} : anonymisation sur place — {{outcome}} : {{formatted}} enregistrements remplacés, {{failed}} refusés",
-      "deleted_one": "{{at}} : suppression — {{outcome}} : {{formatted}} enregistrement supprimé, {{failed}} refusés",
-      "deleted_other": "{{at}} : suppression — {{outcome}} : {{formatted}} enregistrements supprimés, {{failed}} refusés",
+      "anonymized_one": "{{at}} : anonymisation sur place — {{outcome}} : {{formatted}} enregistrement remplacé, {{failed}} refus",
+      "anonymized_other": "{{at}} : anonymisation sur place — {{outcome}} : {{formatted}} enregistrements remplacés, {{failed}} refus",
+      "deleted_one": "{{at}} : suppression — {{outcome}} : {{formatted}} enregistrement supprimé, {{failed}} refus",
+      "deleted_other": "{{at}} : suppression — {{outcome}} : {{formatted}} enregistrements supprimés, {{failed}} refus",
       "by": {
         "email": "adresse e-mail",
         "name": "nom",
         "phone": "numéro de téléphone"
       },
       "outcome": {
-        "success": "fait",
-        "partial": "fait en partie",
+        "success": "faite",
+        "partial": "faite en partie",
         "failure": "échec",
-        "stopped": "arrêté par Production Guard"
+        "stopped": "arrêtée par Production Guard"
       }
     },
     "removal": {
@@ -1447,7 +1450,7 @@
       "related": "L'org supprime en même temps :",
       "relatedRecords_one": "{{label}} : {{formatted}} enregistrement",
       "relatedRecords_other": "{{label}} : {{formatted}} enregistrements",
-      "noRelated": "Rien d'autre n'est supprimé en même temps, d'après les comptes de l'org.",
+      "noRelated": "Rien d'autre n'est supprimé en même temps, d'après le décompte de l'org.",
       "uncounted": "Non comptés — l'org a refusé de les compter, et supprime tout de même ce qui dépend des enregistrements :",
       "overwritten_one": "{{formatted}} enregistrement remplacé.",
       "overwritten_other": "{{formatted}} enregistrements remplacés.",
@@ -1457,12 +1460,12 @@
       "refusedByOrg_other": "{{formatted}} refusés par l'org, et laissés tels quels."
     },
     "cleanupScan": {
-      "intro": "Compte, pour les objets que vous choisissez, les enregistrements qu'un nettoyage examinerait : ceux que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée. C'est l'org qui compte : aucun enregistrement n'est lu, et rien n'est écrit avant que vous ne supprimiez.",
+      "intro": "Compte, pour les objets que vous choisissez, les enregistrements qu'un nettoyage examinerait : ceux que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée. Le comptage est fait par l'org : aucun enregistrement n'est lu, et rien n'est écrit avant que vous ne supprimiez.",
       "objectsLegend": "Objets à examiner (jusqu'à {{max}})",
       "scan": "Analyser",
       "method": "Un export ou une suppression prend au plus {{limit}} enregistrements à la fois (les enregistrements non modifiés, les plus anciens d'abord) ; relancez-le pour le reste.",
-      "exported_one": "{{formatted}} enregistrement enregistré dans {{path}}.",
-      "exported_other": "{{formatted}} enregistrements enregistrés dans {{path}}.",
+      "exported_one": "{{formatted}} enregistrement écrit dans {{path}}.",
+      "exported_other": "{{formatted}} enregistrements écrits dans {{path}}.",
       "exportTruncated": "Seuls les {{limit}} premiers ont été exportés : un export n'en prend pas davantage.",
       "objectFailed": "Impossible d'analyser cet objet : {{message}}",
       "records_one": "{{formatted}} enregistrement",
@@ -1474,8 +1477,8 @@
       "orphans": "Enregistrements sans leur parent",
       "orphansRule": "Une référence compte comme une référence sur laquelle l'activité s'appuie quand au moins {{share}} des enregistrements la remplissent ; les enregistrements qui la laissent vide sont listés. Une référence que l'org exige n'est jamais vide, et une référence vers un utilisateur, une file d'attente ou un type d'enregistrement ne désigne aucun parent.",
       "noOrphans": "Aucun enregistrement ne laisse vide une référence sur laquelle l'activité s'appuie.",
-      "orphanLine_one": "{{field}} → {{parent}} : rempli sur {{filled}} enregistrements sur {{total}} ; {{formatted}} le laisse vide.",
-      "orphanLine_other": "{{field}} → {{parent}} : rempli sur {{filled}} enregistrements sur {{total}} ; {{formatted}} le laissent vide.",
+      "orphanLine_one": "{{field}} → {{parent}} : rempli dans {{filled}} des {{total}} enregistrements ; {{formatted}} le laisse vide.",
+      "orphanLine_other": "{{field}} → {{parent}} : rempli dans {{filled}} des {{total}} enregistrements ; {{formatted}} le laissent vide.",
       "duplicates": "Copies en trop d'une valeur répétée",
       "copies": "Valeurs répétées de {{field}} : {{values}}. Copies en trop : {{copies}}.",
       "copiesRule": "Une suppression garde, pour chaque valeur répétée, l'enregistrement modifié en dernier, et supprime les autres copies. Elle ne les fusionne pas : ce qui pointe vers une copie est supprimé avec elle ou reste sans elle.",
@@ -1488,7 +1491,7 @@
       "reviewOrphans": "Supprimer les enregistrements {{object}} qui laissent {{field}} vide",
       "reviewDuplicates": "Supprimer les copies en trop des enregistrements {{object}} par {{field}}",
       "reviewing": "Comptage des enregistrements, et de ce qui part avec eux…",
-      "deleteTruncated": "Plus d'enregistrements sont recommandés qu'une suppression n'en prend : voici les {{limit}} premiers. Relancez l'analyse ensuite pour le reste.",
+      "deleteTruncated": "Il y a plus d'enregistrements recommandés qu'une suppression n'en prend : voici les {{limit}} premiers. Relancez l'analyse ensuite pour le reste.",
       "deleteRecords_one": "Supprimer {{formatted}} enregistrement",
       "deleteRecords_other": "Supprimer {{formatted}} enregistrements",
       "confirmTitle_one": "Supprimer {{formatted}} enregistrement ?",
@@ -1510,7 +1513,7 @@
     "triggerSoon": {
       "event": "Ne lance rien : aucune source d'événements n'alimente encore ce déclencheur.",
       "webhook": "Ne lance rien : SandForge n'ouvre aucun port, donc rien hors de VS Code ne peut joindre un webhook.",
-      "deployment_complete": "Ne lance rien : SandForge ne lit les déploiements d'une org que lorsque le Monitor les demande, donc rien n'en voit un se terminer."
+      "deployment_complete": "Ne lance rien : SandForge ne lit les déploiements d'une org que lorsque le Moniteur les demande, donc rien n'en voit un se terminer."
     },
     "triggerHint": {
       "schedule": "Lance le pipeline enregistré à chaque heure que l'expression désigne, dans le fuseau horaire choisi, tant que VS Code est ouvert.",
@@ -1546,7 +1549,7 @@
       "asleep": "Prévu le {{time}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : pas rattrapé.",
       "asleepMany": "{{n}} démarrages prévus du {{first}} au {{last}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : aucun n'a été rattrapé.",
       "busy": "Prévu le {{time}}, pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
-      "busyMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que l'exécution démarrée le {{since}} était encore en cours : aucun n'a été fait. Un pipeline ne s'exécute jamais deux fois en même temps.",
+      "busyMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que l'exécution démarrée le {{since}} était encore en cours : aucun n'a eu lieu. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "busyRefresh": "Le rafraîchissement remarqué le {{time}} est arrivé pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
       "cannotRun": "Le rafraîchissement remarqué le {{time}} n'a rien lancé : une étape de ce pipeline ne peut pas s'exécuter."
     },
@@ -1920,7 +1923,7 @@
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
       "forgeAnonymizes": "Forge anonymise ce qu'il clone",
-      "forgeAnonymizesDesc": "L'option d'anonymisation ne faisait rien : un clone emportait les données personnelles de la source. Les champs et méthodes choisis dans Revue sont désormais appliqués, et les e-mails restent des adresses valides.",
+      "forgeAnonymizesDesc": "L'option d'anonymisation ne faisait rien : un clone emportait les données personnelles de la source. Les champs et méthodes choisis lors de la revue sont désormais appliqués, et les e-mails restent des adresses valides.",
       "fixRound136": "Sync, Compare et planifications corrigés",
       "fixRound136Desc": "Sync conserve les champs renommés, constants et calculés ; une planification de sync ne s'exécute qu'une fois, quel que soit le nombre de fenêtres ouvertes ; Compare lit « supprimé » et « ajouté » dans le bon sens ; les erreurs restent affichées jusqu'à ce que vous les lisiez.",
       "compareDeploy": "Compare déploie ce qui diffère",
@@ -1930,7 +1933,7 @@
       "triggers": "Les pipelines démarrent seuls",
       "triggersDesc": "Une planification lance son pipeline aux heures choisies tant que VS Code est ouvert, et un déclencheur de rafraîchissement le lance quand SandForge remarque qu'une sandbox a été rafraîchie. Un démarrage manqué pendant que VS Code était fermé est consigné, jamais exécuté en retard.",
       "compliance": "Demandes des personnes concernées et nettoyage",
-      "complianceDesc": "DataOps retrouve chaque enregistrement concernant une personne, les exporte et les efface après un examen et votre confirmation ; Nettoyage recommande les enregistrements obsolètes, orphelins et en double, et ne supprime que ce qu'une analyse a recommandé.",
+      "complianceDesc": "DataOps retrouve tous les enregistrements concernant une personne, les exporte et les efface après un examen et votre confirmation ; Nettoyage recommande les enregistrements obsolètes, orphelins et en double, et ne supprime que ce qu'une analyse a recommandé.",
       "auditTrail": "Chaque écriture, consignée",
       "auditTrailDesc": "Chaque exécution qui écrit dans une org — Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset — est désormais conservée dans Reports avec son résultat, la décision de la Production Guard, ses comptes par objet et l'origine de ses données. Jamais un identifiant d'enregistrement ni une valeur de champ.",
       "dataopsQuality": "La qualité des données, comptée par l'org",
@@ -2042,9 +2045,9 @@
     "gettingStartedContent": "1. Connectez votre org Salesforce via la page Organisations.\n2. Avec Forge, clonez un vrai enregistrement, et les enregistrements qui l'entourent, dans votre sandbox.\n3. Ouvrez le Moniteur pour vérifier la santé de votre org.\n4. Utilisez Seed pour générer des données de test, ou Sync pour copier des données entre deux orgs.\n5. Explorez Compare, DataOps, le Jeu figé et Automation pour les workflows avancés.",
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org en temps réel :\n- Jauge de score de santé avec facteurs contributifs\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Alertes pour les seuils critiques\n\nAstuce : Activez le rafraîchissement auto pour un suivi continu.",
     "seedContent": "L'assistant Seed génère des données de test réalistes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Fixez le nombre d'enregistrements — un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
-    "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental et le delta ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mappage d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Une modification dont l'enregistrement cible a été modifié après elle est tranchée par la stratégie, ou mise en attente dans l'onglet Conflits\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
-    "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Drift : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
-    "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme GDPR, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; c'est l'org qui compte, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité : trouve les champs des objets choisis qui contiennent des données personnelles, confirmés sur un échantillon de leurs 200 derniers enregistrements ; puis trouve les enregistrements d'une personne par e-mail, nom ou téléphone, les exporte dans un fichier, et les efface sur place ou les supprime, après un examen, une confirmation saisie et Production Guard ; un journal local garde des comptes de chaque demande, jamais la personne concernée\n- Nettoyage : compte les enregistrements que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée ; chaque groupe peut être exporté, ou supprimé après un examen, une confirmation saisie et Production Guard, au plus 1 000 à la fois",
+    "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental et le delta ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mapping d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Un changement dont l'enregistrement cible a été modifié après lui est tranché par la stratégie, ou mis en attente dans l'onglet Conflits\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
+    "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Écarts : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
+    "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; le comptage est fait par l'org, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité : trouve les champs des objets choisis qui contiennent des données personnelles, confirmés sur un échantillon de leurs 200 derniers enregistrements ; puis trouve les enregistrements d'une personne par e-mail, nom ou téléphone, les exporte dans un fichier, et les efface sur place ou les supprime, après un examen, une confirmation saisie et Production Guard ; un journal local garde des décomptes de chaque demande, jamais la personne concernée\n- Nettoyage : compte les enregistrements que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée ; chaque groupe peut être exporté, ou supprimé après un examen, une confirmation saisie et Production Guard, au plus 1 000 à la fois",
     "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie ; déclencheurs d'événement, de webhook et de déploiement : bientôt disponible, ils ne lancent encore rien\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
     "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
@@ -2695,6 +2698,7 @@
     "tools": "Outils",
     "favorite": "Ajouter aux favoris",
     "unfavorite": "Retirer des favoris",
+    "favoriteModule": "{{module}} dans les favoris",
     "lastOp": "Dernière opération",
     "openFull": "Ouvrir l'UI complète",
     "running": "En cours...",

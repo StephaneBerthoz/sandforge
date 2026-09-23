@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../theme';
 import { Badge } from '../../components/ui/Badge';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { CHANGE_LOOK } from './changeLook';
 
 /** A permission set or profile, named the way the extension returns it. */
 export interface NamedPermissionEntry {
@@ -155,13 +157,10 @@ export const PermissionPresence: React.FC<PermissionPresenceProps> = ({
   const { t } = useTranslation();
   const rows = toRows(comparison);
 
-  const statusLabel = (
-    status: PresenceRow['status'],
-  ): { text: string; variant: 'success' | 'error' | 'default' } => {
-    if (status === 'added') return { text: t('compare.added'), variant: 'success' };
-    if (status === 'removed') return { text: t('compare.removed'), variant: 'error' };
-    return { text: t('compare.unchanged'), variant: 'default' };
-  };
+  const statusLabel = (status: PresenceRow['status']): { text: string; variant: BadgeVariant } =>
+    status === 'unchanged'
+      ? { text: t('compare.change.unchanged'), variant: 'default' }
+      : { text: t(`compare.change.${status}`), variant: CHANGE_LOOK[status].variant };
 
   return (
     <Card className={className}>

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { DiffGroupAccordion } from './DiffGroupAccordion';
 import type { EnrichedDiff } from '@sandforge/shared';
 
@@ -76,13 +77,38 @@ describe('DiffGroupAccordion', () => {
     const diffs = [
       createDiff({ group: 'Apex Code', changeType: 'added' }),
       createDiff({ group: 'Apex Code', changeType: 'removed', name: 'OldClass' }),
+      createDiff({ group: 'Apex Code', changeType: 'removed', name: 'OtherClass' }),
       createDiff({ group: 'Apex Code', changeType: 'modified', name: 'ModClass' }),
     ];
     render(<DiffGroupAccordion diffs={diffs} />);
-    expect(screen.getByText('3 changes')).toBeDefined();
-    expect(screen.getByText('1+')).toBeDefined();
+    expect(screen.getByText('4 changes')).toBeDefined();
+    expect(screen.getByText('2+')).toBeDefined();
     expect(screen.getByText('1-')).toBeDefined();
     expect(screen.getByText('1~')).toBeDefined();
+  });
+
+  it('counts what only the source holds as additions, in green, ahead of what only the target holds', () => {
+    // `removed` is only in the source: a deployment creates it. The header
+    // counted it under a red minus, and what only the target holds under a
+    // green plus.
+    const diffs = [
+      createDiff({ group: 'G', changeType: 'removed', name: 'SourceOnly' }),
+      createDiff({ group: 'G', changeType: 'removed', name: 'SourceOnlyToo' }),
+      createDiff({ group: 'G', changeType: 'added', name: 'TargetOnly' }),
+      createDiff({ group: 'G', changeType: 'modified', name: 'Both' }),
+    ];
+    render(<DiffGroupAccordion diffs={diffs} />);
+
+    const header = screen.getByTestId('diff-group-toggle-G');
+    const counts = Array.from(header.querySelectorAll('span[class*="bg-status-"]')).map((badge) => [
+      badge.textContent,
+      badge.className.match(/bg-status-(\w+)/)?.[1],
+    ]);
+    expect(counts.slice(0, 3)).toEqual([
+      ['2+', 'success'],
+      ['1-', 'error'],
+      ['1~', 'warning'],
+    ]);
   });
 
   it('should show max risk badge for group', () => {
@@ -93,7 +119,7 @@ describe('DiffGroupAccordion', () => {
     render(<DiffGroupAccordion diffs={diffs} />);
     // The group header should show the max risk level
     const groupHeader = screen.getByTestId('diff-group-toggle-Apex Code');
-    expect(groupHeader.textContent).toContain('high');
+    expect(groupHeader.textContent).toContain('High risk');
   });
 
   it('should expand and collapse groups', () => {
@@ -130,8 +156,8 @@ describe('DiffGroupAccordion', () => {
     // Category, change type, risk level, and deps appear in diff item
     const diffItem = screen.getByTestId('diff-item-AccountController');
     expect(diffItem.textContent).toContain('ApexClass');
-    expect(diffItem.textContent).toContain('modified');
-    expect(diffItem.textContent).toContain('medium');
+    expect(diffItem.textContent).toContain('Modified');
+    expect(diffItem.textContent).toContain('Medium risk');
     expect(diffItem.textContent).toContain('2 dependencies');
   });
 
@@ -168,19 +194,52 @@ describe('DiffGroupAccordion', () => {
     render(<DiffGroupAccordion diffs={diffs} />);
     fireEvent.click(screen.getByTestId('diff-group-toggle-G'));
 
-    // The badge beside the symbol already says "added": the symbol is not read out.
+    // The badge beside the symbol already names the change: the symbol is not read out.
     const row = screen.getByTestId('diff-item-Added');
-    expect(row.textContent).toContain('added');
-    for (const [symbol, token] of [
-      ['+', 'text-status-success'],
-      ['-', 'text-status-error'],
-      ['~', 'text-status-warning'],
+    expect(row.textContent).toContain('Only in the target');
+    // Read as a deployment would: what only the source holds (`removed`) is
+    // what it adds, what only the target holds (`added`) what it leaves.
+    for (const [name, symbol, token, badge] of [
+      ['Removed', '+', 'text-status-success', 'bg-status-success'],
+      ['Added', '-', 'text-status-error', 'bg-status-error'],
+      ['Modified', '~', 'text-status-warning', 'bg-status-warning'],
     ]) {
-      const glyph = screen.getByText(symbol);
-      expect(glyph.getAttribute('aria-hidden')).toBe('true');
+      const item = screen.getByTestId(`diff-item-${name}`);
+      const glyph = item.querySelector('[aria-hidden="true"]') as HTMLElement;
+      expect(glyph.textContent).toBe(symbol);
       // The raw theme colour read 1.8:1 on a light editor; the token is sized for AA.
       expect(glyph.classList.contains(token)).toBe(true);
       expect(glyph.style.color).toBe('');
+      expect(item.querySelector(`.${badge}`)).not.toBeNull();
+    }
+  });
+
+  it('names each change and its risk in the language of the page', async () => {
+    // Both badges wrote the codes as they are, "removed" and "critical", in
+    // English whatever the language.
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await i18n.changeLanguage('fr');
+    try {
+      render(
+        <DiffGroupAccordion
+          diffs={[
+            createDiff({ name: 'SourceOnly', changeType: 'removed', riskLevel: 'low' }),
+            createDiff({ name: 'TargetOnly', changeType: 'added', riskLevel: 'critical' }),
+          ]}
+        />,
+      );
+      const header = screen.getByTestId('diff-group-toggle-Apex Code');
+      expect(header.textContent).toContain('Risque critique');
+      fireEvent.click(header);
+      const sourceOnly = screen.getByTestId('diff-item-SourceOnly').textContent;
+      const targetOnly = screen.getByTestId('diff-item-TargetOnly').textContent;
+      expect(sourceOnly).toContain('Seulement dans la source');
+      expect(sourceOnly).toContain('Risque faible');
+      expect(targetOnly).toContain('Seulement dans la cible');
+      expect(targetOnly).toContain('Risque critique');
+      expect(`${sourceOnly} ${targetOnly}`).not.toMatch(/removed|added|low|critical/);
+    } finally {
+      await i18n.changeLanguage('en');
     }
   });
 

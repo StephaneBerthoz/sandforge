@@ -78,7 +78,6 @@ function announceSave(outcome: Record<string, unknown> | undefined): void {
       level: 'error',
       title: i18n.t('common.export'),
       message: typeof outcome.message === 'string' ? outcome.message : i18n.t('common.error'),
-      autoDismissMs: 5000,
     });
   }
 }

@@ -266,9 +266,9 @@ export function buildResponse<P extends Record<string, unknown>>(
 /** What a caller may change about a notification it sends. */
 export interface NotificationOptions {
   /**
-   * How long the toast stays up, in milliseconds. `null` keeps it until the
-   * user dismisses it: the five-second default is too short for a toast that
-   * asks the reader to go and install something.
+   * How long a toast that is not an error stays up, in milliseconds. `null`
+   * keeps it until the user dismisses it: the five-second default is too
+   * short for a toast that asks the reader to go and do something.
    */
   autoDismissMs?: number | null;
   /** Buttons rendered under the message. */
@@ -283,7 +283,7 @@ export interface NotificationOptions {
  * @param title - Short notification title.
  * @param message - Notification body text.
  * @param options - Dismissal delay and action buttons; both default to the
- *   five-second toast with no buttons.
+ *   five-second toast with no buttons. An error is sent with no delay.
  */
 export function sendNotification(
   deps: Pick<HandlerDeps, 'broker' | 'nextId' | 'log'>,
@@ -292,7 +292,10 @@ export function sendNotification(
   message: string,
   options: NotificationOptions = {},
 ): void {
-  const autoDismissMs = options.autoDismissMs === undefined ? 5000 : options.autoDismissMs;
+  // How long an error stays is the panel's to decide (its Notification type
+  // says how): the five seconds every error was sent with were ignored.
+  const autoDismissMs =
+    level === 'error' ? null : options.autoDismissMs === undefined ? 5000 : options.autoDismissMs;
   const notification: NotificationMessage = {
     id: deps.nextId(),
     type: 'notification',

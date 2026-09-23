@@ -152,7 +152,6 @@ export const DataOpsPage: React.FC = () => {
         level: 'error',
         title: t('dataops.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [

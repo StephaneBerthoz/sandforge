@@ -50,7 +50,6 @@ export function useFileSave(): {
         level: 'error',
         title: t('common.export'),
         message: outcome.message,
-        autoDismissMs: 5000,
       });
       return;
     }
@@ -70,7 +69,6 @@ export function useFileSave(): {
       level: 'error',
       title: t('common.export'),
       message: mutation.error,
-      autoDismissMs: 5000,
     });
   }, [mutation.error, addNotification, t]);
 

@@ -267,7 +267,7 @@
       "apiLimits": "API-Limits",
       "storage": "Speicher",
       "failedJobs": "Fehlgeschlagene Jobs",
-      "failedJobsOutOf_one": "unter dem letzten Job",
+      "failedJobsOutOf_one": "beim letzten Job",
       "failedJobsOutOf_other": "unter den {{count}} letzten Jobs",
       "recentErrorLogs": "Aktuelle Fehlerprotokolle",
       "lastChecked": "Zuletzt geprüft",
@@ -344,10 +344,13 @@
     "deploy": "Aus Diff bereitstellen",
     "noResults": "Noch keine Vergleichsergebnisse",
     "nothingDiffers": "Keine Unterschiede: Beide Orgs enthalten dieselben Komponenten, und jede inhaltlich verglichene ist in beiden gleich.",
-    "added": "Hinzugefügt",
-    "removed": "Entfernt",
-    "modified": "Geändert",
-    "unchanged": "Unverändert",
+    "change": {
+      "added": "Nur im Ziel",
+      "removed": "Nur in der Quelle",
+      "modified": "Geändert",
+      "unchanged": "Unverändert"
+    },
+    "changeLegend": "Nur in der Quelle (+): Eine Bereitstellung erstellt es im Ziel. Nur im Ziel (-): Eine Bereitstellung lässt es dort, denn SandForge stellt keine Löschung bereit. Geändert (~): Eine Bereitstellung ersetzt, was das Ziel enthält.",
     "coverage": {
       "compared": "Inhalt verglichen für {{compared}} der {{inBoth}} Komponenten, die beide Orgs enthalten.",
       "managedLeftOut": "Von einem verwalteten Paket installiert, wie gewünscht ausgelassen: {{count}}",
@@ -404,7 +407,7 @@
       "breaking": "Dies ist eine inkompatible Änderung."
     },
     "deployment": {
-      "title": "Von {{source}} nach {{target}} bereitstellen",
+      "title": "Aus {{source}} in {{target}} bereitstellen",
       "intro": "Wählen Sie, was {{source}} enthält und {{target}} nicht oder anders enthält. SandForge ruft es aus {{source}} ab und validiert es zuerst in {{target}}: Das Ziel kompiliert es, führt die gewählten Tests aus und behält nichts. Nur eine erfolgreiche Validierung kann bereitgestellt werden, nachdem Sie bestätigt haben. Aus dem Ziel wird nichts gelöscht.",
       "targetRefused": "{{target}} ist eine Produktions-Org oder eine Org, von der SandForge nicht sagen kann, ob sie eine Sandbox ist. SandForge stellt nur in Sandboxes bereit.",
       "pickLegend": "Bereitzustellende Komponenten: {{picked}} von {{total}} ausgewählt",
@@ -414,13 +417,6 @@
         "removed": "Neu",
         "modified": "Abweichend"
       },
-      "risk": {
-        "none": "Kein Risiko",
-        "low": "Geringes Risiko",
-        "medium": "Mittleres Risiko",
-        "high": "Hohes Risiko",
-        "critical": "Kritisches Risiko"
-      },
       "notDeployableTitle_one": "{{count}} Komponente kann aus diesem Vergleich nicht bereitgestellt werden",
       "notDeployableTitle_other": "{{count}} Komponenten können aus diesem Vergleich nicht bereitgestellt werden",
       "reason": {
@@ -428,7 +424,7 @@
         "managed": "Von einem verwalteten Paket installiert, dem sie gehört",
         "permissions_in_part": "Ein Profil oder Berechtigungssatz: Allein abgerufen enthält er seine Bezeichnung, einige Einstellungen und seinen Zugriff auf das, was mit ihm bereitgestellt wird, nicht den gefundenen Unterschied",
         "type_not_deployable": "Ein Typ, den die Metadata API nicht bereitstellt",
-        "unreadable": "Ihr Inhalt kann nicht gelesen werden, wie das Apex eines verwalteten Pakets",
+        "unreadable": "Der Inhalt kann nicht gelesen werden, wie bei Apex aus einem verwalteten Paket",
         "not_compared": "Nicht verglichen: Nichts deutet darauf hin, dass sie abweicht"
       },
       "andMore_one": "und {{count}} weitere",
@@ -445,7 +441,7 @@
       "testNamesTooMany": "Eine Bereitstellung nennt höchstens {{max}} Testklassen.",
       "testsAdvised": "Ihre Auswahl enthält Apex: Wie die Risikokarte empfiehlt, laufen die eigenen Tests des Ziels, sofern Sie nichts anderes wählen.",
       "validate": "In {{target}} validieren",
-      "deploy": "Nach {{target}} bereitstellen",
+      "deploy": "In {{target}} bereitstellen",
       "progress": {
         "waiting": "Warten auf die Orgs…",
         "retrieve": "Abruf aus der Quelle: {{done}} von {{total}} Komponenten",
@@ -453,9 +449,9 @@
         "tests": "Ausführung der Apex-Tests: {{done}} von {{total}}"
       },
       "stale": "Die Auswahl oder die Tests haben sich seit dieser Validierung geändert: Validieren Sie erneut, um bereitzustellen.",
-      "confirmTitle": "Nach {{target}} bereitstellen",
-      "confirmDescription_one": "Die als {{id}} validierte Komponente wird mit denselben Tests nach {{target}} bereitgestellt, und {{target}} behält sie.",
-      "confirmDescription_other": "Die {{count}} als {{id}} validierten Komponenten werden mit denselben Tests nach {{target}} bereitgestellt, und {{target}} behält sie.",
+      "confirmTitle": "In {{target}} bereitstellen",
+      "confirmDescription_one": "Die als {{id}} validierte Komponente wird mit denselben Tests in {{target}} bereitgestellt, und {{target}} behält sie.",
+      "confirmDescription_other": "Die {{count}} als {{id}} validierten Komponenten werden mit denselben Tests in {{target}} bereitgestellt, und {{target}} behält sie.",
       "report": {
         "badge": {
           "validated": "Validiert",
@@ -465,7 +461,7 @@
         },
         "validated": "In {{target}} validiert: Alles wurde kompiliert, die angeforderten Tests liefen, und nichts wurde behalten.",
         "validationFailed": "Die Validierung ist in {{target}} fehlgeschlagen: Nichts kann bereitgestellt werden, bis eine Validierung gelingt.",
-        "deployed": "Nach {{target}} bereitgestellt.",
+        "deployed": "In {{target}} bereitgestellt.",
         "deployFailed": "Die Bereitstellung ist in {{target}} fehlgeschlagen und wurde zurückgesetzt: Das Ziel hat nichts behalten.",
         "notStarted": "Nichts wurde an {{target}} gesendet: Die Quelle hat keine der Komponenten zurückgegeben.",
         "notRetrieved_one": "Die Quelle hat {{count}} angeforderte Komponente nicht zurückgegeben: Wählen Sie sie ab und validieren Sie erneut.",
@@ -505,10 +501,10 @@
       }
     },
     "count": {
-      "added_one": "{{count}} hinzugefügt",
-      "added_other": "{{count}} hinzugefügt",
-      "removed_one": "{{count}} entfernt",
-      "removed_other": "{{count}} entfernt",
+      "added_one": "{{count}} nur im Ziel",
+      "added_other": "{{count}} nur im Ziel",
+      "removed_one": "{{count}} nur in der Quelle",
+      "removed_other": "{{count}} nur in der Quelle",
       "modified_one": "{{count}} geändert",
       "modified_other": "{{count}} geändert",
       "unchanged_one": "{{count}} unverändert",
@@ -529,6 +525,13 @@
       "high_other": "{{count}} hoch",
       "critical_one": "{{count}} kritisch",
       "critical_other": "{{count}} kritisch"
+    },
+    "riskLevel": {
+      "none": "Kein Risiko",
+      "low": "Geringes Risiko",
+      "medium": "Mittleres Risiko",
+      "high": "Hohes Risiko",
+      "critical": "Kritisches Risiko"
     }
   },
   "seed": {
@@ -969,7 +972,7 @@
       "pickOrgs": "Wählen Sie zuerst auf dem Tab „Sync“ eine Quell- und eine Ziel-Org.",
       "loadingObjects": "Die Quell-Org wird gefragt, welche Objekte Änderungsereignisse veröffentlichen…",
       "objectsError": "Die Quell-Org hat nicht angegeben, welche Objekte Änderungsereignisse veröffentlichen: {{message}}",
-      "noPublishingObjects": "Kein Objekt veröffentlicht Änderungsereignisse in der Quell-Org: Ihre Change-Data-Capture-Auswahl ist leer.",
+      "noPublishingObjects": "Kein Objekt veröffentlicht Änderungsereignisse in der Quell-Org: Deren Change-Data-Capture-Auswahl ist leer.",
       "howToEnable": "Nur Objekte, für die die Quell-Org Änderungsereignisse veröffentlicht, werden aufgeführt. Um eines hinzuzufügen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus.",
       "channel": "({{channel}})",
       "notInTarget": "nicht in der Ziel-Org",
@@ -1247,7 +1250,7 @@
     "anonymizedFields": "Anonymisierte Vorlagen",
     "emptyState": {
       "title": "Schützen Sie die Daten Ihrer Org",
-      "description": "DataOps sichert, stellt wieder her und anonymisiert Ihre Org-Daten, bearbeitet Betroffenenanfragen und bereinigt die Datensätze, die niemand braucht.",
+      "description": "DataOps sichert Ihre Org-Daten, stellt sie wieder her und anonymisiert sie, bearbeitet Betroffenenanfragen und bereinigt die Datensätze, die niemand braucht.",
       "step2": "Vor riskanten Operationen ein Backup erstellen",
       "step3": "Sensible Felder mit einer Vorlage anonymisieren",
       "step4": "Eine Sicherung in die Org zurückspielen, aus der sie stammt"
@@ -1349,20 +1352,20 @@
         "phone": "eine Telefonnummer",
         "address": "eine Anschrift",
         "birthdate": "ein Geburtsdatum",
-        "nationalId": "eine Ausweisnummer",
+        "nationalId": "eine Identifikationsnummer",
         "financial": "eine Karten- oder Kontonummer",
         "document": "ein Ausweisdokument",
         "health": "Gesundheitsdaten",
         "name": "den Namen einer Person"
       },
       "searchedFor": {
-        "email": "eine E-Mail-Adresse",
-        "phone": "eine Telefonnummer"
+        "email": "einer E-Mail-Adresse",
+        "phone": "einer Telefonnummer"
       }
     },
     "dsr": {
       "title": "Betroffenenanfrage",
-      "intro": "Finden Sie die Datensätze einer Person über ihre E-Mail-Adresse, ihren Namen oder ihre Telefonnummer, exportieren und löschen Sie sie. Was Sie hier eingeben, dient nur der Suche: SandForge behält es nicht, und das Anfrageprotokoll unten hält nur Zahlen fest, nie einen Identifikator, eine Datensatz-Id oder einen Wert.",
+      "intro": "Finden Sie die Datensätze einer Person über ihre E-Mail-Adresse, ihren Namen oder ihre Telefonnummer, exportieren und löschen Sie sie. Was Sie hier eingeben, dient nur der Suche: SandForge behält es nicht, und das Anfrageprotokoll unten hält nur Zahlen fest, nie einen Identifikator, eine Datensatz-ID oder einen Wert.",
       "needsInventory": "Finden Sie zuerst die personenbezogenen Daten: Eine Anfrage sucht in den Objekten, die das Inventar gelesen hat, in den Feldern, die es gefunden hat.",
       "searchesIn": "Sucht in: {{objects}}",
       "email": "E-Mail-Adresse",
@@ -1457,10 +1460,10 @@
       "refusedByOrg_other": "{{formatted}} von der Org abgelehnt und unverändert gelassen."
     },
     "cleanupScan": {
-      "intro": "Zählt für die gewählten Objekte die Datensätze, die eine Bereinigung betrachten würde: die, die seit einer Anzahl von Tagen niemand geändert hat, die, die eine Verknüpfung leer lassen, auf die sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts. Die Org zählt selbst: Kein Datensatz wird gelesen, und nichts wird geschrieben, bevor Sie löschen.",
+      "intro": "Zählt für die gewählten Objekte die Datensätze, die eine Bereinigung betrachten würde: die, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts. Die Org zählt selbst: Kein Datensatz wird gelesen, und nichts wird geschrieben, bevor Sie löschen.",
       "objectsLegend": "Zu betrachtende Objekte (bis zu {{max}})",
       "scan": "Prüfen",
-      "method": "Ein Export oder ein Löschvorgang nimmt höchstens {{limit}} Datensätze auf einmal (nicht geänderte Datensätze die ältesten zuerst); führen Sie ihn für den Rest erneut aus.",
+      "method": "Ein Export oder ein Löschvorgang nimmt höchstens {{limit}} Datensätze auf einmal (bei seit Längerem nicht geänderten Datensätzen die ältesten zuerst); führen Sie ihn für den Rest erneut aus.",
       "exported_one": "{{formatted}} Datensatz in {{path}} gespeichert.",
       "exported_other": "{{formatted}} Datensätze in {{path}} gespeichert.",
       "exportTruncated": "Nur die ersten {{limit}} wurden exportiert: Ein Export nimmt nicht mehr.",
@@ -1472,8 +1475,8 @@
       "staleRecords_one": "{{formatted}} Datensatz seit {{days}} Tagen nicht geändert.",
       "staleRecords_other": "{{formatted}} Datensätze seit {{days}} Tagen nicht geändert.",
       "orphans": "Datensätze ohne ihr übergeordnetes Objekt",
-      "orphansRule": "Eine Verknüpfung gilt als eine, auf die sich das Geschäft stützt, wenn mindestens {{share}} der Datensätze sie füllen; die Datensätze, die sie leer lassen, werden aufgeführt. Eine Verknüpfung, die die Org verlangt, ist nie leer, und eine auf einen Benutzer, eine Warteschlange oder einen Datensatztyp benennt kein übergeordnetes Objekt.",
-      "noOrphans": "Kein Datensatz lässt eine Verknüpfung leer, auf die sich das Geschäft stützt.",
+      "orphansRule": "Ein Lookup-Feld gilt als eines, auf das sich das Geschäft stützt, wenn mindestens {{share}} der Datensätze es füllen; die Datensätze, die es leer lassen, werden aufgeführt. Ein Lookup-Feld, das die Org verlangt, ist nie leer, und eines auf einen Benutzer, eine Warteschlange oder einen Datensatztyp benennt kein übergeordnetes Objekt.",
+      "noOrphans": "Kein Datensatz lässt ein Lookup-Feld leer, auf das sich das Geschäft stützt.",
       "orphanLine_one": "{{field}} → {{parent}}: in {{filled}} von {{total}} Datensätzen gefüllt; {{formatted}} lässt es leer.",
       "orphanLine_other": "{{field}} → {{parent}}: in {{filled}} von {{total}} Datensätzen gefüllt; {{formatted}} lassen es leer.",
       "duplicates": "Überzählige Kopien eines wiederholten Werts",
@@ -1487,7 +1490,7 @@
       "reviewStale": "{{object}}-Datensätze löschen, die seit {{days}} Tagen nicht geändert wurden",
       "reviewOrphans": "{{object}}-Datensätze löschen, die {{field}} leer lassen",
       "reviewDuplicates": "Die überzähligen Kopien von {{object}}-Datensätzen nach {{field}} löschen",
-      "reviewing": "Datensätze werden gezählt, und was mit ihnen geht…",
+      "reviewing": "Die Datensätze und alles, was mit ihnen gelöscht wird, werden gezählt…",
       "deleteTruncated": "Es werden mehr Datensätze empfohlen, als ein Löschvorgang nimmt: Dies sind die ersten {{limit}}. Prüfen Sie danach erneut für den Rest.",
       "deleteRecords_one": "{{formatted}} Datensatz löschen",
       "deleteRecords_other": "{{formatted}} Datensätze löschen",
@@ -1510,10 +1513,10 @@
     "triggerSoon": {
       "event": "Startet nichts: Noch speist keine Ereignisquelle diesen Auslöser.",
       "webhook": "Startet nichts: SandForge öffnet keinen Port, also erreicht nichts außerhalb von VS Code einen Webhook.",
-      "deployment_complete": "Startet nichts: SandForge liest die Bereitstellungen einer Org nur, wenn der Monitor danach fragt, also sieht nichts eine enden."
+      "deployment_complete": "Startet nichts: SandForge liest die Bereitstellungen einer Org nur, wenn der Monitor danach fragt, also bemerkt nichts, wenn eine endet."
     },
     "triggerHint": {
-      "schedule": "Startet die gespeicherte Pipeline zu jeder Zeit, die der Ausdruck nennt, in der gewählten Zeitzone, solange VS Code geöffnet ist.",
+      "schedule": "Startet die gespeicherte Pipeline zu jedem Zeitpunkt, den der Ausdruck nennt, in der gewählten Zeitzone, solange VS Code geöffnet ist.",
       "sandbox_refresh": "Startet die gespeicherte Pipeline, wenn SandForge eine Aktualisierung dieser Sandbox bemerkt — nur eine Pipeline, deren Schritte alle laufen können."
     },
     "triggerTimezone": "Zeitzone",
@@ -1546,7 +1549,7 @@
       "asleep": "Fällig am {{time}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: nicht nachgeholt.",
       "asleepMany": "{{n}} Starts fällig von {{first}} bis {{last}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: keiner wurde nachgeholt.",
       "busy": "Fällig am {{time}}, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
-      "busyMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während der am {{since}} gestartete Lauf noch andauerte: keiner wurde gemacht. Eine Pipeline läuft nie zweimal gleichzeitig.",
+      "busyMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während der am {{since}} gestartete Lauf noch andauerte: keiner fand statt. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "busyRefresh": "Die am {{time}} bemerkte Aktualisierung kam, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
       "cannotRun": "Die am {{time}} bemerkte Aktualisierung hat nichts gestartet: Ein Schritt dieser Pipeline kann nicht laufen."
     },
@@ -1606,7 +1609,7 @@
       "missed": "Verpasst"
     },
     "scheduler": "Planer",
-    "schedulerIntro": "Die Sync-Zeitpläne, nach dem Tag ihrer nächsten Ausführung, dann die Zeitpläne der gespeicherten Pipelines mit dem nächsten Lauf von jedem.",
+    "schedulerIntro": "Die Sync-Zeitpläne, nach dem Tag ihrer nächsten Ausführung, dann die Zeitpläne der gespeicherten Pipelines, jeweils mit dem nächsten Lauf.",
     "cronExpression": "Cron-Ausdruck",
     "canvas": "Pipeline-Canvas",
     "dragStep": "Ziehen Sie einen Schritt auf den Canvas",
@@ -1769,7 +1772,7 @@
       "frozen_load": "Eingefrorenen Datensatz laden",
       "metadata_deploy": "Metadaten-Bereitstellung",
       "realtime_sync": "Echtzeit-Synchronisierung",
-      "subject_erase": "Löschung auf Anfrage",
+      "subject_erase": "Löschung auf Betroffenenanfrage",
       "cleanup_delete": "Bereinigungslöschung"
     },
     "filterByAction": "Nach Aktion filtern",
@@ -1922,15 +1925,15 @@
       "forgeAnonymizes": "Forge anonymisiert, was es klont",
       "forgeAnonymizesDesc": "Der Anonymisierungsschalter bewirkte nichts: Ein Klon trug die personenbezogenen Daten der Quelle mit. Die in der Prüfung gewählten Felder und Methoden werden jetzt angewendet, und E-Mails bleiben gültige Adressen.",
       "fixRound136": "Sync, Compare und Zeitpläne korrigiert",
-      "fixRound136Desc": "Sync behält umbenannte, konstante und berechnete Felder; ein Sync-Zeitplan läuft einmal, egal wie viele Fenster offen sind; Compare liest entfernt und hinzugefügt richtig herum; Fehler bleiben sichtbar, bis Sie sie gelesen haben.",
+      "fixRound136Desc": "Sync behält umbenannte, konstante und berechnete Felder; ein Sync-Zeitplan läuft einmal, egal wie viele Fenster offen sind; Compare liest Entferntes und Hinzugefügtes richtig herum; Fehler bleiben sichtbar, bis Sie sie gelesen haben.",
       "compareDeploy": "Compare stellt bereit, was sich unterscheidet",
       "compareDeployDesc": "Wählen Sie die in der Quelle neuen oder geänderten Komponenten und stellen Sie sie im Ziel bereit, zuerst validiert: der Status jeder Komponente, fehlgeschlagene Tests mit ihren Zeilen und eine echte Bereitstellung nur einer bestandenen Validierung.",
       "realtimeSync": "Echtzeit-Synchronisierung",
-      "realtimeSyncDesc": "Sync überträgt jede Änderung, die die Quell-Org veröffentlicht, sofort ins Ziel – per externer ID, Datensatz-ID oder gespeichertem Mapping – und hält eine Änderung, die mit einer neueren Bearbeitung kollidiert, für Ihre Entscheidung zurück.",
+      "realtimeSyncDesc": "Sync überträgt jede Änderung, die die Quell-Org veröffentlicht, sofort ins Ziel – per externer ID, Datensatz-ID oder gespeicherter Zuordnung – und hält eine Änderung, die mit einer neueren Bearbeitung kollidiert, für Ihre Entscheidung zurück.",
       "triggers": "Pipelines starten von selbst",
       "triggersDesc": "Ein Zeitplan startet seine Pipeline zu den festgelegten Zeiten, solange VS Code geöffnet ist, und ein Refresh-Auslöser startet sie, wenn SandForge bemerkt, dass eine Sandbox aktualisiert wurde. Ein verpasster Start bei geschlossenem VS Code wird festgehalten, nie verspätet ausgeführt.",
       "compliance": "Betroffenenanfragen und Bereinigung",
-      "complianceDesc": "DataOps findet jeden Datensatz zu einer Person, exportiert sie und löscht sie nach einer Prüfung und Ihrer Bestätigung; die Bereinigung empfiehlt veraltete Datensätze, Waisen und Duplikate und löscht nur, was ein Scan empfohlen hat.",
+      "complianceDesc": "DataOps findet alle Datensätze zu einer Person, exportiert sie und löscht sie nach einer Prüfung und Ihrer Bestätigung; die Bereinigung empfiehlt veraltete und verwaiste Datensätze sowie Duplikate und löscht nur, was ein Scan empfohlen hat.",
       "auditTrail": "Jeder Schreibvorgang wird festgehalten",
       "auditTrailDesc": "Jeder Lauf, der in eine Org schreibt – Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset –, wird jetzt in Reports mit seinem Ergebnis, der Entscheidung der Production Guard, seinen Zählungen pro Objekt und der Herkunft seiner Daten festgehalten. Nie eine Datensatz-ID oder ein Feldwert.",
       "dataopsQuality": "Datenqualität, von der Org gezählt",
@@ -2042,9 +2045,9 @@
     "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org über die Organisationsseite.\n2. Klonen Sie mit Forge einen echten Datensatz und die Datensätze um ihn herum in Ihre Sandbox.\n3. Öffnen Sie den Monitor, um die Gesundheit Ihrer Org zu prüfen.\n4. Verwenden Sie Seed, um Testdaten zu generieren, oder Sync, um Daten zwischen zwei Orgs zu kopieren.\n5. Entdecken Sie Compare, DataOps, den eingefrorenen Datensatz und Automation für erweiterte Workflows.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
     "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
-    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell und Delta sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
+    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell und Delta sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Trimmen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
-    "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance: findet die Felder der gewählten Objekte mit personenbezogenen Daten, bestätigt an einer Stichprobe ihrer letzten 200 Datensätze; findet dann die Datensätze einer Person über E-Mail, Name oder Telefon, exportiert sie in eine Datei und anonymisiert sie direkt oder löscht sie – nach einer Prüfung, einer eingetippten Bestätigung und Production Guard; ein lokales Protokoll hält Zahlen zu jeder Anfrage fest, nie die betroffene Person\n- Bereinigung: zählt die Datensätze, die seit einer Anzahl von Tagen niemand geändert hat, die, die eine Verknüpfung leer lassen, auf die sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; jede Gruppe lässt sich exportieren oder nach einer Prüfung, einer eingetippten Bestätigung und Production Guard löschen, höchstens 1.000 auf einmal",
+    "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance: findet die Felder der gewählten Objekte mit personenbezogenen Daten, bestätigt an einer Stichprobe ihrer letzten 200 Datensätze; findet dann die Datensätze einer Person über E-Mail, Name oder Telefon, exportiert sie in eine Datei und anonymisiert sie direkt oder löscht sie – nach einer Prüfung, einer eingetippten Bestätigung und Production Guard; ein lokales Protokoll hält Zahlen zu jeder Anfrage fest, nie die betroffene Person\n- Bereinigung: zählt die Datensätze, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; jede Gruppe lässt sich exportieren oder nach einer Prüfung, einer eingetippten Bestätigung und Production Guard löschen, höchstens 1.000 auf einmal",
     "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt; Ereignis-, Webhook- und Bereitstellungsauslöser: demnächst, sie starten noch nichts\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
@@ -2187,7 +2190,7 @@
       "busy": "Warten auf die Abfrage und ihre Prüfung…",
       "needSource": "Wählen Sie zuerst eine Quell-Org: Die Abfrage wird gegen sie geprüft.",
       "failed": "Es kam keine Abfrage zurück: {{message}}",
-      "rootObject": "Wurzelobjekt: {{label}} ({{object}})",
+      "rootObject": "Stammobjekt: {{label}} ({{object}})",
       "queryLabel": "Abfrage, von der die Ermittlung ausgeht (bearbeiten Sie sie vor dem Start)",
       "checked_one": "Gegen die Quell-Org geprüft: {{object}} existiert, ebenso das Feld, das die Abfrage nennt, und der Parser der Org akzeptiert die Abfrage.",
       "checked_other": "Gegen die Quell-Org geprüft: {{object}} existiert, ebenso die {{count}} Felder, die die Abfrage nennt, und der Parser der Org akzeptiert die Abfrage.",
@@ -2301,7 +2304,7 @@
     "hintNoSource": "Wählen Sie eine Quell-Org",
     "hintNoTarget": "Wählen Sie eine Ziel-Org",
     "hintNoInput": "Geben Sie eine Datensatz-ID oder eine Abfrage ein, oder wählen Sie eine Vorlage",
-    "hintAiUnchecked": "Entwerfen Sie eine Abfrage und lassen Sie sie gegen die Quell-Org prüfen, um den Graph zu ermitteln",
+    "hintAiUnchecked": "Entwerfen Sie eine Abfrage, die die Prüfung gegen die Quell-Org besteht, um den Graph zu ermitteln",
     "hintSameOrg": "Quelle und Ziel müssen unterschiedlich sein",
     "hintSoqlFilterRefused": "Kürzen oder überarbeiten Sie die WHERE-Klausel, um den Graph zu ermitteln",
     "hintSoqlAliasRefused": "Korrigieren Sie den Alias nach FROM, um den Graph zu ermitteln",
@@ -2695,6 +2698,7 @@
     "tools": "Werkzeuge",
     "favorite": "Zu Favoriten hinzufügen",
     "unfavorite": "Aus Favoriten entfernen",
+    "favoriteModule": "{{module}} in den Favoriten",
     "lastOp": "Letzte Operation",
     "openFull": "Vollständige UI öffnen",
     "running": "Läuft...",

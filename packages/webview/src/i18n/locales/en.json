@@ -344,10 +344,13 @@
     "deploy": "Deploy from Diff",
     "noResults": "No comparison results yet",
     "nothingDiffers": "Nothing differs: both orgs hold the same components, and each one compared by content is the same in both.",
-    "added": "Added",
-    "removed": "Removed",
-    "modified": "Modified",
-    "unchanged": "Unchanged",
+    "change": {
+      "added": "Only in the target",
+      "removed": "Only in the source",
+      "modified": "Modified",
+      "unchanged": "Unchanged"
+    },
+    "changeLegend": "Only in the source (+): a deployment creates it in the target. Only in the target (-): a deployment leaves it there, since SandForge deploys no deletion. Modified (~): a deployment replaces what the target holds.",
     "coverage": {
       "compared": "Content compared for {{compared}} of the {{inBoth}} components both orgs hold.",
       "managedLeftOut": "Installed by a managed package, left out as asked: {{count}}",
@@ -413,13 +416,6 @@
       "change": {
         "removed": "New",
         "modified": "Differs"
-      },
-      "risk": {
-        "none": "No risk",
-        "low": "Low risk",
-        "medium": "Medium risk",
-        "high": "High risk",
-        "critical": "Critical risk"
       },
       "notDeployableTitle_one": "{{count}} component cannot be deployed from this comparison",
       "notDeployableTitle_other": "{{count}} components cannot be deployed from this comparison",
@@ -505,10 +501,10 @@
       }
     },
     "count": {
-      "added_one": "{{count}} added",
-      "added_other": "{{count}} added",
-      "removed_one": "{{count}} removed",
-      "removed_other": "{{count}} removed",
+      "added_one": "{{count}} only in the target",
+      "added_other": "{{count}} only in the target",
+      "removed_one": "{{count}} only in the source",
+      "removed_other": "{{count}} only in the source",
       "modified_one": "{{count}} modified",
       "modified_other": "{{count}} modified",
       "unchanged_one": "{{count}} unchanged",
@@ -529,6 +525,13 @@
       "high_other": "{{count}} high",
       "critical_one": "{{count}} critical",
       "critical_other": "{{count}} critical"
+    },
+    "riskLevel": {
+      "none": "No risk",
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk",
+      "critical": "Critical risk"
     }
   },
   "seed": {
@@ -2695,6 +2698,7 @@
     "tools": "Tools",
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
+    "favoriteModule": "{{module}} in favorites",
     "lastOp": "Last Operation",
     "openFull": "Open Full UI",
     "running": "Running...",

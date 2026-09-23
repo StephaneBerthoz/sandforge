@@ -1798,8 +1798,83 @@ for (const theme of STATE_THEMES) {
         timestamp: '2026-09-10T09:00:00.000Z',
         duration: 1200,
       });
-      await expect(page.getByTestId('risk-score-label')).toHaveText('Low', { timeout: 10_000 });
+      await expect(page.getByTestId('risk-score-label')).toHaveText('Low risk', {
+        timeout: 10_000,
+      });
       await expect(page.getByTestId('compare-coverage-over-budget')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Compare result with every kind of difference, its groups open', async ({ page }) => {
+      await openPanel(bridge, page, 'compare', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('compare-page').waitFor({ timeout: 10_000 });
+      await page.getByLabel('Source Org').selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target Org').selectOption(QA_SANDBOX.id);
+      await page.getByTestId('cat-ApexClass').click();
+      await page.getByTestId('run-compare-btn').click();
+      await bridge.waitForMessage('compare:execute', { timeout: 10_000 });
+      // A class only the source holds, one both hold differently, and a field
+      // only the target holds whose removal would break: drawn as a deployment
+      // reads them, a plus, a tilde and a minus, each on the tint of its risk.
+      await answerAll(page, 'compare:execute', 'compare:execute:response', {
+        configId: '4f1a2b3c-0000-4000-8000-000000000005',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        mode: 'metadata',
+        summary: {
+          totalItems: 3,
+          added: 1,
+          removed: 1,
+          modified: 1,
+          unchanged: 0,
+          notCompared: 0,
+          byType: {},
+        },
+        content: {
+          compared: 1,
+          notCompared: { unreadable: 0, read_failed: 0, over_budget: 0 },
+          budget: { components: 500, seconds: 90 },
+        },
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'Billing',
+            status: 'removed',
+            sourceValue: 'public class Billing { }',
+            severity: 'info',
+            deployable: true,
+          },
+          {
+            componentType: 'ApexClass',
+            fullName: 'Invoicing',
+            status: 'modified',
+            sourceValue: 'public class Invoicing { }',
+            targetValue: 'public class Invoicing { Integer total; }',
+            severity: 'breaking',
+            deployable: true,
+          },
+          {
+            componentType: 'CustomField',
+            fullName: 'Account.Legacy__c',
+            status: 'added',
+            targetValue: '<CustomField />',
+            severity: 'breaking',
+            deployable: true,
+          },
+        ],
+        timestamp: '2026-09-10T09:00:00.000Z',
+        duration: 1200,
+      });
+      await expect(page.getByTestId('compare-change-legend')).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('diff-group-toggle-Apex Code').click();
+      await page.getByTestId('diff-group-toggle-Data Model').click();
+      await expect(page.getByTestId('diff-item-Billing')).toContainText('Only in the source');
+      await expect(page.getByTestId('diff-item-Account.Legacy__c')).toContainText(
+        'Only in the target',
+      );
+      await expect(page.getByTestId('diff-item-Invoicing')).toContainText('High risk');
 
       await expectReadable(page, theme);
     });

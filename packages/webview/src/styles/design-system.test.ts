@@ -1580,6 +1580,24 @@ class SourceModel {
     return binding;
   }
 
+  /**
+   * Whether rendering or calling `fn` at `site` would walk it inside itself:
+   * the site is in its own body, or the render already holds it.
+   *
+   * Each function is walked once per render chain. A component handed its `t`
+   * through spread props reads, to the model, a prop only the element's own
+   * tag stands for, and so called itself: every `t('…', { count })` walked the
+   * whole body again inside the call, and each of those did the same, down to
+   * the depth limit, with the contexts nested at every level multiplying past
+   * four million visits. A true recursion, such as a tree node rendering its
+   * children, draws the same classes again one level deeper; what that deeper
+   * level would stack on itself is left to the axe scans.
+   */
+  reenters(fn: ts.SignatureDeclaration, site: ts.Node, binding: Binding | null): boolean {
+    for (let node = site.parent; node; node = node.parent) if (node === fn) return true;
+    return bindingChain(binding).some((b) => b.fn === fn);
+  }
+
   /** The values a component's prop takes: in this render if bound, else over every usage. */
   private propValues(
     fn: ts.SignatureDeclaration,
@@ -1751,7 +1769,9 @@ class SourceModel {
       return out.length > 0 ? out : leaf;
     }
     if (ts.isCallExpression(expr) && (value.binding?.depth ?? 0) < 24) {
-      const fns = this.functionsCalled(expr.expression, value.binding);
+      const fns = this.functionsCalled(expr.expression, value.binding).filter(
+        (fn) => !this.reenters(fn, expr, value.binding),
+      );
       if (fns.length > 0) {
         return fns.flatMap((fn) => {
           const call = this.bind(fn, expr, value.binding);
@@ -2352,7 +2372,10 @@ class RenderWalker {
    */
   private readonly work: (() => void)[] = [];
 
-  constructor(private readonly model: SourceModel) {}
+  constructor(
+    private readonly model: SourceModel,
+    private readonly maxVisits = MAX_VISITS,
+  ) {}
 
   /**
    * A component is walked where it is rendered, with what that render passes
@@ -2397,8 +2420,10 @@ class RenderWalker {
     seen.add(key);
     this.visited.set(node, seen);
     this.visits += 1;
-    if (this.visits > MAX_VISITS) {
-      throw new Error(`the render walk passed ${MAX_VISITS} visits at ${this.model.site(node)}`);
+    if (this.visits > this.maxVisits) {
+      throw new Error(
+        `the render walk passed ${this.maxVisits} visits at ${this.model.site(node)}`,
+      );
     }
     return true;
   }
@@ -2571,6 +2596,12 @@ class RenderWalker {
       (binding?.depth ?? 0) < 16 ? this.model.componentFunctions(opening.tagName) : [];
     if (components.length > 0) {
       for (const fn of components) {
+        // A component rendered inside itself is not walked again; what it was
+        // handed to render still is, where it stands.
+        if (this.model.reenters(fn, opening, binding)) {
+          if (ts.isJsxElement(element)) this.renderChildren(element.children, context, binding);
+          continue;
+        }
         const inner = this.model.bind(fn, opening, binding);
         this.walkedComponents.add(fn);
         // Children the component hands on some other way are still rendered inside
@@ -2870,6 +2901,8 @@ interface RenderReport {
   readonly painted: ReadonlySet<string>;
   /** Inline style colours no render the walk follows reads, as `site style property`. */
   readonly unreadStyles: readonly string[];
+  /** The elements the walk visited, each once per context and render it was reached in. */
+  readonly visits: number;
 }
 
 const STYLE_COLOUR_PROPERTY = /^(?:color|background|backgroundColor)$/;
@@ -2905,6 +2938,7 @@ function eachNode(source: ts.Node, fn: (node: ts.Node) => void): void {
 async function buildRenderReport(
   root: string,
   fileNames: readonly string[],
+  maxVisits = MAX_VISITS,
 ): Promise<RenderReport> {
   const model = new SourceModel(root, fileNames);
   const utilities = new Set<string>();
@@ -2916,7 +2950,7 @@ async function buildRenderReport(
   }
   model.compiled = await compileUtilities(utilities);
 
-  let walker = new RenderWalker(model);
+  let walker = new RenderWalker(model, maxVisits);
   walker.walk();
   // A class joined from pieces is only known once the walk has joined it.
   const assembled = [...model.pending.keys()].filter((utility) => !utilities.has(utility));
@@ -2925,7 +2959,7 @@ async function buildRenderReport(
     if (assembled.some((utility) => more.has(utility))) {
       model.compiled = more;
       model.clearCaches();
-      walker = new RenderWalker(model);
+      walker = new RenderWalker(model, maxVisits);
       walker.walk();
     }
   }
@@ -3034,6 +3068,7 @@ async function buildRenderReport(
     colourClasses,
     painted: walker.painted,
     unreadStyles: unreadStyles.sort(),
+    visits: walker.visits,
   };
 }
 
@@ -3096,14 +3131,17 @@ describe('the static colour model', () => {
 
   describe('on sources written for it', () => {
     let root = '';
-    const report = async (files: Record<string, string>): Promise<RenderReport> => {
+    const report = async (
+      files: Record<string, string>,
+      maxVisits?: number,
+    ): Promise<RenderReport> => {
       root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sf-contrast-')));
       const names = Object.entries(files).map(([name, content]) => {
         const file = path.join(root, name);
         fs.writeFileSync(file, content);
         return file;
       });
-      return buildRenderReport(root, names);
+      return buildRenderReport(root, names, maxVisits);
     };
     afterEach(() => {
       if (root) fs.rmSync(root, { recursive: true, force: true });
@@ -3364,6 +3402,50 @@ describe('the static colour model', () => {
         ].join('\n'),
       });
       expect(unreadStyles).toEqual(['Menu.tsx:2 style color', 'Menu.tsx:7 style color']);
+    });
+
+    it('walks a component once in its own render, however it reaches itself', async () => {
+      // A row handed its `t` through spread props calls, to the model, what the
+      // element's own tag stands for: the row itself. Each `t('…', { count })`
+      // walked the row again inside the call, each of those did the same, and
+      // over the Seed field panel written that way the walk ran eight minutes
+      // before giving up past four million visits. A tree that renders itself
+      // twice doubled at every level.
+      const tint = `${paletteClass('bg', 'amber', 500)}/20`;
+      const ink = paletteClass('text', 'amber', 600);
+      const { failures, visits } = await report(
+        {
+          'Rows.tsx': [
+            'type T = (key: string, options?: Record<string, unknown>) => string;',
+            'type Row = { name: string; count: number };',
+            'const Line = ({ name, count, t }: Row & { t: T }) => (',
+            `  <p className="${tint}">`,
+            `    <span className="${ink}">{t('rows.fields', { count })}</span>`,
+            "    <em>{t('rows.named', { count, name })}</em>",
+            '  </p>',
+            ');',
+            'export const Rows = ({ rows, t }: { rows: Row[]; t: T }) => {',
+            '  const shared = { t };',
+            '  return <div>{rows.map((row) => <Line key={row.name} {...row} {...shared} />)}</div>;',
+            '};',
+            'type Node = { name: string; left?: Node; right?: Node };',
+            'export const Tree = ({ node }: { node: Node }) => (',
+            `  <ul className="${tint}">`,
+            `    <li className="${ink}">{node.name}</li>`,
+            '    {node.left && <Tree node={node.left} />}',
+            '    {node.right && <Tree node={node.right} />}',
+            '  </ul>',
+            ');',
+          ].join('\n'),
+        },
+        1_000,
+      );
+      // Each text measured once, on the one tint its own element paints.
+      expect(failures.map((failure) => failure.slice(0, failure.indexOf(': ')))).toEqual([
+        `Rows.tsx:16 ${ink} on ${tint} (Rows.tsx:15)`,
+        `Rows.tsx:5 ${ink} on ${tint} (Rows.tsx:4)`,
+      ]);
+      expect(visits).toBeLessThan(20);
     });
   });
 });

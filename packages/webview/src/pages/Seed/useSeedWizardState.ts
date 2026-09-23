@@ -241,7 +241,6 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
         level: 'error',
         title: t('seed.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [objectSelection.describeError, execution.executionError, setError, addNotification, t]);

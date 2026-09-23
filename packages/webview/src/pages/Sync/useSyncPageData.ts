@@ -424,7 +424,6 @@ export function useSyncPageData(): SyncPageData {
         level: 'error',
         title: t('sync.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [

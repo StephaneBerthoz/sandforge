@@ -4,6 +4,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import type { CompareReport, DiffRiskLevel } from '@sandforge/shared';
+import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
 
 /** Props for the RiskScoreCard component. */
 export interface RiskScoreCardProps {
@@ -30,12 +31,15 @@ function riskLabelClass(score: number): string {
   return 'text-status-success';
 }
 
-/** Map risk score to label. */
-function riskLabel(score: number): string {
-  if (score >= 75) return 'Critical';
-  if (score >= 50) return 'High';
-  if (score >= 25) return 'Medium';
-  return 'Low';
+/**
+ * Map risk score to the level it is named by. The card wrote the level in
+ * English under the gauge, whatever the language.
+ */
+function riskLevel(score: number): DiffRiskLevel {
+  if (score >= 75) return 'critical';
+  if (score >= 50) return 'high';
+  if (score >= 25) return 'medium';
+  return 'low';
 }
 
 /** Badge variant for risk level. */
@@ -56,7 +60,7 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
 
   const { riskScore, summary, deploymentAdvice } = report;
   const color = riskColor(riskScore);
-  const label = riskLabel(riskScore);
+  const label = t(`compare.riskLevel.${riskLevel(riskScore)}`);
 
   const gaugeSize = 100;
   const strokeWidth = 7;
@@ -158,13 +162,11 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               }}
               data-testid="risk-summary-counts"
             >
-              <Badge variant="success">{t('compare.count.added', { count: summary.added })}</Badge>
-              <Badge variant="error">
-                {t('compare.count.removed', { count: summary.removed })}
-              </Badge>
-              <Badge variant="warning">
-                {t('compare.count.modified', { count: summary.modified })}
-              </Badge>
+              {CHANGE_ORDER.map((kind) => (
+                <Badge key={kind} variant={CHANGE_LOOK[kind].variant}>
+                  {t(`compare.count.${kind}`, { count: summary[kind] })}
+                </Badge>
+              ))}
             </div>
 
             {/* Risk breakdown */}

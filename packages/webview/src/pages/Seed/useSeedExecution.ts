@@ -95,7 +95,6 @@ export function useSeedExecution(
         level: 'error',
         title: t('seed.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [executeSeedMutation.error, addNotification, t]);

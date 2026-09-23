@@ -175,14 +175,13 @@ export class OrgHandler implements DomainHandler {
    *
    * A missing `sf` is the first-run blocker: two of the three working auth
    * methods go through it. The toast used to dismiss itself after five
-   * seconds with an install URL nobody could click, so it stays up until it
-   * is dismissed and carries the link as an action.
+   * seconds with an install URL nobody could click: it carries the link as an
+   * action.
    *
    * @param why - What the CLI was needed for, appended to the message.
    */
   private notifyCliMissing(why: string): void {
     sendNotification(this.deps, 'error', 'Salesforce CLI', `${SF_CLI_MISSING_MESSAGE} ${why}`, {
-      autoDismissMs: null,
       actions: [{ label: 'Install the CLI', command: 'sf-cli-install', url: SF_CLI_INSTALL_URL }],
     });
   }

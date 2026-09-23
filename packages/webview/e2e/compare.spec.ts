@@ -332,14 +332,19 @@ test.describe('Compare panel — running a comparison', () => {
   test('displays compare results after receiving the response', async ({ page }) => {
     await completeComparison(page);
 
-    // Summary bar reads the response's own counts.
+    // Summary bar reads the response's own counts, as a deployment reads
+    // them: what only the source holds under a plus, what only the target
+    // holds under a minus, and a line saying what each means.
     const summary = page.getByTestId('compare-summary');
-    await expect(summary).toContainText('+5 added');
-    await expect(summary).toContainText('-2 removed');
+    await expect(summary).toContainText('+2 only in the source');
+    await expect(summary).toContainText('-5 only in the target');
     await expect(summary).toContainText('~8 modified');
     await expect(summary).toContainText('=120 unchanged');
     // In both orgs, content not compared: counted apart, and said why.
     await expect(summary).toContainText('?3 not compared');
+    await expect(page.getByTestId('compare-change-legend')).toContainText(
+      'Only in the source (+): a deployment creates it in the target.',
+    );
     await expect(page.getByTestId('compare-coverage-compared')).toHaveText(
       'Content compared for 128 of the 131 components both orgs hold.',
     );
@@ -504,16 +509,20 @@ test.describe('Compare panel — results tabs', () => {
     await expect(page.getByTestId('perm-header-source')).toHaveText('Source Org');
     await expect(page.getByTestId('perm-header-target')).toHaveText('Target Org');
 
-    // Source-only permission set: present left, absent right, called Removed
-    // in the same vocabulary as the summary bar above it.
+    // Source-only permission set: present left, absent right, named in the
+    // same vocabulary as the summary bar above it.
     await expect(page.getByTestId('perm-source-PermissionSet-Sales_Admin')).toHaveText('✓');
     await expect(page.getByTestId('perm-target-PermissionSet-Sales_Admin')).toHaveText('✗');
-    await expect(page.getByTestId('perm-status-PermissionSet-Sales_Admin')).toHaveText('Removed');
+    await expect(page.getByTestId('perm-status-PermissionSet-Sales_Admin')).toHaveText(
+      'Only in the source',
+    );
     await expect(matrix).toContainText('Sales Admin');
 
     // Target-only profile is the mirror case; shared entries read Unchanged.
     await expect(page.getByTestId('perm-source-Profile-Read Only')).toHaveText('✗');
-    await expect(page.getByTestId('perm-status-Profile-Read Only')).toHaveText('Added');
+    await expect(page.getByTestId('perm-status-Profile-Read Only')).toHaveText(
+      'Only in the target',
+    );
     await expect(page.getByTestId('perm-status-Profile-System Administrator')).toHaveText(
       'Unchanged',
     );
@@ -572,7 +581,9 @@ test.describe('Compare panel — results tabs', () => {
 
     // The one object the target lacks is named, not just counted.
     await expect(page.getByTestId('snapshot-object-Legacy__c')).toBeVisible();
-    await expect(page.getByTestId('snapshot-object-status-Legacy__c')).toHaveText('Removed');
+    await expect(page.getByTestId('snapshot-object-status-Legacy__c')).toHaveText(
+      'Only in the source',
+    );
 
     // The shared count is the sample size: without it an empty list of
     // differences could pass for "nothing was compared".
@@ -644,7 +655,7 @@ test.describe('Compare panel — results tabs', () => {
     await expect(page.getByTestId('settings-drift')).toContainText('50%');
     await expect(page.getByTestId('drift-modified')).toContainText('~1');
     await expect(page.getByTestId('drift-unchanged')).toContainText('=1');
-    await expect(page.getByTestId('drift-added')).toContainText('+0');
+    await expect(page.getByTestId('drift-added')).toContainText('-0');
 
     // Honesty lock: with one setting differing, the old "No drift detected"
     // line would be a false all-clear.

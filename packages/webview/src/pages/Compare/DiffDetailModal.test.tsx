@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { DiffDetailModal } from './DiffDetailModal';
 import type { EnrichedDiff } from '@sandforge/shared';
 
@@ -35,8 +36,34 @@ describe('DiffDetailModal', () => {
 
   it('should show change type and risk level badges', () => {
     render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
-    expect(screen.getByText('modified')).toBeDefined();
-    expect(screen.getByText('high')).toBeDefined();
+    expect(screen.getByText('Modified')).toBeDefined();
+    expect(screen.getByText('High risk')).toBeDefined();
+  });
+
+  it('marks what only the target holds as a removal, and what only the source holds as an addition', () => {
+    // `added` is only in the target: the badge said "added", in green, over a
+    // component no deployment adds.
+    const { unmount } = render(<DiffDetailModal diff={addedDiff} onClose={vi.fn()} />);
+    const targetOnly = screen.getByText('Only in the target');
+    expect(targetOnly.classList.contains('bg-status-error')).toBe(true);
+    unmount();
+
+    render(<DiffDetailModal diff={{ ...addedDiff, changeType: 'removed' }} onClose={vi.fn()} />);
+    const sourceOnly = screen.getByText('Only in the source');
+    expect(sourceOnly.classList.contains('bg-status-success')).toBe(true);
+  });
+
+  it('names the change and its risk in the language of the page', async () => {
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
+      expect(screen.getByText('Modifié')).toBeDefined();
+      expect(screen.getByText('Risque élevé')).toBeDefined();
+      expect(screen.queryByText('high')).toBeNull();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('should show metadata (category and group)', () => {

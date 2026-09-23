@@ -291,8 +291,55 @@ describe('ComparePage', () => {
     render(<ComparePage />);
 
     expect(screen.getByTestId('compare-summary')).toBeDefined();
-    expect(screen.getByText(/\+5 added/)).toBeDefined();
-    expect(screen.getByText(/-3 removed/)).toBeDefined();
+    expect(screen.getByText(/\+3 only in the source/)).toBeDefined();
+    expect(screen.getByText(/-5 only in the target/)).toBeDefined();
+  });
+
+  it('counts as a deployment reads them: what only the source holds first, in green, under a plus', () => {
+    // `removed` is only in the source, and a deployment creates it: the bar
+    // wrote it in red under a minus, as "removed", and what only the target
+    // holds in green under a plus, as "added".
+    mockCompareMutationState = {
+      mutate: mockCompareMutate,
+      data: {
+        configId: 'cmp-1',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        mode: 'metadata',
+        summary: {
+          totalItems: 12,
+          added: 5,
+          removed: 3,
+          modified: 2,
+          unchanged: 2,
+          notCompared: 0,
+          byType: {},
+        },
+        content: COMPARED_EVERYTHING,
+        diffs: [],
+        timestamp: '2024-01-01T12:00:00Z',
+        duration: 5000,
+      },
+      loading: false,
+      error: null,
+      reset: mockCompareReset,
+    };
+    render(<ComparePage />);
+
+    const counts = Array.from(screen.getByTestId('compare-summary').children).map((span) => [
+      span.textContent,
+      span.className,
+    ]);
+    expect(counts.slice(0, 3)).toEqual([
+      ['+3 only in the source', 'text-status-success'],
+      ['-5 only in the target', 'text-status-error'],
+      ['~2 modified', 'text-status-warning'],
+    ]);
+    expect(screen.getByTestId('compare-change-legend').textContent).toBe(
+      'Only in the source (+): a deployment creates it in the target. ' +
+        'Only in the target (-): a deployment leaves it there, since SandForge deploys no deletion. ' +
+        'Modified (~): a deployment replaces what the target holds.',
+    );
   });
 
   it('should show tabs when result is received', () => {
@@ -428,9 +475,13 @@ describe('ComparePage', () => {
     // Source-only permission set: present on the left, absent on the right.
     expect(screen.getByTestId('perm-source-PermissionSet-Sales_Admin').textContent).toBe('\u2713');
     expect(screen.getByTestId('perm-target-PermissionSet-Sales_Admin').textContent).toBe('\u2717');
-    expect(screen.getByTestId('perm-status-PermissionSet-Sales_Admin').textContent).toBe('Removed');
+    expect(screen.getByTestId('perm-status-PermissionSet-Sales_Admin').textContent).toBe(
+      'Only in the source',
+    );
     // Target-only profile is the mirror case.
-    expect(screen.getByTestId('perm-status-Profile-Read Only').textContent).toBe('Added');
+    expect(screen.getByTestId('perm-status-Profile-Read Only').textContent).toBe(
+      'Only in the target',
+    );
     expect(screen.getByTestId('perm-status-Profile-System Administrator').textContent).toBe(
       'Unchanged',
     );
@@ -467,9 +518,11 @@ describe('ComparePage', () => {
     expect(screen.getByTestId('snapshot-comparison')).toBeDefined();
     expect(screen.getByTestId('snapshot-source-total').textContent).toBe('812 objects');
     expect(screen.getByTestId('snapshot-target-total').textContent).toBe('806 objects');
-    // The object the target lacks is named, and named as a removal.
+    // The object the target lacks is named, and said to be only in the source.
     expect(screen.getByTestId('snapshot-object-Legacy__c')).toBeDefined();
-    expect(screen.getByTestId('snapshot-object-status-Legacy__c').textContent).toBe('Removed');
+    expect(screen.getByTestId('snapshot-object-status-Legacy__c').textContent).toBe(
+      'Only in the source',
+    );
     // Sample size behind the two lists.
     expect(screen.getByTestId('snapshot-shared-count').textContent).toBe('805 objects');
     expect(screen.getByTestId('compare-page')).toBeDefined();

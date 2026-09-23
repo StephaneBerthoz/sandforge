@@ -570,7 +570,6 @@ export function useAutomationPageData(): AutomationPageData {
         level: 'error',
         title: t('automation.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [
@@ -628,7 +627,6 @@ export function useAutomationPageData(): AutomationPageData {
       level: 'error',
       title: t('automation.title'),
       message,
-      autoDismissMs: 5000,
     });
   });
   useEffect(() => {
@@ -650,7 +648,6 @@ export function useAutomationPageData(): AutomationPageData {
         level: 'error',
         title: t('automation.title'),
         message,
-        autoDismissMs: 5000,
       });
       return;
     }
@@ -672,7 +669,6 @@ export function useAutomationPageData(): AutomationPageData {
         level: 'error',
         title: t('automation.marketplace'),
         message,
-        autoDismissMs: 5000,
       });
       return;
     }

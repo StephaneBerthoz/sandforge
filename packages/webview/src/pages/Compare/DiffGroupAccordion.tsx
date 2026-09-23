@@ -4,6 +4,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { VirtualList } from '../../components/ui/VirtualList';
 import type { EnrichedDiff, DiffRiskLevel } from '@sandforge/shared';
+import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
 
 /** Props for the DiffGroupAccordion component. */
 export interface DiffGroupAccordionProps {
@@ -19,30 +20,6 @@ const riskBadge: Record<DiffRiskLevel, BadgeVariant> = {
   medium: 'info',
   high: 'warning',
   critical: 'error',
-};
-
-/** Badge variant for change type. */
-const changeBadge: Record<EnrichedDiff['changeType'], BadgeVariant> = {
-  added: 'success',
-  removed: 'error',
-  modified: 'warning',
-};
-
-/** Symbol for change type. */
-const changeSymbol: Record<EnrichedDiff['changeType'], string> = {
-  added: '+',
-  removed: '-',
-  modified: '~',
-};
-
-/**
- * The symbol's colour: the severity tokens, sized to read on the row tints.
- * The raw `var(--sf-success)` read 1.8:1 on a light editor.
- */
-const changeSymbolClass: Record<EnrichedDiff['changeType'], string> = {
-  added: 'text-status-success',
-  removed: 'text-status-error',
-  modified: 'text-status-warning',
 };
 
 /** Row height fed to the virtualizer — must stay in sync with DIFF_ROW_STYLE's box. */
@@ -216,12 +193,16 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
               >
                 {t('compare.changeCount', { count: group.diffs.length })}
               </span>
-              {group.counts.added > 0 && <Badge variant="success">{group.counts.added}+</Badge>}
-              {group.counts.removed > 0 && <Badge variant="error">{group.counts.removed}-</Badge>}
-              {group.counts.modified > 0 && (
-                <Badge variant="warning">{group.counts.modified}~</Badge>
-              )}
-              <Badge variant={riskBadge[group.maxRisk]}>{group.maxRisk}</Badge>
+              {CHANGE_ORDER.filter((kind) => group.counts[kind] > 0).map((kind) => (
+                <Badge key={kind} variant={CHANGE_LOOK[kind].variant}>
+                  {group.counts[kind]}
+                  {CHANGE_LOOK[kind].symbol}
+                </Badge>
+              ))}
+              {/* It wrote the level's own code, "critical", whatever the language. */}
+              <Badge variant={riskBadge[group.maxRisk]}>
+                {t(`compare.riskLevel.${group.maxRisk}`)}
+              </Badge>
             </button>
 
             {/* Expanded diff items — virtualized because a single group can be huge:
@@ -245,11 +226,13 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                         cursor: onSelectDiff ? 'pointer' : 'default',
                       }}
                     >
-                      {/* Change symbol: the badge beside it names the change, so a
-                          screen reader reads the name once instead of "plus added". */}
+                      {/* Change symbol, in the severity tokens sized to read on the
+                          row tints (the raw `var(--sf-success)` read 1.8:1 on a light
+                          editor): the badge beside it names the change, so a screen
+                          reader reads the name once instead of "plus" and the name. */}
                       <span
                         aria-hidden="true"
-                        className={changeSymbolClass[diff.changeType]}
+                        className={CHANGE_LOOK[diff.changeType].textClass}
                         style={{
                           width: '18px',
                           height: '18px',
@@ -260,17 +243,21 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                           fontFamily: 'monospace',
                         }}
                       >
-                        {changeSymbol[diff.changeType]}
+                        {CHANGE_LOOK[diff.changeType].symbol}
                       </span>
 
                       {/* Category + Name, in the row's foreground: description text
                           falls under AA on the risk tints. */}
-                      <Badge variant={changeBadge[diff.changeType]}>{diff.changeType}</Badge>
+                      <Badge variant={CHANGE_LOOK[diff.changeType].variant}>
+                        {t(`compare.change.${diff.changeType}`)}
+                      </Badge>
                       <span>{diff.category}</span>
                       <span style={{ flex: 1, fontFamily: 'monospace' }}>{diff.name}</span>
 
                       {/* Risk badge */}
-                      <Badge variant={riskBadge[diff.riskLevel]}>{diff.riskLevel}</Badge>
+                      <Badge variant={riskBadge[diff.riskLevel]}>
+                        {t(`compare.riskLevel.${diff.riskLevel}`)}
+                      </Badge>
 
                       {/* Dependencies count */}
                       {diff.dependencies.length > 0 && (

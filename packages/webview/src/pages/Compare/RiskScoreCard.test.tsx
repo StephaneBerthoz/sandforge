@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { RiskScoreCard } from './RiskScoreCard';
 import type { CompareReport } from '@sandforge/shared';
 
@@ -69,12 +70,39 @@ describe('RiskScoreCard', () => {
 
   it('should show Low label for low risk', () => {
     render(<RiskScoreCard report={lowRiskReport} />);
-    expect(screen.getByTestId('risk-score-label').textContent).toBe('Low');
+    expect(screen.getByTestId('risk-score-label').textContent).toBe('Low risk');
   });
 
   it('should show High label for high risk', () => {
     render(<RiskScoreCard report={highRiskReport} />);
-    expect(screen.getByTestId('risk-score-label').textContent).toBe('High');
+    expect(screen.getByTestId('risk-score-label').textContent).toBe('High risk');
+  });
+
+  it('names the risk under the gauge in the language of the page', async () => {
+    // It was written in English under the gauge whatever the language.
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<RiskScoreCard report={highRiskReport} />);
+      expect(screen.getByTestId('risk-score-label').textContent).toBe('Risque élevé');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('counts what only the source holds as additions, in green, and what only the target holds in red', () => {
+    // It counted "added" in green over what only the target holds, which a
+    // deployment does not add.
+    render(<RiskScoreCard report={highRiskReport} />);
+    const badges = Array.from(screen.getByTestId('risk-summary-counts').children).map((badge) => [
+      badge.textContent,
+      badge.className.match(/bg-status-(\w+)/)?.[1],
+    ]);
+    expect(badges).toEqual([
+      ['0 only in the source', 'success'],
+      ['1 only in the target', 'error'],
+      ['1 modified', 'warning'],
+    ]);
   });
 
   it('should display summary counts', () => {

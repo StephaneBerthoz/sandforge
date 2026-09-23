@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../theme';
 import { Badge } from '../../components/ui/Badge';
+import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { CHANGE_LOOK } from './changeLook';
 
 /** How one setting compared across the two orgs. */
 export type SettingsDriftStatus = 'match' | 'drift' | 'missing_source' | 'missing_target';
@@ -77,7 +79,8 @@ function scoreVariant(score: number): 'error' | 'warning' | 'success' {
  *
  * Statuses are mapped onto the diff vocabulary the rest of the page speaks and
  * DiffEngine defines: present on one side only is added (target) or removed
- * (source), a differing value is modified, an equal value unchanged.
+ * (source), a differing value is modified, an equal value unchanged — and
+ * drawn as the rest of the page draws them.
  */
 export const SettingsDrift: React.FC<SettingsDriftProps> = ({
   drift,
@@ -88,18 +91,16 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
   const { t } = useTranslation();
   const scoreLabelId = useId();
 
-  const statusOf = (
-    status: SettingsDriftStatus,
-  ): { text: string; variant: 'warning' | 'default' | 'success' | 'error' } => {
+  const statusOf = (status: SettingsDriftStatus): { text: string; variant: BadgeVariant } => {
     switch (status) {
       case 'drift':
-        return { text: t('compare.modified'), variant: 'warning' };
+        return { text: t('compare.change.modified'), variant: CHANGE_LOOK.modified.variant };
       case 'missing_source':
-        return { text: t('compare.added'), variant: 'success' };
+        return { text: t('compare.change.added'), variant: CHANGE_LOOK.added.variant };
       case 'missing_target':
-        return { text: t('compare.removed'), variant: 'error' };
+        return { text: t('compare.change.removed'), variant: CHANGE_LOOK.removed.variant };
       default:
-        return { text: t('compare.unchanged'), variant: 'default' };
+        return { text: t('compare.change.unchanged'), variant: 'default' };
     }
   };
 
@@ -134,14 +135,17 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
               setting lands in exactly one of these four counts, so the
               denominator behind the score is on screen. */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="drift-summary">
-            <span className="text-status-success" data-testid="drift-added">
-              +{t('compare.count.added', { count: added })}
+            <span className={CHANGE_LOOK.removed.textClass} data-testid="drift-removed">
+              {CHANGE_LOOK.removed.symbol}
+              {t('compare.count.removed', { count: removed })}
             </span>
-            <span className="text-status-error" data-testid="drift-removed">
-              -{t('compare.count.removed', { count: removed })}
+            <span className={CHANGE_LOOK.added.textClass} data-testid="drift-added">
+              {CHANGE_LOOK.added.symbol}
+              {t('compare.count.added', { count: added })}
             </span>
-            <span className="text-status-warning" data-testid="drift-modified">
-              ~{t('compare.count.modified', { count: modified })}
+            <span className={CHANGE_LOOK.modified.textClass} data-testid="drift-modified">
+              {CHANGE_LOOK.modified.symbol}
+              {t('compare.count.modified', { count: modified })}
             </span>
             <span className="text-[var(--sf-text-secondary)]" data-testid="drift-unchanged">
               ={t('compare.count.unchanged', { count: unchanged })}

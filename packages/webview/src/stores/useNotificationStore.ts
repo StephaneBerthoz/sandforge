@@ -29,6 +29,11 @@ export interface Notification {
   read: boolean;
   /** Notification category. Defaults to 'system'. */
   category?: NotificationCategory;
+  /**
+   * How long the toast stays up, in milliseconds; without it, until it is
+   * dismissed. An error stays until it is dismissed whatever it is given: it
+   * is something to act on, and its whole message is shown (FloatingToasts).
+   */
   autoDismissMs?: number;
   actions?: NotificationAction[];
 }

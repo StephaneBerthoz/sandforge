@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import type { EnrichedDiff, DiffRiskLevel } from '@sandforge/shared';
+import { CHANGE_LOOK } from './changeLook';
 
 /** Props for the DiffDetailModal component. */
 export interface DiffDetailModalProps {
@@ -20,13 +21,6 @@ const riskBadge: Record<DiffRiskLevel, BadgeVariant> = {
   medium: 'info',
   high: 'warning',
   critical: 'error',
-};
-
-/** Badge variant for change type. */
-const changeBadge: Record<EnrichedDiff['changeType'], BadgeVariant> = {
-  added: 'success',
-  removed: 'error',
-  modified: 'warning',
 };
 
 /**
@@ -86,8 +80,14 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
             marginBottom: 'var(--sf-space-4)',
           }}
         >
-          <Badge variant={changeBadge[diff.changeType]}>{diff.changeType}</Badge>
-          <Badge variant={riskBadge[diff.riskLevel]}>{diff.riskLevel}</Badge>
+          {/* Both were the codes as written, in English: "added" over what only
+              the target holds, which a deployment does not add. */}
+          <Badge variant={CHANGE_LOOK[diff.changeType].variant}>
+            {t(`compare.change.${diff.changeType}`)}
+          </Badge>
+          <Badge variant={riskBadge[diff.riskLevel]}>
+            {t(`compare.riskLevel.${diff.riskLevel}`)}
+          </Badge>
           <span
             style={{
               flex: 1,

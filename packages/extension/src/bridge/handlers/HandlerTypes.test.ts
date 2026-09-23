@@ -310,7 +310,7 @@ describe('sendNotification', () => {
     // be written at all.
     const deps = { ...createMockDeps() };
     const action = { label: 'Open', command: 'open-page', url: 'https://example.com' };
-    sendNotification(deps, 'error', 'Test', 'Needs a step', {
+    sendNotification(deps, 'warning', 'Test', 'Needs a step', {
       autoDismissMs: null,
       actions: [action],
     });
@@ -320,6 +320,21 @@ describe('sendNotification', () => {
     };
     expect(posted.payload).not.toHaveProperty('autoDismissMs');
     expect(posted.payload.actions).toEqual([action]);
+  });
+
+  it('sends an error with no delay, whatever delay it is given', () => {
+    // The panel ignores a delay on an error; every error was still sent with
+    // the five-second default, and a caller could ask for another.
+    const deps = { ...createMockDeps() };
+    sendNotification(deps, 'error', 'Test', 'Something went wrong');
+    sendNotification(deps, 'error', 'Test', 'Something went wrong', { autoDismissMs: 8000 });
+
+    for (const [posted] of deps.broker.postToWebview.mock.calls as [
+      BaseMessage & { payload: Record<string, unknown> },
+    ][]) {
+      expect(posted.payload).not.toHaveProperty('autoDismissMs');
+    }
+    expect(deps.broker.postToWebview).toHaveBeenCalledTimes(2);
   });
 });
 

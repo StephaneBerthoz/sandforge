@@ -120,7 +120,6 @@ describe('useSeedPIIScan', () => {
       level: 'error',
       title: 'seed.title',
       message: 'PII scan failed',
-      autoDismissMs: 5000,
     });
   });
 

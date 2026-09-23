@@ -62,7 +62,6 @@ export function useSeedPIIScan(
         level: 'error',
         title: t('seed.title'),
         message: bridgeError,
-        autoDismissMs: 5000,
       });
     }
   }, [piiScanMutation.error, addNotification, t]);

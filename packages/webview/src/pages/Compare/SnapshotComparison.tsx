@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { CHANGE_LOOK } from './changeLook';
 
 /** Object counts `describeGlobal` yields for one org. */
 export interface OrgObjectCounts {
@@ -132,8 +133,8 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
                   data-testid={`snapshot-object-${row.name}`}
                 >
                   <span data-testid={`snapshot-object-status-${row.name}`}>
-                    <Badge variant={row.status === 'added' ? 'success' : 'error'}>
-                      {row.status === 'added' ? t('compare.added') : t('compare.removed')}
+                    <Badge variant={CHANGE_LOOK[row.status].variant}>
+                      {t(`compare.change.${row.status}`)}
                     </Badge>
                   </span>
                   <span className="flex-1 truncate font-mono text-[var(--sf-text-primary)]">
@@ -156,7 +157,7 @@ export const SnapshotComparison: React.FC<SnapshotComparisonProps> = ({
               without it, "nothing only in source" could pass for "nothing was
               compared". */}
           <div className="flex items-center gap-2" data-testid="snapshot-shared">
-            <Badge variant="default">{t('compare.unchanged')}</Badge>
+            <Badge variant="default">{t('compare.change.unchanged')}</Badge>
             <span
               className="text-[11px] text-[var(--sf-text-secondary)]"
               data-testid="snapshot-shared-count"

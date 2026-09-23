@@ -1,3 +1,7 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
+import ts from 'typescript';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   useNotificationStore,
@@ -9,6 +13,77 @@ import type { NotificationInput } from './useNotificationStore';
 function getState(): ReturnType<typeof useNotificationStore.getState> {
   return useNotificationStore.getState();
 }
+
+/** Every non-test source file under `dir`. */
+function sourceFiles(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) sourceFiles(full, acc);
+    else if (/\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
+/** `file:line` of every object literal in `text` that gives an error toast a delay. */
+function errorsGivenADelay(file: string, text: string): string[] {
+  const source = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const property = (name: string): ts.PropertyAssignment | undefined =>
+        node.properties.find(
+          (p): p is ts.PropertyAssignment =>
+            ts.isPropertyAssignment(p) && p.name.getText(source) === name,
+        );
+      const level = property('level')?.initializer;
+      if (
+        level &&
+        ts.isStringLiteral(level) &&
+        level.text === 'error' &&
+        property('autoDismissMs')
+      ) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        found.push(`${file}:${line + 1}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+describe('the delay an error toast is given', () => {
+  // An error stays until it is dismissed, whatever delay it carries: thirteen
+  // places still gave theirs five seconds, which read as if it went away.
+  it('finds an error given a delay, and passes one given none', () => {
+    expect(
+      errorsGivenADelay(
+        'x.ts',
+        [
+          "add({ level: 'error', title, message, autoDismissMs: 5000 });",
+          "add({ level: 'error', title, message });",
+          "add({ level: 'success', title, message, autoDismissMs: 3000 });",
+        ].join('\n'),
+      ),
+    ).toEqual(['x.ts:1']);
+  });
+
+  it('is given by no error the panel raises', () => {
+    const src = join(__dirname, '..');
+    const files = sourceFiles(src);
+    expect(files.length).toBeGreaterThan(100);
+    const found = files.flatMap((file) =>
+      errorsGivenADelay(relative(src, file), readFileSync(file, 'utf8')),
+    );
+    expect(found).toEqual([]);
+  });
+});
 
 function createInput(overrides: Partial<NotificationInput> = {}): NotificationInput {
   return {
@@ -144,15 +219,15 @@ describe('useNotificationStore', () => {
     ];
     getState().addNotification(
       createInput({
-        level: 'error',
-        title: 'Failed',
+        level: 'warning',
+        title: 'Stalled',
         autoDismissMs: 5000,
         actions,
       }),
     );
 
     const notification = getState().notifications[0];
-    expect(notification.level).toBe('error');
+    expect(notification.level).toBe('warning');
     expect(notification.autoDismissMs).toBe(5000);
     expect(notification.actions).toEqual(actions);
   });

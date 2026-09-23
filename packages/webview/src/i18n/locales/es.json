@@ -322,8 +322,8 @@
     "failedCount_other": "{{count}} fallidos",
     "jobErrorCount_one": "{{count}} error",
     "jobErrorCount_other": "{{count}} errores",
-    "flowCount_one": "{{formatted}} flow",
-    "flowCount_other": "{{formatted}} flows",
+    "flowCount_one": "{{formatted}} Flow",
+    "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs"
   },
@@ -344,10 +344,13 @@
     "deploy": "Desplegar desde diff",
     "noResults": "Sin resultados de comparación",
     "nothingDiffers": "No hay diferencias: ambas orgs tienen los mismos componentes, y cada uno comparado por contenido es igual en las dos.",
-    "added": "Agregado",
-    "removed": "Eliminado",
-    "modified": "Modificado",
-    "unchanged": "Sin cambios",
+    "change": {
+      "added": "Solo en el destino",
+      "removed": "Solo en el origen",
+      "modified": "Modificado",
+      "unchanged": "Sin cambios"
+    },
+    "changeLegend": "Solo en el origen (+): un despliegue lo crea en el destino. Solo en el destino (-): un despliegue lo deja allí, ya que SandForge no despliega ninguna eliminación. Modificado (~): un despliegue reemplaza lo que contiene el destino.",
     "coverage": {
       "compared": "Contenido comparado en {{compared}} de los {{inBoth}} componentes presentes en ambas orgs.",
       "managedLeftOut": "Instalados por un paquete gestionado, omitidos como se pidió: {{count}}",
@@ -399,7 +402,7 @@
       "sourceOnly": "Solo el origen lo contiene: un despliegue lo crea en el destino.",
       "targetOnlyDataModel": "Solo el destino lo contiene: quitarlo para igualarlo con el origen puede hacer perder los datos que contiene.",
       "targetOnlyApex": "Solo el destino lo contiene: quitarlo para igualarlo con el origen puede romper lo que depende de él.",
-      "flowChanged": "Los cambios en un flow pueden afectar a las automatizaciones activas.",
+      "flowChanged": "Los cambios en un Flow pueden afectar a las automatizaciones de procesos activas.",
       "profileChanged": "Los cambios en un perfil pueden alterar los permisos de los usuarios.",
       "breaking": "Es un cambio incompatible."
     },
@@ -413,13 +416,6 @@
       "change": {
         "removed": "Nuevo",
         "modified": "Difiere"
-      },
-      "risk": {
-        "none": "Sin riesgo",
-        "low": "Riesgo bajo",
-        "medium": "Riesgo medio",
-        "high": "Riesgo alto",
-        "critical": "Riesgo crítico"
       },
       "notDeployableTitle_one": "{{count}} componente no se puede desplegar desde esta comparación",
       "notDeployableTitle_other": "{{count}} componentes no se pueden desplegar desde esta comparación",
@@ -442,7 +438,7 @@
       "testNames": "Clases de prueba, separadas por comas o espacios",
       "testNamesMissing": "Indique al menos una clase de prueba.",
       "testNamesInvalid": "No es un nombre de clase: {{names}}",
-      "testNamesTooMany": "Un despliegue indica como máximo {{max}} clases de prueba.",
+      "testNamesTooMany": "Un despliegue admite como máximo {{max}} clases de prueba.",
       "testsAdvised": "Su selección contiene Apex: como aconseja la tarjeta de riesgo, se ejecutan las pruebas propias del destino, salvo que elija otra cosa.",
       "validate": "Validar en {{target}}",
       "deploy": "Desplegar en {{target}}",
@@ -505,10 +501,10 @@
       }
     },
     "count": {
-      "added_one": "{{count}} agregado",
-      "added_other": "{{count}} agregados",
-      "removed_one": "{{count}} eliminado",
-      "removed_other": "{{count}} eliminados",
+      "added_one": "{{count}} solo en el destino",
+      "added_other": "{{count}} solo en el destino",
+      "removed_one": "{{count}} solo en el origen",
+      "removed_other": "{{count}} solo en el origen",
       "modified_one": "{{count}} modificado",
       "modified_other": "{{count}} modificados",
       "unchanged_one": "{{count}} sin cambios",
@@ -529,6 +525,13 @@
       "high_other": "{{count}} altos",
       "critical_one": "{{count}} crítico",
       "critical_other": "{{count}} críticos"
+    },
+    "riskLevel": {
+      "none": "Sin riesgo",
+      "low": "Riesgo bajo",
+      "medium": "Riesgo medio",
+      "high": "Riesgo alto",
+      "critical": "Riesgo crítico"
     }
   },
   "seed": {
@@ -976,7 +979,7 @@
       "autoSyncHint": "Los cambios de un objeto marcado se escriben en la org de destino; los demás solo se muestran.",
       "matchLabel": "Cómo se encuentran los registros de {{object}} en el destino",
       "match": {
-        "id": "ID de registro (orgs copiadas de la misma producción)",
+        "id": "ID de registro (orgs copiadas de la misma org de producción)",
         "externalId": "ID externo {{field}}",
         "syncConfig": "Asignación de la sync guardada «{{name}}»"
       },
@@ -1322,7 +1325,7 @@
     },
     "inventory": {
       "title": "Datos personales",
-      "intro": "Encuentra, en los objetos que elija, los campos que contienen datos personales. El detector de las comprobaciones previas de Seed y Sync los reconoce por su nombre y su tipo; una muestra de registros muestra después cuáles están rellenos y qué otros campos de texto contienen valores que parecen una dirección de correo, un número de teléfono, de tarjeta o de cuenta. Solo vuelven recuentos: ningún valor leído sale de la extensión.",
+      "intro": "Encuentra, en los objetos que elija, los campos que contienen datos personales. El detector de las comprobaciones previas de Seed y Sync los reconoce por su nombre y su tipo; una muestra de registros indica después cuáles están rellenos y qué otros campos de texto contienen valores que parecen una dirección de correo, un número de teléfono, de tarjeta o de cuenta. Solo vuelven recuentos: ningún valor leído sale de la extensión.",
       "objectsLegend": "Objetos que revisar (hasta {{max}})",
       "run": "Buscar datos personales",
       "method": "Cada muestra son los últimos {{sample}} registros del objeto por Id, los más recientes. Un campo detectado por sus valores lo es por un patrón: para él, un número de registro de empresa puede parecer un número de teléfono.",
@@ -1362,7 +1365,7 @@
     },
     "dsr": {
       "title": "Solicitud de interesado",
-      "intro": "Encuentre los registros de una persona por su dirección de correo, su nombre o su número de teléfono, expórtelos y bórrelos. Lo que escriba aquí solo sirve para la búsqueda: SandForge no lo guarda, y el registro de solicitudes de abajo anota recuentos, nunca un identificador, un Id de registro ni un valor.",
+      "intro": "Encuentre los registros de una persona por su dirección de correo, su nombre o su número de teléfono, expórtelos y bórrelos. Lo que escriba aquí solo sirve para la búsqueda: SandForge no lo guarda, y el registro de solicitudes de abajo anota recuentos, nunca un identificador, un ID de registro ni un valor.",
       "needsInventory": "Busque primero los datos personales: una solicitud busca en los objetos que leyó el inventario, en los campos que encontró.",
       "searchesIn": "Busca en: {{objects}}",
       "email": "Dirección de correo",
@@ -1395,7 +1398,7 @@
       "exported_other": "{{formatted}} registros guardados en {{path}}.",
       "exportCancelled": "Exportación cancelada: no se escribió ningún archivo.",
       "eraseLegend": "Borrar los registros marcados arriba",
-      "modeAnonymize": "Anonimizar en su lugar: el anonimizador de DataOps sobrescribe los campos con datos personales, y el nombre, con valores inventados o con nada.",
+      "modeAnonymize": "Anonimizar in situ: el anonimizador de DataOps sobrescribe los campos con datos personales, y el nombre, con valores inventados o con nada.",
       "modeDelete": "Eliminar: los registros van a la papelera de la org, con lo que la org elimina junto con ellos.",
       "review_one": "Revisar el borrado de {{formatted}} registro",
       "review_other": "Revisar el borrado de {{formatted}} registros",
@@ -1419,8 +1422,8 @@
       "searched_other": "{{at}}: búsqueda por {{by}} en {{objects}} — {{formatted}} registros encontrados",
       "exported_one": "{{at}}: {{formatted}} registro exportado",
       "exported_other": "{{at}}: {{formatted}} registros exportados",
-      "anonymized_one": "{{at}}: anonimizado en su lugar — {{outcome}}: {{formatted}} registro sobrescrito, {{failed}} rechazados",
-      "anonymized_other": "{{at}}: anonimizado en su lugar — {{outcome}}: {{formatted}} registros sobrescritos, {{failed}} rechazados",
+      "anonymized_one": "{{at}}: anonimizado in situ — {{outcome}}: {{formatted}} registro sobrescrito, {{failed}} rechazados",
+      "anonymized_other": "{{at}}: anonimizado in situ — {{outcome}}: {{formatted}} registros sobrescritos, {{failed}} rechazados",
       "deleted_one": "{{at}}: eliminado — {{outcome}}: {{formatted}} registro eliminado, {{failed}} rechazados",
       "deleted_other": "{{at}}: eliminado — {{outcome}}: {{formatted}} registros eliminados, {{failed}} rechazados",
       "by": {
@@ -1457,7 +1460,7 @@
       "refusedByOrg_other": "{{formatted}} rechazados por la org, y dejados como estaban."
     },
     "cleanupScan": {
-      "intro": "Cuenta, para los objetos que elija, los registros que miraría una limpieza: los que nadie ha modificado en un número de días, los que dejan vacía una búsqueda en la que se apoya el negocio, y las copias sobrantes de un valor repetido. La org hace el recuento: no se lee ningún registro, y no se escribe nada hasta que elimine.",
+      "intro": "Cuenta, para los objetos que elija, los registros que miraría una limpieza: los que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio, y las copias sobrantes de un valor repetido. La org hace el recuento: no se lee ningún registro, y no se escribe nada hasta que elimine.",
       "objectsLegend": "Objetos que revisar (hasta {{max}})",
       "scan": "Analizar",
       "method": "Una exportación o una eliminación toma como mucho {{limit}} registros cada vez (los registros sin modificar, los más antiguos primero); vuelva a ejecutarla para el resto.",
@@ -1472,8 +1475,8 @@
       "staleRecords_one": "{{formatted}} registro sin modificar en los últimos {{days}} días.",
       "staleRecords_other": "{{formatted}} registros sin modificar en los últimos {{days}} días.",
       "orphans": "Registros sin su padre",
-      "orphansRule": "Una búsqueda cuenta como una en la que se apoya el negocio cuando al menos el {{share}} de los registros la rellenan; se listan los registros que la dejan vacía. Una búsqueda que la org exige nunca está vacía, y una a un usuario, una cola o un tipo de registro no designa ningún padre.",
-      "noOrphans": "Ningún registro deja vacía una búsqueda en la que se apoya el negocio.",
+      "orphansRule": "Un campo de búsqueda cuenta como uno en el que se apoya el negocio cuando al menos el {{share}} de los registros lo rellenan; se listan los registros que lo dejan vacío. Un campo de búsqueda que la org exige nunca está vacío, y uno que apunta a un usuario, una cola o un tipo de registro no designa ningún padre.",
+      "noOrphans": "Ningún registro deja vacío un campo de búsqueda en el que se apoya el negocio.",
       "orphanLine_one": "{{field}} → {{parent}}: relleno en {{filled}} de {{total}} registros; {{formatted}} lo deja vacío.",
       "orphanLine_other": "{{field}} → {{parent}}: relleno en {{filled}} de {{total}} registros; {{formatted}} lo dejan vacío.",
       "duplicates": "Copias sobrantes de un valor repetido",
@@ -1506,14 +1509,14 @@
     "triggersCount": "Disparadores activos",
     "historyRuns": "Ejecuciones del historial",
     "triggers": "Disparadores",
-    "triggerNote": "Una ejecución se inicia con el botón Ejecutar pipeline, con una programación o con la actualización de un sandbox. Las programaciones y las actualizaciones inician el pipeline guardado mientras VS Code está abierto, una ejecución a la vez; un inicio previsto mientras VS Code está cerrado queda en el historial como perdido, y nunca se recupera con retraso. Los disparadores de evento, webhook y despliegue todavía no inician nada.",
+    "triggerNote": "Una ejecución se inicia con el botón Ejecutar pipeline, con una programación o con la actualización de un sandbox. Las programaciones y las actualizaciones inician el pipeline guardado mientras VS Code está abierto, una ejecución a la vez; un inicio previsto mientras VS Code está cerrado queda en la pestaña Historial como perdido, y nunca se recupera con retraso. Los disparadores de evento, webhook y despliegue todavía no inician nada.",
     "triggerSoon": {
       "event": "No inicia nada: ninguna fuente de eventos alimenta todavía este disparador.",
       "webhook": "No inicia nada: SandForge no abre ningún puerto, así que nada fuera de VS Code puede alcanzar un webhook.",
       "deployment_complete": "No inicia nada: SandForge solo lee los despliegues de una org cuando el Monitor los pide, así que nada ve terminar uno."
     },
     "triggerHint": {
-      "schedule": "Inicia el pipeline guardado en cada hora que indica la expresión, en la zona horaria elegida, mientras VS Code está abierto.",
+      "schedule": "Inicia el pipeline guardado a las horas que indica la expresión, en la zona horaria elegida, mientras VS Code está abierto.",
       "sandbox_refresh": "Inicia el pipeline guardado cuando SandForge detecta una actualización de este sandbox — solo un pipeline cuyos pasos pueden ejecutarse todos."
     },
     "triggerTimezone": "Zona horaria",
@@ -1527,7 +1530,7 @@
       "noCron": "No inicia nada mientras no tenga una expresión cron.",
       "badCron": "No inicia nada: SandForge no puede leer esta expresión cron.",
       "badTimezone": "No inicia nada: SandForge no conoce esta zona horaria.",
-      "noNextRun": "No inicia nada: ninguna fecha del próximo año coincide con esta expresión cron.",
+      "noNextRun": "No inicia nada: ninguna fecha de los próximos doce meses coincide con esta expresión cron.",
       "noSandbox": "No inicia nada mientras no indique un sandbox.",
       "unknownSandbox": "No inicia nada: SandForge ya no conoce el sandbox indicado. Elíjalo de nuevo.",
       "notSandbox": "No inicia nada: la org indicada no es un sandbox, y solo un sandbox se actualiza.",
@@ -1535,10 +1538,10 @@
       "stopped": "No inicia nada: en esta ventana no se vigila ningún disparador."
     },
     "triggerNextRun": "Próxima ejecución: {{time}} ({{timezone}})",
-    "triggerWatching": "Vigila una actualización de {{sandbox}}.",
+    "triggerWatching": "A la espera de una actualización de {{sandbox}}.",
     "triggerLast": {
       "started": "Último inicio: {{time}}",
-      "missed": "Último inicio perdido: {{time}}. El historial dice por qué."
+      "missed": "Último inicio perdido: {{time}}. La pestaña Historial indica el motivo."
     },
     "missed": {
       "closed": "Previsto el {{time}}, mientras VS Code estaba cerrado: no se inició, ni se recuperó con retraso.",
@@ -1546,7 +1549,7 @@
       "asleep": "Previsto el {{time}}, cuando SandForge no podía revisar la programación, como cuando el equipo está en suspensión: no se recuperó con retraso.",
       "asleepMany": "{{n}} inicios previstos del {{first}} al {{last}}, cuando SandForge no podía revisar la programación, como cuando el equipo está en suspensión: ninguno se recuperó con retraso.",
       "busy": "Previsto el {{time}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
-      "busyMany": "{{n}} inicios previstos del {{first}} al {{last}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se hizo ninguno. Un pipeline nunca se ejecuta dos veces a la vez.",
+      "busyMany": "{{n}} inicios previstos del {{first}} al {{last}}, mientras la ejecución iniciada el {{since}} seguía en curso: no se inició ninguno. Un pipeline nunca se ejecuta dos veces a la vez.",
       "busyRefresh": "La actualización detectada el {{time}} llegó mientras la ejecución iniciada el {{since}} seguía en curso: no se inició. Un pipeline nunca se ejecuta dos veces a la vez.",
       "cannotRun": "La actualización detectada el {{time}} no inició nada: un paso de este pipeline no puede ejecutarse."
     },
@@ -1769,7 +1772,7 @@
       "frozen_load": "Carga del dataset congelado",
       "metadata_deploy": "Despliegue de metadatos",
       "realtime_sync": "Sincronización en tiempo real",
-      "subject_erase": "Borrado por solicitud",
+      "subject_erase": "Borrado por solicitud de interesado",
       "cleanup_delete": "Eliminación de limpieza"
     },
     "filterByAction": "Filtrar por acción",
@@ -1922,15 +1925,15 @@
       "forgeAnonymizes": "Forge anonimiza lo que clona",
       "forgeAnonymizesDesc": "La opción de anonimizar no hacía nada: un clon llevaba los datos personales del origen. Ahora se aplican los campos y métodos que elija en Revisión, y los correos siguen siendo direcciones válidas.",
       "fixRound136": "Sync, Compare y programaciones, corregidos",
-      "fixRound136Desc": "Sync conserva los campos renombrados, constantes y de fórmula; una programación de sync se ejecuta una vez, haya las ventanas que haya abiertas; Compare lee eliminado y añadido en el sentido correcto; los errores permanecen en pantalla hasta que los lea.",
+      "fixRound136Desc": "Sync conserva los campos renombrados, constantes y de fórmula; una programación de sync se ejecuta una sola vez, sin importar cuántas ventanas haya abiertas; Compare interpreta correctamente lo eliminado y lo añadido; los errores permanecen en pantalla hasta que los lea.",
       "compareDeploy": "Compare despliega lo que difiere",
       "compareDeployDesc": "Elija los componentes nuevos o modificados en el origen y despliéguelos en el destino, validados primero: el estado de cada componente, las pruebas fallidas con sus líneas y un despliegue real solo de una validación superada.",
       "realtimeSync": "Sincronización en tiempo real",
-      "realtimeSyncDesc": "Sync aplica al destino cada cambio que publica la org de origen, al momento — por id externo, id de registro o un mapeo guardado — y retiene para su decisión un cambio que choca con una edición más reciente.",
+      "realtimeSyncDesc": "Sync aplica al destino cada cambio que publica la org de origen, al momento — por ID externo, ID de registro o una asignación guardada — y retiene para su decisión un cambio que choca con una edición más reciente.",
       "triggers": "Los pipelines arrancan solos",
       "triggersDesc": "Una programación ejecuta su pipeline a las horas fijadas mientras VS Code está abierto, y un disparador de actualización lo arranca cuando SandForge detecta que se actualizó un sandbox. Un arranque perdido con VS Code cerrado se registra, nunca se ejecuta tarde.",
       "compliance": "Solicitudes de interesados y limpieza",
-      "complianceDesc": "DataOps encuentra cada registro sobre una persona, los exporta y los borra tras una revisión y su confirmación; Limpieza recomienda registros obsoletos, huérfanos y duplicados, y solo borra lo que un análisis recomendó.",
+      "complianceDesc": "DataOps encuentra todos los registros de una persona, los exporta y los borra tras una revisión y su confirmación; Limpieza recomienda registros obsoletos, huérfanos y duplicados, y solo elimina lo que un análisis recomendó.",
       "auditTrail": "Cada escritura, registrada",
       "auditTrailDesc": "Cada ejecución que escribe en una org —Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset— queda ahora en Reports con su resultado, la decisión de Production Guard, sus recuentos por objeto y el origen de sus datos. Nunca un id de registro ni un valor de campo.",
       "dataopsQuality": "La calidad de los datos, contada por la org",
@@ -2042,9 +2045,9 @@
     "gettingStartedContent": "1. Conecte su org Salesforce desde la página de Organizaciones.\n2. Use Forge para clonar un registro real, y los registros que lo rodean, en su sandbox.\n3. Abra el Monitor para verificar la salud de su org.\n4. Use Seed para generar datos de prueba, o Sync para copiar datos entre dos orgs.\n5. Explore Compare, DataOps, Dataset congelado y Automatización para flujos de trabajo avanzados.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
     "seedContent": "El asistente de Seed genera datos de prueba realistas:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
-    "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental y delta no están implementados)\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas y minúsculas y espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; la asignación de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Pestaña Tiempo real: sigue los eventos de cambio (Change Data Capture) que publica la org de origen y escribe cada cambio en el destino en cuanto llega, localizado por un ID externo, el ID de registro o la asignación de una sync guardada; las eliminaciones solo si se piden. Para seguir otro objeto, selecciónelo en Configuración → Change Data Capture en la org de origen. Un cambio cuyo registro de destino se editó después lo decide la estrategia, o queda retenido en la pestaña Conflictos\n- Sin deshacer: una ejecución no se puede revertir, así que haga primero un respaldo DataOps de la org de destino (cubre Account y Contact)",
-    "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Instantáneas: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Drift: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox",
-    "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea completa de Account y Contact, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos en su lugar con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento: encuentra los campos de los objetos elegidos que contienen datos personales, confirmados en una muestra de sus últimos 200 registros; después encuentra los registros de una persona por correo, nombre o teléfono, los exporta a un archivo y los anonimiza en su lugar o los elimina, tras una revisión, una confirmación escrita y Production Guard; un registro local guarda recuentos de cada solicitud, nunca a quién se refería\n- Limpieza: cuenta los registros que nadie ha modificado en un número de días, los que dejan vacía una búsqueda en la que se apoya el negocio y las copias sobrantes de un valor repetido; cada grupo puede exportarse, o eliminarse tras una revisión, una confirmación escrita y Production Guard, como mucho 1.000 a la vez",
+    "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental y delta no están implementados)\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas, minúsculas y recorte de espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; el mapeo de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Pestaña Tiempo real: sigue los eventos de cambio (Change Data Capture) que publica la org de origen y escribe cada cambio en el destino en cuanto llega, localizado por un ID externo, el ID de registro o la asignación de una sync guardada; las eliminaciones solo si se piden. Para seguir otro objeto, selecciónelo en Configuración → Change Data Capture en la org de origen. Un cambio cuyo registro de destino se editó después lo decide la estrategia, o queda retenido en la pestaña Conflictos\n- Sin deshacer: una ejecución no se puede revertir, así que haga primero un respaldo DataOps de la org de destino (cubre Account y Contact)",
+    "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Snapshots: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Desvío: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox",
+    "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea completa de Account y Contact, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento: encuentra los campos de los objetos elegidos que contienen datos personales, confirmados en una muestra de sus últimos 200 registros; después encuentra los registros de una persona por correo, nombre o teléfono, los exporta a un archivo y los anonimiza in situ o los elimina, tras una revisión, una confirmación escrita y Production Guard; un registro local guarda recuentos de cada solicitud, nunca a quién se refería\n- Limpieza: cuenta los registros que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio y las copias sobrantes de un valor repetido; cada grupo puede exportarse, o eliminarse tras una revisión, una confirmación escrita y Production Guard, como mucho 1.000 a la vez",
     "automationContent": "Constructor visual de pipelines:\n- 15 tipos de pasos en 4 categorías. Respaldo, Comparación, Pre-verificación, Notificación, Retraso y Condición se ejecutan; un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido; disparadores de evento, webhook y despliegue: próximamente, todavía no inician nada\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "Forge clona un registro real, y los registros a su alrededor, de una org a otra:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
     "frozenContent": "Dataset congelado extrae un conjunto de datos de una sandbox de origen una sola vez y lo reproduce idéntico tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
@@ -2695,6 +2698,7 @@
     "tools": "Herramientas",
     "favorite": "Agregar a favoritos",
     "unfavorite": "Quitar de favoritos",
+    "favoriteModule": "{{module}} en favoritos",
     "lastOp": "Última operación",
     "openFull": "Abrir UI completa",
     "running": "Ejecutando...",

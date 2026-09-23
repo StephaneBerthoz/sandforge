@@ -604,6 +604,8 @@ export const SidePanel: React.FC = () => {
                   )}
                   onClick={() => toggleFavorite(item.id)}
                   data-testid={`sidepanel-fav-star-${item.id}`}
+                  aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
+                  aria-pressed={true}
                   title={t('sidePanel.unfavorite', 'Remove from favorites')}
                 >
                   <Star className="w-3 h-3 fill-current" />
@@ -658,6 +660,11 @@ export const SidePanel: React.FC = () => {
                 )}
                 onClick={() => toggleFavorite(item.id)}
                 data-testid={`sidepanel-star-${item.id}`}
+                // Named by the title alone, every star of the list was "Add to
+                // favorites": a screen reader could not tell which module one
+                // stood for, nor whether it was already a favourite.
+                aria-label={t('sidePanel.favoriteModule', { module: t(item.labelKey) })}
+                aria-pressed={favorites.includes(item.id)}
                 title={
                   favorites.includes(item.id)
                     ? t('sidePanel.unfavorite', 'Remove from favorites')

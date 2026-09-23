@@ -30,6 +30,7 @@ import type { OrgSnapshotComparison } from './SnapshotComparison';
 import { SettingsDrift, readSettingsDrift } from './SettingsDrift';
 import type { SettingsDriftReport } from './SettingsDrift';
 import { DeployPanel } from './DeployPanel';
+import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
 import { enrichDiffs } from './enrichDiffs';
 
 /** How long the page waits for a diff before it calls the comparison failed. */
@@ -128,7 +129,6 @@ export const ComparePage: React.FC = () => {
         level: 'error',
         title: t('compare.title'),
         message: compareMutation.error,
-        autoDismissMs: 5000,
       });
     }
   }, [compareMutation.error, addNotification, t]);
@@ -362,17 +362,20 @@ export const ComparePage: React.FC = () => {
           {/* Risk score card */}
           <RiskScoreCard report={compareReport} />
 
-          {/* Summary bar */}
+          {/* Summary bar, read as a deployment from the source would read it:
+              it counted "added" in green over what only the target holds,
+              which a deployment does not add. */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="compare-summary">
-            <span className="text-status-success">
-              +{t('compare.count.added', { count: result.summary.added })}
-            </span>
-            <span className="text-status-error">
-              -{t('compare.count.removed', { count: result.summary.removed })}
-            </span>
-            <span className="text-status-warning">
-              ~{t('compare.count.modified', { count: result.summary.modified })}
-            </span>
+            {CHANGE_ORDER.map((kind) => (
+              <span
+                key={kind}
+                className={CHANGE_LOOK[kind].textClass}
+                data-testid={`compare-summary-${kind}`}
+              >
+                {CHANGE_LOOK[kind].symbol}
+                {t(`compare.count.${kind}`, { count: result.summary[kind] })}
+              </span>
+            ))}
             <span className="text-[var(--sf-text-secondary)]">
               ={t('compare.count.unchanged', { count: result.summary.unchanged })}
             </span>
@@ -385,6 +388,12 @@ export const ComparePage: React.FC = () => {
               </span>
             )}
           </div>
+          <p
+            className="text-xs text-[var(--sf-text-secondary)]"
+            data-testid="compare-change-legend"
+          >
+            {t('compare.changeLegend')}
+          </p>
 
           <ContentCoverage coverage={result.content} />
 
