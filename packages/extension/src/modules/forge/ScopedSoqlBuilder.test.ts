@@ -266,6 +266,7 @@ describe('ScopedSoqlBuilder', () => {
         `SELECT Id, CaseNumber, AccountId FROM Case WHERE Id = '${ROOT_ID}'`,
       );
       expect(result.scopeIdCount).toBe(1);
+      expect(result.byIdCount).toBe(0);
     });
 
     it('escapes single quotes in the root record id', () => {
@@ -504,6 +505,9 @@ describe('ScopedSoqlBuilder', () => {
       ]);
       expect(result.parentObjectsUsed).toEqual(['Account']);
       expect(result.scopeIdCount).toBe(2);
+      // The first reads the contact the account names; the second, the
+      // contacts under the account.
+      expect(result.byIdCount).toBe(1);
     });
 
     it('reads it by the cached ids alone when not asked for every edge', () => {
@@ -639,6 +643,7 @@ describe('ScopedSoqlBuilder', () => {
       );
       expect(byId.length + underParent.length).toBe(result.statements.length);
       expect(result.statements.indexOf(underParent[0])).toBe(byId.length);
+      expect(result.byIdCount).toBe(byId.length);
       expect(byId.flatMap((soql) => soql.match(/003\d{15}/g) ?? [])).toEqual(contactIds);
       expect(underParent.flatMap((soql) => soql.match(/001\d{15}/g) ?? [])).toEqual(accountIds);
     });
@@ -917,5 +922,125 @@ describe('ScopedSoqlBuilder', () => {
 
     expect(result.statements.join(' | ')).not.toContain('Pricebook2Id IN ()');
     expect(result.statements.join(' | ')).not.toContain('Pricebook2Id');
+  });
+
+  describe('a catalog', () => {
+    const CATALOG: ReadonlySet<string> = new Set(['PricebookEntry', 'Product2', 'Pricebook2']);
+    const READ = new Set(['Opportunity', 'Quote', 'QuoteLineItem', ...CATALOG]);
+    const pricesOfBook: ForgeGraphEdge = {
+      sourceObject: 'Pricebook2',
+      targetObject: 'PricebookEntry',
+      relationshipName: 'PricebookEntries',
+      type: 'lookup',
+    };
+    const required = (name: string, target: string): ScopableField => ({
+      name,
+      type: 'reference',
+      referenceTo: [target],
+      nillable: false,
+    });
+    const priceFields = [
+      required('Pricebook2Id', 'Pricebook2'),
+      required('Product2Id', 'Product2'),
+    ];
+    const readPrices = (cache: RecordScopeCache, catalog?: ReadonlySet<string>) =>
+      new ScopedSoqlBuilder().build({
+        node: makeNode('PricebookEntry'),
+        fields: priceFields,
+        selectFields: ['Id'],
+        edges: [pricesOfBook],
+        cache,
+        rootObjectApiName: 'Opportunity',
+        rootRecordId: '006000000000001AAA',
+        everyEdge: true,
+        readObjects: READ,
+        catalog,
+      });
+
+    /** The opportunity's price book, read because the opportunity names it, and the price its line uses. */
+    function bookMetThroughALookup(): RecordScopeCache {
+      const cache = new RecordScopeCache();
+      cache.add('Pricebook2', ['01s000000000001AAA']);
+      cache.addRead('Pricebook2', ['01s000000000001AAA']);
+      cache.add('PricebookEntry', ['01u000000000001AAA']);
+      return cache;
+    }
+
+    it('reads the prices of a book the run only met through a lookup by the ids rows name', () => {
+      const result = readPrices(bookMetThroughALookup(), CATALOG);
+
+      expect(result.scope).toBe('self-cached');
+      expect(result.statements).toEqual([
+        "SELECT Id FROM PricebookEntry WHERE Id IN ('01u000000000001AAA')",
+      ]);
+      expect(result.byIdCount).toBe(1);
+    });
+
+    it('reads the whole book as before when the caller names no catalog', () => {
+      const result = readPrices(bookMetThroughALookup());
+
+      expect(result.scope).toBe('self-and-parent-fk');
+      expect(result.statements[1]).toContain("Pricebook2Id IN ('01s000000000001AAA')");
+    });
+
+    it('reads every price of a book the run reached from above', () => {
+      const cache = new RecordScopeCache();
+      cache.addRead('Pricebook2', ['01s000000000002AAA']);
+      cache.addReached('Pricebook2', ['01s000000000002AAA']);
+
+      const result = readPrices(cache, CATALOG);
+
+      // The prices' products are read after them, so they hold nothing back.
+      expect(result.statements).toEqual([
+        'SELECT Id FROM PricebookEntry WHERE (Pricebook2Id IN (' +
+          "'01s000000000002AAA')) AND (Pricebook2Id IN ('01s000000000002AAA'))",
+      ]);
+      expect(result.byIdCount).toBe(0);
+    });
+
+    it('holds a line to its catalog lookups only once the catalog is read', () => {
+      // A quote line is read before the prices it names: they are read by
+      // those names, and holding the line to the prices named so far left
+      // out every line whose price no earlier line had named.
+      const cache = new RecordScopeCache();
+      cache.addRead('Quote', ['0Q0000000000001AAA']);
+      cache.add('PricebookEntry', ['01u000000000001AAA']);
+      cache.add('Product2', ['01t000000000001AAA']);
+      const readLines = () =>
+        new ScopedSoqlBuilder().build({
+          node: makeNode('QuoteLineItem'),
+          fields: [
+            required('QuoteId', 'Quote'),
+            required('PricebookEntryId', 'PricebookEntry'),
+            required('Product2Id', 'Product2'),
+          ],
+          selectFields: ['Id'],
+          edges: [
+            {
+              sourceObject: 'Quote',
+              targetObject: 'QuoteLineItem',
+              relationshipName: 'QuoteLineItems',
+              type: 'lookup',
+            },
+          ],
+          cache,
+          rootObjectApiName: 'Opportunity',
+          rootRecordId: '006000000000001AAA',
+          everyEdge: true,
+          readObjects: READ,
+          catalog: CATALOG,
+        });
+
+      expect(readLines().statements).toEqual([
+        'SELECT Id FROM QuoteLineItem WHERE (QuoteId IN (' +
+          "'0Q0000000000001AAA')) AND (QuoteId IN ('0Q0000000000001AAA'))",
+      ]);
+
+      cache.addRead('PricebookEntry', ['01u000000000001AAA']);
+      expect(readLines().statements[0]).toContain(
+        "AND (PricebookEntryId IN ('01u000000000001AAA'))",
+      );
+      expect(readLines().statements[0]).not.toContain('Product2Id');
+    });
   });
 });

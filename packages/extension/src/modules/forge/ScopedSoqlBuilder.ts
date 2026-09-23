@@ -56,6 +56,12 @@ export interface ScopedSoqlResult {
   parentObjectsUsed: string[];
   /** Number of distinct IDs referenced in the WHERE clause (0 for `unscoped`). */
   scopeIdCount: number;
+  /**
+   * How many of `statements`, from the first, read rows by the IDs rows
+   * already read point at. The others read the root, or rows under a parent
+   * in scope: rows the run reached from above.
+   */
+  byIdCount: number;
 }
 
 /** Inputs to `ScopedSoqlBuilder.build`. */
@@ -94,6 +100,24 @@ export interface ScopedSoqlBuildOpts {
    * one of them narrows a read. Left off, none does.
    */
   readObjects?: ReadonlySet<string>;
+  /**
+   * Objects every record that points at them shares: price books, products
+   * and their prices. Left off, none is.
+   *
+   * A row of one brings the rows under it only when the run reached it from
+   * above — the root, or a row read under a parent in scope
+   * (`RecordScopeCache.addReached`). One the run only met through a lookup is
+   * read so that what points at it can be written, and brings nothing: an
+   * opportunity's price book is also the book of every other sale priced
+   * from it. Read as any parent in scope is, it brought its every price, and
+   * the products of all of them, into the clone of one opportunity.
+   *
+   * And a required lookup at one of them whose read is still to come does not
+   * narrow a read. That read takes the rows the lookup names, so there is
+   * nothing to hold the row to yet — and what the run had named of it so far
+   * would drop a quote line whose price no line read before had named.
+   */
+  catalog?: ReadonlySet<string>;
 }
 
 /**
@@ -154,6 +178,7 @@ export class ScopedSoqlBuilder {
         reason: `root record${reasonSuffix}`,
         parentObjectsUsed: [opts.rootObjectApiName],
         scopeIdCount: 1,
+        byIdCount: 0,
       };
     }
 
@@ -174,6 +199,7 @@ export class ScopedSoqlBuilder {
       reason: `${ownReason}${reasonSuffix}`,
       parentObjectsUsed: [],
       scopeIdCount: ownCount,
+      byIdCount: ownStatements.length,
     };
     if (ownCount > 0 && !opts.everyEdge) return selfCached;
 
@@ -190,7 +216,10 @@ export class ScopedSoqlBuilder {
       if (edge.sourceObject === edge.targetObject) continue;
       // The parent's scope, not every ID met for it: one met after the parent
       // was read names a row no read fetches, and its children are not ours.
-      const parentIds = opts.cache.scopeOf(edge.sourceObject);
+      // Of a catalog parent, only the rows the run reached from above.
+      const parentIds = opts.catalog?.has(edge.sourceObject)
+        ? opts.cache.reachedOf(edge.sourceObject)
+        : opts.cache.scopeOf(edge.sourceObject);
       if (!parentIds || parentIds.size === 0) continue;
 
       const fkFields = opts.fields.filter(
@@ -231,6 +260,10 @@ export class ScopedSoqlBuilder {
      * a `User`: held to the users the rows read before happened to name, a
      * contact created by anyone else was left out of the clone, without an
      * error.
+     *
+     * A catalog object whose read is still to come holds nothing back either:
+     * it is read by the ids the rows name, this row's among them (see
+     * `catalog`).
      */
     const requiredTerms: string[] = [];
     for (const field of opts.fields) {
@@ -238,6 +271,7 @@ export class ScopedSoqlBuilder {
       const ids = new Set<string>();
       for (const target of field.referenceTo) {
         if (!opts.readObjects?.has(target)) continue;
+        if (opts.catalog?.has(target) && !opts.cache.isRead(target)) continue;
         const cached = opts.cache.get(target);
         if (cached) for (const id of cached) ids.add(id);
       }
@@ -258,6 +292,7 @@ export class ScopedSoqlBuilder {
         reason: UNSCOPED_NO_PARENT_REASON,
         parentObjectsUsed: [],
         scopeIdCount: 0,
+        byIdCount: 1,
       };
     }
 
@@ -282,6 +317,7 @@ export class ScopedSoqlBuilder {
         reason: viaReason,
         parentObjectsUsed,
         scopeIdCount: totalScopeIds,
+        byIdCount: 0,
       };
     }
 
@@ -307,6 +343,7 @@ export class ScopedSoqlBuilder {
       reason: `${ownReason}, and ${viaReason}`,
       parentObjectsUsed,
       scopeIdCount: ownCount + totalScopeIds,
+      byIdCount: ownStatements.length,
     };
   }
 

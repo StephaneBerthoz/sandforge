@@ -90,9 +90,32 @@ describe('RecordScopeCache', () => {
   it('forgets what was read on clear', () => {
     const cache = new RecordScopeCache();
     cache.addRead('Account', ['001A']);
+    cache.addReached('Account', ['001A']);
     cache.clear();
     cache.add('Account', ['001B']);
     expect([...(cache.scopeOf('Account') ?? [])]).toEqual(['001B']);
+    expect(cache.isRead('Account')).toBe(false);
+    expect(cache.reachedOf('Account')).toBeUndefined();
+  });
+
+  it('says an object is read once its read has settled its scope', () => {
+    const cache = new RecordScopeCache();
+    cache.add('Pricebook2', ['01sNAMED']);
+    expect(cache.isRead('Pricebook2')).toBe(false);
+    cache.addRead('Pricebook2', ['01sNAMED']);
+    expect(cache.isRead('Pricebook2')).toBe(true);
+  });
+
+  it('keeps the rows reached from above apart from the rows read', () => {
+    // A book the root is, and a book an opportunity named: both read, only
+    // the first reached from above.
+    const cache = new RecordScopeCache();
+    cache.add('Pricebook2', ['01sNAMED']);
+    cache.addRead('Pricebook2', ['01sROOT', '01sNAMED']);
+    expect(cache.reachedOf('Pricebook2')).toBeUndefined();
+    cache.addReached('Pricebook2', ['01sROOT', '']);
+    expect([...(cache.reachedOf('Pricebook2') ?? [])]).toEqual(['01sROOT']);
+    expect([...(cache.scopeOf('Pricebook2') ?? [])]).toEqual(['01sNAMED', '01sROOT']);
   });
 
   it('exposes entries iterator', () => {

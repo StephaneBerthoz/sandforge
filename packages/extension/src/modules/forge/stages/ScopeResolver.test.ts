@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildNodeQuery,
+  CATALOG_OBJECTS,
+  CATALOG_READ_ORDER,
   getParentObjects,
   queryNodeRecords,
+  readsFromAbove,
   seedOwnIds,
   seedScopeCache,
   sortNodesForExecution,
@@ -348,6 +351,9 @@ describe('buildNodeQuery', () => {
         "SELECT Id, AccountId FROM Contact WHERE Id IN ('003000000000001AAA')",
         "SELECT Id, AccountId FROM Contact WHERE AccountId IN ('001000000000001AAA')",
       ],
+      // The first reads the contact the account names; the second, the
+      // contacts found under the account.
+      byIdCount: 1,
     });
   });
 
@@ -423,6 +429,112 @@ describe('queryNodeRecords', () => {
     const rows = [{ Name: 'no Id selected' }, { Name: 'no Id selected' }];
     const records = await queryNodeRecords({ kind: 'query', statements: ['q1'] }, async () => rows);
     expect(records).toBe(rows);
+  });
+
+  it('names the rows the reads under a parent returned, a row a read by id returned too among them', async () => {
+    const byStatement: Record<string, Record<string, unknown>[]> = {
+      byId: [{ Id: '003NAMED' }, { Id: '003BOTH' }],
+      underParent: [{ Id: '003BOTH' }, { Id: '003SIBLING' }],
+    };
+    const reached = new Set<string>();
+
+    const records = await queryNodeRecords(
+      { kind: 'query', statements: ['byId', 'underParent'], byIdCount: 1 },
+      async (soql) => byStatement[soql] ?? [],
+      reached,
+    );
+
+    expect(records.map((r) => r['Id'])).toEqual(['003NAMED', '003BOTH', '003SIBLING']);
+    expect([...reached]).toEqual(['003BOTH', '003SIBLING']);
+  });
+
+  it('names every row of a single read from above, and none of a single read by id', async () => {
+    const rows = [{ Id: '001ROOT' }];
+    const fromAbove = new Set<string>();
+    const byId = new Set<string>();
+
+    await queryNodeRecords({ kind: 'query', statements: ['root'] }, async () => rows, fromAbove);
+    await queryNodeRecords(
+      { kind: 'query', statements: ['named'], byIdCount: 1 },
+      async () => rows,
+      byId,
+    );
+
+    expect([...fromAbove]).toEqual(['001ROOT']);
+    expect([...byId]).toEqual([]);
+  });
+});
+
+describe('the catalog', () => {
+  const priceFields: FieldInfo[] = [
+    { name: 'Id', queryable: true, createable: false, isReference: false },
+    {
+      name: 'Pricebook2Id',
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: ['Pricebook2'],
+      nillable: false,
+    },
+  ];
+  const pricesOfBook: ForgeGraphEdge = {
+    sourceObject: 'Pricebook2',
+    targetObject: 'PricebookEntry',
+    relationshipName: 'PricebookEntries',
+    type: 'lookup',
+  };
+
+  it('is read prices first, then products and price books', () => {
+    expect(CATALOG_READ_ORDER).toEqual(['PricebookEntry', 'Product2', 'Pricebook2']);
+    expect([...CATALOG_OBJECTS].sort()).toEqual(['Pricebook2', 'PricebookEntry', 'Product2']);
+  });
+
+  it('reads the prices a record names by id, and not under the book an opportunity named', () => {
+    const cache = new RecordScopeCache();
+    cache.addRead('Pricebook2', ['01s000000000001AAA']);
+    cache.add('PricebookEntry', ['01u000000000001AAA']);
+
+    const result = buildNodeQuery({
+      node: makeNode('PricebookEntry'),
+      edges: [pricesOfBook],
+      fieldInfos: priceFields,
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Opportunity',
+      rootRecordId: '006000000000001AAA',
+      readObjects: new Set(['Opportunity', 'Pricebook2', 'PricebookEntry']),
+      catalog: CATALOG_OBJECTS,
+    });
+
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        "SELECT Id, Pricebook2Id FROM PricebookEntry WHERE Id IN ('01u000000000001AAA')",
+      ],
+      byIdCount: 1,
+    });
+    if (result.kind === 'query') expect(readsFromAbove(result)).toBe(false);
+  });
+
+  it('reads from above the prices of the book it is rooted at', () => {
+    const cache = new RecordScopeCache();
+    cache.addRead('Pricebook2', ['01s000000000002AAA']);
+    cache.addReached('Pricebook2', ['01s000000000002AAA']);
+
+    const result = buildNodeQuery({
+      node: makeNode('PricebookEntry'),
+      edges: [pricesOfBook],
+      fieldInfos: priceFields,
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Pricebook2',
+      rootRecordId: '01s000000000002AAA',
+      readObjects: new Set(['Pricebook2', 'PricebookEntry']),
+      catalog: CATALOG_OBJECTS,
+    });
+
+    expect(result.kind).toBe('query');
+    if (result.kind === 'query') expect(readsFromAbove(result)).toBe(true);
   });
 });
 

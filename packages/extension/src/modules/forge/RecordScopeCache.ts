@@ -16,6 +16,9 @@ export class RecordScopeCache {
   /** Per object already read, the IDs its scope held once the read was done. */
   private readonly readScopes = new Map<string, ReadonlySet<string>>();
 
+  /** Per object, the IDs of the rows the run reached from above; see {@link addReached}. */
+  private readonly reached = new Map<string, Set<string>>();
+
   /**
    * Add one or more IDs for a given object API name.
    * Existing IDs are preserved (set semantics) so multiple wave updates
@@ -62,6 +65,38 @@ export class RecordScopeCache {
     return this.readScopes.get(objectApiName) ?? this.map.get(objectApiName);
   }
 
+  /** Whether `objectApiName` has been read ({@link addRead}): its scope is settled. */
+  isRead(objectApiName: string): boolean {
+    return this.readScopes.has(objectApiName);
+  }
+
+  /**
+   * Note rows of `objectApiName` the run reached from above: the root, and
+   * rows a read found under a parent in scope.
+   *
+   * The other rows of a read are there because a row read before points at
+   * them. Both kinds are cloned; the difference is what they bring. A price
+   * book an opportunity names is shared by every sale priced from it, and
+   * reading everything under it — as any parent in scope does — took the
+   * whole catalog into the clone of one opportunity. See
+   * `ScopedSoqlBuildOpts.catalog`.
+   */
+  addReached(objectApiName: string, ids: Iterable<string>): void {
+    let bucket = this.reached.get(objectApiName);
+    if (!bucket) {
+      bucket = new Set<string>();
+      this.reached.set(objectApiName, bucket);
+    }
+    for (const id of ids) {
+      if (id) bucket.add(id);
+    }
+  }
+
+  /** The IDs of the object's rows the run reached from above ({@link addReached}). */
+  reachedOf(objectApiName: string): ReadonlySet<string> | undefined {
+    return this.reached.get(objectApiName);
+  }
+
   /** True when at least one ID is cached for the given object. */
   has(objectApiName: string): boolean {
     const bucket = this.map.get(objectApiName);
@@ -95,5 +130,6 @@ export class RecordScopeCache {
   clear(): void {
     this.map.clear();
     this.readScopes.clear();
+    this.reached.clear();
   }
 }

@@ -17,12 +17,16 @@ import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageConfig.js';
 import {
   buildNodeQuery,
+  CATALOG_OBJECTS,
+  CATALOG_READ_ORDER,
   queryNodeRecords,
+  readsFromAbove,
   seedOwnIds,
   seedScopeCache,
   getParentObjects,
   sortNodesForExecution,
   sortNodesForWriting,
+  type NodeQueryResult,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
 import {
@@ -578,6 +582,11 @@ interface ExecutionState {
    * once the rest of the graph has filled the scope cache.
    */
   readonly deferredNodes: ForgeGraphNode[];
+  /**
+   * Catalog nodes put off until the rest of the graph has been read, so
+   * their scope is what the records read point at. See `CATALOG_READ_ORDER`.
+   */
+  readonly catalogNodes: ForgeGraphNode[];
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
   /**
@@ -788,6 +797,7 @@ export class ForgeExecutor {
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
       deferredNodes: [],
+      catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readObjects: new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       standardPricebookId: null,
@@ -864,13 +874,20 @@ export class ForgeExecutor {
           // created. Registered so entries pointing at it remap, as a record
           // the target already held: the run did not create it.
           state.remapper.addExisting(sourceId, targetId);
-          // Put it in scope so the standard entries of the products in scope
-          // are read alongside the custom ones, instead of being filtered out
-          // as belonging to a book outside the graph.
+          // Among the books the run has, so a standard entry found under a
+          // product in scope is not filtered out as belonging to a book
+          // outside the graph. Matched and never reached, it brings none of
+          // its own entries: those come by product, for the prices in hand.
           state.scopeCache?.add(PRICEBOOK_OBJECT, [sourceId]);
           // Matched rather than read, and the entries in it can be written
           // all the same, so it holds them in scope like a book that is read.
           state.readObjects.add(PRICEBOOK_OBJECT);
+          // With no price book node to read, it is all the run will have of
+          // the object: settled as read, a required lookup at a book stays
+          // held to it instead of waiting for a read that never comes.
+          if (!graph.nodes.some((n) => n.included && n.objectApiName === PRICEBOOK_OBJECT)) {
+            state.scopeCache?.addRead(PRICEBOOK_OBJECT, []);
+          }
         }
       } catch (err) {
         state.errors.push({
@@ -1017,7 +1034,14 @@ export class ForgeExecutor {
     // answers; asked and still out of scope, it reports as it always did.
     // One retry, not a loop: a second unscoped verdict means nothing read in
     // this run refers to the object at all.
-    const deferred = state.deferredNodes.splice(0, state.deferredNodes.length);
+    //
+    // The catalog put off goes first, prices before products and books: a
+    // price names its product and its book, and what the catalog points at
+    // in turn — a selling model — is among the nodes asked again after it.
+    const catalog = CATALOG_READ_ORDER.flatMap((name) =>
+      state.catalogNodes.filter((n) => n.objectApiName === name),
+    );
+    const deferred = [...catalog, ...state.deferredNodes.splice(0, state.deferredNodes.length)];
     for (const node of deferred) {
       if (this.isAborted) {
         throw new ForgeAbortedError(
@@ -1183,7 +1207,12 @@ export class ForgeExecutor {
         extraWhere: config.objectSoqlFilters?.[node.objectApiName],
         maxRecordsPerObject: config.maxRecordsPerObject,
         readObjects: state.readObjects,
+        catalog: CATALOG_OBJECTS,
       });
+      if (allowDefer && this.waitsForWhatPointsAtIt(node, query, state)) {
+        state.catalogNodes.push(node);
+        return false;
+      }
       if (query.kind === 'skip') {
         if (allowDefer && query.reason === UNSCOPED_NO_PARENT_REASON) {
           state.deferredNodes.push(node);
@@ -1222,11 +1251,16 @@ export class ForgeExecutor {
           )
         : null;
 
-      const records = await queryNodeRecords(query, (soql) =>
-        this.deps.queryRecords(sourceOrgId, soql, () =>
-          state.truncatedObjects.add(node.objectApiName),
-        ),
+      const reached = state.scopeCache ? new Set<string>() : undefined;
+      const records = await queryNodeRecords(
+        query,
+        (soql) =>
+          this.deps.queryRecords(sourceOrgId, soql, () =>
+            state.truncatedObjects.add(node.objectApiName),
+          ),
+        reached,
       );
+      if (reached) state.scopeCache?.addReached(node.objectApiName, reached);
 
       // Reference-data branch: resolve source IDs against target rows by
       // Name/DeveloperName instead of cloning. Adds entries to the IdRemapper
@@ -1348,6 +1382,26 @@ export class ForgeExecutor {
       });
       return false;
     }
+  }
+
+  /**
+   * Whether a node of the catalog waits until the rest of the graph has been
+   * read, to be read by what the records point at (`CATALOG_READ_ORDER`).
+   *
+   * It waits when nothing reaches it from above: it is not the root, and no
+   * parent in scope brings any of its rows. Its turn in parents-first order
+   * comes before the line items that say which prices they use, so read then
+   * it could only go by the rows named so far, and miss the ones named after.
+   * Reached from above — the prices of the book a clone is rooted at — it is
+   * read at its turn as before.
+   */
+  private waitsForWhatPointsAtIt(
+    node: ForgeGraphNode,
+    query: NodeQueryResult,
+    state: ExecutionState,
+  ): boolean {
+    if (!state.scopeCache || !CATALOG_OBJECTS.has(node.objectApiName)) return false;
+    return query.kind === 'skip' || !readsFromAbove(query);
   }
 
   /**

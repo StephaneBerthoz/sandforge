@@ -9,10 +9,33 @@
  */
 
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
+import { PRICEBOOK_ENTRY_OBJECT, PRICEBOOK_OBJECT } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
 import type { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
+
+/**
+ * The catalog — prices, products, price books — in the order a record-scoped
+ * run reads it when nothing reaches it from above.
+ *
+ * Every sale priced from the catalog points at it, so its scope is what the
+ * clone's records name, and it is read once they all have been: its turn in
+ * parents-first order comes before the line items that say which prices
+ * they use. Read then, a price was scoped by the price books in scope — the
+ * opportunity's own, and the standard book matched for the standard prices —
+ * and run between two sandboxes, an opportunity with three line items
+ * brought 171 prices and all 146 products. Prices come first here because a
+ * price names its product and its book.
+ */
+export const CATALOG_READ_ORDER: readonly string[] = [
+  PRICEBOOK_ENTRY_OBJECT,
+  'Product2',
+  PRICEBOOK_OBJECT,
+];
+
+/** The objects of {@link CATALOG_READ_ORDER}. */
+export const CATALOG_OBJECTS: ReadonlySet<string> = new Set(CATALOG_READ_ORDER);
 
 /**
  * Order graph nodes for execution: parents before children (Kahn's
@@ -97,6 +120,11 @@ export interface NodeQueryInput {
    * one of them narrows a read. See `ScopedSoqlBuildOpts.readObjects`.
    */
   readObjects?: ReadonlySet<string>;
+  /**
+   * Objects every record pointing at them shares (scoped mode). See
+   * `ScopedSoqlBuildOpts.catalog`.
+   */
+  catalog?: ReadonlySet<string>;
 }
 
 /** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
@@ -104,11 +132,18 @@ export interface NodeQuery {
   kind: 'query';
   /**
    * SOQL to run in order. More than one only when a scope's Id lists do not
-   * fit one query URI; the rows are then merged by `Id`.
+   * fit one query URI, or when rows are read both by id and under a parent;
+   * the rows are then merged by `Id`.
    */
   statements: string[];
   /** Per-object cap, already appended as `LIMIT N` to every statement. */
   limit?: number;
+  /**
+   * How many statements, from the first, read rows by the ids rows already
+   * read point at; the rest read rows the run reached from above. Absent
+   * when none reads by id.
+   */
+  byIdCount?: number;
 }
 
 /**
@@ -131,6 +166,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
   }
 
   let statements: string[];
+  let byIdCount = 0;
   if (input.scopedBuilder && input.scopeCache && input.rootObjectApiName && input.rootRecordId) {
     const scopeFields = input.fieldInfos
       .filter((f) => f.isReference)
@@ -155,11 +191,13 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
       // contacts read that contact and none of the others.
       everyEdge: true,
       readObjects: input.readObjects,
+      catalog: input.catalog,
     });
     if (!scopeResult.scoped) {
       return { kind: 'skip', reason: scopeResult.reason };
     }
     statements = scopeResult.statements;
+    byIdCount = scopeResult.byIdCount;
   } else {
     // Outside scoped mode the object's filter is its whole WHERE clause. This
     // is how a SOQL-mode run applies its query's WHERE to the object after FROM;
@@ -170,15 +208,26 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
     ];
   }
 
+  const byId = byIdCount > 0 ? { byIdCount } : {};
   // Math.floor on positive non-integers is safe; guard against
   // negatives or NaN that would produce MALFORMED_QUERY.
   if (input.maxRecordsPerObject && input.maxRecordsPerObject > 0) {
     const cap = Math.floor(input.maxRecordsPerObject);
     if (cap > 0) {
-      return { kind: 'query', statements: statements.map((s) => `${s} LIMIT ${cap}`), limit: cap };
+      return {
+        kind: 'query',
+        statements: statements.map((s) => `${s} LIMIT ${cap}`),
+        limit: cap,
+        ...byId,
+      };
     }
   }
-  return { kind: 'query', statements };
+  return { kind: 'query', statements, ...byId };
+}
+
+/** Whether a node's query reads any row from above: the root, or rows under a parent in scope. */
+export function readsFromAbove(query: NodeQuery): boolean {
+  return (query.byIdCount ?? 0) < query.statements.length;
 }
 
 /**
@@ -190,20 +239,31 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
  * each statement, which bounds a single read but not their sum, so it is
  * enforced again here and the remaining statements are not sent once it is
  * reached.
+ *
+ * @param reached - When given, receives the ids of the rows a statement
+ *   after the first `byIdCount` returned: the rows the run reached from
+ *   above, including one a read by id returned as well.
  */
 export async function queryNodeRecords(
   query: NodeQuery,
   queryRecords: (soql: string) => Promise<Record<string, unknown>[]>,
+  reached?: Set<string>,
 ): Promise<Record<string, unknown>[]> {
+  const byIdCount = query.byIdCount ?? 0;
   if (query.statements.length === 1) {
-    return queryRecords(query.statements[0]);
+    const rows = await queryRecords(query.statements[0]);
+    if (reached && byIdCount === 0) {
+      for (const row of rows) if (typeof row['Id'] === 'string') reached.add(row['Id']);
+    }
+    return rows;
   }
   const records: Record<string, unknown>[] = [];
   const seen = new Set<string>();
-  for (const soql of query.statements) {
+  for (const [index, soql] of query.statements.entries()) {
     for (const record of await queryRecords(soql)) {
       const id = record['Id'];
       if (typeof id === 'string') {
+        if (reached && index >= byIdCount) reached.add(id);
         if (seen.has(id)) continue;
         seen.add(id);
       }
