@@ -583,13 +583,13 @@ export const SyncPage: React.FC = () => {
                 <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
                 <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
                 <span className="text-text-primary">
-                  {objectEntries.length} {t('sync.objectSet').toLowerCase()}
+                  {t('common.objectCount', { count: objectEntries.length })}
                 </span>
                 <span className="text-text-primary">
-                  {mappings.length} {t('sync.fieldMapping').toLowerCase()}
+                  {t('sync.fieldMappingCount', { count: mappings.length })}
                 </span>
                 <span className="text-text-primary">
-                  {transforms.length} {t('sync.transforms').toLowerCase()}
+                  {t('sync.transformCount', { count: transforms.length })}
                 </span>
               </div>
               <SankeyFlow

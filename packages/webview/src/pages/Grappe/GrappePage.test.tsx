@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import en from '../../i18n/locales/en.json';
@@ -8,8 +8,27 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { GrappePage } from './GrappePage';
 
+const mockPostMessage = vi.fn();
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (message: unknown) => mockPostMessage(message),
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
+/** The payloads of every message of `type` the page posted. */
+function sent(type: string): unknown[] {
+  return mockPostMessage.mock.calls
+    .map(([envelope]) => (envelope as { payload: { type: string; payload?: unknown } }).payload)
+    .filter((message) => message.type === type)
+    .map((message) => message.payload);
+}
+
 describe('GrappePage empty state', () => {
   beforeEach(() => {
+    mockPostMessage.mockClear();
     useAppStore.setState({ currentRoute: 'grappe' });
     useGrappeStore.setState({
       active: false,
@@ -28,6 +47,15 @@ describe('GrappePage empty state', () => {
     render(<GrappePage />);
     fireEvent.click(screen.getByTestId('grappe-settings'));
     expect(useAppStore.getState().currentRoute).toBe('seed');
+  });
+
+  it('opens the setting that turns Grappe on, in the Settings editor', () => {
+    // Grappe needs sandforge.grappe.enabled, off by default: the page said so,
+    // with no way to get there.
+    render(<GrappePage />);
+    fireEvent.click(screen.getByRole('button', { name: en.grappe.openSetting }));
+
+    expect(sent('workbench:open-setting')).toEqual([{ setting: 'sandforge.grappe.enabled' }]);
   });
 
   it('should label the call to action as a module action, not a settings one', () => {

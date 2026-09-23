@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, m } from 'framer-motion';
@@ -101,11 +101,14 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
     [isMatch, handleConfirm],
   );
 
-  useEffect(() => {
-    if (open && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [open]);
+  // The field takes the focus when Radix hands it out, once the content is on
+  // the page. An effect on `open` ran first, while the portal had not mounted
+  // the field yet, and with Radix's own focus turned off the dialog opened
+  // with nothing focused: the typed word went nowhere.
+  const focusField = useCallback((event: Event) => {
+    event.preventDefault();
+    inputRef.current?.focus();
+  }, []);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -122,7 +125,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                 onClick={handleClose}
                 data-testid="danger-overlay"
               >
-                <Dialog.Content asChild onOpenAutoFocus={(e) => e.preventDefault()}>
+                <Dialog.Content asChild onOpenAutoFocus={focusField}>
                   <m.div
                     className={cn(
                       'rounded-lg p-4 max-w-md w-full',

@@ -313,7 +313,7 @@ test.describe('Automation page — header and KPIs', () => {
     await expect(page.getByTestId('save-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('run-pipeline-btn')).toBeVisible();
     await expect(page.getByTestId('create-pipeline-btn')).toHaveCount(0);
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText('New Pipeline v1 · 0 Steps');
+    await expect(page.getByTestId('page-header-subtitle')).toHaveText('New Pipeline v1 · 0 steps');
   });
 });
 
@@ -390,10 +390,10 @@ test.describe('Automation page — saved pipelines', () => {
 
     await expect(page.getByTestId('saved-pipeline-pipe-1')).toContainText('Nightly Sync');
     await expect(page.getByTestId('saved-pipeline-pipe-1')).toContainText('v1');
-    await expect(page.getByTestId('saved-pipeline-pipe-1')).toContainText('3 Steps');
+    await expect(page.getByTestId('saved-pipeline-pipe-1')).toContainText('3 steps');
     await expect(page.getByTestId('saved-pipeline-pipe-2')).toContainText('Weekly Backup');
     await expect(page.getByTestId('saved-pipeline-pipe-2')).toContainText('v2');
-    await expect(page.getByTestId('saved-pipeline-pipe-2')).toContainText('1 Steps');
+    await expect(page.getByTestId('saved-pipeline-pipe-2')).toContainText('1 step');
   });
 
   test('loading a saved pipeline puts its steps on the canvas and counts them', async ({
@@ -413,7 +413,7 @@ test.describe('Automation page — saved pipelines', () => {
     await expect(page.getByTestId('canvas-step-step-2')).toContainText('Mask PII');
     await expect(page.getByTestId('canvas-step-step-3')).toContainText('Load Target');
     await expect(kpiValues(page)).toHaveText(['3', '1', '0']);
-    await expect(page.getByTestId('page-header-subtitle')).toHaveText('Nightly Sync v1 · 3 Steps');
+    await expect(page.getByTestId('page-header-subtitle')).toHaveText('Nightly Sync v1 · 3 steps');
   });
 
   test('a saved pipeline holding steps that cannot run is marked, and cannot be run', async ({
@@ -801,7 +801,7 @@ test.describe('Automation page — bridge round trips', () => {
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Pull Accounts');
     await expect(page.getByTestId('pipeline-canvas')).toContainText('Scrub emails');
     await expect(page.getByTestId('page-header-subtitle')).toHaveText(
-      'Anonymised nightly refresh v1 · 2 Steps',
+      'Anonymised nightly refresh v1 · 2 steps',
     );
     // A draft of sync and anonymize steps is drawn, marked, and not runnable.
     await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(2);

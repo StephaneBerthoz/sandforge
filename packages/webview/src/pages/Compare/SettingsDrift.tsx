@@ -135,16 +135,16 @@ export const SettingsDrift: React.FC<SettingsDriftProps> = ({
               denominator behind the score is on screen. */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="drift-summary">
             <span className="text-status-success" data-testid="drift-added">
-              +{added} {t('compare.added')}
+              +{t('compare.count.added', { count: added })}
             </span>
             <span className="text-status-error" data-testid="drift-removed">
-              -{removed} {t('compare.removed')}
+              -{t('compare.count.removed', { count: removed })}
             </span>
             <span className="text-status-warning" data-testid="drift-modified">
-              ~{modified} {t('compare.modified')}
+              ~{t('compare.count.modified', { count: modified })}
             </span>
             <span className="text-[var(--sf-text-secondary)]" data-testid="drift-unchanged">
-              ={unchanged} {t('compare.unchanged')}
+              ={t('compare.count.unchanged', { count: unchanged })}
             </span>
           </div>
 

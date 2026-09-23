@@ -157,8 +157,8 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                   )}
                 </div>
                 <div className="flex items-center gap-4 text-[10px] text-[var(--sf-text-secondary)]">
-                  <span>{obj.recordCount} records</span>
-                  <span>{obj.estimatedApiCalls} API</span>
+                  <span>{t('common.recordCount', { count: obj.recordCount })}</span>
+                  <span>{t('common.apiCallCount', { count: obj.estimatedApiCalls })}</span>
                 </div>
               </div>
             ))}

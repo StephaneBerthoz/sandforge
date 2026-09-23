@@ -533,7 +533,7 @@ export const MonitorPage: React.FC = () => {
           <Activity className="w-4 h-4 text-status-success shrink-0" />
           <span className="text-sm text-text-primary">{t('monitor.apexInsights.noIssues')}</span>
           <span className="text-xs text-text-secondary">
-            {jobs.length} {t('monitor.jobs')}
+            {t('monitor.jobCount', { count: jobs.length })}
           </span>
         </div>
       )}

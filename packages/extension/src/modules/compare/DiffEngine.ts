@@ -9,7 +9,10 @@ import type {
   NotComparedReason,
 } from '@sandforge/shared';
 
-/** Critical component types whose removal or modification is breaking */
+/**
+ * Critical component types: taking one out of the target, or replacing what
+ * the target holds, breaks what depends on it there.
+ */
 const CRITICAL_TYPES: ReadonlySet<MetadataComponentType> = new Set([
   'ApexClass',
   'ApexTrigger',
@@ -180,12 +183,20 @@ export class DiffEngine {
     return status === 'added' || status === 'removed' || status === 'modified';
   }
 
-  /** Determine the severity of a diff based on status and component type */
+  /**
+   * Determine the severity of a diff based on status and component type.
+   *
+   * `removed` is a component only the source holds: a deployment creates it,
+   * and nothing in the target depends on it yet. `added` is one only the
+   * target holds, which taking out to match the source would lose. This read
+   * them the other way round, and rated the component a deployment creates
+   * as the breaking one.
+   */
   static determineSeverity(
     status: DiffStatus,
     componentType: MetadataComponentType,
   ): CompareSeverity {
-    if (!DiffEngine.isChange(status) || status === 'added') {
+    if (!DiffEngine.isChange(status) || status === 'removed') {
       return 'info';
     }
     if (CRITICAL_TYPES.has(componentType)) {

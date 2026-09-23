@@ -158,14 +158,12 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               }}
               data-testid="risk-summary-counts"
             >
-              <Badge variant="success">
-                {summary.added} {t('compare.added', 'added')}
-              </Badge>
+              <Badge variant="success">{t('compare.count.added', { count: summary.added })}</Badge>
               <Badge variant="error">
-                {summary.removed} {t('compare.removed', 'removed')}
+                {t('compare.count.removed', { count: summary.removed })}
               </Badge>
               <Badge variant="warning">
-                {summary.modified} {t('compare.modified', 'modified')}
+                {t('compare.count.modified', { count: summary.modified })}
               </Badge>
             </div>
 
@@ -186,7 +184,9 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
                     key={level}
                     variant={riskBadgeVariant[level as DiffRiskLevel] ?? 'default'}
                   >
-                    {count} {level}
+                    {/* It wrote the level's own code after the count: "3 high"
+                        in every language, and "1 critical" agreed with nothing. */}
+                    {t(`compare.riskCount.${level}`, { count })}
                   </Badge>
                 ))}
             </div>

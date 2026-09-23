@@ -69,10 +69,10 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       {/* Stats row */}
       <m.div variants={slideUp} className="flex gap-4 text-sm text-text-secondary">
         <span data-testid="node-record-count">
-          {node.recordCount} {t('forge.records')}
+          {t('common.recordCount', { count: node.recordCount })}
         </span>
         <span data-testid="node-field-count">
-          {node.fieldCount} {t('forge.fields')}
+          {t('common.fieldCount', { count: node.fieldCount })}
         </span>
       </m.div>
 

@@ -69,8 +69,8 @@ export const ComplianceTimeline: React.FC = () => {
               <span className="text-[10px] text-[var(--sf-text-secondary)]">{entry.timestamp}</span>
             </div>
             <div className="text-[10px] text-[var(--sf-text-secondary)]">
-              {entry.event} — {entry.fieldsAnonymized}{' '}
-              {t('autopilot.control.piiFields').toLowerCase()}
+              {entry.event} —{' '}
+              {t('autopilot.control.piiFieldCount', { count: entry.fieldsAnonymized })}
             </div>
           </div>
         </div>

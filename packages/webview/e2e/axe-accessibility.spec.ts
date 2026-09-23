@@ -366,6 +366,31 @@ function expectNoViolations(results: Awaited<ReturnType<typeof checkAccessibilit
   expect(violations.length, formatViolations(violations)).toBe(0);
 }
 
+/**
+ * How many texts inside `container` axe measured the contrast of.
+ *
+ * A clean scan proves nothing about a surface axe did not look at: text it
+ * cannot see — scrolled away, under an overlay, not rendered yet — lands in
+ * `incomplete`, not in `violations`. A scan that opens something new has to
+ * show that what it opened was measured.
+ */
+async function contrastMeasuredIn(
+  page: Page,
+  results: Awaited<ReturnType<typeof checkAccessibility>>,
+  container: string,
+): Promise<number> {
+  const selectors = results.passes
+    .filter((rule) => rule.id === 'color-contrast')
+    .flatMap((rule) => rule.nodes)
+    .map((node) => node.target[0])
+    .map((target) => (typeof target === 'string' ? target : target[target.length - 1]));
+  return page.evaluate(
+    ({ selectors: all, container: within }) =>
+      all.filter((selector) => document.querySelector(selector)?.closest(within) != null).length,
+    { selectors, container },
+  );
+}
+
 /** Boot a module panel under a host theme, without waiting on any page. */
 async function openPanel(
   bridge: MockBridge,
@@ -1283,6 +1308,99 @@ for (const theme of SCANNED_THEMES) {
       const initial = await checkAccessibility(page);
       expectNoViolations(initial);
     });
+
+    test('Settings, each tab open', async ({ page }) => {
+      // The page scan only ever saw the General tab: the four others were
+      // never rendered while axe looked.
+      await navigateToModule(bridge, page, 'settings', 'settings-page', { theme });
+      for (const tab of ['general', 'ai', 'advanced', 'profiles', 'telemetry']) {
+        await page.locator(`#tab-${tab}`).click();
+        const panel = page.locator(`#tabpanel-${tab}`);
+        await panel.waitFor({ state: 'visible', timeout: 5000 });
+        await expect(page.locator(`#tab-${tab}`)).toHaveAttribute('aria-selected', 'true');
+
+        const results = await checkAccessibility(page);
+        expectNoViolations(results);
+        expect(
+          await contrastMeasuredIn(page, results, `#tabpanel-${tab}`),
+          `axe measured no text of the ${tab} tab`,
+        ).toBeGreaterThan(0);
+      }
+    });
+
+    test('Command palette open over a page, with results', async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await page.keyboard.press('Control+k');
+      const palette = page.getByTestId('command-palette');
+      await palette.waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('command-palette-input').pressSequentially('se');
+      await page
+        .locator('[data-testid^="command-palette-item-"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="command-palette"]'),
+        'axe measured no text of the palette',
+      ).toBeGreaterThan(1);
+    });
+
+    test('Sync schedule builder, in simple and in advanced mode', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('page-tab-scheduler').click();
+      await bridge.waitForMessage('sync:schedule:list', { timeout: 10_000 });
+      await answerAll(page, 'sync:config:list', 'sync:config:list:response', {
+        configs: [
+          { id: 'cfg-1', name: 'Dev to QA', description: '', updatedAt: '2026-09-01T09:00:00Z' },
+        ],
+      });
+      await answerAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
+        schedules: [
+          {
+            id: 'nightly',
+            name: 'Accounts',
+            configId: 'cfg-1',
+            cron: '0 2 * * *',
+            timezone: 'UTC',
+            enabled: true,
+            maxRetries: 3,
+            notifyOnComplete: false,
+            notifyOnFailure: true,
+            createdAt: '2026-09-01T00:00:00Z',
+            updatedAt: '2026-09-01T00:00:00Z',
+            version: 1,
+          },
+        ],
+      });
+      await page.getByTestId('new-schedule-btn').click();
+      const builder = '[data-testid="cron-schedule-builder"]';
+      await page.locator(builder).waitFor({ state: 'visible', timeout: 5000 });
+
+      // Weekly: the day toggles, picked and not, and the preview that names them.
+      await page.getByTestId('preset-selector').selectOption('weekly');
+      await page.getByTestId('day-btn-WED').click();
+      await expect(page.getByTestId('day-btn-WED')).toHaveAttribute('aria-pressed', 'true');
+      const simple = await checkAccessibility(page);
+      expectNoViolations(simple);
+      expect(
+        await contrastMeasuredIn(page, simple, builder),
+        'axe measured no text of the builder',
+      ).toBeGreaterThan(5);
+      for (const measured of ['[data-testid="day-btn-MON"]', '[data-testid="day-btn-TUE"]']) {
+        expect(await contrastMeasuredIn(page, simple, measured), measured).toBe(1);
+      }
+
+      await page.getByTestId('mode-advanced-btn').click();
+      await page.getByTestId('advanced-mode-panel').waitFor({ state: 'visible', timeout: 5000 });
+      const advanced = await checkAccessibility(page);
+      expectNoViolations(advanced);
+      expect(
+        await contrastMeasuredIn(page, advanced, '[data-testid="advanced-mode-panel"]'),
+        'axe measured no text of the cron field or its help',
+      ).toBeGreaterThan(0);
+    });
   });
 }
 
@@ -1372,14 +1490,14 @@ async function openDeployTab(bridge: MockBridge, page: Page, theme: StateTheme):
         componentType: 'ApexClass',
         fullName: 'Billing',
         status: 'removed',
-        severity: 'breaking',
+        severity: 'info',
         deployable: true,
       },
       {
         componentType: 'ApexClass',
         fullName: 'Legacy',
         status: 'added',
-        severity: 'info',
+        severity: 'breaking',
         deployable: true,
       },
       {
@@ -1645,8 +1763,8 @@ for (const theme of STATE_THEMES) {
         mode: 'metadata',
         summary: {
           totalItems: 2,
-          added: 1,
-          removed: 0,
+          added: 0,
+          removed: 1,
           modified: 0,
           unchanged: 0,
           notCompared: 1,
@@ -1663,7 +1781,7 @@ for (const theme of STATE_THEMES) {
           {
             componentType: 'ApexClass',
             fullName: 'MyClass',
-            status: 'added',
+            status: 'removed',
             sourceValue: 'public class MyClass { }',
             severity: 'info',
             deployable: true,

@@ -72,7 +72,7 @@ Top to bottom, the launcher gives you:
    - **JWT** -- JWT bearer flow through `sf org login jwt`: the consumer key of a connected app or external client app that holds your certificate, a username pre-authorized on it, and the path of the private key file
    - **Device Flow** -- OAuth device flow: SandForge shows a code, opens the Salesforce page to enter it on, and waits up to ten minutes for your approval. It needs your own external client app with the device flow enabled
 3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically
-4. Once connected, your org appears as a card with its alias, type badge (PROD/SBX), and status dot
+4. Once connected, your org appears as a card with its alias, type badge, and status dot. The badge reads PROD, SCRATCH or DEVELOPER (a Developer Edition org), the kind of a sandbox (DEV, DEV PRO, PARTIAL or FULL, or SANDBOX when the kind is not known), or, for a sandbox or a Developer Edition org, an environment tag you gave it such as UAT or QA
 
 OAuth Web, Username/Password, JWT and Device Flow log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
 

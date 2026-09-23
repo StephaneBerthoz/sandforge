@@ -52,8 +52,11 @@ export interface ProductionGuardOptions {
    * requires explicit user confirmation. Resolves to the user's consent.
    * Wired in extension.ts to a modal `showWarningMessage`; absent in tests
    * (operations proceed, preserving pre-existing behavior).
+   *
+   * Handed the tier that asked: staging asks too, and the modal told every
+   * question that it wrote to a production org.
    */
-  requestConfirmation?: (impactSummary: string) => Promise<boolean>;
+  requestConfirmation?: (impactSummary: string, orgTier: SafetyTier) => Promise<boolean>;
 }
 
 /**
@@ -110,15 +113,18 @@ export class ProductionGuard {
    *
    * When no confirmation UI is wired (unit tests, headless hosts), proceeds
    * and returns true — the pre-existing behavior for every caller.
+   *
+   * @param result - The check of the operation.
+   * @param orgTier - The tier of the org it writes to, which the question names.
    */
-  async confirmIfNeeded(result: SafetyCheckResult): Promise<boolean> {
+  async confirmIfNeeded(result: SafetyCheckResult, orgTier: SafetyTier): Promise<boolean> {
     if (!result.allowed || !result.requiresConfirmation) {
       return result.allowed;
     }
     if (!this.options.requestConfirmation) {
       return true;
     }
-    return this.options.requestConfirmation(result.impactSummary);
+    return this.options.requestConfirmation(result.impactSummary, orgTier);
   }
 
   /** Whether production operations require an explicit confirmation (setting-backed). */

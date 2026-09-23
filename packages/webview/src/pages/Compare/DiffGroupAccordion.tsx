@@ -214,7 +214,7 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
               <span
                 style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}
               >
-                {group.diffs.length} {t('compare.changes', 'changes')}
+                {t('compare.changeCount', { count: group.diffs.length })}
               </span>
               {group.counts.added > 0 && <Badge variant="success">{group.counts.added}+</Badge>}
               {group.counts.removed > 0 && <Badge variant="error">{group.counts.removed}-</Badge>}
@@ -275,7 +275,7 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                       {/* Dependencies count */}
                       {diff.dependencies.length > 0 && (
                         <span style={{ fontSize: 'var(--sf-font-size-xs)' }}>
-                          {diff.dependencies.length} {t('compare.deps', 'deps')}
+                          {t('common.dependencyCount', { count: diff.dependencies.length })}
                         </span>
                       )}
                     </button>

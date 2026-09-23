@@ -178,7 +178,7 @@ describe('production confirmation modal (localized)', () => {
       services,
       configStore: createMockConfigStore(),
     });
-    const confirmed = await productionGuard.confirmIfNeeded(needsConfirmation);
+    const confirmed = await productionGuard.confirmIfNeeded(needsConfirmation, 'production');
 
     // Comparing the choice against a hardcoded English 'Execute' would deny
     // every production write for a translated UI.
@@ -196,7 +196,9 @@ describe('production confirmation modal (localized)', () => {
       configStore: createMockConfigStore(),
     });
 
-    await expect(productionGuard.confirmIfNeeded(needsConfirmation)).resolves.toBe(false);
+    await expect(productionGuard.confirmIfNeeded(needsConfirmation, 'production')).resolves.toBe(
+      false,
+    );
   });
 
   it('routes the modal body through l10n with the impact summary interpolated', async () => {
@@ -210,7 +212,7 @@ describe('production confirmation modal (localized)', () => {
       services,
       configStore: createMockConfigStore(),
     });
-    await productionGuard.confirmIfNeeded(needsConfirmation);
+    await productionGuard.confirmIfNeeded(needsConfirmation, 'production');
 
     const options = vi.mocked(vscode.window.showWarningMessage).mock.calls[0][1] as {
       modal: boolean;
@@ -220,6 +222,29 @@ describe('production confirmation modal (localized)', () => {
     expect(options.detail).toBe(
       '1 200 records on Account\n\nCette opération écrit des données dans une org de PRODUCTION.',
     );
+  });
+
+  it('does not tell a confirmation another tier asks for that it writes to production', async () => {
+    // Staging asks before a delete, a deployment or a large volume, and the
+    // modal said "SandForge: production operation … writes data to a
+    // PRODUCTION org" over it all the same.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    await productionGuard.confirmIfNeeded(needsConfirmation, 'staging');
+
+    const [title, options] = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as [
+      string,
+      { modal: boolean; detail: string },
+    ];
+    expect(title).toBe('SandForge: operation to confirm');
+    expect(options.detail).toBe(
+      '1 200 records on Account\n\nThis operation needs your confirmation before it runs.',
+    );
+    expect(`${title} ${options.detail}`).not.toMatch(/production/i);
   });
 });
 

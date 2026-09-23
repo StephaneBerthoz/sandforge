@@ -254,8 +254,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                 data-testid="show-more-btn"
               >
                 <ChevronDown className="w-3 h-3 mr-1" />
-                {t('monitor.showMore', 'Show more')} ({sortedHistory.length - displayLimit}{' '}
-                {t('monitor.remaining', 'remaining')})
+                {t('monitor.showMore', 'Show more')} (
+                {t('monitor.remainingCount', { count: sortedHistory.length - displayLimit })})
               </Button>
             )}
           </>

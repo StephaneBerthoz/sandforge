@@ -1263,6 +1263,7 @@ describe('ForgeHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(orchestrator.execute).not.toHaveBeenCalled();

@@ -130,12 +130,8 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
 
               {/* Stats */}
               <div className="flex gap-3 text-[10px] text-[var(--sf-text-secondary)]">
-                <span>
-                  {lineage.nodes.length} {t('reports.nodes').toLowerCase()}
-                </span>
-                <span>
-                  {lineage.edges.length} {t('reports.edges').toLowerCase()}
-                </span>
+                <span>{t('reports.nodeCount', { count: lineage.nodes.length })}</span>
+                <span>{t('reports.edgeCount', { count: lineage.edges.length })}</span>
               </div>
 
               {/* React Flow graph */}

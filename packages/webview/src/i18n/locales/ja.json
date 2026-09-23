@@ -37,7 +37,12 @@
     "typeToConfirm": "確認するには <code>{{text}}</code> と入力してください:",
     "time": "時刻",
     "recordIds": "レコード ID",
-    "statusAbbrev": "状"
+    "statusAbbrev": "状",
+    "recordCountFormatted_other": "{{formatted}}件のレコード",
+    "fieldCount_other": "{{count}}個のフィールド",
+    "itemCount_other": "{{count}}項目",
+    "dependencyCount_other": "{{count}}件の依存関係",
+    "apiCallCount_other": "API 呼び出し {{count}}回"
   },
   "status": {
     "apiUsage": "API使用量",
@@ -106,11 +111,11 @@
     "liveOps": {
       "title": "ライブオペレーション",
       "noOperations": "実行中の操作はありません",
-      "active": "アクティブ",
       "cancel": "キャンセル",
       "recsPerSec": "レコード/秒",
       "cancelRefused": "操作をキャンセルできませんでした",
-      "cancelRefusedDetail": "この実行はすでに終了しているか、ここからは停止できません。一覧を再読み込みしました。"
+      "cancelRefusedDetail": "この実行はすでに終了しているか、ここからは停止できません。一覧を再読み込みしました。",
+      "activeCount_other": "{{count}}件実行中"
     },
     "jobs": "ジョブ",
     "alerts": "アラート",
@@ -135,9 +140,7 @@
     "recentJobs": "最近のApexジョブ",
     "activeJobs_other": "{{count}} アクティブ",
     "noJobs": "最近のジョブはありません",
-    "runs": "実行回数",
     "success": "成功",
-    "failed": "失敗",
     "predictions": "制限到達予測",
     "noPredictions": "予測はありません",
     "errorTitle": "モニターエラー",
@@ -177,16 +180,16 @@
     },
     "storage": {
       "title": "オブジェクト別レコード数",
-      "totalRecords": "合計レコード",
       "empty": "レコード数を取得できません",
       "scope": "組織が数えるすべてのオブジェクト（設定オブジェクトやログを含む）です。データストレージの使用量ではありません。使用量は「データストレージ」タイルに表示されます。",
-      "listed": "レコード数が最も多い{{shown}}件（全{{total}}件中）。"
+      "listed": "レコード数が最も多い{{shown}}件（全{{total}}件中）。",
+      "totalRecordCount_other": "合計 {{formatted}}件のレコード"
     },
     "deployments": {
       "title": "最近のデプロイ",
       "empty": "最近のデプロイはありません",
-      "components": "コンポーネント",
-      "errors": "エラー"
+      "componentCount_other": "{{count}}個のコンポーネント",
+      "errorCount_other": "{{count}}件のエラー"
     },
     "apiUsage": {
       "title": "API使用量内訳",
@@ -220,7 +223,6 @@
     "ack": "確認",
     "resolved": "解決済み",
     "showMore": "さらに表示",
-    "remaining": "残り",
     "alertHistoryCount_other": "{{count}} 件のイベント",
     "activeAlertCount": "{{count}} 件がアクティブ",
     "apexInsights": {
@@ -292,7 +294,13 @@
       "sessionType": "セッション種別",
       "loginTime": "ログイン時刻",
       "sourceIp": "送信元 IP"
-    }
+    },
+    "remainingCount_other": "残り {{count}}件",
+    "runCount_other": "{{count}}回実行",
+    "failedCount_other": "{{count}}件失敗",
+    "jobErrorCount_other": "{{count}}件のエラー",
+    "flowCount_other": "{{formatted}}フロー",
+    "jobCount_other": "{{count}}件のジョブ"
   },
   "compare": {
     "title": "Org比較",
@@ -315,7 +323,6 @@
     "removed": "削除",
     "modified": "変更",
     "unchanged": "変更なし",
-    "notCompared": "未比較",
     "coverage": {
       "compared": "両方のOrgにある{{inBoth}}件のコンポーネントのうち、{{compared}}件の内容を比較しました。",
       "managedLeftOut": "管理パッケージがインストールしたもの（指定どおり除外）: {{count}}",
@@ -329,8 +336,6 @@
     "riskScore": "リスクスコア",
     "category": "カテゴリ",
     "group": "グループ",
-    "changes": "変更",
-    "deps": "依存関係",
     "diffDetails": "{{name}}の差分詳細",
     "riskReasons": "リスク要因",
     "dependencies": "依存関係",
@@ -361,6 +366,14 @@
       "apexTests": "すべての Apex テストを実行してください。",
       "lowRisk": "低リスク。デプロイしても安全です。",
       "review": "デプロイ前に変更を確認してください。"
+    },
+    "riskReason": {
+      "sourceOnly": "ソースにのみ存在します。デプロイするとターゲットに作成されます。",
+      "targetOnlyDataModel": "ターゲットにのみ存在します。ソースに合わせて削除すると、保持しているデータが失われる可能性があります。",
+      "targetOnlyApex": "ターゲットにのみ存在します。ソースに合わせて削除すると、依存しているものが動作しなくなる可能性があります。",
+      "flowChanged": "フローの変更は、有効なプロセス自動化に影響する可能性があります。",
+      "profileChanged": "プロファイルの変更は、ユーザーの権限を変える可能性があります。",
+      "breaking": "互換性のない変更です。"
     },
     "deployment": {
       "title": "{{source}} から {{target}} へデプロイ",
@@ -457,6 +470,21 @@
         "coverageTitle": "ターゲットが不足と判断したカバレッジ",
         "retrieveProblemsTitle": "ソースからの報告"
       }
+    },
+    "count": {
+      "added_other": "{{count}}件追加",
+      "removed_other": "{{count}}件削除",
+      "modified_other": "{{count}}件変更",
+      "unchanged_other": "{{count}}件変更なし",
+      "notCompared_other": "{{count}}件未比較"
+    },
+    "changeCount_other": "{{count}}件の変更",
+    "riskCount": {
+      "none_other": "リスクなし {{count}}件",
+      "low_other": "低リスク {{count}}件",
+      "medium_other": "中リスク {{count}}件",
+      "high_other": "高リスク {{count}}件",
+      "critical_other": "重大リスク {{count}}件"
     }
   },
   "seed": {
@@ -499,7 +527,6 @@
       "problemNumbers": "各フィールドの範囲内の数値を入力してください。",
       "problemNoChildren": "このリレーションでは {{child}} レコードが作成されません。子または親の数を増やしてください。"
     },
-    "execute": "実行",
     "executeDesc": "Seed操作を実行",
     "cancelRunConfirm": "実行中のデータ生成を停止しますか？挿入済みのレコードは組織に残ります。",
     "fieldRules": {
@@ -517,8 +544,6 @@
     "recordCount": "レコード数",
     "batchSize": "バッチサイズ",
     "totalRecords": "合計レコード",
-    "dependencies": "依存関係",
-    "sampleRecords": "サンプルレコード",
     "saveAsTemplate": "テンプレートとして保存",
     "templateSaved": "テンプレートを保存しました。次回はギャラリーから選べます。",
     "recordsCreated": "作成レコード数",
@@ -717,7 +742,8 @@
         "duration": "所要時間",
         "idMapping": "IDマッピング",
         "exportMapping": "IDマッピングをエクスポート",
-        "done": "完了"
+        "done": "完了",
+        "insertedOf_other": "{{inserted}}/{{count}}件挿入"
       },
       "wizard": {
         "stepSource": "ソース組織",
@@ -749,7 +775,9 @@
     "results": {
       "aiFallback": "AI が値を返さなかったため、次のフィールドには生成された文が入りました: {{fields}}。AI がオフになっているか、呼び出しが拒否されました（理由は SandForge のログに記録されます）。",
       "aiFallbackShort": "AI の応答に値が欠けていたため、次のフィールドには生成された文が入りました: {{fields}}。"
-    }
+    },
+    "sampleRecordCount_other": "{{count}}件のサンプルレコード",
+    "failedRecordCount_other": "{{count}}件失敗"
   },
   "sync": {
     "title": "データ同期",
@@ -770,7 +798,6 @@
       "target_to_source": "ターゲットからソース",
       "bidirectional": "双方向"
     },
-    "mode": "モード",
     "modes": {
       "full": "フル",
       "incremental": "インクリメンタル",
@@ -834,7 +861,6 @@
     "complete": "同期完了",
     "partial": "一部完了",
     "failed": "同期失敗",
-    "schedule": "スケジュール",
     "addTransform": "変換を追加",
     "addMapping": "マッピングを追加",
     "autoMap": "自動マッピング",
@@ -865,7 +891,6 @@
       "start": "開始",
       "stop": "停止",
       "metrics": "メトリクス",
-      "events": "イベント",
       "status": {
         "disconnected": "切断",
         "connecting": "接続中",
@@ -931,7 +956,8 @@
         "average": "平均： {{value}}ms",
         "since": "{{time}}から",
         "evtPerSec": "evt/s"
-      }
+      },
+      "eventCount_other": "{{count}}件のイベント"
     },
     "tabs": {
       "sync": "Sync",
@@ -964,7 +990,8 @@
         "deleteEdit": "削除 / 編集",
         "editDelete": "編集 / 削除",
         "createEdit": "作成 / 編集"
-      }
+      },
+      "autoResolved_other": "自動解決（{{count}}個のフィールド）"
     },
     "emptyState": {
       "title": "2つのOrgを同期",
@@ -999,6 +1026,13 @@
       "notifyOnComplete": "完了時に通知",
       "notifyOnFailure": "失敗時に通知",
       "preview": "プレビュー",
+      "cron": {
+        "hourly": "1 時間ごと",
+        "daily": "毎日 {{time}}",
+        "weekly": "毎週{{days}} {{time}}",
+        "monthly": "毎月 {{day}} 日 {{time}}",
+        "daySeparator": "、"
+      },
       "noSavedConfig": "まず Sync タブで設定を保存してください。スケジュールは保存済みの設定を実行します。",
       "emptyTitle": "スケジュールがありません",
       "emptyDesc": "手動で実行する代わりに、定期スケジュールで同期を自動実行します。",
@@ -1046,7 +1080,9 @@
     },
     "piiWarningTitle": "PII を検出",
     "mappingForObject": "マッピング対象",
-    "mappingForObjectHint": "各オブジェクトは、それ自身のために作成したマッピングを持ちます。マッピングしなかったオブジェクトは項目をそのまま複製します。"
+    "mappingForObjectHint": "各オブジェクトは、それ自身のために作成したマッピングを持ちます。マッピングしなかったオブジェクトは項目をそのまま複製します。",
+    "fieldMappingCount_other": "{{count}}件のフィールドマッピング",
+    "transformCount_other": "{{count}}件の変換"
   },
   "migration": {
     "title": "移行",
@@ -1502,8 +1538,6 @@
     "stepConfigWhere": "WHERE句",
     "stepConfigTemplate": "テンプレートID",
     "noExecution": "アクティブな実行はありません",
-    "failed": "失敗",
-    "errors": "エラー",
     "subtitle": "複数ステップのパイプラインを作成・保存",
     "savePipeline": "パイプラインを保存",
     "saving": "保存中...",
@@ -1552,7 +1586,11 @@
       "today": "今日",
       "tomorrow": "明日",
       "unplanned": "実行予定なし: cron 式から次回時刻が得られません"
-    }
+    },
+    "stepCount_other": "{{count}}ステップ",
+    "stepsDone_other": "{{done}}/{{count}}ステップ",
+    "failedStepCount_other": "{{count}}件失敗",
+    "errorCount_other": "{{count}}件のエラー"
   },
   "ai": {
     "title": "AIアシスタント",
@@ -1692,7 +1730,9 @@
       "backup": "バックアップ",
       "dataset": "凍結データセット"
     },
-    "object": "オブジェクト"
+    "object": "オブジェクト",
+    "nodeCount_other": "{{count}}個のノード",
+    "edgeCount_other": "{{count}}本のエッジ"
   },
   "settings": {
     "title": "設定",
@@ -1727,7 +1767,14 @@
     },
     "timedOut": "SandForge は {{request}} に {{seconds}} 秒以内に応答しませんでした。もう一度お試しください。繰り返し発生する場合は、SandForge の出力チャネルを確認してください。",
     "failed": "{{request}} は失敗しましたが、SandForge から理由は返されませんでした。SandForge の出力チャネルを確認してください。",
-    "rejected": "SandForge は {{request}} を受け付けませんでした。理由は SandForge の出力チャネルに表示されます。"
+    "rejected": "SandForge は {{request}} を受け付けませんでした。理由は SandForge の出力チャネルに表示されます。",
+    "dropped": {
+      "title": "リクエストが破棄されました",
+      "unreadable": "SandForge はこのパネルからのリクエストを読み取れなかったため、破棄しました。何が問題だったかは SandForge の出力チャネルに表示されます。",
+      "rateLimited": "SandForge が一度に受け付ける数を超えるリクエストを受信したため、1 件を破棄しました。しばらくしてからもう一度お試しください。",
+      "unhandled": "このパネルが SandForge の処理しないリクエストを送信したため、破棄されました。パネルと拡張機能が同じバージョンで動作するよう、ウィンドウを再読み込みしてください。",
+      "other": "SandForge はこのパネルからのリクエストを破棄しました。理由は SandForge の出力チャネルに表示されます。"
+    }
   },
   "onboarding": {
     "welcomeTitle": "SandForgeへようこそ",
@@ -1745,7 +1792,6 @@
     "chooseLanguage": "言語を選択してください",
     "step4Title": "最初のステップ",
     "step4Desc": "Orgタイプに基づいた推奨スタートポイントです",
-    "suggestSeed": "Seedからスタートして、リアルなテストデータでSandboxを充実させましょう",
     "suggestMonitor": "Monitorからスタートして、本番Orgの健全性を把握しましょう",
     "openSeed": "Seedを開く",
     "openMonitor": "モニターを開く",
@@ -2050,6 +2096,7 @@
     "templateRootRecord": "クローン元のレコード",
     "templateRootRecordHint": "このテンプレートは 1 件のレコードと、それに関連するすべてを複製します。レコード ID または Salesforce の URL を貼り付けてください。",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
+    "soqlQuery": "SOQL クエリ",
     "depth": "深さ",
     "depthDirect": "直接のみ",
     "depthFull": "ツリー全体",
@@ -2242,16 +2289,14 @@
       "existingNote_other": "うち {{count}} 件はターゲット組織に既にあり、作成せずにリンクしました。",
       "existingBadge": "既存"
     },
-    "apiCalls": "API コール数",
     "preview": {
       "title": "実行時に行われる処理",
-      "truncated": "グラフが切り詰められました (50 ノードの上限に到達)",
       "truncatedAction": "オブジェクト数の上限でグラフが打ち切られました。足りないものがあれば上限を上げて探索し直してください",
       "willClone": "複製される",
       "willMap": "マッピングされる",
       "skippedExcluded": "スキップ (除外)",
       "skippedEmpty": "スキップ (空)",
-      "cycles": "サイクル (2 パスの UPDATE)"
+      "cycleCount_other": "{{count}}個の循環（2 パスの UPDATE）"
     },
     "errorsPanel": {
       "title": "実行エラー"
@@ -2278,7 +2323,9 @@
       "diffsFound_other": "ソースとターゲットの間で {{count}} 件の差分が見つかりました。",
       "planLoading": "実行プランを生成しています...",
       "wave": "ウェーブ",
-      "cycles": "循環参照の解決"
+      "cycles": "循環参照の解決",
+      "fieldsAnonymized_other": "{{count}}個のフィールドを匿名化",
+      "fieldsScanned_other": "合計 {{count}}個のフィールドをスキャン"
     },
     "history": {
       "title": "最近の実行",
@@ -2396,8 +2443,6 @@
     "step2": {
       "title": "オブジェクトを選択",
       "selectAll": "すべて選択",
-      "records": "レコード",
-      "selected": "{{count}}個のオブジェクトが選択済み",
       "description": "Autopilot実行に含めるオブジェクトを選択してください。",
       "searchPlaceholder": "オブジェクトを検索...",
       "noResults": "検索に一致するオブジェクトがありません。",
@@ -2484,7 +2529,8 @@
       "linked": "既存のレコードにリンク済み",
       "refusals": "レコードが拒否された理由",
       "statusesApplied": "子レコードの後に適用されたステータス",
-      "statusRefusals": "ステータスが適用されなかった理由"
+      "statusRefusals": "ステータスが適用されなかった理由",
+      "piiFieldCount_other": "{{count}}個の PII フィールド"
     },
     "report": {
       "title": "コンプライアンスレポート",
@@ -2538,6 +2584,7 @@
     "orgType": {
       "prod": "PROD",
       "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
       "dev": "DEV",
       "devPro": "DEV PRO",
       "partial": "PARTIAL",
@@ -2694,7 +2741,11 @@
     "step2Desc": "パーティションは順番に処理され、完了ごとに報告されます",
     "step3Title": "実行の合計",
     "step3Desc": "実行が終わると、ビューにパーティション数と処理済み・失敗レコード数が残ります",
-    "openSeed": "Seedを開く"
+    "openSeed": "Seedを開く",
+    "openSetting": "Grappe の設定を開く",
+    "processedCount_other": "{{formatted}}件処理済み",
+    "failedCount_other": "{{formatted}}件失敗",
+    "partitionCount_other": "{{count}}パーティション"
   },
   "errorBoundary": {
     "title": "問題が発生しました",
@@ -2736,9 +2787,10 @@
     "notMeasured": "未測定",
     "policies": "ポリシー",
     "noPolicies": "ガバナンスポリシーが設定されていません。ポリシーを追加して始めましょう。",
-    "rules": "ルール",
+    "deletePolicyNamed": "{{name}} を削除",
     "ruleResults": "ルール結果",
-    "remediations": "修正チェックリスト"
+    "remediations": "修正チェックリスト",
+    "ruleCount_other": "{{count}}件のルール"
   },
   "quickSync": {
     "title": "クイックSync",
@@ -2816,6 +2868,7 @@
     "urgencyCritical": "重大",
     "urgencyWarning": "警告",
     "urgencySafe": "安全",
-    "runFinished": "{{name}} が完了しました。書き込み: {{total}} 件中 {{written}} 件。"
+    "runFinished": "{{name}} が完了しました。書き込み: {{total}} 件中 {{written}} 件。",
+    "runStopped": "{{name}} は {{percent}}% で停止しました。"
   }
 }

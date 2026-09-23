@@ -607,7 +607,7 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     fireEvent.click(screen.getByTestId('group-toggle-Bulk Upsert'));
-    expect(screen.getByText('(12 err)')).toBeDefined();
+    expect(screen.getByText('(12 errors)')).toBeDefined();
   });
 
   // 9. Refresh button

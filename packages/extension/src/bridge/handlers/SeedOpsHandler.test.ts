@@ -2279,6 +2279,7 @@ describe('SeedOpsHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 5 SeedData record(s) on production org org-1 [module: seed]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(execute).not.toHaveBeenCalled();

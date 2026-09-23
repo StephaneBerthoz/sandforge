@@ -642,3 +642,31 @@ test('a key named only in a comment is still unreferenced', () => {
   assert.ok(quoted.output.includes(NO_FRESH), quoted.output);
   assert.equal(quoted.status, 0);
 });
+
+// --- section 6: a mention is the whole key ----------------------------------
+
+test('a key named only as the start of a longer key is still unreferenced', () => {
+  // `autopilot.step2.selected` lived on as the start of `…selectedCount` and
+  // `…selectedObjects`, long after the last call that rendered it was gone.
+  const prefixed = runGate({
+    [`${LOCALES}/en.json`]: JSON.stringify({
+      ...EN,
+      stale: { note: 'Retired note', noteShown: 'Shown note' },
+    }),
+    [`${LOCALES}/fr.json`]: JSON.stringify({
+      ...fr(),
+      stale: { note: 'Note retirée', noteShown: 'Note affichée' },
+    }),
+    'packages/webview/src/App.tsx': app("t('stale.noteShown')"),
+  });
+  assert.ok(prefixed.output.includes('✗ 1 newly unreferenced key(s)'), prefixed.output);
+  assert.ok(prefixed.output.includes('    - stale.note\n'), prefixed.output);
+  assert.equal(prefixed.status, 1);
+
+  // A key written whole, or with the plural suffix it is rendered through, is named.
+  const named = runGate({
+    'packages/webview/src/App.tsx': app("t('greeting.itemCount_one')"),
+  });
+  assert.ok(named.output.includes(NO_FRESH), named.output);
+  assert.equal(named.status, 0);
+});

@@ -91,6 +91,7 @@ const INITIAL_STATE = {
   anonymizationPresetId: '',
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
+  stoppedAt: null as number | null,
 };
 
 /** Forge state machine store — state and actions. */
@@ -129,6 +130,16 @@ export interface ForgeState {
   executionRequestId: string | null;
   /** Record the id of the forge:execute request that started the run. */
   setExecutionRequestId: (requestId: string | null) => void;
+  /**
+   * How far the last run had gone when it was stopped, in percent, or null.
+   *
+   * Kept here because an aborted run leaves the screen that ran it at once:
+   * the page says it stopped from a region that outlives the phase, as the
+   * results screen says a run finished.
+   */
+  stoppedAt: number | null;
+  /** Record where a run stopped, or clear it (null). */
+  setStoppedAt: (percent: number | null) => void;
 
   /** Set the forge configuration. */
   setConfig: (config: ForgeConfig) => void;
@@ -212,6 +223,10 @@ export const useForgeStore = create<ForgeState>((set) => ({
 
   setExecutionRequestId(executionRequestId: string | null): void {
     set({ executionRequestId });
+  },
+
+  setStoppedAt(stoppedAt: number | null): void {
+    set({ stoppedAt });
   },
 
   updateNodeStatus(objectName: string, status: ForgeNodeStatus, progress?: number): void {
@@ -450,6 +465,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
       complianceReport: null,
       metadataDiffs: [],
       logs: [],
+      stoppedAt: null,
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
   },

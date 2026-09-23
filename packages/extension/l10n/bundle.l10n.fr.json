@@ -4,6 +4,8 @@
   "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.": "SandForge : l'opération {0} en file d'attente n'a pas pu être rejouée et a été retirée de la file hors ligne.",
   "SandForge: production operation": "SandForge : opération en production",
   "{0}\n\nThis operation writes data to a PRODUCTION org.": "{0}\n\nCette opération écrit des données dans une org de PRODUCTION.",
+  "SandForge: operation to confirm": "SandForge : opération à confirmer",
+  "{0}\n\nThis operation needs your confirmation before it runs.": "{0}\n\nCette opération a besoin de votre confirmation avant de s'exécuter.",
   "Execute": "Exécuter",
   "SandForge: restore into another org": "SandForge : restauration dans une autre org",
   "Restore anyway": "Restaurer quand même",

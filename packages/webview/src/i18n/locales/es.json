@@ -39,7 +39,17 @@
     "typeToConfirm": "Escriba <code>{{text}}</code> para confirmar:",
     "time": "Hora",
     "recordIds": "ID de registro",
-    "statusAbbrev": "St"
+    "statusAbbrev": "St",
+    "recordCountFormatted_one": "{{formatted}} registro",
+    "recordCountFormatted_other": "{{formatted}} registros",
+    "fieldCount_one": "{{count}} campo",
+    "fieldCount_other": "{{count}} campos",
+    "itemCount_one": "{{count}} elemento",
+    "itemCount_other": "{{count}} elementos",
+    "dependencyCount_one": "{{count}} dependencia",
+    "dependencyCount_other": "{{count}} dependencias",
+    "apiCallCount_one": "{{count}} llamada a la API",
+    "apiCallCount_other": "{{count}} llamadas a la API"
   },
   "status": {
     "apiUsage": "Uso de API",
@@ -108,11 +118,12 @@
     "liveOps": {
       "title": "Operaciones en vivo",
       "noOperations": "Sin operaciones en ejecución",
-      "active": "activas",
       "cancel": "Cancelar",
       "recsPerSec": "reg/s",
       "cancelRefused": "No se pudo cancelar la operación",
-      "cancelRefusedDetail": "La ejecución ya no está en curso o no se puede detener desde aquí. La lista se ha vuelto a leer."
+      "cancelRefusedDetail": "La ejecución ya no está en curso o no se puede detener desde aquí. La lista se ha vuelto a leer.",
+      "activeCount_one": "{{count}} activa",
+      "activeCount_other": "{{count}} activas"
     },
     "jobs": "Jobs",
     "alerts": "Alertas",
@@ -140,9 +151,7 @@
     "activeJobs_one": "{{count}} activo",
     "activeJobs_other": "{{count}} activos",
     "noJobs": "Sin jobs recientes",
-    "runs": "ejecuciones",
     "success": "éxito",
-    "failed": "fallido",
     "predictions": "Predicciones de tiempo hasta el límite",
     "noPredictions": "Sin predicciones disponibles",
     "errorTitle": "Error de Monitor",
@@ -183,16 +192,19 @@
     },
     "storage": {
       "title": "Registros por objeto",
-      "totalRecords": "registros totales",
       "empty": "No hay recuentos de registros disponibles",
       "scope": "Todos los objetos que cuenta la org, incluidos los de configuración y de registro: no es el uso del almacenamiento de datos, que muestra el mosaico Almacenamiento de datos.",
-      "listed": "Los {{shown}} objetos con más registros, de {{total}}."
+      "listed": "Los {{shown}} objetos con más registros, de {{total}}.",
+      "totalRecordCount_one": "{{formatted}} registro en total",
+      "totalRecordCount_other": "{{formatted}} registros en total"
     },
     "deployments": {
       "title": "Despliegues recientes",
       "empty": "Sin despliegues recientes",
-      "components": "componentes",
-      "errors": "errores"
+      "componentCount_one": "{{count}} componente",
+      "componentCount_other": "{{count}} componentes",
+      "errorCount_one": "{{count}} error",
+      "errorCount_other": "{{count}} errores"
     },
     "apiUsage": {
       "title": "Desglose de uso de API",
@@ -227,7 +239,6 @@
     "ack": "Confirmar",
     "resolved": "Resuelta",
     "showMore": "Mostrar más",
-    "remaining": "restantes",
     "alertHistoryCount_one": "{{count}} evento",
     "alertHistoryCount_other": "{{count}} eventos",
     "activeAlertCount": "{{count}} activas",
@@ -302,7 +313,19 @@
       "sessionType": "Tipo de sesión",
       "loginTime": "Hora de inicio de sesión",
       "sourceIp": "IP de origen"
-    }
+    },
+    "remainingCount_one": "{{count}} restante",
+    "remainingCount_other": "{{count}} restantes",
+    "runCount_one": "{{count}} ejecución",
+    "runCount_other": "{{count}} ejecuciones",
+    "failedCount_one": "{{count}} fallido",
+    "failedCount_other": "{{count}} fallidos",
+    "jobErrorCount_one": "{{count}} error",
+    "jobErrorCount_other": "{{count}} errores",
+    "flowCount_one": "{{formatted}} flow",
+    "flowCount_other": "{{formatted}} flows",
+    "jobCount_one": "{{count}} job",
+    "jobCount_other": "{{count}} jobs"
   },
   "compare": {
     "title": "Comparar Org",
@@ -325,7 +348,6 @@
     "removed": "Eliminado",
     "modified": "Modificado",
     "unchanged": "Sin cambios",
-    "notCompared": "Sin comparar",
     "coverage": {
       "compared": "Contenido comparado en {{compared}} de los {{inBoth}} componentes presentes en ambas orgs.",
       "managedLeftOut": "Instalados por un paquete gestionado, omitidos como se pidió: {{count}}",
@@ -339,8 +361,6 @@
     "riskScore": "Puntaje de riesgo",
     "category": "Categoría",
     "group": "Grupo",
-    "changes": "cambios",
-    "deps": "dependencias",
     "diffDetails": "Detalles del diff de {{name}}",
     "riskReasons": "Razones de riesgo",
     "dependencies": "Dependencias",
@@ -374,6 +394,14 @@
       "apexTests": "Ejecute todas las pruebas de Apex.",
       "lowRisk": "Riesgo bajo. Despliegue seguro.",
       "review": "Revise los cambios antes de desplegar."
+    },
+    "riskReason": {
+      "sourceOnly": "Solo el origen lo contiene: un despliegue lo crea en el destino.",
+      "targetOnlyDataModel": "Solo el destino lo contiene: quitarlo para igualarlo con el origen puede hacer perder los datos que contiene.",
+      "targetOnlyApex": "Solo el destino lo contiene: quitarlo para igualarlo con el origen puede romper lo que depende de él.",
+      "flowChanged": "Los cambios en un flow pueden afectar a las automatizaciones activas.",
+      "profileChanged": "Los cambios en un perfil pueden alterar los permisos de los usuarios.",
+      "breaking": "Es un cambio incompatible."
     },
     "deployment": {
       "title": "Desplegar de {{source}} a {{target}}",
@@ -475,6 +503,32 @@
         "coverageTitle": "Cobertura que el destino consideró insuficiente",
         "retrieveProblemsTitle": "Lo que indicó el origen"
       }
+    },
+    "count": {
+      "added_one": "{{count}} agregado",
+      "added_other": "{{count}} agregados",
+      "removed_one": "{{count}} eliminado",
+      "removed_other": "{{count}} eliminados",
+      "modified_one": "{{count}} modificado",
+      "modified_other": "{{count}} modificados",
+      "unchanged_one": "{{count}} sin cambios",
+      "unchanged_other": "{{count}} sin cambios",
+      "notCompared_one": "{{count}} sin comparar",
+      "notCompared_other": "{{count}} sin comparar"
+    },
+    "changeCount_one": "{{count}} cambio",
+    "changeCount_other": "{{count}} cambios",
+    "riskCount": {
+      "none_one": "{{count}} sin riesgo",
+      "none_other": "{{count}} sin riesgo",
+      "low_one": "{{count}} bajo",
+      "low_other": "{{count}} bajos",
+      "medium_one": "{{count}} medio",
+      "medium_other": "{{count}} medios",
+      "high_one": "{{count}} alto",
+      "high_other": "{{count}} altos",
+      "critical_one": "{{count}} crítico",
+      "critical_other": "{{count}} críticos"
     }
   },
   "seed": {
@@ -519,7 +573,6 @@
       "problemNumbers": "Introduzca un número dentro de los límites de cada campo.",
       "problemNoChildren": "Esta relación no crea ningún registro {{child}}: aumente el número de hijos o de padres."
     },
-    "execute": "Ejecutar",
     "executeDesc": "Ejecutar la operación de seed",
     "cancelRunConfirm": "¿Detener la generación en curso? Los registros ya insertados permanecen en la org.",
     "fieldRules": {
@@ -537,8 +590,6 @@
     "recordCount": "Cantidad de registros",
     "batchSize": "Tamaño de lote",
     "totalRecords": "Total de registros",
-    "dependencies": "Dependencias",
-    "sampleRecords": "Registros de ejemplo",
     "saveAsTemplate": "Guardar como plantilla",
     "templateSaved": "Plantilla guardada. Elíjala en la galería la próxima vez.",
     "recordsCreated": "Registros creados",
@@ -745,7 +796,9 @@
         "duration": "Duración",
         "idMapping": "Mapeo de IDs",
         "exportMapping": "Exportar mapeo de IDs",
-        "done": "Hecho"
+        "done": "Hecho",
+        "insertedOf_one": "{{inserted}}/{{count}} insertado",
+        "insertedOf_other": "{{inserted}}/{{count}} insertados"
       },
       "wizard": {
         "stepSource": "Org de origen",
@@ -777,7 +830,11 @@
     "results": {
       "aiFallback": "La IA no devolvió ningún valor, así que estos campos recibieron frases generadas: {{fields}}. La IA está desactivada, o la llamada fue rechazada (el registro de SandForge indica el motivo).",
       "aiFallbackShort": "A la respuesta de la IA le faltaban valores, así que estos campos recibieron frases generadas: {{fields}}."
-    }
+    },
+    "sampleRecordCount_one": "{{count}} registro de muestra",
+    "sampleRecordCount_other": "{{count}} registros de muestra",
+    "failedRecordCount_one": "{{count}} fallido",
+    "failedRecordCount_other": "{{count}} fallidos"
   },
   "sync": {
     "title": "Sincronizar datos",
@@ -798,7 +855,6 @@
       "target_to_source": "Destino a origen",
       "bidirectional": "Bidireccional"
     },
-    "mode": "Modo",
     "modes": {
       "full": "Completo",
       "incremental": "Incremental",
@@ -862,7 +918,6 @@
     "complete": "Sync completado",
     "partial": "Parcialmente completado",
     "failed": "Sync fallido",
-    "schedule": "Programación",
     "addTransform": "Agregar transformación",
     "addMapping": "Agregar mapeo",
     "autoMap": "Mapeo automático",
@@ -894,7 +949,6 @@
       "start": "Iniciar",
       "stop": "Detener",
       "metrics": "Métricas",
-      "events": "eventos",
       "status": {
         "disconnected": "Desconectado",
         "connecting": "Conectando",
@@ -961,7 +1015,9 @@
         "average": "prom.: {{value}}ms",
         "since": "desde {{time}}",
         "evtPerSec": "ev/s"
-      }
+      },
+      "eventCount_one": "{{count}} evento",
+      "eventCount_other": "{{count}} eventos"
     },
     "tabs": {
       "sync": "Sync",
@@ -996,7 +1052,9 @@
         "deleteEdit": "Eliminación / Edición",
         "editDelete": "Edición / Eliminación",
         "createEdit": "Creación / Edición"
-      }
+      },
+      "autoResolved_one": "Resuelto automáticamente ({{count}} campo)",
+      "autoResolved_other": "Resuelto automáticamente ({{count}} campos)"
     },
     "emptyState": {
       "title": "Mantenga dos orgs sincronizadas",
@@ -1031,6 +1089,13 @@
       "notifyOnComplete": "Notificar al finalizar",
       "notifyOnFailure": "Notificar si falla",
       "preview": "Vista previa",
+      "cron": {
+        "hourly": "Cada hora",
+        "daily": "Todos los días a las {{time}}",
+        "weekly": "Cada {{days}} a las {{time}}",
+        "monthly": "Cada mes el día {{day}} a las {{time}}",
+        "daySeparator": ", "
+      },
       "noSavedConfig": "Guarde primero una configuración en la pestaña Sync: una programación ejecuta una configuración guardada.",
       "emptyTitle": "Aún no hay programaciones",
       "emptyDesc": "Ejecute una sincronización automáticamente según una programación periódica en lugar de lanzarla a mano.",
@@ -1078,7 +1143,11 @@
     },
     "piiWarningTitle": "PII detectada",
     "mappingForObject": "Asignación de",
-    "mappingForObjectHint": "Cada objeto lleva las asignaciones creadas para él. Los objetos sin asignación se copian campo por campo."
+    "mappingForObjectHint": "Cada objeto lleva las asignaciones creadas para él. Los objetos sin asignación se copian campo por campo.",
+    "fieldMappingCount_one": "{{count}} mapeo de campos",
+    "fieldMappingCount_other": "{{count}} mapeos de campos",
+    "transformCount_one": "{{count}} transformación",
+    "transformCount_other": "{{count}} transformaciones"
   },
   "migration": {
     "title": "Migración",
@@ -1563,8 +1632,6 @@
     "stepConfigWhere": "Cláusula WHERE",
     "stepConfigTemplate": "ID de plantilla",
     "noExecution": "Sin ejecución activa",
-    "failed": "fallido",
-    "errors": "errores",
     "subtitle": "Componga y guarde pipelines de varios pasos",
     "savePipeline": "Guardar pipeline",
     "saving": "Guardando...",
@@ -1613,7 +1680,15 @@
       "today": "Hoy",
       "tomorrow": "Mañana",
       "unplanned": "Ninguna ejecución prevista: la expresión cron no da una próxima hora"
-    }
+    },
+    "stepCount_one": "{{count}} paso",
+    "stepCount_other": "{{count}} pasos",
+    "stepsDone_one": "{{done}}/{{count}} paso",
+    "stepsDone_other": "{{done}}/{{count}} pasos",
+    "failedStepCount_one": "{{count}} fallido",
+    "failedStepCount_other": "{{count}} fallidos",
+    "errorCount_one": "{{count}} error",
+    "errorCount_other": "{{count}} errores"
   },
   "ai": {
     "title": "Asistente IA",
@@ -1758,7 +1833,11 @@
       "backup": "Respaldo",
       "dataset": "Dataset congelado"
     },
-    "object": "Objeto"
+    "object": "Objeto",
+    "nodeCount_one": "{{count}} nodo",
+    "nodeCount_other": "{{count}} nodos",
+    "edgeCount_one": "{{count}} arista",
+    "edgeCount_other": "{{count}} aristas"
   },
   "settings": {
     "title": "Configuración",
@@ -1793,7 +1872,14 @@
     },
     "timedOut": "SandForge no respondió a {{request}} en {{seconds}} s. Vuelva a intentarlo; si se repite, consulte el canal de salida de SandForge.",
     "failed": "{{request}} falló sin que SandForge diera un motivo. Consulte el canal de salida de SandForge.",
-    "rejected": "SandForge rechazó {{request}}. El canal de salida de SandForge indica el motivo."
+    "rejected": "SandForge rechazó {{request}}. El canal de salida de SandForge indica el motivo.",
+    "dropped": {
+      "title": "Solicitud descartada",
+      "unreadable": "SandForge no pudo leer una solicitud de este panel y la descartó. El canal de salida de SandForge indica qué tenía de incorrecto.",
+      "rateLimited": "SandForge recibió más solicitudes a la vez de las que acepta y descartó una. Vuelva a intentarlo en un momento.",
+      "unhandled": "Este panel envió una solicitud que SandForge no gestiona, y se descartó. Recargue la ventana para que el panel y la extensión ejecuten la misma versión.",
+      "other": "SandForge descartó una solicitud de este panel. El canal de salida de SandForge indica el motivo."
+    }
   },
   "onboarding": {
     "welcomeTitle": "Bienvenido a SandForge",
@@ -1811,7 +1897,6 @@
     "chooseLanguage": "Elija su idioma",
     "step4Title": "Primeros pasos",
     "step4Desc": "Según su tipo de org, aquí hay un punto de partida recomendado",
-    "suggestSeed": "Comience con Seed para poblar su sandbox con datos de prueba realistas",
     "suggestMonitor": "Comience con Monitor para vigilar la salud de su org de producción",
     "openSeed": "Abrir Seed",
     "openMonitor": "Abrir Monitor",
@@ -2117,6 +2202,7 @@
     "templateRootRecord": "Registro desde el que clonar",
     "templateRootRecordHint": "Esta plantilla clona un registro y todo lo relacionado con él. Pegue el id del registro o su URL de Salesforce.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
+    "soqlQuery": "Consulta SOQL",
     "depth": "Profundidad",
     "depthDirect": "Solo directos",
     "depthFull": "Árbol completo",
@@ -2313,16 +2399,15 @@
       "existingNote_other": "{{count}} de ellos ya estaban en la org destino: vinculados, no creados.",
       "existingBadge": "existente"
     },
-    "apiCalls": "Llamadas a la API",
     "preview": {
       "title": "Qué ocurrirá al ejecutar",
-      "truncated": "Grafo truncado (límite de 50 nodos alcanzado)",
       "truncatedAction": "Grafo cortado por el tope de objetos — súbelo y vuelve a descubrir si falta algo",
       "willClone": "Se clonará",
       "willMap": "Se asignará",
       "skippedExcluded": "Omitido (excluido)",
       "skippedEmpty": "Omitido (vacío)",
-      "cycles": "ciclos (UPDATE en 2 pasadas)"
+      "cycleCount_one": "{{count}} ciclo (UPDATE en 2 pasadas)",
+      "cycleCount_other": "{{count}} ciclos (UPDATE en 2 pasadas)"
     },
     "errorsPanel": {
       "title": "Errores de ejecución"
@@ -2351,7 +2436,11 @@
       "diffsFound_other": "{{count}} diferencias encontradas entre origen y destino.",
       "planLoading": "Generando el plan de ejecución...",
       "wave": "Oleada",
-      "cycles": "Resoluciones de ciclos"
+      "cycles": "Resoluciones de ciclos",
+      "fieldsAnonymized_one": "{{count}} campo anonimizado",
+      "fieldsAnonymized_other": "{{count}} campos anonimizados",
+      "fieldsScanned_one": "{{count}} campo analizado en total",
+      "fieldsScanned_other": "{{count}} campos analizados en total"
     },
     "history": {
       "title": "Ejecuciones recientes",
@@ -2471,8 +2560,6 @@
     "step2": {
       "title": "Seleccionar objetos",
       "selectAll": "Seleccionar todo",
-      "records": "registros",
-      "selected": "{{count}} objetos seleccionados",
       "description": "Seleccione los objetos a incluir en la ejecución de Autopilot.",
       "searchPlaceholder": "Buscar objetos...",
       "noResults": "Ningún objeto coincide con su búsqueda.",
@@ -2559,7 +2646,9 @@
       "linked": "Vinculados a registros existentes",
       "refusals": "Por qué se rechazaron registros",
       "statusesApplied": "Estados aplicados después de sus registros secundarios",
-      "statusRefusals": "Por qué no se aplicó un estado"
+      "statusRefusals": "Por qué no se aplicó un estado",
+      "piiFieldCount_one": "{{count}} campo PII",
+      "piiFieldCount_other": "{{count}} campos PII"
     },
     "report": {
       "title": "Reporte de cumplimiento",
@@ -2613,6 +2702,7 @@
     "orgType": {
       "prod": "PROD",
       "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
       "dev": "DEV",
       "devPro": "DEV PRO",
       "partial": "PARTIAL",
@@ -2774,7 +2864,14 @@
     "step2Desc": "Las particiones se procesan una tras otra y se informan al completarse",
     "step3Title": "Totales de la ejecución",
     "step3Desc": "Al terminar la ejecución, la vista conserva el número de particiones y los registros procesados y fallidos",
-    "openSeed": "Abrir Seed"
+    "openSeed": "Abrir Seed",
+    "openSetting": "Abrir el ajuste de Grappe",
+    "processedCount_one": "{{formatted}} procesado",
+    "processedCount_other": "{{formatted}} procesados",
+    "failedCount_one": "{{formatted}} fallido",
+    "failedCount_other": "{{formatted}} fallidos",
+    "partitionCount_one": "{{count}} partición",
+    "partitionCount_other": "{{count}} particiones"
   },
   "errorBoundary": {
     "title": "Algo salió mal",
@@ -2816,9 +2913,11 @@
     "notMeasured": "Sin medir",
     "policies": "Políticas",
     "noPolicies": "No hay políticas de gobernanza configuradas. Agregue una política para comenzar.",
-    "rules": "reglas",
+    "deletePolicyNamed": "Eliminar {{name}}",
     "ruleResults": "Resultados de reglas",
-    "remediations": "Lista de verificación de remediación"
+    "remediations": "Lista de verificación de remediación",
+    "ruleCount_one": "{{count}} regla",
+    "ruleCount_other": "{{count}} reglas"
   },
   "quickSync": {
     "title": "Sync rápido",
@@ -2897,6 +2996,7 @@
     "urgencyCritical": "Crítico",
     "urgencyWarning": "Advertencia",
     "urgencySafe": "Seguro",
-    "runFinished": "{{name}} terminado. Escritos: {{written}} de {{total}}."
+    "runFinished": "{{name}} terminado. Escritos: {{written}} de {{total}}.",
+    "runStopped": "{{name}} detenido al {{percent}} %."
   }
 }

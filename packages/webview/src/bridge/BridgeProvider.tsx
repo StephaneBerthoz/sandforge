@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
   BridgeErrorMessage,
@@ -16,6 +17,18 @@ import { importLanguageFromSettings } from '../i18n';
 import { buildMessage } from './messageHelpers';
 import { isRequestFromHere } from './sendBridgeMessage';
 
+/**
+ * How each reason the broker drops a request for is told. The toast used to
+ * read "Bridge error" over the broker's own code — "invalid-payload: payload:
+ * Expected object" — in English whatever the language. What was wrong in
+ * detail stays in the SandForge output channel, where the broker writes it.
+ */
+const DROP_REASON_KEYS: Readonly<Record<string, string>> = {
+  'invalid-payload': 'bridge.dropped.unreadable',
+  'rate-limited': 'bridge.dropped.rateLimited',
+  'unhandled-type': 'bridge.dropped.unhandled',
+};
+
 /** Props for BridgeProvider. */
 export interface BridgeProviderProps {
   children: React.ReactNode;
@@ -28,6 +41,7 @@ export interface BridgeProviderProps {
  * notification, and operation lifecycle messages.
  */
 export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
+  const { t } = useTranslation();
   const sendMessage = useSendMessage();
   const initialSent = useRef(false);
 
@@ -160,8 +174,8 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     if (msg.correlationId && !isRequestFromHere(msg.correlationId)) return;
     useNotificationStore.getState().addNotification({
       level: 'error',
-      title: 'Bridge error',
-      message: `${msg.payload.reason}: ${msg.payload.details}`,
+      title: t('bridge.dropped.title'),
+      message: t(DROP_REASON_KEYS[msg.payload.reason] ?? 'bridge.dropped.other'),
     });
   });
 

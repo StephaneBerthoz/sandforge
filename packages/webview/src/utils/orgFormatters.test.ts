@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createInstance, type i18n as I18n } from 'i18next';
+import { createInstance, type i18n as I18n, type TFunction } from 'i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 
 import en from '../i18n/locales/en.json';
 import fr from '../i18n/locales/fr.json';
-import { orgOptionLabel } from './orgFormatters';
+import { orgOptionLabel, orgTypeLabel } from './orgFormatters';
 
 let instance: I18n;
 
@@ -37,6 +37,33 @@ function org(overrides: Partial<SalesforceOrg>): SalesforceOrg {
     ...overrides,
   };
 }
+
+describe('orgTypeLabel', () => {
+  /** A translation function that shows which key it was handed. */
+  const keyOf = ((key: string) => `«${key}»`) as unknown as TFunction;
+
+  it('takes the label of every org type from the catalogue', () => {
+    // A Developer Edition org fell through to its raw type, upper-cased:
+    // "DEVELOPER" in every language.
+    expect(orgTypeLabel(org({ orgType: 'Production' }), keyOf)).toBe('«sidePanel.orgType.prod»');
+    expect(orgTypeLabel(org({ orgType: 'Scratch' }), keyOf)).toBe('«sidePanel.orgType.scratch»');
+    expect(orgTypeLabel(org({ orgType: 'Developer' }), keyOf)).toBe(
+      '«sidePanel.orgType.developer»',
+    );
+    expect(orgTypeLabel(org({ orgType: 'Sandbox' }), keyOf)).toBe('«sidePanel.orgType.sandbox»');
+    expect(orgTypeLabel(org({ sandboxType: 'Partial' }), keyOf)).toBe(
+      '«sidePanel.orgType.partial»',
+    );
+  });
+
+  it('shows an environment tag as the user wrote it', () => {
+    expect(orgTypeLabel(org({ tags: ['uat'] }), keyOf)).toBe('UAT');
+  });
+
+  it('names a Developer Edition org in English as it did', () => {
+    expect(orgTypeLabel(org({ orgType: 'Developer' }), instance.t)).toBe('DEVELOPER');
+  });
+});
 
 describe('orgOptionLabel', () => {
   it('names a scratch org as one, not as a sandbox', () => {

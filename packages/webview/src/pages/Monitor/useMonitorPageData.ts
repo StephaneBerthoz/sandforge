@@ -373,11 +373,12 @@ export function useMonitorPageData(): MonitorPageData {
     return () => clearInterval(interval);
   }, [lastUpdated]);
 
-  // Auto-refresh effect. Depends on `monitorQuery.refetch` (a stable
-  // useCallback reference from useBridgeQuery) rather than the whole
-  // `monitorQuery` object: useBridgeQuery returns a fresh object on every
-  // render, so depending on it made the time-ago ticker (10 s) perpetually
-  // reset this 30 s interval and auto-refresh never fired.
+  // Auto-refresh effect. Depends on `monitorQuery.refetch`, which changes only
+  // with the request it sends, rather than on the whole `monitorQuery`: that
+  // object is rebuilt whenever its data, loading flag or error changes, so
+  // each refresh would restart this 30 s interval. It used to be rebuilt on
+  // every render, and the time-ago ticker (10 s) reset the interval before
+  // auto-refresh ever fired.
   const monitorRefetch = monitorQuery.refetch;
   useEffect(() => {
     if (autoRefresh && selectedOrgId) {

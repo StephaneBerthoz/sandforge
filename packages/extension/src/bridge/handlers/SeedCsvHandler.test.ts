@@ -553,6 +553,7 @@ describe('SeedCsvHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 1 Account record(s) on production org tgt-org [module: seed]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(mockGetConn).not.toHaveBeenCalled();

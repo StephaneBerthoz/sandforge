@@ -365,23 +365,23 @@ export const ComparePage: React.FC = () => {
           {/* Summary bar */}
           <div className="flex gap-[var(--sf-space-4)] text-xs" data-testid="compare-summary">
             <span className="text-status-success">
-              +{result.summary.added} {t('compare.added')}
+              +{t('compare.count.added', { count: result.summary.added })}
             </span>
             <span className="text-status-error">
-              -{result.summary.removed} {t('compare.removed')}
+              -{t('compare.count.removed', { count: result.summary.removed })}
             </span>
             <span className="text-status-warning">
-              ~{result.summary.modified} {t('compare.modified')}
+              ~{t('compare.count.modified', { count: result.summary.modified })}
             </span>
             <span className="text-[var(--sf-text-secondary)]">
-              ={result.summary.unchanged} {t('compare.unchanged')}
+              ={t('compare.count.unchanged', { count: result.summary.unchanged })}
             </span>
             {result.summary.notCompared > 0 && (
               <span
                 className="text-[var(--sf-text-secondary)]"
                 data-testid="compare-summary-not-compared"
               >
-                ?{result.summary.notCompared} {t('compare.notCompared')}
+                ?{t('compare.count.notCompared', { count: result.summary.notCompared })}
               </span>
             )}
           </div>

@@ -33,6 +33,18 @@ describe('consultProductionGuard', () => {
     expect(decision).toBe('confirmed');
   });
 
+  it('asks about the tier of the org the run writes to', async () => {
+    // The question always said the run wrote to a production org, whichever
+    // tier had asked for it.
+    const ask = vi.fn().mockResolvedValue(true);
+    const guard = new ProductionGuard({ requestConfirmation: ask });
+
+    await consultProductionGuard(guard, request({ orgTier: 'staging', operation: 'delete' }));
+    await consultProductionGuard(guard, request({ orgTier: 'production' }));
+
+    expect(ask.mock.calls.map(([, tier]) => tier)).toEqual(['staging', 'production']);
+  });
+
   it('records a production write a person turned down as declined', async () => {
     const guard = new ProductionGuard({ requestConfirmation: vi.fn().mockResolvedValue(false) });
 

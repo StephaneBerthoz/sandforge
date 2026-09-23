@@ -123,9 +123,12 @@ export const ReviewComplianceTab: React.FC = () => {
             </span>
           </div>
           <div className="text-[10px] text-text-secondary space-y-0.5">
-            <p>{complianceReport.piiFieldsDetected} PII fields detected</p>
-            <p>{complianceReport.piiFieldsAnonymized} fields anonymized</p>
-            <p>{complianceReport.totalFieldsScanned} total fields scanned</p>
+            {/* English whatever the language, and "1 fields anonymized". */}
+            <p>{t('forge.piiWarning', { count: complianceReport.piiFieldsDetected })}</p>
+            <p>
+              {t('forge.review.fieldsAnonymized', { count: complianceReport.piiFieldsAnonymized })}
+            </p>
+            <p>{t('forge.review.fieldsScanned', { count: complianceReport.totalFieldsScanned })}</p>
           </div>
         </div>
       )}

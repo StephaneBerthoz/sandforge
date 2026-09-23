@@ -231,8 +231,8 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
                 lineHeight: 1.5,
               }}
             >
-              {diff.riskReasons.map((reason, i) => (
-                <li key={i}>{reason}</li>
+              {diff.riskReasons.map((reason) => (
+                <li key={reason}>{t(`compare.riskReason.${reason}`)}</li>
               ))}
             </ul>
           </div>

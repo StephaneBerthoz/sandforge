@@ -3,11 +3,20 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { LiveOperationsPanel } from './LiveOperationsPanel';
 import type { LiveOperationSnapshot } from '@sandforge/shared';
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, defaultValue: string) => defaultValue,
-  }),
-}));
+// Inline defaults as the component writes them; a count, through the English
+// catalogue, which is where its singular and plural live.
+vi.mock('react-i18next', async () => {
+  const { createInstance } = await import('i18next');
+  const { default: en } = await import('../../i18n/locales/en.json');
+  const english = createInstance();
+  await english.init({ lng: 'en', resources: { en: { translation: en } } });
+  return {
+    useTranslation: () => ({
+      t: (key: string, fallback?: string | Record<string, unknown>) =>
+        typeof fallback === 'string' ? fallback : english.t(key, fallback),
+    }),
+  };
+});
 
 function makeOperation(overrides: Partial<LiveOperationSnapshot> = {}): LiveOperationSnapshot {
   return {

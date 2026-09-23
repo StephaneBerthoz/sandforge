@@ -289,6 +289,10 @@ export const ForgeInput: React.FC = () => {
                       }
                     }}
                     placeholder={t('forge.soqlPlaceholder')}
+                    // The placeholder was its only name, and it is gone at
+                    // the first keystroke; the record field beside it had the
+                    // same gap until it was named.
+                    aria-label={t('forge.soqlQuery')}
                     rows={5}
                     className={cn(
                       'w-full px-3 py-2 rounded-md text-sm font-mono resize-y',

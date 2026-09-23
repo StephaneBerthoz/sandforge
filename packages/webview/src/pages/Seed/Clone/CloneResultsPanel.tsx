@@ -180,7 +180,8 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
       {/* Summary counts */}
       <div className="flex items-center gap-4 text-xs" data-testid="clone-results-counts">
         <span className="text-[var(--sf-text-primary)]">
-          {t('seed.clone.results.summary')}: {result.totalSourceRecords} {t('seed.records')}
+          {t('seed.clone.results.summary')}:{' '}
+          {t('common.recordCount', { count: result.totalSourceRecords })}
         </span>
         <span className="text-status-success">
           {t('seed.clone.results.inserted')}: {result.totalInserted}
@@ -202,7 +203,10 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
       {/* Per-object accordion */}
       <Accordion
         items={result.objectResults.map((objResult) => ({
-          title: `${objResult.objectApiName} — ${objResult.insertedCount}/${objResult.sourceCount} ${t('seed.clone.results.inserted').toLowerCase()}`,
+          title: `${objResult.objectApiName} — ${t('seed.clone.results.insertedOf', {
+            inserted: objResult.insertedCount,
+            count: objResult.sourceCount,
+          })}`,
           content: buildObjectContent(objResult),
         }))}
       />

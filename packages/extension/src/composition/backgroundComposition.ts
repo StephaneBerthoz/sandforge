@@ -177,20 +177,28 @@ export function createBackgroundComposition(
   const productionGuard = new ProductionGuard({
     isProdConfirmationRequired: () =>
       services.getSandforgeSetting('safety.requireProdConfirmation', true),
-    requestConfirmation: async (impactSummary) => {
+    requestConfirmation: async (impactSummary, orgTier) => {
       // The action label doubles as the equality check, so it MUST be the same
       // value on both sides — comparing against a hardcoded 'Execute' would
       // make the guard always-false (i.e. silently deny every prod write) as
       // soon as the UI runs in a translated locale.
       const execute = vscode.l10n.t('Execute');
+      // Staging asks too, before a delete, a deployment or a large volume, and
+      // was told it wrote data to a production org. The summary above the
+      // sentence already names the tier and what the operation does.
+      const production = orgTier === 'production';
       const choice = await vscode.window.showWarningMessage(
-        vscode.l10n.t('SandForge: production operation'),
+        production
+          ? vscode.l10n.t('SandForge: production operation')
+          : vscode.l10n.t('SandForge: operation to confirm'),
         {
           modal: true,
-          detail: vscode.l10n.t(
-            '{0}\n\nThis operation writes data to a PRODUCTION org.',
-            impactSummary,
-          ),
+          detail: production
+            ? vscode.l10n.t('{0}\n\nThis operation writes data to a PRODUCTION org.', impactSummary)
+            : vscode.l10n.t(
+                '{0}\n\nThis operation needs your confirmation before it runs.',
+                impactSummary,
+              ),
         },
         execute,
       );

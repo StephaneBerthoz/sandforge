@@ -81,8 +81,11 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
         <div>
           <div className="text-[10px] text-text-secondary">{t('monitor.code', 'Code')}</div>
           <div className="text-xs font-medium text-text-primary">
-            {formatNumber(orgInfo.apexClassCount)} Apex &middot; {formatNumber(orgInfo.flowCount)}{' '}
-            Flows
+            {formatNumber(orgInfo.apexClassCount)} Apex &middot;{' '}
+            {t('monitor.flowCount', {
+              count: orgInfo.flowCount,
+              formatted: formatNumber(orgInfo.flowCount),
+            })}
           </div>
         </div>
         {orgInfo.datacenter && (

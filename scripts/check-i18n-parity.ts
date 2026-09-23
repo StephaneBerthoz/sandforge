@@ -967,6 +967,13 @@ const DYNAMIC_TAIL_PREFIXES: readonly string[] = ['home', 'sidePanel.relativeTim
  * `scripts/i18n-key-literals.test.mjs`.
  */
 const KEY_PREFIX = /^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*[._]$/;
+/**
+ * A whole dotted name as the source writes it — `forge.records`, `sync.realtime.outcome.own-write`
+ * — read to its last segment. A key is mentioned when one of these IS the key: it used to be
+ * enough to occur anywhere, so `autopilot.step2.selected` stayed referenced through
+ * `autopilot.step2.selectedCount` long after the last call that rendered it was gone.
+ */
+const KEY_MENTION = /[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/g;
 /** `.a.b` — the literal tail of a key whose head is only known at runtime. */
 const KEY_TAIL = /^(?:\.[a-zA-Z0-9_]+)+$/;
 
@@ -992,7 +999,7 @@ function findUnreferencedKeys(
     ...lex(readFileSync(file, 'utf8')),
   }));
   // Mentions are counted everywhere but in comments; exemptions are minted in production only.
-  const sources = files.map((f) => f.code);
+  const mentioned = new Set(files.flatMap((f) => f.code.match(KEY_MENTION) ?? []));
   const production = files.filter((f) => !isTestFile(f.file)).map((f) => f.tokens);
 
   /*
@@ -1062,7 +1069,7 @@ function findUnreferencedKeys(
     const base = key.replace(/_(zero|one|two|few|many|other)$/, '');
     if ([...dynamicPrefixes].some((p) => base.startsWith(p))) continue;
     if (tailExempt.has(base)) continue;
-    if (sources.some((s) => s.includes(base))) continue;
+    if (mentioned.has(base) || mentioned.has(key)) continue;
     unreferenced.push(key);
   }
   unreferenced.sort();

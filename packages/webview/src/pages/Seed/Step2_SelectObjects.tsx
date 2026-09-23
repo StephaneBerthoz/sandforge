@@ -68,7 +68,7 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
                 <span className="text-text-primary">{obj.apiName}</span>
                 {obj.dependencies.length > 0 && (
                   <Badge variant="default">
-                    {obj.dependencies.length} {t('seed.dependencies').toLowerCase()}
+                    {t('common.dependencyCount', { count: obj.dependencies.length })}
                   </Badge>
                 )}
               </button>

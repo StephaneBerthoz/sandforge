@@ -4,6 +4,8 @@
   "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.": "SandForge: Eingereihter Vorgang „{0}“ konnte nicht wiederholt werden und wurde aus der Offline-Warteschlange entfernt.",
   "SandForge: production operation": "SandForge: Produktionsvorgang",
   "{0}\n\nThis operation writes data to a PRODUCTION org.": "{0}\n\nDieser Vorgang schreibt Daten in eine PRODUKTIONS-Org.",
+  "SandForge: operation to confirm": "SandForge: zu bestätigender Vorgang",
+  "{0}\n\nThis operation needs your confirmation before it runs.": "{0}\n\nDieser Vorgang braucht Ihre Bestätigung, bevor er ausgeführt wird.",
   "Execute": "Ausführen",
   "SandForge: restore into another org": "SandForge: Wiederherstellung in eine andere Org",
   "Restore anyway": "Trotzdem wiederherstellen",

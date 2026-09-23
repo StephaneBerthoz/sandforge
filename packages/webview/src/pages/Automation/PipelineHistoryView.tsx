@@ -128,14 +128,12 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                     <span>
                       {t('automation.duration')}: {formatDuration(entry.duration)}
                     </span>
-                    <span>
-                      {entry.stepCount} {t('automation.steps')}
-                    </span>
+                    <span>{t('automation.stepCount', { count: entry.stepCount })}</span>
                   </>
                 )}
                 {entry.errorCount > 0 && (
                   <span className="text-status-error">
-                    {entry.errorCount} {t('automation.errors')}
+                    {t('automation.errorCount', { count: entry.errorCount })}
                   </span>
                 )}
               </div>

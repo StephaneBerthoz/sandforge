@@ -14,41 +14,36 @@ const ENV_TAGS = [
   'INT',
 ] as const;
 
+/** The catalogue key of each kind of sandbox. */
+const SANDBOX_TYPE_KEYS: Readonly<Record<string, string>> = {
+  Developer: 'sidePanel.orgType.dev',
+  DeveloperPro: 'sidePanel.orgType.devPro',
+  Partial: 'sidePanel.orgType.partial',
+  Full: 'sidePanel.orgType.full',
+};
+
 /**
  * Derive a short display label for an org based on its type, tags, and sandbox info.
- * Uses i18n when a translation function is provided, otherwise returns uppercase labels.
+ *
+ * Every label comes from the catalogue but an environment tag, which is the
+ * user's own word. A Developer Edition org used to fall through to its raw
+ * type upper-cased, and the org card called this without a translation
+ * function, so it wrote the English labels in every language.
+ *
  * @param org - The Salesforce org.
- * @param t - Optional i18n translation function.
+ * @param t - The i18n translation function.
  */
-export function orgTypeLabel(org: SalesforceOrg, t?: TFunction): string {
-  if (org.orgType === 'Production') return t ? t('sidePanel.orgType.prod') : 'PROD';
-  if (org.orgType === 'Scratch') return t ? t('sidePanel.orgType.scratch') : 'SCRATCH';
+export function orgTypeLabel(org: SalesforceOrg, t: TFunction): string {
+  if (org.orgType === 'Production') return t('sidePanel.orgType.prod');
+  if (org.orgType === 'Scratch') return t('sidePanel.orgType.scratch');
   const envTags = org.tags
     .map((tag) => tag.toUpperCase())
     .filter((tag): tag is string => (ENV_TAGS as readonly string[]).includes(tag));
   if (envTags.length > 0) return envTags[0];
-  if (org.sandboxType) {
-    if (t) {
-      const sandboxLabels: Record<string, string> = {
-        Developer: t('sidePanel.orgType.dev'),
-        DeveloperPro: t('sidePanel.orgType.devPro'),
-        Partial: t('sidePanel.orgType.partial'),
-        Full: t('sidePanel.orgType.full'),
-      };
-      return sandboxLabels[org.sandboxType] ?? t('sidePanel.orgType.sandbox');
-    }
-    const labels: Record<string, string> = {
-      Developer: 'DEV',
-      DeveloperPro: 'DEV PRO',
-      Partial: 'PARTIAL',
-      Full: 'FULL',
-    };
-    return labels[org.sandboxType] ?? 'SANDBOX';
-  }
-  if (t) {
-    return org.orgType === 'Sandbox' ? t('sidePanel.orgType.sandbox') : org.orgType.toUpperCase();
-  }
-  return org.orgType === 'Sandbox' ? 'SANDBOX' : org.orgType.toUpperCase();
+  if (org.sandboxType) return t(SANDBOX_TYPE_KEYS[org.sandboxType] ?? 'sidePanel.orgType.sandbox');
+  return t(
+    org.orgType === 'Developer' ? 'sidePanel.orgType.developer' : 'sidePanel.orgType.sandbox',
+  );
 }
 
 /**

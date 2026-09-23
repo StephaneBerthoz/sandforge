@@ -38,7 +38,7 @@ export async function consultProductionGuard(
 ): Promise<GuardVerdict> {
   const check = guard.check(request);
   if (!check.allowed) return { check, decision: 'refused' };
-  const confirmed = await guard.confirmIfNeeded(check);
+  const confirmed = await guard.confirmIfNeeded(check, request.orgTier);
   if (!confirmed) return { check, decision: 'declined' };
   const asked = check.requiresConfirmation && guard.canAskForConfirmation === true;
   return { check, decision: asked ? 'confirmed' : 'allowed' };

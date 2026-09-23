@@ -168,12 +168,11 @@ export const SyncHistoryDetail: React.FC = () => {
         <div className="flex gap-[var(--sf-space-2)] text-[10px] text-text-secondary flex-wrap">
           <Badge variant="default">{t(`sync.directions.${configSnapshot.direction}`)}</Badge>
           <Badge variant="default">{t(`sync.modes.${configSnapshot.mode}`)}</Badge>
+          <span>{t('common.objectCount', { count: configSnapshot.objects.length })}</span>
           <span>
-            {configSnapshot.objects.length} {t('sync.objectSet').toLowerCase()}
-          </span>
-          <span>
-            {configSnapshot.objects.reduce((sum, o) => sum + o.fieldMappings.length, 0)}{' '}
-            {t('sync.fieldMapping').toLowerCase()}
+            {t('sync.fieldMappingCount', {
+              count: configSnapshot.objects.reduce((sum, o) => sum + o.fieldMappings.length, 0),
+            })}
           </span>
         </div>
       </div>

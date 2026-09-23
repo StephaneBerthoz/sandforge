@@ -76,6 +76,54 @@ describe('RefreshPanel', () => {
     expect(screen.getByText('Completed')).toBeDefined();
   });
 
+  it('styles every status of a copy still under way as one, and a stopped copy as failed', () => {
+    // The rows knew Pending and Processing only: a copy being sampled or
+    // activated, or waiting for an admin, looked like a finished one. Their
+    // red went to `Failed`, a status Salesforce does not have.
+    const statuses = [
+      'Sampling',
+      'Pending',
+      'Processing',
+      'Suspended',
+      'Pending Activation',
+      'Activating',
+      'Stopped',
+      'Completed',
+      'Discarding',
+      'Locked',
+    ];
+    mockData = {
+      success: true,
+      supported: true,
+      refreshes: statuses.map((status, i) => ({
+        orgId: 'org-1',
+        sandboxName: `sandbox${i}`,
+        refreshDate: '2026-03-20T10:00:00Z',
+        status,
+      })),
+      inProgress: true,
+    };
+    render(<RefreshPanel />);
+
+    const styleOf = (status: string): string => {
+      const className = screen.getByText(status, { selector: 'span' }).className;
+      const variant = /\bbg-status-(success|warning|error)\b/.exec(className);
+      return variant ? variant[1] : 'default';
+    };
+    expect(Object.fromEntries(statuses.map((status) => [status, styleOf(status)]))).toEqual({
+      Sampling: 'warning',
+      Pending: 'warning',
+      Processing: 'warning',
+      Suspended: 'warning',
+      'Pending Activation': 'warning',
+      Activating: 'warning',
+      Stopped: 'error',
+      Completed: 'success',
+      Discarding: 'default',
+      Locked: 'default',
+    });
+  });
+
   describe('refreshes SandForge noticed on the org itself', () => {
     /** A refresh as the host sends it: the org answered with another org id. */
     const noticed = {

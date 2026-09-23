@@ -17,12 +17,18 @@ coverage/
 **/*.map
 **/*.d.ts
 
-# Unnecessary dist subdirectories (esbuild bundles everything into dist/extension.js)
+# What a tsc emit of src/ leaves in dist/ (tsconfig.json's outDir). The VSIX
+# runs dist/extension.js, esbuild's bundle of src/, which loads jsforce from
+# dist/jsforceEntry.js and the AI SDK vendored into dist/node_modules/.
+dist/adapters/**
 dist/bridge/**
+dist/composition/**
 dist/core/**
 dist/modules/**
 dist/providers/**
+dist/test/**
 dist/logger.js
+dist/services.js
 
 # Package manager
 node_modules/**

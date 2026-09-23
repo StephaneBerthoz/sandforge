@@ -149,9 +149,7 @@ export const CDCEventFeed: React.FC = () => {
         className="flex items-center justify-between px-2 py-1 text-[10px] text-[var(--sf-text-secondary)] border-t border-[var(--sf-border)]"
         data-testid="cdc-event-count"
       >
-        <span>
-          {eventCount} {t('sync.realtime.events')}
-        </span>
+        <span>{t('sync.realtime.eventCount', { count: eventCount })}</span>
         {eventCount > RING_BUFFER_CAPACITY && <span>{t('sync.realtime.bufferFull')}</span>}
       </div>
     </div>

@@ -1098,6 +1098,7 @@ describe('AutopilotHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 0 Account record(s) on production org tgt [module: autopilot]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(orchestrator.executePlan).not.toHaveBeenCalled();

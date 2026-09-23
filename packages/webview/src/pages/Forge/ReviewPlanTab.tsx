@@ -46,9 +46,12 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
       {/* Summary */}
       <div className="flex gap-4 text-xs text-text-secondary">
         <span>
-          {plan.totalRecords.toLocaleString(uiLocale())} {t('forge.records', 'records')}
+          {t('common.recordCountFormatted', {
+            count: plan.totalRecords,
+            formatted: plan.totalRecords.toLocaleString(uiLocale()),
+          })}
         </span>
-        <span>{plan.totalApiCalls} API calls</span>
+        <span>{t('common.apiCallCount', { count: plan.totalApiCalls })}</span>
         <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
       </div>
 
@@ -64,7 +67,8 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
               {t('forge.review.wave', 'Wave')} {wave.order + 1}
             </span>
             <span className="text-[10px] text-text-secondary">
-              {wave.estimatedApiCalls} calls · ~{wave.estimatedDurationSeconds.toFixed(1)}s
+              {t('common.apiCallCount', { count: wave.estimatedApiCalls })} · ~
+              {wave.estimatedDurationSeconds.toFixed(1)}s
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">

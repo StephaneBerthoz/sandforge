@@ -133,4 +133,42 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
       h.registerAll(new MessageRouter(broker));
     }).not.toThrow();
   });
+
+  describe('workbench:open-setting', () => {
+    /** Send one enveloped message from a registered panel. */
+    function fromPanel(payload: unknown): void {
+      const panel = {
+        webview: {
+          onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+          postMessage: vi.fn(),
+        },
+      };
+      broker.registerPanel(panel as never);
+      const receive = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      receive({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: { id: 'open-1', type: 'workbench:open-setting', timestamp: Date.now(), payload },
+      });
+    }
+
+    it('opens the Settings editor on the SandForge setting a page names', () => {
+      // The Grappe page is empty until sandforge.grappe.enabled is on, and it
+      // could only say so: nothing on it led to the setting.
+      fromPanel({ setting: 'sandforge.grappe.enabled' });
+
+      expect(executeCommand).toHaveBeenCalledWith(
+        'workbench.action.openSettings',
+        'sandforge.grappe.enabled',
+      );
+    });
+
+    it('opens nothing for a setting that is not SandForge’s, or a search of any kind', () => {
+      for (const setting of ['security.workspace.trust.enabled', '@id:sandforge.x', 'sandforge.']) {
+        fromPanel({ setting });
+      }
+      fromPanel({});
+
+      expect(executeCommand).not.toHaveBeenCalled();
+    });
+  });
 });

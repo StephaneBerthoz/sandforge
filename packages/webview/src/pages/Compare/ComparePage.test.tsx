@@ -291,8 +291,8 @@ describe('ComparePage', () => {
     render(<ComparePage />);
 
     expect(screen.getByTestId('compare-summary')).toBeDefined();
-    expect(screen.getByText(/\+5 Added/)).toBeDefined();
-    expect(screen.getByText(/-3 Removed/)).toBeDefined();
+    expect(screen.getByText(/\+5 added/)).toBeDefined();
+    expect(screen.getByText(/-3 removed/)).toBeDefined();
   });
 
   it('should show tabs when result is received', () => {
@@ -565,7 +565,7 @@ describe('ComparePage', () => {
     };
     render(<ComparePage />);
 
-    expect(screen.getByTestId('compare-summary-not-compared').textContent).toBe('?25 Not compared');
+    expect(screen.getByTestId('compare-summary-not-compared').textContent).toBe('?25 not compared');
     expect(screen.getByTestId('compare-coverage-compared').textContent).toBe(
       'Content compared for 5 of the 30 components both orgs hold.',
     );

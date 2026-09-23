@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { MessageBroker } from './MessageBroker.js';
 import type { MessageRouter } from './MessageRouter.js';
 import type { WebviewStateSync } from './WebviewStateSync.js';
@@ -73,6 +74,11 @@ import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOpera
  * without importing vscode directly (keeps this module testable in mocked envs).
  */
 export type CommandExecutor = (command: string, ...args: unknown[]) => PromiseLike<unknown>;
+
+/** The payload of `workbench:open-setting`: one SandForge setting id, as the manifest names it. */
+const OPENABLE_SETTING = z.object({
+  setting: z.string().regex(/^sandforge(?:\.[A-Za-z][A-Za-z0-9]*)+$/),
+});
 
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
@@ -792,6 +798,19 @@ export class ExtensionHandlers {
     // ProtocolMismatchBanner in the webview when the user clicks "Reload".
     router.route('workbench:reload', () => {
       void this.executeCommand('workbench.action.reloadWindow');
+    });
+
+    // A page that needs a SandForge setting changed opens it in the Settings
+    // editor: the Grappe page stays empty until `sandforge.grappe.enabled` is
+    // on, and had no way to get there. Only a `sandforge.*` id is opened —
+    // the editor reads anything else as a search of its own.
+    router.route('workbench:open-setting', (msg: BaseMessage) => {
+      const parsed = OPENABLE_SETTING.safeParse((msg as { payload?: unknown }).payload);
+      if (!parsed.success) {
+        this.handlerDeps.log('[WARN] workbench:open-setting: not a SandForge setting id');
+        return;
+      }
+      void this.executeCommand('workbench.action.openSettings', parsed.data.setting);
     });
 
     // Webview crash reports (React ErrorBoundary). Fire-and-forget: logged

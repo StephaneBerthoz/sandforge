@@ -484,6 +484,7 @@ describe('DataOpsHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'UPDATE an unknown number of Contact record(s) on production org org-unknown [module: dataops]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(getJsforceConnection).not.toHaveBeenCalled();
@@ -1145,6 +1146,7 @@ describe('DataOpsHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'UPSERT 1 Account record(s) on production org org-A [module: dataops]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(upsert).not.toHaveBeenCalled();

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCcw } from 'lucide-react';
+import { isSandboxRefreshInProgress } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -60,19 +61,19 @@ const EVIDENCE_KEYS: Record<Exclude<RefreshEvidence, 'production'>, string> = {
   monitor: 'monitor.sandboxRefresh.detected.byMonitor',
 };
 
-/** Returns badge variant based on refresh status. */
+/**
+ * Returns badge variant based on refresh status.
+ *
+ * Under way is whatever the extension counts as a refresh in progress, from
+ * the same list: this one used to know Pending and Processing only. A stopped
+ * process is the copy that ended without replacing the sandbox; the red went
+ * to `Failed`, which is not a status Salesforce has.
+ */
 function statusVariant(status: string): BadgeVariant {
-  switch (status) {
-    case 'Completed':
-      return 'success';
-    case 'Processing':
-    case 'Pending':
-      return 'warning';
-    case 'Failed':
-      return 'error';
-    default:
-      return 'default';
-  }
+  if (status === 'Completed') return 'success';
+  if (isSandboxRefreshInProgress(status)) return 'warning';
+  if (status === 'Stopped') return 'error';
+  return 'default';
 }
 
 /**

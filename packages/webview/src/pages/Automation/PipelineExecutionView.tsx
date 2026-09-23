@@ -125,11 +125,11 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
       {/* Stats row */}
       <div className="flex gap-4 text-[10px] text-text-secondary" data-testid="execution-stats">
         <span>
-          {completedSteps}/{execution.steps.length} {t('automation.steps', 'steps')}
+          {t('automation.stepsDone', { done: completedSteps, count: execution.steps.length })}
         </span>
         {failedSteps > 0 && (
           <span className="text-status-error">
-            {failedSteps} {t('automation.failed', 'failed')}
+            {t('automation.failedStepCount', { count: failedSteps })}
           </span>
         )}
         <span>{formatDurationSec(execution.elapsed)}</span>

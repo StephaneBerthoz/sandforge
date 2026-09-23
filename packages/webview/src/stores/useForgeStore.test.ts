@@ -554,6 +554,15 @@ describe('useForgeStore', () => {
       expect(state.plan).toBeNull();
       expect(state.logs).toHaveLength(0);
     });
+
+    it('forgets where the last run stopped, which the next run has not', () => {
+      useForgeStore.getState().setStoppedAt(40);
+      expect(useForgeStore.getState().stoppedAt).toBe(40);
+
+      useForgeStore.getState().forgeAgain();
+
+      expect(useForgeStore.getState().stoppedAt).toBeNull();
+    });
   });
 });
 

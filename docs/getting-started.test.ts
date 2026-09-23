@@ -139,3 +139,34 @@ describe('docs/getting-started.md', () => {
     });
   });
 });
+
+describe('the org card of "Connect Your Org"', () => {
+  /** The labels a type badge can read, as `orgTypeLabel` takes them from the catalogue. */
+  const BADGES = Object.values(
+    (
+      JSON.parse(read('packages/webview/src/i18n/locales/en.json')) as {
+        sidePanel: { orgType: Record<string, string> };
+      }
+    ).sidePanel.orgType,
+  );
+  /** The environment tags a badge shows as the user wrote them. */
+  const TAGS = [
+    ...(
+      /const ENV_TAGS = \[([\s\S]*?)\]/.exec(
+        read('packages/webview/src/utils/orgFormatters.ts'),
+      )?.[1] ?? ''
+    ).matchAll(/'([^']+)'/g),
+  ].map((m) => m[1]);
+
+  it('names every badge the card can show, and no other', () => {
+    // The guide promised "PROD/SBX": no badge reads SBX, and a sandbox is
+    // shown by its kind.
+    const step = GUIDE.split('\n').find((line) => line.startsWith('4. Once connected'));
+    expect(step, 'the step that shows the org card').toBeDefined();
+    expect(TAGS.length).toBeGreaterThan(3);
+
+    const named = [...(step ?? '').matchAll(/\b[A-Z]{2,}(?: [A-Z]{2,})*\b/g)].map((m) => m[0]);
+    expect(named.filter((word) => !BADGES.includes(word) && !TAGS.includes(word))).toEqual([]);
+    expect(BADGES.filter((badge) => !named.includes(badge))).toEqual([]);
+  });
+});

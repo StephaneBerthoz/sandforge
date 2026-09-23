@@ -39,7 +39,17 @@
     "typeToConfirm": "Type <code>{{text}}</code> to confirm:",
     "time": "Time",
     "recordIds": "Record IDs",
-    "statusAbbrev": "St"
+    "statusAbbrev": "St",
+    "recordCountFormatted_one": "{{formatted}} record",
+    "recordCountFormatted_other": "{{formatted}} records",
+    "fieldCount_one": "{{count}} field",
+    "fieldCount_other": "{{count}} fields",
+    "itemCount_one": "{{count}} item",
+    "itemCount_other": "{{count}} items",
+    "dependencyCount_one": "{{count}} dependency",
+    "dependencyCount_other": "{{count}} dependencies",
+    "apiCallCount_one": "{{count}} API call",
+    "apiCallCount_other": "{{count}} API calls"
   },
   "status": {
     "apiUsage": "API usage",
@@ -108,11 +118,12 @@
     "liveOps": {
       "title": "Live Operations",
       "noOperations": "No operations running",
-      "active": "active",
       "cancel": "Cancel",
       "recsPerSec": "rec/s",
       "cancelRefused": "Could not cancel the operation",
-      "cancelRefusedDetail": "The run is no longer in progress, or it cannot be stopped from here. The list has been read again."
+      "cancelRefusedDetail": "The run is no longer in progress, or it cannot be stopped from here. The list has been read again.",
+      "activeCount_one": "{{count}} active",
+      "activeCount_other": "{{count}} active"
     },
     "jobs": "Jobs",
     "alerts": "Alerts",
@@ -140,9 +151,7 @@
     "activeJobs_one": "{{count}} active",
     "activeJobs_other": "{{count}} active",
     "noJobs": "No recent jobs",
-    "runs": "runs",
     "success": "success",
-    "failed": "failed",
     "predictions": "Time-to-Limit Predictions",
     "noPredictions": "No predictions available",
     "errorTitle": "Monitor Error",
@@ -183,16 +192,19 @@
     },
     "storage": {
       "title": "Records by Object",
-      "totalRecords": "total records",
       "empty": "No record counts available",
       "scope": "Every object the org counts, setup and log objects included: not what uses data storage, which the Data Storage tile shows.",
-      "listed": "The {{shown}} objects holding the most records, of {{total}}."
+      "listed": "The {{shown}} objects holding the most records, of {{total}}.",
+      "totalRecordCount_one": "{{formatted}} record in all",
+      "totalRecordCount_other": "{{formatted}} records in all"
     },
     "deployments": {
       "title": "Recent Deployments",
       "empty": "No recent deployments",
-      "components": "components",
-      "errors": "errors"
+      "componentCount_one": "{{count}} component",
+      "componentCount_other": "{{count}} components",
+      "errorCount_one": "{{count}} error",
+      "errorCount_other": "{{count}} errors"
     },
     "apiUsage": {
       "title": "API Usage Breakdown",
@@ -227,7 +239,6 @@
     "ack": "Ack",
     "resolved": "Resolved",
     "showMore": "Show more",
-    "remaining": "remaining",
     "alertHistoryCount_one": "{{count}} event",
     "alertHistoryCount_other": "{{count}} events",
     "activeAlertCount": "{{count}} active",
@@ -302,7 +313,19 @@
       "sessionType": "Session Type",
       "loginTime": "Login Time",
       "sourceIp": "Source IP"
-    }
+    },
+    "remainingCount_one": "{{count}} remaining",
+    "remainingCount_other": "{{count}} remaining",
+    "runCount_one": "{{count}} run",
+    "runCount_other": "{{count}} runs",
+    "failedCount_one": "{{count}} failed",
+    "failedCount_other": "{{count}} failed",
+    "jobErrorCount_one": "{{count}} error",
+    "jobErrorCount_other": "{{count}} errors",
+    "flowCount_one": "{{formatted}} Flow",
+    "flowCount_other": "{{formatted}} Flows",
+    "jobCount_one": "{{count}} job",
+    "jobCount_other": "{{count}} jobs"
   },
   "compare": {
     "title": "Compare Org",
@@ -325,7 +348,6 @@
     "removed": "Removed",
     "modified": "Modified",
     "unchanged": "Unchanged",
-    "notCompared": "Not compared",
     "coverage": {
       "compared": "Content compared for {{compared}} of the {{inBoth}} components both orgs hold.",
       "managedLeftOut": "Installed by a managed package, left out as asked: {{count}}",
@@ -339,8 +361,6 @@
     "riskScore": "Risk Score",
     "category": "Category",
     "group": "Group",
-    "changes": "changes",
-    "deps": "deps",
     "diffDetails": "{{name}} diff details",
     "riskReasons": "Risk Reasons",
     "dependencies": "Dependencies",
@@ -374,6 +394,14 @@
       "apexTests": "Run all Apex tests.",
       "lowRisk": "Low risk. Safe to deploy.",
       "review": "Review changes before deploying."
+    },
+    "riskReason": {
+      "sourceOnly": "Only the source holds it: a deployment creates it in the target.",
+      "targetOnlyDataModel": "Only the target holds it: taking it out to match the source may lose the data it holds.",
+      "targetOnlyApex": "Only the target holds it: taking it out to match the source may break what depends on it.",
+      "flowChanged": "Flow changes may affect active process automations.",
+      "profileChanged": "Profile changes may alter user permissions.",
+      "breaking": "This is a breaking change."
     },
     "deployment": {
       "title": "Deploy from {{source}} to {{target}}",
@@ -475,6 +503,32 @@
         "coverageTitle": "Coverage the target found short",
         "retrieveProblemsTitle": "What the source said"
       }
+    },
+    "count": {
+      "added_one": "{{count}} added",
+      "added_other": "{{count}} added",
+      "removed_one": "{{count}} removed",
+      "removed_other": "{{count}} removed",
+      "modified_one": "{{count}} modified",
+      "modified_other": "{{count}} modified",
+      "unchanged_one": "{{count}} unchanged",
+      "unchanged_other": "{{count}} unchanged",
+      "notCompared_one": "{{count}} not compared",
+      "notCompared_other": "{{count}} not compared"
+    },
+    "changeCount_one": "{{count}} change",
+    "changeCount_other": "{{count}} changes",
+    "riskCount": {
+      "none_one": "{{count}} no risk",
+      "none_other": "{{count}} no risk",
+      "low_one": "{{count}} low",
+      "low_other": "{{count}} low",
+      "medium_one": "{{count}} medium",
+      "medium_other": "{{count}} medium",
+      "high_one": "{{count}} high",
+      "high_other": "{{count}} high",
+      "critical_one": "{{count}} critical",
+      "critical_other": "{{count}} critical"
     }
   },
   "seed": {
@@ -519,7 +573,6 @@
       "problemNumbers": "Enter a number within the bounds of each field.",
       "problemNoChildren": "This relation creates no {{child}} record: raise the number of children or of parents."
     },
-    "execute": "Execute",
     "executeDesc": "Run the seed operation",
     "cancelRunConfirm": "Stop the running seed? Records already inserted stay in the org.",
     "fieldRules": {
@@ -537,8 +590,6 @@
     "recordCount": "Record Count",
     "batchSize": "Batch Size",
     "totalRecords": "Total Records",
-    "dependencies": "Dependencies",
-    "sampleRecords": "Sample Records",
     "saveAsTemplate": "Save as Template",
     "templateSaved": "Template saved. Pick it from the gallery next time.",
     "recordsCreated": "Records Created",
@@ -745,7 +796,9 @@
         "duration": "Duration",
         "idMapping": "ID Mapping",
         "exportMapping": "Export ID Mapping",
-        "done": "Done"
+        "done": "Done",
+        "insertedOf_one": "{{inserted}}/{{count}} inserted",
+        "insertedOf_other": "{{inserted}}/{{count}} inserted"
       },
       "wizard": {
         "stepSource": "Source Org",
@@ -777,7 +830,11 @@
     "results": {
       "aiFallback": "AI returned no values, so these fields received generated sentences: {{fields}}. AI is off, or the call was refused (the SandForge log gives the reason).",
       "aiFallbackShort": "The AI answer left values out, so these fields received generated sentences: {{fields}}."
-    }
+    },
+    "sampleRecordCount_one": "{{count}} sample record",
+    "sampleRecordCount_other": "{{count}} sample records",
+    "failedRecordCount_one": "{{count}} failed",
+    "failedRecordCount_other": "{{count}} failed"
   },
   "sync": {
     "title": "Sync Data",
@@ -798,7 +855,6 @@
       "target_to_source": "Target to Source",
       "bidirectional": "Bidirectional"
     },
-    "mode": "Mode",
     "modes": {
       "full": "Full",
       "incremental": "Incremental",
@@ -862,7 +918,6 @@
     "complete": "Sync Complete",
     "partial": "Partially Complete",
     "failed": "Sync Failed",
-    "schedule": "Schedule",
     "addTransform": "Add Transform",
     "addMapping": "Add Mapping",
     "autoMap": "Auto Map",
@@ -894,7 +949,6 @@
       "start": "Start",
       "stop": "Stop",
       "metrics": "Metrics",
-      "events": "events",
       "status": {
         "disconnected": "Disconnected",
         "connecting": "Connecting",
@@ -961,7 +1015,9 @@
         "average": "avg: {{value}}ms",
         "since": "since {{time}}",
         "evtPerSec": "evt/s"
-      }
+      },
+      "eventCount_one": "{{count}} event",
+      "eventCount_other": "{{count}} events"
     },
     "tabs": {
       "sync": "Sync",
@@ -996,7 +1052,9 @@
         "deleteEdit": "Delete / Edit",
         "editDelete": "Edit / Delete",
         "createEdit": "Create / Edit"
-      }
+      },
+      "autoResolved_one": "Auto-resolved ({{count}} field)",
+      "autoResolved_other": "Auto-resolved ({{count}} fields)"
     },
     "emptyState": {
       "title": "Keep two orgs in sync",
@@ -1030,6 +1088,13 @@
       "notifyOnComplete": "Notify on completion",
       "notifyOnFailure": "Notify on failure",
       "preview": "Preview",
+      "cron": {
+        "hourly": "Every hour",
+        "daily": "Every day at {{time}}",
+        "weekly": "Every {{days}} at {{time}}",
+        "monthly": "Monthly on day {{day}} at {{time}}",
+        "daySeparator": ", "
+      },
       "noSavedConfig": "Save a sync configuration from the Sync tab first: a schedule runs a configuration that was saved.",
       "emptyTitle": "No schedules yet",
       "emptyDesc": "Run a sync automatically on a recurring schedule instead of launching it by hand.",
@@ -1078,7 +1143,11 @@
     },
     "piiWarningTitle": "PII Detected",
     "mappingForObject": "Mapping for",
-    "mappingForObjectHint": "Each object carries the mappings drawn for it. Objects you leave unmapped are copied field for field."
+    "mappingForObjectHint": "Each object carries the mappings drawn for it. Objects you leave unmapped are copied field for field.",
+    "fieldMappingCount_one": "{{count}} field mapping",
+    "fieldMappingCount_other": "{{count}} field mappings",
+    "transformCount_one": "{{count}} transform",
+    "transformCount_other": "{{count}} transforms"
   },
   "migration": {
     "title": "Migration",
@@ -1563,8 +1632,6 @@
     "stepConfigWhere": "WHERE clause",
     "stepConfigTemplate": "Template ID",
     "noExecution": "No active execution",
-    "failed": "failed",
-    "errors": "errors",
     "subtitle": "Compose and save multi-step pipelines",
     "savePipeline": "Save Pipeline",
     "saving": "Saving...",
@@ -1613,7 +1680,15 @@
       "today": "Today",
       "tomorrow": "Tomorrow",
       "unplanned": "No run planned: the cron expression gives no next time"
-    }
+    },
+    "stepCount_one": "{{count}} step",
+    "stepCount_other": "{{count}} steps",
+    "stepsDone_one": "{{done}}/{{count}} step",
+    "stepsDone_other": "{{done}}/{{count}} steps",
+    "failedStepCount_one": "{{count}} failed",
+    "failedStepCount_other": "{{count}} failed",
+    "errorCount_one": "{{count}} error",
+    "errorCount_other": "{{count}} errors"
   },
   "ai": {
     "title": "AI Assistant",
@@ -1758,7 +1833,11 @@
       "backup": "Backup",
       "dataset": "Frozen dataset"
     },
-    "object": "Object"
+    "object": "Object",
+    "nodeCount_one": "{{count}} node",
+    "nodeCount_other": "{{count}} nodes",
+    "edgeCount_one": "{{count}} edge",
+    "edgeCount_other": "{{count}} edges"
   },
   "settings": {
     "title": "Settings",
@@ -1793,7 +1872,14 @@
     },
     "timedOut": "SandForge did not answer {{request}} within {{seconds}} s. Try again; if it keeps happening, look in the SandForge output channel.",
     "failed": "{{request}} failed without a reason from SandForge. Look in the SandForge output channel.",
-    "rejected": "SandForge turned down {{request}}. The SandForge output channel says why."
+    "rejected": "SandForge turned down {{request}}. The SandForge output channel says why.",
+    "dropped": {
+      "title": "Request dropped",
+      "unreadable": "SandForge could not read a request from this panel and dropped it. The SandForge output channel says what was wrong with it.",
+      "rateLimited": "SandForge received more requests at once than it takes and dropped one. Try again in a moment.",
+      "unhandled": "This panel sent a request SandForge does not handle, and it was dropped. Reload the window so the panel and the extension run the same version.",
+      "other": "SandForge dropped a request from this panel. The SandForge output channel says why."
+    }
   },
   "onboarding": {
     "welcomeTitle": "Welcome to SandForge",
@@ -1811,7 +1897,6 @@
     "chooseLanguage": "Choose your language",
     "step4Title": "First Steps",
     "step4Desc": "Based on your org type, here is a recommended starting point",
-    "suggestSeed": "Start with Seed to populate your sandbox with realistic test data",
     "suggestMonitor": "Start with Monitor to keep an eye on your production org health",
     "openSeed": "Open Seed",
     "openMonitor": "Open Monitor",
@@ -2117,6 +2202,7 @@
     "templateRootRecord": "Record to clone from",
     "templateRootRecordHint": "This template clones one record and everything it relates to. Paste the record id or its Salesforce URL.",
     "soqlPlaceholder": "SELECT Id, Name FROM Account WHERE ...",
+    "soqlQuery": "SOQL query",
     "depth": "Depth",
     "depthDirect": "Direct only",
     "depthFull": "Full tree",
@@ -2313,16 +2399,15 @@
       "existingNote_other": "{{count}} of them were already in the target org: linked, not created.",
       "existingBadge": "existing"
     },
-    "apiCalls": "API calls",
     "preview": {
       "title": "What will happen on Execute",
-      "truncated": "Graph truncated (50-node cap hit)",
       "truncatedAction": "Graph cut short by the object cap — raise it and discover again if something is missing",
       "willClone": "Will clone",
       "willMap": "Will map",
       "skippedExcluded": "Skipped (excluded)",
       "skippedEmpty": "Skipped (empty)",
-      "cycles": "cycles (2-pass UPDATE)"
+      "cycleCount_one": "{{count}} cycle (2-pass UPDATE)",
+      "cycleCount_other": "{{count}} cycles (2-pass UPDATE)"
     },
     "errorsPanel": {
       "title": "Execution errors"
@@ -2351,7 +2436,11 @@
       "diffsFound_other": "{{count}} differences found between source and target.",
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
-      "cycles": "Cycle Resolutions"
+      "cycles": "Cycle Resolutions",
+      "fieldsAnonymized_one": "{{count}} field anonymized",
+      "fieldsAnonymized_other": "{{count}} fields anonymized",
+      "fieldsScanned_one": "{{count}} field scanned in all",
+      "fieldsScanned_other": "{{count}} fields scanned in all"
     },
     "history": {
       "title": "Recent runs",
@@ -2471,8 +2560,6 @@
     "step2": {
       "title": "Select Objects",
       "selectAll": "Select All",
-      "records": "records",
-      "selected": "{{count}} objects selected",
       "description": "Select the objects to include in the autopilot run.",
       "searchPlaceholder": "Search objects...",
       "noResults": "No objects match your search.",
@@ -2559,7 +2646,9 @@
       "linked": "Linked to existing records",
       "refusals": "Why records were refused",
       "statusesApplied": "Statuses applied after their children",
-      "statusRefusals": "Why a status was not applied"
+      "statusRefusals": "Why a status was not applied",
+      "piiFieldCount_one": "{{count}} PII field",
+      "piiFieldCount_other": "{{count}} PII fields"
     },
     "report": {
       "title": "Compliance Report",
@@ -2613,6 +2702,7 @@
     "orgType": {
       "prod": "PROD",
       "scratch": "SCRATCH",
+      "developer": "DEVELOPER",
       "dev": "DEV",
       "devPro": "DEV PRO",
       "partial": "PARTIAL",
@@ -2774,7 +2864,14 @@
     "step2Desc": "Partitions are processed one after another, each reported as it completes",
     "step3Title": "Run Totals",
     "step3Desc": "When the run ends, the view keeps the partition count and the records processed and failed",
-    "openSeed": "Open Seed"
+    "openSeed": "Open Seed",
+    "openSetting": "Open the Grappe setting",
+    "processedCount_one": "{{formatted}} processed",
+    "processedCount_other": "{{formatted}} processed",
+    "failedCount_one": "{{formatted}} failed",
+    "failedCount_other": "{{formatted}} failed",
+    "partitionCount_one": "{{count}} partition",
+    "partitionCount_other": "{{count}} partitions"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -2816,9 +2913,11 @@
     "notMeasured": "Not measured",
     "policies": "Policies",
     "noPolicies": "No governance policies configured. Add a policy to get started.",
-    "rules": "rules",
+    "deletePolicyNamed": "Delete {{name}}",
     "ruleResults": "Rule Results",
-    "remediations": "Remediation Checklist"
+    "remediations": "Remediation Checklist",
+    "ruleCount_one": "{{count}} rule",
+    "ruleCount_other": "{{count}} rules"
   },
   "quickSync": {
     "title": "Quick Sync",
@@ -2897,6 +2996,7 @@
     "urgencyCritical": "Critical",
     "urgencyWarning": "Warning",
     "urgencySafe": "Safe",
-    "runFinished": "{{name}} finished. Written: {{written}} of {{total}}."
+    "runFinished": "{{name}} finished. Written: {{written}} of {{total}}.",
+    "runStopped": "{{name}} stopped at {{percent}}%."
   }
 }

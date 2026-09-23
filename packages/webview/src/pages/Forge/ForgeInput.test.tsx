@@ -323,6 +323,15 @@ describe('ForgeInput', () => {
     expect(hint).toMatch(/template/i);
   });
 
+  it('names the SOQL query field, whose placeholder was all a screen reader had', () => {
+    render(<ForgeInput />);
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));
+
+    expect(screen.getByRole('textbox', { name: 'SOQL query' })).toBe(
+      screen.getByTestId('forge-input-soql'),
+    );
+  });
+
   it('sends the WHERE clause of a SOQL query as the filter of the object after FROM', () => {
     render(<ForgeInput />);
     fireEvent.mouseDown(screen.getByTestId('forge-tab-soql'));

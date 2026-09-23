@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { uiLocale } from '../../utils/formatters';
 
 /**
@@ -115,7 +116,7 @@ export const GrappePage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Network className="w-4 h-4 text-hue-indigo" />
                   <Badge variant="info">
-                    {totalPartitions} {t('grappe.partitions', 'partitions')}
+                    {t('grappe.partitionCount', { count: totalPartitions })}
                   </Badge>
                 </div>
                 <span className="text-xs tabular-nums text-text-secondary">
@@ -137,7 +138,10 @@ export const GrappePage: React.FC = () => {
                 </span>
                 {totalFailed > 0 && (
                   <span className="text-[10px] text-status-error">
-                    {totalFailed.toLocaleString(uiLocale())} {t('grappe.failed', 'failed')}
+                    {t('grappe.failedCount', {
+                      count: totalFailed,
+                      formatted: totalFailed.toLocaleString(uiLocale()),
+                    })}
                   </span>
                 )}
               </div>
@@ -181,16 +185,28 @@ export const GrappePage: React.FC = () => {
               <p className="text-xs text-text-primary max-w-sm">{t('grappe.emptyDesc')}</p>
             </div>
             {/*
-             * Grappe is switched on in Settings, not here: it needs
-             * `sandforge.grappe.enabled`, and then a run past
-             * `sandforge.grappe.autoActivateThreshold` records. This page has no
-             * control over either, so the only useful thing to offer from an
-             * idle dashboard is a module that produces such runs. Seed, Sync
-             * and Autopilot are the three that emit grappe:* events; Forge
-             * emits none, so the CTA that pointed there could never populate
-             * this page. Seed is the shortest path of the three.
+             * Grappe is switched on in VS Code's Settings, not here: it needs
+             * `sandforge.grappe.enabled`, off by default, and then a run past
+             * `sandforge.grappe.autoActivateThreshold` records. The page said
+             * so and led nowhere; it opens the setting now. The other thing to
+             * offer from an idle dashboard is a module that produces such runs.
+             * Seed, Sync and Autopilot are the three that emit grappe:* events;
+             * Forge emits none, so the CTA that pointed there could never
+             * populate this page. Seed is the shortest path of the three.
              */}
             <div className="flex items-center gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  sendBridgeMessage<{ setting: string }>('workbench:open-setting', {
+                    setting: 'sandforge.grappe.enabled',
+                  })
+                }
+                data-testid="grappe-open-setting"
+              >
+                {t('grappe.openSetting')}
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

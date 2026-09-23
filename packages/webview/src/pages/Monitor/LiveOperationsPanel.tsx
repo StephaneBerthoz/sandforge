@@ -201,9 +201,7 @@ export const LiveOperationsPanel: React.FC<LiveOperationsPanelProps> = ({
           {t('monitor.liveOps.title', 'Live Operations')}
         </h3>
         {activeCount > 0 && (
-          <Badge variant="info">
-            {activeCount} {t('monitor.liveOps.active', 'active')}
-          </Badge>
+          <Badge variant="info">{t('monitor.liveOps.activeCount', { count: activeCount })}</Badge>
         )}
       </div>
       {operations.map((op) => (

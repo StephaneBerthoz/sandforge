@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  SANDBOX_PROCESS_STATUSES,
-  SandboxRefreshTracker,
-  sandboxProcessStatus,
-} from './SandboxRefreshTracker';
+import { SANDBOX_PROCESS_STATUSES } from '@sandforge/shared';
+import { SandboxRefreshTracker, sandboxProcessStatus } from './SandboxRefreshTracker';
 import type {
   SandboxRefreshEvent,
   QuerySandboxesFn,

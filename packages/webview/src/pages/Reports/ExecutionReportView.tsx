@@ -76,8 +76,9 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                       <Badge variant="default">{selectedReport.metadata.module}</Badge>
                       {selectedReport.metadata.recordCount !== undefined && (
                         <span className="text-[10px] text-text-secondary">
-                          {selectedReport.metadata.recordCount}{' '}
-                          {t('reports.recordCount').toLowerCase()}
+                          {t('common.recordCount', {
+                            count: selectedReport.metadata.recordCount,
+                          })}
                         </span>
                       )}
                       {selectedReport.metadata.duration !== undefined && (

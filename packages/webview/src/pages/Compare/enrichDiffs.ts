@@ -1,5 +1,6 @@
 import type {
   CompareItem,
+  CompareRiskReason,
   MetadataComponentType,
   DiffRiskLevel,
   EnrichedDiff,
@@ -67,12 +68,27 @@ const DEPENDENCY_MAP: Partial<Record<MetadataComponentType, string[]>> = {
   Profile: ['PermissionSet'],
 };
 
-/** Change type multipliers for risk scoring. */
+/**
+ * Change type multipliers for risk scoring.
+ *
+ * `added` is a component only the target holds: taking it out to match the
+ * source is the change that loses something. `removed` is one only the source
+ * holds, which a deployment creates. The weights were the other way round.
+ */
 const CHANGE_MULT: Record<string, number> = {
-  removed: 2.0,
+  added: 2.0,
   modified: 1.5,
-  added: 0.5,
+  removed: 0.5,
 };
+
+/** Types whose components hold the org's data. */
+const DATA_MODEL_TYPES: ReadonlySet<MetadataComponentType> = new Set([
+  'CustomObject',
+  'CustomField',
+]);
+
+/** Types whose components are code that other code and automation call. */
+const APEX_TYPES: ReadonlySet<MetadataComponentType> = new Set(['ApexClass', 'ApexTrigger']);
 
 /** The risk card's group of a type. */
 export function groupOf(componentType: MetadataComponentType): string {
@@ -96,7 +112,7 @@ function computeRisk(item: CompareItem): DiffRiskLevel {
   const mult = CHANGE_MULT[item.status] ?? 1;
   const score = weight * mult;
 
-  if (item.severity === 'breaking' && item.status === 'removed') return 'critical';
+  if (item.severity === 'breaking' && item.status === 'added') return 'critical';
   if (item.severity === 'breaking') return 'high';
   if (score >= 8) return 'critical';
   if (score >= 5) return 'high';
@@ -105,30 +121,26 @@ function computeRisk(item: CompareItem): DiffRiskLevel {
   return 'none';
 }
 
-/** Generate risk reasons for an item. */
-function riskReasons(item: CompareItem): string[] {
-  const reasons: string[] = [];
+/**
+ * The reasons behind an item's risk, as codes the page words in the reader's
+ * language.
+ *
+ * They were English sentences, and they read `removed` and `added` the other
+ * way round: "Removing data model components may cause data loss" over a
+ * component only the source holds, which a deployment creates, and "New
+ * component — low risk" over one only the target holds.
+ */
+function riskReasons(item: CompareItem): CompareRiskReason[] {
+  const reasons: CompareRiskReason[] = [];
   const ct = item.componentType;
   const s = item.status;
 
-  if (s === 'removed' && (ct === 'CustomObject' || ct === 'CustomField')) {
-    reasons.push('Removing data model components may cause data loss.');
-  }
-  if (s === 'removed' && (ct === 'ApexClass' || ct === 'ApexTrigger')) {
-    reasons.push('Removing Apex code may break dependent functionality.');
-  }
-  if (s === 'modified' && ct === 'Flow') {
-    reasons.push('Flow changes may affect active process automations.');
-  }
-  if (s === 'modified' && ct === 'Profile') {
-    reasons.push('Profile changes may alter user permissions.');
-  }
-  if (item.severity === 'breaking') {
-    reasons.push('This is a breaking change.');
-  }
-  if (s === 'added') {
-    reasons.push('New component — low risk.');
-  }
+  if (s === 'added' && DATA_MODEL_TYPES.has(ct)) reasons.push('targetOnlyDataModel');
+  if (s === 'added' && APEX_TYPES.has(ct)) reasons.push('targetOnlyApex');
+  if (s === 'modified' && ct === 'Flow') reasons.push('flowChanged');
+  if (s === 'modified' && ct === 'Profile') reasons.push('profileChanged');
+  if (item.severity === 'breaking') reasons.push('breaking');
+  if (s === 'removed') reasons.push('sourceOnly');
 
   return reasons;
 }

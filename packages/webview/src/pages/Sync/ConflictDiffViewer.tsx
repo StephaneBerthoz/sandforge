@@ -82,7 +82,9 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
           data-testid="auto-resolved-section"
         >
           <p className="text-[10px] font-semibold text-status-success mb-1">
-            Auto-resolved ({Object.keys(threeWay.autoResolved).length} fields)
+            {t('sync.conflictResolution.autoResolved', {
+              count: Object.keys(threeWay.autoResolved).length,
+            })}
           </p>
           <div className="flex flex-wrap gap-1">
             {Object.entries(threeWay.autoResolved).map(([field, value]) => (

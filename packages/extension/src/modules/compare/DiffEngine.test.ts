@@ -111,12 +111,17 @@ describe('DiffEngine', () => {
       expect(items[0].deployable).toBe(false);
     });
 
-    it('should assign breaking severity to removed critical types', () => {
-      const source = new Map([['MyTrigger', 'code']]);
-      const target = new Map<string, string>();
+    it('should assign breaking severity to a critical type only the target holds', () => {
+      // `added`: taking it out to match the source is what would break the
+      // target. The one only the source holds (`removed`) is the one a
+      // deployment creates, and nothing in the target depends on it yet.
+      const source = new Map<string, string>();
+      const target = new Map([['MyTrigger', 'code']]);
 
       const items = engine.diff(source, target, 'ApexTrigger');
+      expect(items[0].status).toBe('added');
       expect(items[0].severity).toBe('breaking');
+      expect(engine.diff(target, source, 'ApexTrigger')[0].severity).toBe('info');
     });
 
     it('should assign warning severity to modified non-critical types', () => {
@@ -323,8 +328,9 @@ describe('DiffEngine', () => {
   });
 
   describe('determineSeverity', () => {
-    it('should return info for added items', () => {
-      expect(DiffEngine.determineSeverity('added', 'ApexClass')).toBe('info');
+    it('should return info for a component only the source holds, which a deployment creates', () => {
+      expect(DiffEngine.determineSeverity('removed', 'ApexClass')).toBe('info');
+      expect(DiffEngine.determineSeverity('removed', 'CustomObject')).toBe('info');
     });
 
     it('should return info for unchanged items', () => {
@@ -335,10 +341,14 @@ describe('DiffEngine', () => {
       expect(DiffEngine.determineSeverity('not_compared', 'ApexTrigger')).toBe('info');
     });
 
-    it('should return breaking for removed critical types', () => {
-      expect(DiffEngine.determineSeverity('removed', 'ApexClass')).toBe('breaking');
-      expect(DiffEngine.determineSeverity('removed', 'Flow')).toBe('breaking');
-      expect(DiffEngine.determineSeverity('removed', 'ValidationRule')).toBe('breaking');
+    it('should return breaking for a critical type only the target holds', () => {
+      expect(DiffEngine.determineSeverity('added', 'ApexClass')).toBe('breaking');
+      expect(DiffEngine.determineSeverity('added', 'Flow')).toBe('breaking');
+      expect(DiffEngine.determineSeverity('added', 'ValidationRule')).toBe('breaking');
+    });
+
+    it('should return warning for any other type only the target holds', () => {
+      expect(DiffEngine.determineSeverity('added', 'Layout')).toBe('warning');
     });
 
     it('should return warning for modified non-critical types', () => {

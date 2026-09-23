@@ -123,8 +123,8 @@ const ObjectPanel: React.FC<{
   onChangeRule: Step3ConfigureFieldsProps['onChangeRule'];
   onChangeConfig: Step3ConfigureFieldsProps['onChangeConfig'];
   ruleOptions: { value: string; label: string }[];
-  t: ReturnType<typeof useTranslation>['t'];
-}> = ({ obj, expandedObject, setExpandedObject, onChangeRule, onChangeConfig, ruleOptions, t }) => {
+}> = ({ obj, expandedObject, setExpandedObject, onChangeRule, onChangeConfig, ruleOptions }) => {
+  const { t } = useTranslation();
   return (
     <div key={obj.objectApiName} className="border border-[var(--sf-border)] rounded">
       <button
@@ -137,9 +137,7 @@ const ObjectPanel: React.FC<{
         <span className="flex items-center gap-2">
           {obj.objectLabel} ({obj.objectApiName})
         </span>
-        <Badge variant="default">
-          {obj.fields.length} {t('seed.configureFields').toLowerCase()}
-        </Badge>
+        <Badge variant="default">{t('common.fieldCount', { count: obj.fields.length })}</Badge>
       </button>
 
       {expandedObject === obj.objectApiName && (
@@ -322,7 +320,6 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
     onChangeRule,
     onChangeConfig,
     ruleOptions,
-    t,
   };
 
   /** Render a flat list of object panels. */

@@ -266,6 +266,10 @@ const UNION_BACKED = [
     },
   },
   {
+    prefix: 'compare.riskReason.',
+    from: { file: 'packages/shared/src/types/compare.types.ts', union: 'CompareRiskReason' },
+  },
+  {
     prefix: 'home.smartAction.action.',
     from: { file: 'packages/shared/src/types/smart-action.types.ts', union: 'SmartActionType' },
     guarded: {

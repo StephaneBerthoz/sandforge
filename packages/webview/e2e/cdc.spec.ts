@@ -428,7 +428,7 @@ test.describe('Real-time CDC — receiving events', () => {
     await confirmStarted(page, ['Account']);
 
     await pushBatch(page, [cdcEvent(2001, 'Account', 'CREATE', ['001000000000001AAA'])]);
-    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 events', { timeout: 10_000 });
+    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 event', { timeout: 10_000 });
 
     await pushBatch(page, [
       cdcEvent(2002, 'Case', 'UPDATE', ['500000000000001AAA']),
@@ -492,7 +492,7 @@ test.describe('Real-time CDC — receiving events', () => {
     await expect(page.getByTestId('cdc-event-row-0')).toContainText('001000000000009AAA', {
       timeout: 10_000,
     });
-    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 events');
+    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 event');
   });
 });
 
@@ -504,7 +504,7 @@ test.describe('Real-time CDC — stopping', () => {
     await startWatching(page, 'Account');
     await confirmStarted(page, ['Account']);
     await pushBatch(page, [cdcEvent(5001, 'Account', 'CREATE', ['001000000000001AAA'])]);
-    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 events', { timeout: 10_000 });
+    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 event', { timeout: 10_000 });
 
     await page.getByTestId('cdc-stop-btn').click();
     const stops = await outgoingPayloads(page, 'realtime:stop');
@@ -527,7 +527,7 @@ test.describe('Real-time CDC — stopping', () => {
     await expect(page.getByTestId('cdc-object-checkbox-Account')).toBeEnabled();
     // Stopping a stream is not the same as clearing its history.
     await expect(page.getByTestId('cdc-event-row-0')).toContainText('Account');
-    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 events');
+    await expect(page.getByTestId('cdc-event-count')).toHaveText('1 event');
   });
 
   test('restarting after a stop opens a second subscription', async ({ page }) => {

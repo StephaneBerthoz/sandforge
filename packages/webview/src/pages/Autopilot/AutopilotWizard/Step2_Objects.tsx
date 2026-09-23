@@ -87,7 +87,10 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
                 <span className="text-xs text-text-primary ml-1">({obj.apiName})</span>
               </span>
               <span className="text-xs text-text-primary tabular-nums">
-                {formatCount(obj.recordCount)} {t('autopilot.step2.records')}
+                {t('common.recordCountFormatted', {
+                  count: obj.recordCount,
+                  formatted: formatCount(obj.recordCount),
+                })}
               </span>
             </label>
           );

@@ -95,11 +95,11 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-[var(--sf-text-primary)]">
-                    {obj.recordCount} {t('seed.records')}
+                    {t('common.recordCount', { count: obj.recordCount })}
                   </span>
                   {obj.relationships.length > 0 && (
                     <Badge variant="info">
-                      {obj.relationships.length} {t('seed.dependencies')}
+                      {t('common.dependencyCount', { count: obj.relationships.length })}
                     </Badge>
                   )}
                 </div>
@@ -108,7 +108,8 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
             <div className="flex items-center justify-between text-xs px-2 py-2 border-t border-[var(--sf-border)] font-semibold">
               <span className="text-[var(--sf-text-primary)]">{t('seed.totalRecords')}</span>
               <span className="text-[var(--sf-text-primary)]" data-testid="clone-total-records">
-                {totalRecords} {t('seed.records')}, {totalRelationships} {t('seed.dependencies')}
+                {t('common.recordCount', { count: totalRecords })},{' '}
+                {t('common.dependencyCount', { count: totalRelationships })}
               </span>
             </div>
           </div>
@@ -132,7 +133,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
         <CardBody>
           <Accordion
             items={previewResult.objects.map((obj) => ({
-              title: `${obj.objectApiName} (${obj.sampleRecords.length} ${t('seed.sampleRecords').toLowerCase()})`,
+              title: `${obj.objectApiName} (${t('seed.sampleRecordCount', { count: obj.sampleRecords.length })})`,
               content:
                 obj.sampleRecords.length > 0 ? (
                   <DataTable

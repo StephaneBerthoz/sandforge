@@ -71,9 +71,21 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const fieldCountEl = screen.getByTestId('node-field-count');
-    expect(fieldCountEl.textContent).toContain('25');
-    expect(fieldCountEl.textContent).toContain('Fields');
+    expect(fieldCountEl.textContent).toBe('25 fields');
     expect(fieldCountEl.textContent).not.toContain('Object');
+  });
+
+  it('writes one record and one field in the singular', () => {
+    // "1 Records · 1 Fields": the count and its noun were written apart.
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ recordCount: 1, fieldCount: 1 })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('node-record-count').textContent).toBe('1 record');
+    expect(screen.getByTestId('node-field-count').textContent).toBe('1 field');
   });
 
   it('should show PII fields when present', () => {

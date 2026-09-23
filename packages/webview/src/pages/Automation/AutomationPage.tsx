@@ -107,7 +107,7 @@ export const AutomationPage: React.FC = () => {
   }
 
   const subtitle = pipeline
-    ? `${pipeline.name} v${pipeline.version} \u00b7 ${stepCount} ${t('automation.steps')}`
+    ? `${pipeline.name} v${pipeline.version} \u00b7 ${t('automation.stepCount', { count: stepCount })}`
     : t('automation.subtitle');
 
   return (
@@ -225,7 +225,7 @@ export const AutomationPage: React.FC = () => {
                   <span className="text-sm font-medium text-text-primary">{p.name}</span>
                   <Badge variant="default">v{p.version}</Badge>
                   <span className="text-xs text-text-secondary">
-                    {p.steps.length} {t('automation.steps')}
+                    {t('automation.stepCount', { count: p.steps.length })}
                   </span>
                   {blockedSteps(p.steps, orgIds).length > 0 && (
                     <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>

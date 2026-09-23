@@ -13,6 +13,18 @@ const levelStyles: Record<Notification['level'], string> = {
   error: 'border-l-[var(--vscode-notificationsErrorIcon-foreground,#f14c4c)]',
 };
 
+/**
+ * Whether a toast stays until it is dismissed, and is shown whole.
+ *
+ * An error is something to act on: pages handed theirs the same five seconds
+ * as a confirmation, and a message past two lines lost its end to the clamp —
+ * often the part that said what to do. A toast given no time to go away stays
+ * too, and is not cut short either.
+ */
+function staysUp(n: Notification): boolean {
+  return n.level === 'error' || !n.autoDismissMs;
+}
+
 /** Floating toast notifications that auto-appear on new notifications. */
 export const FloatingToasts: React.FC = () => {
   const { t } = useTranslation();
@@ -25,7 +37,7 @@ export const FloatingToasts: React.FC = () => {
   // Effect 1: Set up timers for new notifications + clean orphans
   useEffect(() => {
     for (const n of visible) {
-      if (n.autoDismissMs && !timersRef.current.has(n.id)) {
+      if (!staysUp(n) && !timersRef.current.has(n.id)) {
         const timer = setTimeout(() => {
           removeNotification(n.id);
           timersRef.current.delete(n.id);
@@ -75,7 +87,7 @@ export const FloatingToasts: React.FC = () => {
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold truncate">{n.title}</p>
-              <p className="text-xs mt-0.5 line-clamp-2">{n.message}</p>
+              <p className={cn('text-xs mt-0.5', !staysUp(n) && 'line-clamp-2')}>{n.message}</p>
               {n.actions && n.actions.length > 0 && (
                 <div className="flex gap-2 mt-1.5">
                   {n.actions.map((action) =>

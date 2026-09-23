@@ -123,7 +123,7 @@ const JsonNode: React.FC<{
           <span>
             {openBracket}...{closeBracket}
             <span className="text-text-primary text-[10px] ml-1">
-              {entries.length} {entries.length === 1 ? 'item' : 'items'}
+              {t('common.itemCount', { count: entries.length })}
             </span>
             {comma}
           </span>

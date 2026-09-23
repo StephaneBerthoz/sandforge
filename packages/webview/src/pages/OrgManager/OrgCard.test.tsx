@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { OrgCard } from './OrgCard';
@@ -110,10 +111,24 @@ describe('OrgCard', () => {
   );
 
   it('should derive orgTypeLabel correctly', () => {
-    expect(orgTypeLabel({ ...mockOrg, orgType: 'Production' })).toBe('PROD');
-    expect(orgTypeLabel({ ...mockOrg, orgType: 'Scratch' })).toBe('SCRATCH');
-    expect(orgTypeLabel({ ...mockOrg, tags: ['uat'] })).toBe('UAT');
-    expect(orgTypeLabel({ ...mockOrg, tags: [], sandboxType: 'Full' })).toBe('FULL');
-    expect(orgTypeLabel({ ...mockOrg, tags: [], sandboxType: undefined })).toBe('SANDBOX');
+    const t = i18n.getFixedT('en');
+    expect(orgTypeLabel({ ...mockOrg, orgType: 'Production' }, t)).toBe('PROD');
+    expect(orgTypeLabel({ ...mockOrg, orgType: 'Scratch' }, t)).toBe('SCRATCH');
+    expect(orgTypeLabel({ ...mockOrg, tags: ['uat'] }, t)).toBe('UAT');
+    expect(orgTypeLabel({ ...mockOrg, tags: [], sandboxType: 'Full' }, t)).toBe('FULL');
+    expect(orgTypeLabel({ ...mockOrg, tags: [], sandboxType: undefined }, t)).toBe('SANDBOX');
+  });
+
+  it('writes the type badge in the language of the page, as the side panel does', async () => {
+    // The card called the formatter without a translation function and wrote
+    // FULL and PARTIAL in every language.
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await i18n.changeLanguage('fr');
+    try {
+      render(<OrgCard {...defaultProps} org={{ ...mockOrg, tags: [], sandboxType: 'Full' }} />);
+      expect(screen.getByTestId('org-type-badge-org-1').textContent).toBe('COMPLET');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });

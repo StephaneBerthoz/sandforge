@@ -190,3 +190,27 @@ test('every setting the code reads is a setting the manifest declares', () => {
   }
   assert.deepEqual([...unknown].sort(), []);
 });
+
+test('the VSIX leaves out whatever a tsc emit of src/ would put in dist/', () => {
+  // tsconfig.json emits into dist/, beside the esbuild bundle the VSIX runs.
+  // The list named the four folders src/ had when it was written, and missed
+  // adapters/, composition/ and services.js once they came.
+  const ignored = new Set(
+    read(EXTENSION, '.vscodeignore')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('dist/')),
+  );
+  const emitted = readdirSync(join(repoRoot, EXTENSION, 'src'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() || /^(?!.*\.test\.ts$).*\.ts$/.test(entry.name))
+    .filter((entry) => entry.name !== 'extension.ts')
+    .map((entry) =>
+      entry.isDirectory() ? `dist/${entry.name}/**` : `dist/${entry.name.replace(/\.ts$/, '.js')}`,
+    );
+  assert.ok(emitted.length > 4, 'src/ listing came back nearly empty — has it moved?');
+  assert.deepEqual(
+    emitted.filter((path) => !ignored.has(path)),
+    [],
+    'a tsc emit of src/ would ship: add it to packages/extension/.vscodeignore',
+  );
+});

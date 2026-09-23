@@ -652,6 +652,7 @@ describe('SeedCloneHandler', () => {
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
+        'production',
       );
       expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(mockGetConn).not.toHaveBeenCalled();

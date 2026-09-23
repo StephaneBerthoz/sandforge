@@ -103,9 +103,11 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                   )}
                 </div>
                 <div className="flex gap-[var(--sf-space-3)] text-[10px] text-text-secondary">
-                  <span>{cronToHuman(schedule.cron)}</span>
+                  <span>{cronToHuman(schedule.cron, t)}</span>
                   <span>{schedule.timezone}</span>
-                  {schedule.nextRunAt && (
+                  {/* The host keeps `nextRunAt` on pause: on a paused schedule
+                      that time is not a run, as the agenda already knew. */}
+                  {schedule.enabled && schedule.nextRunAt && (
                     <span>
                       {t('sync.schedules.nextRun')}:{' '}
                       {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}

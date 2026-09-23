@@ -28,7 +28,7 @@ function createDiff(overrides: Partial<EnrichedDiff> = {}): EnrichedDiff {
     changeType: 'modified',
     name: 'AccountController',
     riskLevel: 'medium',
-    riskReasons: ['This is a breaking change that requires careful review.'],
+    riskReasons: ['breaking'],
     group: 'Apex Code',
     dependencies: ['ApexTrigger', 'Flow'],
     ...overrides,
@@ -132,7 +132,7 @@ describe('DiffGroupAccordion', () => {
     expect(diffItem.textContent).toContain('ApexClass');
     expect(diffItem.textContent).toContain('modified');
     expect(diffItem.textContent).toContain('medium');
-    expect(diffItem.textContent).toContain('2 deps');
+    expect(diffItem.textContent).toContain('2 dependencies');
   });
 
   it('should call onSelectDiff when diff item is clicked', () => {

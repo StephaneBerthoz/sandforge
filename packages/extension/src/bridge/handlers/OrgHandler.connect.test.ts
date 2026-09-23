@@ -120,6 +120,27 @@ describe('org:connect answers on every branch', () => {
     expect(replies[0].correlationId).toBe('req-connect');
   });
 
+  it('keeps the no-orgs toast up, and says in the banner what to run', async () => {
+    // The toast was gone after five seconds, and the banner that outlives it
+    // said only "No connected orgs found in SF CLI." — the one step that fixes
+    // it was in the toast alone.
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockResolvedValue(true),
+      listOrgs: vi.fn().mockResolvedValue([]),
+    } as unknown as HandlerDeps['sfdxBridge'];
+
+    await new OrgHandler(deps).handle(connectMsg({ authMethod: 'sfdx_import' }));
+
+    const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as { type: string; payload: Record<string, unknown> },
+    );
+    const toast = posted.find((m) => m.type === 'notification');
+    expect(toast?.payload).not.toHaveProperty('autoDismissMs');
+    expect(toast?.payload.message).toMatch(/Run "sf org login web" first/);
+    const error = posted.find((m) => m.type === 'org:error');
+    expect(error?.payload.message).toBe(toast?.payload.message);
+  });
+
   it('answers on a successful SF CLI import', async () => {
     // This one used to post org:list:response, a channel the mutation does not
     // listen on — so a SUCCESSFUL import still froze the banner for 30 s.

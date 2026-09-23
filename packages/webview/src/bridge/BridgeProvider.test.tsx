@@ -6,7 +6,7 @@ import { useBridgeMutation } from '../hooks/useBridgeMutation';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
-import i18n from '../i18n';
+import i18n, { changeLanguageLazy } from '../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { answerCapturedLocaleRequests } from '../i18n/testing/mockLocaleBridge';
@@ -179,8 +179,60 @@ describe('BridgeProvider', () => {
     const notifications = useNotificationStore.getState().notifications;
     expect(notifications).toHaveLength(1);
     expect(notifications[0].level).toBe('error');
-    expect(notifications[0].message).toContain('invalid-payload');
-    expect(notifications[0].message).toContain('payload.orgId: Required');
+    expect(notifications[0].message).toBe(i18n.t('bridge.dropped.unreadable'));
+  });
+
+  it('tells a dropped request in the language of the page, not in the broker code', async () => {
+    // The toast read "Bridge error" over "invalid-payload: payload: Expected
+    // object", in English whatever the language picked.
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+    const drop = (id: string, reason: string, details: string): void =>
+      fireMessage({
+        id,
+        type: 'bridge:error',
+        timestamp: Date.now(),
+        payload: { reason, details },
+      });
+
+    drop('drop-1', 'invalid-payload', 'payload: Expected object');
+    drop('drop-2', 'rate-limited', '"sync:run" was dropped');
+    drop('drop-3', 'unhandled-type', 'no handler for "sync:new"');
+    drop('drop-4', 'a-reason-from-a-later-broker', 'details');
+
+    const told = useNotificationStore
+      .getState()
+      .notifications.map((n) => [n.title, n.message])
+      .reverse();
+    expect(told).toEqual([
+      ['Request dropped', i18n.t('bridge.dropped.unreadable')],
+      ['Request dropped', i18n.t('bridge.dropped.rateLimited')],
+      ['Request dropped', i18n.t('bridge.dropped.unhandled')],
+      ['Request dropped', i18n.t('bridge.dropped.other')],
+    ]);
+    expect(new Set(told.map(([, message]) => message)).size).toBe(4);
+    for (const [, message] of told) {
+      expect(message).not.toMatch(/invalid-payload|rate-limited|unhandled-type|Expected|"sync:/);
+    }
+
+    // French is a lazy locale: its bundle crosses the (mocked) bridge first.
+    const switched = changeLanguageLazy('fr');
+    await act(async () => {
+      await answerCapturedLocaleRequests(mockPostMessage);
+      expect(await switched).toBe(true);
+    });
+    drop('drop-5', 'invalid-payload', 'payload: Expected object');
+    expect(useNotificationStore.getState().notifications[0]).toMatchObject({
+      title: 'Requête abandonnée',
+      message: expect.stringContaining('canal de sortie'),
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
   });
 
   it('leaves a bridge:error that answers a request to the panel that made it', () => {
@@ -240,7 +292,7 @@ describe('BridgeProvider', () => {
 
     const notifications = useNotificationStore.getState().notifications;
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain('payload: Expected object');
+    expect(notifications[0].message).toBe(i18n.t('bridge.dropped.unreadable'));
   });
 
   it('raises a refusal of a request made through a request hook once, and sets the hook error', () => {

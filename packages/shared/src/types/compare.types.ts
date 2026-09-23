@@ -312,6 +312,24 @@ export interface DeploymentReport {
 /** Risk level for enriched diff */
 export type DiffRiskLevel = 'none' | 'low' | 'medium' | 'high' | 'critical';
 
+/**
+ * Why the risk card rates a change as it does, as a code the page words in the
+ * reader's language — as it does the deployment advice.
+ *
+ * `removed` is a component only the source holds, `added` one only the target
+ * holds. The reasons used to read them the other way round: a data model
+ * component only the source had was said to be removed, "may cause data
+ * loss", when a deployment creates it; the one only the target had was a "new
+ * component — low risk", when it is the one that taking out would lose.
+ */
+export type CompareRiskReason =
+  | 'sourceOnly'
+  | 'targetOnlyDataModel'
+  | 'targetOnlyApex'
+  | 'flowChanged'
+  | 'profileChanged'
+  | 'breaking';
+
 /** Enriched diff with intelligence */
 export interface EnrichedDiff {
   category: string;
@@ -320,7 +338,7 @@ export interface EnrichedDiff {
   sourceValue?: string;
   targetValue?: string;
   riskLevel: DiffRiskLevel;
-  riskReasons: string[];
+  riskReasons: CompareRiskReason[];
   group: string;
   dependencies: string[];
 }

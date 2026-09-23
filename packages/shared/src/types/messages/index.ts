@@ -50,6 +50,7 @@ import type {
   BridgeProtocolMismatchMessage,
   BridgeReloadBannerMessage,
   WorkbenchReloadRequest,
+  WorkbenchOpenSettingRequest,
   ErrorBoundaryReport,
 } from './bridge.messages.js';
 import type { FileSaveRequest, FileSaveResponse } from './file.messages.js';
@@ -575,6 +576,7 @@ export type WebViewToExtensionMessage =
   | ExecutionAbortRequest
   // Bridge control
   | WorkbenchReloadRequest
+  | WorkbenchOpenSettingRequest
   | ErrorBoundaryReport
   // Realtime (CDC)
   | RealTimeStartRequest

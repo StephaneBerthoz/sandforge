@@ -225,7 +225,8 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                         selectedPolicyId === policy.id ? 'text-text-primary' : 'text-text-secondary'
                       }`}
                     >
-                      {policy.description} — {policy.ruleCount} {t('governance.rules', 'rules')}
+                      {policy.description} —{' '}
+                      {t('governance.ruleCount', { count: policy.ruleCount })}
                     </span>
                   </button>
                   {onDeletePolicy && (
@@ -233,6 +234,9 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                       variant="ghost"
                       size="sm"
                       onClick={() => onDeletePolicy(policy.id)}
+                      // An icon and nothing else: a screen reader announced
+                      // an unnamed button after each policy.
+                      aria-label={t('governance.deletePolicyNamed', { name: policy.name })}
                       data-testid={`delete-policy-${policy.id}`}
                     >
                       <Trash2 className="w-3 h-3" />

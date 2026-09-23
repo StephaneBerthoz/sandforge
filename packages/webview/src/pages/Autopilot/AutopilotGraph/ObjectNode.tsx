@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Handle, Position } from 'reactflow';
 import type { NodeProps } from 'reactflow';
-import { m } from 'framer-motion';
+import { m, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 import { formatDuration } from '../../../utils/formatters';
@@ -80,7 +80,11 @@ const pulseVariants = {
  */
 export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
   const { t } = useTranslation();
-  const isActive = ACTIVE_STATUSES.has(data.status);
+  // MotionConfig's reducedMotion="user" stops transforms, not opacity: under
+  // the system setting the scale stopped and the node went on fading between
+  // 1 and 0.9. The pulse says nothing the status colour does not.
+  const reduceMotion = useReducedMotion();
+  const isActive = ACTIVE_STATUSES.has(data.status) && !reduceMotion;
 
   const barColor = useMemo(
     () => STATUS_COLORS[data.status] ?? STATUS_COLORS['pending'],

@@ -45,6 +45,17 @@ export interface WorkbenchReloadRequest extends BaseMessage {
 }
 
 /**
+ * Sent by a page that needs a SandForge setting changed: the extension opens
+ * VS Code's Settings editor on it. The Grappe page is empty until
+ * `sandforge.grappe.enabled` is on, and it had no way to get there.
+ */
+export interface WorkbenchOpenSettingRequest extends BaseMessage {
+  type: 'workbench:open-setting';
+  /** A `sandforge.*` setting id; the extension refuses anything else. */
+  payload: { setting: string };
+}
+
+/**
  * Crash report posted by the webview's ErrorBoundary when a render throws.
  * The extension logs it to the output channel — before the broker envelope
  * existed this fire-and-forget message was silently dropped.

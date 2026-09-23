@@ -100,7 +100,10 @@ export const StorageBreakdownPanel: React.FC = () => {
         <Database className="w-4 h-4 text-text-secondary" />
         <h3 className="text-sm font-semibold text-text-primary">{t('monitor.storage.title')}</h3>
         <span className="text-xs text-text-secondary ml-auto">
-          {formatNumber(totalRecords)} {t('monitor.storage.totalRecords', 'total records')}
+          {t('monitor.storage.totalRecordCount', {
+            count: totalRecords,
+            formatted: formatNumber(totalRecords),
+          })}
         </span>
       </div>
       <p className="text-[11px] text-text-secondary mb-3" data-testid="storage-scope">

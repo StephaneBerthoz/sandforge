@@ -890,8 +890,8 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
         <span className="text-xs text-text-secondary ml-auto tabular-nums">
-          {errors.length} {t('forge.object', { defaultValue: 'objects' })} · {totals}{' '}
-          {t('forge.records', { defaultValue: 'records' })}
+          {t('common.objectCount', { count: errors.length })} ·{' '}
+          {t('common.recordCount', { count: totals })}
         </span>
       </div>
       <ul className="divide-y divide-status-error/10">

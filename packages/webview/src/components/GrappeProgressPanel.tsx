@@ -92,11 +92,17 @@ export const GrappeProgressPanel: React.FC<{
         {!active && (
           <>
             <span className="text-status-success">
-              {totalProcessed.toLocaleString(uiLocale())} {t('grappe.processed', 'processed')}
+              {t('grappe.processedCount', {
+                count: totalProcessed,
+                formatted: totalProcessed.toLocaleString(uiLocale()),
+              })}
             </span>
             {totalFailed > 0 && (
               <span className="text-status-error">
-                {totalFailed.toLocaleString(uiLocale())} {t('grappe.failed', 'failed')}
+                {t('grappe.failedCount', {
+                  count: totalFailed,
+                  formatted: totalFailed.toLocaleString(uiLocale()),
+                })}
               </span>
             )}
           </>

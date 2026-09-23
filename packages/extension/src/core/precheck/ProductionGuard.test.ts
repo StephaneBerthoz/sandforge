@@ -436,32 +436,32 @@ describe('ProductionGuard', () => {
 
     it('confirmIfNeeded returns true when confirmation not required', async () => {
       const result = guard.check(createRequest({ orgTier: 'development' }));
-      await expect(guard.confirmIfNeeded(result)).resolves.toBe(true);
+      await expect(guard.confirmIfNeeded(result, 'development')).resolves.toBe(true);
     });
 
     it('confirmIfNeeded returns false when check disallows the operation', async () => {
       const result = guard.check(createRequest({ orgTier: 'production', operation: 'delete' }));
-      await expect(guard.confirmIfNeeded(result)).resolves.toBe(false);
+      await expect(guard.confirmIfNeeded(result, 'production')).resolves.toBe(false);
     });
 
     it('confirmIfNeeded proceeds when no confirmation UI is wired', async () => {
       const result = guard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
-      await expect(guard.confirmIfNeeded(result)).resolves.toBe(true);
+      await expect(guard.confirmIfNeeded(result, 'production')).resolves.toBe(true);
     });
 
     it('confirmIfNeeded delegates to requestConfirmation and honors refusal', async () => {
       const confirm = vi.fn().mockResolvedValue(false);
       const uiGuard = new ProductionGuard({ requestConfirmation: confirm });
       const result = uiGuard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
-      await expect(uiGuard.confirmIfNeeded(result)).resolves.toBe(false);
-      expect(confirm).toHaveBeenCalledWith(result.impactSummary);
+      await expect(uiGuard.confirmIfNeeded(result, 'production')).resolves.toBe(false);
+      expect(confirm).toHaveBeenCalledWith(result.impactSummary, 'production');
     });
 
     it('confirmIfNeeded honors user acceptance', async () => {
       const confirm = vi.fn().mockResolvedValue(true);
       const uiGuard = new ProductionGuard({ requestConfirmation: confirm });
       const result = uiGuard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
-      await expect(uiGuard.confirmIfNeeded(result)).resolves.toBe(true);
+      await expect(uiGuard.confirmIfNeeded(result, 'production')).resolves.toBe(true);
     });
   });
 });

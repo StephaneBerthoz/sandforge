@@ -1,29 +1,8 @@
-/**
- * Every status a sandbox process can be in, as Salesforce Help lists them
- * ("Sandbox Action and Status Reference").
- *
- * The type used to name four, one of which (`Failed`) Salesforce does not
- * have, and a status read from the org was cast to it: an activation waiting
- * for an admin, a copy being sampled or activated, all went uncounted as a
- * refresh in progress.
- */
-export const SANDBOX_PROCESS_STATUSES = [
-  'Sampling',
-  'Pending',
-  'Processing',
-  'Suspended',
-  'Stopped',
-  'Pending Activation',
-  'Activating',
-  'Discarding',
-  'Completed',
-  'Deleting',
-  'Locking',
-  'Locked',
-] as const;
-
-/** A status Salesforce documents for a sandbox process. */
-export type SandboxProcessStatus = (typeof SANDBOX_PROCESS_STATUSES)[number];
+import {
+  SANDBOX_PROCESS_STATUSES,
+  isSandboxRefreshInProgress,
+  type SandboxProcessStatus,
+} from '@sandforge/shared';
 
 /** Information about a sandbox refresh event */
 export interface SandboxRefreshEvent {
@@ -96,22 +75,6 @@ function inMemorySeenStore(): SeenRefreshStore {
     },
   };
 }
-
-/**
- * The statuses of a copy that has not replaced the sandbox yet: queued,
- * sampled, built, interrupted (the copy engine resumes a suspended copy on
- * its own), waiting for an admin to activate it, or being activated. A
- * stopped process, a discarded copy, a deletion and a license lock are not
- * refreshes under way.
- */
-const IN_PROGRESS_STATUSES = new Set<SandboxRefreshEvent['status']>([
-  'Sampling',
-  'Pending',
-  'Processing',
-  'Suspended',
-  'Pending Activation',
-  'Activating',
-]);
 
 /** One sandbox process, across reads: the same sandbox started at the same instant. */
 function refreshKey(event: SandboxRefreshEvent): string {
@@ -194,6 +157,6 @@ export class SandboxRefreshTracker {
   /** Check if any sandbox refresh is currently in progress */
   isRefreshInProgress(orgId: string): boolean {
     const events = this.refreshCache.get(orgId) ?? [];
-    return events.some((e) => IN_PROGRESS_STATUSES.has(e.status));
+    return events.some((e) => isSandboxRefreshInProgress(e.status));
   }
 }

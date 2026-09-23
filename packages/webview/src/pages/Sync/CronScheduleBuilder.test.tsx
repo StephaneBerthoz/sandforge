@@ -1,6 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { createInstance, type i18n as I18n } from 'i18next';
 import '../../i18n';
+import en from '../../i18n/locales/en.json';
+import fr from '../../i18n/locales/fr.json';
+import ja from '../../i18n/locales/ja.json';
 import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleBuilderProps } from './CronScheduleBuilder';
 
@@ -152,6 +156,22 @@ describe('CronScheduleBuilder accessible names', () => {
     expect(group.getAttribute('aria-label')).toBeTruthy();
   });
 
+  it('names the day toggles in the language of the page, and says which are picked', () => {
+    // They read MON to SUN in every language, and only their fill said which
+    // days were on.
+    render(<CronScheduleBuilder {...defaultProps} />);
+    fireEvent.change(screen.getByTestId('preset-selector'), { target: { value: 'weekly' } });
+
+    expect(screen.getByRole('button', { name: 'Mon', pressed: true })).toBe(
+      screen.getByTestId('day-btn-MON'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Wed', pressed: false }));
+    expect(screen.getByTestId('day-btn-WED').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('cron-preview').textContent).toContain(
+      'Every Monday, Wednesday at 09:00',
+    );
+  });
+
   it('should leave no orphan label in any mode', () => {
     render(<CronScheduleBuilder {...defaultProps} />);
     const form = screen.getByTestId('cron-schedule-builder');
@@ -169,19 +189,54 @@ describe('CronScheduleBuilder accessible names', () => {
 });
 
 describe('cronToHuman', () => {
+  /** An i18next of its own, with the languages the cases read in. */
+  let languages: I18n;
+  beforeAll(async () => {
+    languages = createInstance();
+    await languages.init({
+      resources: {
+        en: { translation: en },
+        fr: { translation: fr },
+        ja: { translation: ja },
+      },
+      lng: 'en',
+      fallbackLng: 'en',
+      interpolation: { escapeValue: false },
+    });
+  });
+  const inEnglish = (cron: string): string => cronToHuman(cron, languages.getFixedT('en'), 'en');
+
   it('should convert daily cron to human-readable', () => {
-    expect(cronToHuman('0 9 * * *')).toBe('Every day at 09:00');
+    expect(inEnglish('0 9 * * *')).toBe('Every day at 09:00');
   });
 
   it('should convert hourly cron to human-readable', () => {
-    expect(cronToHuman('0 * * * *')).toBe('Every hour');
+    expect(inEnglish('0 * * * *')).toBe('Every hour');
   });
 
   it('should convert monthly cron to human-readable', () => {
-    expect(cronToHuman('30 14 15 * *')).toBe('Monthly on day 15 at 14:30');
+    expect(inEnglish('30 14 15 * *')).toBe('Monthly on day 15 at 14:30');
+  });
+
+  it('names the days of a weekly schedule', () => {
+    expect(inEnglish('0 9 * * 1,3')).toBe('Every Monday, Wednesday at 09:00');
+    expect(inEnglish('15 7 * * 0')).toBe('Every Sunday at 07:15');
   });
 
   it('should return raw cron for complex expressions', () => {
-    expect(cronToHuman('*/5 * * * *')).toBe('*/5 * * * *');
+    expect(inEnglish('*/5 * * * *')).toBe('*/5 * * * *');
+    // Every other hour is not a time of day.
+    expect(inEnglish('0 */2 * * *')).toBe('0 */2 * * *');
+  });
+
+  it('describes a schedule in the language of the page', () => {
+    // It was English in every language, day names included ("Every MON").
+    const french = languages.getFixedT('fr');
+    expect(cronToHuman('0 9 * * *', french, 'fr')).toBe('Tous les jours à 09:00');
+    expect(cronToHuman('0 9 * * 1,3', french, 'fr')).toBe('Chaque lundi, mercredi à 09:00');
+    expect(cronToHuman('30 14 15 * *', french, 'fr')).toBe('Tous les mois le 15 à 14:30');
+    expect(cronToHuman('0 9 * * 1,3', languages.getFixedT('ja'), 'ja')).toBe(
+      '毎週月曜日、水曜日 09:00',
+    );
   });
 });

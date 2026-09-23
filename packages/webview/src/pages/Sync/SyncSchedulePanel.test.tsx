@@ -386,6 +386,26 @@ describe('SyncSchedulePanel', () => {
     );
   });
 
+  it('gives no next run to a paused schedule, whose kept time is not a run', () => {
+    // The host keeps `nextRunAt` on pause, and the card showed it as the next
+    // run of a schedule that runs nothing until it is resumed.
+    useSyncScheduleStore.setState({
+      schedules: [
+        makeMockSchedule('active', { cron: '0 9 * * 1' }),
+        makeMockSchedule('paused', { cron: '30 14 15 * *', enabled: false }),
+      ],
+    });
+    render(<SyncSchedulePanel />);
+
+    const active = screen.getByTestId('schedule-card-active');
+    const paused = screen.getByTestId('schedule-card-paused');
+    expect(active.textContent).toContain('Next run');
+    expect(active.textContent).toContain('Every Monday at 09:00');
+    expect(paused.textContent).not.toContain('Next run');
+    expect(paused.textContent).toContain('Monthly on day 15 at 14:30');
+    expect(paused.textContent).toContain('Last run');
+  });
+
   describe('once the next run is past', () => {
     afterEach(() => {
       vi.useRealTimers();

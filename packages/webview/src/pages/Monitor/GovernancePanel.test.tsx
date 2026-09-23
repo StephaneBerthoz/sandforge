@@ -4,11 +4,20 @@ import { GovernancePanel, GovernancePanelConnected } from './GovernancePanel';
 import type { GovernancePolicySummary } from '@sandforge/shared';
 import type { GovernanceRuleDisplay } from './GovernancePanel';
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, defaultValue: string) => defaultValue,
-  }),
-}));
+// Inline defaults as the component writes them; a count, through the English
+// catalogue, which is where its singular and plural live.
+vi.mock('react-i18next', async () => {
+  const { createInstance } = await import('i18next');
+  const { default: en } = await import('../../i18n/locales/en.json');
+  const english = createInstance();
+  await english.init({ lng: 'en', resources: { en: { translation: en } } });
+  return {
+    useTranslation: () => ({
+      t: (key: string, fallback?: string | Record<string, unknown>) =>
+        typeof fallback === 'string' ? fallback : english.t(key, fallback),
+    }),
+  };
+});
 
 /* ------------------------------------------------------------------ */
 /* Bridge hook mocks for GovernancePanelConnected                      */

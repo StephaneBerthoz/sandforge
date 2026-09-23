@@ -74,6 +74,42 @@ describe('FloatingToasts', () => {
     expect(screen.queryByText('Temp')).not.toBeInTheDocument();
   });
 
+  it('keeps an error up until it is dismissed, whatever time it was given', () => {
+    // An error is something to act on. Pages hand theirs 5 s like any other
+    // toast, and a message longer than two lines was cut at the second.
+    render(<FloatingToasts />);
+    const message =
+      'The org rejected the batch: FIELD_CUSTOM_VALIDATION_EXCEPTION on Account.Industry__c, ' +
+      'on three records of the first chunk, and the run stopped before the second one.';
+
+    act(() => {
+      useNotificationStore.getState().addNotification({
+        level: 'error',
+        title: 'Seed',
+        message,
+        autoDismissMs: 5000,
+      });
+      useNotificationStore.getState().addNotification({
+        level: 'success',
+        title: 'Saved',
+        message: 'Template saved',
+        autoDismissMs: 5000,
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    const error = screen.getByText(message);
+    expect(error.className).not.toMatch(/line-clamp/);
+
+    act(() => {
+      screen.getByRole('button', { name: 'Dismiss' }).click();
+    });
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+  });
+
   it('should render error toasts', () => {
     render(<FloatingToasts />);
 

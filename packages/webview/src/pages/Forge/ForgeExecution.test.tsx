@@ -37,6 +37,7 @@ interface PostedEnvelope {
 const mockUpdateNodeStatus = vi.fn();
 const mockUpdateNodeCounts = vi.fn();
 const mockSetPhase = vi.fn();
+const mockSetStoppedAt = vi.fn();
 const mockAddLog = vi.fn();
 const mockClearLogs = vi.fn();
 const mockStoreLogs: unknown[] = [];
@@ -141,6 +142,7 @@ vi.mock('../../stores/useForgeStore', () => {
         updateNodeStatus: mockUpdateNodeStatus,
         updateNodeCounts: mockUpdateNodeCounts,
         setPhase: mockSetPhase,
+        setStoppedAt: mockSetStoppedAt,
         addLog: (...args: unknown[]) => {
           mockAddLog(...args);
           mockStoreLogs.push(args[0]);
@@ -254,6 +256,23 @@ describe('ForgeExecution', () => {
     expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(envelope.payload.type).toBe('forge:abort');
     expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
+  });
+
+  it('records where a run the user aborted stopped, before it leaves the screen', () => {
+    // The abort goes back to the input screen at once, and this screen's
+    // announcer goes with it: the page says the run stopped from the store.
+    render(<ForgeExecution />);
+    expect(mockSetStoppedAt).toHaveBeenCalledWith(null);
+    mockSetStoppedAt.mockClear();
+
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(mockSetStoppedAt).toHaveBeenCalledWith(50);
+    expect(mockSetStoppedAt.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSetPhase.mock.invocationCallOrder[0],
+    );
   });
 
   it('should not post forge:abort when the confirm text does not match', () => {
@@ -533,10 +552,12 @@ describe('ForgeExecution progress for assistive technology', () => {
       expect(region.textContent).toBe('Forge progress: 100%');
     });
 
-    it('says where an aborted run stopped, as soon as it stops', () => {
-      const region = runUnderway();
+    it('records where a failed run stopped, for the page to say so', () => {
+      // It used to say "Forge progress: 75%" and stop there: nothing told a
+      // screen reader that the run had ended short.
+      runUnderway();
       host('forge:execute:error', { message: 'Insert failed' });
-      expect(region.textContent).toBe('Forge progress: 75%');
+      expect(mockSetStoppedAt).toHaveBeenLastCalledWith(75);
     });
 
     it('counts a skipped node as settled, so a run of skips reaches 100%', () => {

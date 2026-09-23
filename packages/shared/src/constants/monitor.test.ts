@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { MONITOR_KEY_LIMITS } from './monitor.js';
+import {
+  MONITOR_KEY_LIMITS,
+  SANDBOX_PROCESS_STATUSES,
+  isSandboxRefreshInProgress,
+} from './monitor.js';
 
 /**
  * Every limit name a real org's `/limits` answered with, at v62.0 (an
@@ -97,5 +101,24 @@ describe('MONITOR_KEY_LIMITS', () => {
 
   it('names only limits an org returns, so every trend it asks for can gather points', () => {
     expect(MONITOR_KEY_LIMITS.filter((name) => !LIMITS_A_REAL_ORG_RETURNS.has(name))).toEqual([]);
+  });
+});
+
+describe('a sandbox refresh under way', () => {
+  it('is a copy that has not replaced the sandbox yet, and nothing else', () => {
+    expect(SANDBOX_PROCESS_STATUSES.filter(isSandboxRefreshInProgress)).toEqual([
+      'Sampling',
+      'Pending',
+      'Processing',
+      'Suspended',
+      'Pending Activation',
+      'Activating',
+    ]);
+  });
+
+  it('is never a status Salesforce does not document', () => {
+    // `Failed` is not one: a copy that ends without replacing the sandbox is Stopped.
+    expect(isSandboxRefreshInProgress('Failed')).toBe(false);
+    expect(isSandboxRefreshInProgress('Unknown')).toBe(false);
   });
 });

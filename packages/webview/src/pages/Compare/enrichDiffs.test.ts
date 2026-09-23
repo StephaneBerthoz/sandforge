@@ -44,8 +44,8 @@ describe('enrichDiffs', () => {
 
   it('should compute summary counts', () => {
     const items = [
-      createItem({ status: 'added', severity: 'info' }),
-      createItem({ status: 'removed', severity: 'breaking' }),
+      createItem({ status: 'added', severity: 'breaking' }),
+      createItem({ status: 'removed', severity: 'info' }),
       createItem({ status: 'modified' }),
     ];
     const report = enrichDiffs(items);
@@ -59,7 +59,7 @@ describe('enrichDiffs', () => {
     const items = [
       createItem({
         componentType: 'CustomObject',
-        status: 'removed',
+        status: 'added',
         severity: 'breaking',
       }),
     ];
@@ -81,8 +81,8 @@ describe('enrichDiffs', () => {
 
   it('should count risks by level in summary', () => {
     const items = [
-      createItem({ componentType: 'CustomObject', status: 'removed', severity: 'breaking' }),
-      createItem({ componentType: 'CustomField', status: 'added', severity: 'info' }),
+      createItem({ componentType: 'CustomObject', status: 'added', severity: 'breaking' }),
+      createItem({ componentType: 'CustomField', status: 'removed', severity: 'info' }),
     ];
     const report = enrichDiffs(items);
     expect(report.summary.byRisk['critical']).toBe(1);
@@ -117,7 +117,7 @@ describe('enrichDiffs', () => {
   });
 
   it('does not call a comparison safe to deploy while part of it was not compared', () => {
-    const added = createItem({ componentType: 'CustomLabel', status: 'added', severity: 'info' });
+    const added = createItem({ componentType: 'CustomLabel', status: 'removed', severity: 'info' });
     const unread = createItem({
       status: 'not_compared',
       severity: 'info',
@@ -129,12 +129,56 @@ describe('enrichDiffs', () => {
     expect(enrichDiffs([added, unread]).deploymentAdvice).not.toContainEqual({ kind: 'lowRisk' });
   });
 
+  describe('added and removed, as the comparison defines them', () => {
+    // `removed` is only in the source, `added` only in the target. The card
+    // read them the other way round: it warned that a data model component
+    // only the source held was being removed and "may cause data loss", and
+    // rated the one only the target held a new component, low risk.
+
+    it('rates a component only the source holds as one a deployment creates', () => {
+      const report = enrichDiffs([
+        createItem({ componentType: 'CustomObject', status: 'removed', severity: 'info' }),
+        createItem({ componentType: 'ApexTrigger', status: 'removed', severity: 'info' }),
+      ]);
+
+      expect(report.diffs.map((d) => [d.riskLevel, d.riskReasons])).toEqual([
+        ['low', ['sourceOnly']],
+        ['low', ['sourceOnly']],
+      ]);
+      expect(report.deploymentAdvice).not.toContainEqual(
+        expect.objectContaining({ kind: 'critical' }),
+      );
+    });
+
+    it('warns about taking out what only the target holds', () => {
+      const report = enrichDiffs([
+        createItem({ componentType: 'CustomField', status: 'added', severity: 'breaking' }),
+        createItem({ componentType: 'ApexClass', status: 'added', severity: 'breaking' }),
+      ]);
+
+      expect(report.diffs.map((d) => [d.riskLevel, d.riskReasons])).toEqual([
+        ['critical', ['targetOnlyDataModel', 'breaking']],
+        ['critical', ['targetOnlyApex', 'breaking']],
+      ]);
+    });
+
+    it('scores a component only the target holds above one only the source holds', () => {
+      const sourceOnly = enrichDiffs([
+        createItem({ componentType: 'CustomObject', status: 'removed', severity: 'info' }),
+      ]);
+      const targetOnly = enrichDiffs([
+        createItem({ componentType: 'CustomObject', status: 'added', severity: 'breaking' }),
+      ]);
+      expect(targetOnly.riskScore).toBeGreaterThan(sourceOnly.riskScore);
+    });
+  });
+
   it('should cap risk score at 100', () => {
     const items = Array.from({ length: 50 }, (_, i) =>
       createItem({
         componentType: 'CustomObject',
         fullName: `Obj${i}`,
-        status: 'removed',
+        status: 'added',
         severity: 'breaking',
       }),
     );

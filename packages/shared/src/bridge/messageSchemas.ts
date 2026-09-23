@@ -435,6 +435,7 @@ const SettingsMessages = [
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
   msg('workbench:reload'),
+  msg('workbench:open-setting'),
   msg('error:boundary'),
 ] as const;
 export const SettingsMessageSchema = z.discriminatedUnion('type', SettingsMessages);

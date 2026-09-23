@@ -11,10 +11,7 @@ const sampleDiff: EnrichedDiff = {
   sourceValue: 'public class AccountController { /* v1 */ }',
   targetValue: 'public class AccountController { /* v2 */ }',
   riskLevel: 'high',
-  riskReasons: [
-    'This is a breaking change that requires careful review.',
-    'Run all Apex tests in the target org.',
-  ],
+  riskReasons: ['breaking'],
   group: 'Apex Code',
   dependencies: ['ApexTrigger', 'Flow'],
 };
@@ -24,7 +21,7 @@ const addedDiff: EnrichedDiff = {
   changeType: 'added',
   name: 'MyNewLabel',
   riskLevel: 'low',
-  riskReasons: ['New component — low risk.'],
+  riskReasons: [],
   group: 'Configuration',
   dependencies: [],
 };
@@ -58,10 +55,29 @@ describe('DiffDetailModal', () => {
   it('should show risk reasons', () => {
     render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
     expect(screen.getByTestId('diff-risk-reasons')).toBeDefined();
-    expect(
-      screen.getByText('This is a breaking change that requires careful review.'),
-    ).toBeDefined();
-    expect(screen.getByText('Run all Apex tests in the target org.')).toBeDefined();
+    expect(screen.getByText('This is a breaking change.')).toBeDefined();
+  });
+
+  it('words each reason from the catalogue, in the language of the page', () => {
+    // The reasons were English sentences built where the diffs are enriched,
+    // and one of them told a component only the source holds that it was
+    // being removed.
+    render(
+      <DiffDetailModal
+        diff={{
+          ...sampleDiff,
+          changeType: 'removed',
+          category: 'CustomField',
+          riskLevel: 'low',
+          riskReasons: ['sourceOnly'],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('diff-risk-reasons').textContent).toContain(
+      'Only the source holds it: a deployment creates it in the target.',
+    );
+    expect(screen.getByTestId('diff-risk-reasons').textContent).not.toMatch(/sourceOnly|Removing/);
   });
 
   it('should show dependencies', () => {

@@ -6,12 +6,19 @@ import { ForgePage } from './ForgePage';
 /* ---- Mocks ---- */
 
 let mockPhase = 'input';
+/** Where the last run stopped, as the execution screen recorded it. */
+let mockStoppedAt: number | null = null;
+const mockSetStoppedAt = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
     get phase() {
       return mockPhase;
     },
+    get stoppedAt() {
+      return mockStoppedAt;
+    },
+    setStoppedAt: (...args: unknown[]) => mockSetStoppedAt(...args),
     config: null,
     templates: [],
     graph: null,
@@ -177,5 +184,38 @@ describe('ForgePage', () => {
     mockPhase = 'results';
     render(<ForgePage />);
     expect(screen.getByTestId('forge-results')).toBeDefined();
+  });
+
+  describe('a stopped run, told to a screen reader', () => {
+    beforeEach(() => {
+      mockStoppedAt = null;
+      mockSetStoppedAt.mockClear();
+    });
+
+    it('says where the run stopped, from the screen the abort goes back to', () => {
+      // A finished run is spoken from the results screen. An aborted one went
+      // back to the input screen in the same instant, and nothing said so.
+      mockPhase = 'input';
+      mockStoppedAt = 75;
+      render(<ForgePage />);
+
+      const region = screen.getByTestId('forge-run-stopped-status');
+      expect(region.getAttribute('role')).toBe('status');
+      expect(region.textContent).toBe('Forge stopped at 75%.');
+    });
+
+    it('says nothing while no run has stopped', () => {
+      mockPhase = 'input';
+      render(<ForgePage />);
+      expect(screen.getByTestId('forge-run-stopped-status').textContent).toBe('');
+    });
+
+    it('forgets the stopped run when the page closes, so coming back does not repeat it', () => {
+      mockPhase = 'input';
+      mockStoppedAt = 75;
+      const { unmount } = render(<ForgePage />);
+      unmount();
+      expect(mockSetStoppedAt).toHaveBeenCalledWith(null);
+    });
   });
 });

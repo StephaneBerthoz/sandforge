@@ -69,10 +69,10 @@ export const DeploymentTimeline: React.FC = () => {
   const timelineItems: TimelineItem[] = useMemo(
     () =>
       deployments.map((d) => ({
-        title: `${d.createdBy} - ${d.componentCount} ${t('monitor.deployments.components', 'components')}`,
+        title: `${d.createdBy} - ${t('monitor.deployments.componentCount', { count: d.componentCount })}`,
         description:
           d.errorCount > 0
-            ? `${d.status} (${d.errorCount} ${t('monitor.deployments.errors', 'errors')})`
+            ? `${d.status} (${t('monitor.deployments.errorCount', { count: d.errorCount })})`
             : d.status,
         timestamp: formatDate(d.startDate),
         status: statusToTimelineStatus(d.status),

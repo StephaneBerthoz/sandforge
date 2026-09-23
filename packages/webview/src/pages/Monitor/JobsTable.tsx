@@ -361,7 +361,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                         color: 'var(--sf-text-secondary)',
                       }}
                     >
-                      {group.totalRuns} {t('monitor.runs', 'runs')}
+                      {t('monitor.runCount', { count: group.totalRuns })}
                     </span>
                     <span
                       style={{
@@ -373,7 +373,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                     </span>
                     {group.failedCount > 0 && (
                       <Badge variant="error">
-                        {group.failedCount} {t('monitor.failed', 'failed')}
+                        {t('monitor.failedCount', { count: group.failedCount })}
                       </Badge>
                     )}
                   </button>
@@ -509,7 +509,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                                     marginLeft: 'var(--sf-space-1)',
                                   }}
                                 >
-                                  ({job.failedRecords} err)
+                                  ({t('monitor.jobErrorCount', { count: job.failedRecords ?? 0 })})
                                 </span>
                               )}
                             </span>

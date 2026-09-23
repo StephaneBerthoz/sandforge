@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Icon } from '../../components/ui/Icon';
+import { uiLocale } from '../../utils/formatters';
 
 /** Data submitted by the cron schedule builder form. */
 export interface CronScheduleFormData {
@@ -95,36 +97,51 @@ export function getLocalTimezone(): string {
 }
 
 /**
- * Convert a cron expression to a human-readable description.
- * Handles common patterns; falls back to raw cron for complex expressions.
- * @param cron - A 5-field cron expression.
+ * The name of a day of the week in `locale`, from its cron number (0 and 7
+ * are Sunday), or undefined for anything else.
  */
-export function cronToHuman(cron: string): string {
+function weekdayName(cronDay: string, locale: string, width: 'long' | 'short'): string | undefined {
+  if (!/^[0-7]$/.test(cronDay)) return undefined;
+  // 7 January 2024 was a Sunday.
+  return new Intl.DateTimeFormat(locale, { weekday: width, timeZone: 'UTC' }).format(
+    Date.UTC(2024, 0, 7 + (Number(cronDay) % 7)),
+  );
+}
+
+/**
+ * Convert a cron expression to a description in the language of the page.
+ * Handles common patterns; falls back to raw cron for complex expressions.
+ *
+ * It used to write English in every language, day names included ("Every
+ * MON, WED at 09:00"), on the schedule cards and in the builder's preview.
+ *
+ * @param cron - A 5-field cron expression.
+ * @param t - The translation function of the page.
+ * @param locale - Where the day names come from; the page's by default.
+ */
+export function cronToHuman(cron: string, t: TFunction, locale: string = uiLocale()): string {
   const parts = cron.split(' ');
   if (parts.length !== 5) return cron;
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const atTime = /^\d+$/.test(minute) && /^\d+$/.test(hour);
+  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
 
-  if (minute === '0' && hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `Every day at ${hour.padStart(2, '0')}:00`;
-  }
-  if (minute !== '*' && hour !== '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `Every day at ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-  }
   if (minute === '0' && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return 'Every hour';
+    return t('sync.schedules.cron.hourly');
   }
-  if (dayOfWeek !== '*' && dayOfMonth === '*' && month === '*') {
-    const dayNames = dayOfWeek
+  if (!atTime || month !== '*') return cron;
+  if (dayOfMonth === '*' && dayOfWeek === '*') {
+    return t('sync.schedules.cron.daily', { time });
+  }
+  if (dayOfMonth === '*') {
+    const days = dayOfWeek
       .split(',')
-      .map((d) => {
-        const entry = Object.entries(DAYS_CRON_MAP).find(([, v]) => v === d);
-        return entry ? entry[0] : d;
-      })
-      .join(', ');
-    return `Every ${dayNames} at ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+      .map((d) => weekdayName(d, locale, 'long') ?? d)
+      .join(t('sync.schedules.cron.daySeparator'));
+    return t('sync.schedules.cron.weekly', { days, time });
   }
-  if (dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
-    return `Monthly on day ${dayOfMonth} at ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  if (dayOfWeek === '*') {
+    return t('sync.schedules.cron.monthly', { day: dayOfMonth, time });
   }
 
   return cron;
@@ -375,6 +392,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                         ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
                         : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'
                     }`}
+                    // Picked or not was told by the fill alone.
+                    aria-pressed={dayOfWeek.includes(day)}
                     onClick={() => {
                       setDayOfWeek((prev) =>
                         prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
@@ -382,7 +401,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                     }}
                     data-testid={`day-btn-${day}`}
                   >
-                    {day}
+                    {weekdayName(DAYS_CRON_MAP[day], uiLocale(), 'short') ?? day}
                   </button>
                 ))}
               </div>
@@ -498,7 +517,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         data-testid="cron-preview"
       >
         <span className="font-semibold">{t('sync.schedules.preview')}:</span>{' '}
-        {cronToHuman(currentCron)}
+        {cronToHuman(currentCron, t)}
       </div>
 
       {/* Actions */}

@@ -487,6 +487,28 @@ test.describe('Sync conflicts — bulk resolution', () => {
     expect(sent.resolution).toBe('target_wins');
   });
 
+  test('the confirmation opens with its field focused, so the word is typed at once', async ({
+    page,
+  }) => {
+    // The dialog focused nothing: its effect ran before the portal had put the
+    // field on the page, and Radix's own focus on open was turned off. The
+    // word went nowhere until the field was clicked.
+    await openSyncPanel(page);
+    await pushConflict(page, ACCOUNT_A);
+    await openConflictsTab(page);
+    await selectConflict(page, ACCOUNT_A);
+
+    await page.getByTestId('bulk-source-btn').click();
+    await expect(page.getByTestId('danger-input')).toBeFocused();
+    await page.keyboard.type('CONFIRM');
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByTestId('danger-input')).toHaveCount(0);
+    await expect
+      .poll(async () => (await resolutionsSent(page)).length, { timeout: 10_000 })
+      .toBe(1);
+  });
+
   test('cancelling the confirmation sends nothing', async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);

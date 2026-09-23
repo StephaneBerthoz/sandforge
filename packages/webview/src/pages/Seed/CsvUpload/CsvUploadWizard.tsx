@@ -249,7 +249,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                   {t('seed.csv.wizard.execute')}
                 </span>
                 <Badge variant="default">
-                  {csv.parsedRows.length} {t('seed.records')}
+                  {t('common.recordCount', { count: csv.parsedRows.length })}
                 </Badge>
                 <Button
                   variant="primary"

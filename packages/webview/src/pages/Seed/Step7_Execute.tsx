@@ -103,7 +103,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
               </span>
               {obj.failed > 0 && (
                 <span className="text-status-error">
-                  {obj.failed} {t('seed.failed').toLowerCase()}
+                  {t('seed.failedRecordCount', { count: obj.failed })}
                 </span>
               )}
             </div>

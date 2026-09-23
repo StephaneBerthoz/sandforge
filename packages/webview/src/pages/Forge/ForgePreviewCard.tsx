@@ -111,7 +111,13 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         {tile(
           <Database size={13} className="text-status-success" />,
           t('forge.preview.willClone', 'Will clone'),
-          `${buckets.cloneObjects.length} obj · ${buckets.cloneRecords.toLocaleString(uiLocale())} rec`,
+          `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${t(
+            'common.recordCountFormatted',
+            {
+              count: buckets.cloneRecords,
+              formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
+            },
+          )}`,
           buckets.cloneObjects,
           'border-status-success/30 bg-status-success/5',
           'forge-preview-clone',
@@ -145,7 +151,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           <span className="flex items-center gap-1.5">
             <Zap size={11} />
-            {plan.totalApiCalls} {t('forge.apiCalls', 'API calls')}
+            {t('common.apiCallCount', { count: plan.totalApiCalls })}
           </span>
           <span className="flex items-center gap-1.5">
             <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s
@@ -156,7 +162,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
               className="flex items-center gap-1.5 text-status-warning"
             >
               <AlertTriangle size={11} />
-              {cycleCount} {t('forge.preview.cycles', 'cycles (2-pass UPDATE)')}
+              {t('forge.preview.cycleCount', { count: cycleCount })}
             </span>
           )}
         </div>

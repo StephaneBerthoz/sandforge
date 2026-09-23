@@ -52,21 +52,24 @@ const MOCK_COMPARE_RESULT = {
       severity: 'warning',
       deployable: true,
     },
+    // DiffEngine's terms: `added` only the target holds, `removed` only the
+    // source. The fixture had them the other way round, values and severity
+    // included.
     {
       componentType: 'ApexClass',
       fullName: 'MyClass',
       status: 'added',
-      sourceValue: 'public class MyClass { }',
-      severity: 'info',
+      targetValue: 'public class MyClass { }',
+      severity: 'breaking',
       deployable: true,
     },
     {
       componentType: 'ApexClass',
       fullName: 'OldHelper',
       status: 'removed',
-      targetValue: 'public class OldHelper { }',
-      severity: 'breaking',
-      deployable: false,
+      sourceValue: 'public class OldHelper { }',
+      severity: 'info',
+      deployable: true,
     },
     {
       componentType: 'CustomObject',
@@ -331,12 +334,12 @@ test.describe('Compare panel — running a comparison', () => {
 
     // Summary bar reads the response's own counts.
     const summary = page.getByTestId('compare-summary');
-    await expect(summary).toContainText('+5 Added');
-    await expect(summary).toContainText('-2 Removed');
-    await expect(summary).toContainText('~8 Modified');
-    await expect(summary).toContainText('=120 Unchanged');
+    await expect(summary).toContainText('+5 added');
+    await expect(summary).toContainText('-2 removed');
+    await expect(summary).toContainText('~8 modified');
+    await expect(summary).toContainText('=120 unchanged');
     // In both orgs, content not compared: counted apart, and said why.
-    await expect(summary).toContainText('?3 Not compared');
+    await expect(summary).toContainText('?3 not compared');
     await expect(page.getByTestId('compare-coverage-compared')).toHaveText(
       'Content compared for 128 of the 131 components both orgs hold.',
     );
@@ -369,7 +372,7 @@ test.describe('Compare panel — running a comparison', () => {
     await page.getByTestId('diff-item-OldHelper').click();
     await expect(page.getByTestId('diff-detail-modal')).toBeVisible();
     await expect(page.getByTestId('diff-detail-name')).toContainText('OldHelper');
-    await expect(page.getByTestId('diff-target-value')).toContainText('public class OldHelper { }');
+    await expect(page.getByTestId('diff-source-value')).toContainText('public class OldHelper { }');
     await page.getByTestId('close-diff-modal').click();
     await expect(page.getByTestId('diff-detail-modal')).toHaveCount(0);
   });

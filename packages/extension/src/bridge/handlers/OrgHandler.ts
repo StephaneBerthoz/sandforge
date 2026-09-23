@@ -217,13 +217,12 @@ export class OrgHandler implements DomainHandler {
         return;
       }
       if (results.length === 0) {
-        sendNotification(
-          this.deps,
-          'warning',
-          'Import',
-          'No connected orgs found in SF CLI. Run "sf org login web" first.',
-        );
-        this.failConnect(msg, 'No connected orgs found in SF CLI.', 'NO_ORGS_FOUND');
+        // Something to do before trying again, so the toast stays until it is
+        // dismissed, and the banner that outlives it carries the same step: it
+        // used to stop at "No connected orgs found in SF CLI."
+        const message = 'No connected orgs found in SF CLI. Run "sf org login web" first.';
+        sendNotification(this.deps, 'warning', 'Import', message, { autoDismissMs: null });
+        this.failConnect(msg, message, 'NO_ORGS_FOUND');
         return;
       }
 

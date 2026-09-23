@@ -44,7 +44,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const typeStyle = ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT;
-  const envLabel = orgTypeLabel(org);
+  const envLabel = orgTypeLabel(org, t);
   const canReconnect = onReconnect && (org.status === 'expired' || org.status === 'error');
 
   return (

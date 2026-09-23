@@ -58,6 +58,7 @@ export const ForgeExecution: React.FC = () => {
   const addLogToStore = useForgeStore((s) => s.addLog);
   const clearLogs = useForgeStore((s) => s.clearLogs);
   const setResult = useForgeStore((s) => s.setResult);
+  const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
   const executionRequestId = useForgeStore((s) => s.executionRequestId);
 
   const [isPaused, setIsPaused] = useState(false);
@@ -92,11 +93,14 @@ export const ForgeExecution: React.FC = () => {
     }
   }, [isPaused, executionStatus]);
 
-  // Clear store logs on mount so a fresh execution starts clean
+  // Clear store logs on mount so a fresh execution starts clean, and forget
+  // where the last run stopped: this one has not.
   const clearLogsRef = useLatestRef(clearLogs);
+  const setStoppedAtRef = useLatestRef(setStoppedAt);
   useEffect(() => {
     clearLogsRef.current();
-  }, [clearLogsRef]);
+    setStoppedAtRef.current(null);
+  }, [clearLogsRef, setStoppedAtRef]);
 
   /** Add a log entry (local state + store persistence). */
   const addLog = useCallback(
@@ -112,6 +116,31 @@ export const ForgeExecution: React.FC = () => {
     },
     [nextLogId, addLogToStore],
   );
+
+  // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
+  const kpis = useMemo(() => {
+    const nodeList = graph?.nodes ?? [];
+    const total = nodeList.length;
+    const done = nodeList.filter((n) => n.status === 'done').length;
+    const running = nodeList.filter(
+      (n) => n.status === 'running' || n.status === 'scanning',
+    ).length;
+    const queued = nodeList.filter((n) => n.status === 'idle').length;
+    const failed = nodeList.filter((n) => n.status === 'error').length;
+    const skipped = nodeList.filter((n) => n.status === 'skipped').length;
+    const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
+    /*
+     * A node that was skipped or failed is finished with, so it counts toward
+     * the bar. Dividing only the "done" nodes by the total left a completed run
+     * showing 50% whenever half its objects had been skipped, with no card
+     * accounting for them.
+     */
+    const settled = done + failed + skipped;
+    const progress = total > 0 ? Math.round((settled / total) * 100) : 0;
+    return { total, done, running, queued, failed, skipped, settled, apiCalls, progress };
+  }, [graph]);
+  /** Where the run stands, for recording where it stopped. */
+  const progressRef = useLatestRef(kpis.progress);
 
   // ---- Bridge message listener ----
   useEffect(() => {
@@ -149,6 +178,7 @@ export const ForgeExecution: React.FC = () => {
       if (data.type === 'forge:execute:error') {
         const payload = data.payload as { message?: string } | undefined;
         setExecutionStatus('aborted');
+        setStoppedAt(progressRef.current);
         addLog('error', payload?.message ?? t('forge.executeFailed'));
         return;
       }
@@ -203,32 +233,11 @@ export const ForgeExecution: React.FC = () => {
     setPhase,
     addLog,
     setResult,
+    setStoppedAt,
+    progressRef,
     t,
     executionRequestId,
   ]);
-
-  // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
-  const kpis = useMemo(() => {
-    const nodeList = graph?.nodes ?? [];
-    const total = nodeList.length;
-    const done = nodeList.filter((n) => n.status === 'done').length;
-    const running = nodeList.filter(
-      (n) => n.status === 'running' || n.status === 'scanning',
-    ).length;
-    const queued = nodeList.filter((n) => n.status === 'idle').length;
-    const failed = nodeList.filter((n) => n.status === 'error').length;
-    const skipped = nodeList.filter((n) => n.status === 'skipped').length;
-    const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
-    /*
-     * A node that was skipped or failed is finished with, so it counts toward
-     * the bar. Dividing only the "done" nodes by the total left a completed run
-     * showing 50% whenever half its objects had been skipped, with no card
-     * accounting for them.
-     */
-    const settled = done + failed + skipped;
-    const progress = total > 0 ? Math.round((settled / total) * 100) : 0;
-    return { total, done, running, queued, failed, skipped, settled, apiCalls, progress };
-  }, [graph]);
 
   /*
    * Time remaining, from the rate the run has achieved so far.
@@ -266,8 +275,11 @@ export const ForgeExecution: React.FC = () => {
     addLog('warn', t('forge.aborted'));
     // Routed through the broker: the envelope is mandatory since 1.5.0.
     sendBridgeMessage('forge:abort');
+    // This screen and its announcer leave with the phase change: the page
+    // says the run stopped, from where it stood.
+    setStoppedAt(kpis.progress);
     setPhase('input');
-  }, [t, addLog, setPhase]);
+  }, [t, addLog, setPhase, setStoppedAt, kpis.progress]);
 
   return (
     <div data-testid="forge-execution" className="flex flex-col gap-4 h-full">
@@ -300,7 +312,9 @@ export const ForgeExecution: React.FC = () => {
             name: t('nav.forge'),
             percent: kpis.progress,
           })}
-          immediate={executionStatus === 'complete' || executionStatus === 'aborted'}
+          // A stopped run is said by the page, where it stopped: saying the
+          // percentage from here too told nothing more, twice.
+          immediate={executionStatus === 'complete'}
           testId="forge-progress-status"
         />
       </m.div>
