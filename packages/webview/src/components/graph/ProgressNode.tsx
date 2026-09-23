@@ -142,7 +142,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               data-testid="progress-node-select"
               onClick={handleClick}
               aria-label={t('forge.node.showDetails', { object: objectApiName })}
-              className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)] rounded-sm"
+              className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)] rounded-sm"
             >
               {objectApiName}
             </button>
