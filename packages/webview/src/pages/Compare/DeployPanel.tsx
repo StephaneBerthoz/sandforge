@@ -258,7 +258,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
                         data-testid={`deploy-pick-${key}`}
                       />
                       <Badge variant={c.status === 'removed' ? 'success' : 'warning'}>
-                        {t(`compare.deployment.change.${c.status}`)}
+                        {t(`compare.change.${c.status}`)}
                       </Badge>
                       {/* Primary, not secondary: the row's hover fill takes
                           secondary text under AA on the dark default theme. */}

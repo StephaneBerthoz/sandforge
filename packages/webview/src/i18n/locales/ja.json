@@ -384,11 +384,7 @@
       "targetRefused": "{{target}} は本番 Org か、SandForge が Sandbox と判断できない Org です。SandForge は Sandbox にのみデプロイします。",
       "pickLegend": "デプロイするコンポーネント：{{total}} 件中 {{picked}} 件を選択",
       "noneDeployable": "この比較で見つかったものは、ここからデプロイできません。",
-      "changeLegend": "新規：{{source}} にのみあり、デプロイで作成されます。相違：両方にあり、デプロイで {{target}} の内容が置き換えられます。",
-      "change": {
-        "removed": "新規",
-        "modified": "相違"
-      },
+      "changeLegend": "ソースにのみ存在：デプロイで {{target}} に作成されます。変更：両方にあり、デプロイで {{target}} の内容が置き換えられます。",
       "notDeployableTitle_other": "この比較からデプロイできないコンポーネント：{{count}} 件",
       "reason": {
         "only_in_target": "ターゲットにのみ存在：削除は破壊的変更であり、SandForge はデプロイしません",

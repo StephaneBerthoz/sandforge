@@ -152,15 +152,16 @@ beforeEach(() => {
 });
 
 describe('DeployPanel', () => {
-  it('offers what the source can carry, marked new or different, with its risk', () => {
+  it('offers what the source can carry, named as the diff views name it, with its risk', () => {
     renderPanel();
 
     const list = screen.getByTestId('deploy-candidate-list');
     expect(within(list).getAllByRole('checkbox')).toHaveLength(2);
     expect(screen.getByTestId('deploy-pick-ApexClass:Invoicing')).toBeDefined();
     expect(screen.getByTestId('deploy-pick-CustomLabel:Greeting')).toBeDefined();
-    expect(list.textContent).toContain('Differs');
-    expect(list.textContent).toContain('New');
+    // The diff views' words: the tab called the same component "New".
+    expect(list.textContent).toContain('Modified');
+    expect(list.textContent).toContain('Only in the source');
     expect(list.textContent).toMatch(/(Low|Medium|High|Critical) risk/);
     // Nothing is picked until the user picks it.
     expect(screen.getByTestId('deploy-candidates').textContent).toContain('0 of 2 picked');

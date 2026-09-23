@@ -412,11 +412,7 @@
       "targetRefused": "{{target}} est une org de production, ou une org dont SandForge ne peut pas dire qu'elle est une sandbox. SandForge ne déploie que vers des sandboxes.",
       "pickLegend": "Composants à déployer : {{picked}} sur {{total}} choisis",
       "noneDeployable": "Rien de ce que cette comparaison a trouvé ne peut en être déployé.",
-      "changeLegend": "Nouveau : seule {{source}} le contient, et le déploiement le crée. Diffère : les deux le contiennent, et le déploiement remplace ce que {{target}} contient.",
-      "change": {
-        "removed": "Nouveau",
-        "modified": "Diffère"
-      },
+      "changeLegend": "Seulement dans la source : le déploiement le crée dans {{target}}. Modifié : les deux le contiennent, et le déploiement remplace ce que {{target}} contient.",
       "notDeployableTitle_one": "{{count}} composant ne peut pas être déployé depuis cette comparaison",
       "notDeployableTitle_other": "{{count}} composants ne peuvent pas être déployés depuis cette comparaison",
       "reason": {

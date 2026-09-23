@@ -412,11 +412,7 @@
       "targetRefused": "{{target}} ist eine Produktions-Org oder eine Org, von der SandForge nicht sagen kann, ob sie eine Sandbox ist. SandForge stellt nur in Sandboxes bereit.",
       "pickLegend": "Bereitzustellende Komponenten: {{picked}} von {{total}} ausgewählt",
       "noneDeployable": "Nichts, was dieser Vergleich gefunden hat, kann daraus bereitgestellt werden.",
-      "changeLegend": "Neu: Nur {{source}} enthält es, und die Bereitstellung erstellt es. Abweichend: Beide enthalten es, und die Bereitstellung ersetzt, was {{target}} enthält.",
-      "change": {
-        "removed": "Neu",
-        "modified": "Abweichend"
-      },
+      "changeLegend": "Nur in der Quelle: Die Bereitstellung erstellt es in {{target}}. Geändert: Beide enthalten es, und die Bereitstellung ersetzt, was {{target}} enthält.",
       "notDeployableTitle_one": "{{count}} Komponente kann aus diesem Vergleich nicht bereitgestellt werden",
       "notDeployableTitle_other": "{{count}} Komponenten können aus diesem Vergleich nicht bereitgestellt werden",
       "reason": {

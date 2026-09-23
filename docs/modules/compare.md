@@ -91,7 +91,7 @@ in the source, or different in it. Nothing is deployed that was not validated
 first.
 
 1. **Pick.** The tab lists each component a deployment can carry, marked
-   _New_ (only the source holds it) or _Differs_, with the risk the Risk Score
+   _Only in the source_ or _Modified_, as the diff views name it, with the risk the Risk Score
    Card gives it. Below the list, it says which components the comparison
    found that cannot be deployed from it, and why:
    - only the target holds it: taking it out is a destructive change, and

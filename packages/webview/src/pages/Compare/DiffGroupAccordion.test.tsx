@@ -87,6 +87,21 @@ describe('DiffGroupAccordion', () => {
     expect(screen.getByText('1~')).toBeDefined();
   });
 
+  it('says each count in words, where the header shows a symbol', () => {
+    const diffs = [
+      createDiff({ group: 'G', changeType: 'removed', name: 'SourceOnly' }),
+      createDiff({ group: 'G', changeType: 'removed', name: 'SourceOnlyToo' }),
+      createDiff({ group: 'G', changeType: 'added', name: 'TargetOnly' }),
+    ];
+    render(<DiffGroupAccordion diffs={diffs} />);
+
+    const header = screen.getByRole('button', {
+      name: /2 only in the source.*1 only in the target/,
+    });
+    expect(header).toBe(screen.getByTestId('diff-group-toggle-G'));
+    expect(screen.getByTitle('2 only in the source')).toBeDefined();
+  });
+
   it('counts what only the source holds as additions, in green, ahead of what only the target holds', () => {
     // `removed` is only in the source: a deployment creates it. The header
     // counted it under a red minus, and what only the target holds under a
@@ -101,7 +116,7 @@ describe('DiffGroupAccordion', () => {
 
     const header = screen.getByTestId('diff-group-toggle-G');
     const counts = Array.from(header.querySelectorAll('span[class*="bg-status-"]')).map((badge) => [
-      badge.textContent,
+      badge.querySelector('[aria-hidden="true"]')?.textContent,
       badge.className.match(/bg-status-(\w+)/)?.[1],
     ]);
     expect(counts.slice(0, 3)).toEqual([

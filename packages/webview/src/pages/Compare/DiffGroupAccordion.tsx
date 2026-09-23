@@ -193,12 +193,20 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
               >
                 {t('compare.changeCount', { count: group.diffs.length })}
               </span>
-              {CHANGE_ORDER.filter((kind) => group.counts[kind] > 0).map((kind) => (
-                <Badge key={kind} variant={CHANGE_LOOK[kind].variant}>
-                  {group.counts[kind]}
-                  {CHANGE_LOOK[kind].symbol}
-                </Badge>
-              ))}
+              {CHANGE_ORDER.filter((kind) => group.counts[kind] > 0).map((kind) => {
+                // "2+" alone said nothing to a screen reader, nor to a reader
+                // who had not found the legend: the count carries its words.
+                const words = t(`compare.count.${kind}`, { count: group.counts[kind] });
+                return (
+                  <Badge key={kind} variant={CHANGE_LOOK[kind].variant} title={words}>
+                    <span aria-hidden="true">
+                      {group.counts[kind]}
+                      {CHANGE_LOOK[kind].symbol}
+                    </span>
+                    <span className="sr-only">{words}</span>
+                  </Badge>
+                );
+              })}
               {/* It wrote the level's own code, "critical", whatever the language. */}
               <Badge variant={riskBadge[group.maxRisk]}>
                 {t(`compare.riskLevel.${group.maxRisk}`)}

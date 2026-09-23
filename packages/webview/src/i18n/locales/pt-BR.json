@@ -412,11 +412,7 @@
       "targetRefused": "{{target}} é uma org de produção, ou uma org que o SandForge não consegue identificar como sandbox. O SandForge implanta apenas em sandboxes.",
       "pickLegend": "Componentes a implantar: {{picked}} de {{total}} escolhidos",
       "noneDeployable": "Nada do que esta comparação encontrou pode ser implantado a partir dela.",
-      "changeLegend": "Novo: só {{source}} o contém, e a implantação o cria. Difere: as duas o contêm, e a implantação substitui o que {{target}} contém.",
-      "change": {
-        "removed": "Novo",
-        "modified": "Difere"
-      },
+      "changeLegend": "Só na origem: a implantação o cria em {{target}}. Modificado: as duas o contêm, e a implantação substitui o que {{target}} contém.",
       "notDeployableTitle_one": "{{count}} componente não pode ser implantado a partir desta comparação",
       "notDeployableTitle_other": "{{count}} componentes não podem ser implantados a partir desta comparação",
       "reason": {
