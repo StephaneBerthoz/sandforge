@@ -33,6 +33,13 @@ import {
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import {
+  ACCOUNT_CONTACT_RELATION,
+  STATUS_LIFECYCLES,
+  draftStartOf,
+  statusCategories,
+  type StatusCategories,
+} from '../../core/common/platformRecords.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
@@ -159,17 +166,6 @@ function soqlLiteral(value: unknown): string {
   return `'${sanitizeSoqlValue(String(value))}'`;
 }
 
-/**
- * Objects whose status follows a lifecycle, and the object listing each
- * status with its category. A record is born in the Draft category and moves
- * on afterwards — run for real, an activated order was refused: "for a new
- * order, choose Draft" — and an order takes its products only as a draft.
- */
-const STATUS_LIFECYCLES: Readonly<Record<string, string>> = {
-  Order: 'OrderStatus',
-  Contract: 'ContractStatus',
-};
-
 /** Ids per `IN` list in the load's own reads of the target. */
 const ID_IN_CHUNK = 200;
 
@@ -179,9 +175,6 @@ interface DeferredStatus {
   referenceId: string;
   status: string;
 }
-
-/** The join the platform creates for a Contact inserted with an Account. */
-const ACCOUNT_CONTACT_RELATION = 'AccountContactRelation';
 
 /** One object's results, from two insert calls made for it. */
 function mergeResults(
@@ -1145,13 +1138,14 @@ export class FrozenDatasetLoader {
   ): Promise<Array<{ referenceId: string; fields: Record<string, unknown> }>> {
     const categories = await this.statusCategories(orgId, lifecycle);
     if (!categories?.draft) return aligned;
-    const { categoryOf, draft } = categories;
     return aligned.map((record) => {
-      const status = record.fields.Status;
-      if (typeof status !== 'string' || status === '') return record;
-      const category = categoryOf.get(status);
-      if (category === undefined || category === 'Draft') return record;
-      deferred.push({ objectApiName, referenceId: record.referenceId, status });
+      const draft = draftStartOf(record.fields.Status, categories);
+      if (!draft) return record;
+      deferred.push({
+        objectApiName,
+        referenceId: record.referenceId,
+        status: String(record.fields.Status),
+      });
       return { referenceId: record.referenceId, fields: { ...record.fields, Status: draft } };
     });
   }
@@ -1202,23 +1196,8 @@ export class FrozenDatasetLoader {
   private async statusCategories(
     orgId: string,
     lifecycle: string,
-  ): Promise<{ categoryOf: Map<string, string>; draft: string | undefined } | undefined> {
-    let rows: Array<Record<string, unknown>>;
-    try {
-      rows = await this.deps.orgAccess.query(
-        orgId,
-        `SELECT ApiName, StatusCode FROM ${assertSoqlIdentifier(lifecycle)}`,
-      );
-    } catch {
-      return undefined;
-    }
-    return {
-      categoryOf: new Map(rows.map((row) => [String(row.ApiName), String(row.StatusCode)])),
-      draft: rows
-        .filter((row) => row.StatusCode === 'Draft')
-        .map((row) => String(row.ApiName))
-        .sort()[0],
-    };
+  ): Promise<StatusCategories | undefined> {
+    return statusCategories((soql) => this.deps.orgAccess.query(orgId, soql), lifecycle);
   }
 
   /** Apply the statuses {@link startAsDrafts} set aside, record by record. */

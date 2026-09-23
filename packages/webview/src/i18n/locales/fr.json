@@ -2077,7 +2077,11 @@
       "currentWave": "Vague Actuelle",
       "noNodeSelected": "Sélectionnez un noeud pour voir les détails",
       "errors": "Erreurs",
-      "piiFields": "Champs PII"
+      "piiFields": "Champs PII",
+      "linked": "Liés à des enregistrements existants",
+      "refusals": "Pourquoi des enregistrements ont été refusés",
+      "statusesApplied": "Statuts appliqués après leurs enregistrements enfants",
+      "statusRefusals": "Pourquoi un statut n'a pas été appliqué"
     },
     "report": {
       "title": "Rapport de Conformité",

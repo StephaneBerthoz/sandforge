@@ -2039,7 +2039,11 @@
       "currentWave": "現在のウェーブ",
       "noNodeSelected": "ノードを選択して詳細を表示",
       "errors": "エラー",
-      "piiFields": "PIIフィールド"
+      "piiFields": "PIIフィールド",
+      "linked": "既存のレコードにリンク済み",
+      "refusals": "レコードが拒否された理由",
+      "statusesApplied": "子レコードの後に適用されたステータス",
+      "statusRefusals": "ステータスが適用されなかった理由"
     },
     "report": {
       "title": "コンプライアンスレポート",

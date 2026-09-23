@@ -2077,7 +2077,11 @@
       "currentWave": "Ola actual",
       "noNodeSelected": "Seleccione un nodo para ver detalles",
       "errors": "Errores",
-      "piiFields": "Campos PII"
+      "piiFields": "Campos PII",
+      "linked": "Vinculados a registros existentes",
+      "refusals": "Por qué se rechazaron registros",
+      "statusesApplied": "Estados aplicados después de sus registros secundarios",
+      "statusRefusals": "Por qué no se aplicó un estado"
     },
     "report": {
       "title": "Reporte de cumplimiento",

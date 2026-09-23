@@ -3,6 +3,7 @@ import type {
   ExecutionPlan,
   ComplianceProfile,
   AutopilotAnonymizationRule,
+  AutopilotRefusal,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -375,6 +376,8 @@ export class AutopilotHandler implements DomainHandler {
             this.sendNodeProgress(msg, name, 'completed', waveOf.get(name) ?? 0, {
               recordCount: event.successCount,
               failureCount: event.failureCount,
+              linkedCount: event.linkedCount,
+              refusals: event.refusals,
               apiCallsUsed: event.apiCallsUsed,
             });
           } else {
@@ -382,7 +385,13 @@ export class AutopilotHandler implements DomainHandler {
               // The records written before it failed are real work, and the
               // reconciliation loop below reports none of them.
               recordCount: event.partialSuccessCount,
-              error: event.errors.join('; ') || `Execution failed for ${name}`,
+              failureCount: event.failureCount,
+              linkedCount: event.linkedCount,
+              refusals: event.refusals,
+              // The first refusal; the rest are in `refusals`, counted by code.
+              // Joined, a node of five hundred refused records sent five
+              // hundred messages as one line.
+              error: event.errors[0] ?? `Execution failed for ${name}`,
             });
           }
         },
@@ -396,13 +405,34 @@ export class AutopilotHandler implements DomainHandler {
       for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
           const name = String(objectApiName);
+          // What the node really came to — written, linked, refused and why —
+          // rather than the records the scan counted: sent as the node's
+          // terminal status, the scan's count overwrote a partial node's real
+          // figures and its refusals with a clean "all written".
+          const outcome = result.objectOutcomes?.[name];
+          const statuses = result.statuses?.[name];
+          const settled = {
+            ...(outcome
+              ? {
+                  recordCount: outcome.written,
+                  failureCount: outcome.failed,
+                  linkedCount: outcome.linked,
+                  refusals: outcome.refusals,
+                }
+              : {}),
+            ...(statuses
+              ? { statusesApplied: statuses.applied, statusRefusals: statuses.refusals }
+              : {}),
+          };
           if (completedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'completed', wave.order, {
               recordCount: scanResult.recordCounts.get(name) ?? 0,
               failureCount: 0,
+              ...settled,
             });
           } else if (failedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'failed', wave.order, {
+              ...settled,
               // The Salesforce message is the only actionable part; the generic
               // line is a fallback for a failure the executor could not
               // attribute to the node.
@@ -455,6 +485,14 @@ export class AutopilotHandler implements DomainHandler {
     extra?: {
       recordCount?: number;
       failureCount?: number;
+      /** Records the target already held, linked to instead of written. */
+      linkedCount?: number;
+      /** Why records were refused, by status code and fields. */
+      refusals?: AutopilotRefusal[];
+      /** Records born a draft given back their status after their children. */
+      statusesApplied?: number;
+      /** Why a status could not be given back. */
+      statusRefusals?: AutopilotRefusal[];
       error?: string;
       /** API calls this node cost, so the page can total them as the run goes. */
       apiCallsUsed?: number;

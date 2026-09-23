@@ -197,3 +197,152 @@ describe('AutopilotHandler — execution failures', () => {
     expect(failed.payload.error).toBe('Execution failed for Account');
   });
 });
+
+describe('AutopilotHandler — what each node came to', () => {
+  let handler: AutopilotHandler;
+  let deps: HandlerDeps;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deps = createMockDeps();
+    handler = new AutopilotHandler(deps);
+  });
+
+  const missing = {
+    statusCode: 'REQUIRED_FIELD_MISSING',
+    fields: ['Entity__c'],
+    count: 2,
+    message: "Des champs obligatoires n'ont pas été remplis : [Entity__c]",
+  };
+
+  /** Scan (five Accounts counted), plan, then execute with the given executePlan. */
+  async function execute(executePlan: Mock): Promise<Array<BaseMessage & { payload: unknown }>> {
+    const orchestrator = createMockOrchestrator(executePlan);
+    (orchestrator.scanSchemas as Mock).mockResolvedValue({
+      recordCounts: new Map([['Account', 5]]),
+      totalObjectsScanned: 1,
+    });
+    handler.setOrchestrator(orchestrator);
+    mockGetConn.mockResolvedValue({} as never);
+    await handler.handle(
+      inboundRequest({
+        id: 'scan-1',
+        type: 'autopilot:scan-schema',
+        timestamp: Date.now(),
+        payload: {
+          sourceOrgId: 'src',
+          targetOrgId: 'tgt',
+          selectedObjects: [],
+          includeStandardObjects: false,
+        },
+      } as BaseMessage),
+    );
+    await handler.handle(
+      inboundRequest({
+        id: 'plan-1',
+        type: 'autopilot:generate-plan',
+        timestamp: Date.now(),
+        payload: { complianceFramework: 'gdpr' },
+      } as BaseMessage),
+    );
+    (deps.broker.postToWebview as Mock).mockClear();
+    await handler.handle(
+      inboundRequest({
+        id: 'exec-1',
+        type: 'autopilot:execute',
+        timestamp: Date.now(),
+        payload: { grappeThreshold: 0 },
+      } as BaseMessage),
+    );
+    return postedMessages(deps).filter((m) => m.type === 'autopilot:node-progress') as Array<
+      BaseMessage & { payload: unknown }
+    >;
+  }
+
+  it('sends why records were refused as each node settles, one line for its error', async () => {
+    const executePlan = vi.fn(async (_plan, _graph, _rules, _counts, onNodeSettled) => {
+      onNodeSettled({
+        type: 'node-failed',
+        timestamp: '',
+        objectApiName: 'Account',
+        errors: [`REQUIRED_FIELD_MISSING: ${missing.message}`, 'second', 'third'],
+        partialSuccessCount: 0,
+        failureCount: 2,
+        linkedCount: 1,
+        refusals: [missing],
+      });
+      return {
+        totalSuccess: 0,
+        totalFailure: 2,
+        totalSkipped: 0,
+        elapsedMs: 1,
+        completedObjects: [],
+        failedObjects: ['Account'],
+        skippedObjects: [],
+      };
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress[1].payload).toMatchObject({
+      objectName: 'Account',
+      status: 'failed',
+      failureCount: 2,
+      linkedCount: 1,
+      refusals: [missing],
+      error: `REQUIRED_FIELD_MISSING: ${missing.message}`,
+    });
+  });
+
+  it('ends each node on what it came to, not on the records the scan counted', async () => {
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 2,
+      totalFailure: 2,
+      totalSkipped: 0,
+      totalLinked: 1,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: { Account: { written: 2, linked: 1, failed: 2, refusals: [missing] } },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({
+      objectName: 'Account',
+      status: 'completed',
+      recordCount: 2,
+      failureCount: 2,
+      linkedCount: 1,
+      refusals: [missing],
+    });
+  });
+
+  it('ends a node born a draft on the statuses given back, and why the others were not', async () => {
+    const refusedStatus = {
+      statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+      fields: ['Status'],
+      count: 1,
+      message: 'Commande sans produit',
+    };
+    const executePlan = vi.fn().mockResolvedValue({
+      totalSuccess: 5,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: { Account: { written: 5, linked: 0, failed: 0, refusals: [] } },
+      statuses: { Account: { applied: 3, refusals: [refusedStatus] } },
+    });
+
+    const progress = await execute(executePlan);
+
+    expect(progress.at(-1)?.payload).toMatchObject({
+      statusesApplied: 3,
+      statusRefusals: [refusedStatus],
+    });
+  });
+});

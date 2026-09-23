@@ -13,12 +13,8 @@ import type {
   PIIFieldDetection,
   AutopilotAnonymizationRule,
 } from '@sandforge/shared';
-import {
-  AutopilotExecutor,
-  type ExecutionResult,
-  type InsertFn,
-  type InsertResult,
-} from './AutopilotExecutor';
+import { AutopilotExecutor, type ExecutionResult, type InsertFn } from './AutopilotExecutor';
+import type { SaveOutcome } from '../../core/common/existingRecordMatch';
 import type { SmartAnonymizer } from './SmartAnonymizer';
 import type { RecordIdRemapper } from './RecordIdRemapper';
 
@@ -228,11 +224,8 @@ function createRealExecutorDeps(): {
   deps.createExecutor = () => {
     const query = vi.fn();
     const insert: InsertFn = vi.fn(
-      async (_obj: string, records: Record<string, unknown>[]): Promise<InsertResult> => ({
-        successIds: records.map((r) => `t_${String(r.Id)}`),
-        sourceIds: records.map((r) => String(r.Id)),
-        errors: [],
-      }),
+      async (_obj: string, records: Record<string, unknown>[]): Promise<SaveOutcome[]> =>
+        records.map((r) => ({ id: `t_${String(r.Id)}`, success: true, errors: [] })),
     );
     const executor = new AutopilotExecutor({
       query,

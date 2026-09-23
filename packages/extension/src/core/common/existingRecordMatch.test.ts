@@ -5,6 +5,7 @@ import {
   existingRecordOf,
   formatSaveError,
   recordIdInDuplicateValue,
+  saveErrorDetail,
   toSaveOutcome,
   toSaveOutcomes,
 } from './existingRecordMatch.js';
@@ -136,6 +137,63 @@ describe('recordIdInDuplicateValue', () => {
       ),
     ).toBeUndefined();
   });
+
+  it('reads the id from a message in the language of a French org', () => {
+    // The running user's language is the message's: a French org answered
+    // in French, and matched on the English sentence no duplicate was linked.
+    expect(
+      recordIdInDuplicateValue(
+        `valeur en double trouvée : ExternalKey__c duplique une valeur dans l'enregistrement ID : ${ACCOUNT_15}`,
+      ),
+    ).toBe(ACCOUNT_15);
+  });
+
+  it('reads nothing from a French message that hides the record behind <unknown>', () => {
+    expect(
+      recordIdInDuplicateValue(
+        "DUPLICATE_VALUE: valeur en double trouvée : <unknown> duplique une valeur dans l'enregistrement ID : <unknown>",
+      ),
+    ).toBeUndefined();
+  });
+
+  it('reads nothing from an id that is not labelled as the record', () => {
+    expect(
+      recordIdInDuplicateValue(`duplicate value found: ${ACCOUNT_18} duplicates a value`),
+    ).toBeUndefined();
+  });
+});
+
+describe('saveErrorDetail', () => {
+  it('keeps the code, the message and the fields a refusal named', () => {
+    expect(
+      saveErrorDetail({
+        statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+        message: 'invalid cross reference id',
+        fields: ['Pricebook2Id'],
+      }),
+    ).toEqual({
+      statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+      message: 'invalid cross reference id',
+      fields: ['Pricebook2Id'],
+    });
+  });
+
+  it('reads the error code a single-record write carries instead', () => {
+    expect(saveErrorDetail({ errorCode: 'REQUIRED_FIELD_MISSING', message: 'm' })).toEqual({
+      statusCode: 'REQUIRED_FIELD_MISSING',
+      message: 'm',
+      fields: [],
+    });
+  });
+
+  it('says there was no code rather than inventing one from the message', () => {
+    expect(saveErrorDetail('Insert failed')).toEqual({
+      statusCode: 'UNKNOWN_ERROR',
+      message: 'Insert failed',
+      fields: [],
+    });
+    expect(saveErrorDetail(null).statusCode).toBe('UNKNOWN_ERROR');
+  });
 });
 
 describe('formatSaveError', () => {
@@ -200,6 +258,7 @@ describe('toSaveOutcome', () => {
       id: ACCOUNT_18,
       success: true,
       errors: [],
+      errorDetails: [],
     });
   });
 
@@ -215,8 +274,38 @@ describe('toSaveOutcome', () => {
       id: '',
       success: false,
       errors: ['DUPLICATES_DETECTED: Use one of these records?'],
+      errorDetails: [
+        { statusCode: 'DUPLICATES_DETECTED', message: 'Use one of these records?', fields: [] },
+      ],
       duplicateMatchIds: [ACCOUNT_18],
     });
+  });
+
+  it('keeps the fields each refusal named alongside its code', () => {
+    const outcome = toSaveOutcome(
+      {
+        success: false,
+        errors: [
+          {
+            statusCode: 'REQUIRED_FIELD_MISSING',
+            message: 'Required fields are missing: [OrderId]',
+            fields: ['OrderId'],
+          },
+        ],
+      },
+      'OrderItem',
+    );
+
+    expect(outcome.errors).toEqual([
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [OrderId]',
+    ]);
+    expect(outcome.errorDetails).toEqual([
+      {
+        statusCode: 'REQUIRED_FIELD_MISSING',
+        message: 'Required fields are missing: [OrderId]',
+        fields: ['OrderId'],
+      },
+    ]);
   });
 
   it('reports something that is not a save result as a refusal', () => {
@@ -357,6 +446,27 @@ describe('existingRecordOf', () => {
       ),
     ).toEqual({ kind: 'none' });
     expect(existingRecordOf({ success: false, errors: [] }, '001')).toEqual({ kind: 'none' });
+  });
+
+  it('links a row a French org refused, by the code and the id it names', () => {
+    expect(
+      existingRecordOf(
+        toSaveOutcome(
+          {
+            success: false,
+            errors: [
+              {
+                statusCode: 'DUPLICATE_VALUE',
+                message: `valeur en double trouvée : ExternalKey__c duplique une valeur dans l'enregistrement ID : ${ACCOUNT_18}`,
+                fields: [],
+              },
+            ],
+          },
+          'Account',
+        ),
+        '001',
+      ),
+    ).toEqual({ kind: 'linked', id: ACCOUNT_18 });
   });
 
   it('does not read a message that only names the code without the record', () => {

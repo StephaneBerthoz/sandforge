@@ -169,3 +169,101 @@ describe('ControlPanel progress bars', () => {
     );
   });
 });
+
+describe('ControlPanel node detail — what the node came to', () => {
+  /** A settled Order node, as the handler reconciles it at the end of a run. */
+  function settledOrder(overrides: Record<string, unknown> = {}) {
+    return {
+      objectApiName: 'Order',
+      status: 'completed',
+      progress: 100,
+      recordCount: 11,
+      successCount: 8,
+      failureCount: 2,
+      linkedCount: 1,
+      errors: [],
+      refusals: [
+        {
+          statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+          fields: ['Pricebook2Id'],
+          count: 2,
+          message: 'invalid cross reference id',
+        },
+      ],
+      statusesApplied: 2,
+      statusRefusals: [
+        {
+          statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+          fields: [],
+          count: 1,
+          message: 'Commande sans produit',
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockStoreState = {
+      liveStats: {
+        recordsProcessed: 0,
+        recordsTotal: 0,
+        apiCallsUsed: 0,
+        apiCallsEstimated: 0,
+        elapsedMs: 0,
+        currentWave: 0,
+        totalWaves: 0,
+      },
+      executionStatus: 'completed',
+      selectedNodeName: 'Order',
+      complianceFramework: 'none',
+      rules: [],
+      graph: null,
+      selectedNode: () => settledOrder(),
+      failedCount: () => 0,
+      completedCount: () => 0,
+      overallProgress: () => 0,
+      setExecutionStatus: vi.fn(),
+      updateNodeStatus: vi.fn(),
+    };
+  });
+
+  it('says why records were refused: the code, the fields, how many and the message', () => {
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    const refusals = screen.getByTestId('node-refusals');
+    expect(refusals.textContent).toContain('INVALID_CROSS_REFERENCE_KEY');
+    expect(refusals.textContent).toContain('Pricebook2Id');
+    expect(refusals.textContent).toContain('2 records');
+    expect(refusals.textContent).toContain('invalid cross reference id');
+  });
+
+  it('shows the records linked to what the target held, and the statuses given back', () => {
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    expect(screen.getByTestId('node-linked').textContent).toContain('1');
+    expect(screen.getByTestId('node-statuses').textContent).toContain('2');
+    const statusRefusals = screen.getByTestId('node-status-refusals');
+    expect(statusRefusals.textContent).toContain('FIELD_INTEGRITY_EXCEPTION');
+    expect(statusRefusals.textContent).toContain('1 record');
+  });
+
+  it('shows none of it for a node that wrote everything', () => {
+    mockStoreState.selectedNode = () =>
+      settledOrder({
+        failureCount: 0,
+        linkedCount: 0,
+        refusals: [],
+        statusesApplied: undefined,
+        statusRefusals: undefined,
+      });
+    render(<ControlPanel />);
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    expect(screen.queryByTestId('node-refusals')).toBeNull();
+    expect(screen.queryByTestId('node-linked')).toBeNull();
+    expect(screen.queryByTestId('node-statuses')).toBeNull();
+  });
+});

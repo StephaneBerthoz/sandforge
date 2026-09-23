@@ -1431,6 +1431,77 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme, '[data-testid="seed-relations"]');
     });
 
+    test('Autopilot node detail saying why records were refused', async ({ page }) => {
+      await openPanel(bridge, page, 'autopilot', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('step1-connect').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('source-org-org-src-1').click();
+      await page.getByTestId('target-org-org-tgt-1').click();
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:scan-schema', 'autopilot:schema-result', {
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
+      await page.getByTestId('seed-wizard-next').click();
+      await bridge.respondToNext('autopilot:generate-plan', 'autopilot:plan-ready', {
+        plan: MOCK_PLAN,
+        graph: MOCK_GRAPH,
+      });
+      await page.getByTestId('execute-button').click();
+      await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+      // A node as the handler settles it: written, linked, refused by code and
+      // fields, and the statuses given back once its children were in.
+      await bridge.stream([
+        {
+          type: 'autopilot:node-progress',
+          payload: {
+            nodeId: 'Contact',
+            objectName: 'Contact',
+            status: 'completed',
+            wave: 1,
+            recordCount: 1180,
+            failureCount: 20,
+            linkedCount: 3,
+            refusals: [
+              {
+                statusCode: 'REQUIRED_FIELD_MISSING',
+                fields: ['LastName'],
+                count: 12,
+                message: 'Required fields are missing: [LastName]',
+              },
+              {
+                statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+                fields: [],
+                count: 8,
+                message: 'invalid cross reference id',
+              },
+            ],
+            statusesApplied: 2,
+            statusRefusals: [
+              {
+                statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+                fields: ['Status'],
+                count: 1,
+                message: 'Cannot activate a record without its products',
+              },
+            ],
+          },
+        },
+      ]);
+      await page.evaluate(() => {
+        const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
+          | { getState: () => { selectNode: (name: string) => void } }
+          | undefined;
+        store?.getState().selectNode('Contact');
+      });
+      await page.getByTestId('control-tab-node').click();
+      await page.getByTestId('node-status-refusals').waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
     test('CSV drop zone while a file is dragged over it', async ({ page }) => {
       await openCsvImport(bridge, page, theme);
       const dropArea = page.getByTestId('drop-area');

@@ -8,6 +8,18 @@ import type {
 } from '@sandforge/shared';
 import { updateGraphNodeStatus, updateGraphNodeProgress } from '../utils/graphStoreUtils';
 
+/**
+ * What a node came to once it settled: the records the target refused and
+ * why, the records it already held and linked to, and the statuses given back
+ * to records born a draft. A field the message did not carry is left alone.
+ */
+export type NodeOutcome = Partial<
+  Pick<
+    AutopilotNode,
+    'failureCount' | 'linkedCount' | 'refusals' | 'statusesApplied' | 'statusRefusals'
+  >
+>;
+
 /** Autopilot wizard step */
 export type AutopilotStep =
   | 'connect'
@@ -122,6 +134,8 @@ export interface AutopilotState {
   ) => void;
   /** Update a node's progress and records processed */
   updateNodeProgress: (objectName: string, progress: number, recordsProcessed: number) => void;
+  /** Record what a node came to: its refusals, linked records and statuses */
+  updateNodeOutcome: (objectName: string, outcome: NodeOutcome) => void;
   /** Merge partial live stats updates */
   updateLiveStats: (stats: Partial<LiveStats>) => void;
   /** Append an error message */
@@ -218,6 +232,26 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
             progress,
             'successCount',
             recordsProcessed,
+          ),
+        },
+      };
+    });
+  },
+
+  updateNodeOutcome(objectName: string, outcome: NodeOutcome): void {
+    set((state) => {
+      if (!state.graph) return state;
+      const carried: NodeOutcome = {};
+      if (outcome.failureCount !== undefined) carried.failureCount = outcome.failureCount;
+      if (outcome.linkedCount !== undefined) carried.linkedCount = outcome.linkedCount;
+      if (outcome.refusals !== undefined) carried.refusals = outcome.refusals;
+      if (outcome.statusesApplied !== undefined) carried.statusesApplied = outcome.statusesApplied;
+      if (outcome.statusRefusals !== undefined) carried.statusRefusals = outcome.statusRefusals;
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((node) =>
+            node.objectApiName === objectName ? { ...node, ...carried } : node,
           ),
         },
       };

@@ -27,6 +27,16 @@ import {
   isDuplicateRuleError,
 } from '@sandforge/shared';
 
+/** One save error as the platform gave it: its code, its message, the fields it named. */
+export interface SaveErrorDetail {
+  /** Salesforce's status code, or `UNKNOWN_ERROR` when it gave none. */
+  statusCode: string;
+  /** The message, in the running user's language. */
+  message: string;
+  /** The fields the error named; empty when it named none. */
+  fields: string[];
+}
+
 /** One record's save result, as the writers hand it to the stages. */
 export interface SaveOutcome {
   /** Id of the record written; empty when the write was refused. */
@@ -35,6 +45,11 @@ export interface SaveOutcome {
   success: boolean;
   /** One entry per error, `STATUS_CODE: message` whenever Salesforce gave a code. */
   errors: string[];
+  /**
+   * The same errors, each with its code and the fields it named, for a caller
+   * that reports why a record was refused. Index-aligned with `errors`.
+   */
+  errorDetails?: SaveErrorDetail[];
   /**
    * Records a duplicate rule matched when it refused the row, read from the
    * error's `duplicateResult` and kept only when they are of the object
@@ -64,9 +79,14 @@ export type ExistingRecordVerdict =
  * format it, or `DUPLICATE_VALUE:<message>:<fields> --` as Bulk API writes it
  * in `sf__Error`. An id is 15 or 18 characters and must not run on into more
  * of them: sixteen characters is not a shorter id, it is not an id.
+ *
+ * The message is in the running user's language, so the id is found by the
+ * label every language puts in front of it and not by the English sentence
+ * around it. Matched on that sentence, a French org — "valeur en double
+ * trouvée : … dans l'enregistrement ID : …" — never had a duplicate linked.
+ * Whether the error is a duplicate at all is the code's to say, never this.
  */
-const DUPLICATE_VALUE_ID_RE =
-  /duplicate value found:.*?duplicates value on record with id:\s*([A-Za-z0-9]{18}|[A-Za-z0-9]{15})(?![A-Za-z0-9])/i;
+const DUPLICATE_VALUE_ID_RE = /\bid\.?\s*:\s*([A-Za-z0-9]{18}|[A-Za-z0-9]{15})(?![A-Za-z0-9])/i;
 
 /** Characters of the checksum an 18-character id ends with. */
 const CHECKSUM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
@@ -128,9 +148,29 @@ const saveErrorSchema = z
     statusCode: z.string().optional(),
     errorCode: z.string().optional(),
     message: z.string().optional(),
+    fields: z.array(z.unknown()).optional(),
     duplicateResult: z.unknown().optional(),
   })
   .passthrough();
+
+/** The code a save error carries when Salesforce gave none. */
+export const NO_STATUS_CODE = 'UNKNOWN_ERROR';
+
+/**
+ * One save error with its code and the fields it named. The code is what a
+ * caller decides on; the fields say where to look, which the message alone
+ * often does not: "invalid cross reference id" names no field.
+ */
+export function saveErrorDetail(error: unknown): SaveErrorDetail {
+  if (typeof error === 'string') return { statusCode: NO_STATUS_CODE, message: error, fields: [] };
+  const parsed = saveErrorSchema.safeParse(error);
+  if (!parsed.success) return { statusCode: NO_STATUS_CODE, message: 'Unknown error', fields: [] };
+  return {
+    statusCode: parsed.data.statusCode ?? parsed.data.errorCode ?? NO_STATUS_CODE,
+    message: parsed.data.message ?? '',
+    fields: (parsed.data.fields ?? []).filter((f): f is string => typeof f === 'string'),
+  };
+}
 
 /** The part of a duplicate rule's `duplicateResult` that names the matched records. */
 const duplicateResultSchema = z
@@ -225,10 +265,12 @@ export function duplicateRuleMatchIds(error: unknown, objectApiName: string): st
 export function toSaveOutcome(raw: unknown, objectApiName: string): SaveOutcome {
   const parsed = saveResultSchema.safeParse(raw);
   if (!parsed.success) {
+    const message = 'Salesforce returned a save result of an unexpected shape';
     return {
       id: '',
       success: false,
-      errors: ['Salesforce returned a save result of an unexpected shape'],
+      errors: [message],
+      errorDetails: [saveErrorDetail(message)],
     };
   }
   const errors = parsed.data.errors ?? [];
@@ -237,6 +279,7 @@ export function toSaveOutcome(raw: unknown, objectApiName: string): SaveOutcome 
     id: parsed.data.id ?? '',
     success: parsed.data.success,
     errors: errors.map(formatSaveError),
+    errorDetails: errors.map(saveErrorDetail),
     ...(matches.length > 0 ? { duplicateMatchIds: matches } : {}),
   };
 }

@@ -91,6 +91,16 @@ export const anonymizedPersonaSchema = z.object({
   company: z.string(),
 });
 
+// ─── Refusal Schema ──────────────────────────────────────────────────────────
+
+/** Zod schema for AutopilotRefusal: why the target refused records of an object */
+const autopilotRefusalSchema = z.object({
+  statusCode: z.string().min(1),
+  fields: z.array(z.string()),
+  count: z.number().int().positive(),
+  message: z.string(),
+});
+
 // ─── Graph Schemas ───────────────────────────────────────────────────────────
 
 /** Zod schema for AutopilotNode */
@@ -109,6 +119,10 @@ export const autopilotNodeSchema = z.object({
   errors: z.array(z.string()),
   elapsedMs: z.number().nonnegative(),
   apiCallsUsed: z.number().int().nonnegative(),
+  linkedCount: z.number().int().nonnegative().optional(),
+  refusals: z.array(autopilotRefusalSchema).optional(),
+  statusesApplied: z.number().int().nonnegative().optional(),
+  statusRefusals: z.array(autopilotRefusalSchema).optional(),
 });
 
 /** Zod schema for AutopilotEdge */
@@ -232,6 +246,8 @@ const nodeCompletedEventSchema = autopilotEventBaseSchema.extend({
   objectApiName: z.string().min(1),
   successCount: z.number().int().nonnegative(),
   failureCount: z.number().int().nonnegative(),
+  linkedCount: z.number().int().nonnegative().optional(),
+  refusals: z.array(autopilotRefusalSchema).optional(),
   elapsedMs: z.number().nonnegative(),
   apiCallsUsed: z.number().int().nonnegative(),
 });
@@ -242,6 +258,9 @@ const nodeFailedEventSchema = autopilotEventBaseSchema.extend({
   objectApiName: z.string().min(1),
   errors: z.array(z.string()),
   partialSuccessCount: z.number().int().nonnegative(),
+  failureCount: z.number().int().nonnegative().optional(),
+  linkedCount: z.number().int().nonnegative().optional(),
+  refusals: z.array(autopilotRefusalSchema).optional(),
 });
 
 /** Zod schema for AutopilotNodeSkippedEvent */

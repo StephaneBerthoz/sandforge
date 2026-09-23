@@ -24,7 +24,7 @@
  */
 
 import type { Connection } from 'jsforce';
-import type { ComplianceFrameworkType } from '@sandforge/shared';
+import type { AutopilotRefusal, ComplianceFrameworkType } from '@sandforge/shared';
 import { duplicateRuleHeaders } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { AutopilotOrchestrator } from '../src/modules/autopilot/AutopilotOrchestrator.js';
@@ -35,8 +35,12 @@ import { ComplianceEngine } from '../src/modules/autopilot/ComplianceEngine.js';
 import { SmartAnonymizer } from '../src/modules/autopilot/SmartAnonymizer.js';
 import { ExecutionPlanGenerator } from '../src/modules/autopilot/ExecutionPlanGenerator.js';
 import { RecordIdRemapper } from '../src/modules/autopilot/RecordIdRemapper.js';
-import { AutopilotExecutor } from '../src/modules/autopilot/AutopilotExecutor.js';
+import {
+  AutopilotExecutor,
+  type ExecutionResult,
+} from '../src/modules/autopilot/AutopilotExecutor.js';
 import { AutopilotGrappeAdapter } from '../src/modules/autopilot/AutopilotGrappeAdapter.js';
+import { toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import {
   parseRecordTypeCounts,
   parseRecordTypeInfos,
@@ -61,7 +65,8 @@ Options:
   --compliance <name>    none | gdpr | ccpa | hipaa | pci_dss      (default: none)
   --batch-size <n>       records per write call                   (default: 200)
   --plan-only            scan, graph and plan, then stop          (default: off)
-  --json                 emit the run summary as JSON             (default: off)
+  --json                 emit the run summary as JSON, with the id
+                         of every record the run created          (default: off)
   --help                 this text
 
 Exit codes: 0 the run finished (read the summary for per-object failures),
@@ -154,13 +159,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const sourceConn = makeConn(loadOrg(args.source));
   const targetConn = makeConn(loadOrg(args.target));
+  /** Ids of the records this run created, per object. */
+  const created = new Map<string, string[]>();
 
   // One describe of the target per object, shared across the executors a run
-  // creates: the fields it may send and the record types the running user
-  // may use are both read from it.
+  // creates: the fields it may send, the record types the running user may
+  // use and the key prefix of the records a refusal may name are read from it.
   const targetByObject = new Map<
     string,
-    { creatable: ReadonlySet<string>; recordTypes: RecordTypeAvailability[] }
+    {
+      creatable: ReadonlySet<string>;
+      recordTypes: RecordTypeAvailability[];
+      keyPrefix: string | null;
+    }
   >();
   const describeTarget = async (objectApiName: string) => {
     const cached = targetByObject.get(objectApiName);
@@ -169,6 +180,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const answer = {
       creatable: new Set(described.fields.filter((f) => f.createable).map((f) => f.name)),
       recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
+      keyPrefix: described.keyPrefix ?? null,
     };
     targetByObject.set(objectApiName, answer);
     return answer;
@@ -198,26 +210,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             delete copy['attributes'];
             return copy;
           });
-          const written = (await targetConn
-            .sobject(objectApiName)
-            .create(cleaned, { headers: duplicateRuleHeaders(true) })) as Array<{
-            success: boolean;
-            id?: string;
-            errors?: Array<{ message: string }>;
-          }>;
-          const successIds: string[] = [];
-          const sourceIds: string[] = [];
-          const errors: string[] = [];
-          written.forEach((one, i) => {
-            if (one.success && one.id) {
-              successIds.push(one.id);
-              sourceIds.push(String(records[i]['Id'] ?? ''));
-            } else {
-              errors.push(one.errors?.[0]?.message ?? `Insert failed for ${objectApiName} #${i}`);
-            }
-          });
-          return { successIds, sourceIds, errors };
+          const outcomes = toSaveOutcomes(
+            await targetConn
+              .sobject(objectApiName)
+              .create(cleaned, { headers: duplicateRuleHeaders(true) }),
+            objectApiName,
+          );
+          // Every id a run creates is reported, so the run can be undone to
+          // the record: nothing else tells its records from anyone else's.
+          const ids = outcomes.filter((o) => o.success && o.id).map((o) => o.id);
+          created.set(objectApiName, [...(created.get(objectApiName) ?? []), ...ids]);
+          return outcomes;
         },
+        update: async (objectApiName, records) =>
+          toSaveOutcomes(
+            await targetConn
+              .sobject(objectApiName)
+              .update(records as Array<Record<string, unknown> & { Id: string }>, {
+                headers: duplicateRuleHeaders(true),
+              }),
+            objectApiName,
+          ),
+        querySource: async (soql) =>
+          (await sourceConn.query<Record<string, unknown>>(soql)).records,
+        queryTarget: async (soql) =>
+          (await targetConn.query<Record<string, unknown>>(soql)).records,
+        describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
         anonymizer,
         remapper: new RecordIdRemapper(),
         describeCreateableFields: async (objectApiName) =>
@@ -273,22 +291,52 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, elapsedMs }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), elapsedMs }, null, 2)}\n`,
     );
     return;
   }
 
   log(
-    `\nwritten: ${result.totalSuccess}   refused: ${result.totalFailure}   ` +
-      `skipped: ${result.totalSkipped}`,
+    `\nwritten: ${result.totalSuccess}   linked: ${result.totalLinked ?? 0}   ` +
+      `refused: ${result.totalFailure}   skipped: ${result.totalSkipped}`,
   );
-  if (result.completedObjects.length > 0) log(`  done:    ${result.completedObjects.join(', ')}`);
   if (result.skippedObjects.length > 0) log(`  skipped: ${result.skippedObjects.join(', ')}`);
   if (result.fatalError) log(`  the run died with: ${result.fatalError}`);
-  for (const name of result.failedObjects) {
-    log(`  FAILED  ${name}: ${result.nodeErrors?.[name] ?? '(no message)'}`);
-  }
+  for (const line of outcomeLines(result)) log(line);
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/**
+ * One line per object — written, linked, refused — then one per reason the
+ * target gave, by status code and fields, and the statuses applied once the
+ * children were in. The code is printed rather than read from the message:
+ * the message is in the language of the target's running user.
+ */
+export function outcomeLines(result: ExecutionResult): string[] {
+  const lines: string[] = [];
+  const reasons = (refusals: readonly AutopilotRefusal[]): void => {
+    for (const refusal of refusals) {
+      const fields = refusal.fields.length > 0 ? ` [${refusal.fields.join(', ')}]` : '';
+      lines.push(`      ${refusal.statusCode}${fields} x${refusal.count}: ${refusal.message}`);
+    }
+  };
+  for (const [name, outcome] of Object.entries(result.objectOutcomes ?? {})) {
+    lines.push(
+      `  ${name.padEnd(28)} written ${outcome.written}  linked ${outcome.linked}  ` +
+        `refused ${outcome.failed}`,
+    );
+    reasons(outcome.refusals);
+  }
+  for (const name of result.failedObjects) {
+    if (result.objectOutcomes?.[name]) continue;
+    lines.push(`  ${name.padEnd(28)} FAILED: ${result.nodeErrors?.[name] ?? '(no message)'}`);
+  }
+  for (const [name, statuses] of Object.entries(result.statuses ?? {})) {
+    const refused = statuses.refusals.reduce((sum, refusal) => sum + refusal.count, 0);
+    lines.push(`  ${name.padEnd(28)} statuses applied ${statuses.applied}  refused ${refused}`);
+    reasons(statuses.refusals);
+  }
+  return lines;
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

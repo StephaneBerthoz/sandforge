@@ -3,20 +3,23 @@ import type {
   AutopilotEdge,
   AutopilotAnonymizationRule,
   AutopilotNodeProgressEvent,
+  AutopilotNodeCompletedEvent,
   AutopilotNodeFailedEvent,
   ApiName,
   ExecutionPlan,
 } from '@sandforge/shared';
+import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import {
   AutopilotExecutor,
   type AutopilotExecutionFailedEvent,
   type AutopilotExecutorDeps,
-  type InsertResult,
   type QueryFn,
   type InsertFn,
 } from './AutopilotExecutor.js';
+import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
+import type { SoqlQuery } from '../../core/common/platformRecords.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
-import type { RecordIdRemapper } from './RecordIdRemapper.js';
+import { RecordIdRemapper } from './RecordIdRemapper.js';
 
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
@@ -83,14 +86,25 @@ function makeEdge(overrides: Partial<AutopilotEdge> = {}): AutopilotEdge {
   };
 }
 
+/** Outcomes of records the target wrote, with the ids it gave them. */
+function written(...ids: string[]): SaveOutcome[] {
+  return ids.map((id) => ({ id, success: true, errors: [] }));
+}
+
+/** The outcome of a record the target refused, as `toSaveOutcome` builds it. */
+function refused(statusCode: string, message: string, fields: string[] = []): SaveOutcome {
+  return {
+    id: '',
+    success: false,
+    errors: [`${statusCode}: ${message}`],
+    errorDetails: [{ statusCode, message, fields }],
+  };
+}
+
 /** Create mock dependencies. */
 function makeDeps(overrides: Partial<AutopilotExecutorDeps> = {}): AutopilotExecutorDeps {
   const queryMock: QueryFn = vi.fn().mockResolvedValue([]);
-  const insertMock: InsertFn = vi.fn().mockResolvedValue({
-    successIds: [],
-    sourceIds: [],
-    errors: [],
-  } satisfies InsertResult);
+  const insertMock: InsertFn = vi.fn().mockResolvedValue([]);
 
   const anonymizerMock = {
     anonymize: vi.fn().mockImplementation((records: Record<string, unknown>[]) => records),
@@ -148,16 +162,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'src3', Name: 'C' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['tgt1', 'tgt2'],
-        sourceIds: ['src1', 'src2'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['tgt3'],
-        sourceIds: ['src3'],
-        errors: [],
-      });
+      .mockResolvedValueOnce(written('tgt1', 'tgt2'))
+      .mockResolvedValueOnce(written('tgt3'));
 
     const result = await executor.execute(plan, [], [], recordCounts);
 
@@ -203,16 +209,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'c1', AccountId: 'a1' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['ta1'],
-        sourceIds: ['a1'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['tc1'],
-        sourceIds: ['c1'],
-        errors: [],
-      });
+      .mockResolvedValueOnce(written('ta1'))
+      .mockResolvedValueOnce(written('tc1'));
 
     const result = await executor.execute(plan, [], [], recordCounts);
 
@@ -246,16 +244,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'c1' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['t1'],
-        sourceIds: ['a1'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['t2'],
-        sourceIds: ['c1'],
-        errors: [],
-      });
+      .mockResolvedValueOnce(written('t1'))
+      .mockResolvedValueOnce(written('t2'));
 
     // Pause after wave 1 completes, before wave 2 starts
     executor.on('wave-completed', () => {
@@ -287,11 +277,7 @@ describe('AutopilotExecutor', () => {
 
     vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'a1' }, { Id: 'a2' }]);
 
-    vi.mocked(deps.insert).mockResolvedValueOnce({
-      successIds: ['t1', 't2'],
-      sourceIds: ['a1', 'a2'],
-      errors: [],
-    });
+    vi.mocked(deps.insert).mockResolvedValueOnce(written('t1', 't2'));
 
     const result = await executor.execute(plan, [], [], recordCounts);
 
@@ -325,16 +311,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'c1' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: [],
-        sourceIds: [],
-        errors: ['FIELD_INTEGRITY_EXCEPTION: invalid field'],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['tc1'],
-        sourceIds: ['c1'],
-        errors: [],
-      });
+      .mockResolvedValueOnce([refused('FIELD_INTEGRITY_EXCEPTION', 'invalid field')])
+      .mockResolvedValueOnce(written('tc1'));
 
     const result = await executor.execute(plan, [], [], recordCounts);
 
@@ -387,16 +365,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'srcCon1', AccountId: 'srcAcc1' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['tgtAcc1'],
-        sourceIds: ['srcAcc1'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['tgtCon1'],
-        sourceIds: ['srcCon1'],
-        errors: [],
-      });
+      .mockResolvedValueOnce(written('tgtAcc1'))
+      .mockResolvedValueOnce(written('tgtCon1'));
 
     await executor.execute(plan, edges, [], recordCounts);
 
@@ -421,11 +391,7 @@ describe('AutopilotExecutor', () => {
 
     vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'c1', Email: 'real@example.com' }]);
 
-    vi.mocked(deps.insert).mockResolvedValueOnce({
-      successIds: ['tc1'],
-      sourceIds: ['c1'],
-      errors: [],
-    });
+    vi.mocked(deps.insert).mockResolvedValueOnce(written('tc1'));
 
     await executor.execute(plan, [], rules, recordCounts);
 
@@ -474,16 +440,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'a3' }, { Id: 'a4' }]);
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['t1', 't2'],
-        sourceIds: ['a1', 'a2'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['t3', 't4'],
-        sourceIds: ['a3', 'a4'],
-        errors: [],
-      });
+      .mockResolvedValueOnce(written('t1', 't2'))
+      .mockResolvedValueOnce(written('t3', 't4'));
 
     await executor.execute(plan, [], [], recordCounts);
 
@@ -519,16 +477,8 @@ describe('AutopilotExecutor', () => {
       .mockResolvedValueOnce([{ Id: 'l1' }, { Id: 'l2' }]); // Lead
 
     vi.mocked(deps.insert)
-      .mockResolvedValueOnce({
-        successIds: ['ta1', 'ta2'],
-        sourceIds: ['a1', 'a2'],
-        errors: [],
-      })
-      .mockResolvedValueOnce({
-        successIds: ['tl1'],
-        sourceIds: ['l1'],
-        errors: ['DUPLICATE_VALUE: l2 duplicate'],
-      });
+      .mockResolvedValueOnce(written('ta1', 'ta2'))
+      .mockResolvedValueOnce([...written('tl1'), refused('DUPLICATE_VALUE', 'l2 duplicate')]);
 
     const result = await executor.execute(plan, [], [], recordCounts);
 
@@ -579,11 +529,7 @@ describe('AutopilotExecutor — what the target will take', () => {
     vi.mocked(deps.query).mockResolvedValueOnce([
       { Id: 'src1', Name: 'Acme', CreatedDate: '2026-01-01', BillingAddress: { city: 'Lyon' } },
     ]);
-    vi.mocked(deps.insert).mockResolvedValue({
-      successIds: ['tgt1'],
-      sourceIds: ['src1'],
-      errors: [],
-    });
+    vi.mocked(deps.insert).mockResolvedValue(written('tgt1'));
 
     await executor.execute(
       makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
@@ -605,11 +551,7 @@ describe('AutopilotExecutor — what the target will take', () => {
     });
     const executor = new AutopilotExecutor(deps);
     vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'src1', Name: 'Acme' }]);
-    vi.mocked(deps.insert).mockResolvedValue({
-      successIds: ['tgt1'],
-      sourceIds: ['src1'],
-      errors: [],
-    });
+    vi.mocked(deps.insert).mockResolvedValue(written('tgt1'));
 
     await executor.execute(
       makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
@@ -629,11 +571,7 @@ describe('AutopilotExecutor — what the target will take', () => {
     });
     const executor = new AutopilotExecutor(deps);
     vi.mocked(deps.query).mockResolvedValueOnce([{ Id: 'src1', Name: 'Acme' }]);
-    vi.mocked(deps.insert).mockResolvedValue({
-      successIds: ['tgt1'],
-      sourceIds: ['src1'],
-      errors: [],
-    });
+    vi.mocked(deps.insert).mockResolvedValue(written('tgt1'));
 
     const result = await executor.execute(
       makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1),
@@ -749,5 +687,475 @@ describe('AutopilotExecutor — a record type the running user cannot use', () =
 
     expect(countRecordTypes).not.toHaveBeenCalled();
     expect(result.failedObjects).toEqual([]);
+  });
+});
+
+/** A source whose objects hold the given rows, read a page at a time. */
+function sourceOf(rows: Record<string, Record<string, unknown>[]>): QueryFn {
+  return vi.fn(async (objectApiName: string, offset: number, limit: number) =>
+    (rows[objectApiName] ?? []).slice(offset, offset + limit).map((row) => ({ ...row })),
+  );
+}
+
+/** Record counts for the rows of {@link sourceOf}. */
+function countsOf(rows: Record<string, Record<string, unknown>[]>): Map<string, number> {
+  return new Map(Object.entries(rows).map(([name, list]) => [name, list.length]));
+}
+
+/** A plan of one object per wave, in the order given. */
+function wavesOf(...objects: string[]): ExecutionPlan {
+  return makePlan(objects.map((name, order) => ({ order, objects: [name], dependsOn: [] })));
+}
+
+describe('AutopilotExecutor — why a record was refused', () => {
+  it('reports each refusal with its code and fields, counted by reason', async () => {
+    // A French org answers in French: the code is what says what happened.
+    const missing = "Des champs obligatoires n'ont pas été remplis : [Entity__c]";
+    const rows = { Quote: [{ Id: 'q1' }, { Id: 'q2' }, { Id: 'q3' }] };
+    const deps = makeDeps({ query: sourceOf(rows), batchSize: 200 });
+    vi.mocked(deps.insert).mockResolvedValueOnce([
+      refused('REQUIRED_FIELD_MISSING', missing, ['Entity__c']),
+      refused('INVALID_CROSS_REFERENCE_KEY', 'invalid cross reference id', ['Pricebook2Id']),
+      refused('REQUIRED_FIELD_MISSING', missing, ['Entity__c']),
+    ]);
+    const executor = new AutopilotExecutor(deps);
+    const failed: AutopilotNodeFailedEvent[] = [];
+    executor.on('node-failed', (e) => failed.push(e));
+
+    const result = await executor.execute(wavesOf('Quote'), [], [], countsOf(rows));
+
+    const refusals = [
+      { statusCode: 'REQUIRED_FIELD_MISSING', fields: ['Entity__c'], count: 2, message: missing },
+      {
+        statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+        fields: ['Pricebook2Id'],
+        count: 1,
+        message: 'invalid cross reference id',
+      },
+    ];
+    expect(failed[0]).toMatchObject({ failureCount: 3, linkedCount: 0, refusals });
+    expect(failed[0].errors[0]).toBe(`REQUIRED_FIELD_MISSING: ${missing}`);
+    expect(result.objectOutcomes?.['Quote']).toEqual({
+      written: 0,
+      linked: 0,
+      failed: 3,
+      refusals,
+    });
+    expect(result.nodeErrors?.['Quote']).toBe(`REQUIRED_FIELD_MISSING: ${missing}`);
+  });
+
+  it('says why the rest were refused on a node that wrote some of its records', async () => {
+    const rows = { Lead: [{ Id: 'l1' }, { Id: 'l2' }] };
+    const deps = makeDeps({ query: sourceOf(rows), batchSize: 200 });
+    vi.mocked(deps.insert).mockResolvedValueOnce([
+      ...written('00QT1'),
+      refused('FIELD_CUSTOM_VALIDATION_EXCEPTION', 'Le code postal est invalide', ['PostalCode']),
+    ]);
+    const executor = new AutopilotExecutor(deps);
+    const completed: AutopilotNodeCompletedEvent[] = [];
+    executor.on('node-completed', (e) => completed.push(e));
+
+    await executor.execute(wavesOf('Lead'), [], [], countsOf(rows));
+
+    expect(completed[0]).toMatchObject({
+      successCount: 1,
+      failureCount: 1,
+      refusals: [
+        {
+          statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+          fields: ['PostalCode'],
+          count: 1,
+          message: 'Le code postal est invalide',
+        },
+      ],
+    });
+  });
+
+  it('counts a record the platform gave no result for as refused, with no code', async () => {
+    const rows = { Account: [{ Id: 'a1' }, { Id: 'a2' }] };
+    const deps = makeDeps({ query: sourceOf(rows), batchSize: 200 });
+    vi.mocked(deps.insert).mockResolvedValueOnce(written('001T1'));
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 1, failed: 1 });
+    expect(result.objectOutcomes?.['Account']?.refusals[0].statusCode).toBe('UNKNOWN_ERROR');
+  });
+});
+
+describe('AutopilotExecutor — a record the target already holds', () => {
+  /** A fake Account id, in both forms (the checksum is the real algorithm's). */
+  const ACCOUNT_15 = '001Fk00000AbCdE';
+  const ACCOUNT_18 = '001Fk00000AbCdEIAV';
+  const CONTACT_18 = '003Fk00000MnOpQIAV';
+
+  const accountEdge = makeEdge({ from: 'Account' as ApiName, to: 'Contact' as ApiName });
+  const rows = {
+    Account: [{ Id: 'accSrc', Name: 'Acme' }],
+    Contact: [{ Id: 'conSrc', LastName: 'Doe', AccountId: 'accSrc' }],
+  };
+
+  /** Account refused as the target wills, then its contact written. */
+  async function runWith(accountOutcome: SaveOutcome) {
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      remapper: new RecordIdRemapper(),
+      describeKeyPrefix: async (name) => (name === 'Account' ? '001' : '003'),
+      batchSize: 200,
+    });
+    vi.mocked(deps.insert)
+      .mockResolvedValueOnce([accountOutcome])
+      .mockResolvedValueOnce(written('003T1'));
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Contact'),
+      [accountEdge],
+      [],
+      countsOf(rows),
+    );
+    const contactPayload = vi.mocked(deps.insert).mock.calls[1][1][0];
+    return { result, contactPayload };
+  }
+
+  it('links a record refused as a duplicate to the one the refusal names, and its children to it', async () => {
+    const { result, contactPayload } = await runWith(
+      refused(
+        'DUPLICATE_VALUE',
+        `valeur en double trouvée : ExternalKey__c duplique une valeur dans l'enregistrement ID : ${ACCOUNT_15}`,
+      ),
+    );
+
+    expect(contactPayload['AccountId']).toBe(ACCOUNT_18);
+    // Nothing was written and nothing failed: the account is in the target.
+    expect(result.objectOutcomes?.['Account']).toEqual({
+      written: 0,
+      linked: 1,
+      failed: 0,
+      refusals: [],
+    });
+    expect(result.completedObjects).toContain('Account');
+    expect(result.totalLinked).toBe(1);
+  });
+
+  it('links a record a duplicate rule refused to the one record the rule matched', async () => {
+    const { contactPayload } = await runWith({
+      ...refused('DUPLICATES_DETECTED', 'Utiliser un de ces enregistrements ?'),
+      duplicateMatchIds: [ACCOUNT_18],
+    });
+
+    expect(contactPayload['AccountId']).toBe(ACCOUNT_18);
+  });
+
+  it('keeps a duplicate the target hides behind <unknown> refused, and its children unlinked', async () => {
+    const { result, contactPayload } = await runWith(
+      refused(
+        'DUPLICATE_VALUE',
+        "valeur en double trouvée : <unknown> duplique une valeur dans l'enregistrement ID : <unknown>",
+      ),
+    );
+
+    expect(contactPayload['AccountId']).toBeNull();
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ linked: 0, failed: 1 });
+    expect(result.objectOutcomes?.['Account']?.refusals[0].statusCode).toBe('DUPLICATE_VALUE');
+  });
+
+  it('does not link to a record of another object the refusal names', async () => {
+    const { contactPayload } = await runWith(
+      refused(
+        'DUPLICATE_VALUE',
+        `duplicate value found: ExternalKey__c duplicates value on record with id: ${CONTACT_18}`,
+      ),
+    );
+
+    expect(contactPayload['AccountId']).toBeNull();
+  });
+
+  it('finds a duplicate the target does not name by its natural key', async () => {
+    // "A product selling model already exists for this combination" — and
+    // the refusal names no record.
+    const models = {
+      ProductSellingModel: [
+        { Id: 'psmSrc', SellingModelType: 'OneTime', PricingTerm: 1, PricingTermUnit: 'Months' },
+      ],
+      PricebookEntry: [{ Id: 'pbeSrc', ProductSellingModelId: 'psmSrc' }],
+    };
+    const queryTarget = vi.fn<SoqlQuery>(async () => [{ Id: '0jPEXISTING' }]);
+    const deps = makeDeps({
+      query: sourceOf(models),
+      remapper: new RecordIdRemapper(),
+      queryTarget,
+      batchSize: 200,
+    });
+    vi.mocked(deps.insert)
+      .mockResolvedValueOnce([
+        refused(
+          'DUPLICATE_VALUE',
+          'Impossible de sauvegarder cet enregistrement : un modèle de vente de produit existe déjà.',
+        ),
+      ])
+      .mockResolvedValueOnce(written('01uT1'));
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('ProductSellingModel', 'PricebookEntry'),
+      [
+        makeEdge({
+          from: 'ProductSellingModel' as ApiName,
+          to: 'PricebookEntry' as ApiName,
+          fieldApiName: 'ProductSellingModelId',
+        }),
+      ],
+      [],
+      countsOf(models),
+    );
+
+    expect(queryTarget).toHaveBeenCalledWith(
+      "SELECT Id FROM ProductSellingModel WHERE SellingModelType = 'OneTime' AND PricingTerm = 1 AND PricingTermUnit = 'Months' LIMIT 2",
+    );
+    expect(vi.mocked(deps.insert).mock.calls[1][1][0]['ProductSellingModelId']).toBe('0jPEXISTING');
+    expect(result.objectOutcomes?.['ProductSellingModel']).toMatchObject({ linked: 1, failed: 0 });
+  });
+});
+
+describe('AutopilotExecutor — records the platform owns or makes', () => {
+  const SOURCE_STANDARD = '01sSRCSTANDARD0';
+  const TARGET_STANDARD = '01sTGTSTANDARD0';
+
+  /** Each org answers the standard price book query with its own book. */
+  const books = {
+    querySource: vi.fn<SoqlQuery>(async (soql) =>
+      soql === STANDARD_PRICEBOOK_SOQL ? [{ Id: SOURCE_STANDARD }] : [],
+    ),
+    queryTarget: vi.fn<SoqlQuery>(async (soql) =>
+      soql === STANDARD_PRICEBOOK_SOQL ? [{ Id: TARGET_STANDARD }] : [],
+    ),
+  };
+
+  const bookEdge = makeEdge({
+    from: 'Pricebook2' as ApiName,
+    to: 'PricebookEntry' as ApiName,
+    fieldApiName: 'Pricebook2Id',
+    required: true,
+  });
+
+  it('matches the standard price book instead of inserting it, and prices go in the target one', async () => {
+    const rows = {
+      Pricebook2: [
+        { Id: SOURCE_STANDARD, Name: 'Standard Price Book', IsStandard: true },
+        { Id: '01sSRCCUSTOM000', Name: 'Resellers' },
+      ],
+      PricebookEntry: [{ Id: 'pbeStd', Pricebook2Id: SOURCE_STANDARD, UnitPrice: 10 }],
+    };
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      remapper: new RecordIdRemapper(),
+      ...books,
+      batchSize: 200,
+    });
+    vi.mocked(deps.insert)
+      .mockResolvedValueOnce(written('01sTGTCUSTOM00'))
+      .mockResolvedValueOnce(written('01uT1'));
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Pricebook2', 'PricebookEntry'),
+      [bookEdge],
+      [],
+      countsOf(rows),
+    );
+
+    const [bookCall, entryCall] = vi.mocked(deps.insert).mock.calls;
+    expect(bookCall[1].map((r) => r['Id'])).toEqual(['01sSRCCUSTOM000']);
+    expect(entryCall[1][0]['Pricebook2Id']).toBe(TARGET_STANDARD);
+    expect(result.objectOutcomes?.['Pricebook2']).toMatchObject({ written: 1, linked: 1 });
+  });
+
+  it('writes the standard prices before the custom ones, even read a page later', async () => {
+    // A custom price is refused for a product with no standard one.
+    const rows = {
+      PricebookEntry: [
+        { Id: 'pbeCustom1', Pricebook2Id: '01sSRCCUSTOM000', Product2Id: 'p1' },
+        { Id: 'pbeCustom2', Pricebook2Id: '01sSRCCUSTOM000', Product2Id: 'p2' },
+        { Id: 'pbeStd1', Pricebook2Id: SOURCE_STANDARD, Product2Id: 'p1' },
+      ],
+    };
+    const deps = makeDeps({ query: sourceOf(rows), ...books, batchSize: 2 });
+    vi.mocked(deps.insert).mockImplementation(async (_name, records) =>
+      written(...records.map((_, i) => `01uT${i}`)),
+    );
+
+    await new AutopilotExecutor(deps).execute(wavesOf('PricebookEntry'), [], [], countsOf(rows));
+
+    expect(vi.mocked(deps.insert).mock.calls.map((call) => call[1].map((r) => r['Id']))).toEqual([
+      ['pbeStd1'],
+      ['pbeCustom1', 'pbeCustom2'],
+    ]);
+  });
+
+  it('links the account-contact relation the platform made instead of inserting it', async () => {
+    const rows = {
+      Account: [{ Id: 'accSrc1' }, { Id: 'accSrc2' }],
+      Contact: [{ Id: 'conSrc', AccountId: 'accSrc1' }],
+      AccountContactRelation: [
+        { Id: 'acrDirect', AccountId: 'accSrc1', ContactId: 'conSrc' },
+        { Id: 'acrOther', AccountId: 'accSrc2', ContactId: 'conSrc' },
+      ],
+    };
+    const queryTarget = vi.fn<SoqlQuery>(async () => [
+      { Id: '07kDIRECT', AccountId: '001TA', ContactId: '003TC' },
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      remapper: new RecordIdRemapper(),
+      queryTarget,
+      batchSize: 200,
+    });
+    vi.mocked(deps.insert)
+      .mockResolvedValueOnce(written('001TA', '001TB'))
+      .mockResolvedValueOnce(written('003TC'))
+      .mockResolvedValueOnce(written('07kNEW'));
+    const edges = [
+      makeEdge({ from: 'Account' as ApiName, to: 'Contact' as ApiName }),
+      makeEdge({ from: 'Account' as ApiName, to: 'AccountContactRelation' as ApiName }),
+      makeEdge({
+        from: 'Contact' as ApiName,
+        to: 'AccountContactRelation' as ApiName,
+        fieldApiName: 'ContactId',
+      }),
+    ];
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Contact', 'AccountContactRelation'),
+      edges,
+      [],
+      countsOf(rows),
+    );
+
+    expect(queryTarget).toHaveBeenCalledWith(
+      "SELECT Id, AccountId, ContactId FROM AccountContactRelation WHERE IsDirect = true AND ContactId IN ('003TC')",
+    );
+    // Only the relation to the other account is written.
+    const relationCall = vi.mocked(deps.insert).mock.calls[2];
+    expect(relationCall[1].map((r) => r['Id'])).toEqual(['acrOther']);
+    expect(result.objectOutcomes?.['AccountContactRelation']).toMatchObject({
+      written: 1,
+      linked: 1,
+      failed: 0,
+    });
+  });
+
+  describe('a record born a draft', () => {
+    const orderStatuses = [
+      { ApiName: 'ST001', StatusCode: 'Draft' },
+      { ApiName: 'ST004', StatusCode: 'Activated' },
+    ];
+    const rows = {
+      Order: [
+        { Id: 'ordActive', Status: 'ST004' },
+        { Id: 'ordDraft', Status: 'ST001' },
+      ],
+      OrderItem: [{ Id: 'itemSrc', OrderId: 'ordActive' }],
+    };
+    const itemEdge = makeEdge({
+      from: 'Order' as ApiName,
+      to: 'OrderItem' as ApiName,
+      fieldApiName: 'OrderId',
+      required: true,
+    });
+
+    /** An order run whose target answers its statuses and its updates as given. */
+    async function orderRun(update?: AutopilotExecutorDeps['update']) {
+      const queryTarget = vi.fn<SoqlQuery>(async (soql) =>
+        soql === 'SELECT ApiName, StatusCode FROM OrderStatus' ? orderStatuses : [],
+      );
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        remapper: new RecordIdRemapper(),
+        queryTarget,
+        ...(update ? { update } : {}),
+        batchSize: 200,
+      });
+      vi.mocked(deps.insert)
+        .mockResolvedValueOnce(written('801A', '801B'))
+        .mockResolvedValueOnce(written('802A'));
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Order', 'OrderItem'),
+        [itemEdge],
+        [],
+        countsOf(rows),
+      );
+      return { deps, result };
+    }
+
+    it('inserts an activated order as a draft and activates it once its products are in', async () => {
+      const update = vi.fn<NonNullable<AutopilotExecutorDeps['update']>>(async (_name, records) =>
+        written(...records.map((r) => String(r['Id']))),
+      );
+
+      const { deps, result } = await orderRun(update);
+
+      const orderCall = vi.mocked(deps.insert).mock.calls[0];
+      expect(orderCall[1].map((r) => r['Status'])).toEqual(['ST001', 'ST001']);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith('Order', [{ Id: '801A', Status: 'ST004' }]);
+      // After the products: an activated order takes none.
+      const itemInsertOrder = vi.mocked(deps.insert).mock.invocationCallOrder[1];
+      expect(update.mock.invocationCallOrder[0]).toBeGreaterThan(itemInsertOrder);
+      expect(result.statuses).toEqual({ Order: { applied: 1, refusals: [] } });
+    });
+
+    it('says why a status was not applied, and leaves the order a draft', async () => {
+      const update = vi.fn<NonNullable<AutopilotExecutorDeps['update']>>(async () => [
+        refused('FIELD_INTEGRITY_EXCEPTION', 'Commande sans produit', ['Status']),
+      ]);
+
+      const { result } = await orderRun(update);
+
+      expect(result.statuses?.['Order']).toEqual({
+        applied: 0,
+        refusals: [
+          {
+            statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+            fields: ['Status'],
+            count: 1,
+            message: 'Commande sans produit',
+          },
+        ],
+      });
+    });
+
+    it('sends the status as it is when the run could not write it back afterwards', async () => {
+      const { deps, result } = await orderRun(undefined);
+
+      expect(vi.mocked(deps.insert).mock.calls[0][1].map((r) => r['Status'])).toEqual([
+        'ST004',
+        'ST001',
+      ]);
+      expect(result.statuses).toBeUndefined();
+    });
+
+    it('starts a contract past Draft as a draft too, from the target categories', async () => {
+      const queryTarget = vi.fn<SoqlQuery>(async (soql) =>
+        soql === 'SELECT ApiName, StatusCode FROM ContractStatus'
+          ? [
+              { ApiName: 'Draft', StatusCode: 'Draft' },
+              { ApiName: 'Activated', StatusCode: 'Activated' },
+            ]
+          : [],
+      );
+      const contracts = { Contract: [{ Id: 'ctrSrc', Status: 'Activated' }] };
+      const update = vi.fn<NonNullable<AutopilotExecutorDeps['update']>>(async (_name, records) =>
+        written(...records.map((r) => String(r['Id']))),
+      );
+      const deps = makeDeps({ query: sourceOf(contracts), queryTarget, update, batchSize: 200 });
+      vi.mocked(deps.insert).mockResolvedValueOnce(written('800A'));
+
+      await new AutopilotExecutor(deps).execute(wavesOf('Contract'), [], [], countsOf(contracts));
+
+      expect(vi.mocked(deps.insert).mock.calls[0][1][0]['Status']).toBe('Draft');
+      expect(update).toHaveBeenCalledWith('Contract', [{ Id: '800A', Status: 'Activated' }]);
+    });
   });
 });

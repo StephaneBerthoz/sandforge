@@ -55,6 +55,37 @@ export interface AutopilotNode {
   elapsedMs: number;
   /** API calls consumed */
   apiCallsUsed: number;
+  /** Records the target already held, linked to instead of written. */
+  linkedCount?: number;
+  /** Why the target refused records, by status code and fields. */
+  refusals?: AutopilotRefusal[];
+  /**
+   * Records born a draft that were given back their status once their
+   * children were in — an order is inserted as a draft and activated after
+   * its products.
+   */
+  statusesApplied?: number;
+  /** Why a status could not be given back: those records stay drafts. */
+  statusRefusals?: AutopilotRefusal[];
+}
+
+/**
+ * Why the target refused records of one object: one entry per status code and
+ * set of fields, with how many records it covers.
+ *
+ * The code is what a decision reads. The message comes in the running user's
+ * language — a French org answers "valeur en double trouvée" where an English
+ * one says "duplicate value found" — so it is kept to be shown, never matched.
+ */
+export interface AutopilotRefusal {
+  /** Salesforce's status code, e.g. `REQUIRED_FIELD_MISSING`. */
+  readonly statusCode: string;
+  /** The fields the refusal named; empty when it named none. */
+  readonly fields: string[];
+  /** Records refused with this code on these fields. */
+  readonly count: number;
+  /** The first of their messages, as the target wrote it. */
+  readonly message: string;
 }
 
 /** An edge in the dependency graph representing a lookup relationship */
@@ -222,6 +253,10 @@ export interface AutopilotNodeCompletedEvent extends AutopilotEvent {
   readonly successCount: number;
   /** Number of failed records */
   readonly failureCount: number;
+  /** Records the target already held and named: linked to, never written */
+  readonly linkedCount: number;
+  /** Why the failed records were refused */
+  readonly refusals: AutopilotRefusal[];
   /** Elapsed time in milliseconds */
   readonly elapsedMs: number;
   /** API calls consumed */
@@ -234,10 +269,16 @@ export interface AutopilotNodeFailedEvent extends AutopilotEvent {
   readonly type: 'node-failed';
   /** Object API name that failed */
   readonly objectApiName: ApiName;
-  /** Error messages */
+  /** One line per refusal, `STATUS_CODE: message` whenever the target gave a code */
   readonly errors: string[];
   /** Records inserted before failure */
   readonly partialSuccessCount: number;
+  /** Records refused */
+  readonly failureCount: number;
+  /** Records the target already held and named: linked to, never written */
+  readonly linkedCount: number;
+  /** Why the records were refused */
+  readonly refusals: AutopilotRefusal[];
 }
 
 // ─── Compliance & Anonymization Types ────────────────────────────────────────

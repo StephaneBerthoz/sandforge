@@ -4,6 +4,7 @@ import type {
   BaseMessage,
   AutopilotGraph as AutopilotGraphType,
   AutopilotNodeStatus,
+  AutopilotRefusal,
   ExecutionPlan,
 } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
@@ -62,6 +63,10 @@ export const AutopilotPage: React.FC = () => {
         wave: number;
         recordCount?: number;
         failureCount?: number;
+        linkedCount?: number;
+        refusals?: AutopilotRefusal[];
+        statusesApplied?: number;
+        statusRefusals?: AutopilotRefusal[];
         apiCallsUsed?: number;
         error?: string;
       };
@@ -78,6 +83,15 @@ export const AutopilotPage: React.FC = () => {
     if (msg.payload.recordCount !== undefined) {
       store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
     }
+    // Why records were refused, by code and fields, and what the target
+    // already held: what the node detail shows once the node has settled.
+    store.updateNodeOutcome(msg.payload.objectName, {
+      failureCount: msg.payload.failureCount,
+      linkedCount: msg.payload.linkedCount,
+      refusals: msg.payload.refusals,
+      statusesApplied: msg.payload.statusesApplied,
+      statusRefusals: msg.payload.statusRefusals,
+    });
     if (msg.payload.status === 'failed' && msg.payload.error) {
       store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);
     }

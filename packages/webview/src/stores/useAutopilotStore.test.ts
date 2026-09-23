@@ -285,4 +285,47 @@ describe('useAutopilotStore', () => {
     getState().updateNodeProgress('Account', 50, 25);
     expect(getState().graph).toBeNull();
   });
+
+  it('keeps what a node came to: its refusals by code, its linked records, its statuses', () => {
+    getState().setGraph(createMockGraph());
+    const refusal = {
+      statusCode: 'REQUIRED_FIELD_MISSING',
+      fields: ['Entity__c'],
+      count: 2,
+      message: "Des champs obligatoires n'ont pas été remplis : [Entity__c]",
+    };
+
+    getState().updateNodeOutcome('Contact', {
+      failureCount: 2,
+      linkedCount: 1,
+      refusals: [refusal],
+      statusesApplied: 3,
+      statusRefusals: [],
+    });
+
+    expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Contact')).toMatchObject({
+      failureCount: 2,
+      linkedCount: 1,
+      refusals: [refusal],
+      statusesApplied: 3,
+      statusRefusals: [],
+    });
+    expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')?.refusals).toBe(
+      undefined,
+    );
+  });
+
+  it('leaves alone what a node outcome message did not carry', () => {
+    getState().setGraph(createMockGraph());
+    getState().updateNodeOutcome('Account', { failureCount: 4, linkedCount: 2 });
+
+    // A later message carrying only the failures keeps the linked count. The
+    // page hands every field on, so the ones a message lacks come undefined.
+    getState().updateNodeOutcome('Account', { failureCount: 5, linkedCount: undefined });
+
+    expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')).toMatchObject({
+      failureCount: 5,
+      linkedCount: 2,
+    });
+  });
 });

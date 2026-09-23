@@ -13,13 +13,41 @@ import type {
   AutopilotNodeFailedEvent,
   AutopilotAnonymizationRule,
   AutopilotEdge,
+  AutopilotRefusal,
   ApiName,
+} from '@sandforge/shared';
+import {
+  PRICEBOOK_ENTRY_OBJECT,
+  PRICEBOOK_OBJECT,
+  STANDARD_PRICEBOOK_SOQL,
+  isPricebookEntry,
+  splitStandardPricebookEntries,
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { RecordIdRemapper } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  NO_STATUS_CODE,
+  existingRecordOf,
+  saveErrorDetail,
+  type SaveErrorDetail,
+  type SaveOutcome,
+} from '../../core/common/existingRecordMatch.js';
+import {
+  ACCOUNT_CONTACT_RELATION,
+  NATURAL_KEYS,
+  STATUS_LIFECYCLES,
+  directAccountContactRelations,
+  draftStartOf,
+  recordsByNaturalKey,
+  statusCategories,
+  type SoqlQuery,
+  type StatusCategories,
+} from '../../core/common/platformRecords.js';
+import {
+  RECORD_TYPE_UNAVAILABLE,
   recordTypeBlockedMessage,
+  recordTypeBlockedReason,
   unavailableRecordTypeUses,
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
@@ -36,21 +64,27 @@ export type QueryFn = (
   limit: number,
 ) => Promise<Record<string, unknown>[]>;
 
-/** Function to insert records into target org */
+/**
+ * Function to insert records into the target org: one outcome per record, in
+ * the order the records were given.
+ *
+ * Per record, because what the run does next depends on which record it is:
+ * a record written or one the target already holds is mapped for its
+ * children, a refused one is reported with its code. A result that kept only
+ * the ids written and the refusal messages could not say which source record
+ * a refusal was about, so a parent the target refused as a duplicate left
+ * every child without it.
+ */
 export type InsertFn = (
   objectApiName: string,
   records: Record<string, unknown>[],
-) => Promise<InsertResult>;
+) => Promise<SaveOutcome[]>;
 
-/** Result of an insert operation */
-export interface InsertResult {
-  /** IDs of successfully inserted records in target org */
-  successIds: string[];
-  /** Source IDs corresponding to successIds (same order) */
-  sourceIds: string[];
-  /** Error messages for failed records */
-  errors: string[];
-}
+/** Function to update records of the target org: one outcome per record, in order. */
+export type UpdateFn = (
+  objectApiName: string,
+  records: Record<string, unknown>[],
+) => Promise<SaveOutcome[]>;
 
 /**
  * Fatal-crash event. Carries the message the run died with, so a listener that
@@ -77,6 +111,29 @@ export type AutopilotExecutorEvents = {
   resumed: AutopilotEvent;
 };
 
+/** What became of one object's records. */
+export interface ObjectOutcome {
+  /** Records written. */
+  written: number;
+  /**
+   * Records the target already held and named — or that the platform made
+   * itself, or owns — linked to for their children and never written.
+   */
+  linked: number;
+  /** Records refused. */
+  failed: number;
+  /** Why, by status code and fields. */
+  refusals: AutopilotRefusal[];
+}
+
+/** The statuses set aside for records born a draft, as the end of the run applied them. */
+export interface StatusOutcome {
+  /** Records given back the status they had in the source. */
+  applied: number;
+  /** Why the others were not: those records stay in the target as drafts. */
+  refusals: AutopilotRefusal[];
+}
+
 /** Execution result summary */
 export interface ExecutionResult {
   /** Total successfully inserted records */
@@ -85,6 +142,11 @@ export interface ExecutionResult {
   totalFailure: number;
   /** Total skipped records */
   totalSkipped: number;
+  /**
+   * Records the target already held, linked to instead of written. Neither
+   * written nor failed.
+   */
+  totalLinked?: number;
   /** Total elapsed time in milliseconds */
   elapsedMs: number;
   /** Objects that completed successfully */
@@ -94,10 +156,15 @@ export interface ExecutionResult {
   /** Objects that were skipped */
   skippedObjects: string[];
   /**
-   * First error message per failed object, keyed by API name. The aggregate
-   * counters cannot carry it, and it is what the UI shows on the failed node.
+   * First error per failed object, keyed by API name — `STATUS_CODE: message`
+   * whenever the target gave a code. The aggregate counters cannot carry it,
+   * and it is what the UI shows on the failed node.
    */
   nodeErrors?: Record<string, string>;
+  /** What became of each object's records, keyed by API name. */
+  objectOutcomes?: Record<string, ObjectOutcome>;
+  /** The statuses applied once the children were in, per object born a draft. */
+  statuses?: Record<string, StatusOutcome>;
   /**
    * Message the run died with. Set only when execution crashed, in which case
    * the counters above are partial and the executor rethrows instead of
@@ -150,15 +217,114 @@ export interface AutopilotExecutorDeps {
    * the running user cannot use.
    */
   countRecordTypes?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
+  /**
+   * The object's key prefix in the TARGET org. An id a refusal names is
+   * linked to only when it carries it: a unique index is per object, so an id
+   * of anything else is not the record. Without it an id is checked for its
+   * form alone.
+   */
+  describeKeyPrefix?: (objectApiName: string) => Promise<string | null | undefined>;
+  /** SOQL against the SOURCE org — the standard price book's id there. */
+  querySource?: SoqlQuery;
+  /**
+   * SOQL against the TARGET org: its standard price book, the relations the
+   * platform made itself, the statuses a lifecycle object may start with,
+   * and a duplicate a refusal does not name. Without it none of those is
+   * asked, and each such record is written — or refused — like any other.
+   */
+  queryTarget?: SoqlQuery;
+  /**
+   * Update records of the target — the statuses a record could not be born
+   * with. Without it a record is inserted with the status it has, and the
+   * platform says whether it takes it.
+   */
+  update?: UpdateFn;
+}
+
+/** Standing in for a record the platform gave no result for. */
+const NO_RESULT_DETAIL: SaveErrorDetail = {
+  statusCode: NO_STATUS_CODE,
+  message: 'No result returned for the record',
+  fields: [],
+};
+
+/** Standing in for a refusal the platform gave no reason for. */
+const NO_REASON_DETAIL: SaveErrorDetail = {
+  statusCode: NO_STATUS_CODE,
+  message: 'Refused without a reason',
+  fields: [],
+};
+
+/**
+ * Counts the reasons records were refused, by status code and fields. A
+ * record refused for two reasons is counted under both.
+ */
+class RefusalTally {
+  private readonly byReason = new Map<string, AutopilotRefusal>();
+
+  /** Count one record's errors. */
+  add(details: readonly SaveErrorDetail[]): void {
+    const seen = new Set<string>();
+    for (const detail of details) {
+      const key = `${detail.statusCode}\u0000${detail.fields.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const known = this.byReason.get(key);
+      this.byReason.set(
+        key,
+        known
+          ? { ...known, count: known.count + 1 }
+          : {
+              statusCode: detail.statusCode,
+              fields: [...detail.fields],
+              count: 1,
+              message: detail.message,
+            },
+      );
+    }
+  }
+
+  /** Count a reason that already knows how many records it covers. */
+  addCounted(refusal: AutopilotRefusal): void {
+    const key = `${refusal.statusCode}\u0000${refusal.fields.join(',')}`;
+    const known = this.byReason.get(key);
+    this.byReason.set(key, known ? { ...known, count: known.count + refusal.count } : refusal);
+  }
+
+  /** The reasons, the most frequent first. */
+  list(): AutopilotRefusal[] {
+    return [...this.byReason.values()].sort((a, b) => b.count - a.count);
+  }
+}
+
+/** One object's running totals while its records are written. */
+interface ObjectState {
+  written: number;
+  linked: number;
+  failed: number;
+  /** `STATUS_CODE: message`, one per refused record. */
+  errors: string[];
+  refusals: RefusalTally;
+  apiCallsUsed: number;
 }
 
 /** Result of executing a single object */
 interface ObjectResult {
   success: number;
+  linked: number;
   failure: number;
   errors: string[];
+  refusals: AutopilotRefusal[];
   apiCallsUsed: number;
   elapsedMs: number;
+}
+
+/** A status a record could not be born with, to apply once its children are in. */
+interface DeferredStatus {
+  objectApiName: string;
+  /** Target id of the record written. */
+  id: string;
+  status: string;
 }
 
 /**
@@ -175,6 +341,14 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private skippedObjects = new Set<string>();
   /** One describe of the target per object, kept for the run. */
   private readonly creatableByObject = new Map<string, ReadonlySet<string> | null>();
+  /** The target's key prefix per object, kept for the run. */
+  private readonly keyPrefixByObject = new Map<string, Promise<string | null | undefined>>();
+  /** A lifecycle object's statuses in the target, kept for the run. */
+  private readonly lifecycleByObject = new Map<string, Promise<StatusCategories | undefined>>();
+  /** The standard price book's id in each org, when both said. */
+  private standardPricebook: { source: string; target: string } | undefined;
+  /** Statuses set aside at insert, applied once the last wave is in. */
+  private readonly deferredStatuses: DeferredStatus[] = [];
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -199,6 +373,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       this.creatableByObject.set(objectApiName, null);
       return null;
     }
+  }
+
+  /** The object's key prefix in the target, or nothing when the describe cannot say. */
+  private keyPrefixOf(objectApiName: string): Promise<string | null | undefined> {
+    const describe = this.deps.describeKeyPrefix;
+    if (!describe) return Promise.resolve(undefined);
+    let cached = this.keyPrefixByObject.get(objectApiName);
+    if (!cached) {
+      cached = describe(objectApiName).catch(() => undefined);
+      this.keyPrefixByObject.set(objectApiName, cached);
+    }
+    return cached;
   }
 
   constructor(deps: AutopilotExecutorDeps) {
@@ -232,6 +418,40 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   }
 
   /**
+   * Match the two orgs' standard price books, when the plan carries price
+   * books or prices at all.
+   *
+   * Every org has exactly one standard price book and none can be created,
+   * so it is matched — by `IsStandard`, never by its name, which a French org
+   * translates — and never inserted. Copied like any other book, it left
+   * another custom book named after it in the target on every run, and the
+   * standard prices read from the source were remapped into that copy, where
+   * the platform refuses a price for a product with no standard one. Best
+   * effort: when either org cannot say, the run goes on as it did before.
+   */
+  private async matchStandardPricebooks(plan: ExecutionPlan): Promise<void> {
+    const { querySource, queryTarget } = this.deps;
+    if (!querySource || !queryTarget) return;
+    const objects = new Set<string>(plan.waves.flatMap((wave) => wave.objects));
+    if (!objects.has(PRICEBOOK_OBJECT) && !objects.has(PRICEBOOK_ENTRY_OBJECT)) return;
+    try {
+      const [sourceBook, targetBook] = await Promise.all([
+        querySource(STANDARD_PRICEBOOK_SOQL),
+        queryTarget(STANDARD_PRICEBOOK_SOQL),
+      ]);
+      const source = sourceBook[0]?.['Id'];
+      const target = targetBook[0]?.['Id'];
+      if (typeof source !== 'string' || typeof target !== 'string') return;
+      this.standardPricebook = { source, target };
+      this.deps.remapper.registerMappings(PRICEBOOK_OBJECT as ApiName, [[source, target]]);
+    } catch (err) {
+      logger.warn('Autopilot could not match the standard price books', {
+        error: extractErrorMessage(err),
+      });
+    }
+  }
+
+  /**
    * Execute the full plan wave by wave.
    * @param plan - The execution plan with waves
    * @param edges - Dependency edges for ID remapping
@@ -247,15 +467,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
     const nodeErrors: Record<string, string> = {};
+    const objectOutcomes: Record<string, ObjectOutcome> = {};
     const result: ExecutionResult = {
       totalSuccess: 0,
       totalFailure: 0,
       totalSkipped: 0,
+      totalLinked: 0,
       elapsedMs: 0,
       completedObjects: [],
       failedObjects: [],
       skippedObjects: [],
       nodeErrors,
+      objectOutcomes,
     };
 
     this.emit(
@@ -267,6 +490,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     );
 
     try {
+      await this.matchStandardPricebooks(plan);
+
       for (const wave of plan.waves) {
         const waveResults = await Promise.all(
           wave.objects.map(async (objectApiName) => {
@@ -290,8 +515,17 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
               result.totalSuccess += objResult.success;
               result.totalFailure += objResult.failure;
+              result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
+              objectOutcomes[objectApiName] = {
+                written: objResult.success,
+                linked: objResult.linked,
+                failed: objResult.failure,
+                refusals: objResult.refusals,
+              };
 
-              if (objResult.errors.length > 0 && objResult.success === 0) {
+              // A node that wrote nothing is still whole when every record it
+              // holds is in the target: linked to, its children point at it.
+              if (objResult.errors.length > 0 && objResult.success + objResult.linked === 0) {
                 result.failedObjects.push(objectApiName);
                 nodeErrors[objectApiName] = objResult.errors[0];
                 this.emit(
@@ -302,6 +536,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
                     objectApiName: objectApiName as ApiName,
                     errors: objResult.errors,
                     partialSuccessCount: objResult.success,
+                    failureCount: objResult.failure,
+                    linkedCount: objResult.linked,
+                    refusals: objResult.refusals,
                   }),
                 );
               } else {
@@ -314,6 +551,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
                     objectApiName: objectApiName as ApiName,
                     successCount: objResult.success,
                     failureCount: objResult.failure,
+                    linkedCount: objResult.linked,
+                    refusals: objResult.refusals,
                     elapsedMs: objResult.elapsedMs,
                     apiCallsUsed: objResult.apiCallsUsed,
                   }),
@@ -331,6 +570,9 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
                   objectApiName: objectApiName as ApiName,
                   errors: [errorMsg],
                   partialSuccessCount: 0,
+                  failureCount: 0,
+                  linkedCount: 0,
+                  refusals: [],
                 }),
               );
             }
@@ -347,6 +589,10 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           }),
         );
       }
+
+      // Statuses set aside at insert, now that every record's children are in.
+      const statuses = await this.applyDeferredStatuses();
+      if (Object.keys(statuses).length > 0) result.statuses = statuses;
 
       result.elapsedMs = Date.now() - startTime;
       this.emit(
@@ -391,10 +637,23 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     totalRecords: number,
   ): Promise<ObjectResult> {
     const objStart = Date.now();
-    let success = 0;
-    let failure = 0;
-    let apiCallsUsed = 0;
-    const errors: string[] = [];
+    const state: ObjectState = {
+      written: 0,
+      linked: 0,
+      failed: 0,
+      errors: [],
+      refusals: new RefusalTally(),
+      apiCallsUsed: 0,
+    };
+    const finish = (): ObjectResult => ({
+      success: state.written,
+      linked: state.linked,
+      failure: state.failed,
+      errors: state.errors,
+      refusals: state.refusals.list(),
+      apiCallsUsed: state.apiCallsUsed,
+      elapsedMs: Date.now() - objStart,
+    });
 
     // Held back whole, before its first page: a run clears a lookup it cannot
     // resolve but never touches a record type, so there is no default to fall
@@ -402,23 +661,74 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     // change in the target, and nothing of it is written.
     const heldBack = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
     if (heldBack.length > 0) {
-      return {
-        success: 0,
-        failure: totalRecords,
-        errors: heldBack.map(recordTypeBlockedMessage),
-        apiCallsUsed: 1,
-        elapsedMs: Date.now() - objStart,
-      };
+      state.failed = totalRecords;
+      state.errors.push(...heldBack.map(recordTypeBlockedMessage));
+      for (const use of heldBack) {
+        state.refusals.addCounted({
+          statusCode: RECORD_TYPE_UNAVAILABLE,
+          fields: ['RecordTypeId'],
+          count: use.recordCount,
+          message: recordTypeBlockedReason(use),
+        });
+      }
+      state.apiCallsUsed = 1;
+      return finish();
     }
 
+    const progress = (processed: number): void => {
+      const done = Math.min(processed, totalRecords);
+      this.emit(
+        'node-progress',
+        this.makeEvent({
+          type: 'node-progress' as const,
+          timestamp: '',
+          objectApiName,
+          progress: totalRecords > 0 ? Math.round((done / totalRecords) * 100) : 100,
+          recordsProcessed: done,
+          recordsTotal: totalRecords,
+          apiCallsUsed: state.apiCallsUsed,
+        }),
+      );
+    };
+
     let offset = 0;
+    const standardBook = this.standardPricebook;
+    if (isPricebookEntry(objectApiName) && standardBook) {
+      // A custom price is refused for a product with no standard one, and
+      // the pages of a read come in no order the run chooses: a product's
+      // custom price can sit a page ahead of its standard one. So every page
+      // is read first, and the standard prices are written in calls of their
+      // own before the custom ones.
+      const rows: Record<string, unknown>[] = [];
+      while (offset < totalRecords) {
+        await this.checkPause();
+        const batch = await this.deps.query(objectApiName, offset, this.batchSize);
+        state.apiCallsUsed++;
+        if (batch.length === 0) break;
+        this.deps.anonymizer.anonymize(batch, rules, objectApiName);
+        rows.push(...batch);
+        offset += batch.length;
+      }
+      const { standard, custom } = splitStandardPricebookEntries(rows, standardBook.source);
+      let processed = 0;
+      for (const round of [standard, custom]) {
+        for (let i = 0; i < round.length; i += this.batchSize) {
+          await this.checkPause();
+          const batch = round.slice(i, i + this.batchSize);
+          await this.writeBatch(objectApiName, batch, edges, state);
+          processed += batch.length;
+          progress(processed);
+        }
+      }
+      return finish();
+    }
 
     while (offset < totalRecords) {
       await this.checkPause();
 
       // 1. Query from source
       const batch = await this.deps.query(objectApiName, offset, this.batchSize);
-      apiCallsUsed++;
+      state.apiCallsUsed++;
 
       if (batch.length === 0) {
         break;
@@ -427,71 +737,238 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       // 2. Anonymize
       this.deps.anonymizer.anonymize(batch, rules, objectApiName);
 
-      // 3. Remap lookup IDs
-      this.deps.remapper.remapRecords(batch, edges, objectApiName);
-
-      // 4. Insert into target, with the fields the target will take. `Id` and
-      //    `attributes` stay: the insert function strips them itself and
-      //    reads the source Id back for the remapper.
-      const writable = await this.creatableFieldsOf(objectApiName);
-      const payload = writable
-        ? batch.map((record) => {
-            const kept: Record<string, unknown> = {};
-            for (const key of Object.keys(record)) {
-              if (key === 'Id' || key === 'attributes' || writable.has(key)) {
-                kept[key] = record[key];
-              }
-            }
-            return kept;
-          })
-        : batch;
-      const insertResult = await this.deps.insert(objectApiName, payload);
-      apiCallsUsed++;
-
-      // 5. Register new ID mappings
-      const mappings: Array<[string, string]> = [];
-      for (let i = 0; i < insertResult.successIds.length; i++) {
-        const sourceId = insertResult.sourceIds[i];
-        const targetId = insertResult.successIds[i];
-        if (sourceId && targetId) {
-          mappings.push([sourceId, targetId]);
-        }
-      }
-      if (mappings.length > 0) {
-        this.deps.remapper.registerMappings(objectApiName, mappings);
-      }
-
-      success += insertResult.successIds.length;
-      failure += insertResult.errors.length;
-      errors.push(...insertResult.errors);
+      // 3. Remap, link and insert
+      await this.writeBatch(objectApiName, batch, edges, state);
 
       offset += batch.length;
 
-      // 6. Emit node-progress
-      const processed = Math.min(offset, totalRecords);
-      const progress = totalRecords > 0 ? Math.round((processed / totalRecords) * 100) : 100;
-
-      this.emit(
-        'node-progress',
-        this.makeEvent({
-          type: 'node-progress' as const,
-          timestamp: '',
-          objectApiName,
-          progress,
-          recordsProcessed: processed,
-          recordsTotal: totalRecords,
-          apiCallsUsed,
-        }),
-      );
+      // 4. Emit node-progress
+      progress(offset);
     }
 
-    return {
-      success,
-      failure,
-      errors,
-      apiCallsUsed,
-      elapsedMs: Date.now() - objStart,
-    };
+    return finish();
+  }
+
+  /**
+   * Write one batch of source records: remap their lookups, link the records
+   * the target already holds, insert the rest, and map every source id the
+   * target now has a record for — written or already there — for the
+   * children still to come.
+   */
+  private async writeBatch(
+    objectApiName: ApiName,
+    batch: Record<string, unknown>[],
+    edges: AutopilotEdge[],
+    state: ObjectState,
+  ): Promise<void> {
+    const mappings: Array<[string, string]> = [];
+
+    // The standard price book is matched, never inserted — mapped already.
+    let rows = batch;
+    const standardBook = this.standardPricebook;
+    if (objectApiName === PRICEBOOK_OBJECT && standardBook) {
+      rows = batch.filter((record) => record['Id'] !== standardBook.source);
+      state.linked += batch.length - rows.length;
+    }
+    if (rows.length === 0) return;
+
+    this.deps.remapper.remapRecords(rows, edges, objectApiName);
+
+    // With the fields the target will take. `Id` and `attributes` stay: the
+    // insert function strips them itself, and `Id` is what maps the record.
+    const writable = await this.creatableFieldsOf(objectApiName);
+    let payload = writable
+      ? rows.map((record) => {
+          const kept: Record<string, unknown> = {};
+          for (const key of Object.keys(record)) {
+            if (key === 'Id' || key === 'attributes' || writable.has(key)) {
+              kept[key] = record[key];
+            }
+          }
+          return kept;
+        })
+      : rows;
+
+    // Each read of the target counted as it is made: the lookups below ask
+    // nothing when there is nothing to ask about.
+    const target = this.deps.queryTarget;
+    const queryTarget: SoqlQuery | undefined = target
+      ? (soql) => {
+          state.apiCallsUsed++;
+          return target(soql);
+        }
+      : undefined;
+    // The relation the platform made when it wrote the contact with its
+    // account is the one read from the source: inserted again it is refused,
+    // and the refusal names no record. Found by its account and contact, now
+    // target ids, and linked to.
+    if (objectApiName === ACCOUNT_CONTACT_RELATION && queryTarget) {
+      const direct = await directAccountContactRelations(queryTarget, payload);
+      for (const [index, id] of direct) {
+        const sourceId = payload[index]['Id'];
+        if (typeof sourceId === 'string') mappings.push([sourceId, id]);
+      }
+      state.linked += direct.size;
+      payload = payload.filter((_, index) => !direct.has(index));
+    }
+    if (payload.length === 0) {
+      this.register(objectApiName, mappings);
+      return;
+    }
+
+    const drafts = await this.startAsDrafts(objectApiName, payload);
+    const outcomes = await this.deps.insert(objectApiName, payload);
+    state.apiCallsUsed++;
+
+    const keyPrefix = await this.keyPrefixOf(objectApiName);
+    const keyFields = NATURAL_KEYS[objectApiName];
+    const byNaturalKey: Array<{
+      payload: Record<string, unknown>;
+      sourceId: string | undefined;
+      outcome: SaveOutcome;
+    }> = [];
+    payload.forEach((record, index) => {
+      const sourceId = typeof record['Id'] === 'string' ? record['Id'] : undefined;
+      const outcome = outcomes[index];
+      if (!outcome) {
+        this.refuse(state, undefined);
+        return;
+      }
+      if (outcome.success) {
+        state.written++;
+        if (sourceId && outcome.id) mappings.push([sourceId, outcome.id]);
+        const status = drafts.get(index);
+        if (status && outcome.id) {
+          this.deferredStatuses.push({ objectApiName, id: outcome.id, status });
+        }
+        return;
+      }
+      // Refused because the target holds the record, and says which: its
+      // children link to it, and nothing is written to it.
+      const existing = existingRecordOf(outcome, keyPrefix);
+      if (existing.kind === 'linked') {
+        state.linked++;
+        if (sourceId) mappings.push([sourceId, existing.id]);
+        return;
+      }
+      if (existing.kind === 'unidentified' && keyFields && queryTarget) {
+        // Settled below: the record may be found by its key.
+        byNaturalKey.push({ payload: record, sourceId, outcome });
+        return;
+      }
+      this.refuse(state, outcome);
+    });
+
+    if (keyFields && queryTarget && byNaturalKey.length > 0) {
+      const found = await recordsByNaturalKey(
+        queryTarget,
+        objectApiName,
+        keyFields,
+        byNaturalKey.map((d) => d.payload),
+      );
+      byNaturalKey.forEach((duplicate, index) => {
+        const id = found[index];
+        if (id && duplicate.sourceId) {
+          state.linked++;
+          mappings.push([duplicate.sourceId, id]);
+          return;
+        }
+        this.refuse(state, duplicate.outcome);
+      });
+    }
+
+    this.register(objectApiName, mappings);
+  }
+
+  /** Record a refused record with why. */
+  private refuse(state: ObjectState, outcome: SaveOutcome | undefined): void {
+    state.failed++;
+    const details = detailsOf(outcome);
+    state.errors.push(outcome?.errors[0] ?? lineOf(details[0]));
+    state.refusals.add(details);
+  }
+
+  /** Map source ids to the target records the children will point at. */
+  private register(objectApiName: ApiName, mappings: Array<[string, string]>): void {
+    if (mappings.length > 0) this.deps.remapper.registerMappings(objectApiName, mappings);
+  }
+
+  /**
+   * Put records whose status is past Draft in at a Draft status, and keep the
+   * one they had, by payload index, for {@link applyDeferredStatuses}.
+   *
+   * Run for real, an order inserted activated was refused — "for a new order,
+   * choose Draft" — and an activated order takes no products, so its lines,
+   * a wave later, would be refused as well. The target's own categories say
+   * which statuses are drafts; a target that cannot say, or a run that cannot
+   * write the status back afterwards, leaves the records as they are.
+   */
+  private async startAsDrafts(
+    objectApiName: string,
+    payload: Record<string, unknown>[],
+  ): Promise<Map<number, string>> {
+    const drafts = new Map<number, string>();
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    const { queryTarget, update } = this.deps;
+    if (!lifecycle || !queryTarget || !update) return drafts;
+    let categories = this.lifecycleByObject.get(objectApiName);
+    if (!categories) {
+      categories = statusCategories(queryTarget, lifecycle);
+      this.lifecycleByObject.set(objectApiName, categories);
+    }
+    const known = await categories;
+    if (!known) return drafts;
+    payload.forEach((record, index) => {
+      const draft = draftStartOf(record['Status'], known);
+      if (!draft) return;
+      drafts.set(index, String(record['Status']));
+      record['Status'] = draft;
+    });
+    return drafts;
+  }
+
+  /**
+   * Give the records born a draft the status they had in the source, once
+   * every wave — and so every child they take — is in.
+   */
+  private async applyDeferredStatuses(): Promise<Record<string, StatusOutcome>> {
+    const outcomes: Record<string, StatusOutcome> = {};
+    const { update } = this.deps;
+    if (!update || this.deferredStatuses.length === 0) return outcomes;
+    const byObject = new Map<string, DeferredStatus[]>();
+    for (const entry of this.deferredStatuses) {
+      byObject.set(entry.objectApiName, [...(byObject.get(entry.objectApiName) ?? []), entry]);
+    }
+    for (const [objectApiName, entries] of byObject) {
+      let applied = 0;
+      const refusals = new RefusalTally();
+      for (let i = 0; i < entries.length; i += this.batchSize) {
+        const part = entries.slice(i, i + this.batchSize);
+        let results: SaveOutcome[];
+        try {
+          results = await update(
+            objectApiName,
+            part.map((entry) => ({ Id: entry.id, Status: entry.status })),
+          );
+        } catch (err) {
+          const message = extractErrorMessage(err);
+          results = part.map(() => ({
+            id: '',
+            success: false,
+            errors: [message],
+            errorDetails: [saveErrorDetail(message)],
+          }));
+        }
+        part.forEach((_, index) => {
+          const outcome = results[index];
+          if (outcome?.success) applied++;
+          else refusals.add(detailsOf(outcome));
+        });
+      }
+      outcomes[objectApiName] = { applied, refusals: refusals.list() };
+    }
+    this.deferredStatuses.length = 0;
+    return outcomes;
   }
 
   /** Pause execution. Subsequent batch iterations will wait until resumed. */
@@ -545,4 +1022,23 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private makeEvent<T extends AutopilotEvent>(event: T): T {
     return { ...event, timestamp: new Date().toISOString() };
   }
+}
+
+/**
+ * A refused record's errors with their codes — never none, so every refused
+ * record is counted under some reason. A writer that gave messages only has
+ * them read as they are, under no code.
+ */
+function detailsOf(outcome: SaveOutcome | undefined): SaveErrorDetail[] {
+  if (!outcome) return [NO_RESULT_DETAIL];
+  if (outcome.errorDetails && outcome.errorDetails.length > 0) return outcome.errorDetails;
+  if (outcome.errors.length > 0) return outcome.errors.map((message) => saveErrorDetail(message));
+  return [NO_REASON_DETAIL];
+}
+
+/** `STATUS_CODE: message`, or the message alone when the target gave no code. */
+function lineOf(detail: SaveErrorDetail): string {
+  return detail.statusCode === NO_STATUS_CODE
+    ? detail.message
+    : `${detail.statusCode}: ${detail.message}`;
 }

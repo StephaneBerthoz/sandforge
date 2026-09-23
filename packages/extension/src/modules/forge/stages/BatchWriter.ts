@@ -21,36 +21,17 @@ import type {
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { isAlreadyExistsError } from '@sandforge/shared';
 import { existingRecordOf } from '../../../core/common/existingRecordMatch.js';
-import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../../core/common/soqlValidator.js';
+import {
+  ACCOUNT_CONTACT_RELATION,
+  NATURAL_KEYS,
+  directAccountContactRelations,
+  recordsByNaturalKey,
+} from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
 import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { IdRemapper } from '../IdRemapper.js';
-
-/** The join Salesforce creates for a contact inserted with an account. */
-const ACCOUNT_CONTACT_RELATION = 'AccountContactRelation';
-
-/** Contacts per `IN` list when the direct relations are looked up. */
-const DIRECT_RELATION_CHUNK = 200;
-
-/**
- * Objects the platform keeps unique on a combination of fields, which a
- * refusal names without naming the record. A product selling model is one
- * per selling model type, pricing term and unit: run for real, a clone was
- * refused "a product selling model already exists for this combination", and
- * every price and line pointing at it lost the link.
- */
-const NATURAL_KEYS: Readonly<Record<string, readonly string[]>> = {
-  ProductSellingModel: ['SellingModelType', 'PricingTerm', 'PricingTermUnit'],
-};
-
-/** A value as a SOQL literal. */
-function soqlLiteral(value: unknown): string {
-  if (value === null || value === undefined || value === '') return 'null';
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return `'${sanitizeSoqlValue(String(value))}'`;
-}
 
 /**
  * Maximum records each write API accepts in a single call.
@@ -438,23 +419,12 @@ export class BatchWriter {
   ): Promise<Array<string | undefined>> {
     const query = this.deps.queryRecords;
     if (!query) return payloads.map(() => undefined);
-    const byKey = new Map<string, string | undefined>();
-    for (const payload of payloads) {
-      const key = JSON.stringify(keyFields.map((f) => payload[f] ?? null));
-      if (byKey.has(key)) continue;
-      const where = keyFields
-        .map((f) => `${assertSoqlIdentifier(f)} = ${soqlLiteral(payload[f])}`)
-        .join(' AND ');
-      const rows = await query(
-        targetOrgId,
-        `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} WHERE ${where} LIMIT 2`,
-      );
-      byKey.set(
-        key,
-        rows.length === 1 && typeof rows[0]['Id'] === 'string' ? rows[0]['Id'] : undefined,
-      );
-    }
-    return payloads.map((p) => byKey.get(JSON.stringify(keyFields.map((f) => p[f] ?? null))));
+    return recordsByNaturalKey(
+      (soql) => query(targetOrgId, soql),
+      objectApiName,
+      keyFields,
+      payloads,
+    );
   }
 
   /**
@@ -465,39 +435,9 @@ export class BatchWriter {
     targetOrgId: string,
     records: readonly Record<string, unknown>[],
   ): Promise<Map<number, string>> {
-    const found = new Map<number, string>();
     const query = this.deps.queryRecords;
-    if (!query) return found;
-    const contactIds = [
-      ...new Set(
-        records
-          .map((r) => r['ContactId'])
-          .filter((id): id is string => typeof id === 'string' && id !== ''),
-      ),
-    ];
-    if (contactIds.length === 0) return found;
-    const byPair = new Map<string, string>();
-    for (let i = 0; i < contactIds.length; i += DIRECT_RELATION_CHUNK) {
-      const inList = contactIds
-        .slice(i, i + DIRECT_RELATION_CHUNK)
-        .map((id) => `'${sanitizeSoqlValue(id)}'`)
-        .join(', ');
-      const rows = await query(
-        targetOrgId,
-        `SELECT Id, AccountId, ContactId FROM ${ACCOUNT_CONTACT_RELATION} ` +
-          `WHERE IsDirect = true AND ContactId IN (${inList})`,
-      );
-      for (const row of rows) {
-        if (typeof row['Id'] === 'string') {
-          byPair.set(`${String(row['AccountId'])}|${String(row['ContactId'])}`, row['Id']);
-        }
-      }
-    }
-    records.forEach((r, i) => {
-      const id = byPair.get(`${String(r['AccountId'])}|${String(r['ContactId'])}`);
-      if (id) found.set(i, id);
-    });
-    return found;
+    if (!query) return new Map();
+    return directAccountContactRelations((soql) => query(targetOrgId, soql), records);
   }
 
   /**

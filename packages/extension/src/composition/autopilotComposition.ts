@@ -2,6 +2,7 @@ import type { Connection } from 'jsforce';
 import { duplicateRuleHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
 import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
+import { toSaveOutcomes } from '../core/common/existingRecordMatch';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { GrappeConfig } from '@sandforge/shared';
 import type { GrappeEventEnvelope } from '../bridge/handlers/HandlerTypes';
@@ -101,14 +102,16 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
         }
 
         /**
-         * One describe of the target per object: the fields the run may send
-         * and the record types the running user may use are both read from
-         * it. Kept per target connection, so a run against another org — the
-         * record types above all — never reads the last org's answer.
+         * One describe of the target per object: the fields the run may send,
+         * the record types the running user may use and the key prefix an id
+         * a refusal names must carry are all read from it. Kept per target
+         * connection, so a run against another org — the record types above
+         * all — never reads the last org's answer.
          */
         type TargetDescribe = {
           creatable: ReadonlySet<string>;
           recordTypes: RecordTypeAvailability[];
+          keyPrefix: string | null;
         };
         const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
         const describeTarget = async (
@@ -130,6 +133,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 .map((f) => f.name),
             ),
             recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
+            keyPrefix: typeof described.keyPrefix === 'string' ? described.keyPrefix : null,
           };
           byObject.set(objectApiName, answer);
           return answer;
@@ -166,8 +170,9 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               insert: async (objectApiName, records) => {
                 const safeObj = sanitizeSoqlObjectName(objectApiName);
                 // Strip source Id + jsforce attributes: Salesforce rejects
-                // create calls carrying them. Source Ids are still returned in
-                // sourceIds for the remapper's source→target mapping.
+                // create calls carrying them. The outcomes come back in the
+                // order of `records`, which is how the executor pairs each
+                // one with the source Id it maps.
                 const cleaned = records.map((r) => {
                   const copy = { ...r };
                   delete copy['Id'];
@@ -180,24 +185,34 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 const results = await target
                   .sobject(safeObj)
                   .create(cleaned, { headers: duplicateRuleHeaders(true) });
-                const arr = Array.isArray(results) ? results : [results];
-                const successIds: string[] = [];
-                const sourceIds: string[] = [];
-                const errors: string[] = [];
-                arr.forEach((r, i) => {
-                  if (r.success && r.id) {
-                    successIds.push(r.id);
-                    sourceIds.push(String(records[i]['Id'] ?? ''));
-                  } else {
-                    errors.push(
-                      ...(r.errors?.map((e: { message: string }) => e.message) ?? [
-                        `Insert failed for ${safeObj} record #${i}`,
-                      ]),
-                    );
-                  }
-                });
-                return { successIds, sourceIds, errors };
+                // Each refusal with its status code, its fields and the
+                // records a duplicate rule matched. Only the message used to
+                // be kept: a French org's "valeur en double trouvée" reached
+                // the run with nothing that said it was a duplicate, and
+                // nothing that said which record.
+                return toSaveOutcomes(results, safeObj);
               },
+              // The statuses a record could not be born with, written back
+              // once its children are in.
+              update: async (objectApiName, records) => {
+                const safeObj = sanitizeSoqlObjectName(objectApiName);
+                const results = await target
+                  .sobject(safeObj)
+                  .update(records as Array<Record<string, unknown> & { Id: string }>, {
+                    headers: duplicateRuleHeaders(true),
+                  });
+                return toSaveOutcomes(results, safeObj);
+              },
+              // The standard price book on each side, the relations the
+              // platform made, the statuses a lifecycle starts with, and a
+              // duplicate a refusal does not name. Every one of them is a
+              // bounded read: a single page answers it.
+              querySource: async (soql) =>
+                (await source.query<Record<string, unknown>>(soql)).records,
+              queryTarget: async (soql) =>
+                (await target.query<Record<string, unknown>>(soql)).records,
+              describeKeyPrefix: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).keyPrefix,
               anonymizer,
               // Per-execution remapper: source→target ID mappings are scoped to
               // a single run — a shared instance would remap lookups to IDs

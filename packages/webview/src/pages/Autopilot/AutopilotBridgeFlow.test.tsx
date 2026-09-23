@@ -367,6 +367,46 @@ describe('Autopilot bridge flow', () => {
     expect(screen.getByText('gdpr-email')).toBeDefined();
   });
 
+  it('shows on the node why the target refused its records, as the handler sends it', () => {
+    render(<AutopilotPage />);
+    driveToReview();
+    fireEvent.click(screen.getByTestId('execute-button'));
+    const executeRequest = lastRequestOfType('autopilot:execute');
+
+    dispatchBridgeMessage(
+      'autopilot:node-progress',
+      {
+        nodeId: 'Contact',
+        objectName: 'Contact',
+        status: 'failed',
+        wave: 1,
+        recordCount: 0,
+        failureCount: 80,
+        linkedCount: 0,
+        refusals: [
+          {
+            statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+            fields: ['AccountId'],
+            count: 80,
+            message: 'Vous ne pouvez pas associer un contact privé à un compte.',
+          },
+        ],
+        error:
+          'FIELD_INTEGRITY_EXCEPTION: Vous ne pouvez pas associer un contact privé à un compte.',
+      },
+      executeRequest.id,
+    );
+    act(() => {
+      useAutopilotStore.getState().selectNode('Contact');
+    });
+    fireEvent.click(screen.getByTestId('control-tab-node'));
+
+    const refusals = screen.getByTestId('node-refusals');
+    expect(refusals.textContent).toContain('FIELD_INTEGRITY_EXCEPTION');
+    expect(refusals.textContent).toContain('AccountId');
+    expect(refusals.textContent).toContain('80 records');
+  });
+
   it('should surface a scan error and stay on the connect step', () => {
     render(<AutopilotPage />);
     fireEvent.click(screen.getByTestId('source-org-org-1'));

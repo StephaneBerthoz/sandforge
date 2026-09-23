@@ -2077,7 +2077,11 @@
       "currentWave": "Aktuelle Welle",
       "noNodeSelected": "Wählen Sie einen Knoten, um Details anzuzeigen",
       "errors": "Fehler",
-      "piiFields": "PII-Felder"
+      "piiFields": "PII-Felder",
+      "linked": "Mit vorhandenen Datensätzen verknüpft",
+      "refusals": "Warum Datensätze abgelehnt wurden",
+      "statusesApplied": "Nach den untergeordneten Datensätzen gesetzte Status",
+      "statusRefusals": "Warum ein Status nicht gesetzt wurde"
     },
     "report": {
       "title": "Compliance-Bericht",

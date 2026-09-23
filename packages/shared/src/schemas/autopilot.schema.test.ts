@@ -524,6 +524,47 @@ describe('autopilotEventSchema', () => {
     }
   });
 
+  it('keeps why a failed node was refused: the code, the fields, how many and the message', () => {
+    const refusal = {
+      statusCode: 'REQUIRED_FIELD_MISSING',
+      fields: ['Entity__c'],
+      count: 28,
+      message: "Des champs obligatoires n'ont pas été remplis : [Entity__c]",
+    };
+    const result = autopilotEventSchema.parse({
+      type: 'node-failed',
+      timestamp,
+      objectApiName: 'Quote',
+      errors: [`REQUIRED_FIELD_MISSING: ${refusal.message}`],
+      partialSuccessCount: 0,
+      failureCount: 28,
+      linkedCount: 0,
+      refusals: [refusal],
+    });
+    expect(result.type === 'node-failed' && result.refusals).toEqual([refusal]);
+  });
+
+  it('refuses a refusal without a status code or that covers no record', () => {
+    const event = (refusal: Record<string, unknown>) => ({
+      type: 'node-completed',
+      timestamp,
+      objectApiName: 'Account',
+      successCount: 1,
+      failureCount: 1,
+      elapsedMs: 1,
+      apiCallsUsed: 1,
+      refusals: [refusal],
+    });
+    expect(() =>
+      autopilotEventSchema.parse(event({ statusCode: '', fields: [], count: 1, message: 'x' })),
+    ).toThrow();
+    expect(() =>
+      autopilotEventSchema.parse(
+        event({ statusCode: 'DUPLICATE_VALUE', fields: [], count: 0, message: 'x' }),
+      ),
+    ).toThrow();
+  });
+
   it('should reject node-progress event missing required fields', () => {
     expect(() =>
       autopilotEventSchema.parse({

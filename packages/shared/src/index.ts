@@ -29,6 +29,7 @@ export {
   type AutopilotNodeProgressEvent,
   type AutopilotNodeCompletedEvent,
   type AutopilotNodeFailedEvent,
+  type AutopilotRefusal,
   type AnonymizationOverride,
   type PIICategory,
   type PIIFieldDetection,

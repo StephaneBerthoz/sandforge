@@ -2077,7 +2077,11 @@
       "currentWave": "Current Wave",
       "noNodeSelected": "Select a node to view details",
       "errors": "Errors",
-      "piiFields": "PII Fields"
+      "piiFields": "PII Fields",
+      "linked": "Linked to existing records",
+      "refusals": "Why records were refused",
+      "statusesApplied": "Statuses applied after their children",
+      "statusRefusals": "Why a status was not applied"
     },
     "report": {
       "title": "Compliance Report",

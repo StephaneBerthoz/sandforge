@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
+import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
 import { initAutopilotComposition } from './autopilotComposition.js';
 import { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
@@ -306,5 +307,268 @@ describe('autopilotComposition', () => {
     expect(secondTarget.create).toHaveBeenCalledTimes(1);
     expect(secondTarget.create).toHaveBeenCalledWith([{ Name: 'Second' }], expect.anything());
     expect(firstTarget.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** One object of {@link fakeDataOrg}: the lookups it has and the rows it holds. */
+interface FakeObject {
+  /** Lookup field → the object it points at. */
+  lookups?: Record<string, string>;
+  /** Other fields the target takes. */
+  fields?: string[];
+  rows?: Record<string, unknown>[];
+  keyPrefix?: string;
+}
+
+/**
+ * An org that describes, counts and reads the objects given, answers any
+ * other SOQL through `soql`, and writes through `create` and `update`.
+ */
+function fakeDataOrg(
+  objects: Record<string, FakeObject>,
+  options: {
+    soql?: (query: string) => Record<string, unknown>[] | undefined;
+    create?: (objectName: string, records: Record<string, unknown>[]) => unknown[];
+    update?: (objectName: string, records: Record<string, unknown>[]) => unknown[];
+  } = {},
+) {
+  const created: Array<{ objectName: string; records: Record<string, unknown>[] }> = [];
+  const updated: Array<{ objectName: string; records: Record<string, unknown>[] }> = [];
+  const describe = vi.fn(async (name: string) => {
+    const object = objects[name] ?? {};
+    const lookups = Object.entries(object.lookups ?? {}).map(([field, to]) => ({
+      name: field,
+      label: field,
+      type: 'reference',
+      nillable: true,
+      createable: true,
+      updateable: true,
+      unique: false,
+      externalId: false,
+      referenceTo: [to],
+      relationshipName: field.replace(/Id$/, ''),
+      defaultValue: null,
+    }));
+    const plain = [...(object.fields ?? []), 'Name'].map((field) => ({
+      name: field,
+      label: field,
+      type: 'string',
+      nillable: true,
+      createable: true,
+      updateable: true,
+      unique: false,
+      externalId: false,
+      referenceTo: [],
+      relationshipName: null,
+      defaultValue: null,
+    }));
+    return {
+      ...mockObjectDescribe(name),
+      keyPrefix: object.keyPrefix ?? null,
+      fields: [...lookups, ...plain],
+    };
+  });
+  const query = vi.fn(async (soql: string) => {
+    const count = /^SELECT COUNT\(\) FROM (\w+)$/.exec(soql);
+    if (count) {
+      return { totalSize: objects[count[1]]?.rows?.length ?? 0, done: true, records: [] };
+    }
+    const page = /^SELECT FIELDS\(ALL\) FROM (\w+) LIMIT (\d+) OFFSET (\d+)$/.exec(soql);
+    if (page) {
+      const [, name, limit, offset] = page;
+      const records = (objects[name]?.rows ?? [])
+        .slice(Number(offset), Number(offset) + Number(limit))
+        .map((row) => ({ ...row }));
+      return { totalSize: records.length, done: true, records };
+    }
+    const records = options.soql?.(soql) ?? [];
+    return { totalSize: records.length, done: true, records };
+  });
+  const sobject = vi.fn((objectName: string) => ({
+    create: vi.fn(async (records: Record<string, unknown>[]) => {
+      created.push({ objectName, records });
+      return (
+        options.create?.(objectName, records) ??
+        records.map((_, i) => ({ id: `${objectName}-new-${i}`, success: true, errors: [] }))
+      );
+    }),
+    update: vi.fn(async (records: Record<string, unknown>[]) => {
+      updated.push({ objectName, records });
+      return (
+        options.update?.(objectName, records) ??
+        records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }))
+      );
+    }),
+  }));
+  const conn = {
+    describe,
+    describeGlobal: vi.fn(async () => ({
+      sobjects: Object.keys(objects).map((name) => globalSObject(name)),
+    })),
+    query,
+    sobject,
+  } as unknown as AutopilotConnection;
+  return { conn, created, updated, sobject };
+}
+
+/** Scan, plan and run what `selected` reaches, through the composition's own wiring. */
+async function compose(
+  selected: string[],
+  source: AutopilotConnection,
+  target: AutopilotConnection,
+) {
+  const { handlers, getOrchestrator } = createFakeHandlers();
+  await initAutopilotComposition({ handlers, log: vi.fn() });
+  const orchestrator = getOrchestrator();
+  const scanResult = await orchestrator.scanSchemas(source, target, {
+    selectedObjects: selected as ApiName[],
+    includeStandardObjects: false,
+  });
+  const graph = orchestrator.buildGraph(scanResult);
+  const plan = orchestrator.generatePlan(graph, 'none', []);
+  const result = await orchestrator.executePlan(plan, graph, [], scanResult.recordCounts);
+  return { plan, result };
+}
+
+describe('autopilotComposition — the rules a copy needs', () => {
+  /** A fake Account id, in both forms (the checksum is the real algorithm's). */
+  const ACCOUNT_15 = '001Fk00000AbCdE';
+  const ACCOUNT_18 = '001Fk00000AbCdEIAV';
+
+  it('keeps the code and the fields of each refusal, from the target answer to the result', async () => {
+    const objects = { Account: { keyPrefix: '001', rows: [{ Id: 'accSrc', Name: 'Acme' }] } };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects, {
+      create: () => [
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+              message: 'Le numéro fiscal est invalide',
+              fields: ['TaxNumber__c'],
+            },
+          ],
+        },
+      ],
+    });
+
+    const { result } = await compose(['Account'], source.conn, target.conn);
+
+    expect(result.objectOutcomes?.['Account']?.refusals).toEqual([
+      {
+        statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+        fields: ['TaxNumber__c'],
+        count: 1,
+        message: 'Le numéro fiscal est invalide',
+      },
+    ]);
+    expect(result.nodeErrors?.['Account']).toBe(
+      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Le numéro fiscal est invalide',
+    );
+  });
+
+  it('links a record the target refuses as a duplicate, and writes its children against it', async () => {
+    const objects = {
+      Account: { keyPrefix: '001', rows: [{ Id: 'accSrc', Name: 'Acme' }] },
+      Contact: {
+        keyPrefix: '003',
+        lookups: { AccountId: 'Account' },
+        rows: [{ Id: 'conSrc', Name: 'Doe', AccountId: 'accSrc' }],
+      },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects, {
+      create: (objectName, records) =>
+        objectName === 'Account'
+          ? [
+              {
+                success: false,
+                errors: [
+                  {
+                    statusCode: 'DUPLICATE_VALUE',
+                    message: `valeur en double trouvée : ExternalKey__c duplique une valeur dans l'enregistrement ID : ${ACCOUNT_15}`,
+                    fields: [],
+                  },
+                ],
+              },
+            ]
+          : records.map((_, i) => ({ id: `003NEW${i}`, success: true, errors: [] })),
+    });
+
+    const { result } = await compose(['Contact'], source.conn, target.conn);
+
+    const contact = target.created.find((call) => call.objectName === 'Contact');
+    expect(contact?.records[0]['AccountId']).toBe(ACCOUNT_18);
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 0, linked: 1, failed: 0 });
+  });
+
+  it("matches each org's standard price book instead of inserting the source one", async () => {
+    const objects = {
+      Pricebook2: {
+        keyPrefix: '01s',
+        rows: [
+          { Id: '01sSRCSTANDARD0', Name: 'Standard Price Book', IsStandard: true },
+          { Id: '01sSRCCUSTOM000', Name: 'Resellers' },
+        ],
+      },
+    };
+    const standardBook =
+      (id: string) =>
+      (query: string): Record<string, unknown>[] | undefined =>
+        query === STANDARD_PRICEBOOK_SOQL ? [{ Id: id }] : undefined;
+    const source = fakeDataOrg(objects, { soql: standardBook('01sSRCSTANDARD0') });
+    const target = fakeDataOrg(objects, { soql: standardBook('01sTGTSTANDARD0') });
+
+    const { result } = await compose(['Pricebook2'], source.conn, target.conn);
+
+    expect(target.created.flatMap((call) => call.records.map((r) => r['Name']))).toEqual([
+      'Resellers',
+    ]);
+    expect(result.objectOutcomes?.['Pricebook2']).toMatchObject({ written: 1, linked: 1 });
+  });
+
+  it('inserts an activated order as a draft and gives it its status back through the target', async () => {
+    const objects = {
+      Order: { keyPrefix: '801', fields: ['Status'], rows: [{ Id: 'ordSrc', Status: 'ST004' }] },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects, {
+      soql: (query) =>
+        query === 'SELECT ApiName, StatusCode FROM OrderStatus'
+          ? [
+              { ApiName: 'ST001', StatusCode: 'Draft' },
+              { ApiName: 'ST004', StatusCode: 'Activated' },
+            ]
+          : undefined,
+    });
+
+    const { result } = await compose(['Order'], source.conn, target.conn);
+
+    expect(target.created[0].records[0]['Status']).toBe('ST001');
+    expect(target.updated).toEqual([
+      { objectName: 'Order', records: [{ Id: 'Order-new-0', Status: 'ST004' }] },
+    ]);
+    expect(result.statuses).toEqual({ Order: { applied: 1, refusals: [] } });
+  });
+
+  it('never plans nor writes an object every copy leaves out, whatever points at it', async () => {
+    // The platform tags what an app manages with it; written by a copy onto a
+    // quote, it was refused.
+    const objects = {
+      Quote: {
+        keyPrefix: '0Q0',
+        lookups: { UsageAssignmentId__c: 'AppUsageAssignment' },
+        rows: [{ Id: 'quoteSrc', Name: 'Q-1' }],
+      },
+      AppUsageAssignment: { keyPrefix: '0Ua', rows: [{ Id: 'usageSrc', Name: 'Tag' }] },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects);
+
+    const { plan } = await compose(['Quote'], source.conn, target.conn);
+
+    expect(plan.waves.flatMap((wave) => wave.objects)).toEqual(['Quote']);
+    expect(target.sobject).not.toHaveBeenCalledWith('AppUsageAssignment');
   });
 });

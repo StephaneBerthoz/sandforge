@@ -1,8 +1,49 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { AutopilotRefusal } from '@sandforge/shared';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
 import { ProgressBar } from '../../../components/ui/ProgressBar';
 import { uiLocale } from '../../../utils/formatters';
+
+/**
+ * Why the target refused records: one line per status code and fields, with
+ * how many records and the message as the target wrote it. The code comes
+ * first because it is what names the problem in every language; the message
+ * is in the language of the org's running user.
+ */
+const RefusalList: React.FC<{ title: string; refusals: AutopilotRefusal[]; testId: string }> = ({
+  title,
+  refusals,
+  testId,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-1" data-testid={testId}>
+      <h5 className="text-xs text-text-secondary">{title}</h5>
+      <ul className="flex flex-col gap-1.5">
+        {refusals.map((refusal) => (
+          <li
+            key={`${refusal.statusCode}|${refusal.fields.join(',')}`}
+            className="flex flex-col gap-0.5 text-xs"
+          >
+            <span className="flex flex-wrap items-baseline gap-x-1.5">
+              <code className="font-mono font-semibold text-text-primary">
+                {refusal.statusCode}
+              </code>
+              {refusal.fields.length > 0 && (
+                <span className="text-text-primary">{refusal.fields.join(', ')}</span>
+              )}
+              <span className="text-text-secondary">
+                {t('common.recordCount', { count: refusal.count })}
+              </span>
+            </span>
+            <span className="break-words text-text-secondary">{refusal.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
 /** Shows details of the selected node in the dependency graph. */
 export const NodeDetail: React.FC = () => {
@@ -60,6 +101,40 @@ export const NodeDetail: React.FC = () => {
           <span className="font-medium text-status-error">{selectedNode.failureCount ?? 0}</span>
         </div>
       </div>
+
+      {(selectedNode.linkedCount ?? 0) > 0 && (
+        <div className="flex flex-col gap-0.5 text-xs" data-testid="node-linked">
+          <span className="text-text-secondary">{t('autopilot.control.linked')}</span>
+          <span className="font-medium text-text-primary">
+            {(selectedNode.linkedCount ?? 0).toLocaleString(uiLocale())}
+          </span>
+        </div>
+      )}
+
+      {selectedNode.refusals && selectedNode.refusals.length > 0 && (
+        <RefusalList
+          title={t('autopilot.control.refusals')}
+          refusals={selectedNode.refusals}
+          testId="node-refusals"
+        />
+      )}
+
+      {selectedNode.statusesApplied !== undefined && (
+        <div className="flex flex-col gap-0.5 text-xs" data-testid="node-statuses">
+          <span className="text-text-secondary">{t('autopilot.control.statusesApplied')}</span>
+          <span className="font-medium text-text-primary">
+            {selectedNode.statusesApplied.toLocaleString(uiLocale())}
+          </span>
+        </div>
+      )}
+
+      {selectedNode.statusRefusals && selectedNode.statusRefusals.length > 0 && (
+        <RefusalList
+          title={t('autopilot.control.statusRefusals')}
+          refusals={selectedNode.statusRefusals}
+          testId="node-status-refusals"
+        />
+      )}
 
       {/* PII Fields */}
       {piiFields.length > 0 && (
