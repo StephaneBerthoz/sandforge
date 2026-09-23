@@ -20,6 +20,8 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -656,6 +658,99 @@ describe('FrozenDatasetHandler', () => {
             objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
           }),
         ]);
+      });
+
+      describe('its end, in Live Operations and the recent operations', () => {
+        let tracker: LiveOperationTracker;
+        let registry: BackgroundOperationRegistry;
+
+        /** Wire a load into a dataset, with the tracker and the registry the extension injects. */
+        function wireListed(): void {
+          const { config } = writeDataset();
+          wire(config);
+          tracker = new LiveOperationTracker();
+          handler.setLiveOperationTracker(tracker);
+          registry = new BackgroundOperationRegistry();
+          handler.setRegistry(registry);
+        }
+
+        afterEach(() => {
+          tracker.dispose();
+        });
+
+        const load = (): Promise<boolean> =>
+          handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true }));
+
+        it('lists a load while it runs, under the id its Cancel reaches it by, and ends it completed', async () => {
+          wireListed();
+          let listed: LiveOperation[] = [];
+          let running: string[] = [];
+          loaderLoad.mockImplementation(
+            async (options: { onProgress?: (e: Record<string, unknown>) => void }) => {
+              options.onProgress?.({ phase: 'insert', progress: 40, message: 'Inserting Account' });
+              listed = tracker.getAll().map((op) => ({ ...op }));
+              running = registry.getRunning().map((op) => op.operationId);
+              return report();
+            },
+          );
+
+          await load();
+
+          expect(listed).toEqual([
+            expect.objectContaining({
+              module: 'frozen',
+              status: 'running',
+              percentage: 40,
+              currentStep: 'Inserting Account',
+            }),
+          ]);
+          expect(running).toEqual([listed[0].operationId]);
+          expect(tracker.get(listed[0].operationId)?.status).toBe('completed');
+          // One end, the completion: the verification chained after it posts none.
+          expect(posted(deps, 'operation:completed')).toHaveLength(1);
+          expect(posted(deps, 'operation:failed')).toEqual([]);
+        });
+
+        it('ends a load that failed as failed, and still shows its one error', async () => {
+          wireListed();
+          loaderLoad.mockRejectedValue(new Error('INVALID_SESSION_ID: Session expired or invalid'));
+
+          await load();
+
+          const [started] = posted(deps, 'operation:started');
+          expect(posted(deps, 'operation:failed')).toEqual([
+            expect.objectContaining({
+              payload: expect.objectContaining({
+                operationId: started.payload.operationId,
+                error: 'INVALID_SESSION_ID: Session expired or invalid',
+              }),
+            }),
+          ]);
+          expect(posted(deps, 'operation:completed')).toEqual([]);
+          expect(posted(deps, 'frozen:load:error')).toHaveLength(1);
+          expect(tracker.getAll()).toEqual([
+            expect.objectContaining({
+              status: 'failed',
+              error: 'INVALID_SESSION_ID: Session expired or invalid',
+            }),
+          ]);
+        });
+
+        it('ends a load a cancel stopped as cancelled', async () => {
+          wireListed();
+          loaderLoad.mockImplementation(async () => {
+            registry.abort(registry.getRunning()[0].operationId);
+            throw new FrozenLoadCancelledError({
+              perObject: [],
+              placeholders: [],
+              purge: { deleted: {}, deactivated: {}, failures: [] },
+            });
+          });
+
+          await load();
+
+          expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+        });
       });
     });
   });

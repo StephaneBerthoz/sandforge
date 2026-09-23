@@ -25,6 +25,7 @@ import {
   sendHandlerError,
   sendOperationStarted,
   sendOperationCompleted,
+  sendOperationFailed,
   robustnessConfigOf,
   bulkManagerOf,
   PRODUCTION_GUARD_MISSING,
@@ -38,6 +39,8 @@ import {
   frozenVerifyPayloadSchema,
 } from '../validatePayload.js';
 import { logger } from '../../logger.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
@@ -418,6 +421,8 @@ async function frozenCarried(
  */
 export class FrozenDatasetHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
+  /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
+  private liveTracker?: LiveOperationTracker;
 
   /**
    * Describe caches shared by every discovery this handler builds.
@@ -466,6 +471,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /** Inject the tracker the Monitor's Live Operations panel lists. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -1214,6 +1224,11 @@ export class FrozenDatasetHandler implements DomainHandler {
     const operationId = `frozen-load-${this.deps.nextId()}`;
     const description = parsed.pilot ? 'Pilot load (one root folder)' : 'Loading frozen dataset';
     sendOperationStarted(this.deps, operationId, 'frozen', description);
+    // Listed in Live Operations while it runs, where Cancel reaches the
+    // registry's controller below, as a Sync or a Seed run is.
+    this.liveTracker?.register(operationId, 'frozen', description);
+    /** Whether the load's end was posted: the verification chained after it cannot post another. */
+    let ended = false;
 
     // A throwaway `new AbortController()` was handed to BulkDataWriter, so its
     // signal could never fire and the load was never registered —
@@ -1232,6 +1247,11 @@ export class FrozenDatasetHandler implements DomainHandler {
     const throttledProgress = throttle((event: FrozenLoadProgressEvent) => {
       const progressMsg = buildResponse(this.deps, msg, 'frozen:load:progress', { ...event });
       this.deps.broker.postToWebview(progressMsg);
+      // The loader counts its progress in phases, not in records: the list
+      // shows its share done and its step, and no record count.
+      if (!ended) {
+        this.liveTracker?.updateProgress(operationId, event.progress, 0, 0, event.message);
+      }
     }, 100);
 
     /** The most telling of the guard's decisions, one per DML batch. */
@@ -1344,6 +1364,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { status: report.status });
+      ended = true;
+      this.liveTracker?.complete(operationId);
 
       // Chained post-load verification — read-only.
       await this.runVerification(msg, {
@@ -1366,6 +1388,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         recordLoad(cancelledFrozenOutcome(err.written), frozenAuditObjects(err.written));
         this.registry?.abort(operationId);
         sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.liveTracker?.cancel(operationId);
         sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
           code: 'LOAD_CANCELLED',
         });
@@ -1381,6 +1404,13 @@ export class FrozenDatasetHandler implements DomainHandler {
         code: this.errorCodeFor(err, 'LOAD_ERROR'),
         retryable: err instanceof TimeoutError,
       });
+      // The load's end, as every write run posts it: with the error alone,
+      // the recent operations and the side panel showed a failed load running
+      // for the rest of the session.
+      if (!ended) {
+        sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+        this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      }
       settle(err);
     }
   }

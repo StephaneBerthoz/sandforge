@@ -128,6 +128,75 @@ describe('LiveOperationsPanel', () => {
   });
 });
 
+describe('LiveOperationsPanel rows of every write run', () => {
+  it('names each run by its module as the product names it', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({ operationId: 'op-forge', module: 'forge' }),
+          makeOperation({ operationId: 'op-clone', module: 'clone' }),
+          makeOperation({ operationId: 'op-csv', module: 'csv' }),
+          makeOperation({ operationId: 'op-frozen', module: 'frozen' }),
+          makeOperation({ operationId: 'op-other', module: 'backup' }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('live-op-op-forge').textContent).toContain('Forge');
+    expect(screen.getByTestId('live-op-op-clone').textContent).toContain('Record Clone');
+    expect(screen.getByTestId('live-op-op-csv').textContent).toContain('CSV Import');
+    expect(screen.getByTestId('live-op-op-frozen').textContent).toContain('Frozen Dataset');
+    // A module the product has no name for shows as the extension sent it.
+    expect(screen.getByTestId('live-op-op-other').textContent).toContain('backup');
+  });
+
+  it('says how each run stands in words, not by the shape and colour of its icon alone', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({ operationId: 'op-1', status: 'running' }),
+          makeOperation({ operationId: 'op-2', status: 'completed' }),
+          makeOperation({ operationId: 'op-3', status: 'failed' }),
+          makeOperation({ operationId: 'op-4', status: 'cancelled' }),
+        ]}
+      />,
+    );
+
+    const status = (id: string): string | null =>
+      screen
+        .getByTestId(`live-op-${id}`)
+        .querySelector('[role="img"]')
+        ?.getAttribute('aria-label') ?? null;
+    expect(status('op-1')).toBe('Running');
+    expect(status('op-2')).toBe('Succeeded');
+    expect(status('op-3')).toBe('Failed');
+    expect(status('op-4')).toBe('Cancelled');
+  });
+
+  it('shows no record count for a run that counts none, as a Frozen load goes by phases', () => {
+    render(
+      <LiveOperationsPanel
+        operations={[
+          makeOperation({
+            operationId: 'op-frozen',
+            module: 'frozen',
+            percentage: 40,
+            processedRecords: 0,
+            totalRecords: 0,
+            recordsPerSecond: 0,
+            currentStep: 'Inserting Account',
+          }),
+        ]}
+      />,
+    );
+
+    const row = screen.getByTestId('live-op-op-frozen');
+    expect(row.textContent).toContain('40%');
+    expect(row.textContent).toContain('Inserting Account');
+    expect(row.textContent).not.toContain('rec/s');
+  });
+});
+
 describe('LiveOperationsPanel progress bars', () => {
   it('names each bar after the operation on its row', () => {
     render(

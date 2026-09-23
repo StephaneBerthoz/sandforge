@@ -225,9 +225,17 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11px] text-text-secondary">{when}</span>
-                  <span className={cn('text-[10px] font-semibold', STATUS_CLASSES[entry.status])}>
-                    {t(STATUS_KEYS[entry.status])}
-                  </span>
+                  {/* A run a cancel stopped reads as cancelled, in the neutral
+                      colour, not as the partial status its objects came to. */}
+                  {entry.cancelled ? (
+                    <span className="text-[10px] font-semibold text-text-secondary">
+                      {t('home.opStatus.cancelled')}
+                    </span>
+                  ) : (
+                    <span className={cn('text-[10px] font-semibold', STATUS_CLASSES[entry.status])}>
+                      {t(STATUS_KEYS[entry.status])}
+                    </span>
+                  )}
                 </div>
                 {config && (
                   <span className="block text-[11px] text-text-secondary truncate">

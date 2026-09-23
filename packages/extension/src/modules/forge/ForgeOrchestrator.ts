@@ -5,6 +5,7 @@ import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeE
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import { runAnonymization, type ForgeAnonymizationMethods } from './ForgeAnonymizer.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { finishedRunStatus, forgeRunResult } from './runResult.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 
 /** Events emitted by ForgeOrchestrator during operation. */
@@ -276,32 +277,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         scoped,
       );
 
-      const result: ForgeExecutionResult = {
-        forgeId: `forge-${Date.now()}`,
-        status: determineStatus(summary.successCount + summary.linkedCount, summary.failedCount),
-        graph,
-        duration: Date.now() - startTime,
-        timestamp: new Date().toISOString(),
-        idRemapCount: summary.remapCount,
-        // The executor has always returned this table; projecting only its
-        // count is what left a finished run unable to say where anything went.
-        idRemapTable: summary.remapTable,
-        // Which of those entries point at a record the target already held:
-        // the table alone reads them as records this run created.
-        idRemapExisting: summary.existingSourceIds,
-        createdCount: summary.successCount,
-        linkedExistingCount: summary.linkedCount,
-        existingRecords: summary.existingRecords,
-        idRemapByObject: summary.remapByObject,
-        // The table alone cannot say which of its rows the run created: it
-        // maps the standard price book and reference data matched by name too.
-        idRemapCreated: summary.createdByObject,
-        errors: summary.errors,
-        // A read cut short by a bound is not an error and not a success: the
-        // clone is short by an unknown number of rows, and only the summary
-        // can say which objects.
-        truncatedObjects: summary.truncatedObjects,
-      };
+      const result = forgeRunResult(summary, graph, {
+        startedAt: startTime,
+        status: finishedRunStatus(summary),
+      });
 
       this.emit('forge:complete', result);
       return result;
@@ -311,24 +290,4 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       throw err;
     }
   }
-}
-
-/**
- * Determine the overall execution status from success/failure counts.
- *
- * @param settledCount - Records created, plus records linked to the one the
- *   target already held: a run that linked what it could not create has done
- *   part of its job, not none of it.
- */
-function determineStatus(
-  settledCount: number,
-  failedCount: number,
-): 'success' | 'partial' | 'failure' {
-  if (failedCount === 0) {
-    return 'success';
-  }
-  if (settledCount > 0) {
-    return 'partial';
-  }
-  return 'failure';
 }

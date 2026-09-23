@@ -51,6 +51,7 @@ function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
 function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSummary {
   return {
     successCount: 10,
+    updatedCount: 0,
     linkedCount: 0,
     failedCount: 0,
     skippedCount: 0,

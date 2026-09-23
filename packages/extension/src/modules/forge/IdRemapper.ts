@@ -14,6 +14,12 @@ export class IdRemapper {
    */
   private readonly existing = new Set<string>();
   /**
+   * Source ids an upsert matched by their external id: the target held the
+   * record and the run wrote over it. Children link to it; the run did not
+   * create it.
+   */
+  private readonly updated = new Set<string>();
+  /**
    * The object each source id belongs to, where the caller said. The ids
    * alone cannot tell: a custom object's key prefix is the org's own. A run's
    * lineage is counted per object from this, and a mapping registered without
@@ -31,6 +37,21 @@ export class IdRemapper {
   add(oldId: string, newId: string, objectApiName?: string): void {
     this.map.set(oldId, newId);
     this.existing.delete(oldId);
+    this.updated.delete(oldId);
+    this.label(oldId, objectApiName);
+  }
+
+  /**
+   * Register a source record an upsert matched by its external id and wrote
+   * over: the target held it before the run, so its children link to it but
+   * the run is not counted as having created it.
+   *
+   * @param objectApiName - The object both records belong to.
+   */
+  addUpdated(oldId: string, targetId: string, objectApiName: string): void {
+    this.map.set(oldId, targetId);
+    this.existing.delete(oldId);
+    this.updated.add(oldId);
     this.label(oldId, objectApiName);
   }
 
@@ -43,36 +64,56 @@ export class IdRemapper {
   addExisting(oldId: string, existingId: string, objectApiName?: string): void {
     this.map.set(oldId, existingId);
     this.existing.add(oldId);
+    this.updated.delete(oldId);
     this.label(oldId, objectApiName);
   }
 
   /**
-   * Per object, the source records this run created in the target and the ones
-   * it linked to a record the target already held — counted from the map
-   * itself, for the mappings registered with their object.
+   * Per object, the source records this run created in the target, the ones
+   * it linked to a record the target already held, and — for a run that
+   * upserted — the ones it matched by external id and wrote over, counted
+   * from the map itself, for the mappings registered with their object.
    */
-  countsByObject(): Array<{ objectApiName: string; created: number; linked: number }> {
-    const counts = new Map<string, { objectApiName: string; created: number; linked: number }>();
+  countsByObject(): Array<{
+    objectApiName: string;
+    created: number;
+    linked: number;
+    updated?: number;
+  }> {
+    const counts = new Map<
+      string,
+      { objectApiName: string; created: number; linked: number; updated: number }
+    >();
     for (const [oldId, objectApiName] of this.objectOf) {
-      const entry = counts.get(objectApiName) ?? { objectApiName, created: 0, linked: 0 };
+      const entry = counts.get(objectApiName) ?? {
+        objectApiName,
+        created: 0,
+        linked: 0,
+        updated: 0,
+      };
       if (this.existing.has(oldId)) entry.linked++;
+      else if (this.updated.has(oldId)) entry.updated++;
       else entry.created++;
       counts.set(objectApiName, entry);
     }
-    return [...counts.values()];
+    // Only a run that upserted says how many it updated.
+    return [...counts.values()].map(({ updated, ...rest }) =>
+      updated > 0 ? { ...rest, updated } : rest,
+    );
   }
 
   /**
    * Per object, the source ids of the records this run created, objects in the
    * order the run first created one of them and ids in the order it created
    * them: what removing the run's records reads backwards. A row linked to a
-   * record the target already held, and a mapping registered without its
-   * object, are left out — the run created neither.
+   * record the target already held, one an upsert matched and wrote over, and
+   * a mapping registered without its object, are left out — the run created
+   * none of them.
    */
   createdByObject(): Array<{ objectApiName: string; sourceIds: string[] }> {
     const byObject = new Map<string, string[]>();
     for (const [oldId, objectApiName] of this.objectOf) {
-      if (this.existing.has(oldId)) continue;
+      if (this.existing.has(oldId) || this.updated.has(oldId)) continue;
       const sourceIds = byObject.get(objectApiName) ?? [];
       sourceIds.push(oldId);
       byObject.set(objectApiName, sourceIds);
@@ -130,6 +171,7 @@ export class IdRemapper {
   clear(): void {
     this.map.clear();
     this.existing.clear();
+    this.updated.clear();
     this.objectOf.clear();
   }
 

@@ -39,14 +39,19 @@ A compact panel below the KPIs showing:
 
 ### Live Operations
 
-When a Seed or Sync run is in progress, a Live Operations panel appears showing:
+When a run that writes to an org is in progress — Seed, Sync, a Forge clone
+or the removal of the records one created, a record clone, a CSV import, a
+Frozen Dataset load — a Live Operations panel lists it, showing:
 
-- Each run's progress bar, current step and records per second
-- A Cancel control, which stops the run the same way the Seed page's Cancel
-  does, scheduled syncs included. When the extension cannot find the run, a
-  notification says so
+- Each run's module, progress bar and current step, and its records and
+  records per second where it counts them: a Frozen load goes by phases and
+  shows none
+- A Cancel control, which stops the run, scheduled syncs included. When the
+  extension cannot find the run, a notification says so
+- How a run ended — succeeded, failed with its error, or cancelled — for a
+  short while after it ends
 
-Seed and Sync runs cannot be paused, so the panel offers no pause or resume.
+These runs cannot be paused, so the panel offers no pause or resume.
 The list is read when the dashboard opens, again on each dashboard refresh and
 after a Cancel. Between readings it shows each run as it last was, not live.
 

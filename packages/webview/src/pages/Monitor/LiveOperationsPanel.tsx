@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Activity, Pause, X, Clock, Zap, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -11,8 +12,9 @@ import { uiLocale } from '../../utils/formatters';
 /**
  * Props for the LiveOperationsPanel component.
  *
- * There is no pause or resume: the operations tracked here are Seed and Sync
- * runs and the removal of the records a Forge run created, which can be
+ * There is no pause or resume: the operations tracked here are the runs that
+ * write to an org — Seed, Sync, a Forge clone and the removal of what one
+ * created, a record clone, a CSV import, a Frozen dataset load — which can be
  * cancelled but not paused. The buttons this panel used to
  * offer reached a handler that only knows pipeline runs, and every click
  * answered "No active operation found to pause."
@@ -23,6 +25,33 @@ export interface LiveOperationsPanelProps {
   /** Callback to cancel an operation. */
   onCancel?: (operationId: string) => void;
 }
+
+/**
+ * The name a run's module is read by, where the product has one: the
+ * navigation's for a module, the audit trail's for a Seed mode. Anything else
+ * shows as the extension sent it.
+ */
+const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
+  seed: 'nav.seed',
+  sync: 'nav.sync',
+  forge: 'nav.forge',
+  frozen: 'nav.frozen',
+  dataops: 'nav.dataops',
+  clone: 'reports.auditActions.seed_clone',
+  csv: 'reports.auditActions.seed_csv_import',
+};
+
+/**
+ * The word each status is read by: the one Home and the side panel print, so
+ * a run reads the same wherever it is listed.
+ */
+const STATUS_NAME_KEYS: Record<LiveOperationSnapshot['status'], string> = {
+  running: 'home.opStatus.running',
+  paused: 'sync.realtime.status.paused',
+  completed: 'home.opStatus.success',
+  failed: 'home.opStatus.failed',
+  cancelled: 'home.opStatus.cancelled',
+};
 
 /** Formats elapsed milliseconds as human-readable string. */
 function formatElapsed(ms: number): string {
@@ -62,20 +91,27 @@ function moduleBadgeVariant(module: string): 'default' | 'info' | 'warning' | 's
   }
 }
 
-/** Status icon for an operation. */
-const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status'] }> = ({ status }) => {
+/**
+ * Status icon for an operation: an image named by its status. The icons said
+ * how a run ended by shape and colour alone.
+ */
+const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status']; t: TFunction }> = ({
+  status,
+  t,
+}) => {
+  const name = { role: 'img', 'aria-label': t(STATUS_NAME_KEYS[status]) };
   switch (status) {
     case 'running':
-      return <Activity className="w-3.5 h-3.5 text-status-info animate-pulse" />;
+      return <Activity {...name} className="w-3.5 h-3.5 text-status-info animate-pulse" />;
     case 'paused':
-      return <Pause className="w-3.5 h-3.5 text-status-warning" />;
+      return <Pause {...name} className="w-3.5 h-3.5 text-status-warning" />;
     case 'completed':
-      return <CheckCircle className="w-3.5 h-3.5 text-status-success" />;
+      return <CheckCircle {...name} className="w-3.5 h-3.5 text-status-success" />;
     case 'failed':
-      return <AlertTriangle className="w-3.5 h-3.5 text-status-error" />;
+      return <AlertTriangle {...name} className="w-3.5 h-3.5 text-status-error" />;
     case 'cancelled':
     default:
-      return <X className="w-3.5 h-3.5 text-text-secondary" />;
+      return <X {...name} className="w-3.5 h-3.5 text-text-secondary" />;
   }
 };
 
@@ -83,9 +119,13 @@ const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status'] }> = ({ sta
 const OperationRow: React.FC<{
   operation: LiveOperationSnapshot;
   onCancel?: (id: string) => void;
-  t: (key: string, defaultValue: string) => string;
+  t: TFunction;
 }> = ({ operation, onCancel, t }) => {
   const isActive = operation.status === 'running' || operation.status === 'paused';
+  const moduleKey = MODULE_LABEL_KEYS[operation.module];
+  // A run that counts no record — a Frozen load goes by phases — has none to
+  // show: its bar and its step say how far it is.
+  const counted = operation.processedRecords > 0 || operation.totalRecords > 0;
 
   return (
     <div
@@ -101,11 +141,13 @@ const OperationRow: React.FC<{
     >
       {/* Header row */}
       <div className="flex items-center gap-2">
-        <StatusIcon status={operation.status} />
+        <StatusIcon status={operation.status} t={t} />
         <span className="text-xs font-medium text-text-primary flex-1 truncate">
           {operation.description}
         </span>
-        <Badge variant={moduleBadgeVariant(operation.module)}>{operation.module}</Badge>
+        <Badge variant={moduleBadgeVariant(operation.module)}>
+          {moduleKey ? t(moduleKey) : operation.module}
+        </Badge>
       </div>
 
       {/* Progress bar */}
@@ -122,18 +164,22 @@ const OperationRow: React.FC<{
           <Clock className="w-3 h-3" />
           <span>{formatElapsed(operation.elapsedMs)}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <Zap className="w-3 h-3" />
-          <span>
-            {operation.recordsPerSecond} {t('monitor.liveOps.recsPerSec', 'rec/s')}
-          </span>
-        </div>
-        <span className="tabular-nums">
-          {operation.processedRecords.toLocaleString(uiLocale())}
-          {operation.totalRecords > 0
-            ? ` / ${operation.totalRecords.toLocaleString(uiLocale())}`
-            : ''}
-        </span>
+        {counted && (
+          <>
+            <div className="flex items-center gap-1">
+              <Zap className="w-3 h-3" />
+              <span>
+                {operation.recordsPerSecond} {t('monitor.liveOps.recsPerSec', 'rec/s')}
+              </span>
+            </div>
+            <span className="tabular-nums">
+              {operation.processedRecords.toLocaleString(uiLocale())}
+              {operation.totalRecords > 0
+                ? ` / ${operation.totalRecords.toLocaleString(uiLocale())}`
+                : ''}
+            </span>
+          </>
+        )}
         <span className="font-medium">{Math.round(operation.percentage)}%</span>
       </div>
 

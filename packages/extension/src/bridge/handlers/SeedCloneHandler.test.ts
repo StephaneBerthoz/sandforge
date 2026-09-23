@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -57,6 +57,8 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -423,6 +425,117 @@ describe('SeedCloneHandler', () => {
           error: 'bulk write exploded',
         });
       });
+    });
+  });
+
+  describe('in Live Operations', () => {
+    /** The id the clone runs under: its request's. */
+    const OPERATION_ID = 'msg-seed:clone:execute';
+
+    let tracker: LiveOperationTracker;
+    let registry: BackgroundOperationRegistry;
+    beforeEach(() => {
+      tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+    });
+    afterEach(() => {
+      tracker.dispose();
+    });
+
+    it('lists a clone while it runs, under the id its Cancel reaches it by', async () => {
+      let listed: LiveOperation[] = [];
+      writer.insert.mockImplementation(async () => {
+        listed = tracker.getAll().map((op) => ({ ...op }));
+        return [{ id: '001TGT', success: true, errors: [] }];
+      });
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(listed).toEqual([
+        expect.objectContaining({
+          operationId: OPERATION_ID,
+          module: 'clone',
+          status: 'running',
+          currentStep: 'Cloning Account',
+        }),
+      ]);
+      expect(registry.get(OPERATION_ID)).toBeDefined();
+      expect(tracker.get(OPERATION_ID)?.status).toBe('completed');
+    });
+
+    it('counts the objects already written in as the upload of the next one goes', async () => {
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+      fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+        name === 'Account'
+          ? [{ Id: '001SRC', Name: 'Acme' }]
+          : [
+              { Id: '003SRC1', LastName: 'One' },
+              { Id: '003SRC2', LastName: 'Two' },
+            ],
+      );
+      let midway: LiveOperation | undefined;
+      writer.insert.mockImplementation(async (name: string, records: unknown[]) => {
+        if (name === 'Contact') {
+          // The writer reports the upload of the second object half done.
+          const { onProgress } = vi.mocked(BulkDataWriter).mock.calls[0][0] as unknown as {
+            onProgress: (processed: number, total: number, label: string) => void;
+          };
+          onProgress(1, 2, 'Contact: 1/2');
+          midway = { ...tracker.getAll()[0] };
+        }
+        return records.map(() => ({ id: '001TGT', success: true, errors: [] }));
+      });
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }] }),
+        ),
+      );
+
+      // One object of two written, and half of the second: three quarters.
+      expect(midway).toMatchObject({
+        percentage: 75,
+        processedRecords: 2,
+        currentStep: 'Contact: 1/2',
+      });
+    });
+
+    it('ends a clone whose write failed as failed, with its error', async () => {
+      writer.insert.mockRejectedValue(new Error('bulk write exploded'));
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(tracker.get(OPERATION_ID)).toMatchObject({
+        status: 'failed',
+        error: 'bulk write exploded',
+      });
+    });
+
+    it('ends a clone that wrote no record as failed', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(tracker.get(OPERATION_ID)).toMatchObject({
+        status: 'failed',
+        error: 'No record could be cloned.',
+      });
+    });
+
+    it('ends a clone a cancel stopped as cancelled', async () => {
+      writer.insert.mockImplementation(async () => {
+        registry.abort(OPERATION_ID);
+        throw new WriteCancelledError('Account');
+      });
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(tracker.get(OPERATION_ID)?.status).toBe('cancelled');
     });
   });
 

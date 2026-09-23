@@ -299,12 +299,15 @@ export class ExtensionHandlers {
   /** Inject live operation tracker for monitor:live-operations messages. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.monitorHandler.setLiveOperationTracker(tracker);
-    // Producers: seed/sync executions register progress + completion so the
-    // Monitor "live operations" panel is actually fed, and so does the
-    // removal of the records a Forge run created.
+    // Producers: every run that writes to an org registers its progress and
+    // its end, so the Monitor "live operations" panel lists it while it runs,
+    // with a Cancel that reaches it through the registry.
     this.seedHandler.setLiveOperationTracker(tracker);
     this.syncHandler.setLiveOperationTracker(tracker);
     this.forgeHandler.setLiveOperationTracker(tracker);
+    this.seedCloneHandler.setLiveOperationTracker(tracker);
+    this.seedCsvHandler.setLiveOperationTracker(tracker);
+    this.frozenHandler.setLiveOperationTracker(tracker);
   }
 
   /** Inject the file-backed store that holds backup record payloads. */

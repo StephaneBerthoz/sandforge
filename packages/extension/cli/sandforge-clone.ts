@@ -403,6 +403,19 @@ export async function describeObjectInfo(
 }
 
 /**
+ * Whether a run failed outright: records failed and none was created, updated
+ * or linked. A run that linked what it could not create, or wrote over what
+ * its external ids matched, has done part of its job. Exported so it can be
+ * tested.
+ */
+export function failedOutright(summary: ExecutionSummary): boolean {
+  return (
+    summary.failedCount > 0 &&
+    summary.successCount + summary.updatedCount + summary.linkedCount === 0
+  );
+}
+
+/**
  * The text summary of a run. Records the target already held are named apart
  * from the created and the failed ones: linked is neither, and a duplicate
  * nobody could identify is a failure whose children lost their lookup.
@@ -411,6 +424,11 @@ export async function describeObjectInfo(
 export function summaryLines(summary: ExecutionSummary): string[] {
   const lines = [
     `success: ${summary.successCount}`,
+    // Only an `--upsert` run updates: a row matched by its external id is a
+    // record the target held, written over and not created.
+    ...(summary.updatedCount > 0
+      ? [`updated: ${summary.updatedCount} (matched by their external id, not created)`]
+      : []),
     `linked:  ${summary.linkedCount} (already in the target, not created)`,
     `failed:  ${summary.failedCount}`,
     `skipped: ${summary.skippedCount}`,
@@ -775,6 +793,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             successCount: summary.successCount,
             // Neither created nor failed: the target already held these
             // records and named them, and their children link to them.
+            // Written over by `--upsert`: the target held them before the run.
+            updatedCount: summary.updatedCount,
             linkedCount: summary.linkedCount,
             failedCount: summary.failedCount,
             skippedCount: summary.skippedCount,
@@ -804,8 +824,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     for (const line of summaryLines(summary)) console.log(line);
     console.log(`\ndone in ${elapsed}ms`);
   }
-  // A run that linked what it could not create has done part of its job.
-  if (summary.failedCount > 0 && summary.successCount + summary.linkedCount === 0) {
+  if (failedOutright(summary)) {
     process.exit(1);
   }
 }

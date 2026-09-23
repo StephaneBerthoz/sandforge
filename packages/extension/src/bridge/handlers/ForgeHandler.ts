@@ -64,6 +64,8 @@ import {
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import { forgeRunResult } from '../../modules/forge/runResult.js';
+import type { ExecutionSummary, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
 import { orgSession } from '../../modules/dataops/RecordRemoval.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
@@ -270,7 +272,10 @@ function forgeAuditObjects(
     return counts;
   };
   for (const row of result.idRemapByObject ?? []) {
-    countsOf(row.objectApiName).created += row.created;
+    const counts = countsOf(row.objectApiName);
+    counts.created += row.created;
+    // Written over by an upsert that matched them: updated, never created.
+    counts.updated += row.updated ?? 0;
   }
   for (const error of result.errors ?? []) {
     if (error.stage === 'scope' || error.objectApiName.startsWith('__')) continue;
@@ -288,7 +293,10 @@ function forgeCarried(
   result: Pick<ForgeExecutionResult, 'idRemapByObject'>,
 ): Record<string, number> {
   return Object.fromEntries(
-    (result.idRemapByObject ?? []).map((row) => [row.objectApiName, row.created + row.linked]),
+    (result.idRemapByObject ?? []).map((row) => [
+      row.objectApiName,
+      row.created + row.linked + (row.updated ?? 0),
+    ]),
   );
 }
 
@@ -1032,7 +1040,12 @@ export class ForgeHandler implements DomainHandler {
     const operationId = `forge-execute-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
     const releaseRun = this.trackRun(operationId, 'Executing forge operation', runController, true);
+    // Listed in Live Operations while it runs, where Cancel reaches it
+    // through the registry, as a Sync or a Seed run is.
+    this.liveTracker?.register(operationId, 'forge', 'Executing forge operation');
     this.executeOperationId = operationId;
+    /** When the executor was handed the run: a run it stopped is recorded from then. */
+    let startedAt = Date.now();
     /** What the run failed on, so the registry lists it as failed. */
     let runError: unknown;
 
@@ -1046,7 +1059,9 @@ export class ForgeHandler implements DomainHandler {
       const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event);
       this.deps.broker.postToWebview(progressMsg);
     }, 100);
+    const reportToLiveOperations = this.liveProgressOf(operationId, graph);
     const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
+      reportToLiveOperations(event);
       /*
        * Always pass through terminal states so the UI can finalize — and
        * 'skipped' is terminal.
@@ -1085,6 +1100,7 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error('Forge execution was aborted before it started. Nothing was written.');
       }
+      startedAt = Date.now();
       const result = await this.orchestrator.execute(graph, config, {
         recordTypeMappings,
         anonymizationRules,
@@ -1117,21 +1133,7 @@ export class ForgeHandler implements DomainHandler {
         carried: forgeCarried(result),
       });
 
-      // Persist to history via ConfigStore, carrying the config that produced
-      // the run. Without it a history entry is inspectable but not repeatable
-      // — there is nothing to rebuild a `forge:execute` from. Org ids are
-      // stripped (same shape as ForgeTemplate.config): a re-run re-picks
-      // source and target instead of replaying yesterday's org pair.
-      // The target is kept beside the config, never in it: removing what the
-      // run created has to reach the org it wrote to, and a re-run still
-      // re-picks both orgs.
-      const entry: ForgeExecutionResult = {
-        ...result,
-        config: stripOrgIds(config),
-        targetOrgId: config.targetOrgId,
-      };
-      const history = [entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
-      this.saveHistory(history);
+      this.addToHistory(result, config);
 
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {
         result,
@@ -1140,6 +1142,11 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
       sendOperationCompleted(this.deps, operationId, { status: result.status });
+      if (result.status === 'failure') {
+        this.liveTracker?.fail(operationId, 'Forge execution finished with a failure status.');
+      } else {
+        this.liveTracker?.complete(operationId);
+      }
     } catch (error: unknown) {
       // A cancel, not a failure: stopped before the executor started, or by
       // the executor's own abort. Any other error thrown while the cancel is
@@ -1153,6 +1160,10 @@ export class ForgeHandler implements DomainHandler {
       const tallies = partial
         ? { idRemapByObject: partial.remapByObject, errors: partial.errors }
         : undefined;
+      // Kept in the history with what it created and where, so those records
+      // can be removed from there: the run that went wrong is the one most
+      // worth taking back. A run that created nothing is not kept.
+      if (partial) this.keepStoppedRun(partial, graph, config, { startedAt, cancelled });
       recordWriteRun(this.deps, {
         action: 'forge_execute',
         module: 'forge',
@@ -1169,8 +1180,8 @@ export class ForgeHandler implements DomainHandler {
           : {}),
       });
       this.dmlTracker.markFailed(forgeOpId);
-      // A failed run wrote nothing worth protecting — clear any cooldown so
-      // the user can fix the cause and re-run immediately.
+      // A failed or stopped run is re-runnable at once: clear any cooldown so
+      // the user can fix the cause and run it again.
       this.lastWriteAt.delete(forgeOpId);
       // `forge:execute:error` is what the execution screen shows. The run's
       // end is posted too, as every other module posts it: with the error
@@ -1185,8 +1196,10 @@ export class ForgeHandler implements DomainHandler {
         // which is then a no-op.
         this.deps.infraServices?.backgroundRegistry?.abort(operationId);
         sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.liveTracker?.cancel(operationId);
       } else {
         sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
+        this.liveTracker?.fail(operationId, extractErrorMessage(error));
       }
     } finally {
       releaseRun(runError);
@@ -1199,6 +1212,78 @@ export class ForgeHandler implements DomainHandler {
       throttledExecProgress.flush();
       this.abortController = null;
     }
+  }
+
+  /**
+   * Put a run in the history, with the config that produced it and the org it
+   * wrote to.
+   *
+   * Without the config an entry is inspectable but not repeatable — there is
+   * nothing to rebuild a `forge:execute` from. Org ids are stripped from it
+   * (same shape as ForgeTemplate.config): a re-run re-picks source and target
+   * instead of replaying yesterday's org pair. The target is kept beside the
+   * config, never in it: removing what the run created has to reach the org it
+   * wrote to.
+   */
+  private addToHistory(result: ForgeExecutionResult, config: ForgeConfig): void {
+    const entry: ForgeExecutionResult = {
+      ...result,
+      config: stripOrgIds(config),
+      targetOrgId: config.targetOrgId,
+    };
+    this.saveHistory([entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY));
+  }
+
+  /**
+   * Keep a run that stopped part way — on a failure, or on a cancel — with
+   * what it had created by then, as the executor held it when it stopped.
+   *
+   * Never a success: the run did not reach its end. A cancelled run reads as
+   * partial and says it was cancelled, as a cancelled Sync does; one that
+   * failed reads as failed. A run that created nothing leaves nothing to
+   * remove, and is not kept.
+   */
+  private keepStoppedRun(
+    summary: ExecutionSummary,
+    graph: ForgeGraph,
+    config: ForgeConfig,
+    run: { startedAt: number; cancelled: boolean },
+  ): void {
+    if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return;
+    const result = forgeRunResult(summary, graph, {
+      startedAt: run.startedAt,
+      status: run.cancelled ? 'partial' : 'failure',
+    });
+    this.addToHistory(run.cancelled ? { ...result, cancelled: true } : result, config);
+  }
+
+  /**
+   * What Live Operations shows of a clone as the executor reports it: the
+   * share of the graph's objects settled, and the records of those objects.
+   * The executor names the records of an object when it starts writing it and
+   * counts nothing per record, so the count moves object by object.
+   */
+  private liveProgressOf(
+    operationId: string,
+    graph: ForgeGraph,
+  ): (event: ForgeProgressEvent) => void {
+    const objects = graph.nodes.filter((node) => node.included).length;
+    const recordsOf = new Map<string, number>();
+    const settled = new Set<string>();
+    let records = 0;
+    return (event) => {
+      if (typeof event.recordCount === 'number') {
+        recordsOf.set(event.objectName, event.recordCount);
+      }
+      const terminal =
+        event.status === 'done' || event.status === 'error' || event.status === 'skipped';
+      if (terminal && !settled.has(event.objectName)) {
+        settled.add(event.objectName);
+        records += recordsOf.get(event.objectName) ?? 0;
+      }
+      const percent = objects > 0 ? Math.min(100, Math.round((settled.size / objects) * 100)) : 0;
+      this.liveTracker?.updateProgress(operationId, percent, records, 0, event.message);
+    };
   }
 
   private handlePause(_msg: BaseMessage): void {
@@ -1634,11 +1719,15 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { waveCount: plan.waves?.length ?? 0 });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
-      // Single error channel (see handleDiscover): no duplicate operation:failed.
+      // One error shown: `forge:plan:error`, what the screen reads. The
+      // operation ends as a completion that says it failed, not as
+      // `operation:failed`, which would ask for a fix suggestion on top; with
+      // no end at all, the recent operations listed it running for good.
       sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', msg, error, {
         code: isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
         retryable: isTimeout,
       });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
   }
 
@@ -1708,11 +1797,15 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { framework });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
-      // Single error channel (see handleDiscover): no duplicate operation:failed.
+      // One error shown: `forge:compliance:error`, what the screen reads. The
+      // operation ends as a completion that says it failed, not as
+      // `operation:failed`, which would ask for a fix suggestion on top; with
+      // no end at all, the recent operations listed it running for good.
       sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', msg, error, {
         code: isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
         retryable: isTimeout,
       });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
   }
 
@@ -1750,11 +1843,15 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { objectCount: objectApiNames.length });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
-      // Single error channel (see handleDiscover): no duplicate operation:failed.
+      // One error shown: `forge:metadata-diff:error`, what the screen reads. The
+      // operation ends as a completion that says it failed, not as
+      // `operation:failed`, which would ask for a fix suggestion on top; with
+      // no end at all, the recent operations listed it running for good.
       sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', msg, error, {
         code: isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
         retryable: isTimeout,
       });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
     }
   }
 }

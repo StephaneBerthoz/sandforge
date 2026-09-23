@@ -15,7 +15,7 @@ What it handles for you:
 - **Picklist drift**: values not present on the target are silently stripped
 - **Cycle FKs** (Account ↔ Contact): 2-pass insert + UPDATE
 - **Required orphan parents**: single-hop fetch when an Asset references an Account outside the scope
-- **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`. The wizard always inserts.
+- **Upsert via External Id** (command line only, `--upsert`): re-runs patch existing rows instead of failing on `DUPLICATE_VALUE`, and the summary counts the rows patched as `updated`, apart from the ones created. The wizard always inserts.
 - **GDPR / PHI presets**: one-click anonymization for Email, Phone, Address, Birthdate (4 starter presets)
 
 ## 60-second wizard quickstart
@@ -56,7 +56,7 @@ Salesforce-code → human-friendly explanation + action hint.
 
 ## Remove what a run created
 
-The Forge page lists your recent runs under **Recent runs**. A finished run that created records offers **Remove the records this run created**: it deletes from the org the run wrote to the records that run created, and nothing else.
+The Forge page lists your recent runs under **Recent runs**. A run that created records offers **Remove the records this run created**: it deletes from the org the run wrote to the records that run created, and nothing else. That holds for a run that stopped part way too: one that failed, or that you cancelled, after it had written records is listed as **Failed** or **Cancelled** with the records it had created by then.
 
 - **What it takes.** The records the run created, as its history entry kept them, child objects before their parents, 200 per call. A record the run linked to because the target already held it is never taken, and neither is the standard price book or reference data the run matched by name.
 - **What it keeps.** A record is kept while records that stay in the org depend on it, since deleting it would take them along: a record from before the run moved under it, or one of the run's records the removal keeps or the org refuses. A record modified after the run ended is kept too, and so is one that records added or changed since the run depend on — a task logged on it, a tracked change in its feed — unless you tick **Also remove the records changed since the run, and what was added to them since**. What was created while the run went and not touched since, such as the contact of a person account, goes with its parent. A few objects cannot be read by the record they depend on (a member of a sales engagement list is one): the result names them as not checked, and they go with their parent.

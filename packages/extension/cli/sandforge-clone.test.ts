@@ -10,6 +10,7 @@ import {
   adaptDescribe,
   describeObjectInfo,
   executeOptions,
+  failedOutright,
   loadRecordTypes,
   main,
   parseArgs,
@@ -223,6 +224,7 @@ describe('sandforge-clone target object info', () => {
 describe('sandforge-clone summary', () => {
   const summary = (overrides: Partial<ExecutionSummary>): ExecutionSummary => ({
     successCount: 4,
+    updatedCount: 0,
     linkedCount: 0,
     failedCount: 0,
     skippedCount: 0,
@@ -259,6 +261,27 @@ describe('sandforge-clone summary', () => {
     expect(lines).toContain(
       '  AccountContactRelation  0 linked, 1 not identified — their children lost the link',
     );
+  });
+
+  it('counts the records an upsert matched by their external id as updated, not created', () => {
+    const lines = summaryLines(summary({ successCount: 3, updatedCount: 2 }));
+
+    expect(lines.slice(0, 3)).toEqual([
+      'success: 3',
+      'updated: 2 (matched by their external id, not created)',
+      'linked:  0 (already in the target, not created)',
+    ]);
+  });
+
+  it('does not call a run that updated or linked records a failure, however many others failed', () => {
+    expect(failedOutright(summary({ successCount: 0, updatedCount: 2, failedCount: 5 }))).toBe(
+      false,
+    );
+    expect(failedOutright(summary({ successCount: 0, linkedCount: 1, failedCount: 5 }))).toBe(
+      false,
+    );
+    expect(failedOutright(summary({ successCount: 0, failedCount: 5 }))).toBe(true);
+    expect(failedOutright(summary({ successCount: 0, failedCount: 0 }))).toBe(false);
   });
 
   it('prints the reason an object was held back, from its error samples', () => {

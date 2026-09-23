@@ -30,6 +30,7 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Message types handled by SeedCsvHandler. */
 const SEED_CSV_TYPES = new Set(['seed:csv:validate', 'seed:csv:execute']);
@@ -60,6 +61,8 @@ interface CsvExecutionResultPayload {
 export class SeedCsvHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
   private registry?: BackgroundOperationRegistry;
+  /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
+  private liveTracker?: LiveOperationTracker;
 
   constructor(private readonly deps: HandlerDeps) {}
 
@@ -69,6 +72,11 @@ export class SeedCsvHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /** Inject the tracker the Monitor's Live Operations panel lists. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -227,6 +235,14 @@ export class SeedCsvHandler implements DomainHandler {
         'seed',
         `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
       );
+      // Listed in Live Operations while it runs, where Cancel reaches the
+      // registry's controller above, as a Sync or a Seed run is.
+      this.liveTracker?.register(
+        operationId,
+        'csv',
+        `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
+        parsed.records.length,
+      );
       unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
@@ -240,14 +256,9 @@ export class SeedCsvHandler implements DomainHandler {
         retryConfig: robustnessConfig.retry,
         signal: abortController.signal,
         onProgress: (processed, total, label) => {
-          sendOperationProgress(
-            this.deps,
-            operationId,
-            total > 0 ? Math.round((processed / total) * 100) : 0,
-            processed,
-            total,
-            label,
-          );
+          const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+          sendOperationProgress(this.deps, operationId, percent, processed, total, label);
+          this.liveTracker?.updateProgress(operationId, percent, processed, total, label);
         },
         log: (message) => this.deps.log(message),
       });
@@ -323,8 +334,15 @@ export class SeedCsvHandler implements DomainHandler {
           insertedCount,
           failedCount,
         });
+        this.liveTracker?.cancel(operationId);
       } else {
         sendOperationCompleted(this.deps, operationId, { insertedCount, failedCount });
+        // An import that wrote no row ends failed there, as a Seed run does.
+        if (reached === 'failure') {
+          this.liveTracker?.fail(operationId, errors[0] ?? 'No row could be imported.');
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
       }
       const response = buildResponse(
         this.deps,
@@ -345,6 +363,8 @@ export class SeedCsvHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });
+      // Nothing when the import was stopped before it was listed.
+      this.liveTracker?.fail(operationId, extractErrorMessage(err));
       settle(err);
     }
   }

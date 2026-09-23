@@ -24,6 +24,8 @@ import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBacken
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -183,6 +185,28 @@ describe('ForgeHandler', () => {
   let handler: ForgeHandler;
   let deps: HandlerDeps;
   let orchestrator: ForgeOrchestrator;
+
+  /**
+   * The results of the `operation:completed` posted for the one operation
+   * started. A request that failed with its error alone left the recent
+   * operations showing it running for the rest of the session.
+   */
+  function endOfTheOperation(): unknown[] {
+    const posted = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(
+        ([m]) => m as BaseMessage & { payload: { operationId: string; result?: unknown } },
+      );
+    const started = posted.filter((m) => m.type === 'operation:started');
+    expect(started).toHaveLength(1);
+    return posted
+      .filter(
+        (m) =>
+          m.type === 'operation:completed' &&
+          m.payload.operationId === started[0].payload.operationId,
+      )
+      .map((m) => m.payload.result);
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1155,6 +1179,117 @@ describe('ForgeHandler', () => {
     });
   });
 
+  describe('forge:execute in Live Operations', () => {
+    let tracker: LiveOperationTracker;
+    let registry: BackgroundOperationRegistry;
+
+    beforeEach(() => {
+      tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      registry = new BackgroundOperationRegistry();
+      deps.infraServices = {
+        backgroundRegistry: registry,
+        productionGuard: new ProductionGuard(),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+    });
+
+    afterEach(() => {
+      tracker.dispose();
+      registry.dispose();
+    });
+
+    function execute(graph: ForgeGraph = createMockGraph()): Promise<boolean> {
+      return handler.handle(buildMsg('forge:execute', { graph, config: createMockConfig() }));
+    }
+
+    it('lists a clone while it runs, under the id its Cancel reaches it by', async () => {
+      let listed: LiveOperation[] = [];
+      let running: string[] = [];
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        listed = tracker.getAll().map((op) => ({ ...op }));
+        running = registry.getRunning().map((op) => op.operationId);
+        return createMockResult();
+      });
+
+      await execute();
+
+      expect(listed).toEqual([expect.objectContaining({ module: 'forge', status: 'running' })]);
+      // Cancel sends the listed id to the registry, which stops the run by it.
+      expect(running).toEqual([listed[0].operationId]);
+      expect(tracker.get(listed[0].operationId)?.status).toBe('completed');
+    });
+
+    it('moves object by object, with the records of the objects the run is through', async () => {
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      const account = createMockGraph().nodes[0];
+      const graph = {
+        ...createMockGraph(),
+        nodes: [account, { ...account, objectApiName: 'Contact', level: 1 }],
+      };
+      let midway: LiveOperation | undefined;
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        listener?.({
+          objectName: 'Account',
+          status: 'running',
+          progress: 0,
+          recordCount: 10,
+          message: 'Inserting 10 Account records in 1 batch(es)...',
+        });
+        listener?.({
+          objectName: 'Account',
+          status: 'done',
+          progress: 100,
+          message: 'Completed Account: 10 succeeded, 0 failed',
+        });
+        midway = { ...tracker.getAll()[0] };
+        return createMockResult();
+      });
+
+      await execute(graph);
+
+      expect(midway).toMatchObject({
+        status: 'running',
+        percentage: 50,
+        processedRecords: 10,
+        currentStep: 'Completed Account: 10 succeeded, 0 failed',
+      });
+    });
+
+    it('ends a clone that threw as failed, with its error', async () => {
+      vi.mocked(orchestrator.execute).mockRejectedValue(new Error('target refused every insert'));
+
+      await execute();
+
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({ status: 'failed', error: 'target refused every insert' }),
+      ]);
+    });
+
+    it('ends a clone the executor could not finish as failed', async () => {
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({ status: 'failure', idRemapCount: 0 }),
+      );
+
+      await execute();
+
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'failed' })]);
+    });
+
+    it('ends a clone a cancel stopped as cancelled', async () => {
+      vi.mocked(orchestrator.execute).mockRejectedValue(
+        new ForgeAbortedError('Forge execution was aborted by user request.'),
+      );
+
+      await execute();
+
+      expect(tracker.getAll()).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+    });
+  });
+
   describe('forge:execute duplicate guard', () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -1552,6 +1687,27 @@ describe('ForgeHandler', () => {
       ]);
     });
 
+    it('counts the records an upsert wrote over as updated, never as created', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          idRemapByObject: [{ objectApiName: 'Account', created: 1, linked: 0, updated: 2 }],
+        }),
+      );
+
+      await execute();
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries[0].objects).toEqual([
+        { objectApiName: 'Account', created: 1, updated: 2, deleted: 0, failed: 0 },
+      ]);
+      // The lineage counts every row the run carried into the target.
+      const lineage = new LineageStore(store).get(entries[0].operationId);
+      expect(lineage?.nodes.filter((n) => n.type === 'object').map((n) => n.recordCount)).toEqual([
+        3,
+      ]);
+    });
+
     it('keeps no record id of the remap table in the trail or the lineage', async () => {
       const store = recordingStore();
       vi.mocked(orchestrator.execute).mockResolvedValue(
@@ -1635,6 +1791,7 @@ describe('ForgeHandler', () => {
       const stopped = new Error('Forge execution was aborted by user request.');
       keepPartialSummary(stopped, {
         successCount: 5,
+        updatedCount: 0,
         linkedCount: 0,
         failedCount: 1,
         skippedCount: 0,
@@ -1674,6 +1831,131 @@ describe('ForgeHandler', () => {
         }),
       ]);
       expect(new LineageStore(store).get(entries[0].operationId)).not.toBeNull();
+    });
+  });
+
+  describe('a run that stopped part way, in the history', () => {
+    const CREATED_SOURCE = '001000000000001SRC';
+    const CREATED_TARGET = '001000000000001AAA';
+    const LINKED_SOURCE = '001000000000002SRC';
+    const LINKED_TARGET = '001000000000002AAA';
+
+    function historyStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    const kept = (store: ConfigStore): ForgeExecutionResult[] =>
+      store.get<ForgeExecutionResult[]>('forge:history') ?? [];
+
+    /**
+     * `error`, carrying what the executor held when it threw: an account it
+     * linked to the one the target held and, unless `createdOne` is false, an
+     * account it created.
+     */
+    function stoppedWith(error: Error, createdOne = true): Error {
+      keepPartialSummary(error, {
+        successCount: createdOne ? 1 : 0,
+        updatedCount: 0,
+        linkedCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        remapCount: createdOne ? 2 : 1,
+        errors: [],
+        truncatedObjects: [],
+        remapTable: {
+          ...(createdOne ? { [CREATED_SOURCE]: CREATED_TARGET } : {}),
+          [LINKED_SOURCE]: LINKED_TARGET,
+        },
+        existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
+        existingSourceIds: [LINKED_SOURCE],
+        remapByObject: [{ objectApiName: 'Account', created: createdOne ? 1 : 0, linked: 1 }],
+        createdByObject: createdOne
+          ? [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }]
+          : [],
+      });
+      return error;
+    }
+
+    async function executeThrowing(error: Error): Promise<void> {
+      vi.mocked(orchestrator.execute).mockRejectedValue(error);
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+    }
+
+    /** The config a history entry keeps: the run's, without its org pair. */
+    const KEPT_CONFIG = {
+      inputMode: 'record',
+      recordId: '001000000000123',
+      depth: 'direct',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+
+    it('keeps a run that failed after writing as failed, with what it created and where', async () => {
+      const store = historyStore();
+
+      await executeThrowing(
+        stoppedWith(new Error('INVALID_SESSION_ID: Session expired or invalid')),
+      );
+
+      expect(kept(store)).toEqual([
+        expect.objectContaining({
+          status: 'failure',
+          targetOrgId: 'tgt-org',
+          config: KEPT_CONFIG,
+          createdCount: 1,
+          linkedExistingCount: 1,
+          idRemapTable: { [CREATED_SOURCE]: CREATED_TARGET, [LINKED_SOURCE]: LINKED_TARGET },
+          idRemapExisting: [LINKED_SOURCE],
+          idRemapCreated: [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }],
+        }),
+      ]);
+      expect(kept(store)[0]).not.toHaveProperty('cancelled');
+    });
+
+    it('keeps a run a cancel stopped after writing as cancelled, never as a success', async () => {
+      const store = historyStore();
+
+      await executeThrowing(
+        stoppedWith(new ForgeAbortedError('Forge execution was aborted by user request.')),
+      );
+
+      expect(kept(store)).toEqual([
+        expect.objectContaining({
+          status: 'partial',
+          cancelled: true,
+          targetOrgId: 'tgt-org',
+          idRemapCreated: [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }],
+        }),
+      ]);
+    });
+
+    it('keeps nothing of a run that stopped before it created a record', async () => {
+      const store = historyStore();
+
+      await executeThrowing(stoppedWith(new Error('INVALID_SESSION_ID'), false));
+      await executeThrowing(new Error('source org unreachable'));
+
+      expect(kept(store)).toEqual([]);
+    });
+
+    it('records a finished run as it always has', async () => {
+      const store = historyStore();
+      const result = createMockResult({
+        idRemapByObject: [{ objectApiName: 'Account', created: 5, linked: 0 }],
+      });
+      vi.mocked(orchestrator.execute).mockResolvedValue(result);
+
+      await handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+
+      expect(kept(store)).toEqual([{ ...result, config: KEPT_CONFIG, targetOrgId: 'tgt-org' }]);
     });
   });
 
@@ -2172,6 +2454,7 @@ describe('ForgeHandler', () => {
       ).payload;
       expect(errPayload.code).toBe('PLAN_ERROR');
       expect(errPayload.retryable).toBe(false);
+      expect(endOfTheOperation()).toEqual([{ status: 'failure' }]);
     });
   });
 
@@ -2220,6 +2503,30 @@ describe('ForgeHandler', () => {
         correlationId?: string;
       };
       expect(response.correlationId).toBe(msg.id);
+    });
+
+    it('shows one error and ends the operation as failed when the report cannot be made', async () => {
+      const complianceService = {
+        generate: vi.fn().mockImplementation(() => {
+          throw new Error('report failed');
+        }),
+      } as unknown as ForgeComplianceService;
+      handler.setForgeOrchestrator(orchestrator, { complianceService });
+
+      await handler.handle(
+        buildMsg('forge:compliance:request', {
+          framework: 'gdpr',
+          graph: createMockGraph(),
+          config: createMockConfig(),
+        }),
+      );
+
+      const types = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => (m as BaseMessage).type);
+      expect(types.filter((t) => t === 'forge:compliance:error')).toHaveLength(1);
+      expect(types.filter((t) => t === 'operation:failed')).toHaveLength(0);
+      expect(endOfTheOperation()).toEqual([{ status: 'failure' }]);
     });
 
     it('emits operation lifecycle events on success', async () => {
@@ -2379,6 +2686,7 @@ describe('ForgeHandler', () => {
       ).payload;
       expect(errPayload.code).toBe('METADATA_DIFF_ERROR');
       expect(errPayload.retryable).toBe(false);
+      expect(endOfTheOperation()).toEqual([{ status: 'failure' }]);
     });
   });
 

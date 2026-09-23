@@ -12,6 +12,9 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
+import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -542,6 +545,83 @@ describe('forge:undo', () => {
         module: 'forge',
       });
       check.mockRestore();
+    });
+  });
+
+  describe('a run that stopped part way', () => {
+    /**
+     * `error`, carrying what the executor held when the run stopped: the
+     * account and the two contacts it created, and the account it linked.
+     */
+    function stoppedRun(error: Error): Error {
+      const entry = runEntry();
+      keepPartialSummary(error, {
+        successCount: 3,
+        updatedCount: 0,
+        linkedCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        remapCount: 4,
+        errors: [],
+        truncatedObjects: [],
+        remapTable: entry.idRemapTable ?? {},
+        existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
+        existingSourceIds: entry.idRemapExisting ?? [],
+        remapByObject: [
+          { objectApiName: 'Account', created: 1, linked: 1 },
+          { objectApiName: 'Contact', created: 2, linked: 0 },
+        ],
+        createdByObject: entry.idRemapCreated ?? [],
+      });
+      return error;
+    }
+
+    /** Run a clone that throws `error`, and read back the entry the history kept of it. */
+    async function runThatThrows(error: Error): Promise<ForgeExecutionResult | undefined> {
+      handler.setForgeOrchestrator({
+        execute: vi.fn().mockRejectedValue(error),
+        on: vi.fn().mockReturnValue(vi.fn()),
+        abort: vi.fn(),
+      } as unknown as ForgeOrchestrator);
+      store.set('forge:history', [], 'forge');
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: { ...GRAPH, nodes: [] },
+          config: {
+            ...runEntry().config,
+            sourceOrgId: 'src-org',
+            targetOrgId: TARGET_ORG,
+          },
+        }),
+      );
+      return history()[0];
+    }
+
+    it('removes what a run that failed part way created, from the entry the history kept', async () => {
+      const entry = await runThatThrows(
+        stoppedRun(new Error('INVALID_SESSION_ID: Session expired or invalid')),
+      );
+      expect(entry).toMatchObject({ status: 'failure', targetOrgId: TARGET_ORG });
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: entry?.forgeId }));
+
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [id('003', 2), id('003', 1)] },
+        { object: 'Account', ids: [id('001', 1)] },
+      ]);
+      expect(errors()).toEqual([]);
+    });
+
+    it('removes what a cancelled run created, from an entry that says it was cancelled', async () => {
+      const entry = await runThatThrows(
+        stoppedRun(new ForgeAbortedError('Forge execution was aborted by user request.')),
+      );
+      expect(entry).toMatchObject({ status: 'partial', cancelled: true });
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: entry?.forgeId }));
+
+      expect(org.deletes.flatMap((d) => d.ids)).toEqual([id('003', 2), id('003', 1), id('001', 1)]);
+      expect(org.deletes.flatMap((d) => d.ids)).not.toContain(id('001', 9));
     });
   });
 

@@ -237,6 +237,11 @@ export interface ForgeRemapObjectCounts {
   created: number;
   /** Rows linked to a record the target already held, never written to. */
   linked: number;
+  /**
+   * Rows an upsert matched by their external id and wrote over: records the
+   * target held before the run. Absent when the run upserted none.
+   */
+  updated?: number;
 }
 
 /**
@@ -372,11 +377,22 @@ export interface ForgeExecutionResult {
    */
   createdCount?: number;
   /**
+   * Records an upsert matched by their external id and wrote over — the
+   * target held them before the run. Absent when the run upserted none; the
+   * wizard only ever inserts.
+   */
+  updatedCount?: number;
+  /**
    * Records the target already held and named when it refused them: linked
    * to, never written, and counted in neither the created nor the failed
    * rows. Optional for runs recorded before it.
    */
   linkedExistingCount?: number;
+  /**
+   * Set when a cancel stopped the run before it was through. The result says
+   * what it had done by then; its status is never `success`.
+   */
+  cancelled?: boolean;
   /**
    * Per object, the rows the target refused because it already held them.
    * Optional for runs recorded before it; empty when the target held none.

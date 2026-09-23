@@ -43,6 +43,12 @@ export interface SaveOutcome {
   id: string;
   /** Whether the write succeeded. */
   success: boolean;
+  /**
+   * What an upsert did with the row, as Salesforce answered it: `false` when it
+   * matched a record by its external id and updated it. Absent on an insert,
+   * whose answer does not say, since an insert only ever creates.
+   */
+  created?: boolean;
   /** One entry per error, `STATUS_CODE: message` whenever Salesforce gave a code. */
   errors: string[];
   /**
@@ -210,6 +216,7 @@ const saveResultSchema = z
   .object({
     id: z.string().nullish(),
     success: z.boolean(),
+    created: z.boolean().optional(),
     errors: z.array(z.unknown()).optional(),
   })
   .passthrough();
@@ -278,6 +285,9 @@ export function toSaveOutcome(raw: unknown, objectApiName: string): SaveOutcome 
   return {
     id: parsed.data.id ?? '',
     success: parsed.data.success,
+    // An upsert says whether it created the row or wrote over one the target
+    // held; dropped here, every updated row read as one the run created.
+    ...(parsed.data.created !== undefined ? { created: parsed.data.created } : {}),
     errors: errors.map(formatSaveError),
     errorDetails: errors.map(saveErrorDetail),
     ...(matches.length > 0 ? { duplicateMatchIds: matches } : {}),

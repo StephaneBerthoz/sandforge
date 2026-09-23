@@ -934,6 +934,70 @@ for (const theme of SCANNED_THEMES) {
       expect(measured, 'axe did not measure the org type badge').toBe(true);
     });
 
+    test('Monitor Live Operations with every write run, running and ended', async ({ page }) => {
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+
+      const run = (
+        operationId: string,
+        module: string,
+        status: string,
+        extra: Record<string, unknown> = {},
+      ): Record<string, unknown> => ({
+        operationId,
+        module,
+        description: `${module} run`,
+        status,
+        percentage: 60,
+        processedRecords: 120,
+        totalRecords: 0,
+        currentStep: 'Completed Account: 120 succeeded, 0 failed',
+        startedAt: '2026-03-13T11:00:00Z',
+        elapsedMs: 5000,
+        recordsPerSecond: 24,
+        ...extra,
+      });
+      // A Forge clone and a Frozen load running — the load counts phases, not
+      // records — and a record clone, a CSV import and a load that ended.
+      await answerAll(page, 'monitor:live-operations', 'monitor:live-operations:response', {
+        operations: [
+          run('op-forge', 'forge', 'running'),
+          run('op-frozen-running', 'frozen', 'running', {
+            processedRecords: 0,
+            recordsPerSecond: 0,
+            currentStep: 'Inserting Account',
+          }),
+          run('op-clone', 'clone', 'completed', { percentage: 100 }),
+          run('op-csv', 'csv', 'failed', { error: 'REQUIRED_FIELD_MISSING: Name' }),
+          run('op-frozen', 'frozen', 'cancelled', { processedRecords: 0, recordsPerSecond: 0 }),
+        ],
+      });
+      await page.getByTestId('live-op-op-frozen').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('cancel-op-forge')).toBeVisible();
+      await expect(page.getByRole('img', { name: 'Cancelled' })).toBeVisible();
+      await page.getByTestId('live-op-op-csv').scrollIntoViewIfNeeded();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      // Text axe cannot see is filed as unmeasured, not failed: the module
+      // badges of the new rows must have been measured.
+      const measured = results.passes
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .some((node) => node.html.includes('>CSV Import<'));
+      expect(measured, 'axe did not measure the badge of the CSV import').toBe(true);
+    });
+
     test('Monitor lists that stop at their bound, and the record counts per object', async ({
       page,
     }) => {
@@ -1466,6 +1530,33 @@ for (const theme of SCANNED_THEMES) {
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Forge recent runs with a run that failed and one a cancel stopped, each removable', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [
+          { ...FORGE_REMOVABLE_RUN, forgeId: 'forge-run-cancelled', cancelled: true },
+          { ...FORGE_REMOVABLE_RUN, forgeId: 'forge-run-failed', status: 'failure' },
+        ],
+      });
+      await page.getByTestId('forge-history-remove-forge-run-failed').waitFor({ timeout: 10_000 });
+      const cancelled = page.getByTestId('forge-history-entry-forge-run-cancelled');
+      await expect(cancelled).toContainText('Cancelled');
+      await cancelled.scrollIntoViewIfNeeded();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      // Text axe cannot see is filed as unmeasured, not failed: the status
+      // a cancelled run reads by must have been measured.
+      const measured = results.passes
+        .filter((rule) => rule.id === 'color-contrast')
+        .flatMap((rule) => rule.nodes)
+        .some((node) => node.html.includes('>Cancelled<'));
+      expect(measured, 'axe did not measure the status of the cancelled run').toBe(true);
     });
 
     test('Settings page with tabs', async ({ page }) => {

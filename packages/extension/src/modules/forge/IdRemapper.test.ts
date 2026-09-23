@@ -61,6 +61,48 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('records an upsert matched by their external id', () => {
+    it('remaps children onto the record the upsert wrote over', () => {
+      remapper.addUpdated('001A', '001MATCHED', 'Account');
+
+      expect(remapper.get('001A')).toBe('001MATCHED');
+      expect(remapper.remapRecord({ AccountId: '001A' }, ['AccountId']).AccountId).toBe(
+        '001MATCHED',
+      );
+    });
+
+    it('counts them as updated, apart from the rows the run created and the ones it linked', () => {
+      remapper.add('001A', '001CREATED', 'Account');
+      remapper.addUpdated('001B', '001MATCHED', 'Account');
+      remapper.addExisting('001C', '001EXISTING', 'Account');
+      remapper.add('003A', '003CREATED', 'Contact');
+
+      expect(remapper.countsByObject()).toEqual([
+        { objectApiName: 'Account', created: 1, linked: 1, updated: 1 },
+        { objectApiName: 'Contact', created: 1, linked: 0 },
+      ]);
+    });
+
+    it('never lists them among the rows the run created', () => {
+      remapper.add('001A', '001CREATED', 'Account');
+      remapper.addUpdated('001B', '001MATCHED', 'Account');
+      remapper.addUpdated('003A', '003MATCHED', 'Contact');
+
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001A'] },
+      ]);
+    });
+
+    it('counts a matched row the run created after all as created', () => {
+      remapper.addUpdated('001A', '001MATCHED', 'Account');
+      remapper.add('001A', '001CREATED', 'Account');
+
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001A'] },
+      ]);
+    });
+  });
+
   describe('counted by object', () => {
     it('counts, per object, the rows the run created and the ones it linked', () => {
       remapper.add('001A', '001CREATED1', 'Account');

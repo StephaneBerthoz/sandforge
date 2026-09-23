@@ -307,6 +307,47 @@ describe('BatchWriter', () => {
     infoSpy.mockRestore();
   });
 
+  it('counts a row the upsert matched by its external id as updated, never as one the run created', async () => {
+    const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([
+      { id: '001NEW1', success: true, created: true, errors: [] },
+      { id: '001HELD', success: true, created: false, errors: [] },
+    ]);
+    const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'ExternalKey__c',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        externalId: true,
+      },
+    ];
+    const source = [
+      { Id: '001OLD1', ExternalKey__c: 'KEY-1' },
+      { Id: '001OLD2', ExternalKey__c: 'KEY-2' },
+    ];
+    const remapper = new IdRemapper();
+    const input = makeInput(source, {
+      records: source.map((r) => ({ ExternalKey__c: r.ExternalKey__c })),
+      fieldInfos: fields,
+      creatableFields: new Set(['ExternalKey__c']),
+      upsertMode: 'auto',
+      remapper,
+    });
+    const result = await new BatchWriter(deps).writeNode(input);
+
+    expect(result.successCount).toBe(1);
+    expect(result.updatedCount).toBe(1);
+    // Its children still point at the record the upsert wrote over.
+    expect(remapper.get('001OLD2')).toBe('001HELD');
+    expect(remapper.createdByObject()).toEqual([
+      { objectApiName: 'Account', sourceIds: ['001OLD1'] },
+    ]);
+    infoSpy.mockRestore();
+  });
+
   it('falls back to insert when no external Id candidate is unique across the batch', async () => {
     const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };

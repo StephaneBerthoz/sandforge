@@ -76,7 +76,7 @@ The Forge page provides a richer workflow with three input modes, and a fourth s
 
 After input, the Discovery phase renders an interactive dependency graph in a split view. Click any node to inspect fields, toggle inclusion, and configure anonymization per field.
 
-**Recent runs**, under the input form, lists the last runs: each refills the form, and a finished run that created records can remove them from the org it wrote to, children before their parents, keeping the records it linked to and, unless you ask, the ones changed or added to since the run — see [Forge: remove what a run created](../forge-quickstart.md#remove-what-a-run-created).
+**Recent runs**, under the input form, lists the last runs: each refills the form, and a run that created records — finished, or stopped part way by a failure or a cancel — can remove them from the org it wrote to, children before their parents, keeping the records it linked to and, unless you ask, the ones changed or added to since the run — see [Forge: remove what a run created](../forge-quickstart.md#remove-what-a-run-created).
 
 ### AI and NL2SOQL
 

@@ -2046,6 +2046,25 @@ describe('ExtensionHandlers', () => {
       tracker.dispose();
     });
 
+    it('hands the tracker to the record clone, the CSV import and the Frozen load', async () => {
+      const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
+      const { SeedCloneHandler } = await import('./handlers/SeedCloneHandler.js');
+      const { SeedCsvHandler } = await import('./handlers/SeedCsvHandler.js');
+      const { FrozenDatasetHandler } = await import('./handlers/FrozenDatasetHandler.js');
+      const handed = [SeedCloneHandler, SeedCsvHandler, FrozenDatasetHandler].map((handler) =>
+        vi.spyOn(handler.prototype, 'setLiveOperationTracker'),
+      );
+      const tracker = new LiveOperationTracker();
+
+      handlers.setLiveOperationTracker(tracker);
+
+      for (const spy of handed) {
+        expect(spy).toHaveBeenCalledWith(tracker);
+        spy.mockRestore();
+      }
+      tracker.dispose();
+    });
+
     it('feeds the tracker from the removal of the records a Forge run created', async () => {
       const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
       const tracker = new LiveOperationTracker();

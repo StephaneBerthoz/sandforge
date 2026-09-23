@@ -262,6 +262,20 @@ describe('toSaveOutcome', () => {
     });
   });
 
+  it('keeps what an upsert did with the row: created it, or matched it by its external id', () => {
+    const created = toSaveOutcome(
+      { id: ACCOUNT_18, success: true, created: true, errors: [] },
+      'Account',
+    );
+    const matched = toSaveOutcome(
+      { id: ACCOUNT_18, success: true, created: false, errors: [] },
+      'Account',
+    );
+
+    expect(created.created).toBe(true);
+    expect(matched.created).toBe(false);
+  });
+
   it('formats a refusal with its code and carries the records a rule matched', () => {
     const outcome = toSaveOutcome(
       duplicateRuleRefusal([

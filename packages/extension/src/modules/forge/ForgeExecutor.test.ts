@@ -1299,6 +1299,48 @@ describe('ForgeExecutor', () => {
       expect(deps.insertRecords).not.toHaveBeenCalled();
     });
 
+    it('counts a record the upsert matched by its external id as updated, not created', async () => {
+      const upsertRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
+        .mockResolvedValue([{ id: '500HELD', success: true, created: false, errors: [] }]);
+      const upsertExecutor = new ForgeExecutor({ ...deps, upsertRecords });
+
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, ExternalKey__c: 'KEY-001', Subject: 'Test' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Subject', queryable: true, createable: true, isReference: false },
+        {
+          name: 'ExternalKey__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          externalId: true,
+        },
+      ]);
+
+      const summary = await upsertExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        upsertMode: 'auto',
+      });
+
+      expect(summary.successCount).toBe(0);
+      expect(summary.updatedCount).toBe(1);
+      expect(summary.remapTable[ROOT_ID]).toBe('500HELD');
+      expect(summary.remapByObject).toEqual([
+        { objectApiName: 'Case', created: 0, linked: 0, updated: 1 },
+      ]);
+      // What removing the run's records reads: the record it wrote over is not there.
+      expect(summary.createdByObject).toEqual([]);
+      const done = progressEvents.find((e) => e.objectName === 'Case' && e.status === 'done');
+      expect(done?.message).toBe(
+        'Completed Case: 0 succeeded, 1 updated through their external id, 0 failed',
+      );
+    });
+
     it('falls back to insert when no externalId field is present', async () => {
       const upsertRecords = vi
         .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()

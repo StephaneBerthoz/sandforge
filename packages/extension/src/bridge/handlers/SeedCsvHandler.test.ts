@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCsvHandler } from './SeedCsvHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -46,6 +46,8 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { LiveOperation } from '../../modules/monitor/LiveOperationTracker.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -438,6 +440,90 @@ describe('SeedCsvHandler', () => {
           error: 'bulk write exploded',
         });
       });
+    });
+  });
+
+  describe('in Live Operations', () => {
+    /** The id the import runs under: its request's. */
+    const OPERATION_ID = 'msg-seed:csv:execute';
+
+    let tracker: LiveOperationTracker;
+    let registry: BackgroundOperationRegistry;
+    beforeEach(() => {
+      tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+    });
+    afterEach(() => {
+      tracker.dispose();
+    });
+
+    it('lists an import while it runs, with its rows, under the id its Cancel reaches it by', async () => {
+      let listed: LiveOperation[] = [];
+      writer.insert.mockImplementation(async () => {
+        const { onProgress } = vi.mocked(BulkDataWriter).mock.calls[0][0] as unknown as {
+          onProgress: (processed: number, total: number, label: string) => void;
+        };
+        onProgress(1, 2, 'Account: 1/2');
+        listed = tracker.getAll().map((op) => ({ ...op }));
+        return [
+          { id: '001TGT1', success: true, errors: [] },
+          { id: '001TGT2', success: true, errors: [] },
+        ];
+      });
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ records: [{ name: 'Acme' }, { name: 'Beta' }] })),
+      );
+
+      expect(listed).toEqual([
+        expect.objectContaining({
+          operationId: OPERATION_ID,
+          module: 'csv',
+          status: 'running',
+          percentage: 50,
+          processedRecords: 1,
+          totalRecords: 2,
+        }),
+      ]);
+      expect(registry.get(OPERATION_ID)).toBeDefined();
+      expect(tracker.get(OPERATION_ID)?.status).toBe('completed');
+    });
+
+    it('ends an import whose write failed as failed, with its error', async () => {
+      writer.insert.mockRejectedValue(new Error('bulk write exploded'));
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(tracker.get(OPERATION_ID)).toMatchObject({
+        status: 'failed',
+        error: 'bulk write exploded',
+      });
+    });
+
+    it('ends an import that wrote no row as failed, with the first refusal', async () => {
+      writer.insert.mockResolvedValue([
+        { id: '', success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(tracker.get(OPERATION_ID)).toMatchObject({
+        status: 'failed',
+        error: 'REQUIRED_FIELD_MISSING: Name',
+      });
+    });
+
+    it('ends an import a cancel stopped as cancelled', async () => {
+      writer.insert.mockImplementation(async () => {
+        registry.abort(OPERATION_ID);
+        throw new WriteCancelledError('Account');
+      });
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(tracker.get(OPERATION_ID)?.status).toBe('cancelled');
     });
   });
 

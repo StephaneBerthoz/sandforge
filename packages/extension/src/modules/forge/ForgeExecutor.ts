@@ -82,6 +82,12 @@ export interface InsertResult {
   /** Error messages if the insert failed, `STATUS_CODE: message` when Salesforce gave a code. */
   errors: string[];
   /**
+   * What an upsert did with the row: `false` when it matched a record the
+   * target already held by its external id and wrote over it. Absent on an
+   * insert, which only ever creates.
+   */
+  created?: boolean;
+  /**
    * Records of the same object a duplicate rule matched when it refused the
    * row. Only the structured error carries them, so a writer that has it
    * passes them on; see `toSaveOutcome`.
@@ -443,8 +449,14 @@ export interface ExistingRecordReport {
 
 /** Summary returned after execution completes. */
 export interface ExecutionSummary {
-  /** Number of successfully inserted records. */
+  /** Number of records the run created. */
   successCount: number;
+  /**
+   * Records an upsert matched by their external id and wrote over: the target
+   * held them before the run. Counted in neither `successCount` nor
+   * `linkedCount`, and never among what the run created.
+   */
+  updatedCount: number;
   /**
    * Records the target already held and named when it refused them: linked
    * to, never written. Counted in neither `successCount` nor `failedCount`.
@@ -565,6 +577,7 @@ interface ExecutionState {
   /** Per object no node knows the fields of, the personal fields the detector named. */
   readonly detectedPersonalFields: Map<string, string[]>;
   successCount: number;
+  updatedCount: number;
   linkedCount: number;
   failedCount: number;
   skippedCount: number;
@@ -759,6 +772,7 @@ export class ForgeExecutor {
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
       detectedPersonalFields: new Map<string, string[]>(),
       successCount: 0,
+      updatedCount: 0,
       linkedCount: 0,
       failedCount: 0,
       skippedCount: 0,
@@ -1077,6 +1091,7 @@ export class ForgeExecutor {
   private summaryOf(state: ExecutionState): ExecutionSummary {
     return {
       successCount: state.successCount,
+      updatedCount: state.updatedCount,
       linkedCount: state.linkedCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
@@ -1606,6 +1621,7 @@ export class ForgeExecutor {
 
       const writeResult = {
         successCount: 0,
+        updatedCount: 0,
         linkedExistingCount: 0,
         failureCount: 0,
         alreadyExistsCount: 0,
@@ -1628,6 +1644,7 @@ export class ForgeExecutor {
           onProgress,
         });
         writeResult.successCount += partial.successCount;
+        writeResult.updatedCount += partial.updatedCount;
         writeResult.linkedExistingCount += partial.linkedExistingCount;
         writeResult.failureCount += partial.failureCount;
         writeResult.alreadyExistsCount += partial.alreadyExistsCount;
@@ -1638,10 +1655,12 @@ export class ForgeExecutor {
         }
       }
       const nodeSuccess = writeResult.successCount;
+      const nodeUpdated = writeResult.updatedCount;
       const nodeLinked = writeResult.linkedExistingCount;
       const nodeFailure = writeResult.failureCount;
       const nodeUnidentified = writeResult.unidentifiedExistingCount;
       state.successCount += nodeSuccess;
+      state.updatedCount += nodeUpdated;
       state.linkedCount += nodeLinked;
       state.failedCount += nodeFailure;
       state.pendingFkUpdates.push(...writeResult.pendingFkUpdates);
@@ -1658,7 +1677,7 @@ export class ForgeExecutor {
           objectApiName: node.objectApiName,
           stage: 'insert',
           failedCount: nodeFailure,
-          attemptedCount: nodeSuccess + nodeLinked + nodeFailure,
+          attemptedCount: nodeSuccess + nodeUpdated + nodeLinked + nodeFailure,
           samples: writeResult.errorSamples,
         });
       }
@@ -1668,7 +1687,7 @@ export class ForgeExecutor {
       // (their FKs would orphan-nullify and silently corrupt the clone).
       // A row linked to the record the target already held is not a failure:
       // its children have a parent to point at.
-      const settled = nodeSuccess + nodeLinked;
+      const settled = nodeSuccess + nodeUpdated + nodeLinked;
       const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
@@ -1696,6 +1715,7 @@ export class ForgeExecutor {
         // failure whose children lose their lookup — worth saying on its own.
         const linked =
           nodeLinked > 0 ? `, ${nodeLinked} linked to records already in the target` : '';
+        const updated = nodeUpdated > 0 ? `, ${nodeUpdated} updated through their external id` : '';
         const unidentified =
           nodeUnidentified > 0
             ? ` (${nodeUnidentified} already in the target without Salesforce naming the record — their children lose the link)`
@@ -1704,7 +1724,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${linked}, ${nodeFailure} failed${unidentified}`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}`,
         });
       }
     } catch (err) {

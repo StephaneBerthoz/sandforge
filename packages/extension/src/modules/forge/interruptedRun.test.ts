@@ -5,6 +5,7 @@ import type { ExecutionSummary } from './ForgeExecutor.js';
 /** A run that created two Accounts before it stopped. */
 const TWO_ACCOUNTS: ExecutionSummary = {
   successCount: 2,
+  updatedCount: 0,
   linkedCount: 0,
   failedCount: 0,
   skippedCount: 0,

@@ -49,6 +49,7 @@ import {
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -104,6 +105,8 @@ const CLONE_FAILURE_CODES = {
  */
 export class SeedCloneHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
+  /** What the Monitor's Live Operations panel lists, with a Cancel for each run. */
+  private liveTracker?: LiveOperationTracker;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -114,6 +117,11 @@ export class SeedCloneHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /** Inject the tracker the Monitor's Live Operations panel lists. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -386,6 +394,9 @@ export class SeedCloneHandler implements DomainHandler {
         'clone',
         `Clone ${parsed.objects.length} object(s)`,
       );
+      // Listed in Live Operations while it runs, where Cancel reaches the
+      // registry's controller above, as a Sync or a Seed run is.
+      this.liveTracker?.register(operationId, 'clone', `Clone ${parsed.objects.length} object(s)`);
       unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
@@ -402,6 +413,11 @@ export class SeedCloneHandler implements DomainHandler {
         string,
         { keyPrefix: string | null; recordTypes: RecordTypeAvailability[] }
       >();
+      /**
+       * How far the clone is, for Live Operations: the objects and the source
+       * records written before the object now written, out of how many objects.
+       */
+      const written = { objects: 0, records: 0, of: 1 };
       const writer = new BulkDataWriter({
         keyPrefixOf: (objectName) => targetObjects.get(objectName)?.keyPrefix,
         connection: targetConn,
@@ -416,6 +432,16 @@ export class SeedCloneHandler implements DomainHandler {
             total > 0 ? Math.round((processed / total) * 100) : 0,
             processed,
             total,
+            label,
+          );
+          // Across the clone: the objects already written count in, so the
+          // bar does not drop back to zero with each object. How many records
+          // the objects still to read hold is not known: no total is given.
+          this.liveTracker?.updateProgress(
+            operationId,
+            Math.round(((written.objects + processed / Math.max(total, 1)) / written.of) * 100),
+            written.records + processed,
+            0,
             label,
           );
         },
@@ -443,6 +469,7 @@ export class SeedCloneHandler implements DomainHandler {
         objectNames,
         linker.buildEdgesFromDescribe(objectNames, describeMap),
       );
+      written.of = Math.max(insertOrder.length, 1);
       const configsByName = new Map(parsed.objects.map((o) => [o.objectApiName, o]));
 
       /** sourceId -> targetId across all objects inserted so far. */
@@ -468,6 +495,14 @@ export class SeedCloneHandler implements DomainHandler {
           Math.round((index / insertOrder.length) * 100),
           index,
           insertOrder.length,
+          `Cloning ${objectApiName}`,
+        );
+        written.objects = index;
+        this.liveTracker?.updateProgress(
+          operationId,
+          Math.round((index / insertOrder.length) * 100),
+          written.records,
+          0,
           `Cloning ${objectApiName}`,
         );
 
@@ -588,6 +623,7 @@ export class SeedCloneHandler implements DomainHandler {
           }
         });
         objectResults.push(objectResult);
+        written.records += sourceRecords.length;
       }
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
@@ -624,12 +660,18 @@ export class SeedCloneHandler implements DomainHandler {
           totalInserted,
           totalFailed,
         });
+        this.liveTracker?.cancel(operationId);
       } else {
         sendOperationCompleted(this.deps, operationId, {
           status: result.status,
           totalInserted,
           totalFailed,
         });
+        if (result.status === 'failure') {
+          this.liveTracker?.fail(operationId, 'No record could be cloned.');
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
       }
       const response = buildResponse(
         this.deps,
@@ -656,6 +698,8 @@ export class SeedCloneHandler implements DomainHandler {
             : CLONE_FAILURE_CODES.failed,
         },
       });
+      // Nothing when the clone was stopped before it was listed.
+      this.liveTracker?.fail(operationId, message);
       settle(err);
     }
   }

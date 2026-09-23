@@ -255,6 +255,20 @@ describe('ForgeHistoryPanel', () => {
     expect(screen.getByTestId('forge-history-entry-forge-soql').textContent).toContain('Success');
     expect(screen.getByTestId('forge-history-entry-forge-legacy').textContent).toContain('Failed');
   });
+
+  it('reads a run a cancel stopped as cancelled, not as the partial status it was stored with', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...RECORD_RUN, cancelled: true }]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    const entry = screen.getByTestId('forge-history-entry-forge-record');
+    expect(entry.textContent).toContain('Cancelled');
+    expect(entry.textContent).not.toContain('Partial');
+  });
 });
 
 /** A fake record id: the object's prefix, then a counter. */

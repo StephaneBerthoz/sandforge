@@ -143,8 +143,14 @@ export interface WriteNodeInput {
 
 /** Outcome of writing one node's records. */
 export interface BatchWriteResult {
-  /** Records successfully inserted/upserted. */
+  /** Records the run created: inserted, or upserted where the target held no match. */
   successCount: number;
+  /**
+   * Records an upsert matched by their external id and wrote over: the target
+   * held them before the run, so they are counted apart from the created ones
+   * and never registered as the run's own.
+   */
+  updatedCount: number;
   /**
    * Records the target refused because it already holds them, and named:
    * mapped onto that record so their children link to it, and never written
@@ -235,6 +241,7 @@ export class BatchWriter {
     });
 
     let nodeSuccess = 0;
+    let nodeUpdated = 0;
     let nodeLinked = direct.size;
     let nodeFailure = 0;
     let nodeAlreadyExists = 0;
@@ -286,11 +293,18 @@ export class BatchWriter {
       for (let i = 0; i < actual; i++) {
         const result = results[i];
         if (result.success) {
-          nodeSuccess++;
           const built = cleanedRecords[recordOffset + i];
           const oldId = built?.source['Id'];
+          // An upsert that matched a record by its external id wrote over one
+          // the target already held. Its children point at it all the same,
+          // but it is not the run's: counted as updated, and a removal of the
+          // run's records must never reach it.
+          const updated = result.created === false;
+          if (updated) nodeUpdated++;
+          else nodeSuccess++;
           if (typeof oldId === 'string') {
-            remapper.add(oldId, result.id, node.objectApiName);
+            if (updated) remapper.addUpdated(oldId, result.id, node.objectApiName);
+            else remapper.add(oldId, result.id, node.objectApiName);
           }
           // Record nullified FKs so pass 2 can patch them
           // once the parent target is in the IdRemapper.
@@ -400,6 +414,7 @@ export class BatchWriter {
 
     return {
       successCount: nodeSuccess,
+      updatedCount: nodeUpdated,
       linkedExistingCount: nodeLinked,
       failureCount: nodeFailure,
       alreadyExistsCount: nodeAlreadyExists,
