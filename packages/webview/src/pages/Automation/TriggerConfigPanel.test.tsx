@@ -70,7 +70,9 @@ describe('TriggerConfigPanel', () => {
 
     const reason = screen.getByTestId('trigger-refused-refresh').textContent ?? '';
     expect(reason).toMatch(/notices a sandbox refresh/);
-    expect(reason).toMatch(/only Delay and Condition steps/);
+    // What a refresh calls for writes to an org, and no pipeline step does.
+    expect(reason).toMatch(/pipelines start by hand/);
+    expect(reason).toMatch(/writes to an org, and no pipeline step does/);
     // The reason is the refresh trigger's own, not a note on every card.
     expect(screen.queryByTestId('trigger-refused-deploy')).toBeNull();
   });

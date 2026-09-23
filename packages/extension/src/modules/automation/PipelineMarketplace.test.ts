@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PipelineMarketplace } from './PipelineMarketplace';
 import type { PipelineTemplate } from './PipelineMarketplace';
+import { conditionDefect } from './ConditionalRouter';
 
 describe('PipelineMarketplace', () => {
   let marketplace: PipelineMarketplace;
@@ -211,7 +212,7 @@ describe('PipelineMarketplace', () => {
     });
 
     it('should find templates by description content', () => {
-      const results = marketplace.search('governor limits');
+      const results = marketplace.search('daily limit');
       expect(results.length).toBeGreaterThan(0);
     });
 
@@ -261,6 +262,50 @@ describe('PipelineMarketplace', () => {
         }
       }
       expect(claims).toEqual([]);
+    });
+
+    it('gives every Condition step a condition the router can evaluate', () => {
+      // API Limit Monitoring wrote its condition in `config`, where the router
+      // does not look, with a `>` no condition knows: the step had no
+      // condition, and was refused before the run.
+      const conditionSteps = marketplace
+        .getTemplates()
+        .flatMap((template) => template.steps.map((step) => ({ template, step })))
+        .filter(({ step }) => step.type === 'condition');
+      expect(conditionSteps.length).toBeGreaterThan(0);
+      for (const { template, step } of conditionSteps) {
+        expect(conditionDefect(step.condition), `${template.id}: ${step.name}`).toBeUndefined();
+        expect(step.config, `${template.id}: ${step.name}`).toEqual({});
+      }
+    });
+
+    it('carries a Condition step’s condition through the install', () => {
+      const exported = JSON.parse(marketplace.exportTemplate('tpl-api-limit-monitoring')) as {
+        steps: Array<{ type: string; condition?: unknown }>;
+      };
+      expect(exported.steps.find((step) => step.type === 'condition')?.condition).toEqual({
+        field: 'apiUsagePercent',
+        operator: 'gt',
+        value: 60,
+      });
+
+      const imported = marketplace.importTemplate(JSON.stringify(exported));
+      expect(imported.steps.find((step) => step.type === 'condition')?.condition).toEqual({
+        field: 'apiUsagePercent',
+        operator: 'gt',
+        value: 60,
+      });
+    });
+
+    it('no notification step says a run sends no message: a run shows it in VS Code', () => {
+      for (const template of marketplace.getTemplates()) {
+        for (const step of template.steps.filter((s) => s.type === 'notification')) {
+          expect(step.description, `${template.id}: ${step.name}`).not.toMatch(/no message/i);
+          expect(step.config['message'], `${template.id}: ${step.name}`).toEqual(
+            expect.any(String),
+          );
+        }
+      }
     });
   });
 });

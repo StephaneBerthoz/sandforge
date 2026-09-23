@@ -1395,6 +1395,41 @@ describe('MonitorOpsHandler', () => {
    * not updateable, so the former in-product abort failed on every confirm;
    * the page the link opens is where an abort works.
    */
+  describe("an org's health, read for a pipeline's Pre-check", () => {
+    it('reads the signals it is asked for, and only those', async () => {
+      const request = orgRequest({
+        DailyApiRequests: { Max: 10000, Remaining: 2800 },
+        DataStorageMB: { Max: 1000, Remaining: 900 },
+      });
+      const query = vi.fn();
+      mockGetJsforceConnection.mockResolvedValue({ request, query });
+
+      const signals = await handler.readOrgHealth('org-1', ['apiLimits', 'storage']);
+
+      expect(signals).toEqual([
+        expect.objectContaining({
+          name: 'apiLimits',
+          status: 'warning',
+          message: 'API usage at 72%',
+          percent: 72,
+        }),
+        expect.objectContaining({ name: 'storage', status: 'ok', percent: 10 }),
+      ]);
+      // `/limits` once for both; no ApexLog count, no AsyncApexJob read.
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(mockQueryAll).not.toHaveBeenCalled();
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('answers a signal it cannot read as unknown, never with a throw', async () => {
+      mockGetJsforceConnection.mockRejectedValue(new Error('No credentials for org org-1'));
+
+      const [apiLimits] = await handler.readOrgHealth('org-1', ['apiLimits']);
+
+      expect(apiLimits).toMatchObject({ name: 'apiLimits', status: 'unknown' });
+    });
+  });
+
   describe('monitor:open-apex-jobs', () => {
     const PAGE = 'https://acme.my.salesforce.com/lightning/setup/AsyncApexJobs/home';
     let openExternal: Mock<(target: vscode.Uri) => Thenable<boolean>>;

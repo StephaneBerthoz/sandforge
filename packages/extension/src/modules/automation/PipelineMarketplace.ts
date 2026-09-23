@@ -1,3 +1,5 @@
+import type { PipelineCondition } from '@sandforge/shared';
+
 /** Category of a pipeline template */
 export type TemplateCategory =
   | 'environment'
@@ -11,6 +13,12 @@ export interface TemplateStep {
   name: string;
   type: string;
   config: Record<string, unknown>;
+  /**
+   * What a Condition step tests, in the shape the router reads: the step's
+   * `condition`, never its `config`. A condition written in `config` is no
+   * condition at all, and the step is refused before the run.
+   */
+  condition?: PipelineCondition;
   description: string;
 }
 
@@ -31,7 +39,7 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
     id: 'tpl-sandbox-refresh',
     name: 'Sandbox Refresh Post-Processing',
     description:
-      'Automate post-refresh tasks: anonymize data and seed test records, then mark a notification point.',
+      'Automate post-refresh tasks: anonymize data and seed test records, then show a notification.',
     category: 'environment',
     rating: 4.8,
     steps: [
@@ -48,10 +56,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Generate test records',
       },
       {
-        name: 'Notify Team',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Notification step (a run sends no message yet)',
+        config: { message: 'Sandbox post-processing finished.' },
+        description: 'Show a VS Code notification when the run gets here',
       },
     ],
     tags: ['sandbox', 'refresh', 'post-processing'],
@@ -104,10 +112,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Find records with missing required fields',
       },
       {
-        name: 'Generate Report',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Report the quality scan (a run sends no message yet)',
+        config: { message: 'The weekly data quality scan finished.' },
+        description: 'Show a VS Code notification when the scan is done',
       },
     ],
     tags: ['quality', 'weekly', 'scan'],
@@ -138,10 +146,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Mask non-compliant data',
       },
       {
-        name: 'Compliance Report',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Compliance summary (a run sends no message yet)',
+        config: { message: 'The GDPR compliance check finished.' },
+        description: 'Show a VS Code notification when the check is done',
       },
     ],
     tags: ['gdpr', 'compliance', 'privacy'],
@@ -172,10 +180,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Assign permission sets',
       },
       {
-        name: 'Welcome Notification',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Welcome the new developer (a run sends no message yet)',
+        config: { message: 'The developer sandbox is provisioned.' },
+        description: 'Show a VS Code notification when the sandbox is ready',
       },
     ],
     tags: ['onboarding', 'developer', 'environment'],
@@ -371,10 +379,12 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Compare schemas and report differences',
       },
       {
-        name: 'Alert on Drift',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Report schema changes (a run sends no message yet)',
+        config: {
+          message: 'Schema drift detection finished: the run history lists the differences.',
+        },
+        description: 'Show a VS Code notification when the comparisons are done',
       },
     ],
     tags: ['schema', 'drift', 'monitoring'],
@@ -382,8 +392,12 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
   {
     id: 'tpl-api-limit-monitoring',
     name: 'API Limit Monitoring',
+    // The pre-check stops the run where the Monitor calls API usage critical,
+    // above 80%, so the condition after it asks about the band below that,
+    // where the Monitor starts to warn: tested at 80%, it could never hold
+    // once the run got to it.
     description:
-      'Check API usage against governor limits and mark the point where high usage would be reported.',
+      'Check API usage against the daily limit: a notification past 60%, and the run stops past 80%.',
     category: 'monitoring',
     rating: 4.4,
     steps: [
@@ -391,19 +405,20 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         name: 'Check API Usage',
         type: 'precheck',
         config: { checks: ['apiLimits'] },
-        description: 'Query current API consumption',
+        description: 'Read API consumption; the run stops here past 80%',
       },
       {
         name: 'Evaluate Thresholds',
         type: 'condition',
-        config: { field: 'apiUsagePercent', operator: '>', value: '80' },
-        description: 'Check if usage exceeds 80%',
+        config: {},
+        condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 },
+        description: 'Go on only when usage exceeds 60%',
       },
       {
-        name: 'Send Alert',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Report high usage (a run sends no message yet)',
+        config: { message: 'API usage has passed 60% of the daily limit.' },
+        description: 'Show a VS Code notification',
       },
     ],
     tags: ['api', 'limits', 'monitoring', 'governor'],
@@ -463,10 +478,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Sync contact records',
       },
       {
-        name: 'Post-Sync Report',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Summary of synced records (a run sends no message yet)',
+        config: { message: 'The cross-org sync finished.' },
+        description: 'Show a VS Code notification when the sync is done',
       },
     ],
     tags: ['sync', 'cross-org', 'migration'],
@@ -497,10 +512,10 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
         description: 'Validate restored data',
       },
       {
-        name: 'Incident Notification',
+        name: 'Show Notification',
         type: 'notification',
-        config: {},
-        description: 'Report the rollback (a run sends no message yet)',
+        config: { message: 'The emergency rollback finished.' },
+        description: 'Show a VS Code notification when the rollback is done',
       },
     ],
     tags: ['rollback', 'emergency', 'restore'],
@@ -609,6 +624,9 @@ export class PipelineMarketplace {
         name: String(step.name ?? ''),
         type: String(step.type ?? ''),
         config: (step.config as Record<string, unknown>) ?? {},
+        ...(typeof step.condition === 'object' && step.condition !== null
+          ? { condition: step.condition }
+          : {}),
         description: String(step.description ?? ''),
       })),
       tags: Array.isArray(obj['tags']) ? (obj['tags'] as string[]).map(String) : [],

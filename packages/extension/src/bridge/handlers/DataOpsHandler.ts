@@ -160,6 +160,24 @@ function plannedAnonymizeObjects(
     .filter((v, i, a) => a.indexOf(v) === i);
 }
 
+/** A snapshot taken, as its metadata records it. */
+export interface BackupTaken {
+  operationId: string;
+  /** Each object read, with the rows taken and whether a bound cut the read short. */
+  objects: Array<{ objectApiName: string; recordCount: number; truncated: boolean }>;
+  totalRecords: number;
+  /** Whether any object stopped at a bound: the snapshot is only part of the org's data. */
+  partial: boolean;
+  timestamp: string;
+}
+
+/** A snapshot not taken: why, whether trying again may help, and what it was on. */
+interface BackupNotTaken {
+  error: unknown;
+  retryable: boolean;
+  context: OperationFailureContext;
+}
+
 /**
  * Domain handler for DataOps-related webview-to-extension messages.
  *
@@ -294,27 +312,105 @@ export class DataOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsBackupPayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
-    const payload = parsed;
     // Deterministic ID from the message ID — enables genuine duplicate detection
     // (a fresh UUID per call made `isDuplicate` dead code).
     const operationId = msg.id;
+    const outcome = await this.takeBackup(operationId, parsed, msg.type);
+
+    if ('error' in outcome) {
+      // Dual channel, single display: `operation:failed` carries the lifecycle
+      // (webview clears global loading + auto AI-resolver); `dataops:error` is
+      // the `<domain>:error` channel useBridgeMutation listens on — it settles
+      // the in-flight mutation with the real message. The webview surfaces the
+      // error from dataops:error only, so the user sees it exactly once.
+      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, outcome.error);
+      sendOperationFailed(
+        this.deps,
+        operationId,
+        extractErrorMessage(outcome.error),
+        outcome.retryable,
+        { context: outcome.context },
+      );
+      return;
+    }
+
+    const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
+      operationId,
+      status: 'completed',
+      objects: outcome.objects.map((r) => ({
+        objectApiName: r.objectApiName,
+        recordCount: r.recordCount,
+      })),
+      totalRecords: outcome.totalRecords,
+      timestamp: outcome.timestamp,
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Take a snapshot for a pipeline's Backup step: the flow the Backup button
+   * runs — the org's lock, the duplicate guard, the tier's row bound, the
+   * registry entry Live Operations can cancel, the retention — answered to the
+   * step rather than to a page. Nothing is written to the org; the records go
+   * to local storage, where the DataOps page lists them.
+   *
+   * @param request - The snapshot's id, the org, and the objects to read.
+   * @param signal - Stops the snapshot between two objects, with nothing saved.
+   * @returns What the snapshot holds.
+   * @throws With the reason, when no snapshot was taken.
+   */
+  async backupForPipeline(
+    request: { operationId: string; orgId: string; objects: string[] },
+    signal?: AbortSignal,
+  ): Promise<BackupTaken> {
+    const outcome = await this.takeBackup(
+      request.operationId,
+      { orgId: request.orgId, objects: request.objects },
+      'pipeline:execute',
+      signal,
+    );
+    if ('error' in outcome) {
+      const message = extractErrorMessage(outcome.error);
+      sendOperationFailed(this.deps, request.operationId, message, outcome.retryable, {
+        context: outcome.context,
+      });
+      throw outcome.error instanceof Error ? outcome.error : new Error(message);
+    }
+    return outcome;
+  }
+
+  /**
+   * The snapshot flow the Backup button and a pipeline's Backup step share. It
+   * reports the lifecycle (`operation:started`, progress, `operation:completed`)
+   * itself and leaves answering the request, or the step, to its caller, with
+   * the failure when there is one.
+   *
+   * @param operationId - The snapshot's id: its storage key and its registry entry.
+   * @param payload - The org and the objects to read.
+   * @param origin - The request that asked for it, for the fix suggestion.
+   * @param signal - Stops the snapshot between two objects, as a cancel from
+   *   Live Operations does.
+   */
+  private async takeBackup(
+    operationId: string,
+    payload: { orgId: string; objects: string[] },
+    origin: string,
+    signal?: AbortSignal,
+  ): Promise<BackupTaken | BackupNotTaken> {
     // Names the object in progress as the loop below advances, so the fix
     // suggestion for a failure says which object it came from.
-    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
+    const failure: OperationFailureContext = { module: 'dataops', operation: origin };
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
-      // Settle the in-flight useBridgeMutation listener on dataops:error
-      // (same dual-channel contract as the catch below).
-      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, new Error(message));
       // This message is one SandForge writes itself, so it is never asked
       // about and the context is never read — it is passed here, and at the
       // guard and precondition refusals below, so every failure of the run
       // carries the same thing.
-      sendOperationFailed(this.deps, operationId, message, false, { context: failure });
-      return;
+      return { error: new Error(message), retryable: false, context: failure };
     }
     this.activeOrgOperations.add(lockKey);
 
@@ -326,21 +422,21 @@ export class DataOpsHandler implements DomainHandler {
     let settleBackup: (error?: unknown) => void = () => {};
     /** What the snapshot failed on, read by `settleBackup` in `finally`. */
     let backupError: unknown;
+    // Aborted by the registry (a cancel from Live Operations, the window
+    // closing) and by the caller's signal (a pipeline run stopped).
+    const stop = new AbortController();
+    const onAbort = (): void => stop.abort();
+    if (signal?.aborted) stop.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
       if (this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
-        sendHandlerError(
-          this.deps,
-          'backup:execute',
-          'dataops:error',
-          msg,
-          new Error(`Duplicate operation: ${operationId}`),
-        );
-        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false, {
+        return {
+          error: new Error(`Duplicate operation: ${operationId}`),
+          retryable: false,
           context: failure,
-        });
-        return;
+        };
       }
       this.dmlTracker.register(operationId, 'backup', 'insert', payload.objects.length);
 
@@ -355,23 +451,18 @@ export class DataOpsHandler implements DomainHandler {
       const orgTier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
       const queryLimits = getQueryLimits(orgTier);
 
-      const results: Array<{
-        objectApiName: string;
-        recordCount: number;
-        records: Record<string, unknown>[];
-        /** Whether a bound cut this object's read short. */
-        truncated: boolean;
-      }> = [];
+      const results: Array<
+        BackupTaken['objects'][number] & { records: Record<string, unknown>[] }
+      > = [];
 
       const description = `Backup ${payload.objects.length} object(s)`;
       sendOperationStarted(this.deps, operationId, 'dataops', description);
 
       // A snapshot reads one object after another, so the registry's abort —
       // the extension deactivating, the window closing, a cancel from Live
-      // Operations — is honoured between two objects. Nothing is written to
-      // storage until the whole loop is through, so stopping there leaves no
-      // half-saved backup behind.
-      const stop = new AbortController();
+      // Operations, a pipeline run stopped — is honoured between two objects.
+      // Nothing is written to storage until the whole loop is through, so
+      // stopping there leaves no half-saved backup behind.
       this.deps.infraServices?.backgroundRegistry?.register(
         operationId,
         'dataops',
@@ -481,33 +572,21 @@ export class DataOpsHandler implements DomainHandler {
         })),
         totalRecords: backupMeta.totalRecords,
       });
-
-      const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
-        operationId,
-        status: 'completed',
-        objects: results.map((r) => ({
-          objectApiName: r.objectApiName,
-          recordCount: r.recordCount,
-        })),
-        totalRecords: backupMeta.totalRecords,
-        timestamp: backupMeta.timestamp,
-      });
-      this.deps.broker.postToWebview(response);
-      this.deps.log(`[TX] ${response.type} id=${response.id}`);
       this.dmlTracker.markCompleted(operationId);
+
+      return {
+        operationId,
+        objects: backupMeta.objects,
+        totalRecords: backupMeta.totalRecords,
+        partial: backupMeta.partial,
+        timestamp: backupMeta.timestamp,
+      };
     } catch (err: unknown) {
       backupError = err;
       this.dmlTracker.markFailed(operationId);
-      // Dual channel, single display: `operation:failed` carries the lifecycle
-      // (webview clears global loading + auto AI-resolver); `dataops:error` is
-      // the `<domain>:error` channel useBridgeMutation listens on — it settles
-      // the in-flight mutation with the real message. The webview surfaces the
-      // error from dataops:error only, so the user sees it exactly once.
-      sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, err);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
-        context: failure,
-      });
+      return { error: err, retryable: true, context: failure };
     } finally {
+      signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
       this.activeOrgOperations.delete(lockKey);
     }

@@ -13,6 +13,8 @@ export interface HealthSignal {
   message: string;
   /** Rows the signal counted (failed jobs, error logs); absent when it read none. */
   count?: number;
+  /** The share of a limit in use (API requests, data storage), in percent; absent when none was read. */
+  percent?: number;
 }
 
 /** Function that produces a health signal for an org */

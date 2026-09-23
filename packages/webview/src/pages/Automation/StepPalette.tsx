@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PipelineStepType } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
-import { typeBlocker } from './stepRunnability';
+import { paletteBlocker } from './stepRunnability';
 
 /** Step category definition. */
 export type StepCategory = 'data' | 'control' | 'notification' | 'quality';
@@ -49,10 +49,13 @@ const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' |
 /**
  * Palette of available step types grouped by category.
  *
- * A step type the extension cannot run is shown, so the reader sees what is
- * planned, but its button is disabled: a pipeline holding one is refused
- * before it starts, so adding it would only build a pipeline that cannot run.
- * The note above the list says why, and each disabled entry is described by it.
+ * A step type a pipeline cannot run is shown, but its button is disabled: a
+ * pipeline holding one is refused before it starts, so adding it would only
+ * build a pipeline that cannot run. The steps that write to an org are
+ * refused on purpose, not for now — each runs from its own page, where
+ * Production Guard asks before a write to a production org — so they are
+ * marked apart from the ones still to come. The note above the list says why,
+ * each disabled entry is described by it, and its title gives its own reason.
  */
 export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
   const { t } = useTranslation();
@@ -82,7 +85,7 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
           </span>
           <div className="flex flex-wrap gap-1 mt-1">
             {steps.map((entry) => {
-              const blocker = typeBlocker(entry.type);
+              const blocker = paletteBlocker(entry.type);
               return (
                 <button
                   key={entry.type}
@@ -106,7 +109,9 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
                       className="text-[9px] text-[var(--sf-text-secondary)]"
                       data-testid={`palette-${entry.type}-soon`}
                     >
-                      {t('common.comingSoon')}
+                      {blocker === 'writesToOrg'
+                        ? t('automation.runnability.notInPipelines')
+                        : t('common.comingSoon')}
                     </span>
                   )}
                 </button>

@@ -238,15 +238,21 @@ describe('AutomationPage', () => {
     expect(screen.getByText('Pipeline validation failed')).toBeDefined();
   });
 
-  it('says on the canvas that only Delay steps run, before anyone runs a pipeline', () => {
+  it('says on the canvas which steps run and which are refused, before anyone runs a pipeline', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<AutomationPage />);
     const notice = screen.getByTestId('automation-steps-soon');
     expect(notice.textContent).toContain('Coming soon');
-    expect(notice.textContent).toContain('Only Delay steps run in a pipeline');
-    expect(notice.textContent).toContain('Condition');
-    expect(notice.textContent).toContain('cannot run in a pipeline yet');
-    // The steps are refused now; nothing reports a success it did not earn.
+    expect(notice.textContent).toContain(
+      'Script, Approval, Loop and Parallel steps cannot run in a pipeline yet',
+    );
+    expect(notice.textContent).toContain(
+      'Seed, Sync, Restore, Anonymize and Delete write to an org, so they run only from their own pages',
+    );
+    expect(notice.textContent).toContain(
+      'Backup, Compare, Pre-Check, Notification, Delay and Condition steps run',
+    );
+    // The refused steps are refused; nothing reports a success it did not earn.
     expect(notice.textContent).not.toMatch(/report success/i);
   });
 
@@ -288,7 +294,7 @@ describe('AutomationPage', () => {
       useOrgStore.setState({ orgs: mockOrgs });
       render(<AutomationPage />);
 
-      expect(screen.getByTestId('saved-pipeline-blocked-p-1').textContent).toBe('Cannot run yet');
+      expect(screen.getByTestId('saved-pipeline-blocked-p-1').textContent).toBe('Cannot run');
       fireEvent.click(screen.getByTestId('saved-pipeline-p-1'));
 
       const run = screen.getByTestId('run-pipeline-btn');
@@ -298,8 +304,11 @@ describe('AutomationPage', () => {
       expect(notice.textContent).toContain(
         'This pipeline cannot run. Remove or fix these steps first:',
       );
+      // Seed writes to an org: it runs from the Seed page, where Production
+      // Guard asks first, and never unattended in a pipeline.
       expect(screen.getByTestId('pipeline-blocked-s-seed').textContent).toBe(
-        'Load Target (Seed) — This step type cannot run in a pipeline yet.',
+        'Load Target (Seed) — This step writes to an org, so a pipeline does not run it: ' +
+          'run it from its own page, where Production Guard asks before a write to a production org.',
       );
       // The Delay step has its seconds: it is not what blocks the pipeline.
       expect(screen.queryByTestId('pipeline-blocked-s-wait')).toBeNull();
@@ -317,6 +326,41 @@ describe('AutomationPage', () => {
       fireEvent.click(screen.getByText('Triggers'));
 
       expect(screen.getByTestId('pipeline-blocked')).toBeDefined();
+    });
+
+    it('asks a new Backup step for its org and objects, and runs it once it has them', () => {
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<AutomationPage />);
+      fireEvent.click(screen.getByTestId('create-pipeline-btn'));
+      fireEvent.click(screen.getByTestId('palette-backup'));
+
+      const run = screen.getByTestId('run-pipeline-btn');
+      expect(run).toHaveProperty('disabled', true);
+      expect(screen.getByTestId('pipeline-blocked').textContent).toContain(
+        'Choose the org this step works on.',
+      );
+
+      const [step] = screen.getAllByTestId(/^canvas-step-/);
+      fireEvent.click(step);
+      fireEvent.change(screen.getByTestId('config-orgId'), { target: { value: 'org-1' } });
+      expect(screen.getByTestId('pipeline-blocked').textContent).toContain(
+        'List the API names of the objects to back up',
+      );
+      fireEvent.change(screen.getByTestId('config-objects'), {
+        target: { value: 'Account, Contact' },
+      });
+
+      expect(screen.queryByTestId('pipeline-blocked')).toBeNull();
+      fireEvent.click(run);
+      const [payload] = mockExecuteMutate.mock.calls[0] as [
+        { pipeline: { steps: Array<{ type: string; config: Record<string, unknown> }> } },
+      ];
+      expect(payload.pipeline.steps).toEqual([
+        expect.objectContaining({
+          type: 'backup',
+          config: { orgId: 'org-1', objects: ['Account', 'Contact'] },
+        }),
+      ]);
     });
 
     it('asks a new Delay step for its seconds before it runs, and runs it once it has them', () => {
@@ -383,9 +427,10 @@ describe('AutomationPage', () => {
     render(<AutomationPage />);
     fireEvent.click(screen.getByText('Marketplace'));
 
+    // Notification runs now: only the steps that write to an org are named.
     expect(screen.getByTestId('marketplace-template-blocked-tpl-a').textContent).toBe(
-      'Cannot run yet' +
-        'Cannot run as a pipeline yet. These step types cannot run: Anonymize, Seed, Notification.',
+      'Cannot run' +
+        'Cannot run as a pipeline. These step types do not run in one: Anonymize, Seed.',
     );
     expect(screen.queryByTestId('marketplace-template-blocked-tpl-b')).toBeNull();
     // A card that does not say what its steps are is not guessed at.

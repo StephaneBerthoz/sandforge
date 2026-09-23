@@ -1,4 +1,4 @@
-import React, { useId, useRef } from 'react';
+import React, { useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { m } from 'framer-motion';
@@ -30,6 +30,7 @@ import { blockedSteps, typeBlocker } from './stepRunnability';
 export const AutomationPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
   const blockedNoticeId = useId();
 
   /** A step type in the reader's language; a type this page does not know stays as it is. */
@@ -72,6 +73,7 @@ export const AutomationPage: React.FC = () => {
     setGenDescription,
     handleCreatePipeline,
     handleRunPipeline,
+    handleCancelRun,
     handleSavePipeline,
     handleLoadPipeline,
     handleInstallTemplate,
@@ -221,7 +223,7 @@ export const AutomationPage: React.FC = () => {
                   <span className="text-xs text-text-secondary">
                     {p.steps.length} {t('automation.steps')}
                   </span>
-                  {blockedSteps(p.steps).length > 0 && (
+                  {blockedSteps(p.steps, orgIds).length > 0 && (
                     <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
                       {t('automation.runnability.cannotRun')}
                     </Badge>
@@ -274,8 +276,8 @@ export const AutomationPage: React.FC = () => {
         <div className="p-4" data-testid="automation-content">
           {activeTab === 'canvas' && (
             <div className="flex flex-col gap-[var(--sf-space-4)]">
-              {/* Only Delay steps run: the extension refuses a pipeline that
-                  holds any other step type before its first step. Say so
+              {/* The steps that write to an org, and the control steps not
+                  built yet, are refused before a pipeline's first step. Say so
                   before anyone builds one. */}
               <ComingSoon
                 variant="banner"
@@ -296,10 +298,11 @@ export const AutomationPage: React.FC = () => {
               <div className="flex gap-[var(--sf-space-4)]">
                 <div className="flex-1">
                   {isRunning ? (
-                    <PipelineExecutionView execution={executionData} />
+                    <PipelineExecutionView execution={executionData} onCancel={handleCancelRun} />
                   ) : (
                     <PipelineCanvas
                       steps={pipeline?.steps}
+                      orgIds={orgIds}
                       selectedStepId={selectedStepId}
                       onSelectStep={(id) => {
                         setSelectedStepId(id);

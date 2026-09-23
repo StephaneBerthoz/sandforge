@@ -1007,8 +1007,6 @@
     "noOrgSelected": "No org selected — pick one from the Organizations page before running a backup or anonymization.",
     "noBackups": "No backups available",
     "createBackup": "Create Backup",
-    "backupName": "Backup Name",
-    "includeAttachments": "Include Attachments",
     "selectBackup": "Select a backup to restore",
     "restoreInProgress": "Restoring data...",
     "selectTemplate": "Select a template",
@@ -1131,7 +1129,7 @@
     "historyRuns": "History Runs",
     "triggers": "Triggers",
     "triggerManualOnlyNote": "Only a manual run starts a pipeline. The other trigger types can be configured here, but nothing fires them yet.",
-    "sandboxRefreshTriggerRefused": "SandForge notices a sandbox refresh and tells you, but this trigger starts no pipeline: a pipeline runs only Delay and Condition steps, and the work a refresh calls for — anonymizing, seeding, backing up — is made of data steps it would refuse to start.",
+    "sandboxRefreshTriggerRefused": "SandForge notices a sandbox refresh and tells you, but this trigger starts no pipeline: pipelines start by hand. The work a refresh calls for — anonymizing, seeding — writes to an org, and no pipeline step does.",
     "addTrigger": "Add Trigger",
     "run": "Run Pipeline",
     "running": "Running pipeline...",
@@ -1196,6 +1194,15 @@
     "stepName": "Step Name",
     "typeConfig": "Type-specific config",
     "stepConfigMessage": "Message",
+    "stepConfigOrg": "Org",
+    "stepConfigObjects": "Objects (API names, comma-separated)",
+    "stepConfigChecks": "Checks",
+    "precheckChecks": {
+      "apiLimits": "API usage",
+      "storage": "Data storage",
+      "recentErrors": "Apex error logs (last 24 h)",
+      "failedJobs": "Failed Apex jobs"
+    },
     "stepConfigDelay": "Delay (seconds)",
     "stepConfigScript": "Script",
     "stepConfigWhere": "WHERE clause",
@@ -1219,20 +1226,30 @@
     "installTemplate": "Install",
     "runFailed": "The pipeline run failed: {{reason}}",
     "runnability": {
-      "cannotRun": "Cannot run yet",
+      "cannotRun": "Cannot run",
       "typeCannotRun": "This step type cannot run in a pipeline yet.",
-      "conditionCannotRun": "A Condition step cannot run in a pipeline yet: nothing here sets its condition, and a run carries no variables for it to test.",
+      "writesToOrg": "This step writes to an org, so a pipeline does not run it: run it from its own page, where Production Guard asks before a write to a production org.",
+      "notInPipelines": "Not in pipelines",
+      "conditionNeedsCondition": "A Condition step needs a condition to test, and this page cannot set one yet. A Condition step from a Marketplace template carries its own.",
       "delayNeedsSeconds": "Set how many seconds this Delay step waits (from 0 up to 24 days).",
-      "paletteNote": "Only Delay steps can run in a pipeline for now. The other step types cannot be added yet.",
+      "timeoutTooLong": "Set a timeout of at most 24 days (2,073,600,000 ms), or none.",
+      "needsOrg": "Choose the org this step works on.",
+      "orgNotConnected": "This step names an org that is not connected here: choose one of your orgs.",
+      "backupNeedsObjects": "List the API names of the objects to back up, such as Account, Contact (up to 100).",
+      "compareNeedsOrgs": "Choose a source org and a different target org.",
+      "compareNeedsTypes": "Choose at least one metadata type to compare.",
+      "precheckNeedsChecks": "Choose what this Pre-Check reads: API usage, data storage, Apex error logs or failed Apex jobs.",
+      "notificationNeedsMessage": "Write the message this notification shows (up to 500 characters).",
+      "paletteNote": "Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages, where Production Guard asks first. Script, Approval, Loop and Parallel cannot run yet, and a Condition step needs a condition this page cannot set yet.",
       "pipelineBlocked": "This pipeline cannot run. Remove or fix these steps first:",
-      "templateBlocked": "Cannot run as a pipeline yet. These step types cannot run: {{types}}."
+      "templateBlocked": "Cannot run as a pipeline. These step types do not run in one: {{types}}."
     },
     "soon": {
-      "steps": "Only Delay steps run in a pipeline for now. Seed, Sync, Backup, Restore, Anonymize, Delete, Condition and the other step types cannot run in a pipeline yet: a pipeline that holds one does not start."
+      "steps": "Script, Approval, Loop and Parallel steps cannot run in a pipeline yet, and Seed, Sync, Restore, Anonymize and Delete write to an org, so they run only from their own pages. A pipeline that holds any of them does not start. Backup, Compare, Pre-Check, Notification, Delay and Condition steps run."
     },
     "emptyState": {
       "title": "Build Your First Pipeline",
-      "description": "Compose pipelines on a visual canvas and save them. So far, only Delay steps can run in a pipeline.",
+      "description": "Compose pipelines on a visual canvas, save them and run them: back up and compare orgs, check their limits, show a notification. No pipeline step writes to an org.",
       "cta": "Select an Org"
     },
     "agenda": {
@@ -1513,7 +1530,7 @@
     "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: coming soon, nothing is deployed from a diff yet",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a full snapshot of Account and Contact, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet",
-    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Only Delay steps can run yet: a pipeline holding any of the other 14 is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration, step count and errors for each run\n- Pipeline templates from the Marketplace",
+    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Backup, Compare, Pre-Check, Notification, Delay and Condition run; a pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration and errors of each run, and what each of its steps did\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",

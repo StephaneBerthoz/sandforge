@@ -117,6 +117,6 @@ Now that you are up and running, explore the full capabilities of each module:
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking
 - [Compare](modules/compare.md) -- Metadata diff, permission set and profile presence, and five Organization settings
 - [DataOps](modules/dataops.md) -- Backup, restore, anonymization and a data-quality scan (compliance coming soon)
-- [Automation](modules/automation.md) -- Visual pipeline builder (step execution, scheduling and triggers coming soon)
+- [Automation](modules/automation.md) -- Visual pipeline builder: backups, comparisons, checks, notifications (scheduling and triggers coming soon)
 
 Have questions? Check the [FAQ and Troubleshooting](faq.md) guide.

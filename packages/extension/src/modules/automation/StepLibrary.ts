@@ -38,10 +38,10 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'backup',
     label: 'Backup',
-    description: 'Create a backup snapshot of selected data',
+    description: 'Take a DataOps snapshot of the listed objects into local storage',
     category: 'data',
     icon: 'archive',
-    configSchema: { objects: { type: 'array' }, format: { type: 'string' } },
+    configSchema: { orgId: { type: 'string' }, objects: { type: 'array' } },
   },
   {
     type: 'restore',
@@ -70,18 +70,23 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'compare',
     label: 'Compare Orgs',
-    description: 'Compare metadata or data between two orgs',
+    description: 'Compare the metadata of two orgs, as the Compare page does',
     category: 'quality',
     icon: 'git-compare',
-    configSchema: { sourceOrg: { type: 'string' }, targetOrg: { type: 'string' } },
+    configSchema: {
+      sourceOrgId: { type: 'string' },
+      targetOrgId: { type: 'string' },
+      types: { type: 'array' },
+    },
   },
   {
     type: 'precheck',
     label: 'Pre-check',
-    description: 'Run validation checks before proceeding',
+    description:
+      'Read an org’s API usage, storage, error logs or failed jobs as the Monitor does; the run stops on a critical reading',
     category: 'quality',
     icon: 'check-circle',
-    configSchema: { checks: { type: 'array' } },
+    configSchema: { orgId: { type: 'string' }, checks: { type: 'array' } },
   },
   {
     type: 'condition',
@@ -138,10 +143,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'notification',
     label: 'Notification',
-    description: 'Marks a notification point; a run sends no message yet',
+    description: 'Shows its message as a VS Code notification',
     category: 'notification',
     icon: 'bell',
-    // No channel and no recipients: nothing delivers the message yet.
+    // No channel and no recipients: the message is shown in VS Code, to the
+    // person running the pipeline, and sent nowhere else.
     configSchema: { message: { type: 'string' } },
   },
 ];

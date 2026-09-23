@@ -5,8 +5,8 @@
  * receives. That is enough for a handler that holds its whole flow, but a
  * runner that wires its own pieces tests its own wiring: a handler that reads
  * a dependency the runner never thought to give it looks broken, and one that
- * reads a dependency the extension never gives it looks fine. Compare and
- * Monitor are driven through what the extension builds instead:
+ * reads a dependency the extension never gives it looks fine. Compare,
+ * Monitor and Automation are driven through what the extension builds instead:
  * `ExtensionHandlers` constructs the handlers and the deps they share,
  * `registerAll` routes them, the `MessageBroker` checks each request's
  * envelope as it does for a webview, and orgs go through the product's own
@@ -43,6 +43,7 @@ import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { OrgIdentity } from '../src/core/connection/AuthProvider.js';
 import { SfdxBridge } from '../src/core/connection/SfdxBridge.js';
 import { CompareOrchestrator } from '../src/modules/compare/CompareOrchestrator.js';
+import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
 import { LiveOperationTracker } from '../src/modules/monitor/LiveOperationTracker.js';
 import type { Services } from '../src/services.js';
 
@@ -182,18 +183,30 @@ export function problemLine(message: PostedMessage): string | undefined {
  * The Services bundle, cut down to what the routed handlers read.
  *
  * `createServices` builds it from the VS Code API, which is not here. The
- * compare factory is the one it declares; a setting reads as its manifest
- * default, which is what VS Code answers for a setting nobody changed.
+ * compare and pipeline factories are the ones it declares; a setting reads as
+ * its manifest default, which is what VS Code answers for a setting nobody
+ * changed. There is no window to show a notification in, so a pipeline's
+ * Notification step writes its message to the log instead.
  */
-function headlessServices(configStore: ReturnType<typeof fileConfigStore>): Services {
+function headlessServices(
+  configStore: ReturnType<typeof fileConfigStore>,
+  log: (line: string) => void,
+): Services {
   const services: Pick<
     Services,
-    'compareOrchestrator' | 'getSandforgeSetting' | 'isAIEnabled' | 'configStore'
+    | 'compareOrchestrator'
+    | 'automationOrchestrator'
+    | 'getSandforgeSetting'
+    | 'isAIEnabled'
+    | 'configStore'
+    | 'showNotification'
   > = {
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),
+    automationOrchestrator: (deps) => new PipelineOrchestrator(deps),
     getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
     isAIEnabled: () => false,
     configStore,
+    showNotification: (message) => log(`  notification: ${message}`),
   };
   return services as Services;
 }
@@ -237,7 +250,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
     secretVault,
     authProvider,
     sfdxBridge,
-    services: headlessServices(configStore),
+    services: headlessServices(configStore, log),
   });
   // The late service the Monitor reads (see composition/lateServices.ts).
   handlers.setLiveOperationTracker(new LiveOperationTracker());

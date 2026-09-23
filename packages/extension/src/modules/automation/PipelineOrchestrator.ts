@@ -14,8 +14,18 @@ import type { PipelineHistory } from './PipelineHistory';
 import type { CoreServices } from '../../services.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
-/** Events emitted by the PipelineOrchestrator */
-export type PipelineEvent = 'started' | 'stepCompleted' | 'completed' | 'failed';
+/**
+ * Events emitted by the PipelineOrchestrator. `stepStarted` carries the id of
+ * the step about to run; `stepCompleted` and `stepSkipped` carry its result,
+ * the second for a step the run passed over.
+ */
+export type PipelineEvent =
+  | 'started'
+  | 'stepStarted'
+  | 'stepCompleted'
+  | 'stepSkipped'
+  | 'completed'
+  | 'failed';
 
 /** Handler function for pipeline events */
 export type PipelineEventHandler = (event: PipelineEvent, data: unknown) => void;
@@ -69,6 +79,23 @@ function runVariables(
     }
   }
   return { ...defaults, ...supplied };
+}
+
+/**
+ * The values a completed step hands to the steps after it: the text entries
+ * of its `output.variables`. A Pre-check hands on what it read — API usage in
+ * percent, say — so that a Condition after it can test it; a run's values
+ * were otherwise only ever the variables it started with.
+ */
+function handedOn(result: PipelineStepResult): Record<string, string> {
+  if (result.status !== 'completed') return {};
+  const variables = result.output?.['variables'];
+  if (typeof variables !== 'object' || variables === null || Array.isArray(variables)) return {};
+  return Object.fromEntries(
+    Object.entries(variables).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 /**
@@ -134,6 +161,8 @@ export class PipelineOrchestrator {
    * - A step that names an onSuccess or onFailure step for its outcome jumps
    *   to it, and the steps in between are passed over. The target used to run
    *   twice: once when routed to, and again when its turn came.
+   * - A completed step may hand values on to the steps after it (see
+   *   {@link handedOn}); they are laid over the run's variables.
    *
    * A pipeline with a step that cannot do its work does not start: see
    * {@link refuseUnrunnable}.
@@ -195,10 +224,12 @@ export class PipelineOrchestrator {
       const result = await this.runStep(step, run, values, aborter.signal);
       run.stepResults.push(result);
       if (result.status === 'skipped') {
+        this.emit('stepSkipped', { runId: run.id, stepResult: result });
         index += 1;
         continue;
       }
       this.emit('stepCompleted', { runId: run.id, stepResult: result });
+      Object.assign(values, handedOn(result));
 
       // A step cut short by the abort failed because the run was stopped, not
       // on its own: the run is cancelled, and nothing is routed from it.
@@ -229,7 +260,9 @@ export class PipelineOrchestrator {
         if (at !== -1) next = at;
       }
       for (const passed of steps.slice(index + 1, next)) {
-        run.stepResults.push(skipped(passed));
+        const result = skipped(passed);
+        run.stepResults.push(result);
+        this.emit('stepSkipped', { runId: run.id, stepResult: result });
       }
       index = next;
     }
@@ -353,10 +386,12 @@ export class PipelineOrchestrator {
       }
     }
 
+    this.emit('stepStarted', { runId: run.id, stepId: step.id });
     return this.deps.stepExecutor.execute(step, {
       variables: values,
       previousResults: run.stepResults,
       pipelineId: run.pipelineId,
+      pipelineName: run.pipelineName,
       runId: run.id,
       signal,
     });

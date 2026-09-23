@@ -1007,8 +1007,6 @@
     "noOrgSelected": "Ninguna org seleccionada: elija una en la página Organizaciones antes de ejecutar una copia de seguridad o anonimización.",
     "noBackups": "No hay respaldos disponibles",
     "createBackup": "Crear respaldo",
-    "backupName": "Nombre del respaldo",
-    "includeAttachments": "Incluir adjuntos",
     "selectBackup": "Seleccione un respaldo para restaurar",
     "restoreInProgress": "Restaurando datos...",
     "selectTemplate": "Seleccionar una plantilla",
@@ -1131,7 +1129,7 @@
     "historyRuns": "Ejecuciones del historial",
     "triggers": "Disparadores",
     "triggerManualOnlyNote": "Solo una ejecución manual inicia un pipeline. Los demás tipos de disparador se pueden configurar aquí, pero todavía nada los activa.",
-    "sandboxRefreshTriggerRefused": "SandForge detecta la actualización de un sandbox y se lo indica, pero este disparador no inicia ningún pipeline: un pipeline solo ejecuta pasos Retraso y Condición, y el trabajo que pide una actualización — anonimización, seed, respaldo — se compone de pasos de datos que se negaría a iniciar.",
+    "sandboxRefreshTriggerRefused": "SandForge detecta la actualización de un sandbox y se lo indica, pero este disparador no inicia ningún pipeline: los pipelines se inician a mano. El trabajo que pide una actualización — anonimización, seed — escribe en una org, y ningún paso de pipeline lo hace.",
     "addTrigger": "Agregar disparador",
     "run": "Ejecutar pipeline",
     "running": "Ejecutando pipeline...",
@@ -1196,6 +1194,15 @@
     "stepName": "Nombre del paso",
     "typeConfig": "Configuración específica del tipo",
     "stepConfigMessage": "Mensaje",
+    "stepConfigOrg": "Org",
+    "stepConfigObjects": "Objetos (nombres de API, separados por comas)",
+    "stepConfigChecks": "Comprobaciones",
+    "precheckChecks": {
+      "apiLimits": "Uso de la API",
+      "storage": "Almacenamiento de datos",
+      "recentErrors": "Logs de errores de Apex (últimas 24 h)",
+      "failedJobs": "Jobs de Apex fallidos"
+    },
     "stepConfigDelay": "Retraso (segundos)",
     "stepConfigScript": "Script",
     "stepConfigWhere": "Cláusula WHERE",
@@ -1219,20 +1226,30 @@
     "installTemplate": "Instalar",
     "runFailed": "La ejecución del pipeline falló: {{reason}}",
     "runnability": {
-      "cannotRun": "Aún no ejecutable",
+      "cannotRun": "No ejecutable",
       "typeCannotRun": "Este tipo de paso todavía no puede ejecutarse en un pipeline.",
-      "conditionCannotRun": "Un paso Condición todavía no puede ejecutarse en un pipeline: aquí nada define su condición, y una ejecución no lleva variables que pueda evaluar.",
+      "writesToOrg": "Este paso escribe en una org, así que un pipeline no lo ejecuta: ejecútelo desde su propia página, donde Production Guard pregunta antes de escribir en una org de producción.",
+      "notInPipelines": "Fuera de pipelines",
+      "conditionNeedsCondition": "Un paso Condición necesita una condición que evaluar, y esta página todavía no puede definirla. Un paso Condición de una plantilla del Marketplace trae la suya.",
       "delayNeedsSeconds": "Indique cuántos segundos espera este paso Retraso (de 0 a 24 días).",
-      "paletteNote": "Por ahora, solo los pasos Retraso pueden ejecutarse en un pipeline. Los demás tipos de paso todavía no se pueden añadir.",
+      "timeoutTooLong": "Indique un timeout de 24 días como máximo (2.073.600.000 ms), o ninguno.",
+      "needsOrg": "Elija la org con la que trabaja este paso.",
+      "orgNotConnected": "Este paso nombra una org que no está conectada aquí: elija una de sus orgs.",
+      "backupNeedsObjects": "Indique los nombres de API de los objetos que se respaldan, por ejemplo Account, Contact (100 como máximo).",
+      "compareNeedsOrgs": "Elija una org de origen y una org de destino distinta.",
+      "compareNeedsTypes": "Elija al menos un tipo de metadatos para comparar.",
+      "precheckNeedsChecks": "Elija qué lee esta Pre-verificación: uso de la API, almacenamiento de datos, logs de errores de Apex o jobs de Apex fallidos.",
+      "notificationNeedsMessage": "Escriba el mensaje que muestra esta notificación (500 caracteres como máximo).",
+      "paletteNote": "Los pasos que escriben en una org — Seed, Sync, Restauración, Anonimización, Eliminación — solo se ejecutan desde su propia página, donde Production Guard pregunta primero. Script, Aprobación, Bucle y Paralelo todavía no pueden ejecutarse, y un paso Condición necesita una condición que esta página todavía no puede definir.",
       "pipelineBlocked": "Este pipeline no puede ejecutarse. Primero quite o corrija estos pasos:",
-      "templateBlocked": "Todavía no puede ejecutarse como pipeline. Estos tipos de paso no pueden ejecutarse: {{types}}."
+      "templateBlocked": "No puede ejecutarse como pipeline. Estos tipos de paso no se ejecutan en un pipeline: {{types}}."
     },
     "soon": {
-      "steps": "Por ahora, solo los pasos Retraso se ejecutan en un pipeline. Seed, Sync, Respaldo, Restauración, Anonimización, Eliminación, Condición y los demás tipos de paso todavía no pueden ejecutarse en un pipeline: un pipeline que contenga uno no se inicia."
+      "steps": "Los pasos Script, Aprobación, Bucle y Paralelo todavía no pueden ejecutarse en un pipeline, y Seed, Sync, Restauración, Anonimización y Eliminación escriben en una org, así que solo se ejecutan desde su propia página. Un pipeline que contenga uno no se inicia. Los pasos Respaldo, Comparación, Pre-verificación, Notificación, Retraso y Condición se ejecutan."
     },
     "emptyState": {
       "title": "Cree su primer pipeline",
-      "description": "Componga pipelines en un lienzo visual y guárdelos. Por ahora, solo los pasos Retraso pueden ejecutarse en un pipeline.",
+      "description": "Componga pipelines en un lienzo visual, guárdelos y ejecútelos: respalde y compare orgs, compruebe sus límites, muestre una notificación. Ningún paso de pipeline escribe en una org.",
       "cta": "Seleccionar una org"
     },
     "agenda": {
@@ -1513,7 +1530,7 @@
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental, delta y CDC no están implementados)\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas y minúsculas y espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; la asignación de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Sin deshacer: una ejecución no se puede revertir, así que haga primero un respaldo DataOps de la org de destino (cubre Account y Contact)",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Instantáneas: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Drift: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: próximamente, todavía no se despliega nada desde un diff",
     "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea completa de Account y Contact, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos en su lugar con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento y Limpieza: próximamente, todavía no se ejecuta nada detrás de estas pestañas",
-    "automationContent": "Constructor visual de pipelines:\n- 15 tipos de pasos en 4 categorías. Por ahora solo los pasos Retraso pueden ejecutarse: un pipeline que contenga cualquiera de los otros 14 se rechaza antes de iniciarse\n- Los pipelines se inician a mano, con el botón Ejecutar pipeline; nada más los inicia todavía\n- Historial de ejecución: estado, duración total, número de pasos y errores de cada ejecución\n- Plantillas de pipeline del Marketplace",
+    "automationContent": "Constructor visual de pipelines:\n- 15 tipos de pasos en 4 categorías. Respaldo, Comparación, Pre-verificación, Notificación, Retraso y Condición se ejecutan; un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Los pipelines se inician a mano, con el botón Ejecutar pipeline; nada más los inicia todavía\n- Historial de ejecución: estado, duración total y errores de cada ejecución, y lo que hizo cada uno de sus pasos\n- Plantillas de pipeline del Marketplace",
     "forgeContent": "Forge clona un registro real, y los registros a su alrededor, de una org a otra:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
     "frozenContent": "Dataset congelado extrae un conjunto de datos de una sandbox de origen una sola vez y lo reproduce idéntico tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",

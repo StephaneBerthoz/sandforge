@@ -106,4 +106,39 @@ describe('createPanelHost', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('runs a pipeline as the Automation page does, and writes its notification to the log', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    const lines: string[] = [];
+    try {
+      const host = createPanelHost({
+        storeDir: dir,
+        log: (line) => lines.push(line),
+        waitMs: 5_000,
+      });
+
+      const run = await host.request({
+        type: 'pipeline:execute',
+        responseType: 'pipeline:run:response',
+        payload: {
+          pipeline: {
+            id: 'p-host',
+            name: 'Headless',
+            steps: [
+              { id: 's1', name: 'Wait', type: 'delay', config: { seconds: 0 } },
+              { id: 's2', name: 'Tell', type: 'notification', config: { message: 'Done.' } },
+            ],
+          },
+        },
+      });
+
+      expect(run.outcome).toBe('answered');
+      expect((run.message?.payload as { status?: string }).status).toBe('completed');
+      expect(lines).toContain('  notification: Headless: Done.');
+      // Each step reached the page as it went.
+      expect(host.posted.filter((m) => m.type === 'pipeline:step')).toHaveLength(4);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

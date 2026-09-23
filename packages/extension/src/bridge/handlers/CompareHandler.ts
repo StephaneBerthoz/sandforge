@@ -1,3 +1,4 @@
+import type { CompareConfig, CompareResult, MetadataComponentType } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -75,82 +76,7 @@ export class CompareHandler implements DomainHandler {
     const payload = parsed;
 
     try {
-      const sourceConn = await getJsforceConnection(
-        payload.sourceOrgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-      const targetConn = await getJsforceConnection(
-        payload.targetOrgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-
-      const { DiffEngine } = await import('../../modules/compare/DiffEngine.js');
-      const { MetadataCompare } = await import('../../modules/compare/MetadataCompare.js');
-      const { createContentReader } = await import('../../modules/compare/ContentReader.js');
-
-      const diffEngine = new DiffEngine();
-
-      const fetchMetadata = async (
-        orgId: string,
-        componentType: import('@sandforge/shared').MetadataComponentType,
-      ) => {
-        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-        const components = new Map<string, string>();
-        const list = async (queries: Array<{ type: string; folder?: string }>) => {
-          const listResult = (await conn.metadata.list(queries)) as Array<{ fullName: string }>;
-          checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
-          return Array.isArray(listResult) ? listResult : [];
-        };
-        const folderType = FOLDER_TYPES[componentType];
-        const queries = folderType
-          ? (await list([{ type: folderType }])).map((f) => ({
-              type: componentType,
-              folder: f.fullName,
-            }))
-          : [{ type: componentType }];
-        // listMetadata takes three queries per call.
-        for (let i = 0; i < queries.length; i += 3) {
-          for (const item of await list(queries.slice(i, i + 3))) {
-            components.set(item.fullName, JSON.stringify(item));
-          }
-        }
-        return components;
-      };
-
-      // What each org holds of a component both list: the listing alone
-      // differs between any two orgs, whatever the component says.
-      const contentReader = createContentReader((orgId) =>
-        orgId === payload.sourceOrgId ? sourceConn : targetConn,
-      );
-      const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine, contentReader);
-
-      if (!this.deps.services) {
-        throw new Error(
-          'CompareHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
-        );
-      }
-      const orchestrator = this.deps.services.compareOrchestrator({
-        metadataCompare,
-        diffEngine,
-        services: this.deps.services,
-      });
-
-      const config: import('@sandforge/shared').CompareConfig = {
-        id: crypto.randomUUID(),
-        name: 'compare-from-ui',
-        sourceOrgId: payload.sourceOrgId,
-        targetOrgId: payload.targetOrgId,
-        mode: 'metadata',
-        componentTypes: payload.types as import('@sandforge/shared').MetadataComponentType[],
-        // Compared unless the page says otherwise: this was `false` and read by
-        // nothing, so every run compared them all the same.
-        includeManaged: payload.includeManaged ?? true,
-        createdAt: new Date().toISOString(),
-      };
-
-      const result = await orchestrator.execute(config);
+      const result = await this.compareOrgs(payload);
 
       const response = buildResponse(
         this.deps,
@@ -163,6 +89,97 @@ export class CompareHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'compare:execute', 'compare:error', msg, err);
     }
+  }
+
+  /**
+   * The metadata comparison the Compare page's Run and a pipeline's Compare
+   * step share: list each type on both orgs, read what both hold, diff it —
+   * the same listing, the same content read, the same bound. Both orgs are
+   * only read.
+   *
+   * @param payload - The two orgs and the component types to compare.
+   * @returns The comparison, every diff included.
+   * @throws With the reason, when the orgs could not be compared.
+   */
+  async compareOrgs(payload: {
+    sourceOrgId: string;
+    targetOrgId: string;
+    types: string[];
+    includeManaged?: boolean;
+  }): Promise<CompareResult> {
+    const sourceConn = await getJsforceConnection(
+      payload.sourceOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+    const targetConn = await getJsforceConnection(
+      payload.targetOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+
+    const { DiffEngine } = await import('../../modules/compare/DiffEngine.js');
+    const { MetadataCompare } = await import('../../modules/compare/MetadataCompare.js');
+    const { createContentReader } = await import('../../modules/compare/ContentReader.js');
+
+    const diffEngine = new DiffEngine();
+
+    const fetchMetadata = async (orgId: string, componentType: MetadataComponentType) => {
+      const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
+      const components = new Map<string, string>();
+      const list = async (queries: Array<{ type: string; folder?: string }>) => {
+        const listResult = (await conn.metadata.list(queries)) as Array<{ fullName: string }>;
+        checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
+        return Array.isArray(listResult) ? listResult : [];
+      };
+      const folderType = FOLDER_TYPES[componentType];
+      const queries = folderType
+        ? (await list([{ type: folderType }])).map((f) => ({
+            type: componentType,
+            folder: f.fullName,
+          }))
+        : [{ type: componentType }];
+      // listMetadata takes three queries per call.
+      for (let i = 0; i < queries.length; i += 3) {
+        for (const item of await list(queries.slice(i, i + 3))) {
+          components.set(item.fullName, JSON.stringify(item));
+        }
+      }
+      return components;
+    };
+
+    // What each org holds of a component both list: the listing alone
+    // differs between any two orgs, whatever the component says.
+    const contentReader = createContentReader((orgId) =>
+      orgId === payload.sourceOrgId ? sourceConn : targetConn,
+    );
+    const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine, contentReader);
+
+    if (!this.deps.services) {
+      throw new Error(
+        'CompareHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
+      );
+    }
+    const orchestrator = this.deps.services.compareOrchestrator({
+      metadataCompare,
+      diffEngine,
+      services: this.deps.services,
+    });
+
+    const config: CompareConfig = {
+      id: crypto.randomUUID(),
+      name: 'compare-from-ui',
+      sourceOrgId: payload.sourceOrgId,
+      targetOrgId: payload.targetOrgId,
+      mode: 'metadata',
+      componentTypes: payload.types as MetadataComponentType[],
+      // Compared unless the caller says otherwise: this was `false` and read by
+      // nothing, so every run compared them all the same.
+      includeManaged: payload.includeManaged ?? true,
+      createdAt: new Date().toISOString(),
+    };
+
+    return orchestrator.execute(config);
   }
 
   /**

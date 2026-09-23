@@ -25,8 +25,10 @@ function createContext(overrides?: Partial<StepContext>): StepContext {
 }
 
 /**
- * The thirteen step types no handler runs. Each of them used to go to a
- * pass-through that answered "completed" without doing anything.
+ * The thirteen step types the executor has no handler of its own for. Each of
+ * them used to go to a pass-through that answered "completed" without doing
+ * anything. Four — Backup, Compare, Pre-check, Notification — run once the
+ * extension registers the module flows they use (see `pipelineSteps.ts`).
  */
 const UNRUNNABLE_TYPES: PipelineStepType[] = [
   'seed',
@@ -464,6 +466,77 @@ describe('StepExecutor', () => {
     it('lets a handler registered in place of a built-in one read its own config', () => {
       executor.registerHandler('delay', vi.fn());
       expect(executor.check(createStep({ type: 'delay', config: {} }))).toBeUndefined();
+    });
+
+    it('reads a step with the check its handler was registered with', () => {
+      const check = vi.fn((step: PipelineStep) =>
+        step.config['orgId'] ? undefined : `Backup step "${step.name}" names no org.`,
+      );
+      executor.registerHandler('backup', vi.fn(), check);
+
+      expect(executor.check(createStep({ type: 'backup', name: 'Snap' }))).toBe(
+        'Backup step "Snap" names no org.',
+      );
+      expect(
+        executor.check(createStep({ type: 'backup', config: { orgId: 'org-a' } })),
+      ).toBeUndefined();
+
+      // A replacement registered without one reads its own config.
+      executor.registerHandler('backup', vi.fn());
+      expect(executor.check(createStep({ type: 'backup' }))).toBeUndefined();
+    });
+
+    it('refuses a timeout a timer cannot hold, which fired after 1 ms', () => {
+      const delay = { type: 'delay' as const, name: 'Wait', config: { seconds: 5 } };
+      // 2^31 ms, just past what a timer holds: Node fired it after 1 ms, so
+      // the step "timed out" as it started, and every retry with it.
+      expect(executor.check(createStep({ ...delay, timeout: 2 ** 31 }))).toBe(
+        'Step "Wait" has a timeout of 2147483648 ms, longer than a step can be given: ' +
+          'set at most 24 days (2073600000 ms).',
+      );
+      expect(executor.check(createStep({ ...delay, timeout: Number.POSITIVE_INFINITY }))).toContain(
+        'not a number of milliseconds',
+      );
+      // Twenty-four days is the most a step is given, as for a Delay's wait.
+      expect(executor.check(createStep({ ...delay, timeout: 24 * 24 * 3600 * 1000 }))).toBe(
+        undefined,
+      );
+    });
+  });
+
+  describe('a timeout past what a timer holds', () => {
+    it('fails the step before its handler runs, instead of timing it out after 1 ms', async () => {
+      const handler = vi.fn();
+      executor.registerHandler('backup', handler);
+
+      const result = await executor.execute(
+        createStep({ type: 'backup', name: 'Snap', timeout: 30 * 24 * 3600 * 1000, retries: 2 }),
+        createContext(),
+      );
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('longer than a step can be given');
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('what a step says it did', () => {
+    it('says how long a Delay waited and whether a Condition held', async () => {
+      const waiting = executor.execute(
+        createStep({ type: 'delay', config: { seconds: 2 } }),
+        createContext(),
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      expect((await waiting).summary).toBe('Waited 2 s.');
+
+      const held = await executor.execute(
+        createStep({
+          type: 'condition',
+          condition: { field: 'env', operator: 'eq', value: 'uat' },
+        }),
+        createContext({ variables: { env: 'uat' } }),
+      );
+      expect(held.summary).toBe('The condition held.');
     });
   });
 

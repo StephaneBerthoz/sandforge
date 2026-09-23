@@ -65,6 +65,9 @@ function configSeenStore(configStore: ConfigStore): SeenRefreshStore {
   };
 }
 
+/** The health signals the Monitor reads, by the name each one reports. */
+export type HealthSignalName = 'apiLimits' | 'storage' | 'recentErrors' | 'activeJobs';
+
 /** Dependencies required by {@link createMonitorOps}. */
 export interface MonitorOpsFactoryDeps {
   /** Persistence facade for trend snapshots and alert state. */
@@ -100,6 +103,11 @@ export interface MonitorOpsServices {
   sandboxRefreshTracker: SandboxRefreshTracker;
   /** Aggregated org health computation. */
   healthCheck: HealthCheck;
+  /**
+   * The signals `healthCheck` aggregates, each on its own, by name: a
+   * pipeline's Pre-check step reads the ones it names and no other.
+   */
+  healthSignals: Readonly<Record<HealthSignalName, HealthSignalProvider>>;
   /**
    * Return a cached /limits response or fetch a fresh one.
    *
@@ -336,7 +344,13 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       const pct = Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100);
       const status =
         pct > 80 ? ('critical' as const) : pct > 60 ? ('warning' as const) : ('ok' as const);
-      return { name: 'apiLimits', status, score: 100 - pct, message: `API usage at ${pct}%` };
+      return {
+        name: 'apiLimits',
+        status,
+        score: 100 - pct,
+        message: `API usage at ${pct}%`,
+        percent: pct,
+      };
     } catch {
       return {
         name: 'apiLimits',
@@ -367,7 +381,13 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       );
       const status =
         pct > 85 ? ('critical' as const) : pct > 70 ? ('warning' as const) : ('ok' as const);
-      return { name: 'storage', status, score: 100 - pct, message: `Storage usage at ${pct}%` };
+      return {
+        name: 'storage',
+        status,
+        score: 100 - pct,
+        message: `Storage usage at ${pct}%`,
+        percent: pct,
+      };
     } catch {
       return {
         name: 'storage',
@@ -482,6 +502,12 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     apexLogAnalyzer,
     sandboxRefreshTracker,
     healthCheck,
+    healthSignals: {
+      apiLimits: apiLimitsProvider,
+      storage: storageProvider,
+      recentErrors: errorsProvider,
+      activeJobs: jobsProvider,
+    },
     getOrFetchLimits,
     forgetOrg: (orgId) => {
       limitsCache.delete(orgId);

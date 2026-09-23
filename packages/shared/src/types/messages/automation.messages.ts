@@ -11,6 +11,27 @@ export interface PipelineRunResponse extends BaseMessage {
   payload: Record<string, unknown>;
 }
 
+/**
+ * One step of a running pipeline, as it starts and as it ends, so the page's
+ * execution view follows the run rather than showing every step pending until
+ * the answer arrives. `operationId` is the id of the `pipeline:execute`
+ * request that started the run.
+ */
+export interface PipelineStepUpdate extends BaseMessage {
+  type: 'pipeline:step';
+  payload: {
+    operationId: string;
+    stepId: string;
+    status: 'running' | 'completed' | 'failed' | 'skipped';
+    /** How long the step ran, in milliseconds, once it has ended. */
+    duration?: number;
+    /** What the step did (see `PipelineStepResult.summary`). */
+    summary?: string;
+    /** Why the step failed. */
+    error?: string;
+  };
+}
+
 /** Error response for pipeline operations (emitted via sendHandlerError). */
 export interface PipelineErrorResponse extends BaseMessage {
   type: 'pipeline:error';

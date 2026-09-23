@@ -419,14 +419,15 @@ test.describe('Automation page — saved pipelines', () => {
     await openAutomation(page);
     await answerMountQueries(page, { pipelines: SAVED_PIPELINES });
 
-    await expect(page.getByTestId('saved-pipeline-blocked-pipe-1')).toHaveText('Cannot run yet');
+    await expect(page.getByTestId('saved-pipeline-blocked-pipe-1')).toHaveText('Cannot run');
     await page.getByTestId('saved-pipeline-pipe-1').click();
 
     await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
     const notice = page.getByTestId('pipeline-blocked');
     await expect(notice).toContainText('This pipeline cannot run.');
     await expect(page.getByTestId('pipeline-blocked-step-1')).toHaveText(
-      'Query Accounts (Sync) — This step type cannot run in a pipeline yet.',
+      'Query Accounts (Sync) — This step writes to an org, so a pipeline does not run it: ' +
+        'run it from its own page, where Production Guard asks before a write to a production org.',
     );
     await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(3);
 
@@ -498,15 +499,19 @@ test.describe('Automation page — canvas editing', () => {
     await answerMountQueries(page);
     await page.getByTestId('create-pipeline-btn').click();
 
-    await expect(page.getByTestId('palette-runnable-note')).toHaveText(
-      'Only Delay steps can run in a pipeline for now. The other step types cannot be added yet.',
+    await expect(page.getByTestId('palette-runnable-note')).toContainText(
+      'Steps that write to an org — Seed, Sync, Restore, Anonymize, Delete — run only from their own pages',
     );
-    for (const type of ['seed', 'sync', 'backup', 'delete', 'compare', 'condition']) {
+    for (const type of ['seed', 'sync', 'delete', 'script', 'condition']) {
       await expect(page.getByTestId(`palette-${type}`)).toBeDisabled();
+    }
+    for (const type of ['backup', 'compare', 'precheck', 'notification']) {
+      await expect(page.getByTestId(`palette-${type}`)).toBeEnabled();
     }
     await expect(page.getByTestId('palette-seed')).toHaveAttribute(
       'title',
-      'This step type cannot run in a pipeline yet.',
+      'This step writes to an org, so a pipeline does not run it: run it from its own page, ' +
+        'where Production Guard asks before a write to a production org.',
     );
 
     await page.getByTestId('palette-seed').click({ force: true });
@@ -546,6 +551,51 @@ test.describe('Automation page — canvas editing', () => {
     await expect(page.getByTestId('automation-error')).toContainText(
       'The pipeline run failed: Step execution timed out',
     );
+  });
+
+  test('a Backup step runs once its org and objects are set, follows the run, and can be cancelled', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-backup').click();
+
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'Choose the org this step works on.',
+    );
+
+    await canvasSteps(page).first().click();
+    const orgId = (MOCK_ORGS[0] as { id: string }).id;
+    await page.getByTestId('config-orgId').selectOption(orgId);
+    await page.getByTestId('config-objects').fill('Account, Contact');
+    await expect(page.getByTestId('pipeline-blocked')).toHaveCount(0);
+    await page.getByTestId('run-pipeline-btn').click();
+
+    const runs = await waitForOutgoing(page, 'pipeline:execute');
+    const request = runs[runs.length - 1];
+    const sent = (request.payload as { pipeline: { steps: Array<Record<string, unknown>> } })
+      .pipeline.steps;
+    expect(sent).toEqual([
+      expect.objectContaining({
+        type: 'backup',
+        config: { orgId, objects: ['Account', 'Contact'] },
+      }),
+    ]);
+
+    // The host reports the step as it goes, under the id of the request.
+    const stepId = sent[0].id as string;
+    await sendExtensionMessage(page, {
+      type: 'pipeline:step',
+      id: 'step-running',
+      payload: { operationId: request.id, stepId, status: 'running' },
+    });
+    await expect(page.getByTestId(`exec-step-status-${stepId}`)).toHaveText('Running');
+
+    await page.getByTestId('execution-cancel').click();
+    const aborts = await waitForOutgoing(page, 'execution:abort');
+    expect(aborts).toEqual([expect.objectContaining({ payload: { operationId: request.id } })]);
   });
 
   test('selecting a step opens its config panel and renaming it redraws the canvas', async ({
@@ -753,7 +803,7 @@ test.describe('Automation page — marketplace', () => {
     });
 
     await expect(page.getByTestId('marketplace-template-blocked-mkt-1')).toContainText(
-      'Cannot run as a pipeline yet. These step types cannot run: Sync, Anonymize, Seed.',
+      'Cannot run as a pipeline. These step types do not run in one: Sync, Anonymize, Seed.',
     );
     await expect(page.getByTestId('marketplace-template-blocked-mkt-2')).toHaveCount(0);
   });

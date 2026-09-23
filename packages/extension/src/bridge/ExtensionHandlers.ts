@@ -218,6 +218,21 @@ export class ExtensionHandlers {
     this.reportsHandler = new ReportsHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
     this.i18nHandler = new I18nHandler(this.handlerDeps, deps.localesDir);
+    // A pipeline's Backup, Compare and Pre-check steps run the flows these
+    // handlers run for their own panels — the same instances, so a snapshot a
+    // pipeline takes waits on the org lock a snapshot from the DataOps page
+    // holds, and the other way round.
+    this.automationHandler.setStepRunners({
+      orgName: (orgId) => {
+        const org = deps.orgManager.getOrg(orgId);
+        return org ? org.alias || org.username || org.id : undefined;
+      },
+      newId: () => crypto.randomUUID(),
+      backup: (request, signal) => this.dataOpsHandler.backupForPipeline(request, signal),
+      compare: (request) => this.compareHandler.compareOrgs(request),
+      readOrgHealth: (orgId, signals) => this.monitorHandler.readOrgHealth(orgId, signals),
+      notify: deps.services?.showNotification,
+    });
     this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
   }
 

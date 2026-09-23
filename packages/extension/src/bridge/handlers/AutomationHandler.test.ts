@@ -8,6 +8,60 @@ import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
 import { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
 import type { PipelineOrchestratorDependencies } from '../../modules/automation/PipelineOrchestrator.js';
 import { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { PipelineStepRunners } from './pipelineSteps.js';
+
+/**
+ * Module flows that answer at once, standing in for DataOps, Compare and the
+ * Monitor: what the handler is given by `ExtensionHandlers`.
+ */
+function fakeRunners(overrides: Partial<PipelineStepRunners> = {}): PipelineStepRunners {
+  return {
+    orgName: (orgId) => (orgId === 'org-a' ? 'uat' : orgId === 'org-b' ? 'dev' : undefined),
+    newId: () => 'snap-1',
+    backup: vi.fn(async (request) => ({
+      operationId: request.operationId,
+      objects: [{ objectApiName: 'Account', recordCount: 4, truncated: false }],
+      totalRecords: 4,
+      partial: false,
+      timestamp: '2026-09-23T00:00:00.000Z',
+    })),
+    compare: vi.fn(async () => ({
+      configId: 'cfg',
+      sourceOrgId: 'org-a',
+      targetOrgId: 'org-b',
+      mode: 'metadata' as const,
+      summary: {
+        totalItems: 3,
+        added: 1,
+        removed: 0,
+        modified: 1,
+        unchanged: 1,
+        notCompared: 0,
+        byType: {},
+      },
+      content: {
+        compared: 2,
+        notCompared: { unreadable: 0, read_failed: 0, over_budget: 0 },
+        budget: { components: 400, seconds: 120 },
+      },
+      diffs: [],
+      timestamp: '2026-09-23T00:00:00.000Z',
+      duration: 10,
+    })),
+    readOrgHealth: vi.fn(async () => [
+      {
+        name: 'apiLimits',
+        status: 'warning' as const,
+        score: 28,
+        message: 'API usage at 72%',
+        percent: 72,
+      },
+    ]),
+    notify: vi.fn(),
+    ...overrides,
+  };
+}
 
 /**
  * Creates minimal mock deps for AutomationHandler tests.
@@ -615,16 +669,14 @@ describe('AutomationHandler', () => {
     });
 
     it.each([
+      // The steps that write to an org: a pipeline runs unattended, and each
+      // of them runs from its own page, behind Production Guard.
       'seed',
       'sync',
-      'backup',
       'restore',
       'anonymize',
       'delete',
-      'compare',
-      'precheck',
       'script',
-      'notification',
       'approval',
       'loop',
       'parallel',
@@ -636,6 +688,8 @@ describe('AutomationHandler', () => {
       async (type) => {
         const { services, ends } = realServices();
         deps.services = services;
+        // The module flows are there: the refusal is the step type's own.
+        handler.setStepRunners(fakeRunners());
 
         // `continueOnError` on the refused step: it must not buy a completed run.
         await run([
@@ -664,6 +718,175 @@ describe('AutomationHandler', () => {
         expect(entry['errorCount']).toBe(1);
       },
     );
+
+    it.each(['backup', 'compare', 'precheck', 'notification'])(
+      'refuses a %s step where no module flow was given to run it',
+      async (type) => {
+        deps.services = realServices().services;
+
+        await run([{ type, name: 'Do the work' }]);
+
+        expect(runResponse(deps).stepResults).toEqual([
+          expect.objectContaining({
+            status: 'failed',
+            error: `Step "Do the work" is a ${type} step, and this step type cannot run in a pipeline yet.`,
+          }),
+        ]);
+      },
+    );
+
+    it('runs Backup, Compare, Pre-check and Notification through the module flows, and History keeps what each did', async () => {
+      deps.services = realServices().services;
+      const flows = fakeRunners();
+      handler.setStepRunners(flows);
+
+      await run([
+        { type: 'backup', name: 'Snapshot', config: { orgId: 'org-a', objects: ['Account'] } },
+        {
+          type: 'compare',
+          name: 'Diff',
+          config: { sourceOrgId: 'org-a', targetOrgId: 'org-b', types: ['Flow'] },
+        },
+        { type: 'precheck', name: 'Limits', config: { orgId: 'org-a', checks: ['apiLimits'] } },
+        {
+          type: 'condition',
+          name: 'Busy',
+          condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 },
+        },
+        { type: 'notification', name: 'Tell me', config: { message: 'API usage is high.' } },
+      ]);
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('completed');
+      expect(result.stepResults.map((step) => step['status'])).toEqual([
+        'completed',
+        'completed',
+        'completed',
+        'completed',
+        'completed',
+      ]);
+      expect(flows.backup).toHaveBeenCalledWith(
+        { operationId: 'snap-1', orgId: 'org-a', objects: ['Account'] },
+        expect.any(AbortSignal),
+      );
+      // The Condition read the API usage the Pre-check handed on.
+      expect(result.stepResults[3]['output']).toEqual({ conditionMet: true });
+      expect(flows.notify).toHaveBeenCalledWith('Refresh QA: API usage is high.');
+
+      expect(onlyHistoryEntry(deps)['steps']).toEqual([
+        expect.objectContaining({
+          stepName: 'Snapshot',
+          stepType: 'backup',
+          status: 'completed',
+          summary: 'Backed up 4 records of 1 object from uat.',
+        }),
+        expect.objectContaining({
+          stepName: 'Diff',
+          summary:
+            'Compared 1 component type of uat with dev: 1 added, 0 removed, 1 modified, 1 unchanged, 0 not compared.',
+        }),
+        expect.objectContaining({
+          stepName: 'Limits',
+          summary: 'The check passed on uat: API usage at 72% (warning).',
+        }),
+        expect.objectContaining({ stepName: 'Busy', summary: 'The condition held.' }),
+        expect.objectContaining({
+          stepName: 'Tell me',
+          summary: 'Showed a notification in VS Code.',
+        }),
+      ]);
+    });
+
+    it('tells the page each step as it starts and ends, under the id of its request', async () => {
+      deps.services = realServices().services;
+
+      await run(
+        [
+          {
+            type: 'condition',
+            name: 'Only in prod',
+            condition: { field: 'env', operator: 'eq', value: 'prod' },
+          },
+          { type: 'delay', config: { seconds: 0 } },
+        ],
+        'run-watched',
+      );
+
+      const updates = posted(deps, 'pipeline:step').map(
+        (message) =>
+          (
+            message as unknown as {
+              payload: { operationId: string; stepId: string; status: string };
+            }
+          ).payload,
+      );
+      expect(updates.map(({ stepId, status }) => [stepId, status])).toEqual([
+        ['s1', 'running'],
+        ['s1', 'completed'],
+        ['s2', 'skipped'],
+      ]);
+      expect(new Set(updates.map((update) => update.operationId))).toEqual(
+        new Set(['run-watched']),
+      );
+    });
+
+    it('stops a run cancelled from the page through the orchestrator, and History records it cancelled', async () => {
+      deps.services = realServices().services;
+      const registry = new BackgroundOperationRegistry();
+      deps.infraServices = {
+        backgroundRegistry: registry,
+      } as unknown as HandlerDeps['infraServices'];
+
+      const started = handler.handle(
+        inboundRequest({
+          id: 'run-cancel',
+          type: 'pipeline:execute',
+          timestamp: Date.now(),
+          payload: {
+            pipeline: pipelinePayload([
+              { type: 'delay', config: { seconds: 5 } },
+              { type: 'delay', config: { seconds: 0 } },
+            ]),
+            variables: {},
+          },
+        } as unknown as BaseMessage),
+      );
+      // The run is registered under its request's id, which the page's
+      // Cancel sends on execution:abort.
+      await vi.waitFor(() => expect(posted(deps, 'pipeline:step')).toHaveLength(1));
+      expect(registry.get('run-cancel')?.status).toBe('running');
+      registry.abort('run-cancel');
+      await started;
+
+      const result = runResponse(deps);
+      expect(result.status).toBe('cancelled');
+      expect(result.stepResults).toEqual([
+        expect.objectContaining({ stepId: 's1', status: 'failed' }),
+      ]);
+      expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
+      expect(posted(deps, 'operation:failed')).toHaveLength(0);
+    });
+
+    it('runs a pipeline that carries no variables and no triggers', async () => {
+      // Every run of such a definition failed on pipeline:error, with
+      // "pipeline.variables is not iterable".
+      deps.services = realServices().services;
+      const pipeline = pipelinePayload([{ type: 'delay', config: { seconds: 0 } }]);
+      delete pipeline['variables'];
+      delete pipeline['triggers'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'run-bare',
+          type: 'pipeline:execute',
+          timestamp: Date.now(),
+          payload: { pipeline },
+        } as unknown as BaseMessage),
+      );
+
+      expect(posted(deps, 'pipeline:error')).toEqual([]);
+      expect(runResponse(deps).status).toBe('completed');
+    });
 
     it('does not send a refused pipeline to the model: SandForge wrote the reason itself', async () => {
       const provider = vi.fn<AIProvider>(() =>
@@ -844,6 +1067,34 @@ describe('AutomationHandler', () => {
       // History says how many steps ran: the one passed over is not one of them.
       expect(onlyHistoryEntry(deps)['stepCount']).toBe(1);
     });
+  });
+
+  it('leaves no run listed as running in Live Operations when the orchestrator throws', async () => {
+    const registry = new BackgroundOperationRegistry();
+    deps.infraServices = {
+      backgroundRegistry: registry,
+    } as unknown as HandlerDeps['infraServices'];
+    deps.services = {
+      getSandforgeSetting: vi.fn(() => 300_000),
+      automationOrchestrator: vi.fn(() => ({
+        on: vi.fn(),
+        off: vi.fn(),
+        getActiveRuns: vi.fn(() => []),
+        execute: vi.fn().mockRejectedValue(new Error('history store is gone')),
+      })),
+    } as unknown as HandlerDeps['services'];
+
+    await handler.handle(
+      inboundRequest({
+        id: 'run-breaks',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: pipelinePayload([{ type: 'delay', config: { seconds: 0 } }]) },
+      } as unknown as BaseMessage),
+    );
+
+    await vi.waitFor(() => expect(registry.get('run-breaks')?.status).toBe('failed'));
+    expect(posted(deps, 'pipeline:error')).toHaveLength(1);
   });
 
   it('answers a run that throws on the error channel of its request, so the page stops waiting', async () => {

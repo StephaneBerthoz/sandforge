@@ -921,6 +921,19 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Automation step panel of the steps that run a module', async ({ page }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await page.getByTestId('create-pipeline-btn').click();
+      // The org choice, the object list, the checks and the Compare page's own
+      // selectors, each in the narrow side panel, for the scan.
+      for (const type of ['backup', 'precheck', 'compare']) {
+        await page.getByTestId(`palette-${type}`).click();
+        await page.locator('[data-testid^="canvas-step-"]').last().click();
+        await page.getByTestId('step-type-config').waitFor({ state: 'visible', timeout: 5000 });
+        expectNoViolations(await checkAccessibility(page));
+      }
+    });
+
     test('Automation pipeline while a run is in progress', async ({ page }) => {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
       await page.getByTestId('create-pipeline-btn').click();

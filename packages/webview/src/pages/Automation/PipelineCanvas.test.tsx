@@ -120,13 +120,17 @@ describe('PipelineCanvas', () => {
       />,
     );
 
+    // A Backup step runs, once it names the org it backs up.
     const backup = screen.getByTestId('canvas-blocked-s1');
-    expect(backup.textContent).toBe('Cannot run yet');
-    expect(backup.getAttribute('title')).toBe('This step type cannot run in a pipeline yet.');
-    expect(screen.getByTestId('canvas-blocked-s2')).toBeDefined();
+    expect(backup.textContent).toBe('Cannot run');
+    expect(backup.getAttribute('title')).toBe('Choose the org this step works on.');
+    // Anonymize and Sync write to an org: no pipeline runs them.
+    expect(screen.getByTestId('canvas-blocked-s2').getAttribute('title')).toContain(
+      'run it from its own page',
+    );
     expect(screen.getByTestId('canvas-blocked-s3')).toBeDefined();
     expect(screen.getByTestId('canvas-blocked-c1').getAttribute('title')).toContain(
-      'nothing here sets its condition',
+      'needs a condition to test',
     );
     expect(screen.getByTestId('canvas-blocked-d1').getAttribute('title')).toBe(
       'Set how many seconds this Delay step waits (from 0 up to 24 days).',

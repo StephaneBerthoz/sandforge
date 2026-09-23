@@ -1,24 +1,25 @@
 # Automation
 
-Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, run them, and read back what each run did.
+Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did.
 
-> **Coming soon: only Delay steps run.** A pipeline that holds any other step
-> type -- Seed, Sync, Backup, Restore, Anonymize, Delete, Condition and the rest
-> -- is refused before its first step: nothing runs, and the run is written to
-> the history as failed, with the reason. No step moves a record. The palette
-> shows the other step types disabled, and a pipeline that holds one, from the
-> Marketplace, the AI generator or an earlier save, is marked on the canvas and
-> cannot be run. Until step handlers ship, Automation is a design surface: use
-> it to compose and store pipelines, not to run work. Each section below says
-> which part is real.
+> **What a pipeline runs:** Backup, Compare, Pre-Check, Notification, Delay and
+> Condition steps. A Backup step takes a DataOps snapshot into local storage, a
+> Compare step runs the Compare page's metadata diff, a Pre-Check reads the
+> Monitor's health signals, and a Notification shows a VS Code notification.
+> **No pipeline step writes to an org:** Seed, Sync, Restore, Anonymize and
+> Delete run only from their own pages, where Production Guard stops a write to
+> a production org or asks you first, and a pipeline runs unattended. Script,
+> Approval, Loop and Parallel cannot run yet. A pipeline that holds a step it
+> cannot run is refused before its first step: nothing runs, and the run is
+> written to the history as failed, with the reason.
 
 ## Quick Start
 
 1. Navigate to **Automation** from the sidebar
 2. Click **Create Pipeline** to start a new pipeline
-3. Drag steps from the Step Palette onto the Pipeline Canvas
-4. Configure each step
-5. Click **Run** once every step can run -- for now, Delay steps with their seconds set: the canvas shows the execution view while the run lasts, and the run is written to the history. While a step cannot run, the Run button is disabled and a note under the header names the step and the reason
+3. Click a step in the Step Palette to add it to the Pipeline Canvas
+4. Select each step and configure it in the Step Config Panel: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay
+5. Click **Run** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, the Run button is disabled and a note under the header names the step and the reason
 
 ## Features
 
@@ -26,11 +27,11 @@ Compose multi-step data pipelines on a visual drag-and-drop canvas, save them, r
 
 The visual builder for composing automation workflows:
 
-- **Drag-and-drop canvas** -- Arrange steps visually with connections between them
-- **Step Palette** -- A sidebar listing all 15 step types. Click to add a step to the canvas; a type that cannot run yet is shown disabled, with the reason.
-- **Step Config Panel** -- Select a step on the canvas to configure its parameters (object, query, batch size, etc.)
-- **Pipeline Execution View** -- When running, the canvas switches to show real-time execution status per step
-- **AI Pipeline Generator** -- Describe what you want in natural language and let the AI build the pipeline for you
+- **Canvas** -- Steps run in the order they are listed; a step that cannot run is marked where it sits, with the reason
+- **Step Palette** -- A sidebar listing all 15 step types. Click to add a step to the canvas; a type that cannot run in a pipeline is shown disabled, with the reason.
+- **Step Config Panel** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
+- **Pipeline Execution View** -- While a run lasts, the canvas shows each step's status as the extension reports it, what each finished step did, and a Cancel button that stops the run
+- **AI Pipeline Generator** -- Describe what you want in natural language and let the AI draft the pipeline; its steps are marked when they cannot run
 
 ### Step Types
 
@@ -41,20 +42,21 @@ The visual builder for composing automation workflows:
 - **Control Flow** -- Condition, Loop, Parallel, Delay, Approval, Script
 - **Notification** -- Notification
 
-One of them runs from this page today: **Delay**, which waits the seconds set in
-its config panel, from 0 up to 24 days. A Delay step with no seconds set cannot
-run, and a run cut short stops its wait where it is.
+Six of them run in a pipeline:
 
-The extension also evaluates a **Condition** step that carries a condition,
-against the run's variables. Nothing on the page sets a step's condition,
-though, and a run started here carries no variables, so the palette offers
-Condition disabled with the others.
+- **Backup** -- takes the snapshot the DataOps Backup button takes, of the objects you list, from the org you choose: the same per-org lock, the same row bound, the same retention. The records go to local storage, where the DataOps page lists the backup; nothing is written to the org. A snapshot that stopped at the row bound says it is partial.
+- **Compare** -- runs the Compare page's metadata diff between the two orgs and the metadata types you choose, and keeps its counts: added, removed, modified, unchanged, not compared. Both orgs are only read.
+- **Pre-Check** -- reads the Monitor's health signals you choose on an org: API usage, data storage, the Apex error logs of the last 24 hours, the failed Apex jobs. A reading the Monitor calls critical, or one it cannot read, fails the step and stops the run. It hands what it read on to the steps after it (`apiUsagePercent`, `storageUsagePercent`, `recentErrorCount`, `failedJobCount`), for a Condition to test.
+- **Notification** -- shows its message as a VS Code notification, to whoever runs the pipeline. It sends nothing anywhere else: SandForge talks to no chat, mail or incident tool.
+- **Delay** -- waits the seconds set in its config panel, from 0 up to 24 days. A run cut short stops its wait where it is.
+- **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. This page cannot set a condition yet, so the palette offers Condition disabled; a Condition step from a Marketplace template carries its own, and runs.
 
-The other thirteen have no handler. They can still be drawn and configured, but
-a pipeline that holds one is refused before its first step and recorded as
-failed -- including **Parallel**, which would run no branch, **Approval**, which
-would hold nothing back, and **Notification**, which would send no message: the
-extension talks to no chat, mail or incident tool.
+The other nine are refused before a pipeline's first step, and the palette says why:
+
+- **Seed, Sync, Restore, Anonymize, Delete** write to an org. Each runs from its own page, where Production Guard stops a write to a production org or asks you first; a pipeline runs unattended, with nobody there to answer.
+- **Script, Approval, Loop, Parallel** have no handler yet: a Parallel step would run no branch, and an Approval would hold nothing back.
+
+Every step is read before the run the way its module's own request is read: a Backup with no org or with an object that is not an API name, a Compare of an org with itself, a Pre-Check naming a check SandForge does not have, a Notification with no message, a timeout longer than 24 days. The page marks such a step, and the extension refuses it with the same reason.
 
 ### Triggers
 
@@ -66,7 +68,7 @@ The Trigger Config Panel offers these trigger types:
 - **Schedule** _(coming soon)_ -- Takes a cron expression
 - **Event** _(coming soon)_
 - **Webhook** _(coming soon)_
-- **Sandbox Refresh** _(coming soon)_ -- SandForge notices a sandbox refresh and warns you (see Monitor), but this trigger starts no pipeline: a pipeline runs only Delay and Condition steps, and the work a refresh calls for is made of data steps
+- **Sandbox Refresh** _(coming soon)_ -- SandForge notices a sandbox refresh and warns you (see Monitor), but this trigger starts no pipeline: the work a refresh calls for, anonymizing and seeding, writes to an org, and no pipeline step does
 - **Deployment Complete** _(coming soon)_
 
 The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
@@ -91,17 +93,19 @@ The tab lists the sync schedules, the ones the Sync page's Schedules tab keeps
 
 ### Execution History
 
-Every run that completes or fails is written to extension storage when it
-ends, and the tab, which asks for the history again each time a run answers,
-lists them newest first. A pipeline refused before its first step is written as
-failed, with one error per step that cannot run, and the page says why under
-its header. A run cut off by the pipeline timeout is stopped where it is -- a
-Delay stops waiting and no later step starts -- and is written as failed, and
-the page says it ran out of time. A run stopped by an error before it returns
+Every run that completes, fails or is cancelled is written to extension
+storage when it ends, and the tab, which asks for the history again each time a
+run answers, lists them newest first. A pipeline refused before its first step
+is written as failed, with one error per step that cannot run, and the page
+says why under its header. A run cut off by the pipeline timeout is stopped
+where it is -- a Delay stops waiting, a Backup stops between two objects and
+saves nothing, and no later step starts -- and is written as failed, and the
+page says it ran out of time. A run stopped by an error before it returns
 leaves no entry. The tab shows for each run:
 
 - Its status, trigger, start time and duration
 - How many steps ran, and how many of them failed
+- Each step, with its status, how long it took, and what it did or why it failed: the records a Backup took, the counts a Compare found, what a Pre-Check read
 
 Storage also keeps the pipeline definition as it stood when the run started,
 since saving a pipeline overwrites it under its own id. The tab does not show
@@ -120,9 +124,11 @@ Browse and install pre-configured pipeline templates:
 - One-click install to add a template to your workspace
 
 A template is a composition, not a capability: its steps are the same step types
-listed above, and every built-in template holds at least one that cannot run, so
-an installed template cannot be run yet. Each card names the step types that
-cannot run, and the tab says so above the list.
+listed above. Most built-in templates hold a step that writes to an org, or a
+Pre-Check naming a check SandForge does not have, so they cannot run as
+installed; each card names the step types that do not run in a pipeline, and
+the tab says so above the list. An installed template's Backup, Compare and
+Pre-Check steps ask for their orgs before the pipeline can run.
 
 ### Saved Pipelines
 
@@ -133,8 +139,9 @@ cannot run, and the tab says so above the list.
 
 ## Tips
 
-- Start with a short pipeline of Delay steps to learn the canvas and the history
+- Start with a Backup and a Compare between two sandboxes to learn the canvas and the history
+- Put a Pre-Check first to stop a run when an org's API usage or storage is critical
 - Use the AI Pipeline Generator to sketch a workflow from a natural language description; its steps are marked when they cannot run
 - Browse the Marketplace for templates that match your use case before building from scratch
-- Read Execution History for each run's status, duration, step count and errors
-- Remember that no pipeline moves data yet: a run is made of Delay steps, and anything else is refused before it starts
+- Read Execution History for each run's status and for what each of its steps did
+- Remember that no pipeline writes to an org: seeding, syncing, restoring, anonymizing and deleting run from their own pages

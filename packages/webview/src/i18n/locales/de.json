@@ -1007,8 +1007,6 @@
     "noOrgSelected": "Keine Org ausgewählt — wählen Sie eine auf der Seite Organisationen, bevor Sie eine Sicherung oder Anonymisierung starten.",
     "noBackups": "Keine Sicherungen verfügbar",
     "createBackup": "Sicherung erstellen",
-    "backupName": "Sicherungsname",
-    "includeAttachments": "Anhänge einbeziehen",
     "selectBackup": "Wählen Sie eine Sicherung zur Wiederherstellung",
     "restoreInProgress": "Wiederherstellung läuft...",
     "selectTemplate": "Vorlage auswählen",
@@ -1131,7 +1129,7 @@
     "historyRuns": "Verlaufsausführungen",
     "triggers": "Auslöser",
     "triggerManualOnlyNote": "Nur ein manueller Lauf startet eine Pipeline. Die anderen Auslösertypen lassen sich hier konfigurieren, aber noch löst nichts sie aus.",
-    "sandboxRefreshTriggerRefused": "SandForge bemerkt die Aktualisierung einer Sandbox und teilt sie Ihnen mit, aber dieser Auslöser startet keine Pipeline: Eine Pipeline führt nur Schritte vom Typ Verzögerung und Bedingung aus, und die Arbeit nach einer Aktualisierung — Anonymisierung, Seed, Sicherung — besteht aus Datenschritten, deren Start sie verweigern würde.",
+    "sandboxRefreshTriggerRefused": "SandForge bemerkt die Aktualisierung einer Sandbox und teilt sie Ihnen mit, aber dieser Auslöser startet keine Pipeline: Pipelines starten von Hand. Die Arbeit nach einer Aktualisierung — Anonymisierung, Seed — schreibt in eine Org, und das tut kein Pipeline-Schritt.",
     "addTrigger": "Auslöser hinzufügen",
     "run": "Pipeline ausführen",
     "running": "Pipeline wird ausgeführt...",
@@ -1196,6 +1194,15 @@
     "stepName": "Schrittname",
     "typeConfig": "Typspezifische Konfiguration",
     "stepConfigMessage": "Nachricht",
+    "stepConfigOrg": "Org",
+    "stepConfigObjects": "Objekte (API-Namen, durch Kommas getrennt)",
+    "stepConfigChecks": "Prüfungen",
+    "precheckChecks": {
+      "apiLimits": "API-Nutzung",
+      "storage": "Datenspeicher",
+      "recentErrors": "Apex-Fehlerprotokolle (letzte 24 Std.)",
+      "failedJobs": "Fehlgeschlagene Apex-Jobs"
+    },
     "stepConfigDelay": "Verzögerung (Sekunden)",
     "stepConfigScript": "Skript",
     "stepConfigWhere": "WHERE-Klausel",
@@ -1219,20 +1226,30 @@
     "installTemplate": "Installieren",
     "runFailed": "Die Pipeline-Ausführung ist fehlgeschlagen: {{reason}}",
     "runnability": {
-      "cannotRun": "Noch nicht ausführbar",
+      "cannotRun": "Nicht ausführbar",
       "typeCannotRun": "Dieser Schritttyp kann noch nicht in einer Pipeline laufen.",
-      "conditionCannotRun": "Ein Bedingungsschritt kann noch nicht in einer Pipeline laufen: Hier lässt sich seine Bedingung nicht festlegen, und eine Ausführung bringt keine Variablen mit, die er prüfen könnte.",
+      "writesToOrg": "Dieser Schritt schreibt in eine Org, deshalb führt eine Pipeline ihn nicht aus: Starten Sie ihn auf seiner eigenen Seite, wo Production Guard vor einem Schreibvorgang in eine Produktions-Org nachfragt.",
+      "notInPipelines": "Nicht in Pipelines",
+      "conditionNeedsCondition": "Ein Bedingungsschritt braucht eine Bedingung, die er prüft, und auf dieser Seite lässt sich noch keine festlegen. Ein Bedingungsschritt aus einer Marketplace-Vorlage bringt seine eigene mit.",
       "delayNeedsSeconds": "Legen Sie fest, wie viele Sekunden dieser Verzögerungsschritt wartet (0 Sekunden bis 24 Tage).",
-      "paletteNote": "Derzeit können nur Verzögerungsschritte in einer Pipeline laufen. Die übrigen Schritttypen lassen sich noch nicht hinzufügen.",
+      "timeoutTooLong": "Legen Sie ein Timeout von höchstens 24 Tagen (2.073.600.000 ms) fest, oder keines.",
+      "needsOrg": "Wählen Sie die Org, mit der dieser Schritt arbeitet.",
+      "orgNotConnected": "Dieser Schritt nennt eine Org, die hier nicht verbunden ist: Wählen Sie eine Ihrer Orgs.",
+      "backupNeedsObjects": "Geben Sie die API-Namen der zu sichernden Objekte an, etwa Account, Contact (höchstens 100).",
+      "compareNeedsOrgs": "Wählen Sie eine Quell-Org und eine davon verschiedene Ziel-Org.",
+      "compareNeedsTypes": "Wählen Sie mindestens einen Metadatentyp zum Vergleichen.",
+      "precheckNeedsChecks": "Wählen Sie, was diese Vorabprüfung liest: API-Nutzung, Datenspeicher, Apex-Fehlerprotokolle oder fehlgeschlagene Apex-Jobs.",
+      "notificationNeedsMessage": "Schreiben Sie die Nachricht, die diese Benachrichtigung anzeigt (höchstens 500 Zeichen).",
+      "paletteNote": "Schritte, die in eine Org schreiben — Seed, Sync, Wiederherstellung, Anonymisierung, Löschung — laufen nur auf ihrer eigenen Seite, wo Production Guard zuerst nachfragt. Skript, Genehmigung, Schleife und Parallel können noch nicht laufen, und ein Bedingungsschritt braucht eine Bedingung, die sich auf dieser Seite noch nicht festlegen lässt.",
       "pipelineBlocked": "Diese Pipeline kann nicht laufen. Entfernen oder korrigieren Sie zuerst diese Schritte:",
-      "templateBlocked": "Kann noch nicht als Pipeline laufen. Diese Schritttypen können nicht laufen: {{types}}."
+      "templateBlocked": "Kann nicht als Pipeline laufen. Diese Schritttypen laufen in keiner Pipeline: {{types}}."
     },
     "soon": {
-      "steps": "Derzeit laufen in einer Pipeline nur Verzögerungsschritte. Seed, Sync, Sicherung, Wiederherstellung, Anonymisierung, Löschung, Bedingung und die übrigen Schritttypen können noch nicht in einer Pipeline laufen: Eine Pipeline, die einen davon enthält, startet nicht."
+      "steps": "Skript-, Genehmigungs-, Schleifen- und Parallel-Schritte können noch nicht in einer Pipeline laufen, und Seed, Sync, Wiederherstellung, Anonymisierung und Löschung schreiben in eine Org und laufen deshalb nur auf ihrer eigenen Seite. Eine Pipeline, die einen davon enthält, startet nicht. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen."
     },
     "emptyState": {
       "title": "Erstellen Sie Ihre erste Pipeline",
-      "description": "Stellen Sie Pipelines auf einer visuellen Arbeitsfläche zusammen und speichern Sie sie. Bisher können nur Verzögerungsschritte in einer Pipeline laufen.",
+      "description": "Stellen Sie Pipelines auf einer visuellen Arbeitsfläche zusammen, speichern und starten Sie sie: Orgs sichern und vergleichen, ihre Limits prüfen, eine Benachrichtigung anzeigen. Kein Pipeline-Schritt schreibt in eine Org.",
       "cta": "Org auswählen"
     },
     "agenda": {
@@ -1513,7 +1530,7 @@
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Demnächst, aus einem Diff wird noch nichts bereitgestellt",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance und Bereinigung: Demnächst, hinter diesen Tabs läuft noch nichts",
-    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Bisher können nur Verzögerungsschritte laufen: Eine Pipeline mit einem der übrigen 14 Typen wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer, Anzahl der Schritte und Fehler je Ausführung\n- Pipeline-Vorlagen aus dem Marketplace",
+    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, und was jeder ihrer Schritte getan hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",

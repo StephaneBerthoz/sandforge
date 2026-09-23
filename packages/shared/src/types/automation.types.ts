@@ -135,10 +135,29 @@ export interface PipelineStepResult {
   stepType: PipelineStepType;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   output?: Record<string, unknown>;
+  /**
+   * What the step did, in one sentence: the records a backup took, the
+   * differences a comparison found. Written by the host in English, like
+   * `error`, for the run history and the execution view.
+   */
+  summary?: string;
   error?: string;
   startTime?: ISODateString;
   endTime?: ISODateString;
   duration?: number;
+}
+
+/** One step of a finished run, as the run history keeps it. */
+export interface PipelineHistoryStep {
+  stepName: string;
+  stepType: PipelineStepType;
+  status: PipelineStepResult['status'];
+  /** How long the step ran, in milliseconds; absent for a step that did not run. */
+  duration?: number;
+  /** What the step did (see {@link PipelineStepResult.summary}). */
+  summary?: string;
+  /** Why the step failed. */
+  error?: string;
 }
 
 /** Pipeline history entry */
@@ -152,4 +171,9 @@ export interface PipelineHistoryEntry {
   duration: number;
   stepCount: number;
   errorCount: number;
+  /**
+   * Each step of the run, in order, with what it did. Absent from the entries
+   * written before steps that read an org could run.
+   */
+  steps?: PipelineHistoryStep[];
 }

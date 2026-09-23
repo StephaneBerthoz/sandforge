@@ -81,4 +81,46 @@ describe('PipelineHistoryView', () => {
     render(<PipelineHistoryView entries={entries} />);
     expect(screen.getAllByText(/Schedule/).length).toBeGreaterThan(0);
   });
+
+  it('lists what each step of a run did, how long it took, or why it failed', () => {
+    render(
+      <PipelineHistoryView
+        entries={[
+          {
+            ...entries[1],
+            steps: [
+              {
+                stepName: 'Snapshot',
+                stepType: 'backup',
+                status: 'completed',
+                duration: 2000,
+                summary: 'Backed up 4 records of 1 object from uat.',
+              },
+              {
+                stepName: 'Limits',
+                stepType: 'precheck',
+                status: 'failed',
+                duration: 300,
+                error: 'Pre-check "Limits" failed on uat: API usage at 91% (critical).',
+              },
+              { stepName: 'Tell me', stepType: 'notification', status: 'skipped' },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const steps = screen.getByTestId('history-steps-run-2');
+    const items = [...steps.querySelectorAll('li')].map((li) => li.textContent);
+    expect(items).toEqual([
+      'SnapshotCompleted2sBacked up 4 records of 1 object from uat.',
+      'LimitsFailed300msPre-check "Limits" failed on uat: API usage at 91% (critical).',
+      'Tell meSkipped',
+    ]);
+  });
+
+  it('lists no steps for a run written before steps were kept', () => {
+    render(<PipelineHistoryView entries={entries} />);
+    expect(screen.queryByTestId('history-steps-run-1')).toBeNull();
+  });
 });

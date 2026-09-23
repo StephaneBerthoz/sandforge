@@ -197,6 +197,7 @@ import type {
 } from './dataops.messages.js';
 import type {
   PipelineRunResponse,
+  PipelineStepUpdate,
   PipelineErrorResponse,
   PipelineTemplatesRequest,
   PipelineTemplatesResponse,
@@ -646,6 +647,7 @@ export type ExtensionToWebViewMessage =
   | PipelineHistoryResponse
   | PipelineSaveResponse
   | PipelineRunResponse
+  | PipelineStepUpdate
   | PipelineErrorResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse

@@ -12,6 +12,8 @@ export interface PipelineCanvasProps {
   onSelectStep?: (stepId: string) => void;
   onRemoveStep?: (stepId: string) => void;
   onConnectSteps?: (fromStepId: string, toStepId: string) => void;
+  /** The ids of the orgs connected here: a step naming another org is marked. */
+  orgIds?: ReadonlySet<string>;
 }
 
 /**
@@ -43,6 +45,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   selectedStepId,
   onSelectStep,
   onRemoveStep,
+  orgIds,
 }) => {
   const { t } = useTranslation();
 
@@ -69,7 +72,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         const colorClass = STEP_COLORS[step.type] ?? 'bg-text-secondary';
         // A saved pipeline, a Marketplace template or an AI draft can hold a
         // step the palette would not add: it is marked where it sits.
-        const blocker = stepBlocker(step);
+        const blocker = stepBlocker(step, orgIds);
 
         // The node holds two buttons side by side, one that selects the step
         // and one that removes it. It used to be a role="button" div with the

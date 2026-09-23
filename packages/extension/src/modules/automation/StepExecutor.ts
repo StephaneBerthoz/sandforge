@@ -4,10 +4,15 @@ import { conditionDefect, evaluateCondition } from './ConditionalRouter.js';
 
 /** Runtime context passed to step handlers during execution */
 export interface StepContext {
-  /** The run's variables: the pipeline's defaults, with the values the run was given over them. */
+  /**
+   * The run's variables: the pipeline's defaults, with the values the run was
+   * given over them, and the values the steps before this one handed on.
+   */
   variables: Record<string, string>;
   previousResults: PipelineStepResult[];
   pipelineId: string;
+  /** The pipeline's name, for a step that tells the user something about the run. */
+  pipelineName?: string;
   runId: string;
   /**
    * Aborted when the run is cancelled or outlives its time budget. A step that
@@ -23,7 +28,7 @@ export type StepHandler = (step: PipelineStep, context: StepContext) => Promise<
  * Reads a step's configuration before anything runs, and says what keeps the
  * step from doing its work — or nothing when it can run.
  */
-type StepCheck = (step: PipelineStep) => string | undefined;
+export type StepCheck = (step: PipelineStep) => string | undefined;
 
 /**
  * The longest wait a Delay step accepts: 24 days. A timer holds little more —
@@ -31,6 +36,15 @@ type StepCheck = (step: PipelineStep) => string | undefined;
  * the whole wait having waited for none of it.
  */
 const MAX_DELAY_MS = 24 * 24 * 60 * 60 * 1000;
+
+/**
+ * The longest timeout a step accepts, the same 24 days: a timeout is a timer
+ * too. One set past 2^31 - 1 ms fired after 1 ms, so a step given a month to
+ * finish was timed out as it started, and every retry with it. Refused before
+ * the run rather than clamped: a clamped timeout would stop a step sooner than
+ * its configuration says, and nothing would tell the reader why.
+ */
+const MAX_TIMEOUT_MS = MAX_DELAY_MS;
 
 /**
  * How one try at a step ended: with the handler's own result, or with the
@@ -47,11 +61,13 @@ const STOPPED: unique symbol = Symbol('stopped');
  * @param step - The step that completed
  * @param output - Optional output data
  * @param startTime - ISO string of when the step started
+ * @param summary - What the step did, for the run history
  */
 function createSuccessResult(
   step: PipelineStep,
   output: Record<string, unknown>,
   startTime: string,
+  summary: string,
 ): PipelineStepResult {
   const endTime = new Date().toISOString();
   return {
@@ -60,6 +76,7 @@ function createSuccessResult(
     stepType: step.type,
     status: 'completed',
     output,
+    summary,
     startTime,
     endTime,
     duration: new Date(endTime).getTime() - new Date(startTime).getTime(),
@@ -93,6 +110,23 @@ function createFailureResult(
 /** Why a step whose type has no handler is refused. */
 function notRunnable(step: PipelineStep): string {
   return `Step "${step.name}" is a ${String(step.type)} step, and this step type cannot run in a pipeline yet.`;
+}
+
+/**
+ * Why `step`'s timeout cannot be kept, or undefined when it can: a timeout
+ * that is not a number, or one longer than a timer holds. A timeout of 0 or
+ * less sets no timeout, as it always has.
+ */
+function timeoutProblem(step: PipelineStep): string | undefined {
+  const { timeout } = step;
+  if (timeout === undefined) return undefined;
+  if (typeof timeout !== 'number' || !Number.isFinite(timeout)) {
+    return `Step "${step.name}" has a timeout that is not a number of milliseconds: ${JSON.stringify(timeout)}.`;
+  }
+  if (timeout > MAX_TIMEOUT_MS) {
+    return `Step "${step.name}" has a timeout of ${timeout} ms, longer than a step can be given: set at most 24 days (${MAX_TIMEOUT_MS} ms).`;
+  }
+  return undefined;
 }
 
 /**
@@ -269,7 +303,8 @@ export class StepExecutor {
 
   /**
    * Say why a step cannot do its work, before it runs: its type has no
-   * handler, or its configuration leaves the handler nothing to do.
+   * handler, its timeout cannot be kept, or its configuration leaves the
+   * handler nothing to do.
    * @param step - The step to check
    * @returns The reason, or undefined when the step can run
    */
@@ -277,7 +312,7 @@ export class StepExecutor {
     if (!this.handlers.has(step.type)) {
       return notRunnable(step);
     }
-    return this.checks.get(step.type)?.(step);
+    return timeoutProblem(step) ?? this.checks.get(step.type)?.(step);
   }
 
   /**
@@ -294,13 +329,20 @@ export class StepExecutor {
   /**
    * Register a custom handler for a specific step type.
    * Replaces any previously registered handler for that type, and the
-   * configuration check that came with it: a replacement reads its own config.
+   * configuration check that came with it: a replacement reads its own config,
+   * and brings the check that reads it, if any.
    * @param type - The step type to register
    * @param handler - The handler function
+   * @param check - Says, before the run, what in a step's configuration keeps
+   *   the handler from doing its work
    */
-  registerHandler(type: PipelineStepType, handler: StepHandler): void {
+  registerHandler(type: PipelineStepType, handler: StepHandler, check?: StepCheck): void {
     this.handlers.set(type, handler);
-    this.checks.delete(type);
+    if (check) {
+      this.checks.set(type, check);
+    } else {
+      this.checks.delete(type);
+    }
   }
 
   private readonly refusingHandler: StepHandler = async (
@@ -309,8 +351,11 @@ export class StepExecutor {
     createFailureResult(step, notRunnable(step), new Date().toISOString());
 
   /**
-   * Delay and Condition are the only step types that run. The other thirteen —
-   * the data steps above all — have no handler here, and are refused.
+   * Delay and Condition run wherever a pipeline runs. Backup, Compare,
+   * Pre-check and Notification run through the modules that own their work,
+   * which the extension registers for its runs (see `pipelineSteps.ts`). The
+   * others — every step that writes to an org among them — have no handler,
+   * and are refused.
    */
   private registerDefaults(): void {
     this.handlers.set('delay', this.createDelayHandler());
@@ -336,7 +381,12 @@ export class StepExecutor {
         );
       }
 
-      return createSuccessResult(step, { delayed: durationMs }, startTime);
+      return createSuccessResult(
+        step,
+        { delayed: durationMs },
+        startTime,
+        `Waited ${durationMs / 1000} s.`,
+      );
     };
   }
 
@@ -355,7 +405,12 @@ export class StepExecutor {
       // step and a condition on any other step cannot answer differently.
       try {
         const conditionMet = evaluateCondition(step.condition, context.variables);
-        return createSuccessResult(step, { conditionMet }, startTime);
+        return createSuccessResult(
+          step,
+          { conditionMet },
+          startTime,
+          conditionMet ? 'The condition held.' : 'The condition did not hold.',
+        );
       } catch (err) {
         return createFailureResult(
           step,

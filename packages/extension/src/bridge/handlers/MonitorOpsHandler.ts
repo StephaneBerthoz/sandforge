@@ -33,10 +33,15 @@ import type { ErrorLogMonitor } from '../../modules/monitor/ErrorLogMonitor.js';
 import type { UserSessionMonitor } from '../../modules/monitor/UserSessionMonitor.js';
 import type { ApexLogAnalyzer } from '../../modules/monitor/ApexLogAnalyzer.js';
 import type { SandboxRefreshTracker } from '../../modules/monitor/SandboxRefreshTracker.js';
-import type { HealthCheck } from '../../modules/monitor/HealthCheck.js';
+import type {
+  HealthCheck,
+  HealthSignal,
+  HealthSignalProvider,
+} from '../../modules/monitor/HealthCheck.js';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
 import type { AlertStateStore } from '../../modules/monitor/AlertStateStore.js';
 import { createMonitorOps } from '../../modules/monitor/MonitorOpsFactory.js';
+import type { HealthSignalName } from '../../modules/monitor/MonitorOpsFactory.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 
 /** Bound for monitor:refresh org calls, kept below the 30 s bridge timeout. */
@@ -450,6 +455,7 @@ export class MonitorOpsHandler implements DomainHandler {
   private readonly apexLogAnalyzer: ApexLogAnalyzer;
   private readonly sandboxRefreshTracker: SandboxRefreshTracker;
   private readonly healthCheck: HealthCheck;
+  private readonly healthSignals: Readonly<Record<HealthSignalName, HealthSignalProvider>>;
   private readonly alertEngine: AlertEngine;
   private readonly alertStateStore: AlertStateStore;
   /**
@@ -499,6 +505,7 @@ export class MonitorOpsHandler implements DomainHandler {
     this.apexLogAnalyzer = ops.apexLogAnalyzer;
     this.sandboxRefreshTracker = ops.sandboxRefreshTracker;
     this.healthCheck = ops.healthCheck;
+    this.healthSignals = ops.healthSignals;
     this.getOrFetchLimits = ops.getOrFetchLimits;
   }
 
@@ -508,6 +515,29 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveOperationTracker = tracker;
+  }
+
+  /**
+   * Read some of an org's health signals — API usage, data storage, the Apex
+   * error logs of the last day, the failed Apex jobs — the way the Monitor's
+   * refresh reads them, for a pipeline's Pre-check step. Only reads: `/limits`
+   * and a query per count. A signal that could not be read comes back
+   * `unknown`, never as a throw.
+   *
+   * @param orgId - The registered org.
+   * @param signals - The signals to read, in the order they come back.
+   */
+  async readOrgHealth(
+    orgId: string,
+    signals: readonly HealthSignalName[],
+  ): Promise<HealthSignal[]> {
+    // One after the other: API usage and storage both come from `/limits`,
+    // and the second is then answered from the reading the first cached.
+    const read: HealthSignal[] = [];
+    for (const name of signals) {
+      read.push(await this.healthSignals[name](orgId));
+    }
+    return read;
   }
 
   /**

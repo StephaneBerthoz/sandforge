@@ -106,6 +106,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
         <div className="flex items-center gap-2">
           {isActive && onCancel && (
             <button
+              type="button"
               onClick={onCancel}
               className="text-[10px] px-2 py-0.5 rounded bg-status-error text-[var(--sf-bg-primary)] cursor-pointer"
               data-testid="execution-cancel"
@@ -134,13 +135,14 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
         <span>{formatDurationSec(execution.elapsed)}</span>
       </div>
 
-      {/* Step list */}
+      {/* Step list: each step as the host last reported it. A step that has
+          done its work says what it did, in the host's words. */}
       <div className="flex flex-col gap-1" data-testid="execution-steps">
         {execution.steps.map((step) => (
           <div
             key={step.stepId}
             className={cn(
-              'flex items-center justify-between px-2 py-1.5 rounded text-xs',
+              'flex flex-wrap items-center justify-between px-2 py-1.5 rounded text-xs',
               'border border-[var(--sf-border,#3c3c3c)]',
               step.status === 'running' && 'bg-status-info/10',
             )}
@@ -177,6 +179,17 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
                 </Badge>
               </span>
             </div>
+            {step.summary && (
+              <p
+                className={cn(
+                  'w-full text-[10px]',
+                  step.status === 'running' ? 'text-text-primary' : 'text-text-secondary',
+                )}
+                data-testid={`exec-step-summary-${step.stepId}`}
+              >
+                {step.summary}
+              </p>
+            )}
           </div>
         ))}
       </div>

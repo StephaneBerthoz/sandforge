@@ -1,18 +1,24 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
+  ConditionOperator,
+  PipelineCondition,
   PipelineDefinition,
   PipelineStepType,
+  PipelineStepUpdate,
   TriggerType,
   PipelineHistoryEntry,
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
-import { blockedSteps, typeBlocker } from './stepRunnability';
+import { blockedSteps, paletteBlocker } from './stepRunnability';
 import type { BlockedStep } from './stepRunnability';
 
 /**
@@ -62,6 +68,23 @@ const ANSWER_MARGIN_MS = 60_000;
 /** Narrows an unknown value to a plain object without widening to `any`. */
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/**
+ * A step's condition, as a Marketplace template carries it: its field, its
+ * operator and what it compares with. Anything else is no condition, and the
+ * step is marked as one that cannot run. Dropping it, as every condition used
+ * to be dropped here, left an installed Condition step with nothing to test.
+ */
+function toCondition(raw: unknown): PipelineCondition | undefined {
+  const condition = asRecord(raw);
+  const { field, operator, value } = condition;
+  if (typeof field !== 'string' || typeof operator !== 'string') return undefined;
+  const kept: PipelineCondition = { field, operator: operator as ConditionOperator, value: '' };
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    kept.value = value;
+  }
+  return kept;
 }
 
 /**
@@ -120,11 +143,13 @@ function toPipelineDefinition(
         typeof step.type === 'string' && PIPELINE_STEP_TYPES.includes(step.type)
           ? (step.type as PipelineStepType)
           : 'script';
+      const condition = toCondition(step.condition);
       return {
         id: crypto.randomUUID(),
         name: typeof step.name === 'string' && step.name.length > 0 ? step.name : type,
         type,
         config: asRecord(step.config),
+        ...(condition ? { condition } : {}),
         continueOnError: false,
       };
     }),
@@ -224,6 +249,11 @@ export interface AutomationPageData {
   handleCreatePipeline: () => void;
   /** Run the current pipeline, unless one of its steps cannot run. */
   handleRunPipeline: () => void;
+  /**
+   * Stop the running pipeline: `execution:abort` for the run this page
+   * started, which the extension stops through the orchestrator's abort path.
+   */
+  handleCancelRun: () => void;
   /** Save the current pipeline. */
   handleSavePipeline: () => void;
   /** Load a saved pipeline and switch to canvas tab. */
@@ -337,6 +367,41 @@ export function useAutomationPageData(): AutomationPageData {
   // Derive running state from bridge mutation
   const isRunning = executeMutation.loading;
 
+  /**
+   * What the host has said of each step of the run in progress, by step id.
+   * The execution view used to build every step `pending` and keep it so
+   * until the run answered: a five-minute run looked stuck from start to end.
+   */
+  const [stepUpdates, setStepUpdates] = useState<
+    Record<string, PipelineStepUpdate['payload'] & { at: number }>
+  >({});
+  const [runStartedAt, setRunStartedAt] = useState(0);
+  // The run this page started is the one its `pipeline:execute` request
+  // started: the host uses the request's id as the run's operationId.
+  const runOperationId = executeMutation.requestId;
+  useMessageListener<PipelineStepUpdate>(
+    'pipeline:step',
+    useCallback(
+      (message: PipelineStepUpdate) => {
+        const update = message.payload;
+        if (!update || !runOperationId || update.operationId !== runOperationId) return;
+        setStepUpdates((previous) => ({
+          ...previous,
+          [update.stepId]: { ...update, at: Date.now() },
+        }));
+      },
+      [runOperationId],
+    ),
+  );
+
+  const sendMessage = useSendMessage();
+  const handleCancelRun = useCallback(() => {
+    if (!runOperationId) return;
+    sendMessage(
+      buildMessage<{ operationId: string }>('execution:abort', { operationId: runOperationId }),
+    );
+  }, [runOperationId, sendMessage]);
+
   // Derive history from bridge query
   const historyEntries = historyQuery.data?.history ?? [];
 
@@ -345,27 +410,44 @@ export function useAutomationPageData(): AutomationPageData {
 
   // What keeps the current pipeline from running. The extension refuses such
   // a pipeline before its first step; the page says so before Run is pressed.
-  const runBlockers = useMemo(() => (pipeline ? blockedSteps(pipeline.steps) : []), [pipeline]);
+  // An org a step names has to be one connected here.
+  const orgs = useOrgStore((s) => s.orgs);
+  const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
+  const runBlockers = useMemo(
+    () => (pipeline ? blockedSteps(pipeline.steps, orgIds) : []),
+    [pipeline, orgIds],
+  );
 
-  // Derive execution data for the execution view while running
+  // The execution view while running: each step as the host last reported
+  // it, pending until it starts.
   const executionData = useMemo<PipelineExecutionData | undefined>(() => {
     if (!isRunning || !pipeline) return undefined;
-    return {
-      runId: pipeline.id,
-      pipelineName: pipeline.name,
-      status: 'running',
-      steps: pipeline.steps.map((s) => ({
+    const steps = pipeline.steps.map((s) => {
+      const update = stepUpdates[s.id];
+      return {
         stepId: s.id,
         stepName: s.name,
         stepType: s.type,
-        status: 'pending' as const,
-        duration: 0,
-      })),
-      startTime: new Date().toISOString(),
-      elapsed: 0,
-      progress: 0,
+        status: update?.status ?? ('pending' as const),
+        duration: update?.duration ?? 0,
+        ...(update?.summary !== undefined ? { summary: update.summary } : {}),
+        ...(update?.error !== undefined ? { error: update.error } : {}),
+      };
+    });
+    const ended = steps.filter(
+      (s) => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped',
+    ).length;
+    const lastHeard = Math.max(runStartedAt, ...Object.values(stepUpdates).map((u) => u.at));
+    return {
+      runId: runOperationId ?? pipeline.id,
+      pipelineName: pipeline.name,
+      status: 'running',
+      steps,
+      startTime: new Date(runStartedAt || Date.now()).toISOString(),
+      elapsed: runStartedAt > 0 ? Math.round((lastHeard - runStartedAt) / 1000) : 0,
+      progress: steps.length > 0 ? Math.round((ended / steps.length) * 100) : 0,
     };
-  }, [isRunning, pipeline]);
+  }, [isRunning, pipeline, stepUpdates, runStartedAt, runOperationId]);
 
   // Show error notifications from bridge hooks
   useEffect(() => {
@@ -523,6 +605,8 @@ export function useAutomationPageData(): AutomationPageData {
     // caller from sending a pipeline the extension would refuse.
     if (!pipeline || runBlockers.length > 0) return;
     setError(null);
+    setStepUpdates({});
+    setRunStartedAt(Date.now());
     executeMutation.mutate({
       pipeline: pipeline as unknown as Record<string, unknown>,
       variables: {},
@@ -549,7 +633,7 @@ export function useAutomationPageData(): AutomationPageData {
   };
 
   const handleAddStep = (type: PipelineStepType) => {
-    if (!pipeline || typeBlocker(type) !== undefined) return;
+    if (!pipeline || paletteBlocker(type) !== undefined) return;
     const newStep = {
       id: crypto.randomUUID(),
       name: type,
@@ -673,6 +757,7 @@ export function useAutomationPageData(): AutomationPageData {
     setGenDescription,
     handleCreatePipeline,
     handleRunPipeline,
+    handleCancelRun,
     handleSavePipeline,
     handleLoadPipeline,
     handleInstallTemplate,

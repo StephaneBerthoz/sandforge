@@ -1,4 +1,11 @@
-import type { PipelineDefinition, PipelineRun } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  PipelineDefinition,
+  PipelineHistoryStep,
+  PipelineRun,
+  PipelineStepResult,
+  PipelineStepUpdate,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -19,12 +26,30 @@ import {
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
+import { registerPipelineSteps } from './pipelineSteps.js';
+import type { PipelineStepRunners } from './pipelineSteps.js';
 
 /**
  * How many runs the history keeps. Each entry carries the definition that ran,
  * so an unbounded log would grow the workspace state file on every run.
  */
 const HISTORY_LIMIT = 50;
+
+/**
+ * One step of a run as the history keeps it: its name, type, status, how long
+ * it ran and what it did or why it failed — not its output, which can be the
+ * counts of a whole comparison.
+ */
+function historyStep(result: PipelineStepResult): PipelineHistoryStep {
+  return {
+    stepName: result.stepName,
+    stepType: result.stepType,
+    status: result.status,
+    ...(result.duration !== undefined ? { duration: result.duration } : {}),
+    ...(result.summary !== undefined ? { summary: result.summary } : {}),
+    ...(result.error !== undefined ? { error: result.error } : {}),
+  };
+}
 
 /** Message types handled by AutomationHandler. */
 const AUTOMATION_TYPES = new Set([
@@ -44,6 +69,8 @@ const AUTOMATION_TYPES = new Set([
  */
 export class AutomationHandler implements DomainHandler {
   private pipelineMarketplace?: PipelineMarketplace;
+  /** The module flows the Backup, Compare, Pre-check and Notification steps run on. */
+  private stepRunners?: PipelineStepRunners;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -51,6 +78,15 @@ export class AutomationHandler implements DomainHandler {
   /** Inject pipeline marketplace service. */
   setPipelineMarketplace(marketplace: PipelineMarketplace): void {
     this.pipelineMarketplace = marketplace;
+  }
+
+  /**
+   * Inject the module flows the org steps run on. Without them — a host that
+   * builds this handler alone — those steps have no handler and are refused
+   * before the run, as they were before they could run at all.
+   */
+  setStepRunners(runners: PipelineStepRunners): void {
+    this.stepRunners = runners;
   }
 
   /**
@@ -94,7 +130,10 @@ export class AutomationHandler implements DomainHandler {
     const parsed = validatePayload(pipelineRunPayloadSchema, msg, 'pipeline:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
-    const operationId = crypto.randomUUID();
+    // The request's own id, as Seed and Sync use theirs: the page matches the
+    // `pipeline:step` updates to its own run by it, and cancels the run by it
+    // on `execution:abort`.
+    const operationId = msg.id;
     const failure: OperationFailureContext = { module: 'automation', operation: msg.type };
 
     try {
@@ -109,6 +148,9 @@ export class AutomationHandler implements DomainHandler {
       const triggerEngine = new TriggerEngine();
       const stepLibrary = new StepLibrary();
       const stepExecutor = new StepExecutor();
+      if (this.stepRunners) {
+        registerPipelineSteps(stepExecutor, this.stepRunners);
+      }
       const conditionalRouter = new ConditionalRouter();
       const history = new PipelineHistory();
 
@@ -131,7 +173,8 @@ export class AutomationHandler implements DomainHandler {
       const variables = payload.variables ?? {};
 
       this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
-      sendOperationStarted(this.deps, operationId, 'automation', `Pipeline: ${pipeline.name}`);
+      const description = `Pipeline: ${pipeline.name}`;
+      sendOperationStarted(this.deps, operationId, 'automation', description);
 
       const stepCompletedListener = (_event: unknown, data: unknown): void => {
         const stepData = data as {
@@ -150,7 +193,32 @@ export class AutomationHandler implements DomainHandler {
           `Step: ${stepData.stepResult.stepName} (${stepData.stepResult.status})`,
         );
       };
+      // Each step as it starts and as it ends, for the page's execution view,
+      // which otherwise showed every step pending until the run was over.
+      const stepStartedListener = (_event: unknown, data: unknown): void => {
+        const { stepId } = data as { stepId: string };
+        this.postStepUpdate({ operationId, stepId, status: 'running' });
+      };
+      const stepEndedListener = (_event: unknown, data: unknown): void => {
+        const { stepResult } = data as { stepResult: PipelineStepResult };
+        this.postStepUpdate({
+          operationId,
+          stepId: stepResult.stepId,
+          status:
+            stepResult.status === 'failed'
+              ? 'failed'
+              : stepResult.status === 'skipped'
+                ? 'skipped'
+                : 'completed',
+          ...(stepResult.duration !== undefined ? { duration: stepResult.duration } : {}),
+          ...(stepResult.summary !== undefined ? { summary: stepResult.summary } : {}),
+          ...(stepResult.error !== undefined ? { error: stepResult.error } : {}),
+        });
+      };
       orchestrator.on('stepCompleted', stepCompletedListener);
+      orchestrator.on('stepStarted', stepStartedListener);
+      orchestrator.on('stepCompleted', stepEndedListener);
+      orchestrator.on('stepSkipped', stepEndedListener);
 
       // `sandforge.pipeline.timeout` (manifest default 300 000 ms) bounds the
       // wall-clock duration of a pipeline run. When the budget is spent its
@@ -159,39 +227,71 @@ export class AutomationHandler implements DomainHandler {
       // recorded like any other. It used to be dropped instead: the handler
       // gave up on it with a TimeoutError, so the run reached neither History
       // nor the page, which went on waiting for an answer until its own limit.
+      //
+      // The same signal is the one a cancel aborts: the run is registered with
+      // it, so `execution:abort` from the page, or Cancel in Live Operations,
+      // stops the run through the orchestrator's abort path.
       const pipelineTimeout =
         this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
-      const budget = new AbortController();
-      const timer = setTimeout(() => budget.abort(), pipelineTimeout);
+      const stop = new AbortController();
+      let outOfTime = false;
+      const timer = setTimeout(() => {
+        outOfTime = true;
+        stop.abort();
+      }, pipelineTimeout);
+      let settleRegistered: (error?: Error) => void = () => {};
+      this.deps.infraServices?.backgroundRegistry?.register(
+        operationId,
+        'automation',
+        description,
+        new Promise<void>((resolve, reject) => {
+          settleRegistered = (error) => (error ? reject(error) : resolve());
+        }),
+        stop,
+      );
       let run: PipelineRun;
       try {
-        run = await orchestrator.execute(pipeline, variables, 'manual', budget.signal);
+        run = await orchestrator.execute(pipeline, variables, 'manual', stop.signal);
+      } catch (err: unknown) {
+        // Live Operations would otherwise list the run as running for good.
+        settleRegistered(new Error(extractErrorMessage(err)));
+        throw err;
       } finally {
         clearTimeout(timer);
-        // Release the event-emitter listener so the closure doesn't pin the
+        // Release the event-emitter listeners so the closures don't pin the
         // orchestrator + pipeline graph in memory after execution.
         orchestrator.off?.('stepCompleted', stepCompletedListener);
+        orchestrator.off?.('stepStarted', stepStartedListener);
+        orchestrator.off?.('stepCompleted', stepEndedListener);
+        orchestrator.off?.('stepSkipped', stepEndedListener);
       }
-      // The orchestrator reports a run its signal stopped as cancelled; this
-      // one did not finish in the time it was given, which is a failure the
-      // reader has to see. A run that ended as the budget ran out keeps its
-      // own status.
-      const outOfTime = budget.signal.aborted && run.status === 'cancelled';
-      const result: PipelineRun = outOfTime
+      // The orchestrator reports a run its signal stopped as cancelled. One the
+      // budget stopped did not finish in the time it was given, which is a
+      // failure the reader has to see; one a cancel stopped is cancelled. A
+      // run that ended as the budget ran out keeps its own status.
+      const ranOutOfTime = outOfTime && run.status === 'cancelled';
+      const result: PipelineRun = ranOutOfTime
         ? {
             ...run,
             status: 'failed',
             error: `Pipeline ran out of time: sandforge.pipeline.timeout stopped it after ${pipelineTimeout} ms.`,
           }
         : run;
+      settleRegistered(
+        result.status === 'failed' ? new Error(result.error ?? 'Pipeline failed') : undefined,
+      );
 
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.recordRun(result, pipeline);
 
       if (result.status === 'failed') {
-        sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', outOfTime, {
-          context: failure,
-        });
+        sendOperationFailed(
+          this.deps,
+          operationId,
+          result.error ?? 'Pipeline failed',
+          ranOutOfTime,
+          { context: failure },
+        );
       } else {
         sendOperationCompleted(this.deps, operationId, {
           status: result.status,
@@ -217,6 +317,17 @@ export class AutomationHandler implements DomainHandler {
         context: failure,
       });
     }
+  }
+
+  /** Post one step's status to the page (see {@link PipelineStepUpdate}). */
+  private postStepUpdate(payload: PipelineStepUpdate['payload']): void {
+    const update: BaseMessage & { payload: PipelineStepUpdate['payload'] } = {
+      id: this.deps.nextId(),
+      type: 'pipeline:step',
+      timestamp: Date.now(),
+      payload,
+    };
+    this.deps.broker.postToWebview(update);
   }
 
   /**
@@ -252,6 +363,9 @@ export class AutomationHandler implements DomainHandler {
           // result too, and the History tab says how many steps ran.
           stepCount: run.stepResults.filter((step) => step.status !== 'skipped').length,
           errorCount: run.stepResults.filter((step) => step.status === 'failed').length,
+          // What each step did, or why it failed, in the order the run took
+          // them: a backup's records, a comparison's differences, a refusal.
+          steps: run.stepResults.map(historyStep),
           // `pipeline:history` sorts on this; `startTime` is an ISO string.
           timestamp: Number.isNaN(startedAt) ? Date.now() : startedAt,
           pipeline,

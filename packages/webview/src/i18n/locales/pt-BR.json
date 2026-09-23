@@ -1007,8 +1007,6 @@
     "noOrgSelected": "Nenhuma org selecionada — escolha uma na página Organizações antes de executar backup ou anonimização.",
     "noBackups": "Nenhum backup disponível",
     "createBackup": "Criar backup",
-    "backupName": "Nome do backup",
-    "includeAttachments": "Incluir anexos",
     "selectBackup": "Selecione um backup para restaurar",
     "restoreInProgress": "Restaurando dados...",
     "selectTemplate": "Selecionar um modelo",
@@ -1131,7 +1129,7 @@
     "historyRuns": "Execuções no histórico",
     "triggers": "Gatilhos",
     "triggerManualOnlyNote": "Só uma execução manual inicia um pipeline. Os outros tipos de gatilho podem ser configurados aqui, mas nada os dispara ainda.",
-    "sandboxRefreshTriggerRefused": "O SandForge detecta a atualização de um sandbox e avisa você, mas este gatilho não inicia nenhum pipeline: um pipeline só executa etapas Atraso e Condição, e o trabalho que uma atualização pede — anonimização, seed, backup — é feito de etapas de dados que ele se recusaria a iniciar.",
+    "sandboxRefreshTriggerRefused": "O SandForge detecta a atualização de um sandbox e avisa você, mas este gatilho não inicia nenhum pipeline: os pipelines começam manualmente. O trabalho que uma atualização pede — anonimização, seed — grava em uma org, e nenhuma etapa de pipeline faz isso.",
     "addTrigger": "Adicionar gatilho",
     "run": "Executar pipeline",
     "running": "Executando pipeline...",
@@ -1196,6 +1194,15 @@
     "stepName": "Nome da etapa",
     "typeConfig": "Configuração específica do tipo",
     "stepConfigMessage": "Mensagem",
+    "stepConfigOrg": "Org",
+    "stepConfigObjects": "Objetos (nomes de API, separados por vírgulas)",
+    "stepConfigChecks": "Verificações",
+    "precheckChecks": {
+      "apiLimits": "Uso da API",
+      "storage": "Armazenamento de dados",
+      "recentErrors": "Logs de erro do Apex (últimas 24 h)",
+      "failedJobs": "Jobs do Apex com falha"
+    },
     "stepConfigDelay": "Atraso (segundos)",
     "stepConfigScript": "Script",
     "stepConfigWhere": "Cláusula WHERE",
@@ -1219,20 +1226,30 @@
     "installTemplate": "Instalar",
     "runFailed": "A execução do pipeline falhou: {{reason}}",
     "runnability": {
-      "cannotRun": "Ainda não executável",
+      "cannotRun": "Não executável",
       "typeCannotRun": "Este tipo de etapa ainda não pode ser executado em um pipeline.",
-      "conditionCannotRun": "Uma etapa Condição ainda não pode ser executada em um pipeline: nada aqui define sua condição, e uma execução não traz variáveis para ela testar.",
+      "writesToOrg": "Esta etapa grava em uma org, então um pipeline não a executa: execute-a pela própria página dela, onde o Production Guard pergunta antes de gravar em uma org de produção.",
+      "notInPipelines": "Fora dos pipelines",
+      "conditionNeedsCondition": "Uma etapa Condição precisa de uma condição para testar, e esta página ainda não consegue definir uma. Uma etapa Condição vinda de um modelo do Marketplace traz a sua.",
       "delayNeedsSeconds": "Defina quantos segundos esta etapa Atraso espera (de 0 a 24 dias).",
-      "paletteNote": "Por enquanto, só as etapas Atraso podem ser executadas em um pipeline. Os demais tipos de etapa ainda não podem ser adicionados.",
+      "timeoutTooLong": "Defina um timeout de no máximo 24 dias (2.073.600.000 ms), ou nenhum.",
+      "needsOrg": "Escolha a org com que esta etapa trabalha.",
+      "orgNotConnected": "Esta etapa indica uma org que não está conectada aqui: escolha uma das suas orgs.",
+      "backupNeedsObjects": "Liste os nomes de API dos objetos para o backup, por exemplo Account, Contact (no máximo 100).",
+      "compareNeedsOrgs": "Escolha uma org de origem e uma org de destino diferente.",
+      "compareNeedsTypes": "Escolha pelo menos um tipo de metadados para comparar.",
+      "precheckNeedsChecks": "Escolha o que esta Pré-verificação lê: uso da API, armazenamento de dados, logs de erro do Apex ou jobs do Apex com falha.",
+      "notificationNeedsMessage": "Escreva a mensagem que esta notificação exibe (no máximo 500 caracteres).",
+      "paletteNote": "As etapas que gravam em uma org — Seed, Sync, Restauração, Anonimização, Exclusão — só são executadas pela própria página, onde o Production Guard pergunta antes. Script, Aprovação, Loop e Paralelo ainda não podem ser executados, e uma etapa Condição precisa de uma condição que esta página ainda não consegue definir.",
       "pipelineBlocked": "Este pipeline não pode ser executado. Remova ou corrija estas etapas primeiro:",
-      "templateBlocked": "Ainda não pode ser executado como pipeline. Estes tipos de etapa não podem ser executados: {{types}}."
+      "templateBlocked": "Não pode ser executado como pipeline. Estes tipos de etapa não são executados em um pipeline: {{types}}."
     },
     "soon": {
-      "steps": "Por enquanto, só as etapas Atraso são executadas em um pipeline. Seed, Sync, Backup, Restauração, Anonimização, Exclusão, Condição e os demais tipos de etapa ainda não podem ser executados em um pipeline: um pipeline que contenha uma delas não é iniciado."
+      "steps": "As etapas Script, Aprovação, Loop e Paralelo ainda não podem ser executadas em um pipeline, e Seed, Sync, Restauração, Anonimização e Exclusão gravam em uma org, então só são executadas pela própria página. Um pipeline que contenha uma delas não é iniciado. As etapas Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas."
     },
     "emptyState": {
       "title": "Crie seu primeiro pipeline",
-      "description": "Monte pipelines em uma tela visual e salve-os. Por enquanto, só as etapas Atraso podem ser executadas em um pipeline.",
+      "description": "Monte pipelines em uma tela visual, salve-os e execute-os: faça backup e compare orgs, verifique os limites delas, exiba uma notificação. Nenhuma etapa de pipeline grava em uma org.",
       "cta": "Selecionar uma org"
     },
     "agenda": {
@@ -1513,7 +1530,7 @@
     "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental, delta e CDC não estão implementados)\n- Mapeamento automático de campos com pontuações de confiança\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Snapshots: os objetos das duas orgs, capturados ao vivo quando você abre a aba\n- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantação: em breve, nada é implantado a partir de um diff ainda",
     "dataopsContent": "Operações de dados na org selecionada:\n- Backup: um snapshot completo de Account e Contact, guardado no armazenamento da extensão\n- Restauração: devolve um backup, inteiro, à org de onde ele foi tirado\n- Anonimização: mascara os campos no lugar com um modelo integrado como GDPR, CCPA ou HIPAA; é irreversível, então faça um backup antes\n- Qualidade: para os objetos que você escolher, conta com que frequência cada campo é preenchido, quais valores de uma chave como Name ou Email vários registros compartilham e quantos registros ninguém modificou em um número de dias; a org faz a contagem, e nada é lido registro a registro nem gravado\n- Conformidade e Limpeza: em breve, nada roda por trás dessas abas ainda",
-    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Por enquanto só as etapas Atraso podem ser executadas: um pipeline que contenha qualquer um dos outros 14 tipos é recusado antes de começar\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Histórico de execução: status, duração total, número de etapas e erros de cada execução\n- Modelos de pipeline do Marketplace",
+    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas; um pipeline que contenha uma etapa que grava em uma org, ou uma etapa Script, Aprovação, Loop ou Paralelo, é recusado antes de começar\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Histórico de execução: status, duração total e erros de cada execução, e o que cada uma de suas etapas fez\n- Modelos de pipeline do Marketplace",
     "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: os IDs são remapeados na escrita; um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
     "frozenContent": "O Dataset congelado extrai um conjunto de dados de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Pseudonimização determinística, com um sal guardado fora do repositório\n- Uma verificação de quatro pontos precisa passar antes de o dataset ser gravado\n- Carga: somente sandboxes como destino, com um Piloto opcional sobre uma única pasta raiz antes da carga completa, e uma verificação depois da carga",
     "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",

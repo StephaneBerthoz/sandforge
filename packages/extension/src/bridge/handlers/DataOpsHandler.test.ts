@@ -1758,3 +1758,108 @@ describe('DataOpsHandler — templates the user saves', () => {
     expect((await listed()).map((t) => t.id)).toContain('tpl-gdpr-standard');
   });
 });
+
+describe('DataOpsHandler — a snapshot taken for a pipeline', () => {
+  /** A connection that reads one record of each object and writes nothing. */
+  function readOnlyConnection(
+    query = vi.fn(async () => ({ records: [{ Id: '001' }], done: true })),
+  ) {
+    return {
+      describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
+      query,
+      // A pipeline's Backup only reads: none of these may be reached.
+      sobject: vi.fn(),
+      soap: { undelete: vi.fn() },
+    };
+  }
+
+  it('takes the snapshot the Backup button takes, into local storage, and says what it holds', async () => {
+    const deps = createMockDeps();
+    const conn = readOnlyConnection();
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+    vi.mocked(deps.orgManager.getOrg).mockReturnValue({ orgType: 'Sandbox' } as never);
+    const handler = new DataOpsHandler(deps);
+
+    const taken = await handler.backupForPipeline({
+      operationId: 'snap-1',
+      orgId: 'org-1',
+      objects: ['Account', 'Contact'],
+    });
+
+    expect(taken).toMatchObject({
+      operationId: 'snap-1',
+      totalRecords: 2,
+      partial: false,
+      objects: [
+        { objectApiName: 'Account', recordCount: 1, truncated: false },
+        { objectApiName: 'Contact', recordCount: 1, truncated: false },
+      ],
+    });
+    // Where the DataOps page lists it, under the snapshot's id.
+    expect(deps.configStore.set).toHaveBeenCalledWith(
+      'backup:snap-1',
+      expect.objectContaining({ orgId: 'org-1', totalRecords: 2 }),
+      'backups',
+    );
+    expect(conn.sobject).not.toHaveBeenCalled();
+    expect(conn.soap.undelete).not.toHaveBeenCalled();
+    // The lifecycle Live Operations reads; the step, not a page, gets the answer.
+    const types = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map(([message]) => (message as BaseMessage).type);
+    expect(types).toContain('operation:started');
+    expect(types).toContain('operation:completed');
+    expect(types).not.toContain('dataops:backup:response');
+  });
+
+  it('waits on the lock a snapshot from the DataOps page holds on the same org', async () => {
+    const deps = createMockDeps();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockImplementation(
+      () => held.then(() => readOnlyConnection()) as never,
+    );
+    const handler = new DataOpsHandler(deps);
+
+    const fromThePage = handler.handle(
+      inboundRequest({
+        id: 'page-backup',
+        type: 'backup:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', objects: ['Account'] },
+      } as BaseMessage),
+    );
+
+    await expect(
+      handler.backupForPipeline({ operationId: 'snap-2', orgId: 'org-1', objects: ['Account'] }),
+    ).rejects.toThrow('A backup or rollback operation is already running for org org-1.');
+
+    release();
+    await fromThePage;
+  });
+
+  it('stops between two objects when the run is stopped, and saves nothing', async () => {
+    const deps = createMockDeps();
+    const stop = new AbortController();
+    const query = vi.fn(async () => {
+      stop.abort();
+      return { records: [{ Id: '001' }], done: true };
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+    const handler = new DataOpsHandler(deps);
+
+    await expect(
+      handler.backupForPipeline(
+        { operationId: 'snap-3', orgId: 'org-1', objects: ['Account', 'Contact'] },
+        stop.signal,
+      ),
+    ).rejects.toThrow('Backup was cancelled before it finished. Nothing was saved');
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(deps.configStore.set).not.toHaveBeenCalled();
+  });
+});

@@ -74,6 +74,13 @@ export interface CoreServices {
    */
   getWorkspaceFolders?: () => string[];
   /**
+   * Show a notification in the VS Code window, outside any panel, and return
+   * without waiting for it to be read: what a pipeline's Notification step
+   * does. Optional for the same test reason; where it is absent, a
+   * Notification step is refused before the run.
+   */
+  showNotification?: (message: string) => void;
+  /**
    * The window's one AI token counter, shared by every AI feature. `aiClient`
    * builds each adapter with it, so rebuilding the AI stack (any
    * `sandforge.ai.*` change, a new key) keeps the count and no adapter is ever
@@ -217,6 +224,9 @@ export function createServices(
         .update(key, value, vscode.ConfigurationTarget.Global),
     getWorkspaceFolders: (): string[] =>
       vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
+    showNotification: (message: string): void => {
+      void vscode.window.showInformationMessage(message);
+    },
     sessionBudget,
     readTokenBudget,
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),

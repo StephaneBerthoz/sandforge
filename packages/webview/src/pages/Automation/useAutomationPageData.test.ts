@@ -16,6 +16,8 @@ interface MutationDouble {
   loading: boolean;
   error: string | null;
   reset: ReturnType<typeof vi.fn>;
+  /** Id of the request the last `mutate` sent. */
+  requestId: string | null;
 }
 
 /**
@@ -37,6 +39,7 @@ function mutationFor(type: string): MutationDouble {
     loading: false,
     error: null,
     reset: vi.fn(),
+    requestId: null,
   };
   mutationDoubles.set(type, created);
   return created;
@@ -94,6 +97,25 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** What the page posts to the extension, as the VS Code API receives it. */
+const posted = vi.fn();
+const vscodeApi = { postMessage: posted, getState: () => undefined, setState: () => undefined };
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => vscodeApi,
+  getVscodeApi: () => vscodeApi,
+}));
+
+/** A message from the extension, as the window hands it to the page. */
+function receive(type: string, payload: Record<string, unknown>): void {
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { id: `ext-${type}-${String(payload.stepId)}`, type, timestamp: Date.now(), payload },
+      }),
+    );
+  });
+}
+
 /** `sandforge.pipeline.timeout`'s default and maximum, read from the extension manifest. */
 function manifestPipelineTimeout(): { default: number; maximum: number } {
   // vitest may be started from the workspace root or from packages/webview.
@@ -123,6 +145,7 @@ beforeEach(() => {
   mutationDoubles.clear();
   queryRefetches.clear();
   notifications.length = 0;
+  posted.mockClear();
 });
 
 describe('useAutomationPageData — pipeline execution timeout', () => {
@@ -399,7 +422,7 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
     expect(
       result.current.runBlockers.map((blocked) => [blocked.stepName, blocked.blocker]),
     ).toEqual([
-      ['Copy accounts', 'typeCannotRun'],
+      ['Copy accounts', 'writesToOrg'],
       ['Mask PII', 'typeCannotRun'],
     ]);
 
@@ -416,6 +439,7 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
         name: 'API Limit Monitoring',
         steps: [
           { name: 'Check API Usage', type: 'precheck', config: {} },
+          // A condition written in `config` is no condition at all.
           { name: 'Evaluate Thresholds', type: 'condition', config: { field: 'x' } },
         ],
       },
@@ -423,9 +447,46 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
     rerender();
 
     expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
-      'typeCannotRun',
-      'conditionCannotRun',
+      'needsOrg',
+      'conditionNeedsCondition',
     ]);
+  });
+
+  it('keeps the condition an installed Condition step carries, so it can run', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+
+    // The API Limit Monitoring template as the host exports it now.
+    mutationFor('marketplace:install').data = {
+      success: true,
+      pipeline: {
+        name: 'API Limit Monitoring',
+        steps: [
+          { name: 'Check API Usage', type: 'precheck', config: { checks: ['apiLimits'] } },
+          {
+            name: 'Evaluate Thresholds',
+            type: 'condition',
+            config: {},
+            condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 },
+          },
+          {
+            name: 'Show Notification',
+            type: 'notification',
+            config: { message: 'API usage has passed 60% of the daily limit.' },
+          },
+        ],
+      },
+    };
+    rerender();
+
+    expect(result.current.pipeline?.steps[1].condition).toEqual({
+      field: 'apiUsagePercent',
+      operator: 'gt',
+      value: 60,
+    });
+    // Only the org the pre-check reads is left to choose.
+    expect(
+      result.current.runBlockers.map((blocked) => [blocked.stepName, blocked.blocker]),
+    ).toEqual([['Check API Usage', 'needsOrg']]);
   });
 
   it('sends a pipeline whose every step can run', () => {
@@ -482,5 +543,74 @@ describe('useAutomationPageData — a failed run says why', () => {
     expect(result.current.error).toBeNull();
     expect(notifications.some((n) => n.level === 'error')).toBe(false);
     expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useAutomationPageData — a run in progress', () => {
+  /** A pipeline of two steps, running under the request `wv-run-1`. */
+  function startRun(): { result: { current: ReturnType<typeof useAutomationPageData> } } {
+    const hook = renderHook(() => useAutomationPageData());
+    act(() => hook.result.current.handleCreatePipeline());
+    act(() => hook.result.current.handleAddStep('delay'));
+    act(() => hook.result.current.handleAddStep('delay'));
+    const [first, second] = hook.result.current.pipeline?.steps ?? [];
+    act(() => hook.result.current.handleUpdateStep(first.id, { config: { seconds: 1 } }));
+    act(() => hook.result.current.handleUpdateStep(second.id, { config: { seconds: 1 } }));
+    act(() => hook.result.current.handleRunPipeline());
+    mutationFor('pipeline:execute').loading = true;
+    mutationFor('pipeline:execute').requestId = 'wv-run-1';
+    hook.rerender();
+    return hook;
+  }
+
+  it('follows each step as the extension reports it, and no other run', () => {
+    const { result } = startRun();
+    const [first, second] = result.current.pipeline?.steps ?? [];
+    expect(result.current.executionData?.steps.map((s) => s.status)).toEqual([
+      'pending',
+      'pending',
+    ]);
+
+    receive('pipeline:step', { operationId: 'wv-run-1', stepId: first.id, status: 'running' });
+    expect(result.current.executionData?.steps.map((s) => s.status)).toEqual([
+      'running',
+      'pending',
+    ]);
+
+    receive('pipeline:step', {
+      operationId: 'wv-run-1',
+      stepId: first.id,
+      status: 'completed',
+      duration: 1000,
+      summary: 'Waited 1 s.',
+    });
+    // Another run's step, reported to every panel, is not this run's.
+    receive('pipeline:step', { operationId: 'wv-other', stepId: second.id, status: 'failed' });
+
+    expect(result.current.executionData?.steps.map((s) => s.status)).toEqual([
+      'completed',
+      'pending',
+    ]);
+    expect(result.current.executionData?.steps[0].summary).toBe('Waited 1 s.');
+    expect(result.current.executionData?.progress).toBe(50);
+  });
+
+  it('cancels its own run on execution:abort, which stops the run in the extension', () => {
+    const { result } = startRun();
+
+    act(() => result.current.handleCancelRun());
+
+    expect(posted).toHaveBeenCalledOnce();
+    const envelope = posted.mock.calls[0][0] as {
+      payload: { type: string; payload: { operationId: string } };
+    };
+    expect(envelope.payload.type).toBe('execution:abort');
+    expect(envelope.payload.payload.operationId).toBe('wv-run-1');
+  });
+
+  it('sends no cancel before a run has started', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCancelRun());
+    expect(posted).not.toHaveBeenCalled();
   });
 });

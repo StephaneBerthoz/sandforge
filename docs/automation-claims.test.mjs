@@ -1,23 +1,26 @@
 /**
  * Keeps the Automation surfaces honest about what a pipeline step does.
  *
- * `StepExecutor` gives Delay and Condition real handlers and refuses every
- * other step type: a pipeline that holds one does not start. (Until the
- * refusal, those types went to a pass-through that returned success without
- * opening a connection.) Around that sit the places that describe steps: the
- * predefined catalogue the host serves on `pipeline:templates`, the
- * Marketplace catalogue, the step registry's own descriptions, and the config
- * fields the Step Config Panel renders. Each of them has, at some point,
- * promised work the executor does not do — a "Dry Run" that validates "without
- * committing", a notification "via email, Slack, or other channels", an
- * approval that "pauses and waits", a box asking which channel to notify.
+ * `StepExecutor` gives Delay and Condition handlers of its own, and the
+ * extension registers four more for its runs in `pipelineSteps.ts` — Backup,
+ * Compare, Pre-check and Notification, each through the flow its module's page
+ * runs. Every other step type is refused: a pipeline that holds one does not
+ * start. (Until the refusal, those types went to a pass-through that returned
+ * success without opening a connection.) Around that sit the places that
+ * describe steps: the predefined catalogue the host serves on
+ * `pipeline:templates`, the Marketplace catalogue, the step registry's own
+ * descriptions, the config fields the Step Config Panel renders, and the
+ * module page. Each of them has, at some point, promised work no step does — a
+ * "Dry Run" that validates "without committing", a notification "via email,
+ * Slack, or other channels", an approval that "pauses and waits", a box asking
+ * which channel to notify.
  *
  * A banner on the page cannot fix a template card: the card is read on its
  * own, and its own words are what a reader takes. So this gate reads the
- * sources, not the prose, and refuses the claims while the executor refuses
- * the steps behind them. Give a step type a real handler and the assertions
- * about it stop applying — `refusedStepTypes` is read from the executor, so
- * the gate follows the code rather than a copy of it.
+ * sources, not the prose, and refuses the claims while the steps behind them
+ * are refused. Give a step type a real handler and the assertions about it
+ * stop applying — `handledStepTypes` is read from where the handlers are
+ * registered, so the gate follows the code rather than a copy of it.
  *
  * Its sibling `automation-scheduler-claims.test.mjs` does the same for the
  * docs about triggers and the scheduler.
@@ -38,6 +41,9 @@ const webviewSrc = join(repoRoot, 'packages', 'webview', 'src');
 const read = (...parts) => readFileSync(join(...parts), 'utf8');
 
 const templates = read(extensionSrc, 'bridge', 'templates', 'pipelineTemplates.ts');
+const pipelineSteps = read(extensionSrc, 'bridge', 'handlers', 'pipelineSteps.ts');
+const automationHandler = read(extensionSrc, 'bridge', 'handlers', 'AutomationHandler.ts');
+const extensionHandlers = read(extensionSrc, 'bridge', 'ExtensionHandlers.ts');
 const marketplace = read(extensionSrc, 'modules', 'automation', 'PipelineMarketplace.ts');
 const stepExecutor = read(extensionSrc, 'modules', 'automation', 'StepExecutor.ts');
 const stepLibrary = read(extensionSrc, 'modules', 'automation', 'StepLibrary.ts');
@@ -45,21 +51,59 @@ const automationPage = read(webviewSrc, 'pages', 'Automation', 'AutomationPage.t
 const stepConfigPanel = read(webviewSrc, 'pages', 'Automation', 'StepConfigPanel.tsx');
 const automationTypes = read(repoRoot, 'packages', 'shared', 'src', 'types', 'automation.types.ts');
 
-/**
- * The step types `StepExecutor` refuses: every member of the `PipelineStepType`
- * union its `registerDefaults` gives no handler.
- */
-function refusedStepTypes() {
+/** Every member of the `PipelineStepType` union. */
+function allStepTypes() {
   const union = automationTypes.match(/export type PipelineStepType =([^;]+);/);
   assert.ok(union, 'PipelineStepType union not found in automation.types.ts');
-  const all = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  return [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
+
+/**
+ * The step types a pipeline runs: the ones `StepExecutor.registerDefaults`
+ * gives a handler, and the ones `registerPipelineSteps` registers — provided
+ * the run handler calls it and the extension gives it the module flows.
+ */
+function handledStepTypes() {
   const defaults = stepExecutor.match(/private registerDefaults\(\): void \{([\s\S]*?)\n {2}\}/);
   assert.ok(defaults, 'no `registerDefaults` found in StepExecutor.ts — has the executor changed?');
-  const handled = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
+  const own = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
   // Positive control: a parse that sees no handler would call every type refused.
-  assert.ok(handled.length > 0, 'registerDefaults was read as registering no handler');
-  return all.filter((type) => !handled.includes(type));
+  assert.ok(own.length > 0, 'registerDefaults was read as registering no handler');
+
+  const registration = pipelineSteps.match(/export function registerPipelineSteps\([\s\S]*?\n\}/);
+  assert.ok(registration, 'no `registerPipelineSteps` found in pipelineSteps.ts — has it moved?');
+  const viaModules = [...registration[0].matchAll(/registerHandler\(\s*'([a-z_]+)'/g)].map(
+    (m) => m[1],
+  );
+  assert.ok(viaModules.length > 0, 'registerPipelineSteps was read as registering no handler');
+  // Registered only where a run uses them: the run handler calls it, and the
+  // extension hands the run handler the module flows.
+  assert.match(
+    automationHandler,
+    /registerPipelineSteps\(stepExecutor, this\.stepRunners\)/,
+    'the run handler no longer registers the module steps — they would be refused again',
+  );
+  assert.match(
+    extensionHandlers,
+    /this\.automationHandler\.setStepRunners\(/,
+    'ExtensionHandlers no longer gives the run handler the module flows',
+  );
+  return [...own, ...viaModules];
 }
+
+/** The step types a pipeline refuses: every member of the union with no handler. */
+function refusedStepTypes() {
+  const handled = handledStepTypes();
+  return allStepTypes().filter((type) => !handled.includes(type));
+}
+
+/**
+ * The step types that write to an org. None of them may run in a pipeline:
+ * each runs from its own page, where Production Guard stops a write to a
+ * production org or asks the person at the panel first, and a pipeline runs
+ * unattended.
+ */
+const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
 
 /**
  * Every `name:` and `description:` value of a template file, in source order.
@@ -89,8 +133,8 @@ const DRY_RUN = /dry.?run|without commit/i;
 
 /**
  * Named delivery channels. A pipeline reaches none of them: the `notification`
- * step is refused, and the extension has no Slack, Teams, email or
- * incident-tool client at all.
+ * step shows its message in the VS Code window, and the extension has no
+ * Slack, Teams, email or incident-tool client at all.
  */
 const DELIVERY_CHANNEL = /\bslack|\bteams\b|\bemail|\bsms\b|pagerduty|datadog|\bjira\b|\bwebhook/i;
 
@@ -141,10 +185,23 @@ test('no template offers a dry run', () => {
   }
 });
 
-test('no notification step names a channel nothing sends to', () => {
-  assert.ok(
-    refusedStepTypes().includes('notification'),
-    'the notification step has a handler now — check what it sends before deleting this test',
+test('a notification step names no channel but the VS Code window it shows in', () => {
+  // The step runs now, and what it runs is a VS Code notification: the
+  // handler calls the one notifier it is given, which the composition root
+  // builds from `vscode.window.showInformationMessage`.
+  assert.ok(handledStepTypes().includes('notification'), 'the notification step is refused again');
+  const handler = pipelineSteps.match(/function notificationHandler\([\s\S]*?\n\}/);
+  assert.ok(handler, 'no notificationHandler found in pipelineSteps.ts');
+  assert.match(
+    handler[0],
+    /runners\.notify\(/,
+    'the notification step no longer shows its message',
+  );
+  assert.doesNotMatch(handler[0], DELIVERY_CHANNEL, 'the notification step reaches a channel now');
+  assert.match(
+    read(extensionSrc, 'services.ts'),
+    /showNotification: \(message: string\): void => \{\s*void vscode\.window\.showInformationMessage\(message\);/,
+    'showNotification is no longer a VS Code notification — re-read what the notification step promises',
   );
 
   for (const [file, source] of [
@@ -183,14 +240,11 @@ function templateDescriptions(source) {
 /** A promise that someone is told: the work a notification step would do. */
 const TELLS_SOMEONE = /\bnotif(?:y|ies|ied)\b|\balert/i;
 
-test('no template card promises to tell anyone', () => {
-  // The notification step is refused, so a card that ends on "notify the
-  // team" or "alert when" describes the one part of its pipeline no run
-  // reaches, and the card is read on its own, away from the banner.
-  assert.ok(
-    refusedStepTypes().includes('notification'),
-    'the notification step has a handler now — check what it sends before deleting this test',
-  );
+test('no template card promises to tell anyone but the person running it', () => {
+  // The notification step shows a VS Code notification, to whoever runs the
+  // pipeline, and sends nothing anywhere. A card may say it shows one; a card
+  // that ends on "notify the team" or "alert when" promises a delivery no run
+  // makes, and the card is read on its own, away from the banner.
   for (const [file, source] of [
     ['pipelineTemplates.ts', templates],
     ['PipelineMarketplace.ts', marketplace],
@@ -209,9 +263,10 @@ test('no template card promises to tell anyone', () => {
 
 test('no step config asks where to deliver something nothing delivers', () => {
   // The palette description and the marketplace configs were made honest, but
-  // the panel is the surface a user types into: a "Channel" box on a step that
-  // sends nothing collects an address no code reads.
-  for (const type of refusedStepTypes()) {
+  // the panel is the surface a user types into: a "Channel" box collects an
+  // address no code reads, on a step that is refused and on the notification
+  // step alike, which shows its message in VS Code and nowhere else.
+  for (const type of allStepTypes()) {
     const entry = stepLibraryEntry(type);
     const schema = entry.match(/configSchema: \{([\s\S]*?)\}\s*,?\s*$/);
     for (const [, key] of schema ? schema[1].matchAll(/(\w+):\s*\{/g) : []) {
@@ -336,4 +391,82 @@ test('a finished run is written where the History tab reads it', () => {
     /configStore\.getByCategory\('pipeline-history'\)/,
     'nothing reads the history back — the cap and the tab both need it',
   );
+});
+
+test('no step that writes to an org runs in a pipeline', () => {
+  const handled = handledStepTypes();
+  // Positive control: the walk sees the steps registered through a module.
+  for (const type of ['backup', 'compare', 'precheck', 'notification']) {
+    assert.ok(handled.includes(type), `${type} is no longer seen as running — is the walk blind?`);
+  }
+  assert.deepEqual(
+    handled.filter((type) => WRITE_STEP_TYPES.includes(type)),
+    [],
+    'a step that writes to an org runs in a pipeline now: it runs unattended, with no Production ' +
+      'Guard confirmation. Re-read the module page, both READMEs and the listing before relaxing this.',
+  );
+  // And the palette says why each of them is refused, in the note its buttons point to.
+  const note = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.runnability
+    .paletteNote;
+  for (const label of ['Seed', 'Sync', 'Restore', 'Anonymize', 'Delete']) {
+    assert.match(note, new RegExp(label), `the palette note does not name ${label}`);
+  }
+  assert.match(note, /write to an org/, 'the palette note does not say why they are refused');
+});
+
+/** Body of the section opened by `heading`, up to the next heading of the same or a higher level. */
+function section(markdown, heading) {
+  const start = markdown.indexOf(heading);
+  assert.notEqual(start, -1, `heading not found, the guard is aimed at nothing: ${heading}`);
+  const body = markdown.slice(start + heading.length);
+  const level = heading.match(/^#+/)[0].length;
+  const next = body.search(new RegExp(`^#{1,${level}} `, 'm'));
+  return next === -1 ? body : body.slice(0, next);
+}
+
+/** The step type labels the page shows, by type. */
+const STEP_LABELS = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.stepTypes;
+
+test('the module page lists exactly the step types that run, and names every one it refuses', () => {
+  // The page said "only Delay steps run" for a release after Condition ran
+  // too; it is read against the handlers now.
+  const doc = read(repoRoot, 'docs', 'modules', 'automation.md');
+  const stepTypes = section(doc, '### Step Types');
+  const runs = stepTypes.match(/run in a pipeline:\n\n((?:- .*\n)+)/);
+  assert.ok(runs, 'no "run in a pipeline:" list found under ### Step Types');
+  const listed = [...runs[1].matchAll(/^- \*\*([^*]+)\*\*/gm)].map((m) => m[1]).sort();
+  const expected = handledStepTypes()
+    .map((type) => STEP_LABELS[type])
+    .sort();
+  assert.deepEqual(
+    listed,
+    expected,
+    'the module page lists other step types than the ones that run',
+  );
+
+  const refused = stepTypes.slice(stepTypes.indexOf(runs[0]) + runs[0].length);
+  for (const type of refusedStepTypes()) {
+    assert.match(
+      refused,
+      new RegExp(STEP_LABELS[type]),
+      `the module page does not name ${type} as refused`,
+    );
+  }
+});
+
+test('both READMEs name the step types that run, and say which are refused', () => {
+  const handled = handledStepTypes();
+  for (const file of ['README.md', join('packages', 'extension', 'README.md')]) {
+    const row = read(repoRoot, file)
+      .split('\n')
+      .find((line) => line.startsWith('| **Automation**'));
+    assert.ok(row, `${file} has no Automation row`);
+    assert.doesNotMatch(row, /only `delay` runs/i, `${file} still says only delay runs`);
+    for (const type of handled) {
+      assert.match(row, new RegExp('`' + type + '`'), `${file} does not say ${type} runs`);
+    }
+    for (const type of WRITE_STEP_TYPES) {
+      assert.match(row, new RegExp('`' + type + '`'), `${file} does not say ${type} is refused`);
+    }
+  }
 });

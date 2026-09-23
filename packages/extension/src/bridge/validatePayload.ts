@@ -910,7 +910,16 @@ export const pipelineRunPayloadSchema = z.object({
   pipeline: z
     .object({
       name: z.string().min(1).max(200),
-      steps: z.array(z.record(z.unknown())).max(200),
+      // A step saved without a config has none to read; it is read as empty.
+      steps: z
+        .array(z.object({ config: z.record(z.unknown()).default({}) }).passthrough())
+        .max(200),
+      // A definition that carries no variables or no triggers — one written
+      // by hand, drafted elsewhere, or saved before they existed — declares
+      // none. Both were iterated as they came, so their absence failed the
+      // run on `pipeline:error` with "pipeline.variables is not iterable".
+      variables: z.array(z.record(z.unknown())).max(200).default([]),
+      triggers: z.array(z.record(z.unknown())).max(50).default([]),
     })
     .passthrough(),
   variables: z.record(z.string().max(2_000)).optional(),

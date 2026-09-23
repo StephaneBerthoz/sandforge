@@ -315,6 +315,54 @@ describe('PipelineOrchestrator', () => {
       expect(handler).toHaveBeenCalledTimes(2);
     });
 
+    it('says when each step starts and when one is passed over, for the page to follow the run', async () => {
+      const events: Array<[string, string]> = [];
+      orchestrator.on('stepStarted', (_event, data) => {
+        events.push(['started', (data as { stepId: string }).stepId]);
+      });
+      orchestrator.on('stepCompleted', (_event, data) => {
+        events.push(['ended', (data as { stepResult: PipelineStepResult }).stepResult.stepId]);
+      });
+      orchestrator.on('stepSkipped', (_event, data) => {
+        events.push(['skipped', (data as { stepResult: PipelineStepResult }).stepResult.stepId]);
+      });
+      vi.mocked(deps.conditionalRouter.evaluate).mockReturnValueOnce(false);
+
+      await orchestrator.execute(
+        createPipeline({
+          steps: [
+            { id: 'a', name: 'A', type: 'delay', config: {}, continueOnError: false },
+            {
+              id: 'b',
+              name: 'B',
+              type: 'delay',
+              config: {},
+              continueOnError: false,
+              condition: { field: 'env', operator: 'eq', value: 'prod' },
+            },
+            { id: 'c', name: 'C', type: 'delay', config: {}, continueOnError: false },
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(events).toEqual([
+        ['started', 'a'],
+        ['ended', 'a'],
+        ['skipped', 'b'],
+        ['started', 'c'],
+        ['ended', 'c'],
+      ]);
+    });
+
+    it("hands each step the pipeline's name, for a step that tells the user about the run", async () => {
+      await orchestrator.execute(createPipeline({ name: 'Nightly check' }), {}, 'manual');
+
+      const [, context] = vi.mocked(deps.stepExecutor.execute).mock.calls[0];
+      expect((context as StepContext).pipelineName).toBe('Nightly check');
+    });
+
     it('should support unregistering event handlers', async () => {
       const handler: PipelineEventHandler = vi.fn();
       orchestrator.on('started', handler);
@@ -789,6 +837,43 @@ describe('PipelineOrchestrator', () => {
         },
       ]);
       expect(run.status).toBe('failed');
+    });
+
+    it('lets a Condition test what a step before it handed on', async () => {
+      // A Pre-check hands on the API usage it read; the Condition after it
+      // used to find only the variables the run started with.
+      deps.stepExecutor.registerHandler('precheck', async (step) => ({
+        stepId: step.id,
+        stepName: step.name,
+        stepType: step.type,
+        status: 'completed',
+        output: { variables: { apiUsagePercent: '72', ignored: 5 } },
+      }));
+      const usageGate = gate({
+        condition: { field: 'apiUsagePercent', operator: 'gt', value: 60 },
+      });
+      const check: PipelineStep = {
+        id: 'check',
+        name: 'Check',
+        type: 'precheck',
+        config: {},
+        continueOnError: false,
+      };
+
+      const run = await orchestrator.execute(
+        createPipeline({ steps: [check, usageGate, delayStep('then')] }),
+        {},
+        'manual',
+      );
+
+      expect(run.stepResults[1].output).toEqual({ conditionMet: true });
+      expect(statuses(run)).toEqual([
+        ['check', 'completed'],
+        ['gate', 'completed'],
+        ['then', 'completed'],
+      ]);
+      // What the run was started with is what it records.
+      expect(run.variables).toEqual({});
     });
 
     it('refuses, before any step runs, a condition that cannot be evaluated', async () => {

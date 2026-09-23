@@ -51,12 +51,12 @@ const manifest = () => readJson(...EXT, 'package.json');
  * What the Marketplace description may not promise, language by language.
  *
  * The listing's one paragraph sold "automate pipelines, with streaming
- * execution for large datasets" while no pipeline step touches an org —
- * `delay` waits and `condition` reads the run's variables, and a pipeline
- * holding any of the other thirteen is refused before it starts — and Seed and
- * Sync write their batches one after the other. An English denylist would have
- * passed on all five translations, which said the same thing in their own
- * words, so each locale carries its own.
+ * execution for large datasets" while no pipeline step touched an org, and
+ * Seed and Sync write their batches one after the other. A pipeline now backs
+ * up, compares and checks orgs, but it starts by hand, runs no step that
+ * writes, and streams nothing. An English denylist would have passed on all
+ * five translations, which said the same thing in their own words, so each
+ * locale carries its own.
  */
 const DESCRIPTION_OVERCLAIM = {
   en: /automate pipelines|streaming execution/i,
@@ -67,21 +67,44 @@ const DESCRIPTION_OVERCLAIM = {
   'pt-br': /automatiza|execução em streaming|streaming/i,
 };
 
-/** The step types that would make a pipeline act on an org, were one to run. */
-const ORG_STEP_TYPES = ['seed', 'sync', 'backup', 'restore', 'anonymize', 'delete', 'compare'];
+/**
+ * The step types that write to an org. None runs in a pipeline: each runs
+ * from its own page, behind Production Guard, and a pipeline runs unattended.
+ */
+const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
 
-test('anchor: no step that acts on an org runs in a pipeline yet', () => {
+/**
+ * The step types a pipeline runs: the executor's own, and the ones the
+ * extension registers through a module's flow.
+ */
+function handledStepTypes() {
   const executor = read(...EXT, 'src', 'modules', 'automation', 'StepExecutor.ts');
   const defaults = /private registerDefaults\(\): void \{([\s\S]*?)\n {2}\}/.exec(executor);
   assert.ok(defaults, 'registerDefaults moved — re-point this anchor');
-  const handled = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
-  // Positive control: an anchor that reads no handler would pass on anything.
-  assert.ok(handled.length > 0, 'the anchor reads no handler in registerDefaults');
+  const own = [...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]);
+  const steps = read(...EXT, 'src', 'bridge', 'handlers', 'pipelineSteps.ts');
+  const registration = /export function registerPipelineSteps\([\s\S]*?\n\}/.exec(steps);
+  assert.ok(registration, 'registerPipelineSteps moved — re-point this anchor');
+  const viaModules = [...registration[0].matchAll(/registerHandler\(\s*'([a-z_]+)'/g)].map(
+    (m) => m[1],
+  );
+  return [...own, ...viaModules];
+}
+
+test('anchor: no step that writes to an org runs in a pipeline', () => {
+  const handled = handledStepTypes();
+  // Positive control: an anchor that reads no handler would pass on anything,
+  // and one blind to the module steps would miss a write step registered there.
+  assert.ok(handled.includes('delay'), 'the anchor reads no handler in registerDefaults');
+  assert.ok(
+    handled.includes('backup'),
+    'the anchor does not see the steps registerPipelineSteps adds',
+  );
   assert.deepEqual(
-    handled.filter((type) => ORG_STEP_TYPES.includes(type)),
+    handled.filter((type) => WRITE_STEP_TYPES.includes(type)),
     [],
-    'a step that acts on an org runs in a pipeline now — the description may promise ' +
-      'automation again, and this rule has to go with it',
+    'a step that writes to an org runs in a pipeline now — the description says none does, and ' +
+      'this rule has to go with it',
   );
 });
 
@@ -102,8 +125,7 @@ test('the Marketplace description promises no automation and no streaming, in si
 
 /**
  * Neither `delay` nor `condition` is handed anything that reaches an org, so
- * the listing says no step acts on it yet, and may not credit those two with
- * doing so, in any language.
+ * the listing may not credit those two with acting on it, in any language.
  */
 const STEPS_CREDITED_WITH_THE_ORG = {
   en: /\b(?:delay|condition)\b[^.]*\bacts? on your org/i,
@@ -114,13 +136,14 @@ const STEPS_CREDITED_WITH_THE_ORG = {
   'pt-br': /(?:espera|condição)[^.]*\bagem na sua org/i,
 };
 
-const NO_STEP_ACTS_ON_THE_ORG = {
-  en: /no pipeline step acts on your org/i,
-  fr: /aucune étape de pipeline n'agit sur votre org/i,
-  de: /kein Pipeline-Schritt auf Ihre Org/i,
-  es: /ningún paso de pipeline actúa sobre tu org/i,
-  ja: /Org に作用するパイプラインのステップはありません/,
-  'pt-br': /nenhum passo de pipeline age na sua org/i,
+/** That no pipeline step writes to the org, as each language says it. */
+const NO_STEP_WRITES_TO_THE_ORG = {
+  en: /no pipeline step writes to your org/i,
+  fr: /aucune étape de pipeline n'écrit dans votre org/i,
+  de: /kein Pipeline-Schritt schreibt in Ihre Org/i,
+  es: /ningún paso de pipeline escribe en tu org/i,
+  ja: /Org に書き込むパイプラインのステップはありません/,
+  'pt-br': /nenhum passo de pipeline grava na sua org/i,
 };
 
 test('anchor: the delay and condition steps are handed nothing that reaches an org', () => {
@@ -143,20 +166,21 @@ test('anchor: the delay and condition steps are handed nothing that reaches an o
   }
 });
 
-test('the Marketplace description credits no pipeline step with acting on the org, in six languages', () => {
+test('the Marketplace description says no pipeline step writes to the org, in six languages', () => {
   const offenders = [];
   for (const [locale, text] of Object.entries(resolveNls(manifest().description))) {
     assert.ok(STEPS_CREDITED_WITH_THE_ORG[locale], `${locale}: no rule written for this locale`);
     const hit = STEPS_CREDITED_WITH_THE_ORG[locale].exec(text);
     if (hit) offenders.push(`${locale}: "${hit[0]}"`);
-    if (!NO_STEP_ACTS_ON_THE_ORG[locale].test(text)) {
-      offenders.push(`${locale}: does not say that no pipeline step acts on the org yet`);
+    if (!NO_STEP_WRITES_TO_THE_ORG[locale].test(text)) {
+      offenders.push(`${locale}: does not say that no pipeline step writes to the org`);
     }
   }
   assert.deepEqual(
     offenders,
     [],
-    'delay waits and condition reads variables; neither touches an org:\n  ' +
+    'a pipeline backs up, compares and checks an org, and writes to none; delay waits and ' +
+      'condition reads variables:\n  ' +
       offenders.join('\n  '),
   );
 });

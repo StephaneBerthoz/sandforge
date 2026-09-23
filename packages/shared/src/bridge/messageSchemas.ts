@@ -241,6 +241,8 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', DataOpsMessages
 const AutomationMessages = [
   msg('pipeline:execute'),
   msg('pipeline:run:response'),
+  // Each step of a running pipeline as it starts and ends (AutomationHandler).
+  msg('pipeline:step'),
   // Error channel for pipeline run/cancel/list/history/save failures.
   msg('pipeline:error'),
   msg('pipeline:templates'),

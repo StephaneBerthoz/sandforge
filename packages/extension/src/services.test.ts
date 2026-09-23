@@ -86,6 +86,12 @@ const configValues = vi.hoisted(() => ({ map: new Map<string, unknown>() }));
 /** The `l10n` bundle of the display language a test runs in; empty is English. */
 const displayLanguage = vi.hoisted(() => ({ bundle: {} as Record<string, string> }));
 
+/**
+ * `window.showInformationMessage`: its thenable settles only when the
+ * notification is dismissed, which in these tests is never.
+ */
+const showInformationMessage = vi.hoisted(() => vi.fn(() => new Promise<undefined>(() => {})));
+
 vi.mock('vscode', () => ({
   env: { isTelemetryEnabled: false },
   workspace: {
@@ -100,6 +106,7 @@ vi.mock('vscode', () => ({
         String(args[Number(index)]),
       ),
   },
+  window: { showInformationMessage },
   ExtensionMode: { Production: 1, Development: 2, Test: 3 },
 }));
 
@@ -125,6 +132,17 @@ describe('services', () => {
 
     beforeEach(() => {
       context = createMockContext();
+    });
+
+    it("shows a pipeline's notification in the VS Code window, without waiting for it to be read", () => {
+      const services = createServices(context);
+
+      const shown = services.showNotification?.('Nightly: Snapshot taken.');
+
+      expect(showInformationMessage).toHaveBeenCalledWith('Nightly: Snapshot taken.');
+      // It returns at once: the notification stays up until someone reads it,
+      // and a run does not wait for that.
+      expect(shown).toBeUndefined();
     });
 
     it('returns a Services object with every expected field', () => {

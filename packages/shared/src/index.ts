@@ -123,6 +123,7 @@ export * from './utils/sf-utils.js';
 export * from './utils/format-utils.js';
 export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
+export { conditionDefect, evaluateCondition } from './utils/pipelineCondition.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

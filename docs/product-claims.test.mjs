@@ -1713,35 +1713,6 @@ function assertNothingRunsOnCtrlEnter() {
   );
 }
 
-/** A run's history entry is one line per run: no step results, and no view that opens one. */
-function assertHistoryKeepsNoStepDetail() {
-  const typesFile = 'packages/shared/src/types/automation.types.ts';
-  const source = ts.createSourceFile(typesFile, read(typesFile), ts.ScriptTarget.Latest, true);
-  const entry = source.statements.find(
-    (node) => ts.isInterfaceDeclaration(node) && node.name.text === 'PipelineHistoryEntry',
-  );
-  assert.ok(entry, `PipelineHistoryEntry is no longer declared in ${typesFile}`);
-  const fields = entry.members.map((member) => member.name?.getText(source) ?? '');
-  // Positive control: the walk reads the run-level fields the history card shows.
-  assert.ok(
-    ['duration', 'stepCount', 'errorCount'].every((field) => fields.includes(field)),
-    `the walk read ${fields.join(', ')} from PipelineHistoryEntry — not the run-level fields the ` +
-      'history card shows, so the check below proves nothing',
-  );
-  assert.deepEqual(
-    fields.filter((field) => /step/i.test(field) && field !== 'stepCount'),
-    [],
-    'PipelineHistoryEntry now carries step detail — the history may show each step. Re-read ' +
-      'help.automationContent in six locales before relaxing this.',
-  );
-  assert.doesNotMatch(
-    read('packages/webview/src/pages/Automation/AutomationPage.tsx'),
-    /<PipelineHistoryView[^>]*onSelectRun/,
-    'AutomationPage now opens a run from the history — a per-step view may exist. Re-read ' +
-      'help.automationContent in six locales before relaxing this.',
-  );
-}
-
 /**
  * What the Help page taught through v1.22, in six languages, and the code that
  * says it is false. Each rule is a vocabulary over the keys it names, refused
@@ -1760,7 +1731,6 @@ function assertHistoryKeepsNoStepDetail() {
  *  - The pipeline-start rule's anchor reads channel names only: no `scheduler:*` channel is routed or declared. A scheduler wired under another name, or one that fires a pipeline's triggers from the host with no channel, is not seen. Webhook and event triggers have no executor either, and nothing here reads that absence.
  *  - The DataOps and Compare anchors read `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
  *  - The quality-scan anchor reads the checks `DataQualityCheckError` names. A check that reports its failures some other way is not seen.
- *  - The run-history anchor reads the fields of `PipelineHistoryEntry` and whether the page opens a run. Step results fetched some other way, into another view, are not seen.
  */
 const HELP_CLAIM_RULES = [
   {
@@ -1870,23 +1840,6 @@ const HELP_CLAIM_RULES = [
       '- スケジュールとWebhookを含む6つのトリガータイプ',
     ],
     honest: ['- Pipelines start by hand, from the Run button; nothing else starts one yet'],
-  },
-  {
-    name: 'a run history that records each step',
-    keys: HELP_KEYS,
-    pattern:
-      /per[- ]step|each step|par [ée]tape|je Schritt|pro Schritt|por paso|por etapa|ステップごと/iu,
-    disclaimable: true,
-    anchor: assertHistoryKeepsNoStepDetail,
-    shipped: [
-      '- Execution history with per-step status and timing',
-      "- Historique d'exécution avec statut et durée par étape",
-      '- Ausführungsverlauf mit Status und Dauer je Schritt',
-      '- Historial de ejecución con estado y duración por paso',
-      '- ステップごとのステータスと所要時間を記録する実行履歴',
-      '- Histórico de execução com status e duração por etapa',
-    ],
-    honest: ['- Execution history: status, total duration, step count and errors for each run'],
   },
   {
     name: 'DataOps tabs that are not built: DSR, cleanup, mass delete',

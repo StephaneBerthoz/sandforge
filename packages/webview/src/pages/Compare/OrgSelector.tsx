@@ -13,8 +13,11 @@ export interface OrgSelectorProps {
   className?: string;
 }
 
-/** Format org label with type badge. */
-function formatOrgLabel(org: SalesforceOrg): string {
+/**
+ * Format org label with type badge. Shared with the Automation step panel, so
+ * a step's org reads as the Compare page names it.
+ */
+export function formatOrgLabel(org: SalesforceOrg): string {
   const name = org.alias || org.username;
   const type = String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]';
   return `${name} ${type}`;

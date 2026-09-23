@@ -16,6 +16,8 @@ import type { SecretStorageAdapter } from '../core/storage/SecretVault';
 import { AuthProvider } from '../core/connection/AuthProvider';
 import type { SfdxBridge, SfdxImportResult } from '../core/connection/SfdxBridge';
 import { getJsforceConnection } from '../core/connection/ConnectionHelper';
+import { PipelineOrchestrator } from '../modules/automation/PipelineOrchestrator';
+import type { Services } from '../services';
 
 /**
  * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
@@ -805,6 +807,140 @@ describe('ExtensionHandlers', () => {
         (p) => p.type === 'pipeline:run:response' || p.type === 'operation:failed',
       );
       expect(response).toBeDefined();
+    });
+  });
+
+  describe("a pipeline's Backup and Notification steps", () => {
+    /** A pipeline definition of `steps`, as the page sends it. */
+    function pipeline(steps: Array<Record<string, unknown>>): Record<string, unknown> {
+      return {
+        id: 'p-steps',
+        name: 'Nightly',
+        description: '',
+        version: 1,
+        steps: steps.map((step, index) => ({
+          id: `s${index + 1}`,
+          name: `Step ${index + 1}`,
+          continueOnError: false,
+          ...step,
+        })),
+        triggers: [],
+        variables: [],
+        tags: [],
+        createdAt: '',
+        updatedAt: '',
+      };
+    }
+
+    /**
+     * Handlers built with the services the pipeline runner reads, on a broker
+     * of their own: the suite's handlers, built without services, would answer
+     * the same request too.
+     */
+    function withServices(showNotification = vi.fn()): {
+      send: (message: unknown) => void;
+      answers: BaseMessage[];
+    } {
+      const services = {
+        automationOrchestrator: (d: ConstructorParameters<typeof PipelineOrchestrator>[0]) =>
+          new PipelineOrchestrator(d),
+        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+        showNotification,
+      } as unknown as Services;
+      const ownBroker = new MessageBroker();
+      const answers: BaseMessage[] = [];
+      vi.spyOn(ownBroker, 'postToWebview').mockImplementation((m) => {
+        answers.push(m);
+      });
+      const built = new ExtensionHandlers({
+        ...deps,
+        broker: ownBroker,
+        stateSync: new WebviewStateSync(ownBroker),
+        services,
+      });
+      built.registerAll(new MessageRouter(ownBroker));
+      return { send: (message) => ownBroker['dispatch'](message), answers };
+    }
+
+    /** The run a `pipeline:run:response` carried. */
+    function answeredRun(answers: BaseMessage[]): {
+      status: string;
+      error?: string;
+      stepResults: Array<{ summary?: string }>;
+    } {
+      const response = answers.find((p) => p.type === 'pipeline:run:response') as
+        | (BaseMessage & {
+            payload: { status: string; error?: string; stepResults: Array<{ summary?: string }> };
+          })
+        | undefined;
+      expect(response).toBeDefined();
+      return response!.payload;
+    }
+
+    it('take a snapshot through the flow the Backup button runs, and show the notification in VS Code', async () => {
+      const showNotification = vi.fn();
+      const { send, answers } = withServices(showNotification);
+      orgManager.addOrg(createTestImportResult().org);
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        query: vi.fn().mockResolvedValue({ records: [{ Id: '001x' }], totalSize: 1, done: true }),
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+      });
+
+      send(
+        msg('pipeline:execute', {
+          pipeline: pipeline([
+            { type: 'backup', config: { orgId: '00D1', objects: ['Account'] } },
+            { type: 'notification', config: { message: 'Snapshot taken.' } },
+          ]),
+          variables: {},
+        }),
+      );
+      await vi.waitFor(
+        () => expect(answers.find((p) => p.type === 'pipeline:run:response')).toBeDefined(),
+        { timeout: 10000 },
+      );
+
+      const run = answeredRun(answers);
+      expect(run.status).toBe('completed');
+      expect(run.stepResults[0].summary).toBe('Backed up 1 record of 1 object from test-org.');
+      // The DataOps flow's own lifecycle, and its snapshot where the page lists it.
+      expect(
+        answers.some(
+          (p) =>
+            p.type === 'operation:started' &&
+            (p as BaseMessage & { payload: { module: string } }).payload.module === 'dataops',
+        ),
+      ).toBe(true);
+      expect(
+        configStore.getKeysByPrefix('backup:').filter((key) => key.split(':').length === 2),
+      ).toHaveLength(1);
+      expect(showNotification).toHaveBeenCalledWith('Nightly: Snapshot taken.');
+    });
+
+    it('refuse a Backup step naming an org SandForge does not know, before anything runs', async () => {
+      const { send, answers } = withServices();
+      const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+      send(
+        msg('pipeline:execute', {
+          pipeline: pipeline([
+            { type: 'backup', name: 'Snap', config: { orgId: 'org-gone', objects: ['Account'] } },
+          ]),
+          variables: {},
+        }),
+      );
+      await vi.waitFor(
+        () => expect(answers.find((p) => p.type === 'pipeline:run:response')).toBeDefined(),
+        { timeout: 10000 },
+      );
+
+      const run = answeredRun(answers);
+      expect(run.status).toBe('failed');
+      expect(run.error).toBe(
+        'Pipeline did not start: Backup step "Snap" names an org SandForge does not know ' +
+          '(org-gone): connect it, or choose the org it backs up again.',
+      );
+      expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
     });
   });
 

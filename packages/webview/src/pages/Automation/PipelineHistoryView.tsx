@@ -1,6 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PipelineHistoryEntry, PipelineRunStatus } from '@sandforge/shared';
+import type {
+  PipelineHistoryEntry,
+  PipelineRunStatus,
+  PipelineStepResult,
+} from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -25,7 +29,23 @@ const STATUS_VARIANT: Record<
   cancelled: 'default',
 };
 
-/** View of pipeline execution history. */
+const STEP_STATUS_VARIANT: Record<
+  PipelineStepResult['status'],
+  'default' | 'success' | 'warning' | 'error' | 'info'
+> = {
+  pending: 'default',
+  running: 'info',
+  completed: 'success',
+  failed: 'error',
+  skipped: 'default',
+};
+
+/**
+ * View of pipeline execution history. Each run lists its steps, with how long
+ * each took and what it did or why it failed, in the host's words — a
+ * backup's records, a comparison's differences. Runs written before steps
+ * were kept show none.
+ */
 export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
   entries = [],
   onSelectRun,
@@ -78,6 +98,35 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                   </span>
                 )}
               </div>
+              {entry.steps && entry.steps.length > 0 && (
+                <ol
+                  className="mt-2 flex flex-col gap-1"
+                  aria-label={t('automation.steps')}
+                  data-testid={`history-steps-${entry.runId}`}
+                >
+                  {entry.steps.map((step, index) => (
+                    <li
+                      // Steps have no id of their own here, and a name can
+                      // repeat; the list is written once, in run order.
+                      key={`${index}:${step.stepName}`}
+                      className="flex flex-wrap items-center gap-2 text-xs text-[var(--sf-text-secondary)]"
+                    >
+                      <span className="font-medium text-[var(--sf-text-primary)]">
+                        {step.stepName}
+                      </span>
+                      <Badge variant={STEP_STATUS_VARIANT[step.status]}>
+                        {t(`automation.runStatuses.${step.status}`)}
+                      </Badge>
+                      {step.duration !== undefined && <span>{formatDuration(step.duration)}</span>}
+                      {(step.error ?? step.summary) && (
+                        <span className={step.error ? 'text-status-error' : undefined}>
+                          {step.error ?? step.summary}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
             </CardBody>
           </Card>
         </div>
