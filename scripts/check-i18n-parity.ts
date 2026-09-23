@@ -876,7 +876,7 @@ function reportIdenticalValues(reference: Map<string, string>): number {
  * word list is a heuristic, and a false positive must not block a release.
  */
 const FRENCH_UNACCENTED =
-  /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance)\b/;
+  /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance|Pre|Sequence)\b/;
 
 function reportFrenchAccents(): void {
   const offenders: string[] = [];

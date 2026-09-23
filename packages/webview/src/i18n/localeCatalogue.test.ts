@@ -84,7 +84,7 @@ describe('French copy carries its accents', () => {
   /* Words whose French spelling is always accented. A hit means the value was
      typed on an unaccented keyboard, not that the word is missing. */
   const UNACCENTED =
-    /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance)\b/;
+    /\b(Termine|Cree|Donnees|Parametre|Selectionn|execution|operation|Echec|reussi|genere|requete|deja|apres|securite|defaut|Modele|Delai|Etape|etape|Executer|qualite|Duree|Apercu|regles?|Resultat|dependance|Pre|Sequence)\b/;
 
   it('has no unaccented form in fr.json', () => {
     const offenders = [...flatten(fr)]
@@ -129,6 +129,41 @@ describe('sync templates are translated, not copied', () => {
   it.each(NON_EN)('%s keeps the {{count}} placeholder', (locale) => {
     expect(lookup(load(locale), 'sync.templates.objectCount_other')).toContain('{{count}}');
   });
+});
+
+describe('a language names one thing with one word', () => {
+  /* Native reviewers read the same thing named two ways as two things: the
+     French catalogue said "modèle" and "template" in one sentence, the Spanish
+     one made a sandbox feminine in five values and masculine in sixteen, and
+     French and Portuguese wrote Salesforce's Flow as a common noun. */
+  const offenders = (locale: string, pattern: RegExp): string[] =>
+    [...flatten(load(locale))]
+      .filter(([, value]) => pattern.test(value))
+      .map(([key, value]) => `${key} = ${value}`);
+
+  it('French names a template "modèle"', () => {
+    expect(offenders('fr', /\btemplates?\b/i)).toEqual([]);
+    // Positive control: the walk reads the values that name one.
+    expect(offenders('fr', /\bmodèles?\b/i).length).toBeGreaterThan(5);
+  });
+
+  it('Spanish makes a sandbox masculine', () => {
+    expect(
+      offenders(
+        'es',
+        /\b(?:la|una|esta|esa|las|unas|estas|esas)\s+sandbox|sandbox\s+está\s+(?:vacía|lista)/i,
+      ),
+    ).toEqual([]);
+    expect(offenders('es', /\b(?:el|un)\s+sandbox\b/).length).toBeGreaterThan(5);
+  });
+
+  it.each(['fr', 'es', 'pt-BR'])(
+    '%s writes Flow, the Salesforce feature, with its capital',
+    (locale) => {
+      expect(offenders(locale, /\bflows?\b/)).toEqual([]);
+      expect(offenders(locale, /\bFlows?\b/).length).toBeGreaterThan(0);
+    },
+  );
 });
 
 describe('Brazilian Portuguese copy carries its accents', () => {

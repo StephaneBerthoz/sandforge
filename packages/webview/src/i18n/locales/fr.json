@@ -322,8 +322,8 @@
     "failedCount_other": "{{count}} en échec",
     "jobErrorCount_one": "{{count}} erreur",
     "jobErrorCount_other": "{{count}} erreurs",
-    "flowCount_one": "{{formatted}} flow",
-    "flowCount_other": "{{formatted}} flows",
+    "flowCount_one": "{{formatted}} Flow",
+    "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs"
   },
@@ -402,7 +402,7 @@
       "sourceOnly": "Seule la source le contient : un déploiement le crée dans la cible.",
       "targetOnlyDataModel": "Seule la cible le contient : le retirer pour l'aligner sur la source peut faire perdre les données qu'il contient.",
       "targetOnlyApex": "Seule la cible le contient : le retirer pour l'aligner sur la source peut casser ce qui en dépend.",
-      "flowChanged": "Modifier un flow peut affecter les automatisations actives.",
+      "flowChanged": "Modifier un Flow peut affecter les automatisations actives.",
       "profileChanged": "Modifier un profil peut changer les autorisations des utilisateurs.",
       "breaking": "C'est un changement cassant."
     },
@@ -577,7 +577,7 @@
     "fieldRules": {
       "static": "Valeur statique",
       "random": "Aléatoire",
-      "sequence": "Sequence",
+      "sequence": "Séquence",
       "formula": "Formule",
       "reference": "Reference",
       "picklist_random": "Picklist aléatoire",
@@ -631,8 +631,8 @@
       }
     },
     "gallery": {
-      "title": "Seed rapide depuis un template",
-      "subtitle": "Choisissez un template et commencez en quelques secondes",
+      "title": "Seed rapide depuis un modèle",
+      "subtitle": "Choisissez un modèle et commencez en quelques secondes",
       "objects_one": "{{count}} objet",
       "objects_other": "{{count}} objets",
       "records_one": "{{count}} enregistrement",
@@ -646,7 +646,7 @@
     "quickSeed": {
       "title": "Seed rapide",
       "selectOrg": "Choisir l'org cible",
-      "templateSelected": "Template : {{name}}",
+      "templateSelected": "Modèle : {{name}}",
       "startSeeding": "Lancer le seed",
       "backToGallery": "Retour à la galerie",
       "seedAgain": "Relancer le seed"
@@ -815,8 +815,8 @@
     },
     "emptyState": {
       "title": "Remplissez votre sandbox de données de test réalistes",
-      "description": "Seed génère des données synthétiques — templates, IA, CSV ou autre org — pour développer et tester sans données de production.",
-      "step2": "Choisissez un template ou un mode : IA, CSV, Clone",
+      "description": "Seed génère des données synthétiques — modèles, IA, CSV ou autre org — pour développer et tester sans données de production.",
+      "step2": "Choisissez un modèle ou un mode : IA, CSV, Clone",
       "step3": "Choisissez les objets et les volumes d'enregistrements",
       "step4": "Exécutez puis consultez les résultats"
     },
@@ -1248,7 +1248,7 @@
       "title": "Protégez les données de votre org",
       "description": "DataOps sauvegarde, restaure et anonymise les données de votre org, traite les demandes des personnes concernées et nettoie les enregistrements dont personne n'a besoin.",
       "step2": "Créez une sauvegarde avant toute opération risquée",
-      "step3": "Anonymisez les champs sensibles avec un template",
+      "step3": "Anonymisez les champs sensibles avec un modèle",
       "step4": "Restaurez une sauvegarde dans l'org d'où elle provient"
     },
     "exportBackup": "Exporter",
@@ -1259,7 +1259,7 @@
       "staleDays": "Non modifiés depuis (jours)",
       "staleDaysInvalid": "Saisissez un nombre entier de jours entre 1 et {{max}}.",
       "scan": "Analyser",
-      "method": "Les comptes portent sur tous les enregistrements que l'utilisateur connecté peut voir. Les cases à cocher, les formules et les champs que l'org tient elle-même sont écartés : une case à cocher n'est jamais vide, et personne ne saisit les autres.",
+      "method": "Les décomptes portent sur tous les enregistrements que l'utilisateur connecté peut voir. Les cases à cocher, les formules et les champs que l'org tient elle-même sont écartés : une case à cocher n'est jamais vide, et personne ne saisit les autres.",
       "objectFailed": "Impossible d'analyser cet objet : {{message}}",
       "records_one": "{{formatted}} enregistrement",
       "records_other": "{{formatted}} enregistrements",
@@ -1569,7 +1569,7 @@
       "anonymize": "Anonymisation",
       "delete": "Suppression",
       "compare": "Comparaison",
-      "precheck": "Pre-vérification",
+      "precheck": "Vérification préalable",
       "script": "Script",
       "notification": "Notification",
       "approval": "Approbation",
@@ -1660,14 +1660,14 @@
       "backupNeedsObjects": "Listez les noms d'API des objets à sauvegarder, par exemple Account, Contact (100 au plus).",
       "compareNeedsOrgs": "Choisissez une org source et une org cible différente.",
       "compareNeedsTypes": "Choisissez au moins un type de métadonnées à comparer.",
-      "precheckNeedsChecks": "Choisissez ce que lit cette Pre-vérification : usage de l'API, stockage des données, logs d'erreurs Apex ou jobs Apex en échec.",
+      "precheckNeedsChecks": "Choisissez ce que lit cette Vérification préalable : usage de l'API, stockage des données, logs d'erreurs Apex ou jobs Apex en échec.",
       "notificationNeedsMessage": "Écrivez le message qu'affiche cette notification (500 caractères au plus).",
       "paletteNote": "Les étapes qui écrivent dans une org — Seed, Sync, Restauration, Anonymisation, Suppression — ne s'exécutent que depuis leur propre page, où Production Guard demande d'abord confirmation. Script, Approbation, Boucle et Parallèle ne peuvent pas encore s'exécuter, et une étape Condition a besoin d'une condition que cette page ne sait pas encore définir.",
       "pipelineBlocked": "Ce pipeline ne peut pas s'exécuter. Retirez ou corrigez d'abord ces étapes :",
       "templateBlocked": "Ne peut pas s'exécuter comme pipeline. Ces types d'étapes ne s'exécutent pas dans un pipeline : {{types}}."
     },
     "soon": {
-      "steps": "Les étapes Script, Approbation, Boucle et Parallèle ne peuvent pas encore s'exécuter dans un pipeline, et Seed, Sync, Restauration, Anonymisation et Suppression écrivent dans une org : elles ne s'exécutent que depuis leur propre page. Un pipeline qui en contient une ne démarre pas. Les étapes Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent."
+      "steps": "Les étapes Script, Approbation, Boucle et Parallèle ne peuvent pas encore s'exécuter dans un pipeline, et Seed, Sync, Restauration, Anonymisation et Suppression écrivent dans une org : elles ne s'exécutent que depuis leur propre page. Un pipeline qui en contient une ne démarre pas. Les étapes Sauvegarde, Comparaison, Vérification préalable, Notification, Délai et Condition s'exécutent."
     },
     "emptyState": {
       "title": "Créez votre premier pipeline",
@@ -1931,7 +1931,7 @@
       "compliance": "Demandes des personnes concernées et nettoyage",
       "complianceDesc": "DataOps retrouve tous les enregistrements concernant une personne, les exporte et les efface après un examen et votre confirmation ; Nettoyage recommande les enregistrements obsolètes, orphelins et en double, et ne supprime que ce qu'une analyse a recommandé.",
       "auditTrail": "Chaque écriture, consignée",
-      "auditTrailDesc": "Chaque exécution qui écrit dans une org — Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset — est désormais conservée dans Reports avec son résultat, la décision de la Production Guard, ses comptes par objet et l'origine de ses données. Jamais un identifiant d'enregistrement ni une valeur de champ.",
+      "auditTrailDesc": "Chaque exécution qui écrit dans une org — Forge, Sync, Seed, Autopilot, DataOps, Frozen Dataset — est désormais conservée dans Reports avec son résultat, la décision de la Production Guard, ses décomptes par objet et l'origine de ses données. Jamais un identifiant d'enregistrement ni une valeur de champ.",
       "dataopsQuality": "La qualité des données, comptée par l'org",
       "dataopsQualityDesc": "DataOps → Qualité analyse jusqu'à dix objets : à quelle fréquence chaque champ est rempli, les champs obligatoires laissés vides, les doublons selon la clé choisie, les enregistrements que personne n'a modifiés depuis longtemps. Chaque chiffre est un comptage fait par l'org ; rien n'est lu enregistrement par enregistrement.",
       "seedRuns": "Chaque seed proposé par l'assistant démarre",
@@ -2024,7 +2024,7 @@
       "forgeTitle": "Cloner depuis un enregistrement",
       "forgeDesc": "Collez un ID d'enregistrement, découvrez son graphe de relations, forgez-le dans votre sandbox",
       "seedTitle": "Générer des données synthétiques",
-      "seedDesc": "Templates, IA ou CSV — des données de test réalistes sans toucher à la production",
+      "seedDesc": "Modèles, IA ou CSV — des données de test réalistes sans toucher à la production",
       "frozenTitle": "Rejouer un jeu figé",
       "frozenDesc": "Extrayez une fois, rejouez à l'identique après chaque refresh de sandbox"
     }
@@ -2044,7 +2044,7 @@
     "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental et le delta ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mapping d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Un changement dont l'enregistrement cible a été modifié après lui est tranché par la stratégie, ou mis en attente dans l'onglet Conflits\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Écarts : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
     "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme RGPD, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; le comptage est fait par l'org, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité : trouve les champs des objets choisis qui contiennent des données personnelles, confirmés sur un échantillon de leurs 200 derniers enregistrements ; puis trouve les enregistrements d'une personne par e-mail, nom ou téléphone, les exporte dans un fichier, et les efface sur place ou les supprime, après un examen, une confirmation saisie et Production Guard ; un journal local garde des décomptes de chaque demande, jamais la personne concernée\n- Nettoyage : compte les enregistrements que personne n'a modifiés depuis un nombre de jours donné, ceux qui laissent vide une référence sur laquelle l'activité s'appuie, et les copies en trop d'une valeur répétée ; chaque groupe peut être exporté, ou supprimé après un examen, une confirmation saisie et Production Guard, au plus 1 000 à la fois",
-    "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie ; déclencheurs d'événement, de webhook et de déploiement : bientôt disponible, ils ne lancent encore rien\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
+    "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Vérification préalable, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie ; déclencheurs d'événement, de webhook et de déploiement : bientôt disponible, ils ne lancent encore rien\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
     "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
@@ -2216,7 +2216,7 @@
     "anonymizePII": "Anonymiser les PII",
     "skipEmpty": "Ignorer les objets vides",
     "discoverGraph": "Découvrir le graphe",
-    "noTemplates": "Aucun modèle enregistré pour le moment. Terminez une exécution, puis choisissez Enregistrer comme template dans ses résultats.",
+    "noTemplates": "Aucun modèle enregistré pour le moment. Terminez une exécution, puis choisissez Enregistrer comme modèle dans ses résultats.",
     "forging": "FORGEAGE...",
     "paused": "EN PAUSE",
     "complete": "TERMINÉ",
@@ -2253,7 +2253,7 @@
     "skipped": "Ignorés",
     "idRemaps": "Remappages ID",
     "successRate": "Taux de réussite",
-    "saveTemplate": "Enregistrer comme template",
+    "saveTemplate": "Enregistrer comme modèle",
     "copyReport": "Copier le rapport",
     "forgeAgain": "Forger à nouveau",
     "object": "Objet",
@@ -2308,7 +2308,7 @@
     "depthFullTooltip": "Arbre de dépendances complet — tous les niveaux",
     "depthCustomTooltip": "Spécifiez la profondeur maximale des relations",
     "soqlPreviewHint": "L'aperçu est disponible pour les ID d'enregistrement",
-    "templatePreviewHint": "Sélectionnez un template pour voir sa configuration",
+    "templatePreviewHint": "Sélectionnez un modèle pour voir sa configuration",
     "aiPreviewHint": "L'IA rédige la requête dont part la découverte ; vous la vérifiez et la lancez",
     "refreshPreview": "Rafraîchir l'aperçu",
     "noOrgSelected": "Sélectionnez une org source pour l'aperçu",
@@ -2334,11 +2334,11 @@
     "copyAllLogs": "Tout copier",
     "exportLogs": "Exporter",
     "editTemplate": "Modifier",
-    "deleteTemplateConfirm": "Voulez-vous vraiment supprimer ce template ?",
-    "templateName": "Nom du template",
+    "deleteTemplateConfirm": "Voulez-vous vraiment supprimer ce modèle ?",
+    "templateName": "Nom du modèle",
     "templateDescription": "Description (optionnel)",
-    "templateDeleted": "Template supprimé",
-    "templateUpdated": "Template mis à jour",
+    "templateDeleted": "Modèle supprimé",
+    "templateUpdated": "Modèle mis à jour",
     "selectOrg": "Sélectionnez une org",
     "cancelEdit": "Annuler",
     "recordLimit": "Enregistrements / objet",

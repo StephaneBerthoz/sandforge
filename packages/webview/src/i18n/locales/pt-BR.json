@@ -322,8 +322,8 @@
     "failedCount_other": "{{count}} com falha",
     "jobErrorCount_one": "{{count}} erro",
     "jobErrorCount_other": "{{count}} erros",
-    "flowCount_one": "{{formatted}} flow",
-    "flowCount_other": "{{formatted}} flows",
+    "flowCount_one": "{{formatted}} Flow",
+    "flowCount_other": "{{formatted}} Flows",
     "jobCount_one": "{{count}} job",
     "jobCount_other": "{{count}} jobs"
   },
@@ -402,7 +402,7 @@
       "sourceOnly": "Só a origem o contém: uma implantação o cria no destino.",
       "targetOnlyDataModel": "Só o destino o contém: removê-lo para igualar à origem pode causar a perda dos dados que ele contém.",
       "targetOnlyApex": "Só o destino o contém: removê-lo para igualar à origem pode quebrar o que depende dele.",
-      "flowChanged": "Alterações em um flow podem afetar as automações ativas.",
+      "flowChanged": "Alterações em um Flow podem afetar as automações ativas.",
       "profileChanged": "Alterações em um perfil podem mudar as permissões dos usuários.",
       "breaking": "Esta é uma alteração incompatível."
     },
