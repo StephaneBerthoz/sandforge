@@ -5,6 +5,99 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.0] - 2026-09-23
+
+Forge can now take back what it cloned: a run's history entry removes, from
+the target, the records that run created and nothing else — a failed or
+cancelled run included. A record-scoped clone keeps every child: a lookup back
+to the parent, or a child another user owns, dropped records without a word.
+Cancel stops what it cancels, every write run shows in Live Operations, and a
+cancelled large upload is aborted before Salesforce writes rows nobody counts.
+Around it, a second window no longer undoes the first one's saves, a profile
+import brings Forge templates to the project it was made in, and a native
+reading of the six languages and a screen reader corrected the rest.
+
+### Added
+
+- **Remove the records a Forge run created.** Each run in the Forge history
+  offers to remove, from its target, the records it created: children before
+  their parents, only those still there. Records the run linked to rather than
+  created are never touched, nor anything a later record still depends on;
+  records changed since the run are kept unless you ask to include them. The
+  Production Guard is consulted, the removal is audited, runs in Live
+  Operations and can be cancelled, and the result says per object what was
+  deleted, already gone, kept and refused, with Salesforce's reason. A run
+  that failed or was cancelled after writing is kept in the history too, so
+  its records can be removed the same way.
+- **Every write run shows in Live Operations**, and Cancel there stops it:
+  Forge runs, record clones, CSV imports and Frozen loads join Sync and Seed.
+
+### Fixed
+
+- **A record-scoped clone keeps every child.** Two cases dropped records
+  without a word: when the parent object has a lookup back to the child — an
+  account's "key contact" made the clone keep that contact and leave the
+  account's other contacts behind — and when a child was owned, created or
+  last modified by a user no earlier record named. Frozen extraction had the
+  second defect too.
+- **Cancel stops what it cancels.** A Sync or Seed run went on writing its
+  remaining objects after a cancel and ended as a success or a failure; it now
+  stops between objects and ends as cancelled with what it wrote. Record
+  clone, CSV import and Frozen load stop the same way. A cancelled upload of
+  more than 10,000 records aborted too late: the job was closed, and
+  Salesforce wrote the rows already uploaded without anyone counting or
+  auditing them; it is now aborted before Salesforce processes it, and an
+  upload of 201 to 10,000 records too. A large object's write stops between
+  its batches of 200 instead of after its last.
+- **A cancelled operation says cancelled** in the recent operations, on Home,
+  in the side panel, in Sync history, in the schedule badge, on the results
+  screens and in the native notification. A Forge run that fails or is
+  cancelled, or a plan or comparison that fails, no longer stays "running".
+- **Two windows no longer undo each other's saves.** The settings store read
+  a window's state once and wrote its whole copy back, so a save made in one
+  window was lost at the next save of another.
+- **A configuration profile carries what it names.** Forge templates are
+  exported from the project's own file and imported into the project the
+  import was made in, adding what the project lacks, or replacing it when
+  overwrite is chosen; no project receives another project's templates any
+  more. The Settings category, which always exported nothing, is gone:
+  SandForge's settings are VS Code settings, which Settings Sync carries.
+- **Names count as personal data.** First, last, middle and maiden names are
+  flagged, so Forge anonymizes them, quick-start templates included. The GDPR
+  template keeps the last four digits of a phone number.
+- **A stored date that cannot be read no longer breaks a screen.** The Sync
+  history, the schedules, the triggers, the Monitor's panels and charts, the
+  backups and the device sign-in threw or printed "Invalid Date"; they now say
+  the date is unknown.
+- **Schedules keep a date they can run on.** A stored next run that cannot be
+  read is planned again instead of run at once, and no longer blanks the
+  schedule list; a schedule planned for 2054 is planned again.
+- **Compare names a change one way.** The diff views drew what a deployment
+  creates in red, under a minus; they now draw it as an addition, as the risk
+  card reads it. The Deploy tab says "Only in the source" and "Modified", as
+  the diff views do; a group's counts say what they count to a screen reader;
+  the risk level is written in the panel's language. A pipeline's Compare
+  step names the org that holds each difference.
+- **A wizard shows one step at a time.** The step being left stayed on screen
+  beside the next one while it faded out, so a click could land on it. Each
+  field rule of Seed's Configure step is named after its field, each
+  favourite star after its module, each status icon of the side panel after
+  its status.
+- **A hidden Monitor reads no org.** VS Code keeps a hidden panel running, and
+  the Monitor's auto-refresh went on reading the org every 30 seconds from a
+  tab nobody was looking at; it now waits until the panel is shown again.
+- **Errors stay until you dismiss them**, including the ones the extension
+  raises.
+- **The command-line tools read a usable token** where the Salesforce CLI now
+  redacts it; `sandforge-monitor` no longer prints production's creation date
+  as a sandbox's own; `sandforge-clone --dry-run` prints what each object
+  would receive, and `--upsert` counts an updated record as updated, not
+  created.
+- **The translations read as native text.** Japanese names an org 組織 and a
+  field 項目, as Salesforce's Japanese interface does; French says "modèle",
+  "vérification préalable" and "décomptes"; Spanish makes a sandbox
+  masculine; Flow keeps its capital.
+
 ## [1.36.0] - 2026-09-23
 
 Forge's anonymization did nothing: a clone carried the source's personal data
