@@ -955,6 +955,36 @@ describe('GraphDiscoveryService', () => {
       expect(graph.nodes.find((n) => n.objectApiName === 'User')).toBeUndefined();
     });
 
+    it('leaves the files of a record and their links out of the graph', async () => {
+      // Walked into as records, a file's body was read as its address and an
+      // insert would have written that address: a run that copies files does
+      // so in a stage of its own.
+      const files = ['ContentVersion', 'Attachment', 'ContentDocumentLink', 'Document'];
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Account'
+          ? makeAccountDescribe([
+              ...files.map((childSObject) => ({
+                childSObject,
+                field: 'ParentId',
+                relationshipName: `${childSObject}s`,
+                isCascadeDelete: false,
+              })),
+              {
+                childSObject: 'Contact',
+                field: 'AccountId',
+                relationshipName: 'Contacts',
+                isCascadeDelete: false,
+              },
+            ])
+          : { name: objectName, fields: [], childRelationships: [] },
+      );
+
+      const graph = await service.discover(createConfig({ depth: 'direct' }));
+
+      expect(graph.nodes.map((n) => n.objectApiName).sort()).toEqual(['Account', 'Contact']);
+      expect(graph.edges.some((e) => files.includes(e.targetObject))).toBe(false);
+    });
+
     it('should stop discovering when max nodes cap is reached', async () => {
       // Create a wide graph: each object has 10 children so depth limit isn't the bottleneck
       let objCounter = 0;

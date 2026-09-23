@@ -128,6 +128,8 @@ const makeMockGraph = (): ForgeGraph => ({
 let mockGraph = makeMockGraph();
 /** Id of the forge:execute request that started the run on screen. */
 let mockExecutionRequestId: string | null = null;
+/** Whether the run on screen copies the files of its records. */
+let mockCopiesFiles = false;
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -138,6 +140,9 @@ vi.mock('../../stores/useForgeStore', () => {
         },
         get executionRequestId() {
           return mockExecutionRequestId;
+        },
+        get fileCopy() {
+          return { enabled: mockCopiesFiles, maxFileSizeMB: 10, acceptedAsIs: false };
         },
         updateNodeStatus: mockUpdateNodeStatus,
         updateNodeCounts: mockUpdateNodeCounts,
@@ -189,7 +194,53 @@ describe('ForgeExecution', () => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
     mockExecutionRequestId = null;
+    mockCopiesFiles = false;
     mockStoreLogs.length = 0;
+  });
+
+  describe('a run whose objects have all settled', () => {
+    /** Post a message from the extension host. */
+    function host(type: string, payload: Record<string, unknown>): void {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { id: `host-${type}`, type, timestamp: Date.now(), payload },
+          }),
+        );
+      });
+    }
+
+    /** Every object but Contact settled; Contact's end is what the host says next. */
+    function allButContactSettled(): void {
+      mockGraph = {
+        ...mockGraph,
+        nodes: mockGraph.nodes.map((node) =>
+          node.objectApiName === 'Contact' ? node : { ...node, status: 'done' as const },
+        ),
+      };
+    }
+
+    it('shows the results once its last object has settled', () => {
+      allButContactSettled();
+      render(<ForgeExecution />);
+
+      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
+
+      expect(mockSetPhase).toHaveBeenCalledWith('results');
+    });
+
+    it('stays on a run that copies files until the run answers: its files come after its objects', () => {
+      mockCopiesFiles = true;
+      allButContactSettled();
+      render(<ForgeExecution />);
+
+      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
+      host('forge:progress', { objectName: 'ContentDocument', status: 'running', progress: 50 });
+      expect(mockSetPhase).not.toHaveBeenCalledWith('results');
+
+      host('forge:execute:response', { result: undefined });
+      expect(mockSetPhase).toHaveBeenCalledWith('results');
+    });
   });
 
   it('should render execution view with progress bar', () => {

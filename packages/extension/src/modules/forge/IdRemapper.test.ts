@@ -187,6 +187,19 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('isCreated', () => {
+    it('says created only of a record this run wrote', () => {
+      remapper.add('001A', '001CREATED', 'Account');
+      remapper.addExisting('001B', '001EXISTING', 'Account');
+      remapper.addUpdated('001C', '001MATCHED', 'Account');
+
+      expect(remapper.isCreated('001A')).toBe(true);
+      expect(remapper.isCreated('001B')).toBe(false);
+      expect(remapper.isCreated('001C')).toBe(false);
+      expect(remapper.isCreated('001UNMAPPED')).toBe(false);
+    });
+  });
+
   describe('remapRecord', () => {
     it('should remap lookup fields that exist in the map', () => {
       remapper.add('001PARENT', '001NEWPARENT');

@@ -372,7 +372,12 @@ describe('removeRunRecords', () => {
       ...ACCOUNT_CHILDREN,
       { childSObject: 'ContentDocumentLink', field: 'LinkedEntityId', cascadeDelete: true },
     ]);
-    org.columns.set('ContentDocumentLink', ['Id', 'LinkedEntityId', 'SystemModstamp']);
+    org.columns.set('ContentDocumentLink', [
+      'Id',
+      'ContentDocumentId',
+      'LinkedEntityId',
+      'SystemModstamp',
+    ]);
     org.add('ContentDocumentLink', {
       Id: id('06A', 1),
       LinkedEntityId: id('001', 1),
@@ -394,7 +399,12 @@ describe('removeRunRecords', () => {
     org.relationships.set('Account', [
       { childSObject: 'ContentDocumentLink', field: 'LinkedEntityId', cascadeDelete: true },
     ]);
-    org.columns.set('ContentDocumentLink', ['Id', 'LinkedEntityId', 'SystemModstamp']);
+    org.columns.set('ContentDocumentLink', [
+      'Id',
+      'ContentDocumentId',
+      'LinkedEntityId',
+      'SystemModstamp',
+    ]);
     org.add('ContentDocumentLink', {
       Id: id('06A', 1),
       LinkedEntityId: id('001', 1),

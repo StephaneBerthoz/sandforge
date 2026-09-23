@@ -738,6 +738,88 @@ describe('ForgeHandler', () => {
       expect(errors).toHaveLength(1);
     });
 
+    describe('copying the files of the cloned records', () => {
+      /** The errors the page was answered with, code and message. */
+      function executeErrors(): Array<{ code?: string; message: string }> {
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(
+            ([m]) => m as BaseMessage & { payload: { code?: string; message: string } },
+          )
+          .filter((m) => m.type === 'forge:execute:error')
+          .map((m) => ({ code: m.payload.code, message: m.payload.message }));
+      }
+
+      it('hands the size Review set and the acceptance to the run', async () => {
+        const files = { maxFileSizeMB: 5, acceptedAsIs: false };
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: createMockConfig(),
+            files,
+          }),
+        );
+
+        expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toMatchObject({ files });
+      });
+
+      it('refuses a run that anonymizes before the files were accepted as they are, and records the stop', async () => {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        const guard = deps.infraServices?.productionGuard as ProductionGuard;
+        const check = vi.spyOn(guard, 'check');
+
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: { ...createMockConfig(), anonymizePII: true },
+            files: { maxFileSizeMB: 10, acceptedAsIs: false },
+          }),
+        );
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(check).not.toHaveBeenCalled();
+        expect(executeErrors()).toEqual([
+          { code: 'FILES_NOT_ACCEPTED', message: expect.stringContaining('copied as they are') },
+        ]);
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'forge_execute',
+            outcome: 'stopped',
+            details: { code: 'FILES_NOT_ACCEPTED' },
+          }),
+        ]);
+      });
+
+      it('lets a run that anonymizes copy the files once they were accepted as they are', async () => {
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: { ...createMockConfig(), anonymizePII: true },
+            files: { maxFileSizeMB: 10, acceptedAsIs: true },
+          }),
+        );
+
+        expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+        expect(executeErrors()).toEqual([]);
+      });
+
+      it('refuses a file size one call to Salesforce would not carry, before anything runs', async () => {
+        await handler.handle(
+          buildMsg('forge:execute', {
+            graph: createMockGraph(),
+            config: createMockConfig(),
+            files: { maxFileSizeMB: 50, acceptedAsIs: false },
+          }),
+        );
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(executeErrors()).toHaveLength(1);
+      });
+    });
+
     it('forwards progress events with correlationId', async () => {
       const graph = createMockGraph();
       const config = createMockConfig();
@@ -1707,6 +1789,37 @@ describe('ForgeHandler', () => {
       const lineage = new LineageStore(store).get(entries[0].operationId);
       expect(lineage?.nodes.filter((n) => n.type === 'object').map((n) => n.recordCount)).toEqual([
         3, 3,
+      ]);
+    });
+
+    it('counts the files a run copied per object, as it counts records', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          status: 'partial',
+          idRemapByObject: [
+            { objectApiName: 'Case', created: 1, linked: 0 },
+            { objectApiName: 'ContentDocument', created: 2, linked: 0 },
+            { objectApiName: 'Attachment', created: 1, linked: 0 },
+          ],
+          errors: [
+            {
+              objectApiName: 'ContentDocument',
+              stage: 'insert',
+              failedCount: 1,
+              attemptedCount: 1,
+              samples: [],
+            },
+          ],
+        }),
+      );
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+        { objectApiName: 'Case', created: 1, updated: 0, deleted: 0, failed: 0 },
+        { objectApiName: 'ContentDocument', created: 2, updated: 0, deleted: 0, failed: 1 },
+        { objectApiName: 'Attachment', created: 1, updated: 0, deleted: 0, failed: 0 },
       ]);
     });
 

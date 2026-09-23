@@ -669,4 +669,91 @@ describe('initForgeComposition', () => {
     expect(connection.describeGlobal).not.toHaveBeenCalled();
     expect(connection.describe).not.toHaveBeenCalled();
   });
+
+  it('copies the file of a cloned record through the connection, one request each way', async () => {
+    const DOCUMENT = '069000000000001AAA';
+    const VERSION = '068000000000001AAA';
+    const COPIED = '068000000000901AAA';
+    const requests: Array<{ org: string; method: string; url: string; body?: string }> = [];
+    const readOptions: unknown[] = [];
+    vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+      const connection = fakeConnection(orgId);
+      const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+      return {
+        ...connection,
+        query: vi.fn(async (soql: string) => {
+          if (/FROM ContentDocumentLink/.test(soql)) {
+            return page(
+              soql.includes(sfId('Account', 1))
+                ? [
+                    {
+                      ContentDocumentId: DOCUMENT,
+                      LinkedEntityId: sfId('Account', 1),
+                      ShareType: 'V',
+                      Visibility: 'AllUsers',
+                    },
+                  ]
+                : [],
+            );
+          }
+          if (/FROM ContentVersion WHERE ContentDocumentId/.test(soql)) {
+            return page([
+              {
+                Id: VERSION,
+                ContentDocumentId: DOCUMENT,
+                Title: 'Scan',
+                PathOnClient: 'scan.png',
+                ContentSize: 4,
+                ContentLocation: 'S',
+                SharingPrivacy: 'N',
+              },
+            ]);
+          }
+          if (/FROM ContentVersion WHERE Id/.test(soql)) {
+            return page([{ ContentDocumentId: '069000000000901AAA' }]);
+          }
+          if (/FROM Attachment/.test(soql)) return page([]);
+          return connection.query(soql);
+        }),
+        request: vi.fn(
+          async (request: { method: string; url: string; body?: string }, options?: object) => {
+            requests.push({ org: orgId, ...request });
+            if (request.url === '/limits') return { FileStorageMB: { Max: 200, Remaining: 200 } };
+            if (request.method === 'GET') {
+              readOptions.push(options);
+              return Buffer.from('scan').toString('base64');
+            }
+            return { id: COPIED, success: true, errors: [] };
+          },
+        ),
+      } as unknown as Connection;
+    });
+    const { orchestrator } = await compose();
+
+    const graph = await orchestrator.discover(SOQL_CONFIG);
+    const result = await orchestrator.execute(graph, SOQL_CONFIG, {
+      files: { maxFileSizeMB: 10, acceptedAsIs: false },
+    });
+
+    expect(requests.map((r) => [r.org, r.method, r.url])).toEqual([
+      ['tgt', 'GET', '/limits'],
+      ['src', 'GET', `/sobjects/ContentVersion/${VERSION}/VersionData`],
+      ['tgt', 'POST', '/sobjects/ContentVersion'],
+    ]);
+    expect(readOptions).toEqual([{ encoding: 'base64', responseType: 'application/octet-stream' }]);
+    expect(JSON.parse(requests[2].body ?? '{}')).toEqual({
+      Title: 'Scan',
+      PathOnClient: 'scan.png',
+      VersionData: Buffer.from('scan').toString('base64'),
+      // The first account the run created, as the fake target names it.
+      FirstPublishLocationId: sfId('Account', 900),
+    });
+    expect(result.files?.objects).toEqual([
+      { objectApiName: 'ContentDocument', planned: 1, plannedBytes: 4, copied: 1, failed: 0 },
+    ]);
+    expect(result.idRemapCreated).toContainEqual({
+      objectApiName: 'ContentDocument',
+      sourceIds: [DOCUMENT],
+    });
+  });
 });

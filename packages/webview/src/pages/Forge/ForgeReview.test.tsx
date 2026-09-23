@@ -69,6 +69,9 @@ const defaultConfig: MockConfig = {
 let mockGraph: ForgeGraph | null = defaultGraph;
 let mockConfig: MockConfig | null = { ...defaultConfig };
 let mockMetadataDiffs: MetadataDiffEntry[] = [];
+/** The file choice Review holds. */
+const NO_FILES = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+let mockFileCopy = { ...NO_FILES };
 const mockAnonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
   phone: 'mask',
@@ -93,6 +96,10 @@ vi.mock('../../stores/useForgeStore', () => {
     get anonymizationRules() {
       return mockAnonymizationRules;
     },
+    get fileCopy() {
+      return mockFileCopy;
+    },
+    setFileCopy: vi.fn(),
     plan: null,
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
@@ -136,6 +143,7 @@ describe('ForgeReview', () => {
     mockGraph = defaultGraph;
     mockConfig = { ...defaultConfig };
     mockMetadataDiffs = [];
+    mockFileCopy = { ...NO_FILES };
   });
 
   /** Deliver an extension -> webview message the way the real bus does. */
@@ -222,6 +230,56 @@ describe('ForgeReview', () => {
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
     expect(mockSetPhase).not.toHaveBeenCalledWith('execution');
+  });
+
+  describe('the files of the cloned records', () => {
+    /** What the run was sent, once Execute was clicked. */
+    function executePayload(): Record<string, unknown> | undefined {
+      const call = mockSendBridgeMessage.mock.calls.find(([type]) => type === 'forge:execute');
+      return call?.[1] as Record<string, unknown> | undefined;
+    }
+
+    it('offers the choice with the run, off', () => {
+      render(<ForgeReview />);
+
+      expect(screen.getByTestId('forge-files-toggle')).toHaveProperty('checked', false);
+      fireEvent.click(screen.getByTestId('execute-button'));
+      expect(executePayload()).not.toHaveProperty('files');
+    });
+
+    it('sends the size and the acceptance with a run that copies files', () => {
+      mockConfig = { ...defaultConfig, anonymizePII: false };
+      mockFileCopy = { enabled: true, maxFileSizeMB: 4, acceptedAsIs: false };
+      render(<ForgeReview />);
+
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      expect(executePayload()?.files).toEqual({ maxFileSizeMB: 4, acceptedAsIs: false });
+    });
+
+    it('holds Execute while the run anonymizes and the files were not accepted as they are', () => {
+      mockFileCopy = { enabled: true, maxFileSizeMB: 10, acceptedAsIs: false };
+      render(<ForgeReview />);
+
+      const execute = screen.getByTestId('execute-button');
+      expect(execute).toHaveProperty('disabled', true);
+      expect(execute.getAttribute('aria-describedby')).toBe('forge-files-execute-hint');
+      expect(screen.getByTestId('forge-files-execute-hint').textContent).toContain(
+        'copied as they are',
+      );
+      fireEvent.click(execute);
+      expect(executePayload()).toBeUndefined();
+    });
+
+    it('lets a run that anonymizes go once the files were accepted as they are', () => {
+      mockFileCopy = { enabled: true, maxFileSizeMB: 10, acceptedAsIs: true };
+      render(<ForgeReview />);
+
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      expect(executePayload()?.files).toEqual({ maxFileSizeMB: 10, acceptedAsIs: true });
+      expect(screen.queryByTestId('forge-files-execute-hint')).toBeNull();
+    });
   });
 
   describe('plan channel', () => {

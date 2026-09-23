@@ -57,6 +57,8 @@ vi.mock('../../stores/useForgeStore', () => {
     clearLogs: vi.fn(),
     forgeAgain: vi.fn(),
     reset: vi.fn(),
+    fileCopy: { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false },
+    setFileCopy: vi.fn(),
   };
 
   const store = Object.assign(

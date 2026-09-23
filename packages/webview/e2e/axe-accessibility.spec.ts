@@ -696,6 +696,85 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-anonymize-toggle').check({ force: true });
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_RUN_GRAPH,
+      });
+      await page.getByTestId('forge-execute-btn').click();
+
+      // The copy turned on: the size, and the confirmation that holds Execute.
+      // The dependency graph beside it is left out of these two scans: its
+      // nodes are buttons holding buttons (nested-interactive), a finding of
+      // the graph's own that no scan of the Review step had met before.
+      const reviewScan = { exclude: ['.react-flow'] };
+      await page.getByTestId('forge-files-toggle').check();
+      await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
+      await expect(page.getByTestId('execute-button')).toBeDisabled();
+      const asked = await checkAccessibility(page, reviewScan);
+      expectNoViolations(asked);
+      expect(
+        await contrastMeasuredIn(page, asked, '[data-testid="forge-files-as-is"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-files-as-is-accept').check();
+      await expect(page.getByTestId('execute-button')).toBeEnabled();
+      const accepted = await checkAccessibility(page, reviewScan);
+      expectNoViolations(accepted);
+      expect(
+        await contrastMeasuredIn(page, accepted, '[data-testid="forge-files-option"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-files',
+          status: 'success',
+          graph: FORGE_RUN_GRAPH,
+          duration: 3_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 3,
+          createdCount: 1,
+          files: {
+            maxFileBytes: 10 * 1_048_576,
+            objects: [
+              {
+                objectApiName: 'ContentDocument',
+                planned: 2,
+                plannedBytes: 24_000,
+                copied: 1,
+                failed: 1,
+              },
+              { objectApiName: 'Attachment', planned: 1, plannedBytes: 512, copied: 1, failed: 0 },
+            ],
+            links: 1,
+            leftOut: [
+              {
+                objectApiName: 'ContentDocument',
+                sourceId: fakeId('069', 1),
+                name: 'Site survey.mov',
+                bytes: 48 * 1_048_576,
+                reason: 'too-large',
+              },
+            ],
+            remainingStorageBytes: 200 * 1_048_576,
+          },
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results-files"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Grappe page', async ({ page }) => {
       await navigateToModule(bridge, page, 'grappe', 'grappe-page', { theme });
       const results = await checkAccessibility(page);

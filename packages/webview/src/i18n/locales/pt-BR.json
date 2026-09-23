@@ -2594,7 +2594,33 @@
       "fieldsCloneable": "{{total}} campos ({{cloneable}} clonáveis)",
       "notMeasured": "Volume ainda não medido"
     },
-    "statusFilterLabel": "Filtrar por status"
+    "statusFilterLabel": "Filtrar por status",
+    "files": {
+      "title": "Arquivos",
+      "toggle": "Copiar os arquivos dos registros clonados",
+      "description": "Os Arquivos do Salesforce, a versão mais recente de cada um, e os anexos vinculados a um registro que esta execução clona, gravados depois desse registro. Um arquivo vinculado apenas a registros fora do clone não é copiado, nem uma biblioteca.",
+      "maxSize": "Maior arquivo copiado (MB)",
+      "maxSizeHint": "De 1 a {{max}} MB, o que uma chamada ao Salesforce transporta. Um arquivo maior fica de fora e é listado, nunca cortado. Antes de gravar qualquer coisa, os arquivos juntos são comparados com o armazenamento de arquivos que resta à org de destino.",
+      "asIsWarning": "Esta execução anonimiza os registros, e o conteúdo de um arquivo não pode ser anonimizado.",
+      "asIsAccept": "Aceito que os arquivos sejam copiados como estão",
+      "asIsNeeded": "Para executar, aceite que os arquivos sejam copiados como estão, ou desative a cópia.",
+      "result": {
+        "salesforceFiles": "Arquivos do Salesforce",
+        "attachments": "Anexos",
+        "copied_one": "{{count}} de {{planned}} copiado ({{size}})",
+        "copied_other": "{{count}} de {{planned}} copiados ({{size}})",
+        "failed_one": "{{count}} não copiado, veja os erros abaixo",
+        "failed_other": "{{count}} não copiados, veja os erros abaixo",
+        "none": "Nenhum arquivo a copiar está ligado aos registros clonados.",
+        "links_one": "{{count}} vínculo com outro registro clonado",
+        "links_other": "{{count}} vínculos com outros registros clonados",
+        "leftOut_one": "{{count}} arquivo deixado de fora:",
+        "leftOut_other": "{{count}} arquivos deixados de fora:",
+        "tooLarge": "maior que os {{max}} definidos para a execução",
+        "external": "guardado fora do Salesforce",
+        "recordNotCreated": "seus registros não foram criados por esta execução"
+      }
+    }
   },
   "autopilot": {
     "title": "Autopilot",

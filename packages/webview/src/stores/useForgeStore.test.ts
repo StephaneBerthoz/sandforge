@@ -638,6 +638,39 @@ describe('useForgeStore', () => {
       expect(useForgeStore.getState().stoppedAt).toBeNull();
     });
   });
+
+  describe('the files of the cloned records', () => {
+    const accepted = { enabled: true, maxFileSizeMB: 4, acceptedAsIs: true };
+
+    it('copies no file until the user asks, ten megabytes at most', () => {
+      expect(getState().fileCopy).toEqual({
+        enabled: false,
+        maxFileSizeMB: 10,
+        acceptedAsIs: false,
+      });
+    });
+
+    it('takes the acceptance back when the copy is turned off', () => {
+      getState().setFileCopy(accepted);
+      expect(getState().fileCopy).toEqual(accepted);
+
+      getState().setFileCopy({ enabled: false });
+      getState().setFileCopy({ enabled: true });
+
+      expect(getState().fileCopy).toEqual({ ...accepted, acceptedAsIs: false });
+    });
+
+    it('starts every new run with no file copied', () => {
+      getState().setFileCopy(accepted);
+      getState().setConfig(createMockConfig());
+      expect(getState().fileCopy.enabled).toBe(false);
+
+      getState().setFileCopy(accepted);
+      getState().forgeAgain();
+      expect(getState().fileCopy.enabled).toBe(false);
+      expect(getState().fileCopy.acceptedAsIs).toBe(false);
+    });
+  });
 });
 
 describe('counts the run discovers', () => {

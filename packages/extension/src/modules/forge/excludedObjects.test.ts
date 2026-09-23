@@ -47,6 +47,18 @@ describe('isExcludedFromCopy', () => {
     }
   });
 
+  it('leaves files and their links to the stage that copies them', () => {
+    for (const name of [
+      'ContentVersion',
+      'Attachment',
+      'Document',
+      'ContentDocument',
+      'ContentDocumentLink',
+    ]) {
+      expect(isExcludedFromCopy(name)).toBe(true);
+    }
+  });
+
   it('excludes the setup objects no describe tells from data', () => {
     // A real run walked into both from a product and an account, and wrote a
     // folder into the target.

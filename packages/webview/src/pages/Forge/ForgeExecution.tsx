@@ -60,6 +60,11 @@ export const ForgeExecution: React.FC = () => {
   const setResult = useForgeStore((s) => s.setResult);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
   const executionRequestId = useForgeStore((s) => s.executionRequestId);
+  /**
+   * Whether the run copies files. Those are written once every object is, so
+   * its objects all settling is not its end: the run's own answer is.
+   */
+  const copiesFiles = useForgeStore((s) => s.fileCopy.enabled);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
@@ -209,8 +214,9 @@ export const ForgeExecution: React.FC = () => {
           : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
       addLog(level, logMessage);
 
-      // Check if all nodes are terminal
-      if (graph) {
+      // Check if all nodes are terminal. Not for a run that copies files: its
+      // files are still being written, and leaving now would lose its answer.
+      if (graph && !copiesFiles) {
         const updatedNodes = graph.nodes.map((n) =>
           n.objectApiName === objectName ? { ...n, status, progress: progress ?? n.progress } : n,
         );
@@ -237,6 +243,7 @@ export const ForgeExecution: React.FC = () => {
     progressRef,
     t,
     executionRequestId,
+    copiesFiles,
   ]);
 
   /*

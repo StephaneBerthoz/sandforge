@@ -20,6 +20,7 @@ import {
   forgeCycleResolutionSchema,
   forgePlanSchema,
   forgeCheckpointSchema,
+  forgeFileCopyOptionSchema,
 } from './forge.schema.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -772,5 +773,28 @@ describe('forgeCheckpointSchema', () => {
         timestamp: 'x',
       }),
     ).toThrow();
+  });
+});
+
+describe('forgeFileCopyOptionSchema', () => {
+  it('takes a whole number of megabytes from one to what one call carries', () => {
+    expect(
+      forgeFileCopyOptionSchema.safeParse({ maxFileSizeMB: 10, acceptedAsIs: false }).success,
+    ).toBe(true);
+    expect(
+      forgeFileCopyOptionSchema.safeParse({ maxFileSizeMB: 35, acceptedAsIs: true }).success,
+    ).toBe(true);
+  });
+
+  it('refuses a size the API would not take in one call, and one that is not a size', () => {
+    for (const maxFileSizeMB of [0, 36, 2.5, -1]) {
+      expect(
+        forgeFileCopyOptionSchema.safeParse({ maxFileSizeMB, acceptedAsIs: false }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('needs the acceptance said either way', () => {
+    expect(forgeFileCopyOptionSchema.safeParse({ maxFileSizeMB: 10 }).success).toBe(false);
   });
 });

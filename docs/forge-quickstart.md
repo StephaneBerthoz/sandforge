@@ -45,6 +45,8 @@ The main Forge journey, end to end — from a real record to a populated sandbox
        remapped (see the "ID Remaps" tab in the results); a record type
        with no active record type of the same API name on the target
        keeps its source Id, and the SandForge log names it
+     → (Optional) tick "Copy the files of the cloned records" on the
+       Review screen first (see below)
 ```
 
 The results screen groups any failures by object/stage with
@@ -53,6 +55,19 @@ Salesforce-code → human-friendly explanation + action hint.
 > In a hurry? The "Template" tab ships starter graphs (Account 360,
 > Case Workflow, Lead → Opportunity) and the "Quick start" button skips
 > discovery entirely — record counts are then queried during execution.
+
+## Copy the files of the cloned records
+
+Off by default. On the **Review** screen, **Copy the files of the cloned records** copies, once the records they hang on are written:
+
+- the **Salesforce Files** linked to a record the run clones, the latest version of each, published on the cloned record and linked to every other cloned record the file was linked to;
+- the **attachments** whose parent the run clones, written under the cloned parent.
+
+Nothing else: a file linked only to records outside the clone is never read, a library is not copied, and a file that hangs only on records the target already held, linked to rather than created, is left out.
+
+- **Size.** The largest file copied is 10 MB unless you set another, up to 35 MB: what one call to Salesforce carries. A larger file is left out and listed in the results, never cut. Before anything is written, records included, the files together are checked against the file storage the target org has left (its limits, `FileStorageMB`): a run whose files do not fit writes nothing and says what they take and what is left.
+- **Anonymization.** The content of a file cannot be anonymized. While the run anonymizes its records, the Review screen asks, in a confirmation of its own, that you accept the files are copied as they are, and **Execute Forge** stays off until you do. The acceptance is never kept with a template or a past run: each run asks again.
+- **Afterwards.** The results say, per object, how many files were copied and their size, the links written, and every file left out with why. The files a run created are counted in its audit entry, a Salesforce File under `ContentDocument` and an attachment under `Attachment`, and **Remove the records this run created** removes them with the rest: deleting a document removes its versions and its links.
 
 ## Remove what a run created
 
@@ -118,7 +133,9 @@ The cleanup does not know what the clone wrote: it selects every record your use
 
 With `--json`, the clone prints its summary as JSON. `remapTable` maps each source Id to its target Id; `existingSourceIds` names the rows the target already held (linked to, or matched by name) and `updatedSourceIds` the rows `--upsert` wrote over, so every other row of the table is a record the run created. A `--dry-run` creates nothing: what it would insert is counted in `wouldInsertCount`, and `successCount` stays at 0.
 
-The clone's exit code is `1` when the run produced **only** failures and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, or a name that is not an API name. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
+`--files` copies the files of the cloned records, as the wizard's option does ([above](#copy-the-files-of-the-cloned-records)); `--max-file-size <MB>` sets the largest file copied, from 1 to 35 (default 10). With `--anonymize`, `--files` also needs `--files-as-is`, which accepts that the files are copied as they are. The summary counts the files per object, lists every file left out with why, and a `--dry-run` lists what it would copy and the size; with `--json` it is all under `files`.
+
+The clone's exit code is `1` when the run produced **only** failures, or when its files do not fit in the target's file storage or that storage could not be read (nothing is written then), and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, a name that is not an API name, `--files` with `--anonymize` and no `--files-as-is`, or a `--max-file-size` outside 1 to 35. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
 
 ## Common errors and what they mean
 

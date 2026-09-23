@@ -3,6 +3,7 @@ import type {
   ForgeAnonymizationCategory,
   ForgeConfig,
   ForgeExecutionResult,
+  ForgeFileCopyOption,
   ForgeGraph,
   ForgePlan,
   ForgeTemplate,
@@ -36,6 +37,11 @@ export interface ForgeExecuteRequest extends BaseMessage {
      * default method.
      */
     anonymizationRules?: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+    /**
+     * Copy the files attached to the records the run clones, as Review set it.
+     * Absent, the run copies no file.
+     */
+    files?: ForgeFileCopyOption;
   };
 }
 

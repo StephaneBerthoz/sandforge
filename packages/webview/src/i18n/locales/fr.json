@@ -2594,7 +2594,33 @@
       "fieldsCloneable": "{{total}} champs ({{cloneable}} clonables)",
       "notMeasured": "Volume pas encore mesuré"
     },
-    "statusFilterLabel": "Filtrer par statut"
+    "statusFilterLabel": "Filtrer par statut",
+    "files": {
+      "title": "Fichiers",
+      "toggle": "Copier les fichiers des enregistrements clonés",
+      "description": "Les Fichiers Salesforce, dernière version de chacun, et les pièces jointes liés à un enregistrement que cette exécution clone, écrits après cet enregistrement. Un fichier lié seulement à des enregistrements hors du clone n'est pas copié, pas plus qu'une bibliothèque.",
+      "maxSize": "Plus gros fichier copié (Mo)",
+      "maxSizeHint": "De 1 à {{max}} Mo, ce qu'un appel à Salesforce transporte. Un fichier plus gros est laissé de côté et listé, jamais tronqué. Avant toute écriture, l'ensemble des fichiers est comparé au stockage de fichiers qui reste à l'org cible.",
+      "asIsWarning": "Cette exécution anonymise ses enregistrements, et le contenu d'un fichier ne peut pas être anonymisé.",
+      "asIsAccept": "J'accepte que les fichiers soient copiés tels qu'ils sont",
+      "asIsNeeded": "Pour exécuter, acceptez que les fichiers soient copiés tels qu'ils sont, ou désactivez la copie.",
+      "result": {
+        "salesforceFiles": "Fichiers Salesforce",
+        "attachments": "Pièces jointes",
+        "copied_one": "{{count}} copié sur {{planned}} ({{size}})",
+        "copied_other": "{{count}} copiés sur {{planned}} ({{size}})",
+        "failed_one": "{{count}} non copié, voir les erreurs ci-dessous",
+        "failed_other": "{{count}} non copiés, voir les erreurs ci-dessous",
+        "none": "Aucun fichier à copier n'est rattaché aux enregistrements clonés.",
+        "links_one": "{{count}} lien vers un autre enregistrement cloné",
+        "links_other": "{{count}} liens vers d'autres enregistrements clonés",
+        "leftOut_one": "{{count}} fichier laissé de côté :",
+        "leftOut_other": "{{count}} fichiers laissés de côté :",
+        "tooLarge": "plus gros que les {{max}} fixés pour l'exécution",
+        "external": "conservé hors de Salesforce",
+        "recordNotCreated": "ses enregistrements n'ont pas été créés par cette exécution"
+      }
+    }
   },
   "autopilot": {
     "title": "Autopilot",

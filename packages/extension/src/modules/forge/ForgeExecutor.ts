@@ -1,11 +1,13 @@
 import type {
   ForgeCreatedRecords,
+  ForgeFilesReport,
   ForgeGraph,
   ForgeGraphEdge,
   ForgeGraphNode,
   ForgeNodeStatus,
   ForgeRemapObjectCounts,
 } from '@sandforge/shared';
+import { fileCopyRefusal } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -56,6 +58,19 @@ import {
   dedupePricebookEntries,
 } from '@sandforge/shared';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
+import {
+  bytesOf,
+  copyFiles,
+  dryRunLine,
+  filesRunError,
+  ForgeFilesRefusedError,
+  plannedFilesReport,
+  remainingStorageBytes,
+  selectFiles,
+  storageShortfall,
+  type FileCopyDeps,
+  type FileToCopy,
+} from './stages/FileCopier.js';
 import {
   ForgeAnonymizer,
   type ForgeAnonymizeRequest,
@@ -316,6 +331,21 @@ export interface ExecuteOptions {
    * describe doesn't reject the unknown field.
    */
   fieldMappings?: Record<string, Record<string, string>>;
+  /**
+   * Copy the files attached to the records the run clones — the latest
+   * version of each Salesforce File linked to one of them, and the legacy
+   * attachments under them — after those records are written. Absent, no
+   * file is read. See `stages/FileCopier.ts`.
+   */
+  files?: {
+    /** Largest file copied, in bytes: a larger one is left out and listed, never cut. */
+    maxFileBytes: number;
+    /**
+     * Accepted, while the run anonymizes, that files are copied as they are.
+     * Without it such a run is refused before anything is read.
+     */
+    acceptedAsIs?: boolean;
+  };
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -394,6 +424,16 @@ export interface ForgeExecutorDeps {
    * back untouched for want of wiring.
    */
   anonymize?: (request: ForgeAnonymizeRequest) => Record<string, unknown>[];
+  /**
+   * The content of one file, base64-encoded. With the two below, what a run
+   * asked to copy files needs; a caller that wires none of them cannot, and
+   * such a run is refused before anything is read.
+   */
+  readFileBody?: FileCopyDeps['readFileBody'];
+  /** Create one record carrying a file's content, in a call of its own. */
+  insertFile?: FileCopyDeps['insertFile'];
+  /** The file storage an org has left, in MB. */
+  remainingFileStorageMB?: FileCopyDeps['remainingFileStorageMB'];
 }
 
 /** Progress event emitted during execution. */
@@ -529,6 +569,11 @@ export interface ExecutionSummary {
    * wrote them: what removing the run's records reads backwards.
    */
   createdByObject: ForgeCreatedRecords[];
+  /**
+   * What the run did with the files of the records it cloned — or, on a dry
+   * run, would do. Absent when it was not asked to copy them.
+   */
+  files?: ForgeFilesReport;
 }
 
 /**
@@ -620,6 +665,13 @@ interface ExecutionState {
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
   /** Per object no node knows the fields of, the personal fields the detector named. */
   readonly detectedPersonalFields: Map<string, string[]>;
+  /**
+   * Per object, the source ids of the rows read to be cloned: the records
+   * whose files the run copies, when it is asked to. Empty otherwise.
+   */
+  readonly fileScope: Map<string, string[]>;
+  /** What the run did with the files, kept up to date as it goes; `null` when it copies none. */
+  files: ForgeFilesReport | null;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
@@ -793,6 +845,28 @@ export class ForgeExecutor {
     return named;
   }
 
+  /** Why this executor cannot copy files, or null when it can. */
+  private fileCopyUnwired(): string | null {
+    const { readFileBody, insertFile, remainingFileStorageMB } = this.deps;
+    return readFileBody && insertFile && remainingFileStorageMB
+      ? null
+      : 'This session cannot copy files: it reads no file content or file storage. ' +
+          'Nothing was read or written.';
+  }
+
+  /** What the file stage needs, from the executor's own deps; null when they are not wired. */
+  private fileCopyDeps(): FileCopyDeps | null {
+    const { readFileBody, insertFile, remainingFileStorageMB } = this.deps;
+    if (!readFileBody || !insertFile || !remainingFileStorageMB) return null;
+    return {
+      queryRecords: (orgId, soql) => this.deps.queryRecords(orgId, soql),
+      readFileBody,
+      insertFile,
+      insertRecords: this.deps.insertRecords,
+      remainingFileStorageMB,
+    };
+  }
+
   /**
    * The anonymizer a run uses: the one injected, or one of the run's own —
    * so the fake values and hashes of one run are keyed apart from the next.
@@ -824,6 +898,15 @@ export class ForgeExecutor {
     this.pauseResolve = null;
 
     const config = resolveStageConfig(options);
+    // A run asked to copy files that may not is refused before it reads
+    // anything: stopped at the file stage instead, its records would already
+    // be in the target without the files they were cloned for.
+    if (config.files) {
+      const refusal =
+        fileCopyRefusal(config.anonymization !== undefined, config.files.acceptedAsIs) ??
+        this.fileCopyUnwired();
+      if (refusal) throw new ForgeFilesRefusedError(refusal);
+    }
     const runGraph = await this.withSellingModelOptions(graph, sourceOrgId);
     const state: ExecutionState = {
       config,
@@ -857,6 +940,8 @@ export class ForgeExecutor {
       existingRecords: [],
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
       detectedPersonalFields: new Map<string, string[]>(),
+      fileScope: new Map<string, string[]>(),
+      files: null,
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -904,10 +989,12 @@ export class ForgeExecutor {
      * refused for want of a price book entry that was written too late.
      *
      * A full-table run has no scope to resolve, so it keeps the single pass:
-     * two would hold every row of every object in memory to no purpose. Its
-     * one order is the one writing needs.
+     * two would hold every row of every object in memory to no purpose —
+     * unless it copies files, whose size is checked against the target's
+     * storage before anything is written, which needs every record read.
+     * A single pass's one order is the one writing needs.
      */
-    const twoPhase = config.isScoped === true;
+    const twoPhase = config.isScoped === true || config.files !== undefined;
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state, sortedNodes);
 
     // The standard price book, when the run carries prices at all. See
@@ -1123,6 +1210,10 @@ export class ForgeExecutor {
       }
     }
 
+    // The files of what was read, chosen and measured while nothing is
+    // written yet: a run whose files do not fit in the target stops here.
+    const filesToCopy = config.files ? await this.prepareFiles(state) : [];
+
     // The write pass. Every row is in hand, so the order is free to be the
     // one writing needs: parents first, the root no longer pulled to the
     // front because nothing is being scoped any more — and the catalog in the
@@ -1197,6 +1288,12 @@ export class ForgeExecutor {
     });
     if (pass2Error) {
       state.errors.push(pass2Error);
+    }
+
+    // Files come after the records they hang on: a file is published on the
+    // record the run created, and there is nothing to publish it on before.
+    if (filesToCopy.length > 0 && !config.dryRun) {
+      await this.writeFiles(state, filesToCopy);
     }
 
     const orphanExpansionError = state.orphanExpander.buildErrorReport();
@@ -1385,7 +1482,90 @@ export class ForgeExecutor {
       updatedSourceIds: state.remapper.updatedSourceIds(),
       remapByObject: state.remapper.countsByObject(),
       createdByObject: state.remapper.createdByObject(),
+      ...(state.files ? { files: structuredClone(state.files) } : {}),
     };
+  }
+
+  /**
+   * Choose the files of the records read and measure them against the
+   * target, before anything is written.
+   *
+   * A file over the run's cap, or kept outside Salesforce, is left out and
+   * listed. The rest are checked against the file storage the target has
+   * left: a real run that would not fit stops here with nothing written, and
+   * a dry run says so and lists what it would copy.
+   *
+   * @returns The files the write pass is to copy; none on a dry run.
+   */
+  private async prepareFiles(state: ExecutionState): Promise<FileToCopy[]> {
+    const { config, onProgress } = state;
+    const files = config.files;
+    const deps = this.fileCopyDeps();
+    if (!files || !deps) return [];
+    const selection = await selectFiles({
+      scope: state.fileScope,
+      sourceOrgId: state.sourceOrgId,
+      maxFileBytes: files.maxFileBytes,
+      queryRecords: deps.queryRecords,
+    });
+    state.errors.push(...selection.errors);
+
+    let remaining: number | undefined;
+    if (selection.files.length > 0) {
+      try {
+        remaining = await remainingStorageBytes(deps, state.targetOrgId);
+      } catch (err) {
+        const reason =
+          `The file storage the target has left could not be read (${extractErrorMessage(err)}), ` +
+          'so the files could not be checked against it.';
+        if (!config.dryRun) throw new ForgeFilesRefusedError(`${reason} Nothing was written.`);
+        state.errors.push(filesRunError(reason));
+      }
+    }
+    state.files = plannedFilesReport(selection, files.maxFileBytes, remaining);
+
+    const shortfall =
+      remaining === undefined ? null : storageShortfall(bytesOf(selection.files), remaining);
+    if (shortfall && !config.dryRun) {
+      throw new ForgeFilesRefusedError(`${shortfall} Nothing was written.`);
+    }
+    if (shortfall) state.errors.push(filesRunError(shortfall));
+
+    if (config.dryRun) {
+      state.files.wouldCopy = selection.files.map(({ objectApiName, sourceId, name, bytes }) => ({
+        objectApiName,
+        sourceId,
+        name,
+        bytes,
+      }));
+      for (const entry of state.files.objects) {
+        onProgress({
+          objectName: entry.objectApiName,
+          status: 'done',
+          progress: 100,
+          message: dryRunLine(entry),
+        });
+      }
+      return [];
+    }
+    return selection.files;
+  }
+
+  /** Write the files chosen before the write pass, after the records they hang on. */
+  private async writeFiles(state: ExecutionState, files: FileToCopy[]): Promise<void> {
+    const deps = this.fileCopyDeps();
+    if (!deps || !state.files) return;
+    state.failedCount += await copyFiles({
+      files,
+      sourceOrgId: state.sourceOrgId,
+      targetOrgId: state.targetOrgId,
+      remapper: state.remapper,
+      deps,
+      report: state.files,
+      errors: state.errors,
+      waitIfPaused: () => this.waitIfPaused(),
+      onProgress: state.onProgress,
+    });
   }
 
   /**
@@ -1561,6 +1741,13 @@ export class ForgeExecutor {
 
       if (state.scopeCache) {
         seedScopeCache(state.scopeCache, node.objectApiName, records, fieldInfos);
+      }
+
+      // The records whose files the run copies: the ones it read to clone,
+      // never those of an object mapped by name or of the standard book.
+      if (config.files) {
+        const ids = records.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
+        state.fileScope.set(node.objectApiName, ids);
       }
 
       if (config.dryRun) {

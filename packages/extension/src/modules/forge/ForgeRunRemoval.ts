@@ -40,6 +40,38 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
  */
 const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
 
+/** The link of a file to a record, and the two ends it is read with. */
+const FILE_LINK = 'ContentDocumentLink';
+const FILE_LINK_ENDS = ['ContentDocumentId', 'LinkedEntityId'];
+
+/** Key prefix of a user: the owner a file's first link names. */
+const USER_KEY_PREFIX = '005';
+
+/**
+ * Whether a file's link came with the run: it links a document the run
+ * created to one of the run's records, or to a user — the owner's link the
+ * platform adds when the file is written.
+ *
+ * Read from its two ends rather than its date. A link keeps only a system
+ * stamp, which the platform sets a moment after the file is written, and a
+ * run copies its files last, at its very end: run against a sandbox, the last
+ * file's links were stamped a second after the run ended, read as added since,
+ * and held that file, then the record it was published on, in the org.
+ */
+function fileLinkCameWithRun(
+  row: Record<string, unknown>,
+  runRecords: ReadonlySet<string>,
+): boolean {
+  const document = row.ContentDocumentId;
+  const linked = row.LinkedEntityId;
+  return (
+    typeof document === 'string' &&
+    typeof linked === 'string' &&
+    runRecords.has(recordKey(document)) &&
+    (runRecords.has(recordKey(linked)) || linked.startsWith(USER_KEY_PREFIX))
+  );
+}
+
 /** What the removal of a run's records needs from the org it wrote to. */
 export type RemovalOrg = Pick<OrgSession, 'query' | 'destroy' | 'describe' | 'describeGlobal'>;
 
@@ -599,11 +631,14 @@ class DependentsCheck {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
+    // A file's link is read with both its ends, whichever one the relationship
+    // follows: see `fileLinkCameWithRun`.
+    const columns = new Set(['Id', field, ...(child === FILE_LINK ? FILE_LINK_ENDS : [])]);
     for (const dates of DEPENDENT_DATE_COLUMNS) {
       let answer: { records: unknown[] };
       try {
         answer = await this.org.query(
-          `SELECT ${['Id', field, ...dates].join(', ')} FROM ${child} ` +
+          `SELECT ${[...columns, ...dates].join(', ')} FROM ${child} ` +
             `WHERE ${field} IN (${list}) LIMIT ${DEPENDENTS_READ_LIMIT}`,
         );
       } catch {
@@ -651,6 +686,7 @@ class DependentsCheck {
     const key = recordKey(row.Id as string);
     const { runRecords, reached, runStart, runEnd, includeChanged } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
+    if (fileLinkCameWithRun(row, runRecords)) return false;
     const dated =
       'CreatedDate' in row ? 'CreatedDate' : 'SystemModstamp' in row ? 'SystemModstamp' : undefined;
     if (!dated) return true;

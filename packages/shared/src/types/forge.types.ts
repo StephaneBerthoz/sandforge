@@ -335,6 +335,89 @@ export interface ForgeUndoMark {
 }
 
 /**
+ * A run's choice to copy the files of the records it clones, as Review makes
+ * it. A run that copies no file carries none.
+ */
+export interface ForgeFileCopyOption {
+  /** Largest file copied, in MB: a larger one is left out and listed, never cut. */
+  maxFileSizeMB: number;
+  /**
+   * Whether the user accepted, in a confirmation of its own, that files are
+   * copied as they are: the content of a file cannot be anonymized. A run that
+   * anonymizes its records copies no file without it.
+   */
+  acceptedAsIs: boolean;
+}
+
+/**
+ * The object a copied file is counted under: a Salesforce File by its
+ * document, whose removal takes its versions and links with it, and a legacy
+ * attachment by itself.
+ */
+export type ForgeFileObject = 'ContentDocument' | 'Attachment';
+
+/**
+ * Why a file attached to a record in scope was not copied: larger than the
+ * run's cap, kept outside Salesforce, or hanging only on records the run did
+ * not create — linked to what the target already held, or refused.
+ */
+export type ForgeFileLeftOutReason = 'too-large' | 'external' | 'record-not-created';
+
+/** One file attached to a record in scope. */
+export interface ForgeFileEntry {
+  /** The object the file is counted under. */
+  objectApiName: ForgeFileObject;
+  /** Its id in the source: the document, or the attachment. */
+  sourceId: string;
+  /** Its title or name, as the source holds it. */
+  name: string;
+  /** Its size in bytes. */
+  bytes: number;
+}
+
+/** A file a run left out, and why. */
+export interface ForgeFileLeftOut extends ForgeFileEntry {
+  /** Why it was not copied. */
+  reason: ForgeFileLeftOutReason;
+}
+
+/** What a run did with the files of one object. */
+export interface ForgeFileObjectReport {
+  /** The object the files are counted under. */
+  objectApiName: ForgeFileObject;
+  /** Files within the cap attached to records in scope: what the run set out to copy. */
+  planned: number;
+  /** Their size, in bytes. */
+  plannedBytes: number;
+  /** Files written to the target. None on a dry run. */
+  copied: number;
+  /** Files whose content could not be read, or that the target refused. */
+  failed: number;
+}
+
+/**
+ * What a run did with the files attached to the records it cloned: Salesforce
+ * Files, the latest version of each, and legacy attachments.
+ */
+export interface ForgeFilesReport {
+  /** Largest file the run copied, in bytes. */
+  maxFileBytes: number;
+  /** Per object, what the run copied — or, on a dry run, would copy. */
+  objects: ForgeFileObjectReport[];
+  /** Links written to the other records in scope a copied file was linked to. */
+  links: number;
+  /** The files left out, each with why. */
+  leftOut: ForgeFileLeftOut[];
+  /** On a dry run, every file it would copy. Absent from a run that wrote. */
+  wouldCopy?: ForgeFileEntry[];
+  /**
+   * The target's file storage left, in bytes, as read before anything was
+   * written. Absent when there was no file to copy, so none was read.
+   */
+  remainingStorageBytes?: number;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -439,6 +522,12 @@ export interface ForgeExecutionResult {
    * Optional because runs recorded before this field existed do not carry it.
    */
   truncatedObjects?: string[];
+  /**
+   * What the run did with the files of the records it cloned. Absent from a
+   * run that was not asked to copy them. The files it created are counted
+   * among its objects too, and removing its records removes them.
+   */
+  files?: ForgeFilesReport;
   /**
    * The configuration that produced this run, minus the org ids.
    *

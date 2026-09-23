@@ -2594,7 +2594,33 @@
       "fieldsCloneable": "{{total}} Felder ({{cloneable}} klonbar)",
       "notMeasured": "Umfang noch nicht ermittelt"
     },
-    "statusFilterLabel": "Nach Status filtern"
+    "statusFilterLabel": "Nach Status filtern",
+    "files": {
+      "title": "Dateien",
+      "toggle": "Dateien der geklonten Datensätze kopieren",
+      "description": "Salesforce-Dateien, jeweils in der neuesten Version, und Anhänge, die mit einem Datensatz verknüpft sind, den dieser Durchlauf klont, geschrieben nach diesem Datensatz. Eine Datei, die nur mit Datensätzen außerhalb des Klons verknüpft ist, wird nicht kopiert, ebenso wenig eine Bibliothek.",
+      "maxSize": "Größte kopierte Datei (MB)",
+      "maxSizeHint": "Von 1 bis {{max}} MB, so viel trägt ein Aufruf an Salesforce. Eine größere Datei wird ausgelassen und aufgeführt, nie gekürzt. Bevor etwas geschrieben wird, werden alle Dateien zusammen mit dem Dateispeicher abgeglichen, der der Ziel-Org bleibt.",
+      "asIsWarning": "Dieser Durchlauf anonymisiert seine Datensätze, und der Inhalt einer Datei lässt sich nicht anonymisieren.",
+      "asIsAccept": "Ich akzeptiere, dass die Dateien so kopiert werden, wie sie sind",
+      "asIsNeeded": "Akzeptieren Sie zum Ausführen, dass die Dateien so kopiert werden, wie sie sind, oder schalten Sie das Kopieren aus.",
+      "result": {
+        "salesforceFiles": "Salesforce-Dateien",
+        "attachments": "Anhänge",
+        "copied_one": "{{count}} von {{planned}} kopiert ({{size}})",
+        "copied_other": "{{count}} von {{planned}} kopiert ({{size}})",
+        "failed_one": "{{count}} nicht kopiert, siehe die Fehler unten",
+        "failed_other": "{{count}} nicht kopiert, siehe die Fehler unten",
+        "none": "An den geklonten Datensätzen hängt keine zu kopierende Datei.",
+        "links_one": "{{count}} Verknüpfung mit einem weiteren geklonten Datensatz",
+        "links_other": "{{count}} Verknüpfungen mit weiteren geklonten Datensätzen",
+        "leftOut_one": "{{count}} Datei ausgelassen:",
+        "leftOut_other": "{{count}} Dateien ausgelassen:",
+        "tooLarge": "größer als die für den Durchlauf festgelegten {{max}}",
+        "external": "außerhalb von Salesforce gespeichert",
+        "recordNotCreated": "ihre Datensätze hat nicht dieser Durchlauf erstellt"
+      }
+    }
   },
   "autopilot": {
     "title": "Autopilot",

@@ -11,6 +11,7 @@ import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
 import { ForgePreviewCard } from './ForgePreviewCard';
+import { ReviewFilesOption, filesBlockExecute } from './ReviewFilesOption';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata';
@@ -44,6 +45,8 @@ export const ForgeReview: React.FC = () => {
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   const anonymizePII = config?.anonymizePII ?? false;
+  // A run that anonymizes waits for the files to be accepted as they are.
+  const filesBlocked = useForgeStore(filesBlockExecute);
   const setPlan = useForgeStore((s) => s.setPlan);
   const fillPersonalFields = useForgeStore((s) => s.fillPersonalFields);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -134,17 +137,27 @@ export const ForgeReview: React.FC = () => {
    * run never starts and the view spins indefinitely.
    */
   const handleExecute = useCallback(() => {
-    if (!graph || !config) return;
+    if (!graph || !config || filesBlockExecute(useForgeStore.getState())) return;
     // Clear the previous run's node statuses first: they live as long as the
     // panel, so a run after an abort opened already half "done" and sat there.
     useForgeStore.getState().resetNodeStatuses();
+    const { anonymizationRules, fileCopy } = useForgeStore.getState();
     // The methods chosen in the Anonymization tab go with the run: the fields
     // travel on the graph's nodes, and the run used to receive only those, so
-    // every category was written with no method at all.
+    // every category was written with no method at all. So does the choice
+    // to copy the files, which is not part of the config.
     const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
       graph,
       config,
-      anonymizationRules: useForgeStore.getState().anonymizationRules,
+      anonymizationRules,
+      ...(fileCopy.enabled
+        ? {
+            files: {
+              maxFileSizeMB: fileCopy.maxFileSizeMB,
+              acceptedAsIs: fileCopy.acceptedAsIs,
+            },
+          }
+        : {}),
     });
     // Mission control takes only the messages correlated to this request.
     useForgeStore.getState().setExecutionRequestId(requestId);
@@ -242,8 +255,10 @@ export const ForgeReview: React.FC = () => {
         </div>
       </div>
 
+      <ReviewFilesOption />
+
       {/* Action bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <button
           data-testid="back-button"
           onClick={() => setPhase('discovery')}
@@ -251,14 +266,26 @@ export const ForgeReview: React.FC = () => {
         >
           {t('forge.review.back', '\u2190 Back to Discovery')}
         </button>
-        <button
-          data-testid="execute-button"
-          onClick={handleExecute}
-          disabled={!graph || !config}
-          className="px-6 py-2 text-sm font-semibold bg-hue-forge text-[var(--sf-bg-primary)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {t('forge.executeForge', 'Execute Forge')}
-        </button>
+        <div className="flex items-center gap-3">
+          {filesBlocked && (
+            <p
+              id="forge-files-execute-hint"
+              data-testid="forge-files-execute-hint"
+              className="text-xs text-text-secondary"
+            >
+              {t('forge.files.asIsNeeded')}
+            </p>
+          )}
+          <button
+            data-testid="execute-button"
+            onClick={handleExecute}
+            disabled={!graph || !config || filesBlocked}
+            aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
+            className="px-6 py-2 text-sm font-semibold bg-hue-forge text-[var(--sf-bg-primary)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t('forge.executeForge', 'Execute Forge')}
+          </button>
+        </div>
       </div>
     </div>
   );

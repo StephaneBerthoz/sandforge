@@ -2468,7 +2468,29 @@
       "fieldsCloneable": "{{total}} 項目（うち {{cloneable}} 件が複製可能）",
       "notMeasured": "件数は未計測です"
     },
-    "statusFilterLabel": "ステータスで絞り込む"
+    "statusFilterLabel": "ステータスで絞り込む",
+    "files": {
+      "title": "ファイル",
+      "toggle": "複製したレコードのファイルをコピーする",
+      "description": "この実行が複製するレコードにリンクされた Salesforce ファイル (それぞれの最新バージョン) と添付ファイルを、そのレコードの後に書き込みます。複製の外にあるレコードにだけリンクされたファイルはコピーされず、ライブラリもコピーされません。",
+      "maxSize": "コピーする最大ファイルサイズ (MB)",
+      "maxSizeHint": "1 〜 {{max}} MB。Salesforce への 1 回の呼び出しで運べる量です。これより大きいファイルは除外して一覧に示し、途中で切ることはありません。何かを書き込む前に、ファイルの合計をターゲット組織の残りのファイルストレージと照合します。",
+      "asIsWarning": "この実行はレコードを匿名化しますが、ファイルの内容は匿名化できません。",
+      "asIsAccept": "ファイルがそのままの状態でコピーされることを承認します",
+      "asIsNeeded": "実行するには、ファイルがそのままの状態でコピーされることを承認するか、コピーをオフにしてください。",
+      "result": {
+        "salesforceFiles": "Salesforce ファイル",
+        "attachments": "添付ファイル",
+        "copied_other": "{{planned}} 件中 {{count}} 件をコピー ({{size}})",
+        "failed_other": "{{count}} 件はコピーされませんでした。下のエラーを参照してください",
+        "none": "複製したレコードにコピーするファイルはありません。",
+        "links_other": "複製した他のレコードへのリンク {{count}} 件",
+        "leftOut_other": "除外したファイル {{count}} 件:",
+        "tooLarge": "この実行に設定した {{max}} より大きい",
+        "external": "Salesforce の外に保存されている",
+        "recordNotCreated": "そのレコードはこの実行で作成されていません"
+      }
+    }
   },
   "autopilot": {
     "title": "Autopilot",

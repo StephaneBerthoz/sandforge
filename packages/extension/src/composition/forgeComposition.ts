@@ -102,7 +102,7 @@ export interface ForgeCompositionDeps {
  * Wire up the Forge orchestrator via dynamic imports, then inject it
  * into the handlers through the late setter (`setForgeOrchestrator`).
  *
- * Fire-and-forget by design: the 10 dynamic imports stay OFF the activation
+ * Fire-and-forget by design: the 11 dynamic imports stay OFF the activation
  * hot path. The injection therefore lands AFTER `handlers.registerAll(router)`
  * — see the late-injection contract in `./lateServices.ts`. Failures are
  * logged, never thrown (the rest of the extension stays usable).
@@ -123,6 +123,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/ForgeTemplateStore.js'),
     import('../modules/forge/ForgeHistoryStore.js'),
     import('../core/connection/ConnectionHelper.js'),
+    import('../modules/forge/fileTransfer.js'),
   ])
     .then(
       ([
@@ -136,6 +137,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeTemplateStore },
         { ForgeHistoryStore },
         { getJsforceConnection },
+        fileTransfer,
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
         // round-trips per forge run on a large org (350+ SObjects).
@@ -407,6 +409,24 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
           },
           batchStrategy: batchStrategyService,
+          // What a run asked to copy files reads and writes: one file per
+          // request each way, and the target's file storage before any.
+          readFileBody: async (orgId, objectApiName, id) =>
+            fileTransfer.readFileBody(
+              await getJsforceConnection(orgId, orgRegistry, orgManager),
+              objectApiName,
+              id,
+            ),
+          insertFile: async (orgId, objectApiName, record) =>
+            fileTransfer.insertFile(
+              await getJsforceConnection(orgId, orgRegistry, orgManager),
+              objectApiName,
+              record,
+            ),
+          remainingFileStorageMB: async (orgId) =>
+            fileTransfer.remainingFileStorageMB(
+              await getJsforceConnection(orgId, orgRegistry, orgManager),
+            ),
           // No `anonymize`: what a run anonymizes comes with the run — the
           // fields selected on each node, the methods Review holds — and the
           // executor keys an anonymizer of its own to each run. The one wired

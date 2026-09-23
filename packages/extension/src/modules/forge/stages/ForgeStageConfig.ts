@@ -7,6 +7,7 @@
  * inline defaults (`?? false`, `?? 20`, …) throughout the executor.
  */
 
+import { BYTES_PER_MB, FILE_COPY_CEILING_MB, FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
 import type { ExecuteOptions } from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
@@ -52,6 +53,11 @@ export interface ForgeStageConfig {
   readonly fieldMappings: Record<string, Record<string, string>>;
   /** Fields to anonymize per object and the method per PII category; absent, none. */
   readonly anonymization?: ForgeRunAnonymization;
+  /**
+   * Copy the files of the records the run clones; absent, no file is read. The
+   * size is held to what one call carries, whatever the caller asked.
+   */
+  readonly files?: { readonly maxFileBytes: number; readonly acceptedAsIs: boolean };
 }
 
 /**
@@ -79,5 +85,16 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
     objectSoqlFilters: options?.objectSoqlFilters,
     fieldMappings: options?.fieldMappings ?? {},
     anonymization: options?.anonymization,
+    files: options?.files
+      ? {
+          maxFileBytes: Math.min(
+            options.files.maxFileBytes > 0
+              ? options.files.maxFileBytes
+              : FILE_COPY_DEFAULT_MAX_MB * BYTES_PER_MB,
+            FILE_COPY_CEILING_MB * BYTES_PER_MB,
+          ),
+          acceptedAsIs: options.files.acceptedAsIs === true,
+        }
+      : undefined,
   };
 }

@@ -2594,7 +2594,33 @@
       "fieldsCloneable": "{{total}} fields ({{cloneable}} cloneable)",
       "notMeasured": "Size not measured yet"
     },
-    "statusFilterLabel": "Filter by status"
+    "statusFilterLabel": "Filter by status",
+    "files": {
+      "title": "Files",
+      "toggle": "Copy the files of the cloned records",
+      "description": "Salesforce Files, the latest version of each, and attachments linked to a record this run clones, written after that record. A file linked only to records outside the clone is not copied, nor is a library.",
+      "maxSize": "Largest file copied (MB)",
+      "maxSizeHint": "From 1 to {{max}} MB, what one call to Salesforce carries. A larger file is left out and listed, never cut. Before anything is written, the files together are checked against the file storage the target org has left.",
+      "asIsWarning": "This run anonymizes its records, and the content of a file cannot be anonymized.",
+      "asIsAccept": "I accept that files are copied as they are",
+      "asIsNeeded": "To execute, accept that files are copied as they are, or turn the copy off.",
+      "result": {
+        "salesforceFiles": "Salesforce Files",
+        "attachments": "Attachments",
+        "copied_one": "{{count}} of {{planned}} copied ({{size}})",
+        "copied_other": "{{count}} of {{planned}} copied ({{size}})",
+        "failed_one": "{{count}} not copied, see the errors below",
+        "failed_other": "{{count}} not copied, see the errors below",
+        "none": "No file to copy hangs on the cloned records.",
+        "links_one": "{{count}} link to another cloned record",
+        "links_other": "{{count}} links to other cloned records",
+        "leftOut_one": "{{count}} file left out:",
+        "leftOut_other": "{{count}} files left out:",
+        "tooLarge": "larger than the {{max}} set for the run",
+        "external": "kept outside Salesforce",
+        "recordNotCreated": "its records were not created by this run"
+      }
+    }
   },
   "autopilot": {
     "title": "Autopilot",

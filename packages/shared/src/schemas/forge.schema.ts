@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { anonymizationMethodSchema } from './autopilot.schema.js';
+import { FILE_COPY_CEILING_MB } from '../constants/file-copy.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
 
@@ -276,6 +277,16 @@ export const forgeAnonymizationRulesSchema = z.record(
   forgeAnonymizationCategorySchema,
   anonymizationMethodSchema,
 );
+
+/**
+ * Zod schema for ForgeFileCopyOption: a whole number of megabytes, from one to
+ * what a single call carries, and the acceptance the run needs while it
+ * anonymizes.
+ */
+export const forgeFileCopyOptionSchema = z.object({
+  maxFileSizeMB: z.number().int().min(1).max(FILE_COPY_CEILING_MB),
+  acceptedAsIs: z.boolean(),
+});
 
 /** Zod schema for ForgeTemplateAnonymization */
 export const forgeTemplateAnonymizationSchema = z.object({

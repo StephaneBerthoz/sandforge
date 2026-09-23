@@ -26,8 +26,16 @@
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
-import { forgeConfigSchemaStrict, duplicateRuleHeaders } from '@sandforge/shared';
+import type { ForgeConfig, ForgeFilesReport, ForgeGraph } from '@sandforge/shared';
+import {
+  BYTES_PER_MB,
+  FILE_COPY_CEILING_MB,
+  FILE_COPY_DEFAULT_MAX_MB,
+  fileCopyRefusal,
+  forgeConfigSchemaStrict,
+  duplicateRuleHeaders,
+  formatFileSize,
+} from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
   GraphDiscoveryDeps,
@@ -49,6 +57,12 @@ import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/Reco
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
+import { ForgeFilesRefusedError } from '../src/modules/forge/stages/FileCopier.js';
+import {
+  insertFile,
+  readFileBody,
+  remainingFileStorageMB,
+} from '../src/modules/forge/fileTransfer.js';
 
 export interface CliArgs {
   record: string;
@@ -81,6 +95,12 @@ export interface CliArgs {
   fieldMappings: Record<string, Record<string, string>>;
   /** Output path for the remap-table CSV (sourceId,targetId). undefined = no export. */
   remapCsv: string | undefined;
+  /**
+   * Copy the files attached to the cloned records (`--files`): the largest
+   * file copied, and whether the files were accepted as they are
+   * (`--files-as-is`). undefined = no file is read.
+   */
+  files: { maxFileSizeMB: number; acceptedAsIs: boolean } | undefined;
 }
 
 const HELP = `sandforge-clone — Forge a record-scoped clone from a source org to a target sandbox.
@@ -139,6 +159,16 @@ Options:
   --remap-csv <file>     write the source→target ID remap table to a CSV
                          file (header: sourceId,targetId). BA reconciliation:
                          "where did source X go on the target sandbox?"
+  --files                copy the files of the cloned records   (default: off)
+                         Salesforce Files (the latest version of each) and
+                         attachments, after the records they hang on. The
+                         total is checked against the target's file storage
+                         before anything is written.
+  --max-file-size <MB>   largest file --files copies, 1 to 35   (default: 10)
+                         A larger file is left out and listed, never cut.
+  --files-as-is          accept that files are copied as they are: their
+                         content cannot be anonymized. Required with --files
+                         when --anonymize is on.
   -h, --help             show this help and exit
 `;
 
@@ -283,6 +313,7 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--max-nodes takes a whole number of objects, 1 or more.\n');
     process.exit(2);
   }
+  const files = fileCopyArgs(args);
 
   // The schema the wizard's ForgeConfig goes through, run on the same fields.
   // Without it `--depth deep` was cast into the union, and a malformed record
@@ -333,7 +364,51 @@ export function parseArgs(argv: string[]): CliArgs {
     objectSoqlFilters,
     fieldMappings,
     remapCsv: get('--remap-csv'),
+    files,
   };
+}
+
+/**
+ * The file flags read and checked; exits 2 on a combination that cannot run.
+ *
+ * `--anonymize` covers the records and never the files, whose content cannot
+ * be anonymized: with it, `--files` copies nothing unless `--files-as-is`
+ * says the files may go as they are. The other two flags only mean something
+ * with `--files`, and are refused without it rather than ignored.
+ */
+function fileCopyArgs(args: readonly string[]): CliArgs['files'] {
+  const wanted = args.includes('--files');
+  const acceptedAsIs = args.includes('--files-as-is');
+  const sizeAt = args.indexOf('--max-file-size');
+  const sizeRaw = sizeAt >= 0 ? args[sizeAt + 1] : undefined;
+  if (!wanted) {
+    if (acceptedAsIs || sizeAt >= 0) {
+      process.stderr.write('--files-as-is and --max-file-size go with --files.\n');
+      process.exit(2);
+    }
+    return undefined;
+  }
+  const maxFileSizeMB = sizeAt >= 0 ? Number(sizeRaw) : FILE_COPY_DEFAULT_MAX_MB;
+  if (
+    !Number.isInteger(maxFileSizeMB) ||
+    maxFileSizeMB < 1 ||
+    maxFileSizeMB > FILE_COPY_CEILING_MB
+  ) {
+    process.stderr.write(
+      `--max-file-size takes a whole number of MB from 1 to ${FILE_COPY_CEILING_MB}, ` +
+        'the most one call to Salesforce carries.\n',
+    );
+    process.exit(2);
+  }
+  const refusal = fileCopyRefusal(args.includes('--anonymize'), acceptedAsIs);
+  if (refusal) {
+    process.stderr.write(
+      '--anonymize anonymizes the records, and the content of a file cannot be anonymized: ' +
+        'add --files-as-is to accept that files are copied as they are, or leave out --files.\n',
+    );
+    process.exit(2);
+  }
+  return { maxFileSizeMB, acceptedAsIs };
 }
 
 /** Shape a raw describe for the discovery service; exported so the field reading can be tested. */
@@ -415,12 +490,57 @@ export function failedOutright(summary: ExecutionSummary): boolean {
 }
 
 /**
+ * What `--files` did, or — on a dry run — would do: per object the files and
+ * their size, the links to the other cloned records, and every file left out
+ * with why. Exported so it can be tested.
+ */
+export function fileLines(files: ForgeFilesReport, dryRun: boolean): string[] {
+  const cap = formatFileSize(files.maxFileBytes);
+  const lines = [`files (up to ${cap} each):`];
+  for (const entry of files.objects) {
+    const size = formatFileSize(entry.plannedBytes);
+    lines.push(
+      dryRun
+        ? `  ${entry.objectApiName}  ${entry.planned} would be copied (${size}, dry run, nothing written)`
+        : `  ${entry.objectApiName}  ${entry.copied} of ${entry.planned} copied (${size})` +
+            (entry.failed > 0 ? `, ${entry.failed} failed` : ''),
+    );
+  }
+  if (files.objects.length === 0) lines.push('  none to copy');
+  if (dryRun && files.wouldCopy && files.wouldCopy.length > 0) {
+    lines.push(`  would copy (${files.wouldCopy.length}):`);
+    for (const file of files.wouldCopy) {
+      lines.push(`    ${file.objectApiName}  ${file.name}  ${formatFileSize(file.bytes)}`);
+    }
+  }
+  if (files.links > 0) lines.push(`  links to other cloned records: ${files.links}`);
+  if (files.remainingStorageBytes !== undefined) {
+    lines.push(`  target file storage left: ${formatFileSize(files.remainingStorageBytes)}`);
+  }
+  if (files.leftOut.length > 0) {
+    lines.push(`  left out (${files.leftOut.length}):`);
+    for (const file of files.leftOut) {
+      const why =
+        file.reason === 'too-large'
+          ? `larger than ${cap}`
+          : file.reason === 'external'
+            ? 'kept outside Salesforce'
+            : 'its records were not created by this run';
+      lines.push(`    ${file.objectApiName}  ${file.name}  ${formatFileSize(file.bytes)} — ${why}`);
+    }
+  }
+  return lines;
+}
+
+/**
  * The text summary of a run. Records the target already held are named apart
  * from the created and the failed ones: linked is neither, and a duplicate
  * nobody could identify is a failure whose children lost their lookup.
  * Exported so it can be tested.
+ *
+ * @param dryRun - Whether the run wrote nothing, for the files it would copy.
  */
-export function summaryLines(summary: ExecutionSummary): string[] {
+export function summaryLines(summary: ExecutionSummary, dryRun = false): string[] {
   const lines = [
     `success: ${summary.successCount}`,
     // A dry run creates nothing: what it would have inserted, under its own name.
@@ -447,6 +567,7 @@ export function summaryLines(summary: ExecutionSummary): string[] {
       lines.push(`  ${e.objectApiName}  ${parts.join(', ')}`);
     }
   }
+  if (summary.files) lines.push('', ...fileLines(summary.files, dryRun));
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -496,6 +617,9 @@ export function jsonResult(summary: ExecutionSummary) {
     remapTable: summary.remapTable,
     existingSourceIds: summary.existingSourceIds,
     updatedSourceIds: summary.updatedSourceIds,
+    // Only with --files: what became of the files. The ones copied are in
+    // remapTable too, under their document or attachment id.
+    ...(summary.files ? { files: summary.files } : {}),
   };
 }
 
@@ -547,6 +671,12 @@ export function executeOptions(
     // record was then written as the source held it. The selected fields go,
     // each with its category's default method.
     anonymization: runAnonymization(args.anonymize, graph, {}, personalFieldsOf),
+    files: args.files
+      ? {
+          maxFileBytes: args.files.maxFileSizeMB * BYTES_PER_MB,
+          acceptedAsIs: args.files.acceptedAsIs,
+        }
+      : undefined,
   };
 }
 
@@ -715,6 +845,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         .upsert(records, externalIdField, { headers: duplicateRuleHeaders(true) });
       return toSaveOutcomes(r, name);
     },
+    // What --files reads and writes: one file per request each way, and the
+    // target's file storage before any of them.
+    readFileBody: async (orgId, objectApiName, id) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return readFileBody(c, objectApiName, id);
+    },
+    insertFile: async (orgId, objectApiName, record) => {
+      if (args.dryRun) return { id: '', success: true, errors: [] };
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return insertFile(c, objectApiName, record);
+    },
+    remainingFileStorageMB: async (orgId) => {
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      return remainingFileStorageMB(c);
+    },
   };
 
   // Preflight: pre-count rows on the target for every node in the graph so
@@ -754,18 +902,29 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   console.log(
-    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''})`,
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.files ? ', FILES' : ''})`,
   );
-  const summary = await new ForgeExecutor(executorDeps).execute(
-    graph,
-    args.source,
-    args.target,
-    (event) => {
-      const line = args.json ? undefined : objectOutcomeLine(event);
-      if (line) console.log(line);
-    },
-    executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
-  );
+  let summary: ExecutionSummary;
+  try {
+    summary = await new ForgeExecutor(executorDeps).execute(
+      graph,
+      args.source,
+      args.target,
+      (event) => {
+        const line = args.json ? undefined : objectOutcomeLine(event);
+        if (line) console.log(line);
+      },
+      executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
+    );
+  } catch (err: unknown) {
+    // Refused before anything was written — the files do not fit in the
+    // target, or its storage could not be read: said as it is, not as a crash.
+    if (err instanceof ForgeFilesRefusedError) {
+      process.stderr.write(`${err.message}\n`);
+      process.exit(1);
+    }
+    throw err;
+  }
 
   const elapsed = Date.now() - t0;
 
@@ -824,6 +983,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           dryRun: args.dryRun,
           upsert: args.upsert,
           expandOrphans: args.expandOrphans,
+          files: args.files !== undefined,
           graph: {
             nodes: graph.nodes.length,
             edges: graph.edges.length,
@@ -840,7 +1000,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   } else {
     console.log('');
-    for (const line of summaryLines(summary)) console.log(line);
+    for (const line of summaryLines(summary, args.dryRun)) console.log(line);
     console.log(`\ndone in ${elapsed}ms`);
   }
   if (failedOutright(summary)) {

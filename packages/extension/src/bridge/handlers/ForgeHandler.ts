@@ -14,8 +14,10 @@ import type {
   ComplianceFrameworkType,
 } from '@sandforge/shared';
 import {
+  fileCopyRefusal,
   forgeAnonymizationRulesSchema,
   forgeConfigSchema,
+  forgeFileCopyOptionSchema,
   forgeGraphSchema,
   forgeRunCreatedRecords,
   forgeTemplateSchema,
@@ -86,7 +88,15 @@ const executePayloadSchema = z.object({
   // The method Review holds per PII category. The fields travel on the
   // graph's nodes; a category left out takes its default method.
   anonymizationRules: forgeAnonymizationRulesSchema.optional(),
+  // Copy the files of the records the run clones, as Review set it; absent,
+  // no file is read. Never part of the config: a template or a past run does
+  // not bring back the acceptance a run that anonymizes needs.
+  files: forgeFileCopyOptionSchema.optional(),
 });
+
+/** Why a run that copies files was stopped before it started, as the audit trail records it. */
+const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
+
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
 // The entry is named, never its records: what is removed is what this
 // extension's own history says the run created.
@@ -913,7 +923,31 @@ export class ForgeHandler implements DomainHandler {
 
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules } = parsed;
+    const { graph, config, anonymizationRules, files } = parsed;
+
+    // A run that anonymizes its records copies no file the user has not
+    // accepted as it is: a file's content cannot be anonymized. Refused before
+    // the guard is asked, and recorded as the path's own stop.
+    const filesRefused = files ? fileCopyRefusal(config.anonymizePII, files.acceptedAsIs) : null;
+    if (filesRefused) {
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: config.targetOrgId,
+        outcome: 'stopped',
+        code: FILES_NOT_ACCEPTED,
+      });
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(filesRefused),
+        { code: FILES_NOT_ACCEPTED },
+      );
+      return;
+    }
 
     // Production guard check on the target org — same policy as sync/seed
     // runs (guard instance from backgroundComposition via infraServices).
@@ -1104,6 +1138,7 @@ export class ForgeHandler implements DomainHandler {
       const result = await this.orchestrator.execute(graph, config, {
         recordTypeMappings,
         anonymizationRules,
+        files,
       });
 
       // Arm the duplicate cooldown only when the run created something: a

@@ -135,6 +135,14 @@ export class IdRemapper {
     return this.existing.has(oldId);
   }
 
+  /**
+   * Whether `oldId` maps onto a record this run created: neither one the
+   * target already held nor one an upsert matched and wrote over.
+   */
+  isCreated(oldId: string): boolean {
+    return this.map.has(oldId) && !this.existing.has(oldId) && !this.updated.has(oldId);
+  }
+
   /** Source ids mapped onto records the target already held, in registration order. */
   existingSourceIds(): string[] {
     return [...this.existing];

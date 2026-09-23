@@ -41,8 +41,10 @@ const NOT_CREATABLE_AS_DATA: ReadonlySet<string> = new Set([
 /**
  * Objects whose content is a file held in a base64 body.
  *
- * No stage moves one, and Bulk API 2.0 rejects base64 — so a run carrying one
- * failed past the bulk threshold, after the REST path had already written.
+ * No copy moves one as a record, and Bulk API 2.0 rejects base64 — so a run
+ * carrying one failed past the bulk threshold, after the REST path had already
+ * written. A Forge run asked to copy files reads each body and writes it in a
+ * stage of its own, after the records the file hangs on.
  */
 const FILE_BODIED: ReadonlySet<string> = new Set(['attachment', 'contentversion', 'document']);
 

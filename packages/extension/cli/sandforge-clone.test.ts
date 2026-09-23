@@ -96,10 +96,30 @@ describe('sandforge-clone flag validation', () => {
     ['an --exclude object name that is not an API name', argv('--exclude', 'Acc ount.Name')],
     ['an --exclude field name that is not an API name', argv('--exclude', 'Account.Bad-Field')],
     ['a --filter object name that is not an API name', argv('--filter', "Ca$e=Status = 'Open'")],
+    ['--files-as-is without --files', argv('--files-as-is')],
+    ['--max-file-size without --files', argv('--max-file-size', '5')],
+    ['a --max-file-size one call cannot carry', argv('--files', '--max-file-size', '36')],
+    ['a --max-file-size that is not a size', argv('--files', '--max-file-size', 'big')],
   ])('exits 2 on %s before any org is loaded', async (_label, args) => {
     expect(await run(args)).toBe(2);
     expect(mockExecFileSync).not.toHaveBeenCalled();
     expect(stderr).not.toBe('');
+  });
+
+  it('refuses --files with --anonymize until the files are accepted as they are', async () => {
+    expect(await run(argv('--anonymize', '--files'))).toBe(2);
+
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(stderr).toContain('--files-as-is');
+    expect(stderr).toContain('copied as they are');
+  });
+
+  it('reaches the org lookup when the files are accepted as they are', async () => {
+    const result = await run(
+      argv('--anonymize', '--files', '--files-as-is', '--max-file-size', '20'),
+    );
+
+    expect((result as Error).message).toBe('sf org display reached');
   });
 
   it('reaches the org lookup when every flag is valid', async () => {
@@ -328,6 +348,91 @@ describe('sandforge-clone summary', () => {
     expect(failedOutright(summary({ successCount: 0, failedCount: 0 }))).toBe(false);
   });
 
+  describe('with --files', () => {
+    const files = {
+      maxFileBytes: 10 * 1_048_576,
+      objects: [
+        {
+          objectApiName: 'ContentDocument' as const,
+          planned: 2,
+          plannedBytes: 3_072,
+          copied: 1,
+          failed: 1,
+        },
+        {
+          objectApiName: 'Attachment' as const,
+          planned: 1,
+          plannedBytes: 512,
+          copied: 1,
+          failed: 0,
+        },
+      ],
+      links: 1,
+      leftOut: [
+        {
+          objectApiName: 'ContentDocument' as const,
+          sourceId: '069000000000001AAA',
+          name: 'Scan',
+          bytes: 12 * 1_048_576,
+          reason: 'too-large' as const,
+        },
+      ],
+      remainingStorageBytes: 200 * 1_048_576,
+    };
+
+    it('counts the files per object, the links, the storage left and every file left out', () => {
+      const lines = summaryLines(summary({ files }));
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          'files (up to 10 MB each):',
+          '  ContentDocument  1 of 2 copied (3 KB), 1 failed',
+          '  Attachment  1 of 1 copied (512 B)',
+          '  links to other cloned records: 1',
+          '  target file storage left: 200 MB',
+          '  left out (1):',
+          '    ContentDocument  Scan  12 MB — larger than 10 MB',
+        ]),
+      );
+    });
+
+    it('lists on a dry run every file it would copy and the size, and writes nothing', () => {
+      const wouldCopy = [
+        {
+          objectApiName: 'ContentDocument' as const,
+          sourceId: '069000000000002AAA',
+          name: 'Plan',
+          bytes: 2_048,
+        },
+        {
+          objectApiName: 'Attachment' as const,
+          sourceId: '00P000000000001AAA',
+          name: 'log.txt',
+          bytes: 512,
+        },
+      ];
+      const lines = summaryLines(
+        summary({ successCount: 0, files: { ...files, wouldCopy } }),
+        true,
+      );
+
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          '  ContentDocument  2 would be copied (3 KB, dry run, nothing written)',
+          '  would copy (2):',
+          '    ContentDocument  Plan  2 KB',
+          '    Attachment  log.txt  512 B',
+        ]),
+      );
+      expect(lines.some((line) => line.includes('copied (3 KB), 1 failed'))).toBe(false);
+    });
+
+    it('hands the files to a CI job in the JSON summary', () => {
+      expect(jsonResult(summary({ files })).files).toEqual(files);
+      expect(jsonResult(summary({})).files).toBeUndefined();
+    });
+  });
+
   it('prints the reason an object was held back, from its error samples', () => {
     const lines = summaryLines(
       summary({
@@ -455,5 +560,35 @@ describe('sandforge-clone anonymization', () => {
     const options = executeOptions(parseArgs(argv()), graph, []);
 
     expect(options.anonymization).toBeUndefined();
+  });
+});
+
+describe('sandforge-clone files', () => {
+  const graph: ForgeGraph = {
+    nodes: [],
+    edges: [],
+    totalRecords: 0,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it('copies no file without --files', () => {
+    expect(executeOptions(parseArgs(argv()), graph, []).files).toBeUndefined();
+  });
+
+  it('copies files up to ten megabytes each by default', () => {
+    expect(executeOptions(parseArgs(argv('--files')), graph, []).files).toEqual({
+      maxFileBytes: 10 * 1_048_576,
+      acceptedAsIs: false,
+    });
+  });
+
+  it('takes the size and the acceptance from the command line', () => {
+    const args = parseArgs(argv('--anonymize', '--files', '--files-as-is', '--max-file-size', '2'));
+
+    expect(executeOptions(args, graph, []).files).toEqual({
+      maxFileBytes: 2 * 1_048_576,
+      acceptedAsIs: true,
+    });
   });
 });

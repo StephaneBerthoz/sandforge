@@ -30,6 +30,7 @@ import { cn } from '../../theme';
 import { formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
+import { ForgeFilesResult } from './ForgeFilesResult';
 
 /**
  * Above this many source -> target pairs the Id map switches from a plain
@@ -614,6 +615,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </ul>
         </div>
       )}
+
+      {/* The files of the cloned records, for a run asked to copy them: what
+          it copied, and every file it left out with why. */}
+      {result?.files && <ForgeFilesResult files={result.files} />}
 
       {/* A read stopped by a bound is not a failure and would otherwise leave
           the wizard showing an unqualified success for a partial clone. */}

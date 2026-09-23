@@ -202,6 +202,50 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[2]?.anonymization).toBeUndefined();
     });
 
+    it('asks the executor to copy files, in bytes, only when Review asked, in both input modes', async () => {
+      const files = { maxFileSizeMB: 3, acceptedAsIs: true };
+
+      await orchestrator.execute(createMockGraph(), createMockConfig(), { files });
+      await orchestrator.execute(
+        createMockGraph(),
+        createMockConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Account',
+        }),
+        { files },
+      );
+      await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      const expected = { maxFileBytes: 3 * 1_048_576, acceptedAsIs: true };
+      expect(optionsPassed[0]?.files).toEqual(expected);
+      expect(optionsPassed[1]?.files).toEqual(expected);
+      expect(optionsPassed[2]?.files).toBeUndefined();
+    });
+
+    it('carries what the run did with the files into its result', async () => {
+      const files = {
+        maxFileBytes: 1_048_576,
+        objects: [
+          {
+            objectApiName: 'ContentDocument' as const,
+            planned: 1,
+            plannedBytes: 4,
+            copied: 1,
+            failed: 0,
+          },
+        ],
+        links: 0,
+        leftOut: [],
+      };
+      vi.mocked(deps.executor.execute).mockResolvedValue(createMockSummary({ files }));
+
+      const result = await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      expect(result.files).toEqual(files);
+    });
+
     it('names the personal fields of an object with no node as discovery would', async () => {
       vi.mocked(deps.discoveryService.personalFields).mockReturnValue(['Phone']);
 

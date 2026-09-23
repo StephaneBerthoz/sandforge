@@ -25,7 +25,7 @@
  * no describe singles out.
  */
 
-import { isUncopyableObject } from '@sandforge/shared';
+import { isFileBodiedObject, isUncopyableObject } from '@sandforge/shared';
 
 /** Hub, system and non-queryable objects excluded by exact API name. */
 const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
@@ -85,6 +85,12 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
   // A real run wrote a folder into the target.
   'AuthProvider',
   'Folder',
+  // A file's document and its links to records. The document is created with
+  // a file's first version, never on its own, and a link names a document the
+  // copy never writes as a record. The files of a clone are copied by a stage
+  // of their own, which writes both.
+  'ContentDocument',
+  'ContentDocumentLink',
 ]);
 
 /** History, feed, sharing and change-event variants of any object. */
@@ -117,6 +123,10 @@ export function isExcludedFromCopy(
   described?: ReadonlySet<string>,
 ): boolean {
   if (EXCLUDED_OBJECTS.has(objectApiName)) return true;
+  // A file is no record to clone: read as one, its body comes back as the
+  // address of the file, and that address is what the insert would have
+  // written. Discovery used to walk into ContentVersion from a quote.
+  if (isFileBodiedObject(objectApiName)) return true;
   if (described?.has(objectApiName)) return true;
   if (EXCLUDED_PREFIXES.some((prefix) => objectApiName.startsWith(prefix))) return true;
   return EXCLUDED_SUFFIXES.some((suffix) => objectApiName.endsWith(suffix));

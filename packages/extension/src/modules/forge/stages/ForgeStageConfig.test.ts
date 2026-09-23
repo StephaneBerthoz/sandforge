@@ -72,4 +72,24 @@ describe('resolveStageConfig', () => {
     expect(config.objectSoqlFilters).toEqual({ Case: "Status = 'Open'" });
     expect(config.fieldMappings).toEqual({ Account: { Region__c: 'Region__pc' } });
   });
+
+  it('copies no file unless asked', () => {
+    expect(resolveStageConfig(undefined).files).toBeUndefined();
+    expect(resolveStageConfig({ dryRun: true }).files).toBeUndefined();
+  });
+
+  it('holds the size of a file copied to what one call carries', () => {
+    const MB = 1_048_576;
+
+    expect(
+      resolveStageConfig({ files: { maxFileBytes: 500 * MB, acceptedAsIs: true } }).files,
+    ).toEqual({ maxFileBytes: 35 * MB, acceptedAsIs: true });
+    expect(resolveStageConfig({ files: { maxFileBytes: 0 } }).files).toEqual({
+      maxFileBytes: 10 * MB,
+      acceptedAsIs: false,
+    });
+    expect(resolveStageConfig({ files: { maxFileBytes: 2 * MB } }).files?.maxFileBytes).toBe(
+      2 * MB,
+    );
+  });
 });

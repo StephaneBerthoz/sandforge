@@ -94,6 +94,12 @@ export {
   UNCOPYABLE_OBJECT_NAMES,
 } from './constants/uncopyable-objects.js';
 export {
+  BYTES_PER_MB,
+  FILE_COPY_DEFAULT_MAX_MB,
+  FILE_COPY_CEILING_MB,
+  fileCopyRefusal,
+} from './constants/file-copy.js';
+export {
   PLATFORM_REQUIRED_FIELDS,
   isPlatformRequiredField,
   isRequiredLookup,

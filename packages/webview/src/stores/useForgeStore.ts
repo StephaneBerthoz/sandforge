@@ -11,6 +11,7 @@ import type {
   ForgeBatchStrategy,
 } from '@sandforge/shared';
 import type { AnonymizationMethod, ComplianceReport } from '@sandforge/shared';
+import { FILE_COPY_DEFAULT_MAX_MB } from '@sandforge/shared';
 import { updateGraphNodeStatus } from '../utils/graphStoreUtils';
 
 // Re-export shared types so existing imports from this module keep working.
@@ -76,6 +77,26 @@ const DEFAULT_ANONYMIZATION_RULES: Record<ForgeAnonymizationCategory, Anonymizat
   other: 'nullify',
 };
 
+/**
+ * The run's choice to copy the files of the records it clones, as Review
+ * holds it. Off until the user turns it on, for every new run.
+ */
+export interface ForgeFileCopyChoice {
+  /** Whether the run copies the files. */
+  enabled: boolean;
+  /** Largest file copied, in MB. */
+  maxFileSizeMB: number;
+  /** Whether the user accepted that files are copied as they are. */
+  acceptedAsIs: boolean;
+}
+
+/** The choice a new run starts from: no file copied. */
+const NO_FILE_COPY: ForgeFileCopyChoice = {
+  enabled: false,
+  maxFileSizeMB: FILE_COPY_DEFAULT_MAX_MB,
+  acceptedAsIs: false,
+};
+
 /** Initial state values for reset. */
 const INITIAL_STATE = {
   phase: 'input' as ForgePhase,
@@ -89,6 +110,7 @@ const INITIAL_STATE = {
   metadataDiffs: [] as MetadataDiffEntry[],
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
   anonymizationPresetId: '',
+  fileCopy: { ...NO_FILE_COPY },
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
   stoppedAt: null as number | null,
@@ -123,6 +145,18 @@ export interface ForgeState {
    * with the run as a template, and a template can bring it back.
    */
   anonymizationPresetId: string;
+  /**
+   * Whether the run copies the files of the records it clones, how large a
+   * file it copies, and whether the user accepted that files are copied as
+   * they are. Kept apart from `config`: a template or a past run never brings
+   * back the acceptance, which is given run by run.
+   */
+  fileCopy: ForgeFileCopyChoice;
+  /**
+   * Change the file choice. Turning the copy off takes the acceptance back:
+   * turned on again, it is asked for again.
+   */
+  setFileCopy: (change: Partial<ForgeFileCopyChoice>) => void;
   /**
    * Id of the forge:execute request that started the run on screen, or null.
    * The extension correlates the run's progress, result and error to it.
@@ -216,7 +250,23 @@ export const useForgeStore = create<ForgeState>((set) => ({
   ...INITIAL_STATE,
 
   setConfig(config: ForgeConfig): void {
-    set({ config, plan: null, complianceReport: null, metadataDiffs: [], result: null });
+    // A new run starts with no file copied: the choice and its acceptance
+    // belong to the run they were made for.
+    set({
+      config,
+      plan: null,
+      complianceReport: null,
+      metadataDiffs: [],
+      result: null,
+      fileCopy: { ...NO_FILE_COPY },
+    });
+  },
+
+  setFileCopy(change: Partial<ForgeFileCopyChoice>): void {
+    set((state) => {
+      const next = { ...state.fileCopy, ...change };
+      return { fileCopy: next.enabled ? next : { ...next, acceptedAsIs: false } };
+    });
   },
 
   setGraph(graph: ForgeGraph): void {
@@ -493,6 +543,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
       metadataDiffs: [],
       logs: [],
       stoppedAt: null,
+      fileCopy: { ...NO_FILE_COPY },
       // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
   },

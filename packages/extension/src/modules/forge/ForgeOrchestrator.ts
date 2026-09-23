@@ -1,5 +1,12 @@
 import { TypedEventEmitter } from '../../core/common/TypedEventEmitter.js';
-import type { ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgePlan } from '@sandforge/shared';
+import type {
+  ForgeConfig,
+  ForgeFileCopyOption,
+  ForgeGraph,
+  ForgeExecutionResult,
+  ForgePlan,
+} from '@sandforge/shared';
+import { BYTES_PER_MB } from '@sandforge/shared';
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
@@ -213,13 +220,15 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   /**
    * @param runOptions - Execution inputs that are not part of the user's
    *   config: the RecordType translation table the bridge builds by querying
-   *   both orgs before a run, and the method per PII category Review holds.
+   *   both orgs before a run, the method per PII category Review holds, and
+   *   whether Review asked for the files of the records to be copied.
    */
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
     runOptions?: Pick<ExecuteOptions, 'recordTypeMappings'> & {
       anonymizationRules?: ForgeAnonymizationMethods;
+      files?: ForgeFileCopyOption;
     },
   ): Promise<ForgeExecutionResult> {
     const startTime = Date.now();
@@ -237,6 +246,12 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         runOptions?.anonymizationRules,
         (fields) => this.deps.discoveryService.personalFields(fields),
       );
+      const files: ExecuteOptions['files'] = runOptions?.files
+        ? {
+            maxFileBytes: runOptions.files.maxFileSizeMB * BYTES_PER_MB,
+            acceptedAsIs: runOptions.files.acceptedAsIs,
+          }
+        : undefined;
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
@@ -250,6 +265,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               fieldMappings: config.fieldMappings,
               recordTypeMappings,
               anonymization,
+              files,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
@@ -257,7 +273,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               config.objectSoqlFilters ||
               config.fieldMappings ||
               recordTypeMappings ||
-              anonymization
+              anonymization ||
+              files
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
@@ -266,6 +283,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 fieldMappings: config.fieldMappings,
                 recordTypeMappings,
                 anonymization,
+                files,
               }
             : undefined;
 

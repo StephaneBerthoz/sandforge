@@ -62,8 +62,24 @@ ForgeOrchestrator.execute(graph, config)
        │         - apply RecordType mapping (DeveloperName)
        │    7. batch insert into target
        │
-       └─ summary { successCount, failedCount, skippedCount, errors[] }
+       ├─ with `files`: before the first write, the files of the records read
+       │    (the latest version of each document linked to one, and the
+       │    attachments under them) are chosen, and their total checked
+       │    against the target's FileStorageMB; after the records, each file
+       │    is read and written in one request of its own (FileCopier)
+       │
+       └─ summary { successCount, failedCount, skippedCount, errors[], files? }
 ```
+
+A run asked to copy files reads every object before it writes one, whatever
+its input mode: the files are measured against the target before anything is
+written, which needs every record read. A file is published on the first
+cloned record it hangs on and linked to the others; a file over the cap, one
+kept outside Salesforce, or one hanging only on records the run did not create
+is left out and listed. Each copied file is recorded under its document
+(`ContentDocument`) or as an `Attachment`, so removing the run's records
+removes it. While the run anonymizes, `files.acceptedAsIs` must say the files
+are copied as they are, or the run is refused before it reads anything.
 
 ## ExecuteOptions
 
@@ -76,6 +92,7 @@ ForgeOrchestrator.execute(graph, config)
 | `recordTypeMappings`   | built by the extension before each run   | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
 | `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
+| `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
 
 ## Error structure
 
@@ -139,7 +156,10 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   list (`excludedObjects.ts`) — system and hub objects such as `User`,
   `RecordType`, `Queue`, job and log tables (`AsyncApexJob`, `CronTrigger`,
   `LoginHistory`), history / feed / share / change-event variants, and
-  every Vlocity package object (`vlocity_*` namespaces).
+  every Vlocity package object (`vlocity_*` namespaces). Files are never
+  nodes either: `Attachment`, `ContentVersion`, `Document`,
+  `ContentDocument` and `ContentDocumentLink` are left out, and the `files`
+  option copies files in a stage of its own.
 - **FLS profile awareness**: `Asset.RecordType ID not valid for the user`
   errors come from the running user's profile lacking access. The cloner
   reports them; resolution is org-side (assign permission set).
