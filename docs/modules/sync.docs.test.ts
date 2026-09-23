@@ -3,8 +3,10 @@
  *
  * Two claims of `docs/modules/sync.md` outlived the code they described. The
  * feature list sold "5 Conflict Strategies -- ... manual merge ...", while the
- * page offers no tab on which a conflict could be reviewed and the strategy of
- * that name resolves to the source values like source wins. It also called
+ * page offered no tab on which a conflict could be reviewed and the strategy of
+ * that name resolves to the source values like source wins. The Conflicts tab
+ * is offered now, for the changes real-time replication holds, and a run's
+ * manual strategy still reviews nothing. It also called
  * transforms "configurable per-field or per-object", while the only rules a
  * screen can produce are object-level ones that rewrite every field of every
  * record. And nothing said that Grappe's threshold is measured with one
@@ -33,19 +35,39 @@ const SYNC_PAGE = source('packages/webview/src/pages/Sync/SyncPage.tsx');
 const SYNC_HANDLER = source('packages/extension/src/bridge/handlers/SyncOpsHandler.ts');
 const TRANSFORM_PIPELINE = source('packages/extension/src/modules/sync/TransformPipeline.ts');
 const TRANSFORM_BUILDER = source('packages/webview/src/pages/Sync/TransformBuilder.tsx');
+const SYNC_ORCHESTRATOR = source('packages/extension/src/modules/sync/SyncOrchestrator.ts');
+const PUBLISHING_OBJECTS = source('packages/extension/src/modules/realtime/publishingObjects.ts');
 
 /** The tabs the page offers, as the array it renders them from. */
 const OFFERED_TABS = /const OFFERED_SYNC_TABS: readonly SyncTab\[\] = \[([^\]]*)\]/.exec(SYNC_PAGE);
 
 describe('docs/modules/sync.md', () => {
-  it('does not sell a conflict review while the page offers no conflicts tab', () => {
+  it('sells a conflict review for real-time changes only, the one list the tab shows', () => {
     // Positive control: the tab list is where the page says what it offers. If
     // this match is gone the assertion below is about nothing.
     expect(OFFERED_TABS).not.toBeNull();
-    expect(OFFERED_TABS?.[1]).not.toContain("'conflicts'");
+    expect(OFFERED_TABS?.[1]).toContain("'conflicts'");
+    expect(OFFERED_TABS?.[1]).toContain("'realtime'");
+    // A run still resolves every collision by its strategy alone.
+    expect(SYNC_ORCHESTRATOR).toContain('this.deps.conflictResolver.resolve(');
 
+    expect(DOC).toContain('The Conflicts tab lists only real-time changes');
+    expect(DOC).toContain('manual holds the change on the Conflicts tab');
     expect(DOC).not.toContain('5 Conflict Strategies');
     expect(DOC).not.toContain('manual merge');
+  });
+
+  it('says which objects real-time follows, and where the others are enabled', () => {
+    // Positive control: the page lists what the org publishes, from the
+    // org's own channel members.
+    expect(PUBLISHING_OBJECTS).toContain('FROM PlatformEventChannelMember');
+
+    expect(DOC).toContain(
+      'Only\n  those can be watched: to add another, select it in Setup → Change Data\n  Capture',
+    );
+    expect(DOC).not.toContain(
+      'Real-time (CDC) replication and the conflict list it would feed are not implemented',
+    );
   });
 
   it('names the four strategies a run acts on', () => {

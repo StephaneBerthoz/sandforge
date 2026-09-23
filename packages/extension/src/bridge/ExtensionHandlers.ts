@@ -56,7 +56,7 @@ import { ConfigHandler } from './handlers/ConfigHandler.js';
 import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
 import { SyncScheduleHandler } from './handlers/SyncScheduleHandler.js';
-import { NoOpHandler } from './handlers/NoOpHandler.js';
+import { RealtimeHandler } from './handlers/RealtimeHandler.js';
 import { FileHandler } from './handlers/FileHandler.js';
 import { ReportsHandler } from './handlers/ReportsHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
@@ -142,7 +142,7 @@ export class ExtensionHandlers {
   private readonly governanceHandler: GovernanceOpsHandler;
   private readonly quickSyncHandler: QuickSyncHandler;
   private readonly syncScheduleHandler: SyncScheduleHandler;
-  private readonly noOpHandler: NoOpHandler;
+  private readonly realtimeHandler: RealtimeHandler;
   private readonly fileHandler: FileHandler;
   private readonly reportsHandler: ReportsHandler;
   private readonly smartActionHandler: SmartActionHandler;
@@ -213,7 +213,7 @@ export class ExtensionHandlers {
     );
     this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
     this.syncScheduleHandler = new SyncScheduleHandler(this.handlerDeps);
-    this.noOpHandler = new NoOpHandler(this.handlerDeps);
+    this.realtimeHandler = new RealtimeHandler(this.handlerDeps);
     this.fileHandler = new FileHandler(this.handlerDeps);
     this.reportsHandler = new ReportsHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
@@ -264,6 +264,7 @@ export class ExtensionHandlers {
     this.frozenHandler.forgetOrg(orgId);
     this.aiHandler.forgetOrg(orgId);
     this.smartActionHandler.forgetOrg(orgId);
+    this.realtimeHandler.forgetOrg(orgId);
     this.handlerDeps.log(`[sandbox-refresh] dropped what was cached about ${orgId}`);
   }
 
@@ -320,6 +321,9 @@ export class ExtensionHandlers {
     this.seedCloneHandler.setRegistry(registry);
     this.seedCsvHandler.setRegistry(registry);
     this.frozenHandler.setRegistry(registry);
+    // A real-time session writes until it is stopped: Live Operations lists it
+    // and its Cancel stops it.
+    this.realtimeHandler.setRegistry(registry);
     this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
@@ -383,6 +387,14 @@ export class ExtensionHandlers {
   /** Stop the sync schedule executor tick loop. Call from extension deactivate(). */
   stopSyncScheduler(): void {
     this.syncScheduleHandler.stopScheduler();
+  }
+
+  /**
+   * Close a running real-time session and its CometD connection. Call from
+   * extension deactivate(): the long poll would otherwise stay open.
+   */
+  async stopRealtime(): Promise<void> {
+    await this.realtimeHandler.dispose();
   }
 
   /** Inject the model-backed modules, or `undefined` to take them away. */
@@ -701,16 +713,17 @@ export class ExtensionHandlers {
       route(['execution:abort'], this.executionHandler);
     }
 
-    // No-op handler for a ghost feature (RealTime CDC)
+    // Real-time replication (Change Data Capture)
     route(
       [
+        'realtime:objects',
         'realtime:start',
         'realtime:stop',
         'realtime:status',
         'realtime:metrics',
         'realtime:resolve-conflict',
       ],
-      this.noOpHandler,
+      this.realtimeHandler,
     );
 
     // Bridge protocol-mismatch reload. Triggered by the

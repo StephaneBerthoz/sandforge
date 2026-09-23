@@ -7,13 +7,9 @@ import { sendExtensionMessage } from './mocks/vscode-api';
 /**
  * Conflict resolution E2E — the Sync panel's `conflicts` tab.
  *
- * The tab is not offered today. Conflicts reach it only through the
- * `realtime:*` stream, which the extension answers with a no-op, so it could
- * only ever list nothing, and `SyncPage` leaves it out of its tab bar
- * (`OFFERED_SYNC_TABS`). The first suite below holds the page to that. The
- * suites after it drive the panel and are skipped until the tab is offered
- * again: what they check — above all the payload of a resolution — is what a
- * working stream has to honour.
+ * The tab lists the changes a real-time session held for a decision: the host
+ * holds a change when the target record was edited after it and the session's
+ * strategy is manual, and nothing else pushes to this list.
  *
  * Replaces `quarantine/quick-sync-conflict-resolve.spec.ts`, which drove a
  * `?e2e-harness=sync-conflict` stub over `sync:conflict:detected` /
@@ -214,19 +210,19 @@ async function confirmDanger(page: Page): Promise<void> {
   await expect(page.getByTestId('danger-input')).toHaveCount(0);
 }
 
-test.describe('Sync conflicts — not offered while the stream is a no-op', () => {
-  test('the Sync page has no conflicts tab, even when a conflict is pushed', async ({ page }) => {
+test.describe('Sync conflicts — offered beside the real-time tab', () => {
+  test('the Sync page offers the conflicts tab, and counts a pushed conflict on it', async ({
+    page,
+  }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
 
-    await expect(page.getByTestId('tab-sync')).toBeVisible();
-    await expect(page.getByTestId('tab-conflicts')).toHaveCount(0);
-    await expect(page.getByTestId('conflict-count-badge')).toHaveCount(0);
-    await expect(page.getByTestId('conflict-list-panel')).toHaveCount(0);
+    await expect(page.getByTestId('tab-conflicts')).toBeVisible();
+    await expect(page.getByTestId('conflict-count-badge')).toHaveText('1');
   });
 });
 
-test.describe.skip('Sync conflicts — arrival', () => {
+test.describe('Sync conflicts — arrival', () => {
   test('the tab is badge-free and the list empty until the host pushes something', async ({
     page,
   }) => {
@@ -291,7 +287,7 @@ test.describe.skip('Sync conflicts — arrival', () => {
   });
 });
 
-test.describe.skip('Sync conflicts — the diff', () => {
+test.describe('Sync conflicts — the diff', () => {
   test.beforeEach(async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -338,7 +334,7 @@ test.describe.skip('Sync conflicts — the diff', () => {
   });
 });
 
-test.describe.skip('Sync conflicts — per-field resolution', () => {
+test.describe('Sync conflicts — per-field resolution', () => {
   test('apply stays locked until every conflicting field has been decided', async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -437,7 +433,7 @@ test.describe.skip('Sync conflicts — per-field resolution', () => {
   });
 });
 
-test.describe.skip('Sync conflicts — bulk resolution', () => {
+test.describe('Sync conflicts — bulk resolution', () => {
   test('"apply source to all" resolves every open conflict with source_wins', async ({ page }) => {
     await openSyncPanel(page);
     await pushConflict(page, ACCOUNT_A);
@@ -510,24 +506,15 @@ test.describe.skip('Sync conflicts — bulk resolution', () => {
   });
 });
 
-test.describe.skip('Sync conflicts — switching between conflicts', () => {
+test.describe('Sync conflicts — switching between conflicts', () => {
   /**
-   * PRODUCT DEFECT — left red on purpose.
-   *
-   * `ConflictsTabContent` (SyncPage.tsx) renders
-   * `<ConflictResolutionPanel conflict={selectedConflict} />` with no `key`,
-   * so selecting another conflict swaps the prop on the *same* component
-   * instance. `ConflictResolutionPanel` keeps its per-field choices in
-   * `useState` (`fieldResolutions`) and never resets them when `conflict.id`
-   * changes, so the choices made on one record stay armed on the next.
-   *
-   * ACCOUNT_C conflicts on the same two field names as ACCOUNT_A, so the
-   * carried-over choices satisfy `allFieldsResolved` outright: opening it
-   * shows an armed Apply button on a record the user has not looked at, and
-   * pressing it writes Acme's name and phone number onto the Initech record.
-   *
-   * Fix: key the panel on `conflict.id` in SyncPage, or reset
-   * `fieldResolutions` in an effect on `conflict.id`.
+   * `ConflictResolutionPanel` keeps its per-field choices in `useState`, and
+   * `ConflictsTabContent` (SyncPage.tsx) keys it on the conflict id, so
+   * selecting another conflict remounts it. Without the key the choices made
+   * on one record stayed armed on the next: ACCOUNT_C conflicts on the same two
+   * field names as ACCOUNT_A, so opening it showed an armed Apply button on a
+   * record the user had not looked at, and pressing it wrote Acme's name and
+   * phone number onto the Initech record.
    */
   test('a newly selected conflict starts with no choices carried over', async ({ page }) => {
     await openSyncPanel(page);
@@ -551,13 +538,10 @@ test.describe.skip('Sync conflicts — switching between conflicts', () => {
   });
 
   /**
-   * PRODUCT DEFECT — same root cause, and this is the destructive face of it.
-   *
-   * The user decides both of ACCOUNT_B's fields, so the panel looks correct
-   * and complete. The message that leaves still carries `Phone` — a field
-   * ACCOUNT_B is not even in conflict on — holding ACCOUNT_A's value. The
-   * host applies `fieldResolutions` as given, so the Globex record gets Acme's
-   * phone number written onto it.
+   * The destructive face of the same key: the user decides both of
+   * ACCOUNT_B's fields, and the message that leaves must not still carry
+   * `Phone` — a field ACCOUNT_B is not in conflict on — with ACCOUNT_A's value.
+   * The host writes `fieldResolutions` as given.
    */
   test('the applied resolution carries only the fields of the conflict shown', async ({ page }) => {
     await openSyncPanel(page);

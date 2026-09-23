@@ -353,6 +353,7 @@ import type {
   RealTimeStopRequest,
   RealTimeStatusRequest,
   RealTimeMetricsRequest,
+  RealTimeObjectsRequest,
   RealTimeResolveConflictRequest,
   RealTimeStartedResponse,
   RealTimeStoppedResponse,
@@ -360,6 +361,8 @@ import type {
   RealTimeEventsBatchMessage,
   RealTimeStatusResponse,
   RealTimeMetricsResponse,
+  RealTimeObjectsResponse,
+  RealTimeErrorResponse,
   RealTimeConflictDetected,
   RealTimeConflictResolvedResponse,
 } from './realtime.messages.js';
@@ -551,6 +554,7 @@ export type WebViewToExtensionMessage =
   | RealTimeStopRequest
   | RealTimeStatusRequest
   | RealTimeMetricsRequest
+  | RealTimeObjectsRequest
   | RealTimeResolveConflictRequest
   // Smart Action
   | SmartActionAnalyzeRequest
@@ -756,6 +760,8 @@ export type ExtensionToWebViewMessage =
   | RealTimeEventsBatchMessage
   | RealTimeStatusResponse
   | RealTimeMetricsResponse
+  | RealTimeObjectsResponse
+  | RealTimeErrorResponse
   | RealTimeConflictDetected
   | RealTimeConflictResolvedResponse
   // Smart Action

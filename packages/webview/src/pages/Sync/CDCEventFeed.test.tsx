@@ -66,7 +66,7 @@ describe('CDCEventFeed', () => {
   it('should render empty state when no events', () => {
     render(<CDCEventFeed />);
     expect(screen.getByTestId('cdc-event-feed')).toBeDefined();
-    expect(screen.getByText(/No events yet/)).toBeDefined();
+    expect(screen.getByText(/No change received yet/)).toBeDefined();
   });
 
   it('should render event rows with correct data', () => {
@@ -113,6 +113,68 @@ describe('CDCEventFeed', () => {
     const row = screen.getByTestId('cdc-event-row-0');
     const errorIcon = row.querySelector('.codicon-error');
     expect(errorIcon).not.toBeNull();
+  });
+
+  it.each([
+    ['applied', 'codicon-check', 'Written to the target'],
+    ['watched', 'codicon-eye', 'Watched only, not written'],
+    [
+      'kept-target',
+      'codicon-shield',
+      'Not written: the target record was edited after this change',
+    ],
+    ['held', 'codicon-question', 'Held for a decision on the Conflicts tab'],
+    [
+      'deletes-off',
+      'codicon-circle-slash',
+      'Deletion not applied: deletes are off for this object',
+    ],
+    ['own-write', 'codicon-reply', 'Written by this session; not applied again'],
+  ] as const)('says in words what became of a %s change', (outcome, icon, words) => {
+    useCDCLiveStore.getState().pushEvents([makeMockEvent(1, { outcome })]);
+
+    render(<CDCEventFeed />);
+    const row = screen.getByTestId('cdc-event-row-0');
+    expect(row.getAttribute('data-outcome')).toBe(outcome);
+    expect(row.querySelector(`.${icon}`)?.getAttribute('title')).toBe(words);
+    expect(row.textContent).toContain(words);
+  });
+
+  it('gives a screen reader the reason a change was not written', () => {
+    useCDCLiveStore
+      .getState()
+      .pushEvents([
+        makeMockEvent(1, { outcome: 'failed', error: 'ENTITY_IS_LOCKED: the record is locked' }),
+      ]);
+
+    render(<CDCEventFeed />);
+    const row = screen.getByTestId('cdc-event-row-0');
+    expect(row.querySelector('.codicon-error')?.getAttribute('title')).toBe(
+      'ENTITY_IS_LOCKED: the record is locked',
+    );
+    expect(row.textContent).toContain('Not written: ENTITY_IS_LOCKED: the record is locked');
+  });
+
+  it('keeps events of two objects apart when their replay ids meet', () => {
+    // A replay id counts within its channel: Lead and Contact can each send a
+    // 42. Keyed on the id alone, React takes the two rows for one and may
+    // drop or reuse either on the next batch — it says so on the console.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useCDCLiveStore
+      .getState()
+      .pushEvents([
+        makeMockEvent(42, { objectApiName: 'Lead' }),
+        makeMockEvent(42, { objectApiName: 'Contact' }),
+      ]);
+
+    render(<CDCEventFeed />);
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    const duplicateKeys = consoleError.mock.calls.filter((args) =>
+      String(args[0]).includes('same key'),
+    );
+    consoleError.mockRestore();
+    expect(duplicateKeys).toEqual([]);
   });
 
   it('should show event count in footer', () => {

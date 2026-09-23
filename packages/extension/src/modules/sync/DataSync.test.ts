@@ -227,6 +227,52 @@ describe('DataSync — what the target will take', () => {
     expect(Object.keys(insert.mock.calls[0][1][0]).sort()).toEqual(['BillingCity', 'Name']);
   });
 
+  // `Id` is never creatable, and a describe says so. Filtering on the
+  // creatable fields alone sent an update or an upsert on `Id` without the id
+  // that addresses it, and handed a delete no id at all: nothing was deleted
+  // and the run reported nothing processed.
+  it.each([
+    ['update', undefined],
+    ['upsert', 'Id'],
+  ] as const)('keeps the Id a %s is addressed by', async (operation, externalIdField) => {
+    const write = vi.fn().mockResolvedValue([{ id: '001SOURCE', success: true, errors: [] }]);
+    const sync = new DataSync(
+      createDeps({
+        update: write,
+        upsert: vi.fn((_object, _key, records) => write(_object, records)),
+        describeTargetFields: async () => ({
+          creatable: new Set(['Name']),
+          references: new Set(),
+        }),
+      }),
+    );
+
+    await sync.sync(createConfig({ operation, externalIdField }), [
+      { Id: '001SOURCE', Name: 'Acme', CreatedDate: '2026-01-01' },
+    ]);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][1]).toEqual([{ Id: '001SOURCE', Name: 'Acme' }]);
+  });
+
+  it('deletes the records it was given when the target is described', async () => {
+    const del = vi.fn().mockResolvedValue([{ id: '001SOURCE', success: true, errors: [] }]);
+    const sync = new DataSync(
+      createDeps({
+        delete: del,
+        describeTargetFields: async () => ({
+          creatable: new Set(['Name']),
+          references: new Set(),
+        }),
+      }),
+    );
+
+    const result = await sync.sync(createConfig({ operation: 'delete' }), [{ Id: '001SOURCE' }]);
+
+    expect(del).toHaveBeenCalledWith('Account', ['001SOURCE'], 200);
+    expect(result.success).toBe(1);
+  });
+
   it('keeps every field when nothing can describe the target', async () => {
     const insert = vi.fn().mockResolvedValue([{ id: '001', success: true, errors: [] }]);
     const sync = new DataSync(createDeps({ insert, describeTargetFields: undefined }));

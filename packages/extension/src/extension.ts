@@ -537,6 +537,7 @@ export async function deactivate(): Promise<void> {
   await servicesRef?.telemetry.flush();
   servicesRef = undefined;
   handlersRef?.stopSyncScheduler();
+  await handlersRef?.stopRealtime();
   handlersRef = undefined;
   // Infrastructure services with dispose methods are cleaned up via context.subscriptions
 }

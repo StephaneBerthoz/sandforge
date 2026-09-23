@@ -359,22 +359,26 @@ describe('SyncPage', () => {
     expect(screen.getByText('Sync failed')).toBeDefined();
   });
 
-  it('offers only the tabs whose backend exists: no Real-Time, no Conflicts', () => {
-    // Every realtime:* channel is answered by the no-op handler, and the
-    // Conflicts tab lists what that stream would have pushed — so both tabs
-    // could only ever show an error badge or an empty list.
+  it('offers the Real-Time tab and the Conflicts tab its sessions feed', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
     const tabs = within(screen.getByTestId('sync-tabs'))
       .getAllByRole('tab')
       .map((tab) => tab.getAttribute('data-testid'));
-    expect(tabs).toEqual(['tab-sync', 'tab-history', 'tab-schedules']);
-    expect(screen.queryByTestId('tab-realtime')).toBeNull();
-    expect(screen.queryByTestId('tab-conflicts')).toBeNull();
+    expect(tabs).toEqual([
+      'tab-sync',
+      'tab-history',
+      'tab-schedules',
+      'tab-realtime',
+      'tab-conflicts',
+    ]);
+
+    fireEvent.click(screen.getByTestId('tab-realtime'));
+    expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
   });
 
-  it('keeps the conflict count off the page while conflicts cannot be resolved', () => {
+  it('counts the changes held for a decision on the Conflicts tab', () => {
     const conflict: UIConflict = {
       id: 'Account:001:1',
       objectApiName: 'Account',
@@ -390,7 +394,11 @@ describe('SyncPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
 
-    expect(screen.queryByTestId('conflict-count-badge')).toBeNull();
+    expect(
+      within(screen.getByTestId('tab-conflicts')).getByTestId('conflict-count-badge').textContent,
+    ).toBe('1');
+    fireEvent.click(screen.getByTestId('tab-conflicts'));
+    expect(screen.getByTestId('conflict-list-panel')).toBeDefined();
   });
 
   it('announces a history export whose save is answered after the History tab is left', () => {

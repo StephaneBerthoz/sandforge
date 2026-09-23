@@ -34,7 +34,19 @@ describe('CDCSubscriptionPanel — translated conflict strategies', () => {
   });
 
   it('resolves every conflict strategy option through i18n', () => {
-    render(<CDCSubscriptionPanel availableObjects={['Account']} />);
+    render(
+      <CDCSubscriptionPanel
+        objects={[
+          {
+            objectApiName: 'Account',
+            channel: 'ChangeEvents',
+            inTarget: true,
+            externalIdFields: [],
+            syncConfigs: [],
+          },
+        ]}
+      />,
+    );
     fireEvent.click(screen.getByTestId('cdc-autosync-toggle-Account'));
 
     const options = screen.getByTestId('cdc-conflict-select-Account').querySelectorAll('option');

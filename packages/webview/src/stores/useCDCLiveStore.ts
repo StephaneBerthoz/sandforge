@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { ConflictStrategy, UIConflict, ConflictType } from '@sandforge/shared';
+import type {
+  ConflictStrategy,
+  UIConflict,
+  ConflictType,
+  RealTimeApplyObject,
+  RealTimeEventOutcome,
+  RealTimeMatch,
+} from '@sandforge/shared';
 import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 import { useConflictStore } from './useConflictStore';
 
@@ -28,6 +35,12 @@ export interface CDCFeedEvent {
   commitUser?: string;
   /** Whether the event was applied to the target */
   applied: boolean;
+  /**
+   * What became of the change: written, refused, only watched, kept back for
+   * a newer target edit, held for a decision, a deletion left alone, or the
+   * session's own write coming back. Absent on the singular channel.
+   */
+  outcome?: RealTimeEventOutcome;
   /** Error message if application failed */
   error?: string;
 }
@@ -38,6 +51,16 @@ export interface AutoSyncConfig {
   enabled: boolean;
   /** Conflict resolution strategy */
   conflictStrategy: ConflictStrategy;
+  /** How the target record of a change is found; `null` until one is picked. */
+  match: RealTimeMatch | null;
+  /** Whether a deletion in the source deletes the target record too. */
+  applyDeletes: boolean;
+}
+
+/** An object the source org refused a subscription for, with its answer. */
+export interface RefusedObject {
+  objectApiName: string;
+  reason: string;
 }
 
 /** Connection status for the CDC stream. */
@@ -69,15 +92,27 @@ export interface CDCLiveState {
    * which stream to close.
    */
   sessionId: string | null;
+  /** Watched objects the source org refused, with its answer, as the host reported them. */
+  refused: RefusedObject[];
+  /** What the session had to settle for, as the host reported it. */
+  notes: string[];
+  /** Why the session could not start, or stopped working, in the host's words. */
+  error: string | null;
+  /** Id of the `realtime:start` awaiting its answer; an error naming it ends the wait. */
+  pendingStartId: string | null;
 
   /** Update connection status. */
   setStatus: (status: CDCConnectionStatus) => void;
   /** Set the list of watched objects. */
   setWatchedObjects: (objects: string[]) => void;
-  /** Toggle auto-sync for a specific object. */
-  toggleAutoSync: (objectName: string) => void;
+  /** Toggle auto-sync for a specific object, matched by `match` until another is picked. */
+  toggleAutoSync: (objectName: string, match?: RealTimeMatch | null) => void;
   /** Set conflict strategy for a specific object. */
   setConflictStrategy: (objectName: string, strategy: ConflictStrategy) => void;
+  /** Set how the target record of an object's change is found. */
+  setMatch: (objectName: string, match: RealTimeMatch) => void;
+  /** Set whether a deletion of an object in the source deletes it in the target. */
+  setApplyDeletes: (objectName: string, applyDeletes: boolean) => void;
   /** Push a batch of events into the ring buffer. */
   pushEvents: (batch: CDCFeedEvent[]) => void;
   /** Clear all events from the ring buffer. */
@@ -153,6 +188,22 @@ function sessionConflictStrategy(
   return picked.every((strategy) => strategy === first) ? first : 'manual';
 }
 
+/**
+ * The watched objects whose changes are written, and how: every auto-synced
+ * object with a match picked. One still waiting for its match is only watched.
+ */
+function applyEntries(
+  watchedObjects: string[],
+  autoSyncObjects: Record<string, AutoSyncConfig>,
+): RealTimeApplyObject[] {
+  return watchedObjects.flatMap((objectApiName) => {
+    const config = autoSyncObjects[objectApiName];
+    return config?.enabled && config.match
+      ? [{ objectApiName, match: config.match, applyDeletes: config.applyDeletes }]
+      : [];
+  });
+}
+
 const initialState = {
   status: 'disconnected' as CDCConnectionStatus,
   watchedObjects: [] as string[],
@@ -162,6 +213,10 @@ const initialState = {
   sourceOrgId: null as string | null,
   targetOrgId: null as string | null,
   sessionId: null as string | null,
+  refused: [] as RefusedObject[],
+  notes: [] as string[],
+  error: null as string | null,
+  pendingStartId: null as string | null,
 };
 
 /** Zustand store for managing CDC live event feed and subscription state. */
@@ -176,7 +231,7 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
     set({ watchedObjects: objects });
   },
 
-  toggleAutoSync(objectName: string): void {
+  toggleAutoSync(objectName: string, match: RealTimeMatch | null = null): void {
     const current = get().autoSyncObjects;
     const existing = current[objectName];
     if (existing) {
@@ -187,9 +242,30 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
       set({
         autoSyncObjects: {
           ...current,
-          [objectName]: { enabled: true, conflictStrategy: 'source_wins' },
+          // Deletes stay off until asked for: a deletion is the one change a
+          // later run cannot undo.
+          [objectName]: {
+            enabled: true,
+            conflictStrategy: 'source_wins',
+            match,
+            applyDeletes: false,
+          },
         },
       });
+    }
+  },
+
+  setMatch(objectName: string, match: RealTimeMatch): void {
+    const current = get().autoSyncObjects;
+    const existing = current[objectName];
+    if (existing) set({ autoSyncObjects: { ...current, [objectName]: { ...existing, match } } });
+  },
+
+  setApplyDeletes(objectName: string, applyDeletes: boolean): void {
+    const current = get().autoSyncObjects;
+    const existing = current[objectName];
+    if (existing) {
+      set({ autoSyncObjects: { ...current, [objectName]: { ...existing, applyDeletes } } });
     }
   },
 
@@ -234,11 +310,12 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
 
   startStream(): void {
     const state = get();
-    set({ status: 'connecting' });
-    sendBridgeMessage('realtime:start', {
+    set({ status: 'connecting', refused: [], notes: [], error: null });
+    const id = sendBridgeMessage('realtime:start', {
       sourceOrgId: state.sourceOrgId ?? '',
       targetOrgId: state.targetOrgId ?? '',
       watchedObjects: state.watchedObjects,
+      apply: applyEntries(state.watchedObjects, state.autoSyncObjects),
       // The strategy the user picked in the panel, not a constant: this field
       // decides which org's data survives a collision, so a hardcoded
       // 'source_wins' made every selector in the panel a decoration.
@@ -246,6 +323,7 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
       flushIntervalMs: 150,
       maxBatchSize: 100,
     });
+    set({ pendingStartId: id });
   },
 
   stopStream(): void {
@@ -280,7 +358,8 @@ function readPushedEvents(msg: {
 /**
  * Message listener for CDC events from the extension.
  * Listens for realtime:event, realtime:events-batch, realtime:started,
- * realtime:stopped, realtime:conflict and realtime:status:response.
+ * realtime:stopped, realtime:error, realtime:conflict,
+ * realtime:conflict-resolved and realtime:status:response.
  */
 function handleExtensionMessage(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview
@@ -303,24 +382,59 @@ function handleExtensionMessage(event: MessageEvent): void {
       break;
     }
     case 'realtime:started': {
-      // While CDC is unimplemented the extension answers this channel from
-      // NoOpHandler with `{ success: false, comingSoon: true }`. Reporting
-      // 'syncing' regardless flipped the badge to a success-green "Syncing"
-      // that never changed and never received an event — the UI claimed a
-      // live stream that does not exist.
-      const started = msg.payload as { success?: boolean; sessionId?: string } | undefined;
+      // A refused start answers `success: false`. Reporting 'syncing'
+      // regardless flipped the badge to a success-green "Syncing" that never
+      // changed and never received an event — the UI claimed a live stream
+      // that does not exist.
+      const started = msg.payload as
+        | {
+            success?: boolean;
+            sessionId?: string;
+            refused?: RefusedObject[];
+            notes?: string[];
+            error?: string;
+          }
+        | undefined;
       const opened = started?.success !== false;
       useCDCLiveStore.setState({
         status: opened ? 'syncing' : 'error',
         // `realtime:stop` has to name the stream this opened. A refused start
         // opened none, so it leaves no id behind to stop.
         sessionId: opened && typeof started?.sessionId === 'string' ? started.sessionId : null,
+        refused: Array.isArray(started?.refused) ? started.refused : [],
+        notes: Array.isArray(started?.notes) ? started.notes : [],
+        error: typeof started?.error === 'string' ? started.error : null,
+        pendingStartId: null,
       });
       break;
     }
     case 'realtime:stopped': {
       // The stream is closed; its id no longer names anything stoppable.
-      useCDCLiveStore.setState({ status: 'disconnected', sessionId: null });
+      useCDCLiveStore.setState({ status: 'disconnected', sessionId: null, error: null });
+      break;
+    }
+    case 'realtime:error': {
+      // An error answering the start this store sent: the host refused the
+      // request before any session existed.
+      const correlationId = (message as { correlationId?: string }).correlationId;
+      const pending = useCDCLiveStore.getState().pendingStartId;
+      if (pending && correlationId === pending) {
+        const text = (msg.payload as { message?: string } | undefined)?.message;
+        useCDCLiveStore.setState({
+          status: 'error',
+          error: typeof text === 'string' ? text : null,
+          pendingStartId: null,
+        });
+      }
+      break;
+    }
+    case 'realtime:conflict-resolved': {
+      // A decision the host could not apply leaves the change undecided, so it
+      // can be decided again; the host says why in a notification.
+      const resolved = msg.payload as { conflictId?: string; success?: boolean } | undefined;
+      if (resolved?.success === false && typeof resolved.conflictId === 'string') {
+        useConflictStore.getState().reopenConflict(resolved.conflictId);
+      }
       break;
     }
     case 'realtime:conflict': {
@@ -361,16 +475,36 @@ function handleExtensionMessage(event: MessageEvent): void {
       break;
     }
     case 'realtime:status:response': {
-      const response = msg.payload as { status?: string; sessionId?: string } | undefined;
+      const response = msg.payload as
+        | {
+            status?: string;
+            sessionId?: string;
+            watchedObjects?: string[];
+            refused?: RefusedObject[];
+            notes?: string[];
+            error?: string;
+          }
+        | undefined;
       // This is also how a reloaded webview learns the session the host still
-      // has open — the id it needs to be able to stop it. A response without
-      // one says nothing about the id, so it does not clear what is known.
+      // has open — the id it needs to be able to stop it, and what it watches.
+      // A response without one says nothing about the id, so it does not clear
+      // what is known.
       if (typeof response?.sessionId === 'string' && response.sessionId.length > 0) {
         useCDCLiveStore.setState({ sessionId: response.sessionId });
+        if (Array.isArray(response.watchedObjects) && response.watchedObjects.length > 0) {
+          useCDCLiveStore.setState({ watchedObjects: response.watchedObjects });
+        }
       }
+      if (Array.isArray(response?.refused)) useCDCLiveStore.setState({ refused: response.refused });
+      if (Array.isArray(response?.notes)) useCDCLiveStore.setState({ notes: response.notes });
       const status = response?.status as CDCConnectionStatus | undefined;
       if (status) {
-        useCDCLiveStore.getState().setStatus(status);
+        useCDCLiveStore.setState({
+          status,
+          // The host's words on a session that went wrong, and nothing once
+          // it works again.
+          error: typeof response?.error === 'string' ? response.error : null,
+        });
       }
       break;
     }

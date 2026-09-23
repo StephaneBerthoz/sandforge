@@ -74,7 +74,10 @@
  * CDC is the same story: its tab hidden from the Sync page, disclaimed in
  * `docs/modules/sync.md`, routed to `NoOpHandler` in the extension — and still
  * sold as a working "near real-time" sync mode by the in-app help panel, in all
- * six languages.
+ * six languages. Real-time replication has since been built, and its anchors
+ * now pin the other side: the real handler and the offered tab. It follows only
+ * the objects the source org publishes change events for, so a sentence may
+ * name CDC beside that condition, and beside no promise that reaches further.
  *
  * The rest of that panel went further. Through v1.22 it taught a sync rollback
  * nothing reads, an API-timeout setting the manifest never declared, Grappe as
@@ -159,8 +162,8 @@
  *  - The run-id check reads the name each opening and closing event hands as `operationId`. Two names bound to the same value pass only when they are one name; one name reassigned between the two events passes too.
  *
  * What the CDC and Production Guard rules do not see, one limit per line:
- *  - The CDC rule is a word and a disclaimer: a sentence, clause (split at `;`) or list item naming CDC or Change Data Capture is refused unless that same piece carries a disclaimer word — refused, not implemented, coming soon, in its own language. It does not read what the word is about: "CDC streams every change, and a rejected record is refused" passes on the comma. "Real-time streaming of every change" names neither and passes.
- *  - The Real-Time panel's strings (`sync.realtime.*`) are not read by it, for as long as the Sync page does not offer that tab — the anchor pins that. A screen that renders one of them elsewhere is not seen. A mode label (`sync.modes.*`) is read like any string, except when it is the mode's bare name.
+ *  - The CDC rule is a word, a disclaimer and a condition: a sentence, clause (split at `;`) or list item naming CDC or Change Data Capture is refused unless that same piece carries a disclaimer word — refused, not implemented, coming soon — or the condition real-time replication rests on — the objects the org publishes, or Setup, where they are selected — in its own language. It does not read what the words are about: "CDC streams every change, and a rejected record is refused" passes on the comma, and "CDC publishes every change there is" passes on the verb. "Real-time streaming of every change" names neither and passes.
+ *  - The Real-Time panel's strings (`sync.realtime.*`) are read like any other, since the Sync page offers that tab — the anchor pins that. A mode label (`sync.modes.*`) is read like any string, except when it is the mode's bare name.
  *  - The Production Guard rule reads, in a string that names Production Guard, the wordings that kept its decisions to the session as they shipped in the six languages — "session only", "never written to disk", "still to come" and their translations. The same claim put another way — "forgotten when the window closes" — passes, and so does one in a paragraph that names the guard only in the next one.
  *  - The Production Guard anchor reads calls by name: `confirmIfNeeded`, `consultProductionGuard`, `recordWriteRun`, `onGuardDecision`. A file that records a run it did not consult the guard for, or records one without its decision, satisfies it; the handler tests are what pin the decision to the entry.
  *
@@ -1207,31 +1210,44 @@ test('no user-facing surface says an autopilot run is reported partition by part
 
 // ── CDC / real-time sync ──────────────────────────────────────────────────
 
-test('anchor: every realtime:* channel is still routed to the no-op handler', () => {
+test('anchor: every realtime:* channel is routed to the handler that subscribes', () => {
   const src = read('packages', 'extension', 'src', 'bridge', 'ExtensionHandlers.ts');
-  const noOpRoute = [...src.matchAll(/route\(\s*\[([^\]]*)\]\s*,\s*this\.(\w+)/g)].find(
-    ([, , handler]) => handler === 'noOpHandler',
+  const realtimeRoute = [...src.matchAll(/route\(\s*\[([^\]]*)\]\s*,\s*this\.(\w+)/g)].find(
+    ([, channels]) => /'realtime:start'/.test(channels),
   );
-  assert.ok(noOpRoute, 'no `route([...], this.noOpHandler)` call found in ExtensionHandlers.ts');
-  for (const channel of ['realtime:start', 'realtime:status', 'realtime:metrics']) {
+  assert.ok(realtimeRoute, 'no `route([...])` call in ExtensionHandlers.ts carries realtime:start');
+  assert.equal(
+    realtimeRoute[2],
+    'realtimeHandler',
+    'realtime:start no longer reaches RealtimeHandler — real-time replication may be gone. Re-read ' +
+      'the Real-Time docs and the help panel copy in all six locales.',
+  );
+  for (const channel of ['realtime:status', 'realtime:metrics', 'realtime:objects']) {
     assert.match(
-      noOpRoute[1],
+      realtimeRoute[1],
       new RegExp(`'${channel}'`),
-      `${channel} now has a real handler — CDC may work. Re-read the help panel copy in all six ` +
-        'locales before deleting this test.',
+      `${channel} left the real-time route`,
     );
   }
+  // Positive control: the handler behind the route opens a CometD subscription
+  // through jsforce's Streaming client, rather than answering from nothing.
+  const handler = read('packages', 'extension', 'src', 'bridge', 'handlers', 'RealtimeHandler.ts');
+  assert.match(handler, /fayeTransport\(/, 'RealtimeHandler no longer opens a CometD transport');
+  assert.match(
+    handler,
+    /streaming\.createClient\(/,
+    'RealtimeHandler no longer uses the Streaming client',
+  );
 });
 
 const SYNC_PAGE_FILE = 'packages/webview/src/pages/Sync/SyncPage.tsx';
 
 /**
- * The Sync page offers the tabs `OFFERED_SYNC_TABS` lists, and Real-Time is not
- * one of them: the CDC panel, its strings and its store stay in the tree, and
- * no reader reaches them. That is what lets the CDC rule leave `sync.realtime.*`
- * unread — offer the tab again and this trips before the strings go on screen.
+ * The Sync page offers the tabs `OFFERED_SYNC_TABS` lists, Real-Time and the
+ * Conflicts tab it feeds among them: the panel's strings are on screen, and
+ * the CDC rule reads them like any other.
  */
-function assertRealtimeTabIsNotOffered() {
+function assertRealtimeTabIsOffered() {
   let tabs = null;
   const visit = (node) => {
     if (
@@ -1255,15 +1271,15 @@ function assertRealtimeTabIsNotOffered() {
       'reads nothing, so the absence below proves nothing',
   );
   assert.equal(
-    tabs.includes('realtime'),
-    false,
-    'the Sync page offers the Real-Time tab again — its sync.realtime.* strings are on screen, and ' +
-      'the CDC rule has to read them before this is relaxed',
+    tabs.includes('realtime') && tabs.includes('conflicts'),
+    true,
+    'the Sync page no longer offers the Real-Time and Conflicts tabs — the docs and the help panel ' +
+      'describe them, and have to be read again',
   );
 }
 
-test('anchor: the Sync page does not offer the Real-Time tab', () => {
-  assertRealtimeTabIsNotOffered();
+test('anchor: the Sync page offers the Real-Time tab and its Conflicts tab', () => {
+  assertRealtimeTabIsOffered();
 });
 
 const CDC_WORD = /\bCDC\b|change data capture/i;
@@ -1284,8 +1300,22 @@ const CDC_DISCLAIMER = [
   /未実装/,
 ];
 
-/** The panel the Sync page does not offer; see {@link assertRealtimeTabIsNotOffered}. */
-const UNOFFERED_CDC_KEY = /^locales\/\S+ sync\.realtime\./;
+/**
+ * The condition real-time replication rests on, in the six languages: the
+ * objects the source org publishes change events for, and Setup, where they
+ * are selected — which Salesforce calls Configuration in French, Configuración,
+ * Configuração and 設定. A sentence naming CDC beside it says what the feature
+ * follows; without it, "CDC keeps the target in step" is a promise about every
+ * object.
+ */
+const CDC_CONDITION = [
+  /\bpublish(?:es|ed|ing)?\b|\bSetup\b/,
+  /\bpubli(?:e|ent|é|ée|és|ées)\b|\bConfiguration\b/,
+  /veröffentlich|\bSetup\b/,
+  /\bpublica(?:n)?\b|Configuración/,
+  /\bpublica(?:m)?\b|Configuração/,
+  /公開|設定/,
+];
 
 /**
  * The mode labels are rendered on screens that are offered — a run's history
@@ -1302,25 +1332,29 @@ const BARE_CDC_NAME = /^\s*(?:CDC|Change Data Capture)\s*$/i;
  */
 const CDC_CLAUSE = /(?<=[.!?…])\s+|[。！？；;\n]+/u;
 
-/** The units that name CDC with nothing marking it as unbuilt, as `label: text`. */
+/**
+ * The units that name CDC with nothing marking it as unbuilt nor bounding it
+ * to the objects the org publishes, as `label: text`.
+ */
 function cdcPromises(units) {
   return units
     .filter(
       ({ label, text }) =>
-        !UNOFFERED_CDC_KEY.test(label) &&
         !(CDC_MODE_KEY.test(label) && BARE_CDC_NAME.test(text)) &&
         text
           .split(CDC_CLAUSE)
           .some(
             (clause) =>
-              CDC_WORD.test(clause) && !CDC_DISCLAIMER.some((pattern) => pattern.test(clause)),
+              CDC_WORD.test(clause) &&
+              !CDC_DISCLAIMER.some((pattern) => pattern.test(clause)) &&
+              !CDC_CONDITION.some((pattern) => pattern.test(clause)),
           ),
     )
     .map(({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`);
 }
 
-test('no user-facing surface sells CDC as a working sync mode', () => {
-  assertRealtimeTabIsNotOffered();
+test('no user-facing surface sells CDC beyond what it follows', () => {
+  assertRealtimeTabIsOffered();
 
   // `help.syncContent` promised "4 sync modes: Full, Incremental, Delta, CDC"
   // in six languages, for a mode the extension answers with `comingSoon: true`.
@@ -1328,7 +1362,7 @@ test('no user-facing surface sells CDC as a working sync mode', () => {
   // the same defect, so every surface is read.
   const units = userFacingProse();
   const naming = units.filter(({ text }) => CDC_WORD.test(text));
-  // Positive control: the walk sees the disclaimers that name CDC today — the
+  // Positive control: the walk sees the surfaces that name CDC today — the
   // Sync module page and the help panel in six languages.
   assert.ok(
     naming.some(({ label }) => label === 'docs/modules/sync.md') &&
@@ -1340,7 +1374,8 @@ test('no user-facing surface sells CDC as a working sync mode', () => {
   assert.deepEqual(
     offenders,
     [],
-    'these surfaces sell a sync mode that is a registered no-op:\n  ' + offenders.join('\n  '),
+    'these surfaces name CDC with neither a disclaimer nor the objects it follows:\n  ' +
+      offenders.join('\n  '),
   );
 });
 
@@ -1379,6 +1414,16 @@ test('the CDC rule refuses a promise on any surface and leaves a disclaimer alon
     },
     // A mode label that says more than the mode's name.
     { label: 'locales/en.json sync.modes.cdc', text: 'CDC — near real-time streaming' },
+    // The panel's own strings are read, now that its tab is offered.
+    {
+      label: 'locales/en.json sync.realtime.metricsPanel.noMetrics',
+      text: 'Start a CDC stream to see metrics.',
+    },
+    // The condition in the next sentence bounds nothing in this one.
+    {
+      label: 'docs/modules/sync.md',
+      text: 'CDC keeps the target in step with every change. Objects are selected in Setup.',
+    },
   ];
   assert.deepEqual(
     refused.filter((unit) => cdcPromises([unit]).length === 0).map((unit) => unit.text),
@@ -1407,12 +1452,20 @@ test('the CDC rule refuses a promise on any surface and leaves a disclaimer alon
       label: 'locales/ja.json help.syncContent',
       text: '（インクリメンタル、デルタ、CDC は未実装です）',
     },
-    // The hidden panel's own strings, for as long as the tab is not offered.
-    {
-      label: 'locales/en.json sync.realtime.metricsPanel.noMetrics',
-      text: 'Start a CDC stream to see metrics.',
-    },
     { label: 'locales/en.json sync.modes.cdc', text: 'CDC' },
+    // Named beside the objects it follows.
+    {
+      label: 'docs/modules/sync.md',
+      text: '- The Real-Time tab follows the change events (Change Data Capture) the source org publishes',
+    },
+    {
+      label: 'locales/fr.json sync.realtime.howToEnable',
+      text: "Pour en ajouter un, sélectionnez-le dans Configuration → Change Data Capture sur l'org source.",
+    },
+    {
+      label: 'locales/ja.json sync.realtime.noPublishingObjects',
+      text: 'ソース Org で変更イベントを公開しているオブジェクトはありません（変更データキャプチャ（Change Data Capture）の選択が空です）。',
+    },
     {
       label: 'locales/en.json help.syncContent',
       text: 'Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores',

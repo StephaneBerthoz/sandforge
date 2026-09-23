@@ -21,8 +21,8 @@ Synchronize data between two Salesforce orgs with field mapping, transforms, and
   target. To copy the other way, swap the source and target orgs: a
   configuration asking for _target to source_ is refused before it runs.
 - **Full Sync Only** -- Every run syncs the complete object set; a configuration asking for incremental, delta or CDC is refused before it runs
-- **No real-time sync or conflict review** -- The Sync page offers Sync, History and Schedules. Real-time (CDC) replication and the conflict list it would feed are not implemented, so their tabs are not shown
-- **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered: the conflict list it would feed is not shown, and the strategy of that name resolves to the source values without ever showing a conflict
+- **Real-Time and Conflicts tabs** -- Besides Sync, History and Schedules, the page offers Real-Time, which follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, and Conflicts, which lists the real-time changes held for a decision. See [Real-Time](#real-time)
+- **Four conflict strategies, all of which act** -- Source wins, target wins, newest wins (the target record only when both sides carry a readable `LastModifiedDate` and the target's is later; the source whenever either side has no readable `LastModifiedDate`, or the two are equal), or a field-level merge that starts from the target record and takes the source value of every conflicting field that has one. A strategy is read on a bidirectional run, the pass that reads the matching target records before writing. Manual review is not offered for a run: the strategy of that name resolves to the source values without ever showing a conflict. The Conflicts tab lists only real-time changes
 
 ### Object Set Editor
 
@@ -101,6 +101,72 @@ Before execution, the Review step shows:
   next runs, with the same buttons. Both ask for the list again once the
   soonest run is past, so the next run and the last result follow the runs
   while the tab is open.
+
+### Real-Time
+
+- **What it follows** -- The tab asks the source org which objects publish
+  change events: the answer is the org's own list of Change Data Capture channel
+  members, and each object is shown with the channel it is listed on. Only
+  those can be watched: to add another, select it in Setup → Change Data
+  Capture on the source org. When the org lists none, the tab says so and
+  offers nothing to start.
+- **What the org refuses** -- An object the org does not publish change events
+  for is refused when the session starts, and the tab shows the org's answer
+  word for word -- on a sandbox with Account unselected,
+  `403::User not allowed to subscribe CDC without required permissions` --
+  beside the objects it did accept.
+- **Watched or written** -- A ticked object's changes appear in the feed as
+  they come. Tick _Auto-Sync_ for it and they are also written to the target,
+  through the path a Sync run writes with: only the fields the target lets the
+  running user write, a record type the user cannot use left to the platform,
+  a lookup the target cannot take dropped rather than the record. A session
+  that writes asks the Production Guard first, a deletion counting as
+  destructive.
+- **How the target record is found** -- by an external id of the target object,
+  filled from the source field of the same name; by the record Id, which only
+  finds the records that existed when the two orgs were copied from the same
+  production (one made since is reported as not written, with that reason); or
+  by the mapping of a Sync configuration saved between the same two orgs -- its
+  external id, field mappings, transforms and add-on fields. A change is always
+  upserted on that key, or updated by Id, whatever operation the saved
+  configuration names.
+- An update of a record the target does not have yet copies the whole source
+  record, not the one field that changed.
+- **Deletions** -- only for an object whose _Apply deletions_ box is ticked.
+  The deleted record is read back from the source's recycle bin to find its
+  key; one no longer there is reported as not written, with that reason.
+- **A target edited after the change** -- Before writing, the target record is
+  read. When it was edited after the change was made, and not by the session,
+  the change collides with that edit and the conflict strategy decides: source
+  wins writes it; target wins keeps the edit, and so does newest wins, since
+  the target's edit is the newer one; merge writes only what the source did not
+  clear; manual holds the change on the Conflicts tab, to be decided field by
+  field or all at once. A held change is decided while its session runs:
+  stopping the session drops it, and a notification says how many were
+  dropped.
+- **Its own writes** -- Every write of a session announces itself to the org
+  as the `SandForgeRealtime` client, and the org records that in the change it
+  causes. Such a change is shown as written by the session and never applied
+  again, so a session between one org and itself, or two sessions writing
+  toward each other, do not echo forever.
+- **Stopping and resuming** -- After each batch the session stores, per
+  channel, where it got to. The next session on the same source org resumes
+  right after it, so changes made while nothing was listening are replayed;
+  what was received and not yet written when a session stopped is replayed
+  too. The org keeps change events for three days: a resume point it no longer
+  holds is replaced by every change it still holds, and the tab says so. A
+  sandbox refresh forgets the stored points.
+- **One session at a time** -- It runs in the extension, not in the panel:
+  closing the panel does not stop it, reopening the tab finds it, Live
+  Operations lists it and its Cancel stops it. A connection the org closes --
+  an expired session -- is reopened from the stored points, three times at
+  most, before the session stops in error with the org's answer.
+- The feed says what became of each change: written, not written (with the
+  target's refusal), watched only, target edit kept, held for a decision,
+  deletion left alone, or the session's own write coming back. A change the org
+  could not describe in full arrives without its values and is read back from
+  the source; an overflow notice in its place is reported as not written, and a
+  Sync run brings the target up to date.
 
 ### Execution and Results
 

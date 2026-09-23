@@ -1614,38 +1614,46 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('realtime no-op routing (webview contract types)', () => {
-    it('realtime:resolve-conflict should respond on realtime:conflict-resolved', async () => {
+  describe('realtime routing (webview contract types)', () => {
+    it('realtime:status answers on realtime:status:response, with no session running', async () => {
+      broker['dispatch'](msg('realtime:status'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'realtime:status:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { status: string } }).payload;
+      expect(payload.status).toBe('disconnected');
+    });
+
+    it('realtime:resolve-conflict answers on realtime:conflict-resolved', async () => {
       broker['dispatch'](
-        msg('realtime:resolve-conflict', { conflictId: 'conflict-1', resolution: 'source-wins' }),
+        msg('realtime:resolve-conflict', { conflictId: 'conflict-1', resolution: 'source_wins' }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const response = posted.find((p) => p.type === 'realtime:conflict-resolved');
       expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { success: boolean; comingSoon: boolean } }
-      ).payload;
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
       expect(payload.success).toBe(false);
-      expect(payload.comingSoon).toBe(true);
     });
 
-    it('realtime:start should respond on realtime:started', async () => {
+    it('realtime:start that watches nothing is refused on realtime:error', async () => {
       broker['dispatch'](
         msg('realtime:start', { sourceOrgId: 'org-1', targetOrgId: 'org-2', watchedObjects: [] }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const response = posted.find((p) => p.type === 'realtime:started');
+      const response = posted.find((p) => p.type === 'realtime:error');
       expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('INVALID_PAYLOAD');
     });
 
-    it('realtime:stop should respond on realtime:stopped', async () => {
+    it('realtime:stop with no session running answers with the status', async () => {
       broker['dispatch'](msg('realtime:stop', { sessionId: '' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const response = posted.find((p) => p.type === 'realtime:stopped');
-      expect(response).toBeDefined();
+      expect(posted.some((p) => p.type === 'realtime:status:response')).toBe(true);
     });
   });
 

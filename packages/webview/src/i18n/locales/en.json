@@ -893,7 +893,6 @@
       "title": "Real-Time Sync",
       "start": "Start",
       "stop": "Stop",
-      "noObjects": "No objects available for CDC",
       "metrics": "Metrics",
       "events": "events",
       "status": {
@@ -913,8 +912,36 @@
         "merge": "Merge"
       },
       "objectPicker": "Select Objects",
+      "pickOrgs": "Pick a source org and a target org on the Sync tab first.",
+      "loadingObjects": "Asking the source org which objects publish change events…",
+      "objectsError": "The source org did not say which objects publish change events: {{message}}",
+      "noPublishingObjects": "No object publishes change events on the source org: its Change Data Capture selection is empty.",
+      "howToEnable": "Only the objects the source org publishes change events for are listed. To add one, select it in Setup → Change Data Capture on the source org.",
+      "channel": "({{channel}})",
+      "notInTarget": "not in the target org",
+      "autoSyncHint": "A ticked object's changes are written to the target org; the others are only shown.",
+      "matchLabel": "How {{object}} records are found in the target",
+      "match": {
+        "id": "Record Id (orgs copied from the same production)",
+        "externalId": "External id {{field}}",
+        "syncConfig": "Mapping of saved sync “{{name}}”"
+      },
+      "conflictLabel": "{{object}}: when the target record was edited after the change",
+      "applyDeletes": "Apply deletions",
+      "sessionError": "Real-time sync: {{message}}",
+      "refusedTitle": "The source org refused these objects:",
+      "refusedHint": "An object the source org does not publish change events for is refused. Select it in Setup → Change Data Capture on the source org, then start again.",
+      "outcome": {
+        "applied": "Written to the target",
+        "failed": "Not written",
+        "watched": "Watched only, not written",
+        "kept-target": "Not written: the target record was edited after this change",
+        "held": "Held for a decision on the Conflicts tab",
+        "deletes-off": "Deletion not applied: deletes are off for this object",
+        "own-write": "Written by this session; not applied again"
+      },
       "bufferFull": "Buffer full - oldest events dropped",
-      "noEvents": "No events yet. Start CDC stream to begin receiving changes.",
+      "noEvents": "No change received yet. Start the stream to receive the source org's changes.",
       "changeTypes": {
         "CREATE": "Create",
         "UPDATE": "Update",
@@ -930,7 +957,7 @@
         "failed": "Events Failed",
         "errorRate": "Error Rate",
         "uptime": "Uptime",
-        "noMetrics": "Start a CDC stream to see metrics.",
+        "noMetrics": "Start the stream to see its metrics.",
         "average": "avg: {{value}}ms",
         "since": "since {{time}}",
         "evtPerSec": "evt/s"
@@ -1443,7 +1470,8 @@
       "seed_clone": "Record Clone",
       "autopilot_execute": "Autopilot Run",
       "frozen_load": "Frozen Dataset Load",
-      "metadata_deploy": "Metadata Deployment"
+      "metadata_deploy": "Metadata Deployment",
+      "realtime_sync": "Real-Time Sync"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",
@@ -1693,7 +1721,7 @@
     "gettingStartedContent": "1. Connect your Salesforce org using the Organizations page.\n2. Use Forge to clone a real record, and the records around it, into your sandbox.\n3. Open the Monitor to check your org health.\n4. Use Seed to generate test data, or Sync to copy data between two orgs.\n5. Explore Compare, DataOps, Frozen Dataset and Automation for advanced workflows.",
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
     "seedContent": "The Seed wizard generates realistic test data:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
-    "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
+    "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental and delta are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- Real-Time tab: follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, matched on an external id, the record Id or a saved sync's mapping; deletions only when asked. To follow another object, select it in Setup → Change Data Capture on the source org. A change whose target record was edited after it is decided by the strategy, or held on the Conflicts tab\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a full snapshot of Account and Contact, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet",
     "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Backup, Compare, Pre-Check, Notification, Delay and Condition run; a pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration and errors of each run, and what each of its steps did\n- Pipeline templates from the Marketplace",

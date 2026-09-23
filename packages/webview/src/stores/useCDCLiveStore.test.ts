@@ -87,6 +87,8 @@ describe('useCDCLiveStore', () => {
     expect(state.autoSyncObjects['Account']).toEqual({
       enabled: true,
       conflictStrategy: 'source_wins',
+      match: null,
+      applyDeletes: false,
     });
 
     // Toggle again removes it
@@ -125,7 +127,168 @@ describe('useCDCLiveStore', () => {
     expect(envelope.payload.payload?.sourceOrgId).toBe('org-src');
     expect(envelope.payload.payload?.targetOrgId).toBe('org-tgt');
     expect(envelope.payload.payload?.watchedObjects).toEqual(['Account', 'Contact']);
+    expect(envelope.payload.payload?.apply).toEqual([]);
     expect(useCDCLiveStore.getState().status).toBe('connecting');
+  });
+
+  it('asks the host to write only the auto-synced objects that have a match', () => {
+    const store = useCDCLiveStore.getState();
+    store.setWatchedObjects(['Account', 'Contact', 'Lead']);
+    store.toggleAutoSync('Account', { kind: 'externalId', field: 'Ext__c' });
+    store.setApplyDeletes('Account', true);
+    store.toggleAutoSync('Contact');
+    store.toggleAutoSync('Case', { kind: 'id' });
+
+    store.startStream();
+
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    // Contact waits for a match; Case is no longer watched.
+    expect(envelope.payload.payload?.apply).toEqual([
+      {
+        objectApiName: 'Account',
+        match: { kind: 'externalId', field: 'Ext__c' },
+        applyDeletes: true,
+      },
+    ]);
+  });
+
+  it('changes the match of an applied object, and of no other', () => {
+    const store = useCDCLiveStore.getState();
+    store.toggleAutoSync('Account', { kind: 'id' });
+
+    store.setMatch('Account', { kind: 'syncConfig', configId: 'cfg-1' });
+    store.setMatch('Contact', { kind: 'id' });
+
+    expect(useCDCLiveStore.getState().autoSyncObjects).toEqual({
+      Account: {
+        enabled: true,
+        conflictStrategy: 'source_wins',
+        match: { kind: 'syncConfig', configId: 'cfg-1' },
+        applyDeletes: false,
+      },
+    });
+  });
+
+  it('reads what the host refused and settled for off realtime:started', () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:started',
+          payload: {
+            success: true,
+            sessionId: 'session-1',
+            watchedObjects: ['Lead'],
+            refused: [{ objectApiName: 'Account', reason: '403::refused' }],
+            notes: ['Lead: replayed from the oldest event held.'],
+          },
+        },
+      }),
+    );
+
+    const state = useCDCLiveStore.getState();
+    expect(state.status).toBe('syncing');
+    expect(state.sessionId).toBe('session-1');
+    expect(state.refused).toEqual([{ objectApiName: 'Account', reason: '403::refused' }]);
+    expect(state.notes).toEqual(['Lead: replayed from the oldest event held.']);
+    expect(state.error).toBeNull();
+  });
+
+  it('ends the wait for its own start on an error answering it, and only then', () => {
+    useCDCLiveStore.getState().setWatchedObjects(['Lead']);
+    useCDCLiveStore.getState().startStream();
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope & {
+      payload: { id: string };
+    };
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:error',
+          correlationId: 'someone-elses-request',
+          payload: { message: 'not mine' },
+        },
+      }),
+    );
+    expect(useCDCLiveStore.getState().status).toBe('connecting');
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:error',
+          correlationId: envelope.payload.id,
+          payload: { message: 'Invalid payload — apply: Every applied object must be watched.' },
+        },
+      }),
+    );
+    expect(useCDCLiveStore.getState().status).toBe('error');
+    expect(useCDCLiveStore.getState().error).toBe(
+      'Invalid payload — apply: Every applied object must be watched.',
+    );
+  });
+
+  it('learns the session a reloaded panel did not start, and what went wrong with it', () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:status:response',
+          payload: {
+            status: 'connecting',
+            sessionId: 'session-9',
+            watchedObjects: ['Lead', 'Contact'],
+            error: 'The connection to the source org was closed (401); reconnecting.',
+          },
+        },
+      }),
+    );
+
+    let state = useCDCLiveStore.getState();
+    expect(state.sessionId).toBe('session-9');
+    expect(state.watchedObjects).toEqual(['Lead', 'Contact']);
+    expect(state.status).toBe('connecting');
+    expect(state.error).toContain('reconnecting');
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:status:response',
+          payload: { status: 'syncing', sessionId: 'session-9' },
+        },
+      }),
+    );
+    state = useCDCLiveStore.getState();
+    expect(state.status).toBe('syncing');
+    expect(state.error).toBeNull();
+  });
+
+  it('puts a conflict back to undecided when the host could not apply the decision', () => {
+    useConflictStore.setState({ conflicts: [] });
+    useConflictStore.getState().addConflict({
+      id: 'Lead:00Q1:9',
+      objectApiName: 'Lead',
+      recordId: '00Q1',
+      conflictType: 'edit/edit',
+      sourceValues: { Title: 'A' },
+      targetValues: { Title: 'B' },
+      conflictFields: ['Title'],
+      timestamp: '2026-09-23T11:00:00.000Z',
+      resolved: false,
+    });
+    useConflictStore.getState().resolveConflict('Lead:00Q1:9', 'source_wins');
+    expect(useConflictStore.getState().conflicts[0].resolved).toBe(true);
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:conflict-resolved',
+          payload: { conflictId: 'Lead:00Q1:9', resolution: 'source_wins', success: false },
+        },
+      }),
+    );
+
+    expect(useConflictStore.getState().conflicts[0]).toMatchObject({
+      resolved: false,
+      resolution: undefined,
+    });
   });
 
   it('should update status via setStatus', () => {

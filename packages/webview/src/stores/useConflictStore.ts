@@ -41,6 +41,8 @@ export interface ConflictStoreActions {
   resolveAllTarget: () => void;
   /** Remove all resolved conflicts from the array. */
   clearResolved: () => void;
+  /** Mark a conflict undecided again: the host could not apply the decision. */
+  reopenConflict: (id: string) => void;
 }
 
 /** Send a resolve-conflict message to the extension. */
@@ -141,6 +143,16 @@ export const useConflictStore = create<ConflictStoreState & ConflictStoreActions
 
   clearResolved(): void {
     set({ conflicts: get().conflicts.filter((c) => !c.resolved) });
+  },
+
+  reopenConflict(id: string): void {
+    set({
+      conflicts: get().conflicts.map((c) =>
+        c.id === id
+          ? { ...c, resolved: false, resolution: undefined, fieldResolutions: undefined }
+          : c,
+      ),
+    });
   },
 }));
 

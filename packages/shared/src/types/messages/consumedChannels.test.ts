@@ -103,10 +103,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
-  {
-    channel: 'realtime:status',
-    reason: 'NoOp CDC surface: the stores send start/stop/metrics and read status off them.',
-  },
 ];
 
 function repoPath(...parts: string[]): string {

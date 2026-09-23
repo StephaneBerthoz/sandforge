@@ -37,7 +37,8 @@ export type AuditAction =
   | 'seed_clone'
   | 'autopilot_execute'
   | 'frozen_load'
-  | 'metadata_deploy';
+  | 'metadata_deploy'
+  | 'realtime_sync';
 
 /**
  * How a recorded run ended. `stopped` is a run Production Guard stopped before

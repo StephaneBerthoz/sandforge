@@ -1,10 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { RealTimeEventOutcome } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { VirtualList } from '../../components/ui/VirtualList';
 import { useCDCLiveStore } from '../../stores/useCDCLiveStore';
 import type { CDCFeedEvent } from '../../stores/useCDCLiveStore';
+import { formatRelativeTime } from '../../utils/formatters';
 
 /** Map CDC change type to badge variant color. */
 const changeTypeVariantMap: Record<string, BadgeVariant> = {
@@ -20,15 +22,25 @@ const MAX_VISIBLE_IDS = 2;
 /** Ring buffer capacity. */
 const RING_BUFFER_CAPACITY = 5000;
 
+/** The icon of each outcome; its words come from `sync.realtime.outcome.*`. */
+const OUTCOME_ICONS: Record<RealTimeEventOutcome, string> = {
+  applied: 'codicon-check text-status-success',
+  failed: 'codicon-error text-status-error',
+  watched: 'codicon-eye text-[var(--sf-text-secondary)]',
+  'kept-target': 'codicon-shield text-status-warning',
+  held: 'codicon-question text-status-warning',
+  'deletes-off': 'codicon-circle-slash text-[var(--sf-text-secondary)]',
+  'own-write': 'codicon-reply text-[var(--sf-text-secondary)]',
+};
+
 /**
- * Format a timestamp as a relative "Xs ago" string.
- * Falls back to showing seconds for simplicity.
+ * What became of a change. The singular `realtime:event` channel carries no
+ * outcome, only `applied` and `error`: those two say it.
  */
-function formatRelativeTime(isoTimestamp: string): string {
-  const diff = Math.max(0, Math.floor((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
+function outcomeOf(event: CDCFeedEvent): RealTimeEventOutcome {
+  if (event.outcome) return event.outcome;
+  if (event.error) return 'failed';
+  return event.applied ? 'applied' : 'watched';
 }
 
 /** Render a single event row in the feed. */
@@ -36,18 +48,21 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
   const { t } = useTranslation();
   const visibleIds = event.recordIds.slice(0, MAX_VISIBLE_IDS);
   const hiddenCount = event.recordIds.length - MAX_VISIBLE_IDS;
+  const outcome = outcomeOf(event);
+  const outcomeLabel = t(`sync.realtime.outcome.${outcome}`);
 
   return (
     <div
       className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[11px] border-b border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]"
       data-testid={`cdc-event-row-${index}`}
+      data-outcome={outcome}
     >
       {/* Timestamp */}
       <span
         className="w-[60px] shrink-0 text-[var(--sf-text-primary)]"
         title={event.commitTimestamp}
       >
-        {formatRelativeTime(event.commitTimestamp)}
+        {formatRelativeTime(new Date(event.commitTimestamp))}
       </span>
 
       {/* Object name */}
@@ -75,15 +90,16 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
         )}
       </span>
 
-      {/* Applied status */}
+      {/* What became of it: an icon, its words for a screen reader, the reason on hover */}
       <span className="w-[20px] shrink-0 text-center">
-        {event.error ? (
-          <span className="codicon codicon-error text-status-error" title={event.error} />
-        ) : event.applied ? (
-          <span className="codicon codicon-check text-status-success" />
-        ) : (
-          <span className="codicon codicon-loading codicon-modifier-spin text-[var(--sf-text-secondary)]" />
-        )}
+        <span
+          className={`codicon ${OUTCOME_ICONS[outcome]}`}
+          title={event.error ?? outcomeLabel}
+          aria-hidden="true"
+        />
+        <span className="sr-only">
+          {event.error ? `${outcomeLabel}: ${event.error}` : outcomeLabel}
+        </span>
       </span>
     </div>
   );
@@ -118,7 +134,9 @@ export const CDCEventFeed: React.FC = () => {
         <VirtualList
           items={events}
           renderItem={(event, index) => <EventRow event={event} index={index} />}
-          keyExtractor={(event) => String(event.replayId)}
+          // A replay id counts within its channel, one channel per object: two
+          // objects can each have an event 42.
+          keyExtractor={(event) => `${event.objectApiName}:${event.replayId}`}
           estimatedItemHeight={28}
           maxHeight="100%"
           overscan={10}

@@ -893,7 +893,6 @@
       "title": "Echtzeit-Sync",
       "start": "Start",
       "stop": "Stopp",
-      "noObjects": "Keine Objekte für CDC verfügbar",
       "metrics": "Metriken",
       "events": "Ereignisse",
       "status": {
@@ -913,8 +912,36 @@
         "merge": "Zusammenführen"
       },
       "objectPicker": "Objekte auswählen",
+      "pickOrgs": "Wählen Sie zuerst auf dem Tab „Sync“ eine Quell- und eine Ziel-Org.",
+      "loadingObjects": "Die Quell-Org wird gefragt, welche Objekte Änderungsereignisse veröffentlichen…",
+      "objectsError": "Die Quell-Org hat nicht angegeben, welche Objekte Änderungsereignisse veröffentlichen: {{message}}",
+      "noPublishingObjects": "Kein Objekt veröffentlicht Änderungsereignisse in der Quell-Org: Ihre Change-Data-Capture-Auswahl ist leer.",
+      "howToEnable": "Nur Objekte, für die die Quell-Org Änderungsereignisse veröffentlicht, werden aufgeführt. Um eines hinzuzufügen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus.",
+      "channel": "({{channel}})",
+      "notInTarget": "nicht in der Ziel-Org",
+      "autoSyncHint": "Änderungen eines angehakten Objekts werden in die Ziel-Org geschrieben; die übrigen werden nur angezeigt.",
+      "matchLabel": "Wie {{object}}-Datensätze im Ziel gefunden werden",
+      "match": {
+        "id": "Datensatz-ID (Orgs aus derselben Produktion kopiert)",
+        "externalId": "Externe ID {{field}}",
+        "syncConfig": "Zuordnung der gespeicherten Sync „{{name}}“"
+      },
+      "conflictLabel": "{{object}}: wenn der Zieldatensatz nach der Änderung bearbeitet wurde",
+      "applyDeletes": "Löschungen übernehmen",
+      "sessionError": "Echtzeit-Sync: {{message}}",
+      "refusedTitle": "Die Quell-Org hat diese Objekte abgelehnt:",
+      "refusedHint": "Ein Objekt, für das die Quell-Org keine Änderungsereignisse veröffentlicht, wird abgelehnt. Wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus und starten Sie erneut.",
+      "outcome": {
+        "applied": "In das Ziel geschrieben",
+        "failed": "Nicht geschrieben",
+        "watched": "Nur beobachtet, nicht geschrieben",
+        "kept-target": "Nicht geschrieben: Der Zieldatensatz wurde nach dieser Änderung bearbeitet",
+        "held": "Zur Entscheidung auf dem Tab „Konflikte“ zurückgehalten",
+        "deletes-off": "Löschung nicht übernommen: Löschungen sind für dieses Objekt ausgeschaltet",
+        "own-write": "Von dieser Sitzung geschrieben; nicht erneut angewendet"
+      },
       "bufferFull": "Puffer voll – älteste Ereignisse verworfen",
-      "noEvents": "Noch keine Ereignisse. Starten Sie den CDC-Stream, um Änderungen zu empfangen.",
+      "noEvents": "Noch keine Änderung empfangen. Starten Sie den Stream, um die Änderungen der Quell-Org zu empfangen.",
       "changeTypes": {
         "CREATE": "Erstellen",
         "UPDATE": "Aktualisieren",
@@ -930,7 +957,7 @@
         "failed": "Fehlgeschlagene Ereignisse",
         "errorRate": "Fehlerrate",
         "uptime": "Laufzeit",
-        "noMetrics": "Starten Sie einen CDC-Stream, um Metriken zu sehen.",
+        "noMetrics": "Starten Sie den Stream, um seine Metriken zu sehen.",
         "average": "Ø {{value}}ms",
         "since": "seit {{time}}",
         "evtPerSec": "Ereign./s"
@@ -1443,7 +1470,8 @@
       "seed_clone": "Datensatz-Klon",
       "autopilot_execute": "Autopilot-Lauf",
       "frozen_load": "Eingefrorenen Datensatz laden",
-      "metadata_deploy": "Metadaten-Bereitstellung"
+      "metadata_deploy": "Metadaten-Bereitstellung",
+      "realtime_sync": "Echtzeit-Synchronisierung"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",
@@ -1693,7 +1721,7 @@
     "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org über die Organisationsseite.\n2. Klonen Sie mit Forge einen echten Datensatz und die Datensätze um ihn herum in Ihre Sandbox.\n3. Öffnen Sie den Monitor, um die Gesundheit Ihrer Org zu prüfen.\n4. Verwenden Sie Seed, um Testdaten zu generieren, oder Sync, um Daten zwischen zwei Orgs zu kopieren.\n5. Entdecken Sie Compare, DataOps, den eingefrorenen Datensatz und Automation für erweiterte Workflows.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
     "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
-    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
+    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell und Delta sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance und Bereinigung: Demnächst, hinter diesen Tabs läuft noch nichts",
     "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, und was jeder ihrer Schritte getan hat\n- Pipeline-Vorlagen aus dem Marketplace",

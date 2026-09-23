@@ -893,7 +893,6 @@
       "title": "Sync temps réel",
       "start": "Démarrer",
       "stop": "Arrêter",
-      "noObjects": "Aucun objet disponible pour le CDC",
       "metrics": "Métriques",
       "events": "événements",
       "status": {
@@ -913,8 +912,36 @@
         "merge": "Fusionner"
       },
       "objectPicker": "Sélectionner les objets",
+      "pickOrgs": "Choisissez d'abord une org source et une org cible dans l'onglet Sync.",
+      "loadingObjects": "Interrogation de l'org source sur les objets qui publient des événements de modification…",
+      "objectsError": "L'org source n'a pas indiqué quels objets publient des événements de modification : {{message}}",
+      "noPublishingObjects": "Aucun objet ne publie d'événements de modification sur l'org source : sa sélection Change Data Capture est vide.",
+      "howToEnable": "Seuls les objets pour lesquels l'org source publie des événements de modification sont listés. Pour en ajouter un, sélectionnez-le dans Configuration → Change Data Capture sur l'org source.",
+      "channel": "({{channel}})",
+      "notInTarget": "absent de l'org cible",
+      "autoSyncHint": "Les modifications d'un objet coché sont écrites dans l'org cible ; les autres sont seulement affichées.",
+      "matchLabel": "Comment trouver les enregistrements {{object}} dans la cible",
+      "match": {
+        "id": "ID d'enregistrement (orgs copiées de la même production)",
+        "externalId": "ID externe {{field}}",
+        "syncConfig": "Mappage de la sync enregistrée « {{name}} »"
+      },
+      "conflictLabel": "{{object}} : quand l'enregistrement cible a été modifié après la modification",
+      "applyDeletes": "Appliquer les suppressions",
+      "sessionError": "Sync temps réel : {{message}}",
+      "refusedTitle": "L'org source a refusé ces objets :",
+      "refusedHint": "Un objet pour lequel l'org source ne publie pas d'événements de modification est refusé. Sélectionnez-le dans Configuration → Change Data Capture sur l'org source, puis redémarrez.",
+      "outcome": {
+        "applied": "Écrit dans la cible",
+        "failed": "Non écrit",
+        "watched": "Seulement observé, non écrit",
+        "kept-target": "Non écrit : l'enregistrement cible a été modifié après cette modification",
+        "held": "En attente d'une décision dans l'onglet Conflits",
+        "deletes-off": "Suppression non appliquée : les suppressions sont désactivées pour cet objet",
+        "own-write": "Écrit par cette session ; non réappliqué"
+      },
       "bufferFull": "Buffer plein - les événements les plus anciens ont été abandonnés",
-      "noEvents": "Aucun événement pour le moment. Démarrez le flux CDC pour commencer à recevoir les modifications.",
+      "noEvents": "Aucune modification reçue pour l'instant. Démarrez le flux pour recevoir les modifications de l'org source.",
       "changeTypes": {
         "CREATE": "Création",
         "UPDATE": "Mise à jour",
@@ -930,7 +957,7 @@
         "failed": "Événements en échec",
         "errorRate": "Taux d'erreur",
         "uptime": "Disponibilité",
-        "noMetrics": "Démarrez un flux CDC pour voir les métriques.",
+        "noMetrics": "Démarrez le flux pour voir ses métriques.",
         "average": "moy. : {{value}} ms",
         "since": "depuis {{time}}",
         "evtPerSec": "évt/s"
@@ -1443,7 +1470,8 @@
       "seed_clone": "Clonage d'enregistrements",
       "autopilot_execute": "Exécution Autopilot",
       "frozen_load": "Chargement du jeu figé",
-      "metadata_deploy": "Déploiement de métadonnées"
+      "metadata_deploy": "Déploiement de métadonnées",
+      "realtime_sync": "Synchronisation en temps réel"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",
@@ -1693,7 +1721,7 @@
     "gettingStartedContent": "1. Connectez votre org Salesforce via la page Organisations.\n2. Avec Forge, clonez un vrai enregistrement, et les enregistrements qui l'entourent, dans votre sandbox.\n3. Ouvrez le Moniteur pour vérifier la santé de votre org.\n4. Utilisez Seed pour générer des données de test, ou Sync pour copier des données entre deux orgs.\n5. Explorez Compare, DataOps, le Jeu figé et Automation pour les workflows avancés.",
     "monitorContent": "Le tableau de bord Moniteur affiche la santé de l'org en temps réel :\n- Jauge de score de santé avec facteurs contributifs\n- Limites API avec tendances et prédictions\n- Jobs Apex actifs et récents\n- Alertes pour les seuils critiques\n\nAstuce : Activez le rafraîchissement auto pour un suivi continu.",
     "seedContent": "L'assistant Seed génère des données de test réalistes :\n1. Sélectionnez votre org cible\n2. Choisissez les objets à alimenter\n3. Configurez les règles de champs (IA, Faker, statique, séquence...)\n4. Fixez le nombre d'enregistrements — un champ de recherche est rempli avec les enregistrements insérés plus tôt par la même exécution\n5. Vérifiez et exécutez\n\nAstuce : Utilisez la génération IA pour les données les plus réalistes.",
-    "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental, le delta et le CDC ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
+    "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental et le delta ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mappage d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Une modification dont l'enregistrement cible a été modifié après elle est tranchée par la stratégie, ou mise en attente dans l'onglet Conflits\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Drift : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
     "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme GDPR, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; c'est l'org qui compte, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité et Nettoyage : bientôt disponible, rien ne tourne encore derrière ces onglets",
     "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Les pipelines se lancent à la main, avec le bouton Exécuter le pipeline ; rien d'autre n'en démarre un pour l'instant\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, et ce qu'a fait chacune de ses étapes\n- Modèles de pipeline depuis la Marketplace",

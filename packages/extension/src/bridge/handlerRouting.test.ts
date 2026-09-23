@@ -75,8 +75,8 @@ describe('handler routing completeness', () => {
 
   it('routes no message type that no handler declares', () => {
     const allDeclared = new Set(Array.from(declaredTypes().values()).flat());
-    // NoOpHandler intentionally absorbs types with no domain handler; its own
-    // set is included above, so anything left over is a genuine orphan route.
+    // Every handler's own set is included above, so anything left over is a
+    // genuine orphan route.
     const orphans = Array.from(routedTypes()).filter((t) => !allDeclared.has(t));
 
     expect(orphans).toEqual([]);

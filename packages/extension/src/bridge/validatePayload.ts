@@ -286,6 +286,68 @@ export const syncDescribeFieldsPayloadSchema = z.object({
   objectApiName: sfApiNameSchema,
 });
 
+// ── realtime:* payload schemas ──────────────────────────────────────────────
+// Mirror what `useCDCLiveStore`, `useConflictStore` and `RealTimeSyncPanel` post.
+
+const conflictStrategyPayloadSchema = z.enum([
+  'source_wins',
+  'target_wins',
+  'newest_wins',
+  'manual',
+  'merge',
+]);
+
+/** How the target record of a change is found: shared ids, an external id, or a saved mapping. */
+const realtimeMatchPayloadSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('id') }),
+  z.object({ kind: z.literal('externalId'), field: sfApiNameSchema }),
+  z.object({ kind: z.literal('syncConfig'), configId: opaqueIdSchema }),
+]);
+
+/**
+ * A session start. Only a watched object can be applied — a change is applied
+ * because it was received — and a batch never exceeds what one sObject
+ * Collections write takes.
+ */
+export const realtimeStartPayloadSchema = z
+  .object({
+    sourceOrgId: orgIdSchema,
+    targetOrgId: orgIdSchema,
+    watchedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    apply: z
+      .array(
+        z.object({
+          objectApiName: sfApiNameSchema,
+          match: realtimeMatchPayloadSchema,
+          applyDeletes: z.boolean(),
+        }),
+      )
+      .max(MAX_OBJECTS_PER_REQUEST),
+    conflictStrategy: conflictStrategyPayloadSchema,
+    flushIntervalMs: z.number().int().min(50).max(60_000),
+    maxBatchSize: z.number().int().min(1).max(200),
+  })
+  .refine((p) => p.apply.every((a) => p.watchedObjects.includes(a.objectApiName)), {
+    message: 'Every applied object must be watched.',
+    path: ['apply'],
+  });
+export const realtimeStopPayloadSchema = z.object({ sessionId: z.string().max(200) });
+export const realtimeObjectsPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+});
+export const realtimeResolveConflictPayloadSchema = z.object({
+  conflictId: z.string().min(1).max(500),
+  eventReplayId: z.number().optional(),
+  resolution: conflictStrategyPayloadSchema,
+  fieldResolutions: z
+    .record(
+      z.string(),
+      z.object({ value: z.unknown(), source: z.enum(['source', 'target', 'manual']) }),
+    )
+    .optional(),
+});
+
 // ── sync:history:* payload schemas ──────────────────────────────────────────
 // Mirror what `useSyncHistoryStore` posts (fetchDetail/rerun/exportHistory).
 

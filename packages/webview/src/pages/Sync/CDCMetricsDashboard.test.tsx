@@ -39,7 +39,7 @@ describe('CDCMetricsDashboard', () => {
   it('should render placeholder when no metrics available', () => {
     render(<CDCMetricsDashboard />);
     const dashboard = screen.getByTestId('cdc-metrics-dashboard');
-    expect(dashboard.textContent).toContain('Start a CDC stream to see metrics');
+    expect(dashboard.textContent).toContain('Start the stream to see its metrics');
   });
 
   it('should render all 6 metric cards when metrics are available', () => {

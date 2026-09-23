@@ -893,7 +893,6 @@
       "title": "Sync em tempo real",
       "start": "Iniciar",
       "stop": "Parar",
-      "noObjects": "Nenhum objeto disponível para CDC",
       "metrics": "Métricas",
       "events": "eventos",
       "status": {
@@ -913,8 +912,36 @@
         "merge": "Mesclar"
       },
       "objectPicker": "Selecionar objetos",
+      "pickOrgs": "Escolha primeiro uma org de origem e uma org de destino na aba Sync.",
+      "loadingObjects": "Perguntando à org de origem quais objetos publicam eventos de alteração…",
+      "objectsError": "A org de origem não informou quais objetos publicam eventos de alteração: {{message}}",
+      "noPublishingObjects": "Nenhum objeto publica eventos de alteração na org de origem: a seleção de Change Data Capture dela está vazia.",
+      "howToEnable": "Só são listados os objetos para os quais a org de origem publica eventos de alteração. Para adicionar um, selecione-o em Configuração → Change Data Capture na org de origem.",
+      "channel": "({{channel}})",
+      "notInTarget": "não existe na org de destino",
+      "autoSyncHint": "As alterações de um objeto marcado são gravadas na org de destino; os demais são apenas exibidos.",
+      "matchLabel": "Como os registros de {{object}} são encontrados no destino",
+      "match": {
+        "id": "ID do registro (orgs copiadas da mesma produção)",
+        "externalId": "ID externo {{field}}",
+        "syncConfig": "Mapeamento da sync salva “{{name}}”"
+      },
+      "conflictLabel": "{{object}}: quando o registro de destino foi editado após a alteração",
+      "applyDeletes": "Aplicar exclusões",
+      "sessionError": "Sync em tempo real: {{message}}",
+      "refusedTitle": "A org de origem recusou estes objetos:",
+      "refusedHint": "Um objeto para o qual a org de origem não publica eventos de alteração é recusado. Selecione-o em Configuração → Change Data Capture na org de origem e inicie novamente.",
+      "outcome": {
+        "applied": "Gravado no destino",
+        "failed": "Não gravado",
+        "watched": "Apenas observado, não gravado",
+        "kept-target": "Não gravado: o registro de destino foi editado após esta alteração",
+        "held": "Retido para uma decisão na aba Conflitos",
+        "deletes-off": "Exclusão não aplicada: as exclusões estão desativadas para este objeto",
+        "own-write": "Gravado por esta sessão; não aplicado novamente"
+      },
       "bufferFull": "Buffer cheio — eventos mais antigos descartados",
-      "noEvents": "Nenhum evento ainda. Inicie o stream de CDC para começar a receber alterações.",
+      "noEvents": "Nenhuma alteração recebida ainda. Inicie o stream para receber as alterações da org de origem.",
       "changeTypes": {
         "CREATE": "Criação",
         "UPDATE": "Atualização",
@@ -930,7 +957,7 @@
         "failed": "Eventos com falha",
         "errorRate": "Taxa de erro",
         "uptime": "Tempo ativo",
-        "noMetrics": "Inicie um stream de CDC para ver as métricas.",
+        "noMetrics": "Inicie o stream para ver as métricas dele.",
         "average": "média: {{value}}ms",
         "since": "desde {{time}}",
         "evtPerSec": "evt/s"
@@ -1443,7 +1470,8 @@
       "seed_clone": "Clonagem de registros",
       "autopilot_execute": "Execução do Autopilot",
       "frozen_load": "Carga do dataset congelado",
-      "metadata_deploy": "Implantação de metadados"
+      "metadata_deploy": "Implantação de metadados",
+      "realtime_sync": "Sincronização em tempo real"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",
@@ -1693,7 +1721,7 @@
     "gettingStartedContent": "1. Conecte sua org Salesforce pela página de Organizações.\n2. Use o Forge para clonar um registro real, e os registros ao redor dele, na sua sandbox.\n3. Abra o Monitor para verificar a saúde da sua org.\n4. Use Seed para gerar dados de teste, ou Sync para copiar dados entre duas orgs.\n5. Explore Compare, DataOps, Dataset congelado e Automação para fluxos de trabalho avançados.",
     "monitorContent": "O painel de Monitor mostra a saúde da org em tempo real:\n- Indicador de pontuação de saúde com fatores contribuintes\n- Limites de API com tendências de uso e previsões\n- Jobs Apex ativos e recentes\n- Alertas para limites críticos\n\nDica: Habilite a atualização automática para monitoramento contínuo.",
     "seedContent": "O assistente de Seed gera dados de teste realistas:\n1. Selecione sua org de destino\n2. Escolha os objetos para popular\n3. Configure as regras de campos (IA, Faker, estático, sequência...)\n4. Defina a quantidade de registros — um campo de pesquisa é preenchido com os registros que a mesma execução inseriu antes\n5. Revise e execute\n\nDica: Use a geração por IA para os dados mais realistas.",
-    "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental, delta e CDC não estão implementados)\n- Mapeamento automático de campos com pontuações de confiança\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
+    "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental e delta não estão implementados)\n- Mapeamento automático de campos com pontuações de confiança\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Aba Tempo real: acompanha os eventos de alteração (Change Data Capture) que a org de origem publica e grava cada alteração no destino assim que chega, localizada por um ID externo, o ID do registro ou o mapeamento de uma sync salva; exclusões só quando pedido. Para acompanhar outro objeto, selecione-o em Configuração → Change Data Capture na org de origem. Uma alteração cujo registro de destino foi editado depois dela é decidida pela estratégia, ou retida na aba Conflitos\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Snapshots: os objetos das duas orgs, capturados ao vivo quando você abre a aba\n- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantação: escolha o que difere, valide primeiro no destino e depois implante a validação em um sandbox",
     "dataopsContent": "Operações de dados na org selecionada:\n- Backup: um snapshot completo de Account e Contact, guardado no armazenamento da extensão\n- Restauração: devolve um backup, inteiro, à org de onde ele foi tirado\n- Anonimização: mascara os campos no lugar com um modelo integrado como GDPR, CCPA ou HIPAA; é irreversível, então faça um backup antes\n- Qualidade: para os objetos que você escolher, conta com que frequência cada campo é preenchido, quais valores de uma chave como Name ou Email vários registros compartilham e quantos registros ninguém modificou em um número de dias; a org faz a contagem, e nada é lido registro a registro nem gravado\n- Conformidade e Limpeza: em breve, nada roda por trás dessas abas ainda",
     "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas; um pipeline que contenha uma etapa que grava em uma org, ou uma etapa Script, Aprovação, Loop ou Paralelo, é recusado antes de começar\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Histórico de execução: status, duração total e erros de cada execução, e o que cada uma de suas etapas fez\n- Modelos de pipeline do Marketplace",

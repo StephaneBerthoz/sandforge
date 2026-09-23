@@ -44,13 +44,18 @@ import { SplitView } from '../../components/ui/SplitView';
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
 
 /**
- * The tabs the page offers. Real-Time and Conflicts stay declared and wired
- * below but are not offered: every `realtime:*` channel is answered by the
- * no-op handler, so the first could only end at an error badge and the second
- * could only list conflicts that stream never pushes. They belong back in this
- * list once the extension streams changes.
+ * The tabs the page offers. Real-Time streams the source org's change events
+ * for the objects it publishes, and Conflicts lists the changes it held for a
+ * decision: nothing else pushes to that list, since a Sync run resolves its
+ * collisions by its strategy alone.
  */
-const OFFERED_SYNC_TABS: readonly SyncTab[] = ['sync', 'history', 'schedules'];
+const OFFERED_SYNC_TABS: readonly SyncTab[] = [
+  'sync',
+  'history',
+  'schedules',
+  'realtime',
+  'conflicts',
+];
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -349,11 +354,7 @@ export const SyncPage: React.FC = () => {
 
       {/* Real-time tab */}
       {activeTab === 'realtime' && (
-        <RealTimeSyncPanel
-          sourceOrgId={sourceOrgId}
-          targetOrgId={targetOrgId}
-          availableObjects={availableObjects}
-        />
+        <RealTimeSyncPanel sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} />
       )}
 
       {/* Sync tab (default) */}

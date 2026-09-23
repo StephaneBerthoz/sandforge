@@ -118,6 +118,19 @@ export class DataSync {
     config: SyncObjectConfig,
     sourceRecords: Record<string, unknown>[],
   ): Promise<SyncObjectResult> {
+    const { outcomes, notes } = await this.write(config, sourceRecords);
+    return buildResult(config.objectApiName, config.operation, outcomes, notes);
+  }
+
+  /**
+   * What {@link sync} does, reported record by record: one outcome per record,
+   * in the order the records were given, and the notes the result carries.
+   * Real-time replication reads it to say which change reached the target.
+   */
+  async write(
+    config: SyncObjectConfig,
+    sourceRecords: Record<string, unknown>[],
+  ): Promise<{ outcomes: OperationOutcome[]; notes: string[] }> {
     // What the target will take. A failure to describe is not a reason to
     // stop: the run then behaves as it did before this existed.
     let target: TargetWriteFields | null = null;
@@ -139,6 +152,7 @@ export class DataSync {
         config.fieldMappings,
         config.addOnFields,
         target?.creatable ?? null,
+        addressedBy(config),
       ),
     );
 
@@ -168,10 +182,7 @@ export class DataSync {
         : [];
     });
 
-    return buildResult(config.objectApiName, config.operation, retried.outcomes, [
-      ...recordTypeNotes,
-      ...retried.notes,
-    ]);
+    return { outcomes: retried.outcomes, notes: [...recordTypeNotes, ...retried.notes] };
   }
 
   /**
@@ -343,6 +354,24 @@ function isCrossReferenceFailure(message: string): boolean {
 }
 
 /**
+ * The field a write finds its record by, which has to reach the org whatever
+ * the target lets anyone create: `Id` is never creatable, so a filter on the
+ * creatable fields alone sent an update without the id it updates, and handed
+ * a delete no id at all. An insert is addressed by nothing.
+ */
+function addressedBy(config: SyncObjectConfig): string | null {
+  switch (config.operation) {
+    case 'insert':
+      return null;
+    case 'upsert':
+      return config.externalIdField ?? 'Id';
+    case 'update':
+    case 'delete':
+      return 'Id';
+  }
+}
+
+/**
  * Apply field mappings and add-on fields to a single source record.
  */
 function applyMappingsAndAddOns(
@@ -350,6 +379,7 @@ function applyMappingsAndAddOns(
   mappings: FieldMapping[],
   addOns: AddOnField[],
   creatable: ReadonlySet<string> | null,
+  key: string | null,
 ): Record<string, unknown> {
   let result: Record<string, unknown>;
 
@@ -379,9 +409,9 @@ function applyMappingsAndAddOns(
 
   // `attributes` is jsforce's own envelope and is never a field.
   const filtered: Record<string, unknown> = {};
-  for (const key of Object.keys(result)) {
-    if (key === 'attributes') continue;
-    if (creatable.has(key)) filtered[key] = result[key];
+  for (const field of Object.keys(result)) {
+    if (field === 'attributes') continue;
+    if (creatable.has(field) || field === key) filtered[field] = result[field];
   }
   return filtered;
 }

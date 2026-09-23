@@ -1690,6 +1690,142 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Sync real-time tab while a session writes, with a refused object and every outcome', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'sync', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      await page.getByLabel('Source', { exact: true }).selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Target', { exact: true }).selectOption(QA_SANDBOX.id);
+      await page.getByTestId('tab-realtime').click();
+      await bridge.waitForMessage('realtime:objects', { timeout: 10_000 });
+      await answerAll(page, 'realtime:objects', 'realtime:objects:response', {
+        objects: [
+          {
+            objectApiName: 'Lead',
+            channel: 'ActivityEngagementVirtualChannel',
+            inTarget: true,
+            externalIdFields: ['Legacy_Key__c'],
+            syncConfigs: [{ id: 'cfg-1', name: 'Leads nightly' }],
+          },
+          {
+            objectApiName: 'Case',
+            channel: 'ChangeEvents',
+            inTarget: true,
+            externalIdFields: [],
+            syncConfigs: [],
+          },
+          {
+            objectApiName: 'ListEmailSentResult',
+            channel: 'ActivityEngagementVirtualChannel',
+            inTarget: false,
+            externalIdFields: [],
+            syncConfigs: [],
+          },
+        ],
+      });
+      // Every control of a written object on screen: its match, its strategy,
+      // its deletions — and one object the target does not have.
+      await page.getByTestId('cdc-object-checkbox-Lead').check();
+      await page.getByTestId('cdc-object-checkbox-Case').check();
+      await page.getByTestId('cdc-object-checkbox-ListEmailSentResult').check();
+      await page.getByTestId('cdc-autosync-toggle-Lead').check();
+      await page.getByTestId('cdc-start-btn').click();
+      await sendExtensionMessage(page, {
+        type: 'realtime:started',
+        id: 'evt-realtime-started',
+        payload: {
+          success: true,
+          sessionId: 'session-1',
+          watchedObjects: ['Lead', 'ListEmailSentResult'],
+          refused: [
+            {
+              objectApiName: 'Case',
+              reason: '403::User not allowed to subscribe CDC without required permissions',
+            },
+          ],
+          notes: ['Lead: the org no longer holds the point the last session stopped at.'],
+        },
+      });
+      await answerAll(page, 'realtime:metrics', 'realtime:metrics:response', {
+        metrics: {
+          eventsReceived: 7,
+          eventsApplied: 2,
+          eventsFailed: 1,
+          eventsPerMinute: 7,
+          averageLagMs: 850,
+          currentLagMs: 2400,
+          errorRate: 33.3,
+          startedAt: new Date(Date.now() - 90_000).toISOString(),
+        },
+      });
+      const outcomes = [
+        'applied',
+        'failed',
+        'watched',
+        'kept-target',
+        'held',
+        'deletes-off',
+        'own-write',
+      ];
+      await sendExtensionMessage(page, {
+        type: 'realtime:events-batch',
+        id: 'evt-batch',
+        payload: {
+          events: outcomes.map((outcome, i) => ({
+            replayId: 100 + i,
+            objectApiName: 'Lead',
+            changeType: i === 5 ? 'DELETE' : 'UPDATE',
+            recordIds: [`00Q00000000000${i}AAA`],
+            commitTimestamp: new Date().toISOString(),
+            changedFields: { Title: 'Buyer' },
+            commitUser: '005000000000001AAA',
+            transactionKey: `txn-${i}`,
+            applied: outcome === 'applied',
+            outcome,
+            ...(outcome === 'failed' ? { error: 'ENTITY_IS_LOCKED: the record is locked' } : {}),
+          })),
+        },
+      });
+      await expect(page.getByTestId('cdc-event-row-6')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('realtime-refused')).toBeVisible();
+      await expect(page.getByTestId('cdc-metric-throughput')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync conflicts tab with a change held for a decision', async ({ page }) => {
+      await openPanel(bridge, page, 'sync', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      for (const [replayId, recordId] of [
+        [201, '00Q000000000001AAA'],
+        [202, '00Q000000000002AAA'],
+      ] as const) {
+        await sendExtensionMessage(page, {
+          type: 'realtime:conflict',
+          id: `conflict-${replayId}`,
+          payload: {
+            replayId,
+            objectApiName: 'Lead',
+            recordIds: [recordId],
+            changeType: 'UPDATE',
+            sourceValues: { Title: 'Buyer', Company: 'Acme' },
+            targetValues: { Title: 'Head of purchasing', Company: 'Acme' },
+            targetLastModified: '2026-09-23T11:00:00.000Z',
+          },
+        });
+      }
+      await page.getByTestId('tab-conflicts').click();
+      await page.getByTestId('conflict-list-panel').waitFor({ timeout: 10_000 });
+      await page.getByTestId('data-table').locator('[data-testid^="table-row-"]').first().click();
+      await page.getByTestId('conflict-resolution-panel').waitFor({ timeout: 10_000 });
+      await page.getByTestId('pick-source-Title').click();
+
+      await expectReadable(page, theme);
+    });
+
     test('DataOps template editor over a rule whose method cannot run here', async ({ page }) => {
       await openPanel(bridge, page, 'dataops', theme);
       await bridge.seedOrgs(MOCK_ORGS);
