@@ -21,7 +21,10 @@ import {
   realtimeStartPayloadSchema,
   realtimeStopPayloadSchema,
 } from '../validatePayload.js';
-import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import {
+  connectionAnnouncing,
+  getJsforceConnection,
+} from '../../core/connection/ConnectionHelper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { describeCached } from '../../core/connection/describeCache.js';
@@ -128,13 +131,7 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
         // The same session, announcing itself: the org writes the client id
         // into every change event these writes cause (`changeOrigin`), which is
         // how a session knows its own writes when they come back.
-        const { jsforce } = await import('../../core/connection/jsforceEntry.js');
-        const connection = new jsforce.Connection({
-          instanceUrl: pooled.instanceUrl,
-          accessToken: pooled.accessToken ?? undefined,
-          version: pooled.version,
-          callOptions: { client: REALTIME_CLIENT_ID },
-        });
+        const connection = await connectionAnnouncing(pooled, REALTIME_CLIENT_ID);
         const writer = new BulkDataWriter({
           connection,
           bulkExecutor: new BulkApiExecutor(robustness.bulk.threshold),

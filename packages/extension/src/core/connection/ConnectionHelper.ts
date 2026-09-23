@@ -317,6 +317,33 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
 }
 
 /**
+ * A connection to a session another connection holds, that names itself as
+ * `client` in the call options of every call it makes. The org writes that
+ * name into the change events the calls cause (`changeOrigin`), which is how
+ * a real-time session tells its own writes from the source's.
+ *
+ * Built through the lazy boundary {@link getJsforceConnection} uses: the
+ * bundle keeps `./jsforceEntry.js` external only when it is imported from
+ * this directory by that name, and an import from anywhere else put all of
+ * jsforce back in the activation path.
+ *
+ * @param session - The instance, token and API version to reuse.
+ * @param client - The name the calls announce.
+ */
+export async function connectionAnnouncing(
+  session: { instanceUrl: string; accessToken?: string | null; version?: string },
+  client: string,
+): Promise<Connection> {
+  const { jsforce } = await import('./jsforceEntry.js');
+  return new jsforce.Connection({
+    instanceUrl: session.instanceUrl,
+    accessToken: session.accessToken ?? undefined,
+    version: session.version,
+    callOptions: { client },
+  });
+}
+
+/**
  * Create a jsforce Connection for a given org.
  *
  * 1. Reads credentials from OrgRegistry (SecretVault)

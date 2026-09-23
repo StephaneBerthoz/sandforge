@@ -5,6 +5,81 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.0] - 2026-09-23
+
+The last screens that said "coming soon" now do what they say. Compare
+deploys what differs, validated first. Sync replicates in real time from the
+change events a source org publishes. Pipelines start on a schedule and on
+a sandbox refresh. DataOps answers a data subject request and recommends
+what to clean up. Forge saves a run as a template and plans one from a
+prompt. You can sign in with a JWT or the device flow. And every path that
+writes to an org now refuses to run without its Production Guard.
+
+### Added
+
+- **Compare deploys what differs, validated first.** From a comparison, the
+  components new or changed in the source are retrieved from it and deployed
+  to the target — check-only first, with each component's status, the failed
+  tests with their lines and the deployment id. A real deployment takes only
+  a validation that passed, byte for byte, after the Production Guard is asked
+  again; a production target is refused. Profiles and permission sets, which
+  a retrieval alone does not carry whole, are marked as not deployable.
+  `sandforge-compare --validate` runs a validation from the command line.
+- **Real-time sync.** Sync's Real-Time tab subscribes to the Change Data
+  Capture channels of the objects the source publishes, lists the others with
+  the org's own refusal and where to enable them, and applies each change to
+  the target through Sync's write path — by external id, by record id or
+  through a saved configuration, deletes only when enabled. A target record
+  edited after the change was made is a conflict the chosen strategy settles,
+  or holds for a decision in the Conflicts tab. A session resumes where it
+  stopped and never re-applies its own writes.
+- **Pipelines start on a schedule, and on a sandbox refresh.** A schedule
+  runs at the times of its cron, in its time zone, while VS Code is open; a
+  start that fell due while it was closed is recorded as missed, never run
+  late. A refresh trigger starts its pipeline when SandForge notices the
+  chosen sandbox was refreshed. The windows of one machine share who makes
+  each start, so a pipeline runs once however many are open.
+- **Data subject requests and cleanup.** DataOps → Compliance lists which
+  fields hold personal data, confirmed on a stated sample; finds every record
+  that refers to one person by email, name or phone; exports them to a file;
+  and erases them — anonymized in place or deleted — after a review, a typed
+  confirmation and the Production Guard. DataOps → Cleanup recommends stale
+  records, children missing a parent most records have, and duplicates, and
+  deletes only what a scan recommended, after a dry run that counts what the
+  org would delete with them.
+- **Forge templates and plans from a prompt.** Save as template keeps a
+  run's configuration; the Template tab lists, applies, renames and deletes
+  them. The AI tab turns a prompt into the root object and query discovery
+  takes, checked against the org and its query planner, and never runs
+  without a click.
+- **Sign in with a JWT or the device flow.** A JWT sign-in hands the path of
+  the private key to the Salesforce CLI and never opens the file. The device
+  flow runs natively — the CLI no longer has it — and shows the code and the
+  page to approve it on.
+
+### Fixed
+
+- **Every write refuses without its Production Guard.** Seven write paths
+  skipped the guard when none was wired; they now refuse, as the Frozen load
+  did. Deployments, real-time sessions, erasures and cleanups are recorded in
+  the audit trail with the guard's decision.
+- **Autopilot keeps its links.** Objects of one wave were written in
+  parallel, so a child written before its parent lost the lookup: on a real
+  run no contact and no opportunity got its account. Cycles are written in
+  order and filled in a second pass; record types are matched by name; the
+  plan no longer copies setup and metadata objects as data. The same run now
+  writes 93 records and links 20, where it wrote 79 and linked 2.
+- **Sync's update and delete runs wrote nothing.** Records went out without
+  their id; they now carry it.
+- **A sandbox re-imported after a refresh keeps its entry**, instead of
+  getting a second one; a restore into an org that answers with another id
+  than the one backed up asks first; an unknown sandbox status no longer reads
+  as completed; a sandbox no longer shows production's creation date as its
+  own.
+- **Org pickers name each org by its type**, where every non-production org
+  read as a sandbox, and the anomaly scan and the failed-jobs count say the
+  bound they read within.
+
 ## [1.34.0] - 2026-09-23
 
 Six screens said "coming soon" in 1.33.0. Five of them now do what they

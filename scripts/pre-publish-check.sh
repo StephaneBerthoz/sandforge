@@ -287,15 +287,20 @@ fi
 # the extension. It is not an activation time and it has never been one —
 # nothing here starts an extension host. What it catches is the regression that
 # would lengthen activation: a heavy dependency finding its way back out of a
-# lazy chunk and into the entry point.
+# lazy chunk and into the entry point. The limit sits above the extension's own
+# code (about 1 180 kB in 1.35.0, after deployments, real-time sync, triggers
+# and compliance landed) and well below that code plus jsforce, which adds
+# about 1 300 kB; scripts/jsforce-lazy-boundary.test.mjs names the import that
+# would bring jsforce back before any build.
+BUNDLE_LIMIT_KB=1300
 if [[ -f "packages/extension/dist/extension.js" ]]; then
   BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
   BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
-  if (( BUNDLE_KB > 1100 )); then
-    echo "FAIL: Extension bundle ${BUNDLE_KB}KB > 1100KB — jsforce (or another heavy dep) is being bundled into the activation path again"
+  if (( BUNDLE_KB > BUNDLE_LIMIT_KB )); then
+    echo "FAIL: Extension bundle ${BUNDLE_KB}KB > ${BUNDLE_LIMIT_KB}KB — jsforce (or another heavy dep) is being bundled into the activation path again"
     ERRORS=$((ERRORS + 1))
   else
-    echo "PASS: Extension bundle ${BUNDLE_KB}KB (limit 1100KB)"
+    echo "PASS: Extension bundle ${BUNDLE_KB}KB (limit ${BUNDLE_LIMIT_KB}KB)"
   fi
 else
   echo "FAIL: packages/extension/dist/extension.js not found — run the build first"
