@@ -1230,8 +1230,10 @@ export class ForgeExecutor {
 
       // Reference-data branch: resolve source IDs against target rows by
       // Name/DeveloperName instead of cloning. Adds entries to the IdRemapper
-      // so downstream FKs pick up the correct target IDs naturally.
-      if (config.referenceDataObjects.has(node.objectApiName) && !config.dryRun) {
+      // so downstream FKs pick up the correct target IDs naturally. A dry run
+      // takes it too: it only reads the target, and skipped, the dry run
+      // listed as "would be inserted" rows a real run links.
+      if (config.referenceDataObjects.has(node.objectApiName)) {
         const refResolve = await state.referenceDataMapper.resolve(
           node.objectApiName,
           records,

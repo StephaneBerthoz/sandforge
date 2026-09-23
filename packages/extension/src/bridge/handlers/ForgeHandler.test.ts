@@ -1371,6 +1371,29 @@ describe('ForgeHandler', () => {
       expect(duplicateErrors()).toBe(0);
     });
 
+    it('lets the user re-run a run whose remap table holds only what it matched', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+
+      // The standard price book and a parent found in place are in the remap
+      // table, not in what the run created.
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(
+        createMockResult({
+          status: 'success',
+          idRemapCount: 2,
+          linkedExistingCount: 0,
+          createdCount: 0,
+        }),
+      );
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(createMockResult());
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(duplicateErrors()).toBe(0);
+    });
+
     it('holds an identical re-run for the cooldown after a run that wrote, then releases it', async () => {
       vi.useFakeTimers();
       const graph = createMockGraph();

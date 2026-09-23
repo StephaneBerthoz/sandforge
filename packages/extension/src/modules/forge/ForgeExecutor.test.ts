@@ -2628,6 +2628,28 @@ describe('ForgeExecutor', () => {
       expect(summary.createdByObject).toEqual([]);
     });
 
+    it('finds reference data by name in a dry run too, as linked and not to be inserted', async () => {
+      const SOURCE_HOURS = '01m000000000001SRC';
+      const TARGET_HOURS = '01m000000000001AAA';
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt'
+          ? [{ Id: TARGET_HOURS, Name: 'Default' }]
+          : [{ Id: SOURCE_HOURS, Name: 'Default' }],
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('BusinessHours')]),
+        'src',
+        'tgt',
+        onProgress,
+        { dryRun: true },
+      );
+
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(summary.wouldInsertCount ?? 0).toBe(0);
+      expect(summary.linkedCount).toBe(1);
+    });
+
     it('names the standard price book among the records the target already held', async () => {
       const SOURCE_BOOK = '01s000000000001SRC';
       const TARGET_BOOK = '01s000000000001AAA';
