@@ -156,6 +156,8 @@
     "anomalyScanObjectNameInvalid": "Não é um nome de API de objeto: começa com uma letra e depois leva só letras, dígitos e sublinhados, no máximo 80 caracteres.",
     "anomaliesFound": "Anomalias encontradas",
     "noAnomalies": "Nenhuma anomalia encontrada em {{object}}",
+    "anomalyScanSample_one": "{{count}} registro verificado; uma varredura lê no máximo {{limit}}.",
+    "anomalyScanSample_other": "{{count}} registros verificados; uma varredura lê no máximo {{limit}}.",
     "anomalyScanFailed": "A varredura de anomalias falhou",
     "governorLimits": "Limites de governor",
     "noLimits": "Nenhum dado de limites disponível",
@@ -254,6 +256,8 @@
       "apiLimits": "Limites de API",
       "storage": "Armazenamento",
       "failedJobs": "Jobs com falha",
+      "failedJobsOutOf_one": "do último job",
+      "failedJobsOutOf_other": "dos {{count}} últimos jobs",
       "recentErrorLogs": "Logs de erro recentes",
       "lastChecked": "Última verificação",
       "overall": {

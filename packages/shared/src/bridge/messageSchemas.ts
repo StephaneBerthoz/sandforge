@@ -479,7 +479,7 @@ export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);
 
 /**
  * Full bridge message surface — one flattened discriminated union over every
- * domain array (370 literals, O(1) dispatch at the boundary).
+ * domain array (O(1) dispatch at the boundary).
  *
  * Use `BridgeMessageSchema.safeParse(raw)` at the message boundary to validate
  * any inbound payload. Members whose shape isn't strictly known yet still pass

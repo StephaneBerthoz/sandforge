@@ -5,11 +5,15 @@ import type {
   ComplianceProfile,
   AutopilotAnonymizationRule,
   AutopilotRefusal,
-  GuardDecision,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
-import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
+import {
+  buildResponse,
+  sendNotification,
+  sendHandlerError,
+  PRODUCTION_GUARD_MISSING,
+} from './HandlerTypes.js';
 import {
   validatePayload,
   autopilotScanSchemaPayloadSchema,
@@ -300,59 +304,56 @@ export class AutopilotHandler implements DomainHandler {
     // this handler via infraServices (same wiring as SyncOpsHandler). The
     // tier is resolved from the target org captured at scan time (the
     // execute payload carries no org id — fixed message protocol). Covers
-    // every insert below: executePlan is the only path that writes.
-    let guardDecision: GuardDecision | undefined;
-    if (this.deps.infraServices?.productionGuard) {
-      const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
-      const guardRequest = {
-        orgId: operation.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-        operation: 'insert' as const,
-        objectName: plan.waves[0]?.objects[0] ?? 'AutopilotData',
-        recordCount: Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0),
-        module: 'autopilot',
-      };
-      const { check, decision } = await consultProductionGuard(
-        this.deps.infraServices.productionGuard,
-        guardRequest,
+    // every insert below: executePlan is the only path that writes. Without
+    // the guard nothing is written.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      sendHandlerError(
+        this.deps,
+        'autopilot:execute',
+        'autopilot:error',
+        msg,
+        new Error(PRODUCTION_GUARD_MISSING.message),
+        { code: PRODUCTION_GUARD_MISSING.code },
       );
-      guardDecision = decision;
-      if (decision === 'refused' || decision === 'declined') {
-        recordWriteRun(this.deps, {
-          action: 'autopilot_execute',
-          module: 'autopilot',
-          operationId: msg.id,
-          orgId: operation.targetOrgId,
-          outcome: 'stopped',
-          guard: decision,
-        });
-      }
-      if (decision === 'refused') {
-        const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-        sendHandlerError(
-          this.deps,
-          'autopilot:execute',
-          'autopilot:error',
-          msg,
-          new Error(message),
-        );
-        sendNotification(this.deps, 'error', 'Autopilot', message);
-        return;
-      }
-      // `safety.requireProdConfirmation`: explicit user consent before
-      // writing to a production org.
-      if (decision === 'declined') {
-        const message = 'Operation cancelled by user (production confirmation declined).';
-        sendHandlerError(
-          this.deps,
-          'autopilot:execute',
-          'autopilot:error',
-          msg,
-          new Error(message),
-        );
-        sendNotification(this.deps, 'error', 'Autopilot', message);
-        return;
-      }
+      sendNotification(this.deps, 'error', 'Autopilot', PRODUCTION_GUARD_MISSING.message);
+      return;
+    }
+    const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
+    const guardRequest = {
+      orgId: operation.targetOrgId,
+      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      operation: 'insert' as const,
+      objectName: plan.waves[0]?.objects[0] ?? 'AutopilotData',
+      recordCount: Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0),
+      module: 'autopilot',
+    };
+    const { check, decision } = await consultProductionGuard(guard, guardRequest);
+    // What the run carries to the audit trail when it ends.
+    const guardDecision = decision;
+    if (decision === 'refused' || decision === 'declined') {
+      recordWriteRun(this.deps, {
+        action: 'autopilot_execute',
+        module: 'autopilot',
+        operationId: msg.id,
+        orgId: operation.targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+      });
+    }
+    if (decision === 'refused') {
+      const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message));
+      sendNotification(this.deps, 'error', 'Autopilot', message);
+      return;
+    }
+    // `safety.requireProdConfirmation`: explicit user consent before
+    // writing to a production org.
+    if (decision === 'declined') {
+      const message = 'Operation cancelled by user (production confirmation declined).';
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message));
+      sendNotification(this.deps, 'error', 'Autopilot', message);
+      return;
     }
 
     this.executingOperations.add(operation.id);

@@ -9,6 +9,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
@@ -58,6 +59,11 @@ function createMockDeps(): HandlerDeps {
       ...DEFAULT_ROBUSTNESS_CONFIG,
       retry: { ...DEFAULT_ROBUSTNESS_CONFIG.retry, maxRetries: 0 },
     },
+    // A seed refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }

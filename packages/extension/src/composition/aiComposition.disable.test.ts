@@ -20,6 +20,7 @@ vi.mock('../core/connection/ConnectionHelper.js', () => ({
 
 vi.mock('../core/common/soqlQueryHelper.js', () => ({
   queryWithFieldsFallback: vi.fn(),
+  queryWithFieldsFallbackBounded: vi.fn(),
 }));
 
 import { initAIComposition } from './aiComposition';
@@ -27,11 +28,11 @@ import type { AICompositionDeps } from './aiComposition';
 import { AIHandler } from '../bridge/handlers/AIHandler.js';
 import type { HandlerDeps, InboundRequest } from '../bridge/handlers/HandlerTypes.js';
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
-import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper.js';
+import { queryWithFieldsFallbackBounded } from '../core/common/soqlQueryHelper.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
-const mockQuery = vi.mocked(queryWithFieldsFallback);
+const mockQuery = vi.mocked(queryWithFieldsFallbackBounded);
 
 /** Minimal in-memory ConfigStore. */
 function createConfigStore(): HandlerDeps['configStore'] {
@@ -157,7 +158,7 @@ describe('initAIComposition — turning AI off mid-session', () => {
       }),
       describeGlobal: vi.fn().mockResolvedValue({ sobjects: [{ name: 'Account', label: 'Acc' }] }),
     } as never);
-    mockQuery.mockResolvedValue([{ Id: '001', Name: 'Acme' }]);
+    mockQuery.mockResolvedValue({ records: [{ Id: '001', Name: 'Acme' }], limit: 500 });
   });
 
   it('stops ai:chat from reaching the model once AI is turned off', async () => {

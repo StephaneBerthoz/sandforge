@@ -293,6 +293,23 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('sync-step-orgs')).toBeDefined();
   });
 
+  it('offers each org under the type the org badges give it, a scratch org as one', () => {
+    // Every org but a production one used to be offered as [SBX].
+    const scratch: SalesforceOrg = {
+      ...mockOrgs[1],
+      id: 'org-3',
+      alias: 'feature',
+      orgType: 'Scratch',
+    };
+    useOrgStore.setState({ orgs: [...mockOrgs, scratch] });
+    render(<SyncPage />);
+
+    const step = screen.getByTestId('sync-step-orgs');
+    const labels = Array.from(step.querySelectorAll('option')).map((o) => o.textContent);
+    expect(labels).toEqual(expect.arrayContaining(['dev1 [SANDBOX]', 'feature [SCRATCH]']));
+    expect(labels.some((label) => label?.includes('[SBX]'))).toBe(false);
+  });
+
   it('should disable next when no orgs selected', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);

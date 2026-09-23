@@ -151,6 +151,7 @@
     "anomalyScanObjectNameInvalid": "オブジェクトの API 参照名ではありません。先頭は英字で、その後は英字・数字・アンダースコアのみ、80 文字以内で入力してください。",
     "anomaliesFound": "検出された異常",
     "noAnomalies": "{{object}} に異常は見つかりませんでした",
+    "anomalyScanSample_other": "{{count}} 件のレコードをスキャンしました。1 回のスキャンで読み込むのは最大 {{limit}} 件です。",
     "anomalyScanFailed": "異常スキャンに失敗しました",
     "governorLimits": "ガバナ制限",
     "noLimits": "制限データがありません",
@@ -247,6 +248,7 @@
       "apiLimits": "API 制限",
       "storage": "ストレージ",
       "failedJobs": "失敗したジョブ",
+      "failedJobsOutOf_other": "直近 {{count}} 件のジョブ中",
       "recentErrorLogs": "最近のエラーログ",
       "lastChecked": "最終確認",
       "overall": {

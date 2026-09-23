@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../../stores/useOrgStore';
 import { Select } from '../../../components/ui/Select';
 import { OrgBadge } from '../../../components/ui/OrgBadge';
+import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { Button } from '../../../components/ui/Button';
 
 /** Props for the QuickSyncOrgStep component. */
@@ -40,7 +41,7 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
 
   const orgOptions = orgs.map((org) => ({
     value: org.id,
-    label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+    label: orgOptionLabel(org, t),
   }));
 
   const sourceOrg = orgs.find((o) => o.id === sourceOrgId);

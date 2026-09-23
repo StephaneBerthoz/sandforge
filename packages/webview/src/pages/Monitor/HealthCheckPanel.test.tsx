@@ -52,6 +52,29 @@ describe('HealthCheckPanel', () => {
     expect(screen.getByText('5')).toBeDefined();
     expect(screen.getByText('3')).toBeDefined();
   });
+
+  it('says how many of the latest jobs the failed ones were counted among', () => {
+    // A bare "3" read as the org's total: the refresh reads the latest jobs only.
+    render(
+      <HealthCheckPanel
+        orgHealthStatus={createHealthStatus({ failedJobs: 3, failedJobsOutOf: 50 })}
+      />,
+    );
+
+    expect(screen.getByTestId('health-failed-jobs-out-of').textContent).toBe(
+      'of the 50 latest jobs',
+    );
+  });
+
+  it('gives no window for failed jobs that could not be read', () => {
+    render(
+      <HealthCheckPanel
+        orgHealthStatus={createHealthStatus({ failedJobs: null, failedJobsOutOf: null })}
+      />,
+    );
+
+    expect(screen.queryByTestId('health-failed-jobs-out-of')).toBeNull();
+  });
 });
 
 describe('HealthCheckPanel — what could not be read', () => {

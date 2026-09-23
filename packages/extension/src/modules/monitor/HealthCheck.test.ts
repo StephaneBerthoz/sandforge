@@ -100,6 +100,21 @@ describe('HealthCheck', () => {
       expect(result.recentErrorLogs).toBe(4);
     });
 
+    it('carries the number of jobs the failed ones were counted among', async () => {
+      const providers: HealthSignalProvider[] = [
+        vi
+          .fn()
+          .mockResolvedValue(
+            createSignal({ name: 'activeJobs', score: 90, status: 'warning', count: 1, outOf: 50 }),
+          ),
+      ];
+
+      const result = await new HealthCheck(providers).computeHealth('org-1');
+
+      expect(result.failedJobs).toBe(1);
+      expect(result.failedJobsOutOf).toBe(50);
+    });
+
     it('reports no count for a signal whose data could not be read', async () => {
       // None read is not zero found.
       const providers: HealthSignalProvider[] = [

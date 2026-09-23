@@ -22,6 +22,7 @@ import {
   objectsFailureContext,
   robustnessConfigOf,
   bulkManagerOf,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -316,43 +317,49 @@ export class SeedCloneHandler implements DomainHandler {
     const upserts = Boolean(parsed.upsert && parsed.externalIdField);
 
     try {
-      // Production guard check on target org (mirror SyncOpsHandler).
-      if (this.deps.infraServices?.productionGuard) {
-        const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
-        const guardRequest = {
-          orgId: parsed.targetOrgId,
-          orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-          operation: (parsed.upsert ? 'upsert' : 'insert') as 'upsert' | 'insert',
-          // Every object the run will write, not just the first one: a
-          // production confirmation naming one object hid the rest of them.
-          objectName: parsed.objects.map((o) => o.objectApiName).join(', ') || 'CloneData',
-          // The source records are queried further down, so nothing here can
-          // count them yet.
-          recordCount: 'unknown' as const,
-          module: 'clone',
-        };
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          guardRequest,
-        );
-        run.guard = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
-        }
-        if (decision === 'refused') {
-          throw new Error(`${GUARD_BLOCKED_PREFIX}${check.blockedReason ?? check.impactSummary}`);
-        }
-        if (decision === 'declined') {
-          const declined = 'Operation cancelled by user (production confirmation declined).';
-          sendOperationFailed(this.deps, operationId, declined, false, {
-            context: failure,
-            extraPayload: { code: CLONE_FAILURE_CODES.confirmationDeclined },
-          });
-          // Registered before the question was asked: left unsettled, the
-          // clone stayed listed as running for the rest of the session.
-          settle(new Error(declined));
-          return;
-        }
+      // Production guard check on target org (mirror SyncOpsHandler), and no
+      // clone without it.
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
+          context: failure,
+          extraPayload: { code: PRODUCTION_GUARD_MISSING.code },
+        });
+        // Registered already, like a declined run: settled, or it stays listed.
+        settle(new Error(PRODUCTION_GUARD_MISSING.message));
+        return;
+      }
+      const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
+      const guardRequest = {
+        orgId: parsed.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: (parsed.upsert ? 'upsert' : 'insert') as 'upsert' | 'insert',
+        // Every object the run will write, not just the first one: a
+        // production confirmation naming one object hid the rest of them.
+        objectName: parsed.objects.map((o) => o.objectApiName).join(', ') || 'CloneData',
+        // The source records are queried further down, so nothing here can
+        // count them yet.
+        recordCount: 'unknown' as const,
+        module: 'clone',
+      };
+      const { check, decision } = await consultProductionGuard(guard, guardRequest);
+      run.guard = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+      }
+      if (decision === 'refused') {
+        throw new Error(`${GUARD_BLOCKED_PREFIX}${check.blockedReason ?? check.impactSummary}`);
+      }
+      if (decision === 'declined') {
+        const declined = 'Operation cancelled by user (production confirmation declined).';
+        sendOperationFailed(this.deps, operationId, declined, false, {
+          context: failure,
+          extraPayload: { code: CLONE_FAILURE_CODES.confirmationDeclined },
+        });
+        // Registered before the question was asked: left unsettled, the
+        // clone stayed listed as running for the rest of the session.
+        settle(new Error(declined));
+        return;
       }
 
       const sourceConn = await getJsforceConnection(

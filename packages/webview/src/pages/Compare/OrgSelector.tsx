@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { Select } from '../../components/ui/Select';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 
 /** OrgSelector component props. */
 export interface OrgSelectorProps {
@@ -11,16 +12,6 @@ export interface OrgSelectorProps {
   onSourceChange: (orgId: string) => void;
   onTargetChange: (orgId: string) => void;
   className?: string;
-}
-
-/**
- * Format org label with type badge. Shared with the Automation step panel, so
- * a step's org reads as the Compare page names it.
- */
-export function formatOrgLabel(org: SalesforceOrg): string {
-  const name = org.alias || org.username;
-  const type = String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]';
-  return `${name} ${type}`;
 }
 
 /** Side-by-side org selectors for source and target. */
@@ -35,7 +26,7 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
   const { t } = useTranslation();
   const options = orgs.map((org) => ({
     value: org.id,
-    label: formatOrgLabel(org),
+    label: orgOptionLabel(org, t),
   }));
 
   const sameOrg = sourceOrgId && targetOrgId && sourceOrgId === targetOrgId;

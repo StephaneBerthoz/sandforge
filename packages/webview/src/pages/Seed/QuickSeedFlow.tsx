@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 import { Step7Execute } from './Step7_Execute';
 import type { QuickSeedState } from './useQuickSeed';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -65,7 +66,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   label={t('seed.quickSeed.selectOrg')}
                   options={orgs.map((org) => ({
                     value: org.id,
-                    label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+                    label: orgOptionLabel(org, t),
                   }))}
                   value={quickSeed.selectedOrgId}
                   onChange={(e) => quickSeed.selectOrg(e.target.value)}

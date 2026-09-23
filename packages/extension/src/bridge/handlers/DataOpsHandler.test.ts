@@ -44,6 +44,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A restore or a masking run refuses to write without a Production Guard,
+    // and the extension always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -416,6 +421,31 @@ describe('DataOpsHandler', () => {
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
 
+    it('refuses a masking run with NOT_INITIALIZED, and opens no connection, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and mask on.
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockClear();
+      deps.infraServices = undefined;
+
+      await handler.handle(
+        inboundRequest({
+          id: 'msg-a5',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-prod', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+      const errors = postedMessages().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        correlationId: 'msg-a5',
+        payload: { code: 'NOT_INITIALIZED' },
+      });
+      expect(postedMessages().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
     it('asks before masking an org the registry does not know, and opens no connection when declined', async () => {
       // A real guard, and getOrg left unstubbed: nothing shows 'org-unknown'
       // is a sandbox. It was classed as development, so the masking started
@@ -777,15 +807,20 @@ describe('DataOpsHandler', () => {
       return { upsert, describe: describeFn };
     }
 
-    /** ConfigStore stub holding one backup (meta + records) for `metaOrgId`. */
+    /**
+     * ConfigStore stub holding one backup (meta + records) for `metaOrgId`,
+     * taken from the org `organizationId` names when one is given.
+     */
     function configStoreWithBackup(
       metaOrgId: string,
       records: Record<string, unknown>[] = [backedUpRecord],
+      organizationId?: string,
     ): HandlerDeps['configStore'] {
       const entries: Record<string, unknown> = {
         'backup:bk-1': {
           operationId: 'bk-1',
           orgId: metaOrgId,
+          ...(organizationId !== undefined ? { organizationId } : {}),
           objects: [{ objectApiName: 'Account', recordCount: records.length }],
           totalRecords: records.length,
         },
@@ -858,6 +893,139 @@ describe('DataOpsHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('was taken from org org-B');
       expect(errors[0].payload.message).toContain('cannot be restored into org org-A');
+    });
+
+    describe('into an org a refresh replaced since the backup', () => {
+      // Org ids in the shape `Organization.Id` answers with: 18 characters.
+      const BACKED_UP_FROM = '00DXX00000AbCdE2A1';
+      const REFRESHED_INTO = '00Dxx00000FgHiJ3B2';
+
+      /** A connection to an org that answers as `organizationId`, its upserts observable. */
+      async function orgAnsweringAs(organizationId: string): Promise<ReturnType<typeof vi.fn>> {
+        const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+        const query = vi.fn(async (soql: string) =>
+          soql === 'SELECT Id FROM Organization'
+            ? { records: [{ Id: organizationId }] }
+            : { records: [] },
+        );
+        const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: vi.fn().mockResolvedValue(accountDescribe),
+          sobject: vi.fn(() => ({ upsert })),
+          query,
+        } as never);
+        return upsert;
+      }
+
+      /** Wire a restore confirmation answering `answer`, beside the guard. */
+      function confirmation(answer: boolean): ReturnType<typeof vi.fn> {
+        const ask = vi.fn().mockResolvedValue(answer);
+        deps.infraServices = {
+          productionGuard: new ProductionGuard(),
+          confirmRestoreIntoReplacedOrg: ask,
+        } as unknown as NonNullable<HandlerDeps['infraServices']>;
+        return ask;
+      }
+
+      beforeEach(() => {
+        (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+          alias: 'uat',
+          orgType: 'Sandbox',
+        });
+      });
+
+      it('asks before restoring, naming both orgs, and writes nothing when declined', async () => {
+        const upsert = await orgAnsweringAs(REFRESHED_INTO);
+        deps.configStore = configStoreWithBackup('org-A', [backedUpRecord], BACKED_UP_FROM);
+        const ask = confirmation(false);
+
+        await handler.handle(rollbackMsg('org-A'));
+
+        expect(ask).toHaveBeenCalledWith({
+          alias: 'uat',
+          backedUpFrom: BACKED_UP_FROM,
+          now: REFRESHED_INTO,
+        });
+        expect(upsert).not.toHaveBeenCalled();
+        const errors = posted().filter((m) => m.type === 'dataops:error');
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toMatchObject({
+          correlationId: 'msg-rb',
+          payload: { code: 'ORG_REPLACED_SINCE_BACKUP' },
+        });
+        expect(errors[0].payload.message).toContain(`answers as org ${REFRESHED_INTO}`);
+      });
+
+      it('restores into the org it is now once the user says to', async () => {
+        const upsert = await orgAnsweringAs(REFRESHED_INTO);
+        deps.configStore = configStoreWithBackup('org-A', [backedUpRecord], BACKED_UP_FROM);
+        const ask = confirmation(true);
+
+        await handler.handle(rollbackMsg('org-A'));
+
+        expect(ask).toHaveBeenCalledTimes(1);
+        expect(upsert).toHaveBeenCalledTimes(1);
+        expect(posted().filter((m) => m.type === 'dataops:rollback:response')).toHaveLength(1);
+      });
+
+      it('refuses, writing nothing, when nothing can ask', async () => {
+        const upsert = await orgAnsweringAs(REFRESHED_INTO);
+        deps.configStore = configStoreWithBackup('org-A', [backedUpRecord], BACKED_UP_FROM);
+
+        await handler.handle(rollbackMsg('org-A'));
+
+        expect(upsert).not.toHaveBeenCalled();
+        const errors = posted().filter((m) => m.type === 'dataops:error');
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toMatchObject({ payload: { code: 'ORG_REPLACED_SINCE_BACKUP' } });
+      });
+
+      it('does not ask when the org answers as the one the backup recorded, in either id form', async () => {
+        const upsert = await orgAnsweringAs(BACKED_UP_FROM);
+        deps.configStore = configStoreWithBackup(
+          'org-A',
+          [backedUpRecord],
+          BACKED_UP_FROM.slice(0, 15),
+        );
+        const ask = confirmation(false);
+
+        await handler.handle(rollbackMsg('org-A'));
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(upsert).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not ask about a backup taken before the org id was recorded', async () => {
+        const upsert = await orgAnsweringAs(REFRESHED_INTO);
+        deps.configStore = configStoreWithBackup('org-A');
+        const ask = confirmation(false);
+
+        await handler.handle(rollbackMsg('org-A'));
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(upsert).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('refuses a restore with NOT_INITIALIZED, writing nothing, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and restore on.
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-prod');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Production',
+      });
+      deps.infraServices = undefined;
+
+      await handler.handle(rollbackMsg('org-prod'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        correlationId: 'msg-rb',
+        payload: { code: 'NOT_INITIALIZED' },
+      });
+      expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
 
     it('blocks a rollback the Production Guard refuses', async () => {
@@ -1254,16 +1422,87 @@ describe('DataOpsHandler', () => {
         } as BaseMessage),
       );
 
-      // One describe + one query per object: no rejected first attempt.
-      expect(conn.query).toHaveBeenCalledTimes(1);
-      expect(conn.query.mock.calls[0][0]).toBe(
+      // One describe + one query per object: no rejected first attempt. The
+      // one other query asks which org the records came from.
+      expect(conn.query.mock.calls.map(([soql]) => soql)).toEqual([
         'SELECT Id, Name, Custom__c FROM Account LIMIT 2000',
-      );
+        'SELECT Id FROM Organization',
+      ]);
       expect(conn.describe).toHaveBeenCalledTimes(1);
       // The LIMIT and the columns are unchanged, so the snapshot is the same.
       expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
       const response = posted().find((m) => m.type === 'dataops:backup:response');
       expect(response?.payload.totalRecords).toBe(1);
+    });
+
+    it('records in the backup the org id the org answered with, for a restore to compare', async () => {
+      const query = vi.fn(async (soql: string) =>
+        soql === 'SELECT Id FROM Organization'
+          ? { records: [{ Id: '00DXX00000AbCdE2A1' }], done: true }
+          : { records: [{ Id: '001', Name: 'Acme' }], done: true },
+      );
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query,
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
+      } as never);
+      const set = vi.fn();
+      deps.configStore = {
+        get: vi.fn(() => undefined),
+        set,
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-org-id',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(set).toHaveBeenCalledWith(
+        'backup:bk-org-id',
+        expect.objectContaining({ orgId: 'org-1', organizationId: '00DXX00000AbCdE2A1' }),
+        'backups',
+      );
+    });
+
+    it('takes the backup without an org id when the org does not say which org it is', async () => {
+      const query = vi.fn(async (soql: string) => {
+        if (soql === 'SELECT Id FROM Organization') throw new Error('INSUFFICIENT_ACCESS');
+        return { records: [{ Id: '001', Name: 'Acme' }], done: true };
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query,
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
+      } as never);
+      const set = vi.fn();
+      deps.configStore = {
+        get: vi.fn(() => undefined),
+        set,
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-no-org-id',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      const meta = set.mock.calls.find(([key]) => key === 'backup:bk-no-org-id')?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(meta).toMatchObject({ orgId: 'org-1', totalRecords: 1 });
+      expect(meta).not.toHaveProperty('organizationId');
+      expect(posted().filter((m) => m.type === 'dataops:backup:response')).toHaveLength(1);
     });
 
     it('anonymize reads its records with the same first-attempt query', async () => {

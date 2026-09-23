@@ -126,6 +126,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A run refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -247,9 +252,7 @@ describe('SyncOpsHandler', () => {
         } as unknown as HandlerDeps['infraServices'] extends undefined
           ? never
           : NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
-        productionGuard: undefined as unknown as NonNullable<
-          HandlerDeps['infraServices']
-        >['productionGuard'],
+        productionGuard: new ProductionGuard(),
         offlineManager: undefined as unknown as NonNullable<
           HandlerDeps['infraServices']
         >['offlineManager'],
@@ -293,9 +296,7 @@ describe('SyncOpsHandler', () => {
           start: mockStart,
           complete: mockComplete,
         } as unknown as NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
-        productionGuard: undefined as unknown as NonNullable<
-          HandlerDeps['infraServices']
-        >['productionGuard'],
+        productionGuard: new ProductionGuard(),
         offlineManager: undefined as unknown as NonNullable<
           HandlerDeps['infraServices']
         >['offlineManager'],
@@ -1150,7 +1151,7 @@ describe('SyncOpsHandler', () => {
       const offlineManager = new OfflineManager(deps.configStore);
       deps.infraServices = {
         performanceTracker: undefined,
-        productionGuard: undefined,
+        productionGuard: new ProductionGuard(),
         offlineManager,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -1291,6 +1292,47 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
     }
+
+    it('refuses a run with NOT_INITIALIZED, opening no connection, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and sync on.
+      deps.infraServices = undefined;
+      mockTargetOrgType('Production');
+      mockWorkingConnection();
+
+      await handler.handle(
+        inboundRequest({
+          id: 'sync-no-guard',
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        }),
+      );
+
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { code?: string } },
+      );
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0]).toMatchObject({
+        correlationId: 'sync-no-guard',
+        payload: { code: 'NOT_INITIALIZED' },
+      });
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('rejects a scheduled run, opening no connection, when no Production Guard was injected', async () => {
+      deps.infraServices = undefined;
+      mockTargetOrgType('Production');
+      mockWorkingConnection();
+
+      await expect(
+        handler.executeScheduled(
+          validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+        ),
+      ).rejects.toThrow(/^Production Guard is not initialized/);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
 
     it('blocks a delete-mode sync to a production org', async () => {
       wireRealGuard();
@@ -1567,6 +1609,10 @@ describe('SyncOpsHandler', () => {
     });
 
     it('records a finished sync once, each object in the column of its operation', async () => {
+      // A sandbox target: the guard refuses a delete on an org it cannot type.
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
       mockWorkingConnection();
       orchestratorAnswers({
         status: 'partial',

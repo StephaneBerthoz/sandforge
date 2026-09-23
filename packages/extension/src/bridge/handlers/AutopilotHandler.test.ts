@@ -34,6 +34,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // An execution refuses to write without a Production Guard, and the
+    // extension always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -723,6 +728,8 @@ describe('AutopilotHandler', () => {
           payload: { grappeThreshold: 0 },
         } as BaseMessage),
       );
+      // The run is in flight once the Production Guard has answered.
+      await vi.waitFor(() => expect(orchestrator.executePlan).toHaveBeenCalled());
 
       await handler.handle(
         inboundRequest({
@@ -989,6 +996,27 @@ describe('AutopilotHandler', () => {
       expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
       const completed = postedMessages(deps).find((m) => m.type === 'autopilot:completed');
       expect(completed).toBeDefined();
+    });
+
+    it('refuses with NOT_INITIALIZED and inserts nothing when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and run the plan,
+      // on a production target as on any other.
+      deps.infraServices = undefined;
+      mockTargetOrgType('Production');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        correlationId: 'exec-guard',
+        payload: { code: 'NOT_INITIALIZED' },
+      });
     });
 
     it('blocks the execution when the guard refuses — no insert, actionable autopilot:error', async () => {

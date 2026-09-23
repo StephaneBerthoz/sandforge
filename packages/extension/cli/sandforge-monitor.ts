@@ -222,7 +222,12 @@ function describePayload(op: Operation, p: Record<string, unknown>, orgId: strin
         health
           ? `  health check: ${String(health.overall)}; api ${String(health.apiLimitsStatus)}, storage ${String(
               health.storageStatus,
-            )}, failed jobs ${String(health.failedJobs)}, recent error logs ${String(health.recentErrorLogs)}`
+            )}, failed jobs ${String(health.failedJobs)}${
+              // Counted among the latest jobs only, as the page says.
+              typeof health.failedJobsOutOf === 'number'
+                ? ` of the ${health.failedJobsOutOf} latest`
+                : ''
+            }, recent error logs ${String(health.recentErrorLogs)}`
           : '  health check: none sent',
         `  trends: ${someOf(
           Object.entries(trends).map(

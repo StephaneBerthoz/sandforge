@@ -152,6 +152,30 @@ describe('describeAnswer', () => {
     expect(complete).toBe('  3 session(s), 2 active user(s)');
   });
 
+  it('says how many of the latest jobs the failed ones were counted among, as the page does', () => {
+    const lines = describeAnswer(
+      'monitor:refresh',
+      'refresh',
+      answered('monitor:data', {
+        healthScore: 90,
+        limits: [],
+        jobs: [],
+        orgHealthStatus: {
+          overall: 'healthy',
+          apiLimitsStatus: 'ok',
+          storageStatus: 'ok',
+          failedJobs: 2,
+          failedJobsOutOf: 50,
+          recentErrorLogs: 0,
+        },
+      }),
+    );
+
+    expect(lines.find((line) => line.includes('health check'))).toContain(
+      'failed jobs 2 of the 50 latest, recent error logs 0',
+    );
+  });
+
   it('says how many counted objects the storage list stops short of', () => {
     const [, head] = describeAnswer(
       'monitor:storage',

@@ -31,6 +31,7 @@ import {
   robustnessConfigOf,
   bulkManagerOf,
   syntheticRequest,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -655,25 +656,28 @@ export class SyncOpsHandler implements DomainHandler {
     } as unknown as SyncConfig;
 
     // Production guard on target org — same policy as manual runs. A blocked
-    // or declined run rejects so the scheduler marks the schedule as failed.
-    let guardDecision: GuardDecision | undefined;
-    if (this.deps.infraServices?.productionGuard) {
-      const { check, decision } = await consultProductionGuard(
-        this.deps.infraServices.productionGuard,
-        this.buildGuardRequest(filledConfig),
+    // or declined run rejects so the scheduler marks the schedule as failed,
+    // and so does a run with no guard to pass.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      throw new Error(PRODUCTION_GUARD_MISSING.message);
+    }
+    const { check, decision } = await consultProductionGuard(
+      guard,
+      this.buildGuardRequest(filledConfig),
+    );
+    // What the run carries to the audit trail when it ends.
+    const guardDecision = decision;
+    if (decision === 'refused' || decision === 'declined') {
+      this.recordStopped(operationId, filledConfig.targetOrgId, decision);
+    }
+    if (decision === 'refused') {
+      throw new Error(
+        `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
       );
-      guardDecision = decision;
-      if (decision === 'refused' || decision === 'declined') {
-        this.recordStopped(operationId, filledConfig.targetOrgId, decision);
-      }
-      if (decision === 'refused') {
-        throw new Error(
-          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-        );
-      }
-      if (decision === 'declined') {
-        throw new Error('Scheduled sync cancelled (production confirmation declined).');
-      }
+    }
+    if (decision === 'declined') {
+      throw new Error('Scheduled sync cancelled (production confirmation declined).');
     }
 
     this.dmlTracker.register(operationId, 'sync', 'upsert', filledConfig.objects?.length ?? 0);
@@ -734,36 +738,50 @@ export class SyncOpsHandler implements DomainHandler {
       } as unknown as import('@sandforge/shared').SyncConfig;
       Object.assign(failure, objectsFailureContext(config.objects));
 
-      // Production guard check on target org
-      let guardDecision: GuardDecision | undefined;
-      if (this.deps.infraServices?.productionGuard) {
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          this.buildGuardRequest(config),
+      // Production guard check on target org. No write without it: a guard
+      // that was never injected refuses the run.
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        sendHandlerError(
+          this.deps,
+          'sync:execute',
+          'sync:error',
+          msg,
+          new Error(PRODUCTION_GUARD_MISSING.message),
+          { code: PRODUCTION_GUARD_MISSING.code },
         );
-        guardDecision = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          this.recordStopped(operationId, config.targetOrgId, decision);
-        }
-        if (decision === 'refused') {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
-        }
-        // `safety.requireProdConfirmation`: explicit user consent before
-        // writing to a production org.
-        if (decision === 'declined') {
-          const message = 'Operation cancelled by user (production confirmation declined).';
-          // Settle the in-flight useBridgeMutation listener on sync:error
-          // (same dual-channel contract as the catch paths below). Stable
-          // code, same as seed's decline path — this prose is SandForge's own,
-          // not a pass-through Salesforce error.
-          sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
-            code: 'PROD_CONFIRMATION_DECLINED',
-          });
-          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
-          return;
-        }
+        sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
+          context: failure,
+        });
+        return;
+      }
+      const { check, decision } = await consultProductionGuard(
+        guard,
+        this.buildGuardRequest(config),
+      );
+      // What the run carries to the audit trail when it ends.
+      const guardDecision = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        this.recordStopped(operationId, config.targetOrgId, decision);
+      }
+      if (decision === 'refused') {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        );
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      if (decision === 'declined') {
+        const message = 'Operation cancelled by user (production confirmation declined).';
+        // Settle the in-flight useBridgeMutation listener on sync:error
+        // (same dual-channel contract as the catch paths below). Stable
+        // code, same as seed's decline path — this prose is SandForge's own,
+        // not a pass-through Salesforce error.
+        sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
+          code: 'PROD_CONFIRMATION_DECLINED',
+        });
+        sendOperationFailed(this.deps, operationId, message, false, { context: failure });
+        return;
       }
 
       // Check for duplicate operation

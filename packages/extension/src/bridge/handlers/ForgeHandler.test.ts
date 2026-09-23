@@ -167,6 +167,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A run refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -819,9 +824,10 @@ describe('ForgeHandler', () => {
       events = [];
       registry.onEvent((operationId, type) => events.push([operationId, type]));
       // The registry reaches a handler through the shared infra bundle, the
-      // way composition supplies it.
+      // way composition supplies it, beside the guard every run passes.
       deps.infraServices = {
         backgroundRegistry: registry,
+        productionGuard: new ProductionGuard(),
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
     });
 
@@ -1079,6 +1085,27 @@ describe('ForgeHandler', () => {
         orgType,
       } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
     }
+
+    it('refuses with NOT_INITIALIZED, and runs nothing, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and run the clone.
+      deps.infraServices = undefined;
+      mockTargetOrgType('Production');
+
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
+      await handler.handle(msg);
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { code?: string } })
+        .filter((m) => m.type === 'forge:execute:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].correlationId).toBe(msg.id);
+      expect(errors[0].payload.code).toBe('NOT_INITIALIZED');
+    });
 
     it('asks for production confirmation before executing on a production target', async () => {
       const guard = wireGuard({

@@ -229,15 +229,27 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
           )}
 
           {scanFoundNothing && (
-            <p
+            <div
               className="text-xs text-text-secondary mt-2"
               role="status"
               data-testid="anomaly-scan-empty"
             >
-              {t('monitor.noAnomalies', 'No anomalies found in {{object}}', {
-                object: target,
-              })}
-            </p>
+              <p>
+                {t('monitor.noAnomalies', 'No anomalies found in {{object}}', {
+                  object: target,
+                })}
+              </p>
+              {/* Nothing found in a sample is not nothing in the object: the
+                  scan reads a bounded number of records, and says how many. */}
+              {anomalyScan.data?.sample && (
+                <p data-testid="anomaly-scan-sample">
+                  {t('monitor.anomalyScanSample', {
+                    count: anomalyScan.data.sample.read,
+                    limit: anomalyScan.data.sample.limit,
+                  })}
+                </p>
+              )}
+            </div>
           )}
 
           {limitsExpanded && (

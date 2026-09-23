@@ -9,7 +9,7 @@ import {
 import type { RuleModules } from '../AIHandler.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
-import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js';
+import { queryWithFieldsFallbackBounded } from '../../../core/common/soqlQueryHelper.js';
 
 /** Message types handled by AIAnalysisHandler. */
 const AI_ANALYSIS_TYPES = new Set(['ai:anomaly-scan', 'ai:schema-advice']);
@@ -67,7 +67,12 @@ export class AIAnalysisHandler implements DomainHandler {
       const safeObj = sanitizeSoqlObjectName(objectName);
       const limit = sampleSize ?? DEFAULT_SOQL_LIMITS.anomalyScan;
       const soql = `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${limit}`;
-      const records = await queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql);
+      const read = await queryWithFieldsFallbackBounded<Record<string, unknown>>(
+        conn,
+        safeObj,
+        soql,
+      );
+      const records = read.records;
       const sample = { records, fields: Object.keys(records[0] ?? {}) };
       const report = this.ruleModules.anomalyDetector.detectAnomalies(sample, objectName);
       const response = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
@@ -80,6 +85,11 @@ export class AIAnalysisHandler implements DomainHandler {
             severity: a.severity,
           }),
         ),
+        // The scan judges a sample, and said nothing of it: "no anomalies"
+        // read as a verdict on the object, over the first 500 rows it read.
+        // The bound is the one the statement went out with — 200 on an object
+        // too wide to name its fields — and the count is what came back.
+        sample: { read: records.length, limit: read.limit ?? limit },
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {

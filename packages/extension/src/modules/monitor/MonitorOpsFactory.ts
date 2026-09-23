@@ -14,7 +14,7 @@ import { UserSessionMonitor } from './UserSessionMonitor.js';
 import type { UserSessionInfo } from './UserSessionMonitor.js';
 import { ApexLogAnalyzer } from './ApexLogAnalyzer.js';
 import type { ApexLogEntry } from '@sandforge/shared';
-import { SandboxRefreshTracker } from './SandboxRefreshTracker.js';
+import { SandboxRefreshTracker, sandboxProcessStatus } from './SandboxRefreshTracker.js';
 import type {
   SandboxRefreshEvent,
   SandboxRefreshFetch,
@@ -279,7 +279,7 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       let read: BoundedRecords<{
         Id: string;
         SandboxName: string;
-        Status: string;
+        Status: string | null;
         CreatedDate: string;
         Description: string | null;
       }>;
@@ -304,7 +304,9 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
           orgId,
           sandboxName: r.SandboxName ?? 'Unknown',
           refreshDate: r.CreatedDate,
-          status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
+          // Never `Completed` by default: that is the status the refresh
+          // notice fires on, and a row with no status used to read as one.
+          status: sandboxProcessStatus(r.Status),
           sourceOrg: r.Description ?? undefined,
         })),
         truncated: read.truncated,
@@ -474,6 +476,9 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
         status,
         score,
         count: stats.failed,
+        // The read stops at the newest DEFAULT_SOQL_LIMITS.monitorJobs jobs,
+        // so the failures are those of this many jobs, not of the org.
+        outOf: stats.total,
         message: `${stats.active} active, ${stats.failed} failed of ${stats.total} recent jobs`,
       };
     } catch {

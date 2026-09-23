@@ -19,6 +19,7 @@ import type { Services } from './services.js';
 import { logger } from './logger.js';
 import { createCoreComposition } from './composition/coreComposition';
 import {
+  confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   startOfflineProbing,
   wireBackgroundNotifications,
@@ -230,6 +231,8 @@ export function activate(context: vscode.ExtensionContext): void {
       offlineManager,
       piiDetector,
       backgroundRegistry,
+      // A restore into an org a refresh replaced asks first (DataOps).
+      confirmRestoreIntoReplacedOrg,
     },
     backgroundRegistry,
     migrationFileReader: fsReader,

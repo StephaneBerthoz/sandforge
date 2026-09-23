@@ -318,6 +318,23 @@ export class SandboxRefreshDetector {
     return this.read(orgId)?.organizationId;
   }
 
+  /**
+   * Whether a refresh noticed on a registered org made it the org
+   * `organizationId` names, in its 15- or 18-character form.
+   *
+   * Only a refresh the sandbox itself answered for says which org it became:
+   * one only the production history reported names no org yet.
+   *
+   * @param orgId - The registered org (SandForge id).
+   * @param organizationId - The org id to look for.
+   */
+  wasRefreshedTo(orgId: string, organizationId: string): boolean {
+    const key = toOrgKey(organizationId);
+    return (
+      key !== undefined && this.refreshesOf(orgId).some((refresh) => refresh.organizationId === key)
+    );
+  }
+
   /** The record to compare against when none is stored: the org id the entry was registered with. */
   private baselineOf(org: SalesforceOrg): SandboxIdentityRecord | undefined {
     const registered = toOrgKey(org.orgId);

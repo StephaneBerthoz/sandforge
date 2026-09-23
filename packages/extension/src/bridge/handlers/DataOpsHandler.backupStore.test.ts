@@ -5,6 +5,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -48,6 +49,9 @@ function createHarness(withStore = true): Harness {
     secretVault: {},
     authProvider: {},
     sfdxBridge: {},
+    // A restore refuses to write without a Production Guard, and the
+    // extension always injects one.
+    infraServices: { productionGuard: new ProductionGuard() },
     nextId: () => String(++idCounter),
   } as unknown as HandlerDeps;
 

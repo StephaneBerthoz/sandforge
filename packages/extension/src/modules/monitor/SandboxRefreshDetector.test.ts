@@ -344,4 +344,39 @@ describe('SandboxRefreshDetector', () => {
       ).toEqual([]);
     });
   });
+
+  describe('wasRefreshedTo', () => {
+    it('names the org a refresh the sandbox answered for made it, in either id form', () => {
+      detector.observe(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, REFRESHED_ORG_ID)).toBe(true);
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, REFRESHED_ORG_ID.slice(0, 15))).toBe(true);
+    });
+
+    it('does not name the org the sandbox was, nor any other one', () => {
+      detector.observe(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, REGISTERED_ORG_ID)).toBe(false);
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, '00Dxx00000ZzZzZ7F6')).toBe(false);
+    });
+
+    it('names no org for a refresh only the production history reported', () => {
+      orgManager.addOrg(production());
+      detector.noteCompletedRefresh({
+        orgId: '00Dxx00000KlMnO4C3',
+        sandboxName: 'uat',
+        refreshDate: '2026-09-21T18:30:00.000+0000',
+        status: 'Completed',
+      });
+
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, REFRESHED_ORG_ID)).toBe(false);
+    });
+
+    it('names no org for a sandbox never seen refreshed', () => {
+      detector.observe(REGISTERED_ORG_ID, { organizationId: REGISTERED_ORG_ID }, 'connection');
+
+      expect(detector.wasRefreshedTo(REGISTERED_ORG_ID, REGISTERED_ORG_ID)).toBe(false);
+      expect(detector.wasRefreshedTo('not-registered', REFRESHED_ORG_ID)).toBe(false);
+    });
+  });
 });

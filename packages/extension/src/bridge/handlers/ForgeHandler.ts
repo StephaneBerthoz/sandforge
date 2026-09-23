@@ -5,7 +5,6 @@ import type {
   ForgeExecutionResult,
   ForgeTemplate,
   ComplianceFrameworkType,
-  GuardDecision,
 } from '@sandforge/shared';
 import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
@@ -16,6 +15,7 @@ import {
   sendHandlerError,
   sendOperationStarted,
   sendOperationCompleted,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -745,63 +745,70 @@ export class ForgeHandler implements DomainHandler {
     // runs (guard instance from backgroundComposition via infraServices).
     // Covers every write path below: BatchWriter insert/upsert, orphan-parent
     // expansion inserts and the pass-2 cycle-FK updates all flow through
-    // orchestrator.execute, which runs only after this gate.
-    /** What the guard decided, recorded with the run it let through. */
-    let guardDecision: GuardDecision | undefined;
-    if (this.deps.infraServices?.productionGuard) {
-      const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-      const guardRequest = {
-        orgId: config.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-        operation: 'insert' as const,
-        objectName: graph.nodes?.[0]?.objectApiName ?? 'ForgeData',
-        recordCount: graph.totalRecords ?? 0,
-        module: 'forge',
-      };
-      const { check, decision } = await consultProductionGuard(
-        this.deps.infraServices.productionGuard,
-        guardRequest,
+    // orchestrator.execute, which runs only after this gate. Without the
+    // guard there is no gate, and nothing is written.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(PRODUCTION_GUARD_MISSING.message),
+        { code: PRODUCTION_GUARD_MISSING.code },
       );
-      guardDecision = decision;
-      if (decision === 'refused' || decision === 'declined') {
-        // No run started, so no operation id was minted: the request's stands in.
-        recordWriteRun(this.deps, {
-          action: 'forge_execute',
-          module: 'forge',
-          operationId: msg.id,
-          orgId: config.targetOrgId,
-          outcome: 'stopped',
-          guard: decision,
-        });
-      }
-      if (decision === 'refused') {
-        // Single error channel (see handleDiscover): forge:execute:error
-        // only — no duplicate operation:failed / parasitic error resolution.
-        sendHandlerError(
-          this.deps,
-          'forge:execute',
-          'forge:execute:error',
-          msg,
-          new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          ),
-          { code: 'GUARD_BLOCKED' },
-        );
-        return;
-      }
-      // `safety.requireProdConfirmation`: explicit user consent before
-      // writing to a production org.
-      if (decision === 'declined') {
-        sendHandlerError(
-          this.deps,
-          'forge:execute',
-          'forge:execute:error',
-          msg,
-          new Error('Operation cancelled by user (production confirmation declined).'),
-          { code: 'GUARD_DECLINED', retryable: true },
-        );
-        return;
-      }
+      return;
+    }
+    const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
+    const guardRequest = {
+      orgId: config.targetOrgId,
+      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      operation: 'insert' as const,
+      objectName: graph.nodes?.[0]?.objectApiName ?? 'ForgeData',
+      recordCount: graph.totalRecords ?? 0,
+      module: 'forge',
+    };
+    const { check, decision } = await consultProductionGuard(guard, guardRequest);
+    /** What the guard decided, recorded with the run it let through. */
+    const guardDecision = decision;
+    if (decision === 'refused' || decision === 'declined') {
+      // No run started, so no operation id was minted: the request's stands in.
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: config.targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+      });
+    }
+    if (decision === 'refused') {
+      // Single error channel (see handleDiscover): forge:execute:error
+      // only — no duplicate operation:failed / parasitic error resolution.
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        ),
+        { code: 'GUARD_BLOCKED' },
+      );
+      return;
+    }
+    // `safety.requireProdConfirmation`: explicit user consent before
+    // writing to a production org.
+    if (decision === 'declined') {
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        msg,
+        new Error('Operation cancelled by user (production confirmation declined).'),
+        { code: 'GUARD_DECLINED', retryable: true },
+      );
+      return;
     }
 
     // Build a deterministic ID from payload content to detect genuine duplicates

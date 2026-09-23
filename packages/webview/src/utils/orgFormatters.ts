@@ -50,3 +50,18 @@ export function orgTypeLabel(org: SalesforceOrg, t?: TFunction): string {
   }
   return org.orgType === 'Sandbox' ? 'SANDBOX' : org.orgType.toUpperCase();
 }
+
+/**
+ * How an org is named in an org picker: its alias, or its username, and its
+ * type as the org badges show it ({@link orgTypeLabel}).
+ *
+ * The pickers used to write `[PROD]` for a production org and `[SBX]` for
+ * every other one, so a scratch org was offered as a sandbox, in English
+ * whatever the language.
+ *
+ * @param org - The Salesforce org.
+ * @param t - The i18n translation function.
+ */
+export function orgOptionLabel(org: SalesforceOrg, t: TFunction): string {
+  return `${org.alias || org.username} [${orgTypeLabel(org, t)}]`;
+}

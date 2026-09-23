@@ -105,10 +105,22 @@ function bridgeQueryAnswer(type: string) {
   return { data: null, loading: false, error: null, refetch: vi.fn() };
 }
 
+/** The last anomaly scan's answer, as the page sees it. */
+let mockAnomalyScanData: Record<string, unknown> | null = null;
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'monitor:open-apex-jobs') {
       return { ...mockOpenApexJobsState, mutate: mockOpenApexJobsMutate, reset: vi.fn() };
+    }
+    if (type === 'ai:anomaly-scan') {
+      return {
+        mutate: vi.fn(),
+        data: mockAnomalyScanData,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      };
     }
     // AlertsPanel mutations
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
@@ -187,8 +199,32 @@ describe('MonitorPage', () => {
       refetch: mockRefetch,
     };
     mockOpenApexJobsState = { data: null, loading: false, error: null };
+    mockAnomalyScanData = null;
     alertQueries.sent = 0;
     mockAlertsData = { alerts: [], history: [] };
+  });
+
+  it('says, above the anomalies a scan found, the sample they come from', () => {
+    // The findings are about the records the scan read, not the whole object.
+    mockAnomalyScanData = {
+      success: true,
+      anomalies: [{ field: 'Email', type: 'duplicate', description: 'Twice', severity: 'low' }],
+      sample: { read: 200, limit: 200 },
+    };
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+
+    render(<MonitorPage />);
+
+    const results = screen.getByTestId('anomaly-scan-results');
+    expect(within(results).getByTestId('anomaly-scan-sample').textContent).toBe(
+      'Scanned 200 records; a scan reads at most 200.',
+    );
   });
 
   afterEach(() => {
@@ -865,7 +901,9 @@ describe('MonitorPage', () => {
         orgInfo: {
           name: 'Acme Corp',
           orgId: '00D000000000001',
-          type: 'Sandbox' as const,
+          // Not a sandbox: the date a sandbox answers with is not its own,
+          // and the bar leaves it out there (MonitorOrgInfoBar).
+          type: 'Production' as const,
           edition: 'Enterprise Edition',
           instanceName: 'EU42S',
           apiVersion: '68.0',

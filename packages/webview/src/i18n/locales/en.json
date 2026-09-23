@@ -156,6 +156,8 @@
     "anomalyScanObjectNameInvalid": "Not an object API name: start with a letter, then use only letters, digits and underscores, 80 characters at most.",
     "anomaliesFound": "Anomalies Found",
     "noAnomalies": "No anomalies found in {{object}}",
+    "anomalyScanSample_one": "Scanned {{count}} record; a scan reads at most {{limit}}.",
+    "anomalyScanSample_other": "Scanned {{count}} records; a scan reads at most {{limit}}.",
     "anomalyScanFailed": "Anomaly scan failed",
     "governorLimits": "Governor Limits",
     "noLimits": "No limits data available",
@@ -254,6 +256,8 @@
       "apiLimits": "API Limits",
       "storage": "Storage",
       "failedJobs": "Failed Jobs",
+      "failedJobsOutOf_one": "of the latest job",
+      "failedJobsOutOf_other": "of the {{count}} latest jobs",
       "recentErrorLogs": "Recent Error Logs",
       "lastChecked": "Last checked",
       "overall": {

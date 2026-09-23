@@ -16,6 +16,7 @@ import {
   sendOperationFailed,
   robustnessConfigOf,
   bulkManagerOf,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { validatePayload, seedCsvPayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -165,38 +166,44 @@ export class SeedCsvHandler implements DomainHandler {
     let unrecorded = false;
 
     try {
-      // Production guard check on target org (mirror SyncOpsHandler).
-      if (this.deps.infraServices?.productionGuard) {
-        const targetOrg = this.deps.orgManager.getOrg(parsed.orgId);
-        const guardRequest = {
-          orgId: parsed.orgId,
-          orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-          operation: (parsed.externalIdField ? 'upsert' : 'insert') as 'upsert' | 'insert',
-          objectName: parsed.objectApiName,
-          recordCount: parsed.records.length,
-          module: 'seed',
-        };
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          guardRequest,
+      // Production guard check on target org (mirror SyncOpsHandler), and no
+      // import without it.
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
+          context: failure,
+          extraPayload: { code: PRODUCTION_GUARD_MISSING.code },
+        });
+        // Registered already, like a declined run: settled, or it stays listed.
+        settle(new Error(PRODUCTION_GUARD_MISSING.message));
+        return;
+      }
+      const targetOrg = this.deps.orgManager.getOrg(parsed.orgId);
+      const guardRequest = {
+        orgId: parsed.orgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: (parsed.externalIdField ? 'upsert' : 'insert') as 'upsert' | 'insert',
+        objectName: parsed.objectApiName,
+        recordCount: parsed.records.length,
+        module: 'seed',
+      };
+      const { check, decision } = await consultProductionGuard(guard, guardRequest);
+      run.guard = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+      }
+      if (decision === 'refused') {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
         );
-        run.guard = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
-        }
-        if (decision === 'refused') {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
-        }
-        if (decision === 'declined') {
-          const declined = 'Operation cancelled by user (production confirmation declined).';
-          sendOperationFailed(this.deps, operationId, declined, false, { context: failure });
-          // Registered before the question was asked: left unsettled, the
-          // import stayed listed as running for the rest of the session.
-          settle(new Error(declined));
-          return;
-        }
+      }
+      if (decision === 'declined') {
+        const declined = 'Operation cancelled by user (production confirmation declined).';
+        sendOperationFailed(this.deps, operationId, declined, false, { context: failure });
+        // Registered before the question was asked: left unsettled, the
+        // import stayed listed as running for the rest of the session.
+        settle(new Error(declined));
+        return;
       }
 
       const conn = await getJsforceConnection(

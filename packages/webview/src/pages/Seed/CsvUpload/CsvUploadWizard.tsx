@@ -8,6 +8,7 @@ import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
 import { FileDropZone } from '../../../components/ui/FileDropZone';
+import { orgOptionLabel } from '../../../utils/orgFormatters';
 import { CsvPreview } from './CsvPreview';
 import { CsvColumnMapper } from './CsvColumnMapper';
 import { CsvValidationPanel } from './CsvValidationPanel';
@@ -109,7 +110,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
 
   const orgOptions = orgs.map((org) => ({
     value: org.id,
-    label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+    label: orgOptionLabel(org, t),
   }));
 
   const objectOptions =

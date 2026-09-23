@@ -22,7 +22,9 @@ Take a full snapshot of Account and Contact:
 - The objects are fixed: every backup reads Account and Contact, every field
   of each, up to the org's query limit (2,000 rows on a sandbox). There is no
   object picker and no incremental mode -- each backup is a new full snapshot
-- Every backup is written to extension storage with per-object record counts, and listed newest-first in the Backup tab
+- Every backup is written to extension storage with per-object record counts
+  and the org id the org answered with, and listed newest-first in the Backup
+  tab
 - One-click backup creation from the Backup Panel
 - A backup stops between two objects when the window closes or the extension
   deactivates. Nothing is written until every object has been read, so a
@@ -47,6 +49,11 @@ What a restore does, in order:
 - Refuses a backup taken from a different org than the one selected
 - Passes through Production Guard like every other write path: a blocked
   operation stops, and `safety.requireProdConfirmation` asks first
+- Asks before writing when the org now answers with another org id than the
+  one the backup recorded, as a sandbox does once refreshed: the records the
+  backup saved belonged to the org it was, and the restore cannot put them
+  back. Declined, nothing is written. A backup that recorded no org id is
+  restored without the question
 - Brings back from the recycle bin the records of the backup deleted since it
   was taken, so they return with their `Id` and what pointed at them; a record
   no longer in the recycle bin cannot, and is reported as refused

@@ -15,6 +15,11 @@ export interface HealthSignal {
   count?: number;
   /** The share of a limit in use (API requests, data storage), in percent; absent when none was read. */
   percent?: number;
+  /**
+   * The rows `count` was taken from, when the read that counted them stopped
+   * at a bound: failed jobs are counted among the most recent jobs only.
+   */
+  outOf?: number;
 }
 
 /** Function that produces a health signal for an org */
@@ -57,6 +62,9 @@ export class HealthCheck {
       // labels them as jobs and logs, and showed a score gap instead. None
       // read is not zero found.
       failedJobs: jobsSignal?.status === 'unknown' ? null : (jobsSignal?.count ?? null),
+      // The window the count holds for: without it, "3 failed" read as the
+      // org's total over any period.
+      failedJobsOutOf: jobsSignal?.status === 'unknown' ? null : (jobsSignal?.outOf ?? null),
       recentErrorLogs: errorsSignal?.status === 'unknown' ? null : (errorsSignal?.count ?? null),
       lastChecked: new Date().toISOString(),
     };

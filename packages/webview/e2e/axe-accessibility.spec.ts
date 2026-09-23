@@ -655,6 +655,17 @@ for (const theme of SCANNED_THEMES) {
           namespacePrefix: 'acme',
           createdDate: '2026-04-24T10:20:51.000Z',
         },
+        // Failed Jobs says how many of the latest jobs it was counted among.
+        orgHealthStatus: {
+          orgId: DEV_SANDBOX.id,
+          overall: 'degraded',
+          apiLimitsStatus: 'ok',
+          storageStatus: 'ok',
+          failedJobs: 2,
+          failedJobsOutOf: 50,
+          recentErrorLogs: 0,
+          lastChecked: '2026-03-13T11:05:00Z',
+        },
         trends: {},
         lastUpdated: '2026-03-13T11:05:00Z',
       });
@@ -785,6 +796,21 @@ for (const theme of SCANNED_THEMES) {
         await page.getByTestId(note).waitFor({ state: 'visible', timeout: 10_000 });
       }
       await expect(page.getByTestId('org-info-panel')).toContainText('Namespace: acme');
+      await expect(page.getByTestId('health-failed-jobs-out-of')).toHaveText(
+        'of the 50 latest jobs',
+      );
+
+      // The anomaly scan says which sample its findings come from.
+      await page.getByTestId('anomaly-scan-btn').click();
+      await bridge.waitForMessage('ai:anomaly-scan', { timeout: 10_000 });
+      await answerAll(page, 'ai:anomaly-scan', 'ai:anomaly-scan:response', {
+        success: true,
+        anomalies: [{ field: 'Email', type: 'duplicate', description: 'Twice', severity: 'low' }],
+        sample: { read: 200, limit: 200 },
+      });
+      await expect(
+        page.getByTestId('anomaly-scan-results').getByTestId('anomaly-scan-sample'),
+      ).toHaveText('Scanned 200 records; a scan reads at most 200.');
 
       expectNoViolations(await checkAccessibility(page));
     });

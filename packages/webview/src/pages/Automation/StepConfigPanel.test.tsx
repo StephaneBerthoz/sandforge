@@ -158,6 +158,27 @@ describe('StepConfigPanel — the steps that run a module', () => {
     useOrgStore.setState({ orgs: [org('org-a', 'uat'), org('org-b', 'dev')] });
   });
 
+  it('offers a scratch org to a step as one, not as a sandbox', () => {
+    // The step panel borrowed Compare's label, which called every org but a
+    // production one [SBX].
+    useOrgStore.setState({
+      orgs: [org('org-a', 'uat'), { ...org('org-c', 'feature'), orgType: 'Scratch' }],
+    });
+    const backup: PipelineStep = {
+      id: 'step-s',
+      name: 'Snapshot',
+      type: 'backup',
+      config: {},
+      continueOnError: false,
+    };
+    render(<StepConfigPanel step={backup} onUpdate={vi.fn()} />);
+
+    const orgSelect = screen.getByTestId('config-orgId') as HTMLSelectElement;
+    expect([...orgSelect.options].map((option) => option.textContent)).toContain(
+      'feature [SCRATCH]',
+    );
+  });
+
   it('asks a Backup step for the org and objects DataOps backs up', () => {
     const backup: PipelineStep = {
       id: 'step-b',
@@ -172,8 +193,8 @@ describe('StepConfigPanel — the steps that run a module', () => {
     const orgSelect = screen.getByTestId('config-orgId') as HTMLSelectElement;
     expect([...orgSelect.options].map((option) => option.textContent)).toEqual([
       'Select Org',
-      'uat [SBX]',
-      'dev [SBX]',
+      'uat [SANDBOX]',
+      'dev [SANDBOX]',
     ]);
     fireEvent.change(orgSelect, { target: { value: 'org-b' } });
     expect(onUpdate).toHaveBeenLastCalledWith('step-b', { config: { orgId: 'org-b' } });

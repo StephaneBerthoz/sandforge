@@ -148,6 +148,12 @@ export interface OrgHealthStatus {
   storageStatus: 'ok' | 'warning' | 'critical' | 'unknown';
   /** Failed AsyncApexJob rows among those this refresh read; null when they could not be read. */
   failedJobs: number | null;
+  /**
+   * How many of the most recent AsyncApexJob rows `failedJobs` was counted
+   * among: the refresh reads the newest ones only, up to its bound. Null when
+   * they could not be read; absent from builds that did not say.
+   */
+  failedJobsOutOf?: number | null;
   /** Error ApexLog rows of the last 24 hours this refresh read; null when they could not be read. */
   recentErrorLogs: number | null;
   lastChecked: ISODateString;

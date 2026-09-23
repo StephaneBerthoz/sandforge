@@ -60,6 +60,11 @@ function section(heading: string): string | undefined {
   return end === -1 ? body : body.slice(0, end);
 }
 
+/** The section's prose with its line breaks folded, so a claim can span a wrap. */
+function prose(heading: string): string {
+  return (section(heading) ?? '').replace(/\s+/g, ' ');
+}
+
 describe('docs/modules/monitor.md', () => {
   it.each(PANELS)('documents the $component panel under "$heading"', ({ component, heading }) => {
     // The roster must track the page: a panel it no longer mounts is not a
@@ -78,6 +83,46 @@ describe('docs/modules/monitor.md', () => {
     const health = section('Org Health Check') ?? '';
     expect(health).not.toMatch(/points\b[^.]*\blost/);
     expect(health).toContain('number of failed jobs');
+  });
+
+  it('leaves a health signal that cannot be read out of the average, and says so', () => {
+    // The page said an unread signal counted as a full 100, and that its count
+    // showed 0: HealthCheck.computeScore averages the signals read only, and
+    // the panel says "not read".
+    const health = prose('Org Health Check');
+    expect(health).not.toContain('counts as a full 100');
+    expect(health).not.toMatch(/shows 0 when/);
+    expect(health).toContain('left out of the average');
+    expect(health).toContain('"not read"');
+    expect(source('packages/extension/src/modules/monitor/HealthCheck.ts')).toContain(
+      "s.status !== 'unknown'",
+    );
+  });
+
+  it('says how many of the latest jobs Failed Jobs is counted among, the bound the read has', () => {
+    const health = prose('Org Health Check');
+    const bound = /monitorJobs: (\d+),/.exec(source('packages/shared/src/constants/defaults.ts'));
+    expect(bound).not.toBeNull();
+    expect(health).toContain(`the ${bound?.[1]} most recent \`AsyncApexJob\` rows`);
+    expect(health).toContain(`(at most ${bound?.[1]})`);
+  });
+
+  it('says every error-log reading covers the whole day, not where the last one stopped', () => {
+    // Each reading used to start from the oldest log of the one before; the
+    // page kept saying so after ErrorLogMonitor read the whole window again.
+    const errorLogs = prose('Error Logs');
+    expect(errorLogs).not.toContain('starts from the oldest log the previous one returned');
+    expect(errorLogs).toContain('Every reading covers the whole 24 hours again');
+    expect(source('packages/extension/src/modules/monitor/ErrorLogMonitor.ts')).toContain(
+      'Date.now() - 24 * 60 * 60 * 1000',
+    );
+  });
+
+  it('says a scan judges a bounded sample of records, and which bound', () => {
+    const limits = prose('Governor Limits');
+    const bound = /anomalyScan: (\d+),/.exec(source('packages/shared/src/constants/defaults.ts'));
+    expect(bound).not.toBeNull();
+    expect(limits).toContain(`the most a scan reads: ${bound?.[1]}, or 200`);
   });
 
   it.each(PANELS)(

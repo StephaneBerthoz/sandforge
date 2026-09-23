@@ -100,6 +100,23 @@ describe('CsvUploadWizard', () => {
     expect(screen.getByTestId('file-drop-zone')).toBeDefined();
   });
 
+  it('offers each org under the type the org badges give it, a scratch org as one', () => {
+    // Every org but a production one used to be offered as [SBX].
+    const scratch: SalesforceOrg = {
+      ...mockOrgs[0],
+      id: 'org-2',
+      alias: 'feature',
+      orgType: 'Scratch',
+    };
+    useOrgStore.setState({ orgs: [...mockOrgs, scratch] });
+
+    render(<CsvUploadWizard onBack={onBack} />);
+
+    expect(screen.getByRole('option', { name: 'dev1 [SANDBOX]' })).toBeDefined();
+    expect(screen.getByRole('option', { name: 'feature [SCRATCH]' })).toBeDefined();
+    expect(screen.queryByText(/\[SBX\]/)).toBeNull();
+  });
+
   it('should show object selector after org is selected', () => {
     render(<CsvUploadWizard onBack={onBack} />);
     const orgSelect = screen.getByTestId('csv-org-selector');

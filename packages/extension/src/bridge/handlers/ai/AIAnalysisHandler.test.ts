@@ -170,11 +170,67 @@ describe('AIAnalysisHandler', () => {
     await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }));
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.payload).toEqual({ success: true, anomalies: [] });
+    expect(response.payload).toEqual({
+      success: true,
+      anomalies: [],
+      sample: { read: 2, limit: 500 },
+    });
     expect(detectAnomalies.mock.calls[0][0].records).toHaveLength(2);
     expect(query.mock.calls.map(([soql]) => soql)).toEqual([
       'SELECT Id, Name FROM Account LIMIT 500',
     ]);
+  });
+
+  it('says how many records the scan read and the most it reads, beside what it found', async () => {
+    // A clean scan read as a verdict on the whole object, over a sample it
+    // never mentioned.
+    const conn = {
+      query: vi.fn().mockResolvedValue({
+        done: true,
+        totalSize: 3,
+        records: [{ Id: '001A' }, { Id: '001B' }, { Id: '001C' }],
+      }),
+      queryMore: vi.fn(),
+      describe: vi.fn().mockResolvedValue({ name: 'Contact', fields: [{ name: 'Id' }] }),
+    };
+    vi.mocked(getJsforceConnection).mockResolvedValueOnce(conn as unknown as OrgConnection);
+    const detectAnomalies = vi.fn().mockReturnValue({
+      anomalies: [{ field: 'Id', type: 'duplicate', description: 'Twice', severity: 'low' }],
+    });
+    handler.setRuleModules({ anomalyDetector: { detectAnomalies } } as unknown as RuleModules);
+
+    await handler.handle(
+      createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Contact', sampleSize: 3 }),
+    );
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.payload.sample).toEqual({ read: 3, limit: 3 });
+    expect(response.payload.anomalies).toHaveLength(1);
+  });
+
+  it('states the 200-row bound of a scan on an object too wide to name its fields', async () => {
+    // 700 described fields make the explicit query too long to send, so the
+    // scan goes out as FIELDS(ALL) at the 200 rows the platform allows.
+    const conn = {
+      query: vi.fn().mockResolvedValue({ done: true, totalSize: 1, records: [{ Id: '001A' }] }),
+      queryMore: vi.fn(),
+      describe: vi.fn().mockResolvedValue({
+        name: 'Account',
+        fields: Array.from({ length: 700 }, (_, i) => ({
+          name: `Custom_Field_${String(i).padStart(3, '0')}__c`,
+          custom: true,
+        })),
+      }),
+    };
+    vi.mocked(getJsforceConnection).mockResolvedValueOnce(conn as unknown as OrgConnection);
+    handler.setRuleModules({
+      anomalyDetector: { detectAnomalies: vi.fn().mockReturnValue({ anomalies: [] }) },
+    } as unknown as RuleModules);
+
+    await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }));
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.payload.sample).toEqual({ read: 1, limit: 200 });
   });
 
   it('raises no unused-field advice on objects that carry custom fields', async () => {

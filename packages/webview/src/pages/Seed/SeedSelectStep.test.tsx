@@ -5,6 +5,8 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedSelectStep } from './SeedSelectStep';
 import type { SeedSelectStepProps } from './SeedSelectStep';
+import type { SalesforceOrg } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
 
 /** The NL2SOQL answer under test, wrapped in the mutation shape the step reads. */
 function nl2soqlStub(
@@ -85,6 +87,44 @@ describe('SeedSelectStep PII warning', () => {
     );
 
     expect(screen.getByTestId('pii-scan-warning').textContent).toContain('Email (email — 92%)');
+  });
+});
+
+describe('SeedSelectStep org picker', () => {
+  /** An org of `orgType` as the store holds it. */
+  function org(id: string, alias: string, orgType: SalesforceOrg['orgType']): SalesforceOrg {
+    return {
+      id,
+      alias,
+      username: `${alias}@example.test`,
+      instanceUrl: 'https://example.my.salesforce.com',
+      orgId: id,
+      orgType,
+      authMethod: 'sfdx_import',
+      safetyTier: OrgSafetyTier.LOW,
+      appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+      metadata: { apiVersion: '62.0', edition: 'Developer Edition', features: [] },
+      status: 'connected',
+      lastConnected: '2026-09-01T08:00:00.000Z',
+      tags: [],
+    };
+  }
+
+  beforeEach(() => {
+    useOrgStore.setState({
+      orgs: [org('org-1', 'uat', 'Sandbox'), org('org-2', 'feature', 'Scratch')],
+      selectedOrgId: 'org-1',
+    });
+    useSeedWizardStore.setState({ selectedOrgId: '', selectedObjects: [] });
+  });
+
+  it('offers each org under the type the org badges give it, a scratch org as one', () => {
+    // Every org but a production one used to be offered as [SBX].
+    renderStep(nl2soqlStub(null));
+
+    expect(screen.getByRole('option', { name: 'uat [SANDBOX]' })).toBeDefined();
+    expect(screen.getByRole('option', { name: 'feature [SCRATCH]' })).toBeDefined();
+    expect(screen.queryByText(/\[SBX\]/)).toBeNull();
   });
 });
 

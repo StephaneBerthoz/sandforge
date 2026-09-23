@@ -14,6 +14,7 @@ vi.mock('../core/connection/ConnectionHelper.js', () => ({
 
 vi.mock('../core/common/soqlQueryHelper.js', () => ({
   queryWithFieldsFallback: vi.fn(),
+  queryWithFieldsFallbackBounded: vi.fn(),
 }));
 
 import { initAIComposition } from './aiComposition';
@@ -21,11 +22,11 @@ import type { AICompositionDeps } from './aiComposition';
 import { AIAnalysisHandler } from '../bridge/handlers/ai/AIAnalysisHandler.js';
 import type { HandlerDeps, InboundRequest } from '../bridge/handlers/HandlerTypes.js';
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
-import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper.js';
+import { queryWithFieldsFallbackBounded } from '../core/common/soqlQueryHelper.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
-const mockQuery = vi.mocked(queryWithFieldsFallback);
+const mockQuery = vi.mocked(queryWithFieldsFallbackBounded);
 
 /**
  * Schema advice and the anomaly scan are pure rule engines: no provider, no
@@ -98,10 +99,13 @@ describe('initAIComposition — rule-based analysis is not gated on AI', () => {
         fields: [{ name: 'Legacy_Code', label: 'Legacy Code', type: 'string', custom: true }],
       }),
     } as never);
-    mockQuery.mockResolvedValue([
-      { Id: '001', Name: 'Acme', Email: 'a@b.c' },
-      { Id: '002', Name: 'Acme', Email: 'a@b.c' },
-    ]);
+    mockQuery.mockResolvedValue({
+      records: [
+        { Id: '001', Name: 'Acme', Email: 'a@b.c' },
+        { Id: '002', Name: 'Acme', Email: 'a@b.c' },
+      ],
+      limit: 500,
+    });
   });
 
   it('answers ai:schema-advice when AI is disabled, without calling a provider', async () => {

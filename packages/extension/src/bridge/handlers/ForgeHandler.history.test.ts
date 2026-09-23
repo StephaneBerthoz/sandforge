@@ -3,6 +3,7 @@ import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
@@ -106,6 +107,11 @@ function createDeps(configStore: HandlerDeps['configStore']): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A run refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }

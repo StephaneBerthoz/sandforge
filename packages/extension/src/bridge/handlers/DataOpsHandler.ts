@@ -24,6 +24,7 @@ import {
   sendOperationCompleted,
   sendOperationFailed,
   sendHandlerError,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import type { Connection } from 'jsforce';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -129,6 +130,21 @@ const DATAOPS_TYPES = new Set([
 
 /** How many rejected rows are echoed back: an org repeats a handful of reasons. */
 const DML_ERROR_SAMPLE_LIMIT = 10;
+
+/** A Salesforce org id, in its 15- or 18-character form. */
+const ORG_ID_PATTERN = /^00D[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?$/;
+
+/**
+ * Whether two org ids name the same org: their first 15 characters, case
+ * included. `Organization.Id` answers with 18, and the last three only
+ * encode the case of the first fifteen.
+ */
+function sameOrg(a: string, b: string): boolean {
+  return a.slice(0, 15) === b.slice(0, 15);
+}
+
+/** The code of a restore refused because the org is no longer the one the backup was taken from. */
+const ORG_REPLACED_SINCE_BACKUP = 'ORG_REPLACED_SINCE_BACKUP';
 
 /**
  * The three words Seed, Sync and Clone already use for a write that did not
@@ -313,6 +329,28 @@ export class DataOpsHandler implements DomainHandler {
   ): Promise<string> {
     const desc = await conn.describe(objectApiName);
     return desc.fields.map((f) => f.name).join(', ');
+  }
+
+  /**
+   * The id the org behind a connection answers with (`Organization.Id`), or
+   * `undefined` when it does not say.
+   *
+   * A refreshed sandbox keeps its registered id and answers with a new one,
+   * so this, not the registry, tells apart the org a backup was taken from
+   * and the org a restore would write to. An org that cannot say is bound to
+   * nothing, and no restore is held back on its account.
+   */
+  private async organizationIdOf(conn: Connection): Promise<string | undefined> {
+    try {
+      const records = await queryAll<{ Id?: unknown }>(conn, 'SELECT Id FROM Organization');
+      const id = records[0]?.Id;
+      return typeof id === 'string' && ORG_ID_PATTERN.test(id) ? id : undefined;
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] dataops: the org did not say which org it is: ${extractErrorMessage(err)}`,
+      );
+      return undefined;
+    }
   }
 
   private async handleBackup(msg: InboundRequest): Promise<void> {
@@ -529,10 +567,16 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
+      // Which org the records were read from: a restore compares it with the
+      // org it would write to, which a sandbox refresh replaces behind the
+      // same registered id.
+      const organizationId = await this.organizationIdOf(conn);
+
       const backupKey = `backup:${operationId}`;
       const backupMeta = {
         operationId,
         orgId: payload.orgId,
+        ...(organizationId !== undefined ? { organizationId } : {}),
         objects: results.map((r) => ({
           objectApiName: r.objectApiName,
           recordCount: r.recordCount,
@@ -787,6 +831,30 @@ export class DataOpsHandler implements DomainHandler {
     return { undeleted };
   }
 
+  /**
+   * Refuse a write whose Production Guard is not there, on both channels the
+   * page listens on — the same as a declined confirmation, with the code the
+   * frozen load refuses with.
+   */
+  private refuseWithoutGuard(
+    context: 'dataops:rollback' | 'dataops:anonymize',
+    msg: InboundRequest,
+    operationId: string,
+    failure: OperationFailureContext,
+  ): void {
+    sendHandlerError(
+      this.deps,
+      context,
+      'dataops:error',
+      msg,
+      new Error(PRODUCTION_GUARD_MISSING.message),
+      { code: PRODUCTION_GUARD_MISSING.code },
+    );
+    sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
+      context: failure,
+    });
+  }
+
   private async handleRollback(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsRollbackPayloadSchema, msg, 'dataops:error', this.deps);
@@ -854,6 +922,8 @@ export class DataOpsHandler implements DomainHandler {
       const backupMeta = this.deps.configStore.get<{
         operationId: string;
         orgId: string;
+        /** Absent from backups taken before it was recorded. */
+        organizationId?: string;
         objects: Array<{ objectApiName: string; recordCount: number }>;
         totalRecords: number;
         timestamp?: string;
@@ -886,37 +956,73 @@ export class DataOpsHandler implements DomainHandler {
       };
 
       // Rollback writes records over live data — the same Production Guard as
-      // every other write path applies (see handleAnonymize).
-      if (this.deps.infraServices?.productionGuard) {
-        const org = this.deps.orgManager.getOrg(payload.orgId);
-        const guardRequest = {
-          orgId: payload.orgId,
-          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-          operation: 'upsert' as const,
-          objectName: backupMeta.objects.map((o) => o.objectApiName).join(', ') || 'RollbackData',
-          recordCount: backupMeta.totalRecords ?? 0,
-          module: 'dataops',
-        };
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          guardRequest,
+      // every other write path applies (see handleAnonymize), and no write
+      // without it.
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        this.refuseWithoutGuard('dataops:rollback', msg, rollbackOpId, failure);
+        return;
+      }
+      const org = this.deps.orgManager.getOrg(payload.orgId);
+      const guardRequest = {
+        orgId: payload.orgId,
+        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        operation: 'upsert' as const,
+        objectName: backupMeta.objects.map((o) => o.objectApiName).join(', ') || 'RollbackData',
+        recordCount: backupMeta.totalRecords ?? 0,
+        module: 'dataops',
+      };
+      const { check, decision } = await consultProductionGuard(guard, guardRequest);
+      run.guard = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+      }
+      if (decision === 'refused') {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
         );
-        run.guard = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
-        }
-        if (decision === 'refused') {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
-        }
-        // `safety.requireProdConfirmation`: explicit user consent before
-        // writing to a production org.
-        if (decision === 'declined') {
-          const message = 'Operation cancelled by user (production confirmation declined).';
-          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
-          sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
-          return;
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      if (decision === 'declined') {
+        const message = 'Operation cancelled by user (production confirmation declined).';
+        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
+        sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
+        return;
+      }
+
+      // A refresh replaces the org behind a registered sandbox and keeps its
+      // id: the registry check above passes, and the records the backup saved
+      // belong to the org the sandbox was. Restoring them does not put that
+      // org back, so the user is told before anything is written.
+      if (backupMeta.organizationId !== undefined) {
+        const now = await this.organizationIdOf(conn);
+        if (now !== undefined && !sameOrg(backupMeta.organizationId, now)) {
+          const alias = org?.alias ?? payload.orgId;
+          const ask = this.deps.infraServices?.confirmRestoreIntoReplacedOrg;
+          const restoreAnyway = ask
+            ? await ask({ alias, backedUpFrom: backupMeta.organizationId, now })
+            : false;
+          if (!restoreAnyway) {
+            const message =
+              `Restore not run: ${alias} answers as org ${now}, not as org ` +
+              `${backupMeta.organizationId}, which backup ${payload.operationId} was taken from, ` +
+              (ask
+                ? 'and the restore into the org it is now was not confirmed.'
+                : 'and nothing here can ask whether to restore into the org it is now.');
+            sendHandlerError(
+              this.deps,
+              'dataops:rollback',
+              'dataops:error',
+              msg,
+              new Error(message),
+              {
+                code: ORG_REPLACED_SINCE_BACKUP,
+              },
+            );
+            sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
+            return;
+          }
         }
       }
 
@@ -1146,47 +1252,41 @@ export class DataOpsHandler implements DomainHandler {
     let unrecorded = false;
 
     try {
-      if (this.deps.infraServices?.productionGuard) {
-        const org = this.deps.orgManager.getOrg(payload.orgId);
-        const guardRequest = {
-          orgId: payload.orgId,
-          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-          operation: 'update' as const,
-          // The objects the run addresses, so a production confirmation
-          // names them instead of an opaque 'AnonymizeData'.
-          objectName: plannedObjects.join(', ') || 'AnonymizeData',
-          // Each object is queried below, under the tier's row limit, so the
-          // rows cannot be counted here.
-          recordCount: 'unknown' as const,
-          module: 'dataops',
-        };
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          guardRequest,
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        this.refuseWithoutGuard('dataops:anonymize', msg, operationId, failure);
+        return;
+      }
+      const org = this.deps.orgManager.getOrg(payload.orgId);
+      const guardRequest = {
+        orgId: payload.orgId,
+        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        operation: 'update' as const,
+        // The objects the run addresses, so a production confirmation
+        // names them instead of an opaque 'AnonymizeData'.
+        objectName: plannedObjects.join(', ') || 'AnonymizeData',
+        // Each object is queried below, under the tier's row limit, so the
+        // rows cannot be counted here.
+        recordCount: 'unknown' as const,
+        module: 'dataops',
+      };
+      const { check, decision } = await consultProductionGuard(guard, guardRequest);
+      run.guard = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+      }
+      if (decision === 'refused') {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
         );
-        run.guard = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
-        }
-        if (decision === 'refused') {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
-        }
-        // `safety.requireProdConfirmation`: explicit user consent before
-        // writing to a production org.
-        if (decision === 'declined') {
-          const message = 'Operation cancelled by user (production confirmation declined).';
-          sendHandlerError(
-            this.deps,
-            'dataops:anonymize',
-            'dataops:error',
-            msg,
-            new Error(message),
-          );
-          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
-          return;
-        }
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      if (decision === 'declined') {
+        const message = 'Operation cancelled by user (production confirmation declined).';
+        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message));
+        sendOperationFailed(this.deps, operationId, message, false, { context: failure });
+        return;
       }
 
       const conn = await getJsforceConnection(

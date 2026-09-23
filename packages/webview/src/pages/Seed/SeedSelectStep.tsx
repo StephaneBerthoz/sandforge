@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 import type { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { Step2SelectObjects } from './Step2_SelectObjects';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
@@ -71,7 +72,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
         label={t('seed.selectOrg')}
         options={orgs.map((org) => ({
           value: org.id,
-          label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+          label: orgOptionLabel(org, t),
         }))}
         value={selectedOrgId}
         onChange={(e) => handleOrgSelect(e.target.value)}

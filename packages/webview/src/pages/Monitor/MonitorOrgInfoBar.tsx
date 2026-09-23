@@ -17,6 +17,11 @@ export interface MonitorOrgInfoBarProps {
  */
 export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({ orgInfo }) => {
   const { t } = useTranslation();
+  // A sandbox answers with a creation date that is not its own: a refresh
+  // copies it along, and two sandboxes of one production org answer the same
+  // instant to the second. It is left out there rather than shown as the
+  // date of the org this bar describes.
+  const createdDate = orgInfo.type === 'Sandbox' ? undefined : orgInfo.createdDate;
 
   return (
     <div
@@ -90,7 +95,7 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
         )}
       </div>
 
-      {(orgInfo.namespacePrefix || orgInfo.createdDate || orgInfo.podName) && (
+      {(orgInfo.namespacePrefix || createdDate || orgInfo.podName) && (
         <div className="flex items-center gap-4 mt-2 pt-2 border-t border-subtle text-[10px] text-text-secondary">
           {orgInfo.namespacePrefix && (
             <span>
@@ -98,10 +103,10 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
               <span className="font-mono text-text-secondary">{orgInfo.namespacePrefix}</span>
             </span>
           )}
-          {orgInfo.createdDate && (
+          {createdDate && (
             <span>
               {t('monitor.orgCreated', 'Created')}:{' '}
-              {dateTimeFormat({ dateStyle: 'medium' }).format(new Date(orgInfo.createdDate))}
+              {dateTimeFormat({ dateStyle: 'medium' }).format(new Date(createdDate))}
             </span>
           )}
           {orgInfo.podName && (

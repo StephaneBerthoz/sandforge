@@ -626,6 +626,18 @@ export const MonitorPage: React.FC = () => {
                   title={t('monitor.anomaliesFound', 'Anomalies Found')}
                   count={anomalyScan.data.anomalies.length}
                 />
+                {/* The findings are the sample's, not the object's. */}
+                {anomalyScan.data.sample && (
+                  <p
+                    className="text-[11px] text-text-secondary mb-2"
+                    data-testid="anomaly-scan-sample"
+                  >
+                    {t('monitor.anomalyScanSample', {
+                      count: anomalyScan.data.sample.read,
+                      limit: anomalyScan.data.sample.limit,
+                    })}
+                  </p>
+                )}
                 <div className="flex flex-col gap-2">
                   {anomalyScan.data.anomalies.map((anomaly, idx) => (
                     <div

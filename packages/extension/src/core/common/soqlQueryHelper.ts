@@ -174,20 +174,53 @@ export async function queryWithFieldsFallback<T extends Record<string, unknown>>
   objectApiName: string,
   soql: string,
 ): Promise<T[]> {
+  return (await queryWithFieldsFallbackBounded<T>(conn, objectApiName, soql)).records;
+}
+
+/** What a FIELDS() read returned, and the row bound of the statement that returned it. */
+export interface FieldsReadResult<T> {
+  records: T[];
+  /** The LIMIT the statement sent carried; `undefined` when it had none. */
+  limit: number | undefined;
+}
+
+/** The last LIMIT of a statement, or `undefined` when it has none. */
+function limitOf(statement: string): number | undefined {
+  const last = [...statement.matchAll(/\bLIMIT\s+(\d+)/gi)].at(-1);
+  return last ? Number(last[1]) : undefined;
+}
+
+/**
+ * {@link queryWithFieldsFallback}, saying which LIMIT the statement it sent
+ * carried.
+ *
+ * On an object too wide to name its fields in the query, a read asked for
+ * more rows is sent at the 200 FIELDS(ALL) allows: a caller that states the
+ * bound of its sample has to state that one, not the one it asked for.
+ */
+export async function queryWithFieldsFallbackBounded<T extends Record<string, unknown>>(
+  conn: Connection,
+  objectApiName: string,
+  soql: string,
+): Promise<FieldsReadResult<T>> {
+  const read = async (statement: string): Promise<FieldsReadResult<T>> => ({
+    records: await queryAll<T>(conn, statement),
+    limit: limitOf(statement),
+  });
   if (exceedsFieldsAllLimit(soql)) {
     const described = await describedQuery(conn, objectApiName, soql);
     const limit = /\bLIMIT\s+\d+/i;
     if (encodeURIComponent(described).length > MAX_ENCODED_QUERY_CHARS && limit.test(soql)) {
-      return queryAll<T>(conn, soql.replace(limit, `LIMIT ${FIELDS_ALL_MAX_LIMIT}`));
+      return read(soql.replace(limit, `LIMIT ${FIELDS_ALL_MAX_LIMIT}`));
     }
-    return queryAll<T>(conn, described);
+    return read(described);
   }
   try {
-    return await queryAll<T>(conn, soql);
+    return await read(soql);
   } catch (err: unknown) {
     if (!isFieldsRefusal(err)) {
       throw err;
     }
-    return await queryAll<T>(conn, await describedQuery(conn, objectApiName, soql));
+    return await read(await describedQuery(conn, objectApiName, soql));
   }
 }

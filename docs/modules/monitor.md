@@ -31,7 +31,10 @@ A compact panel below the KPIs showing:
 - Org name, ID, edition, instance, and API version
 - Release name and upcoming release info
 - User count, custom object count, Apex class count, and Flow count
-- Namespace prefix, creation date, pod name, and datacenter
+- Namespace prefix, creation date, pod name, and datacenter. The creation date
+  is left out on a sandbox: the date a sandbox answers with is not its own — a
+  refresh copies it, and two sandboxes of one production org answer the same
+  instant
 - Hyperforce indicator badge
 
 ### Live Operations
@@ -109,8 +112,11 @@ An expandable section listing all Salesforce governor limits:
   letter and holds only letters, digits and underscores, 80 characters at most,
   and says why under the button when it does not. Selecting another org puts
   it back on Account, clears the name typed and drops the previous report. A
-  scan that finds nothing, or that fails, says so under the button. Rules only
-  -- no model, no key, and it works with AI off
+  scan that finds nothing, or that fails, says so under the button. A finished
+  scan says how many records it read and the most a scan reads: 500, or 200 on
+  an object with too many fields to name them all in the query. What it found,
+  or did not, is about those records, not the whole object. Rules only -- no
+  model, no key, and it works with AI off
 
 ### API Usage Breakdown
 
@@ -133,11 +139,12 @@ when it started.
 ### Error Logs
 
 Apex debug logs whose status is not `Success`, read from the org's `ApexLog`
-records: up to 50, newest first, starting 24 hours back. A later reading in
-the same session starts from the oldest log the previous one returned. Each
-row shows when the log started, its status, the operation that wrote it and
-the user; the header counts the rows, and the first three statuses are
-counted above the table. Only debug logs the org holds are listed.
+records: up to 50, newest first, from the last 24 hours. Every reading covers
+the whole 24 hours again, and when they hold more than 50 logs the panel says
+the list stops there. Each row shows when the log started, its status, the
+operation that wrote it and the user; the header counts the rows, and the
+first three statuses are counted above the table. Only debug logs the org
+holds are listed.
 
 ### Active Sessions
 
@@ -162,11 +169,13 @@ panel.
 
 The 20 most recent `SandboxProcess` records, one per sandbox creation or
 refresh: sandbox name, status, the date the process was created and its
-description. A "Refresh in progress" badge shows while one is pending or
-processing. `SandboxProcess` exists only on an org that manages sandboxes, such
-as production: on an org that cannot query it, such as a sandbox, the panel says
-the org keeps no refresh history to read, and the org is not asked again in the
-same session.
+description. A "Refresh in progress" badge shows while a copy is queued,
+sampled, built or suspended, waits for an admin to activate it, or is being
+activated. A status Salesforce does not document is shown as `Unknown` and is
+never taken for a completed refresh. `SandboxProcess` exists only on an org
+that manages sandboxes, such as production: on an org that cannot query it,
+such as a sandbox, the panel says the org keeps no refresh history to read, and
+the org is not asked again in the same session.
 
 A sandbox cannot list its own refreshes, but a refreshed sandbox is a new org:
 it answers with another org id under the same username. SandForge reads the org
@@ -190,16 +199,18 @@ signals, each scored out of 100:
   critical above 80%
 - Storage: data storage used, from `/limits` -- a warning above 70%, critical
   above 85%
-- Jobs: failed jobs among the recent `AsyncApexJob` rows the refresh reads, ten
-  points each -- a warning from one, critical above five
+- Jobs: failed jobs among the 50 most recent `AsyncApexJob` rows the refresh
+  reads, ten points each -- a warning from one, critical above five
 - Recent errors: the `ApexLog` rows of the last 24 hours whose status is not
   Success, counted by the refresh itself, five points each -- a warning above
   three, critical above ten
 
-The badge is the average of the four scores: healthy from 80, degraded from
-50, critical below. A signal whose data cannot be read counts as a full 100.
-Failed Jobs shows the number of failed jobs that refresh read, and Recent Error
-Logs the number of error logs; each shows 0 when its rows cannot be read.
+The badge is the average of the scores of the signals that could be read:
+healthy from 80, degraded from 50, critical below. A signal whose data cannot
+be read is left out of the average, and the badge says unknown when none could
+be read. Failed Jobs shows the number of failed jobs, with how many of the
+latest jobs they were counted among (at most 50); Recent Error Logs shows the
+number of error logs. Each says "not read" when its rows cannot be read.
 
 ### Alerts Panel
 

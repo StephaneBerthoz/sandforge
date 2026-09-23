@@ -58,10 +58,24 @@ describe('OrgSelector', () => {
     expect(screen.getByText('Target Org')).toBeDefined();
   });
 
-  it('should show org type badges in options', () => {
+  it('names each org with the type the org badges give it', () => {
     render(<OrgSelector {...defaultProps} />);
-    expect(screen.getAllByText(/DevOrg \[SBX\]/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/ProdOrg \[PROD\]/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('DevOrg [SANDBOX]').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('ProdOrg [PROD]').length).toBeGreaterThan(0);
+  });
+
+  it('does not offer a scratch org as a sandbox', () => {
+    // Every org but a production one used to be labelled [SBX].
+    const scratch: SalesforceOrg = {
+      ...mockOrgs[0],
+      id: 'org-3',
+      alias: 'Feature',
+      orgType: 'Scratch',
+    };
+    render(<OrgSelector {...defaultProps} orgs={[...mockOrgs, scratch]} />);
+
+    expect(screen.getAllByText('Feature [SCRATCH]').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/\[SBX\]/)).toBeNull();
   });
 
   it('should call onSourceChange when source is selected', () => {

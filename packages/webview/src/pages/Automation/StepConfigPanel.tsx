@@ -10,7 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
-import { formatOrgLabel } from '../Compare/OrgSelector';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 import { CategorySelector } from '../Compare/CategorySelector';
 import { MAX_NOTIFICATION_LENGTH, MAX_STEP_TIMEOUT_MS, PRECHECK_CHECKS } from './stepRunnability';
 
@@ -122,7 +122,7 @@ interface OrgFieldProps {
   onChange: (orgId: string) => void;
 }
 
-/** A choice among the connected orgs, labelled as the Compare page labels them. */
+/** A choice among the connected orgs, labelled as every other org picker labels them. */
 const OrgField: React.FC<OrgFieldProps> = ({
   label,
   placeholder,
@@ -130,17 +130,20 @@ const OrgField: React.FC<OrgFieldProps> = ({
   orgs,
   value,
   onChange,
-}) => (
-  <Select
-    label={label}
-    placeholder={placeholder}
-    options={orgs.map((org) => ({ value: org.id, label: formatOrgLabel(org) }))}
-    value={typeof value === 'string' ? value : ''}
-    onChange={(e) => onChange(e.target.value)}
-    className="text-xs"
-    data-testid={testId}
-  />
-);
+}) => {
+  const { t } = useTranslation();
+  return (
+    <Select
+      label={label}
+      placeholder={placeholder}
+      options={orgs.map((org) => ({ value: org.id, label: orgOptionLabel(org, t) }))}
+      value={typeof value === 'string' ? value : ''}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-xs"
+      data-testid={testId}
+    />
+  );
+};
 
 /**
  * Step configuration panel for editing step properties

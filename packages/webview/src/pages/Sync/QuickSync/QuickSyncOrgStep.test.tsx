@@ -60,6 +60,35 @@ describe('QuickSyncOrgStep', () => {
     expect(screen.getByTestId('quick-sync-target-select')).toBeDefined();
   });
 
+  it('offers each org under the type the org badges give it, a scratch org as one', () => {
+    // Every org but a production one used to be offered as [SBX].
+    const scratch: SalesforceOrg = {
+      ...mockOrgs[1],
+      id: 'org-3',
+      alias: 'feature',
+      orgType: 'Scratch',
+    };
+    useOrgStore.setState({ orgs: [...mockOrgs, scratch] });
+
+    render(
+      <QuickSyncOrgStep
+        sourceOrgId=""
+        targetOrgId=""
+        onSourceChange={vi.fn()}
+        onTargetChange={vi.fn()}
+        onNext={vi.fn()}
+        canGoNext={false}
+      />,
+    );
+
+    const source = screen.getByTestId('quick-sync-source-select');
+    const labels = Array.from(source.querySelectorAll('option')).map((o) => o.textContent);
+    expect(labels).toEqual(
+      expect.arrayContaining(['prod [PROD]', 'dev1 [SANDBOX]', 'feature [SCRATCH]']),
+    );
+    expect(labels.some((label) => label?.includes('[SBX]'))).toBe(false);
+  });
+
   it('next button disabled when orgs not selected', () => {
     render(
       <QuickSyncOrgStep

@@ -156,6 +156,8 @@
     "anomalyScanObjectNameInvalid": "Ce n'est pas un nom d'API d'objet : il commence par une lettre, puis ne contient que des lettres, des chiffres et des tirets bas, 80 caractères au plus.",
     "anomaliesFound": "Anomalies trouvées",
     "noAnomalies": "Aucune anomalie trouvée dans {{object}}",
+    "anomalyScanSample_one": "{{count}} enregistrement analysé ; une analyse en lit au plus {{limit}}.",
+    "anomalyScanSample_other": "{{count}} enregistrements analysés ; une analyse en lit au plus {{limit}}.",
     "anomalyScanFailed": "Échec de l'analyse d'anomalies",
     "governorLimits": "Limites Governor",
     "noLimits": "Aucune donnée de limite disponible",
@@ -254,6 +256,8 @@
       "apiLimits": "Limites d'API",
       "storage": "Stockage",
       "failedJobs": "Jobs en échec",
+      "failedJobsOutOf_one": "sur le dernier job",
+      "failedJobsOutOf_other": "sur les {{count}} derniers jobs",
       "recentErrorLogs": "Journaux d'erreur récents",
       "lastChecked": "Dernière vérification",
       "overall": {

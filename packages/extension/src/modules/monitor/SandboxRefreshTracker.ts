@@ -1,10 +1,54 @@
+/**
+ * Every status a sandbox process can be in, as Salesforce Help lists them
+ * ("Sandbox Action and Status Reference").
+ *
+ * The type used to name four, one of which (`Failed`) Salesforce does not
+ * have, and a status read from the org was cast to it: an activation waiting
+ * for an admin, a copy being sampled or activated, all went uncounted as a
+ * refresh in progress.
+ */
+export const SANDBOX_PROCESS_STATUSES = [
+  'Sampling',
+  'Pending',
+  'Processing',
+  'Suspended',
+  'Stopped',
+  'Pending Activation',
+  'Activating',
+  'Discarding',
+  'Completed',
+  'Deleting',
+  'Locking',
+  'Locked',
+] as const;
+
+/** A status Salesforce documents for a sandbox process. */
+export type SandboxProcessStatus = (typeof SANDBOX_PROCESS_STATUSES)[number];
+
 /** Information about a sandbox refresh event */
 export interface SandboxRefreshEvent {
   orgId: string;
   sandboxName: string;
   refreshDate: string;
-  status: 'Pending' | 'Processing' | 'Completed' | 'Failed';
+  /**
+   * `Unknown` for a status the documentation does not list, or none at all.
+   * Such a row is never read as `Completed`: that is the status a refresh
+   * notice fires on, and a missing status used to default to it.
+   */
+  status: SandboxProcessStatus | 'Unknown';
   sourceOrg?: string;
+}
+
+const DOCUMENTED_STATUSES: ReadonlySet<string> = new Set(SANDBOX_PROCESS_STATUSES);
+
+/**
+ * The status of a SandboxProcess row as read from the org, or `Unknown` when
+ * it is not one Salesforce documents.
+ */
+export function sandboxProcessStatus(raw: unknown): SandboxRefreshEvent['status'] {
+  return typeof raw === 'string' && DOCUMENTED_STATUSES.has(raw)
+    ? (raw as SandboxProcessStatus)
+    : 'Unknown';
 }
 
 /**
@@ -53,7 +97,21 @@ function inMemorySeenStore(): SeenRefreshStore {
   };
 }
 
-const IN_PROGRESS_STATUSES = new Set<SandboxRefreshEvent['status']>(['Pending', 'Processing']);
+/**
+ * The statuses of a copy that has not replaced the sandbox yet: queued,
+ * sampled, built, interrupted (the copy engine resumes a suspended copy on
+ * its own), waiting for an admin to activate it, or being activated. A
+ * stopped process, a discarded copy, a deletion and a license lock are not
+ * refreshes under way.
+ */
+const IN_PROGRESS_STATUSES = new Set<SandboxRefreshEvent['status']>([
+  'Sampling',
+  'Pending',
+  'Processing',
+  'Suspended',
+  'Pending Activation',
+  'Activating',
+]);
 
 /** One sandbox process, across reads: the same sandbox started at the same instant. */
 function refreshKey(event: SandboxRefreshEvent): string {

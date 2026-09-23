@@ -94,6 +94,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A clone refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -473,6 +478,23 @@ describe('SeedCloneHandler', () => {
         orgType,
       } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
     }
+
+    it('refuses with NOT_INITIALIZED, writing nothing, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and clone on.
+      deps.infraServices = undefined;
+      mockTargetOrgType('Production');
+
+      await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      expect(getJsforceConnection).not.toHaveBeenCalled();
+      const failed = posted(deps, 'operation:failed') as Array<
+        BaseMessage & { payload: { code?: string; retryable?: boolean } }
+      >;
+      expect(failed).toHaveLength(1);
+      expect(failed[0].payload).toMatchObject({ code: 'NOT_INITIALIZED', retryable: false });
+      expect(posted(deps, 'seed:clone:execute:response')).toHaveLength(0);
+    });
 
     it('resolves the guard tier from the target org and clones once confirmed', async () => {
       const guard = wireGuard({

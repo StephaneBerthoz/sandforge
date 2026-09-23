@@ -17,6 +17,7 @@ import {
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
+import type { SfdxImportResult } from '../../core/connection/SfdxBridge.js';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set([
@@ -171,9 +172,7 @@ export class OrgHandler implements DomainHandler {
         return;
       }
 
-      for (const { org, credentials } of results) {
-        await this.deps.orgRegistry.saveOrg(org, credentials);
-      }
+      const savedIds = await this.saveImported(results);
 
       const orgs = this.deps.orgManager.getAllOrgs();
       const response = buildResponse(this.deps, msg, 'org:list:response', {
@@ -190,13 +189,58 @@ export class OrgHandler implements DomainHandler {
       );
       // The org:list:response above is not correlated to this request — the
       // mutation listens on org:statusChanged, so this is what ends it.
-      this.ackConnect(msg, results[0].org.id);
+      this.ackConnect(msg, savedIds[0]);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:sfdx-import: ${message}`);
       sendNotification(this.deps, 'error', 'Import Failed', message);
       this.failConnect(msg, message, 'SFDX_IMPORT_FAILED');
     }
+  }
+
+  /**
+   * Save the orgs the CLI listed, each under the entry it belongs to.
+   *
+   * An imported org's SandForge id is its org id, and a refresh gives a
+   * sandbox a new one: imported again, a refreshed sandbox came in as a second
+   * entry beside the one the user had set up, which still reached the same org
+   * through the same username. When the refresh detector says an entry with
+   * that username was refreshed into the org being imported, that entry is
+   * updated instead, and its alias, colour, tags and everything kept under its
+   * id stay. A username alone is not taken as proof: without the refresh on
+   * record, the import is saved as it comes.
+   *
+   * @returns The id each listed org was saved under, in the CLI's order.
+   */
+  private async saveImported(results: SfdxImportResult[]): Promise<string[]> {
+    const savedIds: string[] = [];
+    for (const { org, credentials } of results) {
+      const entry = this.refreshedEntryFor(org);
+      if (entry) {
+        this.deps.log(
+          `[INFO] org:import: ${entry.alias} was refreshed into org ${org.orgId}; its entry is updated`,
+        );
+      }
+      const target = entry ? { ...org, id: entry.id } : org;
+      await this.deps.orgRegistry.saveOrg(target, credentials);
+      savedIds.push(target.id);
+    }
+    return savedIds;
+  }
+
+  /** The registered entry an imported org is, after a refresh gave it a new org id. */
+  private refreshedEntryFor(imported: SalesforceOrg): SalesforceOrg | undefined {
+    const detector = this.deps.sandboxRefreshes;
+    // An org already registered under its own id is updated there, as before.
+    if (!detector || this.deps.orgManager.getOrg(imported.id)) return undefined;
+    const username = imported.username.toLowerCase();
+    return this.deps.orgManager
+      .getAllOrgs()
+      .find(
+        (entry) =>
+          entry.username.toLowerCase() === username &&
+          detector.wasRefreshedTo(entry.id, imported.orgId),
+      );
   }
 
   private async handleUsernamePassword(
@@ -365,9 +409,7 @@ export class OrgHandler implements DomainHandler {
         return;
       }
 
-      for (const { org, credentials } of results) {
-        await this.deps.orgRegistry.saveOrg(org, credentials);
-      }
+      const savedIds = await this.saveImported(results);
 
       sendNotification(
         this.deps,
@@ -375,7 +417,7 @@ export class OrgHandler implements DomainHandler {
         'OAuth',
         `Authenticated via browser. ${results.length} org(s) available.`,
       );
-      this.ackConnect(msg, results[0].org.id);
+      this.ackConnect(msg, savedIds[0]);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:oauth-web: ${message}`);

@@ -36,11 +36,11 @@ const ORG_INFO: OrgInfo = {
   createdDate: '2026-04-24T10:20:51.000Z',
 };
 
-function renderIn(lng: string): HTMLElement {
+function renderIn(lng: string, orgInfo: OrgInfo = ORG_INFO): HTMLElement {
   void instance.changeLanguage(lng);
   render(
     <I18nextProvider i18n={instance}>
-      <MonitorOrgInfoBar orgInfo={ORG_INFO} />
+      <MonitorOrgInfoBar orgInfo={orgInfo} />
     </I18nextProvider>,
   );
   return screen.getByTestId('org-info-panel');
@@ -55,5 +55,25 @@ describe('MonitorOrgInfoBar', () => {
 
   it('shows the API version the org serves as its release when the org names none', () => {
     expect(renderIn('en').textContent).toContain('API v68.0');
+  });
+
+  it("leaves out on a sandbox the creation date it answers with, which is not the sandbox's", () => {
+    const panel = renderIn('en');
+
+    expect(panel.textContent).not.toContain('Created');
+    expect(panel.textContent).toContain('Namespace: acme');
+  });
+
+  it('shows the creation date of an org that is not a sandbox', () => {
+    const panel = renderIn('en', { ...ORG_INFO, type: 'Production' });
+
+    expect(panel.textContent).toContain('Created: ');
+  });
+
+  it('draws no footer on a sandbox whose creation date was all it had to show', () => {
+    renderIn('en', { ...ORG_INFO, namespacePrefix: undefined });
+
+    expect(screen.getByTestId('org-info-panel').textContent).not.toContain('Created');
+    expect(screen.getByTestId('org-info-panel').querySelector('.border-t')).toBeNull();
   });
 });

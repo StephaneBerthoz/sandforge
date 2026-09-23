@@ -42,6 +42,7 @@ type ScanState = {
   data?: {
     success: boolean;
     anomalies?: Array<{ field: string; type: string; description: string; severity: string }>;
+    sample?: { read: number; limit: number };
     error?: string;
   } | null;
   error?: string | null;
@@ -373,6 +374,17 @@ describe('MonitorLimitsSection scan outcome', () => {
 
     expect(screen.getByTestId('anomaly-scan-empty')).toBeDefined();
     expect(screen.queryByTestId('anomaly-scan-error')).toBeNull();
+  });
+
+  it('says how many records a clean scan read and the most a scan reads', () => {
+    // "No anomalies" read as a verdict on the whole object, over a sample.
+    renderSection({ data: { success: true, anomalies: [], sample: { read: 500, limit: 500 } } });
+
+    const empty = screen.getByTestId('anomaly-scan-empty');
+    expect(empty.getAttribute('role')).toBe('status');
+    expect(screen.getByTestId('anomaly-scan-sample').textContent).toBe(
+      'Scanned 500 records; a scan reads at most 500.',
+    );
   });
 
   it('stays quiet when the scan found anomalies — the page lists them', () => {

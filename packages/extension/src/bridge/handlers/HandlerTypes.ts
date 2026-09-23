@@ -26,6 +26,16 @@ import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOp
 import type { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { Services } from '../../services.js';
 
+/** What a restore asks before writing into an org that is not the one its backup was taken from. */
+export interface ReplacedOrgRestoreQuestion {
+  /** The org the restore writes to, as the user knows it. */
+  alias: string;
+  /** The org id the org answered with when the backup was taken. */
+  backedUpFrom: string;
+  /** The org id it answers with now. */
+  now: string;
+}
+
 /** Infrastructure services bundle shared across handlers. */
 export interface InfraServices {
   performanceTracker: PerformanceTracker;
@@ -38,6 +48,13 @@ export interface InfraServices {
    * deactivating, a cancel from Live Operations — can still reach it.
    */
   backgroundRegistry: BackgroundOperationRegistry;
+  /**
+   * Asks the user whether to restore a backup into an org that now answers
+   * with another org id than the one it was taken from — a refreshed sandbox,
+   * most often. Resolves to their answer. Absent, such a restore is refused:
+   * there is nobody to ask.
+   */
+  confirmRestoreIntoReplacedOrg?: (question: ReplacedOrgRestoreQuestion) => Promise<boolean>;
 }
 
 /** Core dependencies available to all domain handlers. */
@@ -104,6 +121,22 @@ export interface HandlerDeps {
    */
   sandboxRefreshes?: SandboxRefreshDetector;
 }
+
+/**
+ * How a write refuses to run when the Production Guard it must pass is not
+ * there.
+ *
+ * `infraServices` reaches the handlers after they are built (see
+ * `composition/lateServices.ts`), and a host that drives a handler on its
+ * own can leave it out. Seven write paths skipped the guard entirely when it
+ * was absent and wrote on — to a production org as readily as to a scratch
+ * one — while the frozen load refused. Every write path refuses now, with
+ * this code and message: a guard that is missing fails closed.
+ */
+export const PRODUCTION_GUARD_MISSING = {
+  code: 'NOT_INITIALIZED',
+  message: 'Production Guard is not initialized — infrastructure services missing',
+} as const;
 
 /** The retry, timeout and bulk settings of a run. */
 export function robustnessConfigOf(deps: Pick<HandlerDeps, 'robustness'>): RobustnessConfig {
@@ -589,6 +622,8 @@ const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   /^Operation cancelled by user\b/,
   // ProductionGuard refusals, rethrown by the write paths.
   /^Operation blocked by Production Guard: /,
+  // A write refused because its Production Guard was never injected.
+  /^Production Guard is not initialized\b/,
   // The duplicate-operation and per-org lock guards.
   /^Duplicate operation: /,
   /^A backup or rollback operation is already running for org /,
@@ -599,6 +634,7 @@ const SANDFORGE_AUTHORED_FAILURES: readonly RegExp[] = [
   // Rollback preconditions.
   /^No backup found for operation /,
   /^Backup \S+ was taken from org /,
+  /^Restore not run: /,
   // The pipeline runner's fallback when a failed run carries no error.
   /^Pipeline failed$/,
   // A pipeline refused before its first step: a step type that cannot run in

@@ -110,6 +110,24 @@ describe('createMonitorOps', () => {
       expect(health.failedJobs).toBe(3);
     });
 
+    it('says how many of the latest jobs the failures were counted among', async () => {
+      // "3 failed" read as the org's total: they are the failures among the
+      // newest jobs the refresh reads, up to its bound.
+      mockQueryAll.mockResolvedValue([
+        makeJobRow('Failed', 'j1'),
+        makeJobRow('Completed', 'j2'),
+        makeJobRow('Completed', 'j3'),
+      ]);
+      const ops = createMonitorOps(createDeps());
+
+      const health = await ops.healthCheck.computeHealth('org-1');
+
+      expect(health.failedJobs).toBe(1);
+      expect(health.failedJobsOutOf).toBe(3);
+      const soql = String(mockQueryAll.mock.calls[0][1]);
+      expect(soql).toMatch(/FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT 50$/);
+    });
+
     it('drags the overall status down when failed jobs dominate the window', async () => {
       mockQueryAll.mockResolvedValue(
         Array.from({ length: 10 }, (_, i) => makeJobRow('Failed', `jf-${i}`)),
@@ -131,6 +149,7 @@ describe('createMonitorOps', () => {
 
       // Not zero failed jobs: none read. The score rests on what was read.
       expect(health.failedJobs).toBeNull();
+      expect(health.failedJobsOutOf).toBeNull();
       expect(health.overall).toBe('healthy');
     });
 
@@ -358,6 +377,42 @@ describe('createMonitorOps', () => {
       expect(onSandboxRefreshCompleted).toHaveBeenCalledWith(
         expect.objectContaining({ orgId: 'org-prod', sandboxName: 'uat', status: 'Completed' }),
       );
+    });
+
+    it.each([
+      ['no status', null],
+      ['a status Salesforce does not document', 'Upgrading'],
+    ])(
+      'reads a process with %s as Unknown and never hands it over as completed',
+      async (_label, status) => {
+        const onSandboxRefreshCompleted = vi.fn();
+        const ops = createMonitorOps(
+          createDeps({ configStore: realConfigStore(), onSandboxRefreshCompleted }),
+        );
+        const history = processRow('qa', 'Completed', '2026-09-01T07:00:00.000+0000');
+        mockQueryAll.mockResolvedValue([history]);
+        await ops.sandboxRefreshTracker.fetch('org-prod');
+
+        mockQueryAll.mockResolvedValue([
+          { ...processRow('uat', 'Completed', '2026-09-21T18:30:00.000+0000'), Status: status },
+          history,
+        ]);
+        const events = await ops.sandboxRefreshTracker.fetch('org-prod');
+
+        expect(events[0]).toMatchObject({ sandboxName: 'uat', status: 'Unknown' });
+        expect(onSandboxRefreshCompleted).not.toHaveBeenCalled();
+      },
+    );
+
+    it('counts a copy waiting for activation as a refresh in progress', async () => {
+      mockQueryAll.mockResolvedValue([
+        processRow('uat', 'Pending Activation', '2026-09-21T18:30:00.000+0000'),
+      ]);
+      const ops = createMonitorOps(createDeps());
+
+      await ops.sandboxRefreshTracker.fetch('org-prod');
+
+      expect(ops.sandboxRefreshTracker.isRefreshInProgress('org-prod')).toBe(true);
     });
 
     it('hands over, in a window opened later, a refresh completed while none was open', async () => {

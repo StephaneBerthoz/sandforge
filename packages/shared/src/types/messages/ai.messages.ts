@@ -183,6 +183,12 @@ export interface AIAnomalyScanResponse extends BaseMessage {
   payload: {
     success: boolean;
     anomalies?: Array<{ field: string; type: string; description: string; severity: string }>;
+    /**
+     * The records the scan judged: how many it read, and the most it reads.
+     * The findings are about this sample, not the whole object. Absent from
+     * answers of builds that did not say.
+     */
+    sample?: { read: number; limit: number };
     error?: string;
   };
 }

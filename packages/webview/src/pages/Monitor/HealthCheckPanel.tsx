@@ -13,6 +13,8 @@ export interface OrgHealthStatus {
   storageStatus: SignalStatus;
   /** Null when the jobs could not be read — not the same as none failed. */
   failedJobs: number | null;
+  /** How many of the latest jobs `failedJobs` counts among; absent from older builds. */
+  failedJobsOutOf?: number | null;
   /** Null when the logs could not be read — not the same as none found. */
   recentErrorLogs: number | null;
   lastChecked: string;
@@ -129,6 +131,19 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
             <span className="text-sm font-semibold tabular-nums text-text-primary">
               {orgHealthStatus.failedJobs ?? t('monitor.healthCheck.notRead')}
             </span>
+            {/* The count holds for the latest jobs only: the refresh reads a
+                bounded number of them, and a bare "3" read as the org's total. */}
+            {orgHealthStatus.failedJobs !== null &&
+              typeof orgHealthStatus.failedJobsOutOf === 'number' && (
+                <span
+                  className="text-[10px] text-text-secondary"
+                  data-testid="health-failed-jobs-out-of"
+                >
+                  {t('monitor.healthCheck.failedJobsOutOf', {
+                    count: orgHealthStatus.failedJobsOutOf,
+                  })}
+                </span>
+              )}
           </div>
 
           {/* Recent Error Logs */}

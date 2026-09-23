@@ -230,11 +230,11 @@ test.describe('Compare panel — controls', () => {
 
     await expect(source).toBeVisible();
     await expect(target).toBeVisible();
-    // `[SBX]` / `[PROD]` suffix comes from formatOrgLabel.
+    // The type suffix is the one the org badges show (orgOptionLabel).
     await expect(source.locator('option')).toHaveText([
       'Select source org',
-      'DevSandbox [SBX]',
-      'QASandbox [SBX]',
+      'DevSandbox [SANDBOX]',
+      'QASandbox [SANDBOX]',
     ]);
 
     // Picking the same org on both sides raises the guard warning.

@@ -78,6 +78,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // A seed refuses to write without a Production Guard, and the extension
+    // always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }
@@ -1344,7 +1349,7 @@ describe('SeedOpsHandler', () => {
       const offlineManager = new OfflineManager(deps.configStore);
       deps.infraServices = {
         performanceTracker: undefined,
-        productionGuard: undefined,
+        productionGuard: new ProductionGuard(),
         offlineManager,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -1741,7 +1746,7 @@ describe('SeedOpsHandler', () => {
       const update = vi.fn();
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), update, complete: vi.fn() },
-        productionGuard: undefined,
+        productionGuard: new ProductionGuard(),
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -2197,6 +2202,43 @@ describe('SeedOpsHandler', () => {
         .filter((m) => m.type === 'seed:error');
       expect(seedErrors).toHaveLength(1);
       expect(seedErrors[0].payload?.code).toBe('PROD_CONFIRMATION_DECLINED');
+    });
+
+    it('refuses with NOT_INITIALIZED, and seeds nothing, when no Production Guard was injected', async () => {
+      // A host that never wired the guard used to skip it and seed on.
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        id: 'org-1',
+        orgType: 'Production',
+      });
+      deps.infraServices = undefined;
+      const execute = vi.fn();
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({ execute })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-guard-3',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        } as BaseMessage),
+      );
+
+      expect(execute).not.toHaveBeenCalled();
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload?: Record<string, unknown> },
+      );
+      const seedErrors = posted.filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0]).toMatchObject({
+        correlationId: 'seed-guard-3',
+        payload: { code: 'NOT_INITIALIZED' },
+      });
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
     });
   });
 });

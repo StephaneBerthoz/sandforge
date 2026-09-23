@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SandboxRefreshTracker } from './SandboxRefreshTracker';
+import {
+  SANDBOX_PROCESS_STATUSES,
+  SandboxRefreshTracker,
+  sandboxProcessStatus,
+} from './SandboxRefreshTracker';
 import type {
   SandboxRefreshEvent,
   QuerySandboxesFn,
@@ -245,7 +249,8 @@ describe('SandboxRefreshTracker', () => {
       expect(tracker.isRefreshInProgress('org-1')).toBe(false);
     });
 
-    it('should return false when all sandboxes are Failed', async () => {
+    /** A tracker whose only process is in `status`. */
+    async function trackerWith(status: SandboxRefreshEvent['status']): Promise<void> {
       vi.mocked(querySandboxes).mockResolvedValue({
         supported: true,
         truncated: false,
@@ -254,16 +259,50 @@ describe('SandboxRefreshTracker', () => {
             orgId: 'org-1',
             sandboxName: 'test',
             refreshDate: '2026-01-01T00:00:00Z',
-            status: 'Failed',
+            status,
           },
         ],
       });
       await tracker.fetch('org-1');
-      expect(tracker.isRefreshInProgress('org-1')).toBe(false);
-    });
+    }
+
+    it.each(['Sampling', 'Suspended', 'Pending Activation', 'Activating'] as const)(
+      'counts a copy that is %s as a refresh in progress',
+      async (status) => {
+        // A copy waiting for an admin to activate it, or being activated, has
+        // not replaced the sandbox yet: the badge said nothing about either.
+        await trackerWith(status);
+        expect(tracker.isRefreshInProgress('org-1')).toBe(true);
+      },
+    );
+
+    it.each(['Stopped', 'Discarding', 'Deleting', 'Locking', 'Locked', 'Unknown'] as const)(
+      'does not count a process that is %s as a refresh in progress',
+      async (status) => {
+        await trackerWith(status);
+        expect(tracker.isRefreshInProgress('org-1')).toBe(false);
+      },
+    );
 
     it('should return false for unknown org', () => {
       expect(tracker.isRefreshInProgress('unknown')).toBe(false);
+    });
+  });
+
+  describe('sandboxProcessStatus', () => {
+    it('keeps every status Salesforce documents for a sandbox process', () => {
+      for (const status of SANDBOX_PROCESS_STATUSES) {
+        expect(sandboxProcessStatus(status)).toBe(status);
+      }
+    });
+
+    it.each([
+      ['no status', null],
+      ['an empty status', ''],
+      ['a status the documentation does not list', 'Upgrading'],
+      ['a status in another case', 'completed'],
+    ])('reads %s as Unknown, never as Completed', (_label, raw) => {
+      expect(sandboxProcessStatus(raw)).toBe('Unknown');
     });
   });
 

@@ -12,6 +12,7 @@ import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar'
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 import { SyncWizard } from './SyncWizard';
 import type { SyncWizardStep } from './SyncWizard';
 import { FieldMappingCanvas } from './FieldMappingCanvas';
@@ -252,7 +253,7 @@ export const SyncPage: React.FC = () => {
 
   const orgOptions = orgs.map((org) => ({
     value: org.id,
-    label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+    label: orgOptionLabel(org, t),
   }));
   // No "target to source": the orchestrator branches on `bidirectional` alone,
   // so that option wrote source to target, and the extension now refuses it.

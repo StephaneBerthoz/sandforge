@@ -22,6 +22,7 @@ vi.mock('vscode', () => ({
 
 import * as vscode from 'vscode';
 import {
+  confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   wireOfflineNotifications,
   wireOfflineReplay,
@@ -219,5 +220,40 @@ describe('production confirmation modal (localized)', () => {
     expect(options.detail).toBe(
       '1 200 records on Account\n\nCette opération écrit des données dans une org de PRODUCTION.',
     );
+  });
+});
+
+describe('restore confirmation for an org a refresh replaced (localized)', () => {
+  const question = {
+    alias: 'uat',
+    backedUpFrom: '00DXX00000AbCdE2A1',
+    now: '00Dxx00000FgHiJ3B2',
+  };
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('asks in a modal naming the org and both org ids, and restores on the translated label', async () => {
+    l10nBundle.current = { 'Restore anyway': 'Restaurer quand même' };
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+
+    await expect(confirmRestoreIntoReplacedOrg(question)).resolves.toBe(true);
+
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0];
+    const options = call[1] as { modal: boolean; detail: string };
+    expect(options.modal).toBe(true);
+    expect(options.detail).toContain('uat answered as org 00DXX00000AbCdE2A1');
+    expect(options.detail).toContain('answers as org 00Dxx00000FgHiJ3B2 now');
+    expect(call[call.length - 1]).toBe('Restaurer quand même');
+  });
+
+  it('restores nothing when the user dismisses the modal', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    await expect(confirmRestoreIntoReplacedOrg(question)).resolves.toBe(false);
   });
 });

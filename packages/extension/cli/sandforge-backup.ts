@@ -41,6 +41,8 @@ import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore } from '../src/modules/dataops/BackupRecordStore.js';
+import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
+import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 
 const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
 
@@ -202,6 +204,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }),
     },
     configStore,
+    infraServices: {
+      // A restore refuses to write without the guard, as in the extension.
+      productionGuard: new ProductionGuard(),
+      // A snapshot of the org an alias reached before a refresh goes into the
+      // org it reaches now only on a yes typed here: `--yes` answers the
+      // question asked before the restore, not this one.
+      confirmRestoreIntoReplacedOrg: ({
+        alias,
+        backedUpFrom,
+        now,
+      }: ReplacedOrgRestoreQuestion): Promise<boolean> =>
+        args.yes
+          ? Promise.resolve(false)
+          : confirm(
+              `${alias} answered as org ${backedUpFrom} when this snapshot was taken and ` +
+                `answers as org ${now} now. Write its saved values into the org it is now?`,
+            ),
+    },
     // Built rather than stubbed: the handler stamps every message it posts
     // with one, and a message with no id settles nothing on the other side.
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

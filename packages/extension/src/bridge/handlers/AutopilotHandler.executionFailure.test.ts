@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -39,6 +40,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    // An execution refuses to write without a Production Guard, and the
+    // extension always injects one.
+    infraServices: {
+      productionGuard: new ProductionGuard(),
+    } as unknown as HandlerDeps['infraServices'],
     nextId: () => String(++idCounter),
   };
 }

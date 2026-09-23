@@ -27,6 +27,7 @@ import {
   sendOperationCompleted,
   robustnessConfigOf,
   bulkManagerOf,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -1179,8 +1180,8 @@ export class FrozenDatasetHandler implements DomainHandler {
         'frozen:load',
         'frozen:load:error',
         msg,
-        new Error('Production Guard is not initialized — infrastructure services missing'),
-        { code: 'NOT_INITIALIZED' },
+        new Error(PRODUCTION_GUARD_MISSING.message),
+        { code: PRODUCTION_GUARD_MISSING.code },
       );
       return;
     }

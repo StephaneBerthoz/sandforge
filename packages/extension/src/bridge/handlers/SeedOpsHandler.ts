@@ -29,6 +29,7 @@ import {
   readGrappeConfig,
   robustnessConfigOf,
   bulkManagerOf,
+  PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
@@ -590,55 +591,66 @@ export class SeedOpsHandler implements DomainHandler {
       // production confirmation modal) and the Monitor "live operations" panel.
       const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
 
-      // Production guard check
-      let guardDecision: GuardDecision | undefined;
-      if (this.deps.infraServices?.productionGuard) {
-        const org = this.deps.orgManager.getOrg(payload.orgId);
-        const guardRequest = {
-          orgId: payload.orgId,
-          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-          operation: 'insert' as const,
-          objectName: 'SeedData',
-          recordCount: plannedRecords,
-          module: 'seed',
-        };
-        const { check, decision } = await consultProductionGuard(
-          this.deps.infraServices.productionGuard,
-          guardRequest,
+      // Production guard check. No write without it: a guard that was never
+      // injected refuses the run instead of waving it through.
+      const guard = this.deps.infraServices?.productionGuard;
+      if (!guard) {
+        sendHandlerError(
+          this.deps,
+          'seed:execute',
+          'seed:error',
+          msg,
+          new Error(PRODUCTION_GUARD_MISSING.message),
+          { code: PRODUCTION_GUARD_MISSING.code, retryable: false },
         );
-        guardDecision = decision;
-        if (decision === 'refused' || decision === 'declined') {
-          recordWriteRun(this.deps, {
-            action: 'seed_execute',
-            module: 'seed',
-            operationId,
-            orgId: payload.orgId,
-            outcome: 'stopped',
-            guard: decision,
-          });
-        }
-        if (decision === 'refused') {
-          throw new Error(
-            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
-          );
-        }
-        // `safety.requireProdConfirmation`: explicit user consent before
-        // writing to a production org.
-        if (decision === 'declined') {
-          const message = 'Operation cancelled by user (production confirmation declined).';
-          // Settle the in-flight useBridgeMutation listener on seed:error
-          // (same dual-channel contract as sync — without it the mutation
-          // spun until its 120 s timeout). Correlated to the request so the
-          // webview can drop stale error responses. The code is stable and
-          // SandForge-authored (unlike pass-through Salesforce messages), so
-          // the UI can key off it instead of matching English prose.
-          sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
-            code: 'PROD_CONFIRMATION_DECLINED',
-            retryable: false,
-          });
-          sendOperationFailed(this.deps, operationId, message, false, { context: failure });
-          return;
-        }
+        sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
+          context: failure,
+        });
+        return;
+      }
+      const org = this.deps.orgManager.getOrg(payload.orgId);
+      const guardRequest = {
+        orgId: payload.orgId,
+        orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+        operation: 'insert' as const,
+        objectName: 'SeedData',
+        recordCount: plannedRecords,
+        module: 'seed',
+      };
+      const { check, decision } = await consultProductionGuard(guard, guardRequest);
+      // What the run carries to the audit trail when it ends.
+      const guardDecision = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: decision,
+        });
+      }
+      if (decision === 'refused') {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        );
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      if (decision === 'declined') {
+        const message = 'Operation cancelled by user (production confirmation declined).';
+        // Settle the in-flight useBridgeMutation listener on seed:error
+        // (same dual-channel contract as sync — without it the mutation
+        // spun until its 120 s timeout). Correlated to the request so the
+        // webview can drop stale error responses. The code is stable and
+        // SandForge-authored (unlike pass-through Salesforce messages), so
+        // the UI can key off it instead of matching English prose.
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
+          code: 'PROD_CONFIRMATION_DECLINED',
+          retryable: false,
+        });
+        sendOperationFailed(this.deps, operationId, message, false, { context: failure });
+        return;
       }
 
       // Start performance tracking

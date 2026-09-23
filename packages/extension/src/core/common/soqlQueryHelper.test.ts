@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Connection, QueryResult } from 'jsforce';
-import { queryAll, queryAllBounded, queryWithFieldsFallback } from './soqlQueryHelper';
+import {
+  queryAll,
+  queryAllBounded,
+  queryWithFieldsFallback,
+  queryWithFieldsFallbackBounded,
+} from './soqlQueryHelper';
 
 type TestRecord = Record<string, unknown>;
 
@@ -163,6 +168,23 @@ describe('soqlQueryHelper', () => {
     });
 
     it.each([
+      ['with the described fields', 'SELECT FIELDS(ALL) FROM Account LIMIT 500', 500],
+      ['as written', 'SELECT FIELDS(ALL) FROM Account LIMIT 50', 50],
+      ['without a LIMIT', 'SELECT FIELDS(ALL) FROM Account', undefined],
+    ])('says which LIMIT a read sent %s carried', async (_case, soql, limit) => {
+      mockConn.describe.mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] });
+      mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001', Name: 'Acme' }], true));
+
+      const read = await queryWithFieldsFallbackBounded<TestRecord>(
+        mockConn as unknown as Connection,
+        'Account',
+        soql,
+      );
+
+      expect(read).toEqual({ records: [{ Id: '001', Name: 'Acme' }], limit });
+    });
+
+    it.each([
       ['a LIMIT above 200', 'SELECT FIELDS(ALL) FROM Account LIMIT 500', ' LIMIT 500'],
       ['no LIMIT at all', 'SELECT FIELDS(ALL) FROM Account', ''],
     ])(
@@ -208,6 +230,20 @@ describe('soqlQueryHelper', () => {
         const sent = String(mockConn.query.mock.calls[0][0]);
         expect(sent).toBe('SELECT FIELDS(ALL) FROM Account LIMIT 200');
         expect(encodeURIComponent(sent).length).toBeLessThanOrEqual(15_000);
+      });
+
+      it('says the read was sent at 200 rows, not at the 500 asked for', async () => {
+        // A caller stating the bound of its sample would state the wrong one.
+        mockConn.describe.mockResolvedValue(wideDescribe);
+        mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], true));
+
+        const read = await queryWithFieldsFallbackBounded<TestRecord>(
+          mockConn as unknown as Connection,
+          'Account',
+          'SELECT FIELDS(ALL) FROM Account LIMIT 500',
+        );
+
+        expect(read).toEqual({ records: [{ Id: '001' }], limit: 200 });
       });
 
       it('still names every field when the query reads without a LIMIT', async () => {

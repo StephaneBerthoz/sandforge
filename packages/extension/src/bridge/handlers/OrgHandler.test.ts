@@ -6,8 +6,11 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper';
 import { OrgManager } from '../../core/connection/OrgManager';
 import { OrgRegistry } from '../../core/connection/OrgRegistry';
+import { ConfigStore } from '../../core/storage/ConfigStore';
+import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -460,6 +463,167 @@ describe('OrgHandler', () => {
       expect(reply.type).toBe('org:error');
       expect(reply.payload.code).toBe('INVALID_PAYLOAD');
       expect((store.get('org.org-1') as SalesforceOrg).alias).toBe('dev');
+    });
+  });
+
+  describe('importing a sandbox again after a refresh', () => {
+    // A refresh gives the sandbox a new org id under the same username. The
+    // entry below was registered before it, under the org id it had then.
+    const FORMER_ORG_ID = '00DXX00000AbCdE2A1';
+    const REFRESHED_ORG_ID = '00Dxx00000FgHiJ3B2';
+    const USERNAME = 'admin@acme.test.uat';
+    const INSTANCE_URL = 'https://acme--uat.sandbox.my.salesforce.com';
+
+    const REGISTERED: SalesforceOrg = {
+      id: FORMER_ORG_ID,
+      alias: 'UAT',
+      username: USERNAME,
+      instanceUrl: INSTANCE_URL,
+      orgId: FORMER_ORG_ID,
+      orgType: 'Sandbox',
+      authMethod: 'sfdx_import',
+      safetyTier: OrgSafetyTier.MEDIUM,
+      appearance: { color: '#F59E0B', icon: 'cloud', position: 3 },
+      metadata: { apiVersion: '62.0', edition: 'Enterprise Edition', features: [] },
+      status: 'connected',
+      lastConnected: '2026-09-01T08:00:00.000Z',
+      tags: ['uat'],
+    };
+
+    /** The sandbox as the CLI lists it after the refresh: its new org id, and the defaults. */
+    function listed(orgId = REFRESHED_ORG_ID, username = USERNAME) {
+      return {
+        org: {
+          ...REGISTERED,
+          id: orgId,
+          orgId,
+          alias: username,
+          username,
+          appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+          lastConnected: '2026-09-22T09:00:00.000Z',
+          tags: [],
+        },
+        credentials: {
+          loginUrl: INSTANCE_URL,
+          accessToken: 'token-of-the-new-org',
+          instanceUrl: INSTANCE_URL,
+          username,
+        },
+      };
+    }
+
+    /** A real registry and refresh detector over one store, as the extension wires them. */
+    function harness(): {
+      configStore: ConfigStore;
+      orgManager: OrgManager;
+      detector: SandboxRefreshDetector;
+      storeObject: ReturnType<typeof vi.fn>;
+    } {
+      const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+      configStore.initialize();
+      const storeObject = vi.fn().mockResolvedValue(undefined);
+      const secretVault = { storeObject } as unknown as HandlerDeps['secretVault'];
+      const orgManager = new OrgManager();
+      const orgRegistry = new OrgRegistry(configStore, secretVault, orgManager);
+      configStore.set(`org.${FORMER_ORG_ID}`, REGISTERED, 'orgs');
+      orgRegistry.loadAll();
+      const detector = new SandboxRefreshDetector({ configStore, orgManager });
+      Object.assign(deps, {
+        configStore,
+        secretVault,
+        orgManager,
+        orgRegistry,
+        sandboxRefreshes: detector,
+      });
+      return { configStore, orgManager, detector, storeObject };
+    }
+
+    /** Import from a CLI that lists `orgs`, through the path `authMethod` names. */
+    async function importing(
+      authMethod: 'sfdx_import' | 'oauth_web',
+      ...orgs: Array<ReturnType<typeof listed>>
+    ): Promise<void> {
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        loginWeb: vi.fn().mockResolvedValue(undefined),
+        listOrgs: vi.fn().mockResolvedValue(orgs),
+      } as unknown as HandlerDeps['sfdxBridge'];
+      await handler.handle(createMsg('org:connect', { orgId: '', authMethod }));
+    }
+
+    /** The org id the connect request was acknowledged with. */
+    function acknowledged(): unknown {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .find((m) => m.type === 'org:statusChanged')?.payload.orgId;
+    }
+
+    it.each(['sfdx_import', 'oauth_web'] as const)(
+      'updates, through %s, the entry the detector saw refreshed into the org imported',
+      async (authMethod) => {
+        const { configStore, orgManager, detector, storeObject } = harness();
+        // The entry reached the new org through the CLI, and said so.
+        detector.observe(FORMER_ORG_ID, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+        await importing(authMethod, listed());
+
+        const orgs = orgManager.getAllOrgs();
+        expect(orgs).toHaveLength(1);
+        expect(orgs[0]).toMatchObject({
+          id: FORMER_ORG_ID,
+          orgId: REFRESHED_ORG_ID,
+          alias: 'UAT',
+          appearance: expect.objectContaining({ color: '#F59E0B' }),
+          tags: ['uat'],
+        });
+        expect(configStore.get(`org.${REFRESHED_ORG_ID}`)).toBeUndefined();
+        expect(storeObject).toHaveBeenCalledWith(
+          `org-cred.${FORMER_ORG_ID}`,
+          expect.objectContaining({ accessToken: 'token-of-the-new-org' }),
+        );
+        // What is kept under the entry's id stays with it.
+        expect(detector.refreshesOf(FORMER_ORG_ID)).toHaveLength(1);
+        expect(acknowledged()).toBe(FORMER_ORG_ID);
+
+        const reloaded = new OrgManager();
+        new OrgRegistry(configStore, {} as HandlerDeps['secretVault'], reloaded).loadAll();
+        expect(reloaded.getAllOrgs().map((o) => o.id)).toEqual([FORMER_ORG_ID]);
+      },
+    );
+
+    it('adds the import as it comes when no refresh into its org is on record', async () => {
+      const { orgManager } = harness();
+
+      await importing('sfdx_import', listed());
+
+      expect(
+        orgManager
+          .getAllOrgs()
+          .map((o) => o.id)
+          .sort(),
+      ).toEqual([FORMER_ORG_ID, REFRESHED_ORG_ID].sort());
+      expect(orgManager.getOrg(FORMER_ORG_ID)?.orgId).toBe(FORMER_ORG_ID);
+      expect(acknowledged()).toBe(REFRESHED_ORG_ID);
+    });
+
+    it('does not take the entry for the import when it was refreshed into another org', async () => {
+      const { orgManager, detector } = harness();
+      detector.observe(FORMER_ORG_ID, { organizationId: '00Dxx00000ZzZzZ7F6' }, 'connection');
+
+      await importing('sfdx_import', listed());
+
+      expect(orgManager.getAllOrgs()).toHaveLength(2);
+      expect(orgManager.getOrg(FORMER_ORG_ID)?.alias).toBe('UAT');
+    });
+
+    it('does not take the entry for an org imported under another username', async () => {
+      const { orgManager, detector } = harness();
+      detector.observe(FORMER_ORG_ID, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+      await importing('sfdx_import', listed(REFRESHED_ORG_ID, 'someone.else@acme.test.uat'));
+
+      expect(orgManager.getAllOrgs()).toHaveLength(2);
+      expect(orgManager.getOrg(FORMER_ORG_ID)?.username).toBe(USERNAME);
     });
   });
 

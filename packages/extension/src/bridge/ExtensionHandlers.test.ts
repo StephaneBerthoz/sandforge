@@ -3,7 +3,8 @@ import type { BaseMessage } from '@sandforge/shared';
 import { DEFAULT_ROBUSTNESS_CONFIG, OrgSafetyTier, PROTOCOL_VERSION } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import type { ExtensionHandlersDeps } from './ExtensionHandlers';
-import type { HandlerDeps } from './handlers/HandlerTypes';
+import type { HandlerDeps, InfraServices } from './handlers/HandlerTypes';
+import { ProductionGuard } from '../core/precheck/ProductionGuard';
 import { MessageBroker } from './MessageBroker';
 import { MessageRouter } from './MessageRouter';
 import { WebviewStateSync } from './WebviewStateSync';
@@ -206,6 +207,11 @@ describe('ExtensionHandlers', () => {
     };
 
     handlers = new ExtensionHandlers(deps);
+    // As the composition root does before routing: every write path refuses
+    // without the Production Guard.
+    handlers.setInfraServices({
+      productionGuard: new ProductionGuard(),
+    } as unknown as InfraServices);
     handlers.registerAll(router);
   });
 

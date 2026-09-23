@@ -8,6 +8,7 @@ import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
+import type { ReplacedOrgRestoreQuestion } from '../bridge/handlers/HandlerTypes';
 import type { Services } from '../services.js';
 
 /** Inputs required to build the infrastructure/background service layer. */
@@ -26,6 +27,39 @@ export interface BackgroundComposition {
   offlineManager: OfflineManager;
   piiDetector: PIIDetector;
   backgroundRegistry: BackgroundOperationRegistry;
+}
+
+/**
+ * The confirmation a restore asks for before it writes into an org that now
+ * answers with another org id than the one its backup was taken from.
+ *
+ * A modal, like the production confirmation: a sandbox refresh keeps the org
+ * registered under the same id, and the restore would otherwise go ahead as
+ * though the backed-up records were still there to be put back.
+ *
+ * @param question - The org, and the two org ids it answered with.
+ * @returns Whether the user chose to restore anyway.
+ */
+export async function confirmRestoreIntoReplacedOrg(
+  question: ReplacedOrgRestoreQuestion,
+): Promise<boolean> {
+  // Compared against the same localized value it is shown with (see the
+  // production confirmation below).
+  const restoreAnyway = vscode.l10n.t('Restore anyway');
+  const choice = await vscode.window.showWarningMessage(
+    vscode.l10n.t('SandForge: restore into another org'),
+    {
+      modal: true,
+      detail: vscode.l10n.t(
+        '{0} answered as org {1} when this backup was taken, and answers as org {2} now: the org behind it changed, as it does when a sandbox is refreshed. The records the backup saved belonged to the org it was, and the restore cannot put them back. It writes their saved values into the org {0} is now, by record id.',
+        question.alias,
+        question.backedUpFrom,
+        question.now,
+      ),
+    },
+    restoreAnyway,
+  );
+  return choice === restoreAnyway;
 }
 
 /**

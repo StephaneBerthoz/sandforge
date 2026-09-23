@@ -7,6 +7,7 @@ import {
   buildResponse,
   syntheticRequest,
   uncorrelated,
+  PRODUCTION_GUARD_MISSING,
   type InboundRequest,
   type SyntheticRequestKind,
   type UncorrelatedReason,
@@ -547,7 +548,9 @@ describe('sendOperationFailed — fix suggestion', () => {
       "FLS violation on 'Account': fields [Secret__c] are not updateable.",
       'No backup found for operation req-3. Cannot rollback.',
       'Backup req-3 was taken from org 00D000000000001AAA and cannot be restored into org 00D000000000002AAA.',
+      'Restore not run: uat answers as org 00D000000000002AAA, not as org 00D000000000001AAA, which backup req-3 was taken from, and the restore into the org it is now was not confirmed.',
       `Operation blocked by Production Guard: ${productionBlock.blockedReason ?? ''}`,
+      PRODUCTION_GUARD_MISSING.message,
       'Pipeline failed',
     ];
     // The samples are the producers' own text, not a paraphrase of it.
