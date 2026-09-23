@@ -133,7 +133,7 @@ const STEPS_CREDITED_WITH_THE_ORG = {
   fr: /(?:délai|condition)[^.]*\bagiss\w* sur votre org/i,
   de: /(?:\bwirk\w*[^.]*(?:Verzögerung|Bedingung)|(?:Verzögerung|Bedingung)[^.]*\bwirk\w*)[^.]*auf Ihre Org/i,
   es: /(?:espera|condición)[^.]*\bactúa\w* sobre tu org/i,
-  ja: /(?:待機|条件)[^。]*Org に作用|Org に作用[^。]*(?:待機|条件)/,
+  ja: /(?:待機|条件)[^。]*(?:組織|Org ?)に作用|(?:組織|Org ?)に作用[^。]*(?:待機|条件)/,
   'pt-br': /(?:espera|condição)[^.]*\bagem na sua org/i,
 };
 
@@ -143,7 +143,7 @@ const NO_STEP_WRITES_TO_THE_ORG = {
   fr: /aucune étape de pipeline n'écrit dans votre org/i,
   de: /kein Pipeline-Schritt schreibt in Ihre Org/i,
   es: /ningún paso de pipeline escribe en tu org/i,
-  ja: /Org に書き込むパイプラインのステップはありません/,
+  ja: /組織に書き込むパイプラインのステップはありません/,
   'pt-br': /nenhum passo de pipeline grava na sua org/i,
 };
 

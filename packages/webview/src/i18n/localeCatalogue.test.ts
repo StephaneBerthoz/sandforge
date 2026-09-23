@@ -164,6 +164,72 @@ describe('a language names one thing with one word', () => {
       expect(offenders(locale, /\bFlows?\b/).length).toBeGreaterThan(0);
     },
   );
+
+  /* Japanese called an org 組織 in 88 values and Org in 156, and a Salesforce
+     field 項目 in 84 and フィールド in 54. Salesforce's own Japanese UI says 組織
+     and 項目 (組織情報, 本番組織, カスタム項目, 項目レベルセキュリティ), which is
+     what an admin reads in Setup. A placeholder such as {{org}} is a name in
+     code the reader never sees, and is set aside first, as is each word below
+     in the one value where it names something else. */
+  const JA_SET_ASIDE: Record<string, string> = {
+    // The Salesforce CLI command the reader runs, typed as it is.
+    'auth.jwtHelp': 'sf org login jwt',
+    // The five fields of a cron expression, as Japanese cron documentation calls them.
+    'sync.schedules.cronHelp': 'フィールド',
+  };
+  const ORG_WORD = /(?<![A-Za-z])orgs?(?![A-Za-z])/i;
+  const FIELD_WORD = /フィールド/;
+
+  const naming = (values: Map<string, string>, pattern: RegExp): string[] =>
+    [...values]
+      .filter(([key, value]) => {
+        const words = value.replace(/\{\{[^}]*\}\}/g, '');
+        const aside = JA_SET_ASIDE[key];
+        return pattern.test(aside === undefined ? words : words.split(aside).join(''));
+      })
+      .map(([key, value]) => `${key} = ${value}`);
+
+  const EXTENSION = join(SRC, '..', '..', 'extension');
+
+  it('Japanese names an org 組織 and a Salesforce field 項目', () => {
+    const ja = flatten(load('ja'));
+    expect(naming(ja, ORG_WORD)).toEqual([]);
+    expect(naming(ja, FIELD_WORD)).toEqual([]);
+    // Positive control: the walk reads the values that name them.
+    expect(naming(ja, /組織/).length).toBeGreaterThan(100);
+    expect(naming(ja, /項目/).length).toBeGreaterThan(100);
+  });
+
+  it('the Japanese manifest and host messages name them the same way', () => {
+    const bundle = (file: string) =>
+      new Map(
+        Object.entries(
+          JSON.parse(readFileSync(join(EXTENSION, file), 'utf8')) as Record<string, string>,
+        ),
+      );
+    const nls = bundle('package.nls.ja.json');
+    const host = bundle(join('l10n', 'bundle.l10n.ja.json'));
+    expect(naming(nls, ORG_WORD)).toEqual([]);
+    expect(naming(nls, FIELD_WORD)).toEqual([]);
+    expect(naming(host, ORG_WORD)).toEqual([]);
+    expect(naming(host, FIELD_WORD)).toEqual([]);
+    expect(nls.get('command.openOrgs')).toBe('SandForge: 組織に接続');
+    expect(naming(host, /項目/).length).toBeGreaterThan(5);
+  });
+
+  it('the Japanese walkthrough bodies name them the same way', () => {
+    // VS Code shows each body beside its step title from the manifest.
+    const dir = join(EXTENSION, 'walkthrough');
+    const lines = new Map<string, string>();
+    for (const name of readdirSync(dir).filter((file) => file.endsWith('.nls.ja.md'))) {
+      readFileSync(join(dir, name), 'utf8')
+        .split('\n')
+        .forEach((line, index) => lines.set(`${name}:${index + 1}`, line));
+    }
+    expect(naming(lines, ORG_WORD)).toEqual([]);
+    expect(naming(lines, FIELD_WORD)).toEqual([]);
+    expect(naming(lines, /組織/).length).toBeGreaterThan(5);
+  });
 });
 
 describe('Brazilian Portuguese copy carries its accents', () => {
