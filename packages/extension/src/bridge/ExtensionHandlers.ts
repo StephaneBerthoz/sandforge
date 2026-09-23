@@ -680,7 +680,7 @@ export class ExtensionHandlers {
     // Smart Action
     route(['smart-action:analyze'], this.smartActionHandler);
     route(['file:save'], this.fileHandler);
-    route(['reports:list'], this.reportsHandler);
+    route(['reports:list', 'reports:audit', 'reports:lineage'], this.reportsHandler);
 
     // Execution lifecycle: abort a running background operation
     if (this.executionHandler) {

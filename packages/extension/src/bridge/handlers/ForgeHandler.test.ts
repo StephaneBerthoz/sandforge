@@ -19,6 +19,10 @@ import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js
 import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -1220,6 +1224,163 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
       );
       expect(errCalls).toHaveLength(0);
+    });
+  });
+
+  describe('audit trail', () => {
+    const SOURCE_ID = '001Fk00000AbCdEFGH';
+    const TARGET_ID = '001Fk00000ZyXwVUTS';
+
+    /** A real store, read back the way the Reports page reads it. */
+    function recordingStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    function execute(): Promise<boolean> {
+      return handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+    }
+
+    it('records a finished run once: what it created and lost per object, and where from', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          status: 'partial',
+          idRemapTable: { [SOURCE_ID]: TARGET_ID },
+          idRemapByObject: [
+            { objectApiName: 'Account', created: 2, linked: 1 },
+            { objectApiName: 'Contact', created: 3, linked: 0 },
+          ],
+          errors: [
+            {
+              objectApiName: 'Contact',
+              stage: 'insert',
+              failedCount: 1,
+              attemptedCount: 4,
+              samples: [],
+            },
+            // A pass, not an object; and reference data never meant to be written.
+            {
+              objectApiName: '__pass2__',
+              stage: 'insert',
+              failedCount: 2,
+              attemptedCount: 2,
+              samples: [],
+            },
+            {
+              objectApiName: 'Product2',
+              stage: 'scope',
+              failedCount: 4,
+              attemptedCount: 4,
+              samples: [],
+            },
+          ],
+        }),
+      );
+
+      await execute();
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'forge_execute',
+        module: 'forge',
+        orgId: 'tgt-org',
+        sourceOrgId: 'src-org',
+        outcome: 'partial',
+        objects: [
+          { objectApiName: 'Account', created: 2, updated: 0, deleted: 0, failed: 0 },
+          { objectApiName: 'Contact', created: 3, updated: 0, deleted: 0, failed: 1 },
+        ],
+      });
+      expect(entries[0].operationId).toMatch(/^forge-execute-/);
+      // The lineage counts the remap table: created and linked rows alike.
+      const lineage = new LineageStore(store).get(entries[0].operationId);
+      expect(lineage?.nodes.filter((n) => n.type === 'object').map((n) => n.recordCount)).toEqual([
+        3, 3,
+      ]);
+    });
+
+    it('keeps no record id of the remap table in the trail or the lineage', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockResolvedValue(
+        createMockResult({
+          idRemapTable: { [SOURCE_ID]: TARGET_ID },
+          idRemapByObject: [{ objectApiName: 'Account', created: 1, linked: 0 }],
+        }),
+      );
+
+      await execute();
+
+      const stored = JSON.stringify([store.get('audit:trail'), store.get('lineage:runs')]);
+      expect(stored).toContain('Account');
+      expect(stored).not.toContain(SOURCE_ID);
+      expect(stored).not.toContain(TARGET_ID);
+    });
+
+    it('records a run Production Guard refused as stopped, with the refusal', async () => {
+      const store = recordingStore();
+      deps.infraServices = {
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: false,
+            requiresConfirmation: false,
+            requiresApproval: false,
+            blockedReason: 'insert is not allowed on production org tgt-org',
+            warnings: [],
+            impactSummary: '',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn(),
+        },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await execute();
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'stopped', guard: 'refused', objects: [] }),
+      ]);
+      expect(new LineageStore(store).get()).toBeNull();
+    });
+
+    it('records the confirmation a person gave with the run it let through', async () => {
+      const store = recordingStore();
+      deps.infraServices = {
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            requiresConfirmation: true,
+            requiresApproval: false,
+            warnings: [],
+            impactSummary: '',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn().mockResolvedValue(true),
+          canAskForConfirmation: true,
+        },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'success', guard: 'confirmed' }),
+      ]);
+    });
+
+    it('records a run that threw as failed, without counts it cannot know', async () => {
+      const store = recordingStore();
+      vi.mocked(orchestrator.execute).mockRejectedValue(new Error('session expired'));
+
+      await execute();
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'failure', objects: [] }),
+      ]);
     });
   });
 

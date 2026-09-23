@@ -321,6 +321,9 @@ describe('AutopilotExecutor', () => {
     expect(failedEvents).toHaveLength(1);
     expect(failedEvents[0].objectApiName).toBe('Account');
     expect(failedEvents[0].errors).toContain('FIELD_INTEGRITY_EXCEPTION: invalid field');
+    // How many records the target refused, not only why: the audit trail
+    // counts a failed node's records from this event.
+    expect(failedEvents[0].failureCount).toBe(1);
     // The per-node message rides on the result too: the handler reports node
     // status from the result, not from the events.
     expect(result.nodeErrors?.['Account']).toBe('FIELD_INTEGRITY_EXCEPTION: invalid field');

@@ -1,4 +1,5 @@
 import type {
+  AuditOutcome,
   CloneExecutionResult,
   CloneObjectResult,
   ClonePreviewResult,
@@ -43,6 +44,9 @@ import {
   recordTypeBlockedMessage,
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import type { WriteRun } from '../../modules/audit/auditTrail.js';
 
 /** Message types handled by SeedCloneHandler. */
 const SEED_CLONE_TYPES = new Set([
@@ -292,10 +296,28 @@ export class SeedCloneHandler implements DomainHandler {
       abortController,
     );
 
+    /** The run as the audit trail records it, once it ends. */
+    const run: WriteRun = {
+      action: 'seed_clone',
+      module: 'seed',
+      operationId,
+      orgId: parsed.targetOrgId,
+      outcome: 'failure',
+      source: { origin: 'org', orgId: parsed.sourceOrgId },
+    };
+    /**
+     * True from the moment the clone is announced until its end is recorded:
+     * a failure before it wrote nothing, and a run is recorded once.
+     */
+    let unrecorded = false;
+    /** Per object, what the clone did — kept outside the run, so a failure can say it. */
+    const objectResults: CloneObjectResult[] = [];
+    /** Whether the clone writes by upsert, as the write below decides it. */
+    const upserts = Boolean(parsed.upsert && parsed.externalIdField);
+
     try {
       // Production guard check on target org (mirror SyncOpsHandler).
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
         const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
         const guardRequest = {
           orgId: parsed.targetOrgId,
@@ -309,13 +331,18 @@ export class SeedCloneHandler implements DomainHandler {
           recordCount: 'unknown' as const,
           module: 'clone',
         };
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          guardRequest,
+        );
+        run.guard = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+        }
+        if (decision === 'refused') {
           throw new Error(`${GUARD_BLOCKED_PREFIX}${check.blockedReason ?? check.impactSummary}`);
         }
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const declined = 'Operation cancelled by user (production confirmation declined).';
           sendOperationFailed(this.deps, operationId, declined, false, {
             context: failure,
@@ -345,6 +372,7 @@ export class SeedCloneHandler implements DomainHandler {
         'clone',
         `Clone ${parsed.objects.length} object(s)`,
       );
+      unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
       const defaultBatchSize =
@@ -405,7 +433,6 @@ export class SeedCloneHandler implements DomainHandler {
 
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
-      const objectResults: CloneObjectResult[] = [];
       let objectLevelFailures = 0;
 
       for (let index = 0; index < insertOrder.length; index++) {
@@ -542,6 +569,8 @@ export class SeedCloneHandler implements DomainHandler {
         totalFailed,
         durationMs: Date.now() - startedAt,
       };
+      unrecorded = false;
+      recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts));
 
       sendOperationCompleted(this.deps, operationId, {
         status: result.status,
@@ -558,6 +587,9 @@ export class SeedCloneHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
       settle();
     } catch (err: unknown) {
+      if (unrecorded) {
+        recordWriteRun(this.deps, cloneRun(run, 'failure', objectResults, upserts));
+      }
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       const message = extractErrorMessage(err);
@@ -573,6 +605,34 @@ export class SeedCloneHandler implements DomainHandler {
       settle(err);
     }
   }
+}
+
+/**
+ * A clone as the audit trail records it: per object, what it wrote and what the
+ * org refused, and — from its own source→target mappings, linked records
+ * included — how many records it gave a counterpart in the target.
+ *
+ * @param upserted - Whether the rows went in by upsert, which says it wrote a
+ *   row but not whether it created it.
+ */
+function cloneRun(
+  run: WriteRun,
+  outcome: AuditOutcome,
+  objectResults: readonly CloneObjectResult[],
+  upserted: boolean,
+): WriteRun {
+  return {
+    ...run,
+    outcome,
+    objects: objectResults.map((result) => ({
+      ...emptyCounts(result.objectApiName),
+      ...(upserted ? { upserted: result.insertedCount } : { created: result.insertedCount }),
+      failed: result.failedCount,
+    })),
+    carried: Object.fromEntries(
+      objectResults.map((result) => [result.objectApiName, result.idMappings.length]),
+    ),
+  };
 }
 
 /** Keep only the first `maxFields` non-null fields of a sample record. */

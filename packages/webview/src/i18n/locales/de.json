@@ -1330,7 +1330,12 @@
       "settings_change": "Einstellungen ändern",
       "template_create": "Vorlage erstellen",
       "template_update": "Vorlage aktualisieren",
-      "template_delete": "Vorlage löschen"
+      "template_delete": "Vorlage löschen",
+      "forge_execute": "Forge-Klon",
+      "seed_csv_import": "CSV-Import",
+      "seed_clone": "Datensatz-Klon",
+      "autopilot_execute": "Autopilot-Lauf",
+      "frozen_load": "Eingefrorenen Datensatz laden"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",
@@ -1349,7 +1354,52 @@
     "noLineageData": "Keine Datenherkunftsinformationen verfügbar",
     "recordsProcessed": "Verarbeitete Datensätze",
     "totalReports": "Berichte gesamt",
-    "auditEntries": "Audit-Einträge"
+    "auditEntries": "Audit-Einträge",
+    "filterByOrg": "Nach Org filtern",
+    "allOrgs": "Alle Orgs",
+    "intoOrg": "nach {{org}}",
+    "fromOrg": "aus {{org}}",
+    "outcome": {
+      "success": "Erfolgreich",
+      "partial": "Teilweise",
+      "failure": "Fehlgeschlagen",
+      "stopped": "Angehalten"
+    },
+    "guard": {
+      "allowed": "Guard: erlaubt",
+      "confirmed": "Guard: bestätigt",
+      "declined": "Guard: abgelehnt",
+      "refused": "Guard: blockiert"
+    },
+    "counts": {
+      "created_one": "{{count}} erstellt",
+      "created_other": "{{count}} erstellt",
+      "updated_one": "{{count}} aktualisiert",
+      "updated_other": "{{count}} aktualisiert",
+      "upserted_one": "{{count}} per Upsert geschrieben",
+      "upserted_other": "{{count}} per Upsert geschrieben",
+      "deleted_one": "{{count}} gelöscht",
+      "deleted_other": "{{count}} gelöscht",
+      "failed_one": "{{count}} fehlgeschlagen",
+      "failed_other": "{{count}} fehlgeschlagen"
+    },
+    "auditShowing": "{{shown}} von {{total}} angezeigt",
+    "showMore": "Mehr anzeigen",
+    "auditEmptyTitle": "Noch nichts aufgezeichnet",
+    "auditEmptyDesc": "Jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datensatzes — erscheint hier, sobald er endet: was er in jedes Objekt geschrieben hat und wie Production Guard entschieden hat.",
+    "auditUnreadable": "Das Audit-Protokoll konnte nicht gelesen werden: {{error}}",
+    "lineageEmptyTitle": "Noch kein Lauf nachverfolgt",
+    "lineageEmptyDesc": "Sobald ein Lauf Datensätze in eine Org schreibt, zeigt dieser Tab, woher sie kamen — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Datensatz — und wie viele Datensätze je Objekt dort angekommen sind.",
+    "lineageUnreadable": "Die Datenherkunft konnte nicht gelesen werden: {{error}}",
+    "lineageRun": "Lauf",
+    "lineageOrigin": {
+      "org": "Org",
+      "generator": "Generierte Daten",
+      "csv": "CSV-Datei",
+      "backup": "Sicherung",
+      "dataset": "Eingefrorener Datensatz"
+    },
+    "object": "Objekt"
   },
   "settings": {
     "title": "Einstellungen",

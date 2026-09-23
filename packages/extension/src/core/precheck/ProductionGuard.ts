@@ -111,6 +111,16 @@ export class ProductionGuard {
   }
 
   /**
+   * Whether a confirmation can be put to someone. With no confirmation UI — a
+   * unit test, a command-line runner — {@link confirmIfNeeded} lets through a
+   * run it would otherwise have asked about, and a record of that run must not
+   * say that anyone confirmed it.
+   */
+  get canAskForConfirmation(): boolean {
+    return this.options.requestConfirmation !== undefined;
+  }
+
+  /**
    * Record a safety check decision in the audit log.
    * No-op when audit logging is disabled via `safety.auditLogging`.
    * The log is capped at {@link MAX_AUDIT_ENTRIES} with FIFO eviction.

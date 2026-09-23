@@ -1,9 +1,11 @@
 import type {
+  AuditObjectCounts,
   AutopilotGraph,
   ExecutionPlan,
   ComplianceProfile,
   AutopilotAnonymizationRule,
   AutopilotRefusal,
+  GuardDecision,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -22,6 +24,8 @@ import type {
   AutopilotConnection,
   SchemaScanResult,
 } from '../../modules/autopilot/SchemaScanner.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 
 /** Message types handled by AutopilotHandler. */
 const AUTOPILOT_TYPES = new Set([
@@ -56,6 +60,8 @@ interface AutopilotOperation {
    * from this value when the operation reaches `autopilot:execute`.
    */
   readonly targetOrgId: string;
+  /** Source org captured at scan time: where the run's records come from. */
+  readonly sourceOrgId: string;
   /** Schema scan result, set once the scan completes. */
   scanResult?: SchemaScanResult;
   /** Dependency graph built from the scan result. */
@@ -164,7 +170,11 @@ export class AutopilotHandler implements DomainHandler {
     const payload = parsed;
 
     const previousCurrentId = this.currentOperationId;
-    const operation: AutopilotOperation = { id: msg.id, targetOrgId: payload.targetOrgId };
+    const operation: AutopilotOperation = {
+      id: msg.id,
+      targetOrgId: payload.targetOrgId,
+      sourceOrgId: payload.sourceOrgId,
+    };
     this.operations.set(msg.id, operation);
     this.currentOperationId = msg.id;
     this.evictOldOperations();
@@ -291,8 +301,8 @@ export class AutopilotHandler implements DomainHandler {
     // tier is resolved from the target org captured at scan time (the
     // execute payload carries no org id — fixed message protocol). Covers
     // every insert below: executePlan is the only path that writes.
+    let guardDecision: GuardDecision | undefined;
     if (this.deps.infraServices?.productionGuard) {
-      const guard = this.deps.infraServices.productionGuard;
       const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
       const guardRequest = {
         orgId: operation.targetOrgId,
@@ -302,9 +312,22 @@ export class AutopilotHandler implements DomainHandler {
         recordCount: Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0),
         module: 'autopilot',
       };
-      const check = guard.check(guardRequest);
-      guard.logOperation(guardRequest, check);
-      if (!check.allowed) {
+      const { check, decision } = await consultProductionGuard(
+        this.deps.infraServices.productionGuard,
+        guardRequest,
+      );
+      guardDecision = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        recordWriteRun(this.deps, {
+          action: 'autopilot_execute',
+          module: 'autopilot',
+          operationId: msg.id,
+          orgId: operation.targetOrgId,
+          outcome: 'stopped',
+          guard: decision,
+        });
+      }
+      if (decision === 'refused') {
         const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
         sendHandlerError(
           this.deps,
@@ -318,8 +341,7 @@ export class AutopilotHandler implements DomainHandler {
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
-      const confirmed = await guard.confirmIfNeeded(check);
-      if (!confirmed) {
+      if (decision === 'declined') {
         const message = 'Operation cancelled by user (production confirmation declined).';
         sendHandlerError(
           this.deps,
@@ -334,6 +356,24 @@ export class AutopilotHandler implements DomainHandler {
     }
 
     this.executingOperations.add(operation.id);
+    /** Per object, what the run wrote, as each node settles. */
+    const written = new Map<string, AuditObjectCounts>();
+    /** A run is recorded once, whichever way it ends. */
+    let recorded = false;
+    const recordRun = (outcome: 'success' | 'partial' | 'failure'): void => {
+      if (recorded) return;
+      recorded = true;
+      recordWriteRun(this.deps, {
+        action: 'autopilot_execute',
+        module: 'autopilot',
+        operationId: msg.id,
+        orgId: operation.targetOrgId,
+        outcome,
+        guard: guardDecision,
+        objects: [...written.values()],
+        source: { origin: 'org', orgId: operation.sourceOrgId },
+      });
+    };
     try {
       if (payload.grappeThreshold) {
         this.deps.log(`[GRAPPE] autopilot threshold set to ${payload.grappeThreshold}`);
@@ -372,6 +412,12 @@ export class AutopilotHandler implements DomainHandler {
         scanResult.recordCounts,
         (event) => {
           const name = String(event.objectApiName);
+          written.set(name, {
+            ...emptyCounts(name),
+            ...(event.type === 'node-completed'
+              ? { created: event.successCount, failed: event.failureCount }
+              : { created: event.partialSuccessCount, failed: event.failureCount ?? 0 }),
+          });
           if (event.type === 'node-completed') {
             this.sendNodeProgress(msg, name, 'completed', waveOf.get(name) ?? 0, {
               recordCount: event.successCount,
@@ -447,6 +493,14 @@ export class AutopilotHandler implements DomainHandler {
         }
       }
 
+      recordRun(
+        result.totalFailure === 0 && failedSet.size === 0
+          ? 'success'
+          : result.totalSuccess > 0
+            ? 'partial'
+            : 'failure',
+      );
+
       const response = buildResponse(this.deps, msg, 'autopilot:completed', {
         totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
         totalSuccessCount: result.totalSuccess,
@@ -456,6 +510,8 @@ export class AutopilotHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
+      // The nodes that settled before the run died say what it wrote.
+      recordRun('failure');
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,

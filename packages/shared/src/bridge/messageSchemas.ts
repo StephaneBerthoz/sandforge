@@ -397,6 +397,12 @@ const SettingsMessages = [
   // Bridge control messages (emitted by the MessageBroker itself)
   msg('reports:list'),
   msg('reports:list:response'),
+  msg('reports:audit'),
+  msg('reports:audit:response'),
+  msg('reports:lineage'),
+  msg('reports:lineage:response'),
+  // A malformed audit or lineage request (INVALID_PAYLOAD).
+  msg('reports:error'),
   msg('file:save'),
   msg('file:save:response'),
   msg('bridge:error'),

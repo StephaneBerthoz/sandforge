@@ -61,6 +61,48 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('counted by object', () => {
+    it('counts, per object, the rows the run created and the ones it linked', () => {
+      remapper.add('001A', '001CREATED1', 'Account');
+      remapper.add('001B', '001CREATED2', 'Account');
+      remapper.addExisting('001C', '001EXISTING', 'Account');
+      remapper.add('003A', '003CREATED', 'Contact');
+
+      expect(remapper.countsByObject()).toEqual([
+        { objectApiName: 'Account', created: 2, linked: 1 },
+        { objectApiName: 'Contact', created: 1, linked: 0 },
+      ]);
+    });
+
+    it('leaves out a mapping registered without its object: nothing was written there', () => {
+      // Reference data matched by name, the standard price book: mapped so
+      // their children point at the right row, never cloned.
+      remapper.add('01sSTANDARD', '01sTARGET');
+      remapper.add('001A', '001CREATED', 'Account');
+
+      expect(remapper.countsByObject()).toEqual([
+        { objectApiName: 'Account', created: 1, linked: 0 },
+      ]);
+      expect(remapper.count).toBe(2);
+    });
+
+    it('counts a row once, as what it finally became', () => {
+      remapper.addExisting('001A', '001EXISTING', 'Account');
+      remapper.add('001A', '001CREATED', 'Account');
+
+      expect(remapper.countsByObject()).toEqual([
+        { objectApiName: 'Account', created: 1, linked: 0 },
+      ]);
+    });
+
+    it('forgets the objects on clear', () => {
+      remapper.add('001A', '001CREATED', 'Account');
+      remapper.clear();
+
+      expect(remapper.countsByObject()).toEqual([]);
+    });
+  });
+
   describe('remapRecord', () => {
     it('should remap lookup fields that exist in the map', () => {
       remapper.add('001PARENT', '001NEWPARENT');

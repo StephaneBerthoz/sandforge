@@ -64,6 +64,8 @@ import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { clearDescribeCache } from '../../core/connection/describeCache.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -1513,6 +1515,143 @@ describe('SyncOpsHandler', () => {
         operation: 'update',
         objectName: 'Account, Contact',
       });
+    });
+  });
+
+  describe('audit trail', () => {
+    /** A connection the run gets through: both describes answer, nothing is refused. */
+    function mockWorkingConnection(): void {
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(),
+        limitInfo: undefined,
+      } as never);
+    }
+
+    /** The orchestrator answers with this result. */
+    function orchestratorAnswers(result: Record<string, unknown>): void {
+      deps.services = {
+        getSandforgeSetting: vi.fn(function () {
+          return 200;
+        }),
+        syncOrchestrator: vi.fn(function () {
+          return { execute: vi.fn().mockResolvedValue(result) };
+        }),
+      } as unknown as HandlerDeps['services'];
+    }
+
+    function executeMsg(id: string, config: Record<string, unknown>): InboundRequest {
+      return inboundRequest({
+        id,
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config },
+      } as BaseMessage);
+    }
+
+    const objectResult = (
+      objectApiName: string,
+      operation: string,
+      success: number,
+      failed = 0,
+    ) => ({
+      objectApiName,
+      operation,
+      processed: success + failed,
+      success,
+      failed,
+      skipped: 0,
+      conflictCount: 0,
+      errors: [],
+    });
+
+    it('records a finished sync once, each object in the column of its operation', async () => {
+      mockWorkingConnection();
+      orchestratorAnswers({
+        status: 'partial',
+        objectResults: [
+          objectResult('Account', 'insert', 3),
+          objectResult('Contact', 'upsert', 5, 1),
+          objectResult('Lead', 'update', 4),
+          objectResult('Case', 'delete', 2),
+        ],
+      });
+
+      await handler.handle(
+        executeMsg(
+          'sync-audit-1',
+          syncConfigWithObjects([
+            { objectApiName: 'Account', operation: 'insert' },
+            { objectApiName: 'Contact', operation: 'upsert' },
+            { objectApiName: 'Lead', operation: 'update' },
+            { objectApiName: 'Case', operation: 'delete' },
+          ]),
+        ),
+      );
+
+      const { entries } = new AuditTrailStore(deps.configStore).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'sync_execute',
+        module: 'sync',
+        operationId: 'sync-audit-1',
+        orgId: 'tgt-org',
+        sourceOrgId: 'src-org',
+        outcome: 'partial',
+        objects: [
+          { objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 0 },
+          // An upsert says it wrote the row, not which way: counted apart.
+          { objectApiName: 'Contact', created: 0, updated: 0, upserted: 5, failed: 1 },
+          { objectApiName: 'Lead', created: 0, updated: 4, deleted: 0, failed: 0 },
+          { objectApiName: 'Case', created: 0, updated: 0, deleted: 2, failed: 0 },
+        ],
+      });
+      // Deleted records went nowhere: the lineage carries the three others.
+      const lineage = new LineageStore(deps.configStore).get('sync-audit-1');
+      expect(lineage?.nodes.filter((n) => n.type === 'object').map((n) => n.label)).toEqual([
+        'Account',
+        'Contact',
+        'Lead',
+      ]);
+    });
+
+    it('records a sync Production Guard refused as stopped, and no run after it', async () => {
+      deps.infraServices = {
+        productionGuard: new ProductionGuard(),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Production',
+      });
+      mockWorkingConnection();
+
+      await handler.handle(
+        executeMsg(
+          'sync-audit-refused',
+          syncConfigWithObjects([{ objectApiName: 'Account', operation: 'delete' }]),
+        ),
+      );
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          operationId: 'sync-audit-refused',
+          outcome: 'stopped',
+          guard: 'refused',
+          objects: [],
+        }),
+      ]);
+    });
+
+    it('records a scheduled sync that failed, as the run it was', async () => {
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({ action: 'sync_execute', outcome: 'failure', objects: [] }),
+      ]);
     });
   });
 

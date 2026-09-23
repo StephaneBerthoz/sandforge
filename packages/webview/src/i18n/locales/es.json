@@ -1330,7 +1330,12 @@
       "settings_change": "Cambiar configuración",
       "template_create": "Crear plantilla",
       "template_update": "Actualizar plantilla",
-      "template_delete": "Eliminar plantilla"
+      "template_delete": "Eliminar plantilla",
+      "forge_execute": "Clonación Forge",
+      "seed_csv_import": "Importación CSV",
+      "seed_clone": "Clonación de registros",
+      "autopilot_execute": "Ejecución de Autopilot",
+      "frozen_load": "Carga del dataset congelado"
     },
     "filterByAction": "Filtrar por acción",
     "filterByModule": "Filtrar por módulo",
@@ -1349,7 +1354,52 @@
     "noLineageData": "Sin datos de linaje disponibles",
     "recordsProcessed": "Registros procesados",
     "totalReports": "Total de reportes",
-    "auditEntries": "Entradas de auditoría"
+    "auditEntries": "Entradas de auditoría",
+    "filterByOrg": "Filtrar por org",
+    "allOrgs": "Todas las orgs",
+    "intoOrg": "hacia {{org}}",
+    "fromOrg": "desde {{org}}",
+    "outcome": {
+      "success": "Correcto",
+      "partial": "Parcial",
+      "failure": "Fallido",
+      "stopped": "Detenido"
+    },
+    "guard": {
+      "allowed": "Guard: permitido",
+      "confirmed": "Guard: confirmado",
+      "declined": "Guard: rechazado",
+      "refused": "Guard: bloqueado"
+    },
+    "counts": {
+      "created_one": "{{count}} creado",
+      "created_other": "{{count}} creados",
+      "updated_one": "{{count}} actualizado",
+      "updated_other": "{{count}} actualizados",
+      "upserted_one": "{{count}} escrito por upsert",
+      "upserted_other": "{{count}} escritos por upsert",
+      "deleted_one": "{{count}} eliminado",
+      "deleted_other": "{{count}} eliminados",
+      "failed_one": "{{count}} fallido",
+      "failed_other": "{{count}} fallidos"
+    },
+    "auditShowing": "Mostrando {{shown}} de {{total}}",
+    "showMore": "Mostrar más",
+    "auditEmptyTitle": "Aún no hay nada registrado",
+    "auditEmptyDesc": "Cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — aparece aquí cuando termina, con lo que escribió en cada objeto y lo que decidió Production Guard.",
+    "auditUnreadable": "No se pudo leer el registro de auditoría: {{error}}",
+    "lineageEmptyTitle": "Aún no se ha trazado ninguna ejecución",
+    "lineageEmptyDesc": "Cuando una ejecución escribe registros en una org, esta pestaña muestra de dónde vinieron — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos registros de cada objeto llegaron.",
+    "lineageUnreadable": "No se pudo leer el linaje de datos: {{error}}",
+    "lineageRun": "Ejecución",
+    "lineageOrigin": {
+      "org": "Org",
+      "generator": "Datos generados",
+      "csv": "Archivo CSV",
+      "backup": "Respaldo",
+      "dataset": "Dataset congelado"
+    },
+    "object": "Objeto"
   },
   "settings": {
     "title": "Configuración",

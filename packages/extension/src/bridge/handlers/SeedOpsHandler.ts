@@ -1,4 +1,5 @@
 import type {
+  GuardDecision,
   SeedTemplate,
   PersonaMsg,
   SeedExecutionResult,
@@ -52,6 +53,8 @@ import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
 
 /** Record count threshold above which streaming pipeline is used per object. */
@@ -568,8 +571,8 @@ export class SeedOpsHandler implements DomainHandler {
       const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
 
       // Production guard check
+      let guardDecision: GuardDecision | undefined;
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
         const org = this.deps.orgManager.getOrg(payload.orgId);
         const guardRequest = {
           orgId: payload.orgId,
@@ -579,17 +582,29 @@ export class SeedOpsHandler implements DomainHandler {
           recordCount: plannedRecords,
           module: 'seed',
         };
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          guardRequest,
+        );
+        guardDecision = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          recordWriteRun(this.deps, {
+            action: 'seed_execute',
+            module: 'seed',
+            operationId,
+            orgId: payload.orgId,
+            outcome: 'stopped',
+            guard: decision,
+          });
+        }
+        if (decision === 'refused') {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
         }
         // `safety.requireProdConfirmation`: explicit user consent before
         // writing to a production org.
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const message = 'Operation cancelled by user (production confirmation declined).';
           // Settle the in-flight useBridgeMutation listener on seed:error
           // (same dual-channel contract as sync — without it the mutation
@@ -625,6 +640,7 @@ export class SeedOpsHandler implements DomainHandler {
         operationId,
         abortController,
         failure,
+        guardDecision,
       );
 
       // Register with BackgroundOperationRegistry if available
@@ -677,8 +693,15 @@ export class SeedOpsHandler implements DomainHandler {
     operationId: string,
     abortController: AbortController,
     failure: OperationFailureContext,
+    guardDecision?: GuardDecision,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = robustnessConfigOf(this.deps);
+    const templateName = (payload.template as { name?: unknown }).name;
+    /** Where the records came from: the template the generator filled in. */
+    const source = {
+      origin: 'generator' as const,
+      ...(typeof templateName === 'string' ? { label: templateName } : {}),
+    };
 
     try {
       // Build robustness-aware insert function
@@ -886,6 +909,20 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationCompleted(this.deps, operationId, { totalRecords });
       this.liveTracker?.complete(operationId);
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: result.status,
+        guard: guardDecision,
+        objects: result.objectResults.map((object) => ({
+          ...emptyCounts(object.objectApiName),
+          created: object.recordsCreated,
+          failed: object.recordsFailed,
+        })),
+        source,
+      });
 
       const response = buildResponse(
         this.deps,
@@ -898,6 +935,16 @@ export class SeedOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      // What the run inserted before it threw is not known here.
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'failure',
+        guard: guardDecision,
+        source,
+      });
       // Dual channel, single display (see handleExecute): seed:error settles
       // the in-flight webview mutation, operation:failed carries the
       // lifecycle. Both carry the offline retryHint on transport failures.

@@ -31,7 +31,49 @@ export type AuditAction =
   | 'settings_change'
   | 'template_create'
   | 'template_update'
-  | 'template_delete';
+  | 'template_delete'
+  | 'forge_execute'
+  | 'seed_csv_import'
+  | 'seed_clone'
+  | 'autopilot_execute'
+  | 'frozen_load';
+
+/**
+ * How a recorded run ended. `stopped` is a run Production Guard stopped before
+ * it wrote anything — refused by the guard, or declined at its confirmation;
+ * the entry's `guard` says which.
+ */
+export type AuditOutcome = 'success' | 'partial' | 'failure' | 'stopped';
+
+/**
+ * What Production Guard decided about a run.
+ *
+ * `confirmed` means a person answered the production confirmation; a run the
+ * guard would have asked about, on a host with no one to ask, is `allowed`.
+ */
+export type GuardDecision = 'allowed' | 'confirmed' | 'declined' | 'refused';
+
+/**
+ * What one run did to one object of the org it wrote, in counts.
+ *
+ * Counts only, never a record, an id or a field value: an audit trail that
+ * kept what was written would be a second copy of the data, outside every
+ * control the org puts on it.
+ */
+export interface AuditObjectCounts {
+  objectApiName: string;
+  created: number;
+  updated: number;
+  deleted: number;
+  failed: number;
+  /**
+   * Records an upsert wrote. Salesforce answers an upsert without saying, as
+   * the run reads it, whether it created the record or updated it, so these
+   * are counted apart rather than guessed into either column. Absent when the
+   * run did not upsert.
+   */
+  upserted?: number;
+}
 
 /** Report definition */
 export interface ReportDefinition {
@@ -78,11 +120,31 @@ export interface AuditLogEntry {
   id: UUID;
   action: AuditAction;
   module: string;
+  /** The org the run wrote to. */
   orgId?: string;
+  /** Its alias when the entry was written: an alias can be renamed, the id cannot. */
+  orgAlias?: string;
+  /** The org the records were read from, when they came from one. */
+  sourceOrgId?: string;
+  sourceOrgAlias?: string;
+  /** The run's operation id — the one its `operation:*` messages carried. */
+  operationId?: string;
+  outcome?: AuditOutcome;
+  /** Production Guard's decision, when the guard was consulted. */
+  guard?: GuardDecision;
+  /** Per object, what the run did. Empty when it wrote nothing. */
+  objects?: AuditObjectCounts[];
   userId?: string;
   details: Record<string, unknown>;
   timestamp: ISODateString;
   ipAddress?: string;
+}
+
+/** Every module and org an audit trail holds: what its filters can offer. */
+export interface AuditFacets {
+  modules: string[];
+  /** Each org under the alias it was last recorded with. */
+  orgs: Array<{ orgId: string; orgAlias?: string }>;
 }
 
 /** Analytics data point */
@@ -101,13 +163,26 @@ export interface AnalyticsTimeSeries {
   interval: 'minute' | 'hour' | 'day' | 'week' | 'month';
 }
 
+/**
+ * Where the records of a run came from, when a lineage names its source.
+ * `org` is another org; the others are what the run read instead of one: a
+ * seed generator, a CSV file, a backup, a frozen dataset.
+ */
+export type LineageOrigin = 'org' | 'generator' | 'csv' | 'backup' | 'dataset';
+
 /** Data lineage node — tracks data flow through the system */
 export interface LineageNode {
   id: UUID;
-  type: 'source' | 'transform' | 'filter' | 'destination';
+  /** `object` is one object whose records the run carried. */
+  type: 'source' | 'transform' | 'filter' | 'object' | 'destination';
+  /** An org alias, an object API name, or what the source is called. */
   label: string;
   objectApiName?: string;
   orgId?: string;
+  /** On a source node: what kind of source it is. */
+  origin?: LineageOrigin;
+  /** On an object node: the records of that object the run carried. */
+  recordCount?: number;
   config?: Record<string, unknown>;
 }
 
@@ -119,10 +194,24 @@ export interface LineageEdge {
   recordCount?: number;
 }
 
+/** A run whose lineage is kept, as a list of runs names it. */
+export interface LineageRunSummary {
+  operationId: UUID;
+  generatedAt: ISODateString;
+  module?: string;
+  action?: AuditAction;
+  /** Label of the org the run wrote to. */
+  targetLabel?: string;
+}
+
 /** Complete data lineage graph */
 export interface DataLineageGraph {
   nodes: LineageNode[];
   edges: LineageEdge[];
   operationId: UUID;
   generatedAt: ISODateString;
+  /** The module whose run this graph traces. */
+  module?: string;
+  /** The audit action of that run, so a list of runs can name each one. */
+  action?: AuditAction;
 }

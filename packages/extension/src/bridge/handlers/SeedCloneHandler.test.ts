@@ -52,6 +52,10 @@ import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -337,6 +341,98 @@ describe('SeedCloneHandler', () => {
         retryable: true,
         code: 'CLONE_FAILED',
       });
+    });
+  });
+
+  describe('audit trail', () => {
+    const SOURCE_ACCOUNT_ID = '001Fk00000SoUrCIAV';
+    const EXISTING_ACCOUNT_ID = '001Fk00000ExIsTIAV';
+
+    /** A real store, read back the way the Reports page reads it. */
+    function recordingStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    it('records a clone once, and counts its lineage from its own id mappings', async () => {
+      const store = recordingStore();
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+      fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+        name === 'Account'
+          ? [{ Id: SOURCE_ACCOUNT_ID, Name: 'Acme' }]
+          : [
+              { Id: '003Fk00000AaAaAIAV', LastName: 'Doe' },
+              { Id: '003Fk00000BbBbBIAV', LastName: 'Roe' },
+            ],
+      );
+      writer.insert.mockImplementation(async (name: string) =>
+        name === 'Account'
+          ? [{ success: false, errors: ['DUPLICATE_VALUE'], existingId: EXISTING_ACCOUNT_ID }]
+          : [
+              { id: '003Fk00000NeWcTIAV', success: true, errors: [] },
+              { success: false, errors: ['REQUIRED_FIELD_MISSING'] },
+            ],
+      );
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }] }),
+        ),
+      );
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'seed_clone',
+        module: 'seed',
+        operationId: 'msg-seed:clone:execute',
+        orgId: 'tgt-org',
+        sourceOrgId: 'src-org',
+        outcome: 'partial',
+        objects: [
+          // Linked to a record the target held: neither created nor failed.
+          { objectApiName: 'Account', created: 0, failed: 0 },
+          { objectApiName: 'Contact', created: 1, failed: 1 },
+        ],
+      });
+      // The linked Account has a counterpart in the target, the refused Contact has none.
+      const lineage = new LineageStore(store).get('msg-seed:clone:execute');
+      expect(
+        lineage?.nodes.filter((n) => n.type === 'object').map((n) => [n.label, n.recordCount]),
+      ).toEqual([
+        ['Account', 1],
+        ['Contact', 1],
+      ]);
+      const stored = JSON.stringify([store.get('audit:trail'), store.get('lineage:runs')]);
+      expect(stored).not.toContain(SOURCE_ACCOUNT_ID);
+      expect(stored).not.toContain(EXISTING_ACCOUNT_ID);
+    });
+
+    it('records a clone that failed partway with the objects it had written', async () => {
+      const store = recordingStore();
+      linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+      fetcher.fetchRecords.mockResolvedValue([{ Id: SOURCE_ACCOUNT_ID, Name: 'Acme' }]);
+      writer.insert.mockImplementation(async (name: string) => {
+        if (name === 'Contact') throw new Error('bulk write exploded');
+        return [{ id: '001Fk00000NeWaCIAV', success: true, errors: [] }];
+      });
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }] }),
+        ),
+      );
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'failure',
+          objects: [expect.objectContaining({ objectApiName: 'Account', created: 1 })],
+        }),
+      ]);
     });
   });
 

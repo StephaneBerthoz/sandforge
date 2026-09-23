@@ -9,6 +9,9 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -1099,6 +1102,77 @@ describe('DataOpsHandler', () => {
       });
     });
 
+    describe('audit trail', () => {
+      /** A real store holding one backup, taken at a known time, that also records the run. */
+      function storeWithBackup(records: Record<string, unknown>[]): ConfigStore {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        store.set(
+          'backup:bk-1',
+          {
+            operationId: 'bk-1',
+            orgId: 'org-1',
+            objects: [{ objectApiName: 'Account', recordCount: records.length }],
+            totalRecords: records.length,
+            timestamp: '2026-09-20T10:00:00.000Z',
+          },
+          'backups',
+        );
+        store.set('backup:bk-1:Account', records, 'backups');
+        deps.configStore = store;
+        return store;
+      }
+
+      it('records a restore once: what it wrote over, what the org refused, from which backup', async () => {
+        const { upsert } = await mockConnection();
+        upsert.mockResolvedValue([
+          { success: true, id: '001000000000001' },
+          { success: false, errors: [{ message: 'REQUIRED_FIELD_MISSING: [Industry]' }] },
+        ]);
+        const store = storeWithBackup([
+          backedUpRecord,
+          { ...backedUpRecord, Id: '001000000000002' },
+        ]);
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        const { entries } = new AuditTrailStore(store).list();
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({
+          action: 'backup_restore',
+          module: 'dataops',
+          operationId: 'msg-rb',
+          orgId: 'org-1',
+          outcome: 'partial',
+          objects: [{ objectApiName: 'Account', created: 0, updated: 1, deleted: 0, failed: 1 }],
+        });
+        expect(new LineageStore(store).get('msg-rb')?.nodes[0]).toMatchObject({
+          type: 'source',
+          origin: 'backup',
+          label: '2026-09-20 10:00',
+        });
+        const trail = JSON.stringify(store.get('audit:trail'));
+        expect(trail).not.toContain('001000000000002');
+        expect(trail).not.toContain('Industry');
+      });
+
+      it('records a restore that stopped at an object it may not write as failed', async () => {
+        await mockConnection({
+          ...accountDescribe,
+          fields: accountDescribe.fields.map((f) =>
+            f.name === 'Name' ? { ...f, createable: false, updateable: false } : f,
+          ),
+        });
+        const store = storeWithBackup([backedUpRecord]);
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({ action: 'backup_restore', outcome: 'failure', objects: [] }),
+        ]);
+      });
+    });
+
     it('still refuses the rollback when a business field is not writable', async () => {
       const readOnlyName = {
         ...accountDescribe,
@@ -1309,6 +1383,29 @@ describe('DataOpsHandler', () => {
 
       expect(anonymizePayload()?.recordsProcessed).toBe(1);
       expect(anonymizePayload()?.recordsFailed).toBe(1);
+    });
+
+    it('records the masking run once, read from the org and written back to it', async () => {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+
+      await mixedAnonymize();
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'anonymize_execute',
+        module: 'dataops',
+        orgId: 'org-1',
+        sourceOrgId: 'org-1',
+        outcome: 'partial',
+        objects: [{ objectApiName: 'Contact', created: 0, updated: 1, deleted: 0, failed: 1 }],
+      });
+      // Neither the value masked nor the value it was masked with.
+      const stored = JSON.stringify([store.get('audit:trail'), store.get('lineage:runs')]);
+      expect(stored).not.toContain('Ada');
+      expect(stored).not.toContain('003000000000001');
     });
 
     it('calls it partial, not a completed anonymization', async () => {

@@ -1330,7 +1330,12 @@
       "settings_change": "Modification paramètres",
       "template_create": "Création modèle",
       "template_update": "Modification modèle",
-      "template_delete": "Suppression modèle"
+      "template_delete": "Suppression modèle",
+      "forge_execute": "Clonage Forge",
+      "seed_csv_import": "Import CSV",
+      "seed_clone": "Clonage d'enregistrements",
+      "autopilot_execute": "Exécution Autopilot",
+      "frozen_load": "Chargement du jeu figé"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",
@@ -1349,7 +1354,52 @@
     "noLineageData": "Aucune donnée de lignée disponible",
     "recordsProcessed": "Enregistrements traités",
     "totalReports": "Total des rapports",
-    "auditEntries": "Entrées d'audit"
+    "auditEntries": "Entrées d'audit",
+    "filterByOrg": "Filtrer par org",
+    "allOrgs": "Toutes les orgs",
+    "intoOrg": "vers {{org}}",
+    "fromOrg": "depuis {{org}}",
+    "outcome": {
+      "success": "Réussi",
+      "partial": "Partiel",
+      "failure": "Échoué",
+      "stopped": "Arrêté"
+    },
+    "guard": {
+      "allowed": "Guard : autorisé",
+      "confirmed": "Guard : confirmé",
+      "declined": "Guard : décliné",
+      "refused": "Guard : bloqué"
+    },
+    "counts": {
+      "created_one": "{{count}} créé",
+      "created_other": "{{count}} créés",
+      "updated_one": "{{count}} mis à jour",
+      "updated_other": "{{count}} mis à jour",
+      "upserted_one": "{{count}} écrit par upsert",
+      "upserted_other": "{{count}} écrits par upsert",
+      "deleted_one": "{{count}} supprimé",
+      "deleted_other": "{{count}} supprimés",
+      "failed_one": "{{count}} en échec",
+      "failed_other": "{{count}} en échec"
+    },
+    "auditShowing": "{{shown}} affichées sur {{total}}",
+    "showMore": "Afficher plus",
+    "auditEmptyTitle": "Rien d’enregistré pour l’instant",
+    "auditEmptyDesc": "Chaque exécution qui écrit dans une org — un clonage Forge, une synchronisation, un seed, un import CSV, un clonage d’enregistrements, une exécution Autopilot, une restauration, un masquage ou un chargement de jeu figé — apparaît ici quand elle se termine, avec ce qu’elle a écrit dans chaque objet et ce que Production Guard a décidé.",
+    "auditUnreadable": "Le journal d’audit n’a pas pu être lu : {{error}}",
+    "lineageEmptyTitle": "Aucune exécution tracée pour l’instant",
+    "lineageEmptyDesc": "Quand une exécution écrit des enregistrements dans une org, cet onglet montre d’où ils venaient — une autre org, des données générées, un fichier CSV, une sauvegarde ou un jeu figé — et combien d’enregistrements de chaque objet y sont arrivés.",
+    "lineageUnreadable": "La lignée de données n’a pas pu être lue : {{error}}",
+    "lineageRun": "Exécution",
+    "lineageOrigin": {
+      "org": "Org",
+      "generator": "Données générées",
+      "csv": "Fichier CSV",
+      "backup": "Sauvegarde",
+      "dataset": "Jeu figé"
+    },
+    "object": "Objet"
   },
   "settings": {
     "title": "Paramètres",

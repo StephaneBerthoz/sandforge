@@ -13,20 +13,59 @@ export class IdRemapper {
    * what has to tell the two apart.
    */
   private readonly existing = new Set<string>();
+  /**
+   * The object each source id belongs to, where the caller said. The ids
+   * alone cannot tell: a custom object's key prefix is the org's own. A run's
+   * lineage is counted per object from this, and a mapping registered without
+   * an object — reference data matched by name, the standard price book — is
+   * left out of it: the run wrote nothing there.
+   */
+  private readonly objectOf = new Map<string, string>();
 
-  /** Register a mapping from old ID to new ID. */
-  add(oldId: string, newId: string): void {
+  /**
+   * Register a mapping from old ID to new ID.
+   *
+   * @param objectApiName - The object of the record this run created, when
+   *   the mapping is one; left out for a mapping to a row the run only found.
+   */
+  add(oldId: string, newId: string, objectApiName?: string): void {
     this.map.set(oldId, newId);
     this.existing.delete(oldId);
+    this.label(oldId, objectApiName);
   }
 
   /**
    * Register a source record the target org refused because it already holds
    * it, mapped onto that existing record so its children link to it.
+   *
+   * @param objectApiName - The object both records belong to.
    */
-  addExisting(oldId: string, existingId: string): void {
+  addExisting(oldId: string, existingId: string, objectApiName?: string): void {
     this.map.set(oldId, existingId);
     this.existing.add(oldId);
+    this.label(oldId, objectApiName);
+  }
+
+  /**
+   * Per object, the source records this run created in the target and the ones
+   * it linked to a record the target already held — counted from the map
+   * itself, for the mappings registered with their object.
+   */
+  countsByObject(): Array<{ objectApiName: string; created: number; linked: number }> {
+    const counts = new Map<string, { objectApiName: string; created: number; linked: number }>();
+    for (const [oldId, objectApiName] of this.objectOf) {
+      const entry = counts.get(objectApiName) ?? { objectApiName, created: 0, linked: 0 };
+      if (this.existing.has(oldId)) entry.linked++;
+      else entry.created++;
+      counts.set(objectApiName, entry);
+    }
+    return [...counts.values()];
+  }
+
+  /** Remember the object of a mapping, or forget it when the new one names none. */
+  private label(oldId: string, objectApiName: string | undefined): void {
+    if (objectApiName) this.objectOf.set(oldId, objectApiName);
+    else this.objectOf.delete(oldId);
   }
 
   /** Whether `oldId` maps onto a record the target already held. */
@@ -73,6 +112,7 @@ export class IdRemapper {
   clear(): void {
     this.map.clear();
     this.existing.clear();
+    this.objectOf.clear();
   }
 
   /** Serialize all mappings to a plain object for checkpoint persistence. */

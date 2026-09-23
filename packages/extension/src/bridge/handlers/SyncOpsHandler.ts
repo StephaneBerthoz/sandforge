@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { assertSoqlOrderBy, assertSoqlWhere } from '../../core/common/soqlValidator.js';
 import type {
+  AuditObjectCounts,
+  GuardDecision,
   MappingType,
   SyncConfig,
   SyncExecutionResult,
+  SyncObjectResult,
   SyncOperation,
 } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
@@ -61,6 +64,8 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import {
   targetWriteFieldsOf,
@@ -90,6 +95,27 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
   upsert: 2,
   delete: 3,
 };
+
+/**
+ * What a sync did per object, for the audit trail. Each object runs one
+ * operation, so its successes are created, updated, deleted or — for an upsert,
+ * which Salesforce answers without saying which it did — upserted.
+ */
+function syncAuditObjects(results: readonly SyncObjectResult[]): AuditObjectCounts[] {
+  return results.map((result) => {
+    const counts = { ...emptyCounts(result.objectApiName), failed: result.failed };
+    switch (result.operation) {
+      case 'insert':
+        return { ...counts, created: result.success };
+      case 'update':
+        return { ...counts, updated: result.success };
+      case 'delete':
+        return { ...counts, deleted: result.success };
+      case 'upsert':
+        return { ...counts, upserted: result.success };
+    }
+  });
+}
 
 /**
  * Mapping types that write the source value as it was read. A transform,
@@ -310,6 +336,40 @@ export class SyncOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'sync:config:delete', 'sync:error', msg, err);
     }
+  }
+
+  /**
+   * Record a finished run — succeeded, partial, or failed with whatever it
+   * wrote before it failed — in the audit trail and the lineage.
+   */
+  private recordRun(
+    config: SyncConfig,
+    operationId: string,
+    result: SyncExecutionResult,
+    guardDecision: GuardDecision | undefined,
+  ): void {
+    recordWriteRun(this.deps, {
+      action: 'sync_execute',
+      module: 'sync',
+      operationId,
+      orgId: config.targetOrgId,
+      outcome: result.status,
+      guard: guardDecision,
+      objects: syncAuditObjects(result.objectResults ?? []),
+      source: { origin: 'org', orgId: config.sourceOrgId },
+    });
+  }
+
+  /** Record a run Production Guard stopped before it wrote anything. */
+  private recordStopped(operationId: string, targetOrgId: string, decision: GuardDecision): void {
+    recordWriteRun(this.deps, {
+      action: 'sync_execute',
+      module: 'sync',
+      operationId,
+      orgId: targetOrgId,
+      outcome: 'stopped',
+      guard: decision,
+    });
   }
 
   /**
@@ -596,18 +656,22 @@ export class SyncOpsHandler implements DomainHandler {
 
     // Production guard on target org — same policy as manual runs. A blocked
     // or declined run rejects so the scheduler marks the schedule as failed.
+    let guardDecision: GuardDecision | undefined;
     if (this.deps.infraServices?.productionGuard) {
-      const guard = this.deps.infraServices.productionGuard;
-      const guardRequest = this.buildGuardRequest(filledConfig);
-      const check = guard.check(guardRequest);
-      guard.logOperation(guardRequest, check);
-      if (!check.allowed) {
+      const { check, decision } = await consultProductionGuard(
+        this.deps.infraServices.productionGuard,
+        this.buildGuardRequest(filledConfig),
+      );
+      guardDecision = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        this.recordStopped(operationId, filledConfig.targetOrgId, decision);
+      }
+      if (decision === 'refused') {
         throw new Error(
           `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
         );
       }
-      const confirmed = await guard.confirmIfNeeded(check);
-      if (!confirmed) {
+      if (decision === 'declined') {
         throw new Error('Scheduled sync cancelled (production confirmation declined).');
       }
     }
@@ -623,7 +687,14 @@ export class SyncOpsHandler implements DomainHandler {
     const abortController = new AbortController();
     // executeSync never rejects (it reports on operation:failed and converts
     // the outcome to a failure-status result), so no try/catch is needed here.
-    const execution = this.executeSync(msg, filledConfig, operationId, abortController, 'schedule');
+    const execution = this.executeSync(
+      msg,
+      filledConfig,
+      operationId,
+      abortController,
+      'schedule',
+      guardDecision,
+    );
     // Registered like a manual run: Live Operations lists this run, and its
     // Cancel (`execution:abort`) finds a run through the registry only.
     this.registry?.register(operationId, 'sync', scheduledDescription, execution, abortController);
@@ -664,20 +735,24 @@ export class SyncOpsHandler implements DomainHandler {
       Object.assign(failure, objectsFailureContext(config.objects));
 
       // Production guard check on target org
+      let guardDecision: GuardDecision | undefined;
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
-        const guardRequest = this.buildGuardRequest(config);
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          this.buildGuardRequest(config),
+        );
+        guardDecision = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          this.recordStopped(operationId, config.targetOrgId, decision);
+        }
+        if (decision === 'refused') {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
         }
         // `safety.requireProdConfirmation`: explicit user consent before
         // writing to a production org.
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const message = 'Operation cancelled by user (production confirmation declined).';
           // Settle the in-flight useBridgeMutation listener on sync:error
           // (same dual-channel contract as the catch paths below). Stable
@@ -727,6 +802,7 @@ export class SyncOpsHandler implements DomainHandler {
         operationId,
         abortController,
         triggeredBy,
+        guardDecision,
       );
 
       // Register with BackgroundOperationRegistry if available
@@ -767,6 +843,7 @@ export class SyncOpsHandler implements DomainHandler {
     operationId: string,
     abortController: AbortController,
     triggeredBy: 'manual' | 'rerun' | 'schedule',
+    guardDecision?: GuardDecision,
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = robustnessConfigOf(this.deps);
 
@@ -1047,6 +1124,7 @@ export class SyncOpsHandler implements DomainHandler {
       } catch (historyErr: unknown) {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
+      this.recordRun(config, operationId, result, guardDecision);
 
       const response = buildResponse(
         this.deps,
@@ -1127,6 +1205,8 @@ export class SyncOpsHandler implements DomainHandler {
       } catch (historyErr: unknown) {
         this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
       }
+      // What it wrote before it failed is in the partial result, when there is one.
+      this.recordRun(config, operationId, failureResult, guardDecision);
 
       return failureResult;
     } finally {

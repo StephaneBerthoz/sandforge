@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactFlow, { type Node, type Edge, Position } from 'reactflow';
-import type { DataLineageGraph } from '@sandforge/shared';
+import type { DataLineageGraph, LineageNode } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
@@ -14,11 +14,23 @@ export interface LineageGraphProps {
   className?: string;
 }
 
+type NodeType = LineageNode['type'];
+
+/** Left to right, the order a record passes through the node types. */
+const COLUMN_ORDER: readonly NodeType[] = [
+  'source',
+  'transform',
+  'filter',
+  'object',
+  'destination',
+];
+
 /** Border colour of each lineage node type: the theme's raw colours, drawn, not read. */
-const nodeTypeColors: Record<string, string> = {
+const nodeTypeColors: Record<NodeType, string> = {
   source: 'var(--sf-info, #3794ff)',
   transform: 'var(--sf-warning, #F59E0B)',
   filter: 'var(--sf-breakpoint-icon)',
+  object: 'var(--sf-border)',
   destination: 'var(--sf-success, #10B981)',
 };
 
@@ -27,10 +39,11 @@ const nodeTypeColors: Record<string, string> = {
  * Written in the border colour itself on the default badge, a name read as low
  * as 1.00:1 (Quiet Light).
  */
-const nodeTypeBadgeVariants: Record<string, BadgeVariant> = {
+const nodeTypeBadgeVariants: Record<NodeType, BadgeVariant> = {
   source: 'info',
   transform: 'warning',
   filter: 'error',
+  object: 'default',
   destination: 'success',
 };
 
@@ -38,32 +51,35 @@ const nodeTypeBadgeVariants: Record<string, BadgeVariant> = {
 export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }) => {
   const { t } = useTranslation();
 
+  /** The node types this graph draws, in column order: the legend names only these. */
+  const presentTypes = useMemo(
+    () => COLUMN_ORDER.filter((type) => lineage?.nodes.some((node) => node.type === type)),
+    [lineage],
+  );
+
   const { nodes, edges } = useMemo(() => {
     if (!lineage) return { nodes: [] as Node[], edges: [] as Edge[] };
 
-    const columnMap: Record<string, number> = {
-      source: 0,
-      transform: 1,
-      filter: 2,
-      destination: 3,
+    /** A source that is not an org is named by what it is, then by its own label. */
+    const labelOf = (node: LineageNode): string => {
+      if (node.type !== 'source' || !node.origin || node.origin === 'org') return node.label;
+      const kind = t(`reports.lineageOrigin.${node.origin}`);
+      return node.label ? `${kind} · ${node.label}` : kind;
     };
 
-    const columnCounts: Record<string, number> = {
-      source: 0,
-      transform: 0,
-      filter: 0,
-      destination: 0,
-    };
+    // Columns are counted over the types present, so a run traced as
+    // source → objects → destination is not drawn with two empty columns.
+    const columnCounts: Partial<Record<NodeType, number>> = {};
 
     const flowNodes: Node[] = lineage.nodes.map((node) => {
-      const col = columnMap[node.type] ?? 1;
+      const col = Math.max(0, presentTypes.indexOf(node.type));
       const row = columnCounts[node.type] ?? 0;
       columnCounts[node.type] = row + 1;
 
       return {
         id: node.id,
         position: { x: col * 220 + 20, y: row * 90 + 20 },
-        data: { label: node.label },
+        data: { label: labelOf(node) },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         style: {
@@ -84,9 +100,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
       target: edge.targetId,
       label:
         edge.label ??
-        (edge.recordCount
-          ? `${edge.recordCount} ${edge.recordCount === 1 ? 'record' : 'records'}`
-          : undefined),
+        (edge.recordCount ? t('common.recordCount', { count: edge.recordCount }) : undefined),
       style: { stroke: 'var(--sf-border)' },
       labelStyle: { fontSize: 9, fill: 'var(--sf-text-secondary)' },
       // React Flow draws the label on a white rectangle unless told otherwise.
@@ -94,7 +108,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
     }));
 
     return { nodes: flowNodes, edges: flowEdges };
-  }, [lineage]);
+  }, [lineage, presentTypes, t]);
 
   return (
     <div data-testid="lineage-graph" className={className}>
@@ -107,8 +121,8 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
             <div className="flex flex-col gap-3">
               {/* Legend */}
               <div className="flex gap-2" data-testid="lineage-legend">
-                {Object.entries(nodeTypeBadgeVariants).map(([type, variant]) => (
-                  <Badge key={type} variant={variant}>
+                {presentTypes.map((type) => (
+                  <Badge key={type} variant={nodeTypeBadgeVariants[type]}>
                     {t(`reports.${type}`)}
                   </Badge>
                 ))}
@@ -129,15 +143,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
                 <div
                   style={{
                     width: '100%',
-                    height: Math.max(
-                      250,
-                      Math.max(
-                        ...Object.values({ source: 0, transform: 0, filter: 0, destination: 0 }),
-                      ) *
-                        90 +
-                        100,
-                      nodes.length * 40,
-                    ),
+                    height: Math.max(250, nodes.length * 40),
                   }}
                   className={cn('border border-[var(--sf-border)] rounded')}
                   data-testid="lineage-flow"

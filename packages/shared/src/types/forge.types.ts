@@ -224,6 +224,20 @@ export interface ForgeExistingRecords {
 }
 
 /**
+ * Per object, the rows a Forge run mapped from the source to the target: the
+ * ones it created, and the ones it linked to a record the target already held.
+ * Counts only — the ids stay in `idRemapTable`.
+ */
+export interface ForgeRemapObjectCounts {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows the run created in the target. */
+  created: number;
+  /** Rows linked to a record the target already held, never written to. */
+  linked: number;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -276,6 +290,14 @@ export interface ForgeExecutionResult {
    * Optional for runs recorded before it; empty when the target held none.
    */
   existingRecords?: ForgeExistingRecords[];
+  /**
+   * `idRemapTable` counted per object. The table alone cannot say which
+   * object a row belongs to — a custom object's key prefix is the org's own —
+   * so a run's lineage could not be drawn from it. Reference data matched by
+   * name and the standard price book are mapped but never written, and are
+   * left out. Optional for runs recorded before it.
+   */
+  idRemapByObject?: ForgeRemapObjectCounts[];
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];

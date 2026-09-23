@@ -41,6 +41,10 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -151,6 +155,69 @@ describe('SeedCsvHandler', () => {
       const errors = posted(deps, 'seed:csv:error');
       expect(errors).toHaveLength(1);
       expect((errors[0].payload as { message: string }).message).toContain('org unreachable');
+    });
+  });
+
+  describe('audit trail', () => {
+    /** A real store, read back the way the Reports page reads it. */
+    function recordingStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    it('records an import once: the rows it created and the rows the org refused', async () => {
+      const store = recordingStore();
+      writer.insert.mockResolvedValue([
+        { id: '001TGT', success: true, errors: [] },
+        { success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+      ]);
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ records: [{ name: 'Acme' }, { name: '' }] })),
+      );
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'seed_csv_import',
+        module: 'seed',
+        operationId: 'msg-seed:csv:execute',
+        orgId: 'tgt-org',
+        outcome: 'partial',
+        objects: [{ objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 1 }],
+      });
+      // Neither the refused value nor the new record's id goes in.
+      const stored = JSON.stringify([store.get('audit:trail'), store.get('lineage:runs')]);
+      expect(stored).not.toContain('001TGT');
+      expect(stored).not.toContain('REQUIRED_FIELD_MISSING');
+      expect(new LineageStore(store).get()?.nodes[0]).toMatchObject({ origin: 'csv' });
+    });
+
+    it('counts an upsert apart: it says it wrote a row, not whether it created it', async () => {
+      const store = recordingStore();
+
+      await handler.handle(
+        buildMsg('seed:csv:execute', csvPayload({ externalIdField: 'Ext_Id__c' })),
+      );
+
+      expect(new AuditTrailStore(store).list().entries[0].objects).toEqual([
+        { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0, upserted: 1 },
+      ]);
+    });
+
+    it('records an import that failed after it started as failed, and one never started not at all', async () => {
+      const store = recordingStore();
+      writer.insert.mockRejectedValue(new Error('Bulk job failed'));
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      mockGetConn.mockRejectedValue(new Error('No credentials for org tgt-org'));
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'failure', objects: [] }),
+      ]);
     });
   });
 

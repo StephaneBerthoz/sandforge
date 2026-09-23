@@ -32,9 +32,9 @@ vi.mock('recharts', () => ({
 }));
 
 /*
- * No bridge-hook mocks: the page is presentational. If it ever reaches for the
- * bridge again the missing mock is not what catches it — sentChannels.test.ts
- * is, because `reports:*` is declared nowhere in the shared protocol.
+ * No bridge-hook mocks: the page is presentational, and ReportsContainer is
+ * what talks to the host. The page sending anything itself is what the
+ * `reportsChannelsSent` assertions below catch.
  */
 const mockPostMessage = vi.fn();
 vi.mock('../../hooks/useVSCodeApi', () => ({
@@ -223,6 +223,69 @@ describe('ReportsPage', () => {
 
     expect(screen.getByTestId('execution-report-view')).toBeDefined();
     expect(screen.queryByTestId('reports-executions-soon')).toBeNull();
+  });
+
+  describe('once the host answers for the audit trail and the lineage', () => {
+    it('tells a trail with nothing recorded from a filter that matches nothing', () => {
+      // The first is an install before its first write: it says what will
+      // appear, and when. The second is the viewer's own "no entries" under
+      // the filter that caused it, with the filter still there to change.
+      const { unmount } = render(
+        <ReportsPage auditEntries={[]} auditTotal={0} auditFacets={{ modules: [], orgs: [] }} />,
+      );
+      fireEvent.click(screen.getByText('Audit Trail'));
+      expect(screen.getByTestId('reports-audit-empty')).toBeDefined();
+      unmount();
+
+      render(
+        <ReportsPage
+          auditEntries={[]}
+          auditTotal={0}
+          auditFacets={{ modules: ['sync'], orgs: [] }}
+          auditFilter={{ module: 'sync' }}
+          onAuditFilterChange={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByText('Audit Trail'));
+      expect(screen.queryByTestId('reports-audit-empty')).toBeNull();
+      expect(screen.getByTestId('audit-filters')).toBeDefined();
+      expect(screen.getByText('No audit entries')).toBeDefined();
+    });
+
+    it('offers a pick of runs only when more than one is traced', () => {
+      const onSelectLineageRun = vi.fn();
+      const run = (operationId: string) => ({
+        operationId,
+        generatedAt: '2026-02-20T10:00:00Z',
+        action: 'forge_execute' as const,
+        targetLabel: 'target-sandbox',
+      });
+      const { unmount } = render(
+        <ReportsPage
+          lineageData={lineageData}
+          lineageRuns={[run('op-1')]}
+          onSelectLineageRun={onSelectLineageRun}
+        />,
+      );
+      fireEvent.click(screen.getByText('Data Lineage'));
+      expect(screen.queryByTestId('lineage-run')).toBeNull();
+      unmount();
+
+      render(
+        <ReportsPage
+          lineageData={lineageData}
+          lineageRuns={[run('op-1'), run('op-0')]}
+          onSelectLineageRun={onSelectLineageRun}
+        />,
+      );
+      fireEvent.click(screen.getByText('Data Lineage'));
+      // Each run is named by what it was, where it wrote and when.
+      expect(
+        screen.getAllByRole('option', { name: 'Forge Clone · target-sandbox · 2026-02-20 10:00' }),
+      ).toHaveLength(2);
+      fireEvent.change(screen.getByTestId('lineage-run'), { target: { value: 'op-0' } });
+      expect(onSelectLineageRun).toHaveBeenCalledWith('op-0');
+    });
   });
 
   it('should render KPI summary row', () => {

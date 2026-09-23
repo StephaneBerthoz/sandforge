@@ -18,6 +18,8 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { AIProvider } from '../../modules/ai/ErrorResolver.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -1746,6 +1748,92 @@ describe('SeedOpsHandler', () => {
           currentStep: 'Insert Contact',
         }),
       );
+    });
+  });
+
+  describe('audit trail', () => {
+    function seedExecute(id: string): InboundRequest {
+      return inboundRequest({
+        id,
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      });
+    }
+
+    function orchestratorAnswers(execute: () => Promise<unknown>): void {
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({ execute: vi.fn(execute) })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+    }
+
+    it('records a finished seed once: what it created and lost per object, from the template', async () => {
+      orchestratorAnswers(async () => ({
+        ...seedResult(4),
+        status: 'partial',
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            recordsCreated: 4,
+            recordsFailed: 1,
+            createdIds: ['001000000000001'],
+            errors: ['REQUIRED_FIELD_MISSING'],
+          },
+        ],
+      }));
+
+      await handler.handle(seedExecute('seed-audit-1'));
+
+      const { entries } = new AuditTrailStore(deps.configStore).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'seed_execute',
+        module: 'seed',
+        operationId: 'seed-audit-1',
+        orgId: 'org-1',
+        outcome: 'partial',
+        objects: [{ objectApiName: 'Account', created: 4, updated: 0, deleted: 0, failed: 1 }],
+      });
+      // Generated records came from the template, not from another org.
+      const lineage = new LineageStore(deps.configStore).get('seed-audit-1');
+      expect(lineage?.nodes[0]).toMatchObject({
+        type: 'source',
+        origin: 'generator',
+        label: 'seed-from-ui',
+      });
+      expect(JSON.stringify(deps.configStore.get('audit:trail'))).not.toContain('001000000000001');
+    });
+
+    it('records a seed that threw as failed', async () => {
+      orchestratorAnswers(async () => {
+        throw new Error('INVALID_SESSION_ID');
+      });
+
+      await handler.handle(seedExecute('seed-audit-2'));
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({ operationId: 'seed-audit-2', outcome: 'failure', objects: [] }),
+      ]);
+    });
+
+    it('records a seed whose production confirmation was declined as stopped', async () => {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        id: 'org-1',
+        orgType: 'Production',
+      });
+      deps.infraServices = {
+        productionGuard: new ProductionGuard({ requestConfirmation: async () => false }),
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      orchestratorAnswers(async () => seedResult(1));
+
+      await handler.handle(seedExecute('seed-audit-3'));
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'stopped', guard: 'declined' }),
+      ]);
     });
   });
 

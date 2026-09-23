@@ -1,9 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { BaseMessage, ForgeExecutionResult, SyncHistoryEntry } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeExecutionResult,
+  SalesforceOrg,
+  SyncHistoryEntry,
+} from '@sandforge/shared';
 
 import { ReportsHandler, summarise } from './ReportsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import type { WriteRun } from '../../modules/audit/auditTrail.js';
 
 type Deps = Pick<HandlerDeps, 'nextId' | 'broker' | 'log' | 'configStore'>;
 
@@ -143,6 +152,156 @@ describe('ReportsHandler', () => {
 
     expect(handled).toBe(false);
     expect(posted).toHaveLength(0);
+  });
+});
+
+describe('ReportsHandler — audit trail and lineage', () => {
+  const TARGET = '00D000000000001AAA';
+  const SOURCE = '00D000000000002AAA';
+
+  /** A real store, so what a write path records is what the handler reads. */
+  function makeRecordingDeps(): { deps: Deps; posted: BaseMessage[]; store: ConfigStore } {
+    const store = new ConfigStore(new InMemoryConfigStoreBackend());
+    store.initialize();
+    const posted: BaseMessage[] = [];
+    const deps = {
+      nextId: () => 'resp-1',
+      log: vi.fn(),
+      broker: { postToWebview: (m: BaseMessage) => posted.push(m) },
+      configStore: store,
+    } as unknown as Deps;
+    return { deps, posted, store };
+  }
+
+  /** Record a run the way every write path does when it ends. */
+  function recordRun(store: ConfigStore, over: Partial<WriteRun> = {}): void {
+    recordWriteRun(
+      {
+        configStore: store,
+        orgManager: {
+          getOrg: (id: string) =>
+            id === TARGET
+              ? ({ id, alias: 'target-sandbox' } as unknown as SalesforceOrg)
+              : undefined,
+        },
+        log: vi.fn(),
+      },
+      {
+        action: 'sync_execute',
+        module: 'sync',
+        operationId: 'op-1',
+        orgId: TARGET,
+        outcome: 'success',
+        objects: [{ ...emptyCounts('Account'), created: 2 }],
+        source: { origin: 'org', orgId: SOURCE },
+        ...over,
+      },
+    );
+  }
+
+  const request = (type: string, payload?: unknown): InboundRequest =>
+    inboundRequest({
+      id: 'req-2',
+      type,
+      timestamp: 1,
+      ...(payload !== undefined ? { payload } : {}),
+    } as BaseMessage);
+
+  type AuditPayload = {
+    entries: Array<{ operationId?: string; module: string }>;
+    total: number;
+    facets: { modules: string[] };
+  };
+
+  it('answers reports:audit with the recorded runs, newest first, correlated to the request', async () => {
+    const { deps, posted, store } = makeRecordingDeps();
+    recordRun(store, { operationId: 'first' });
+    recordRun(store, { operationId: 'second' });
+
+    await new ReportsHandler(deps).handle(request('reports:audit'));
+
+    expect(posted[0].type).toBe('reports:audit:response');
+    expect(posted[0].correlationId).toBe('req-2');
+    const payload = (posted[0] as BaseMessage & { payload: AuditPayload }).payload;
+    expect(payload.entries.map((e) => e.operationId)).toEqual(['second', 'first']);
+    expect(payload.total).toBe(2);
+  });
+
+  it('filters the trail by module and pages it', async () => {
+    const { deps, posted, store } = makeRecordingDeps();
+    recordRun(store, { operationId: 's-1' });
+    recordRun(store, { operationId: 'f-1', module: 'forge', action: 'forge_execute' });
+    recordRun(store, { operationId: 's-2' });
+
+    await new ReportsHandler(deps).handle(
+      request('reports:audit', { module: 'sync', offset: 1, limit: 1 }),
+    );
+
+    const payload = (posted[0] as BaseMessage & { payload: AuditPayload }).payload;
+    expect(payload.entries.map((e) => e.operationId)).toEqual(['s-1']);
+    expect(payload.total).toBe(2);
+    expect(payload.facets.modules).toEqual(['forge', 'sync']);
+  });
+
+  it('answers an install with nothing recorded with an empty trail, not an error', async () => {
+    const { deps, posted } = makeRecordingDeps();
+
+    await new ReportsHandler(deps).handle(request('reports:audit'));
+
+    const payload = (posted[0] as BaseMessage & { payload: AuditPayload }).payload;
+    expect(payload).toMatchObject({ entries: [], total: 0 });
+  });
+
+  it('refuses a malformed audit request on reports:error instead of reading it', async () => {
+    const { deps, posted } = makeRecordingDeps();
+
+    await new ReportsHandler(deps).handle(request('reports:audit', { limit: -1 }));
+
+    expect(posted).toHaveLength(1);
+    expect(posted[0].type).toBe('reports:error');
+    expect((posted[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
+      'INVALID_PAYLOAD',
+    );
+  });
+
+  it('answers reports:lineage with the latest run’s graph and the runs one is kept for', async () => {
+    const { deps, posted, store } = makeRecordingDeps();
+    recordRun(store, { operationId: 'first' });
+    recordRun(store, { operationId: 'second' });
+
+    await new ReportsHandler(deps).handle(request('reports:lineage'));
+
+    expect(posted[0].type).toBe('reports:lineage:response');
+    const payload = (
+      posted[0] as BaseMessage & {
+        payload: {
+          lineage: { operationId: string; nodes: Array<{ label: string }> } | null;
+          runs: Array<{ operationId: string }>;
+        };
+      }
+    ).payload;
+    expect(payload.lineage?.operationId).toBe('second');
+    expect(payload.lineage?.nodes.map((n) => n.label)).toEqual([
+      SOURCE,
+      'Account',
+      'target-sandbox',
+    ]);
+    expect(payload.runs.map((r) => r.operationId)).toEqual(['second', 'first']);
+  });
+
+  it('answers the lineage of the run asked for, and null for one it does not keep', async () => {
+    const { deps, posted, store } = makeRecordingDeps();
+    recordRun(store, { operationId: 'first' });
+    recordRun(store, { operationId: 'second' });
+
+    await new ReportsHandler(deps).handle(request('reports:lineage', { operationId: 'first' }));
+    await new ReportsHandler(deps).handle(request('reports:lineage', { operationId: 'gone' }));
+
+    const [asked, missing] = posted as Array<
+      BaseMessage & { payload: { lineage: { operationId: string } | null } }
+    >;
+    expect(asked.payload.lineage?.operationId).toBe('first');
+    expect(missing.payload.lineage).toBeNull();
   });
 });
 

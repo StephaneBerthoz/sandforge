@@ -470,6 +470,10 @@ describe('BatchWriter — relations the platform creates', () => {
     expect(input.remapper.get('07kSRC1')).toBe('07kDIRECT');
     expect(input.remapper.get('07kSRC2')).toBe('07kNEW0');
     expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
+    // The run's lineage counts both rows under their object.
+    expect(input.remapper.countsByObject()).toEqual([
+      { objectApiName: 'AccountContactRelation', created: 1, linked: 1 },
+    ]);
   });
 });
 
@@ -512,6 +516,10 @@ describe('BatchWriter — duplicates found by their natural key', () => {
       unidentifiedExistingCount: 0,
     });
     expect(result.errorSamples).toEqual([]);
+    // The run's lineage counts the link under its object.
+    expect(input.remapper.countsByObject()).toEqual([
+      { objectApiName: 'ProductSellingModel', created: 0, linked: 1 },
+    ]);
   });
 
   it('keeps the duplicate a failure when the key matches more than one record', async () => {

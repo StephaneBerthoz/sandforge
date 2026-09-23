@@ -4,18 +4,24 @@ import { m } from 'framer-motion';
 import type {
   GeneratedReport,
   AnalyticsTimeSeries,
+  AuditFacets,
   AuditLogEntry,
   DataLineageGraph,
+  LineageRunSummary,
 } from '@sandforge/shared';
 import { Tabs } from '../../components/ui/Tabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { ComingSoon } from '../../components/ui/ComingSoon';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { KPICard } from '../../components/ui/KPICard';
+import { Select } from '../../components/ui/Select';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
 import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
+import type { AuditFilter } from './AuditTrailViewer';
 import { LineageGraph } from './LineageGraph';
 import { uiLocale } from '../../utils/formatters';
 
@@ -27,7 +33,22 @@ export interface ReportsPageProps {
   operationsOverTime?: AnalyticsTimeSeries;
   errorTimeSeries?: AnalyticsTimeSeries;
   auditEntries?: AuditLogEntry[];
-  lineageData?: DataLineageGraph;
+  /** Entries the trail holds for the current filter, the page shown or not. */
+  auditTotal?: number;
+  /** Every module and org of the trail, for its filters. */
+  auditFacets?: AuditFacets;
+  auditFilter?: AuditFilter;
+  onAuditFilterChange?: (filter: AuditFilter) => void;
+  onShowMoreAudit?: () => void;
+  /** Why the trail could not be read, when it could not. */
+  auditError?: string;
+  /** `null` is a producer saying no run has been traced yet. */
+  lineageData?: DataLineageGraph | null;
+  /** The runs a lineage is kept for, newest first. */
+  lineageRuns?: LineageRunSummary[];
+  onSelectLineageRun?: (operationId: string) => void;
+  /** Why the lineage could not be read, when it could not. */
+  lineageError?: string;
   onSelectReport?: (id: string) => void;
   onExportReport?: (id: string) => void;
 }
@@ -35,17 +56,19 @@ export interface ReportsPageProps {
 /**
  * Main reports and analytics page with tabbed navigation.
  *
- * Presentational only: every datum arrives through props. `ReportsContainer`
- * feeds the reports and the analytics summary from `reports:list`, which reads
- * the run history Forge and Sync keep; audit trail and data lineage have no
- * producer, so those props stay `undefined`.
+ * Presentational only: every datum arrives through props, from
+ * ReportsContainer. It used to fire `reports:list` / `reports:export` on the
+ * bridge itself — the broker dropped both as undeclared and the page sat on a
+ * 30 s timeout it then swallowed.
  *
- * Rendering a panel with no source anyway printed four KPI tiles reading
- * 0 / 0 / 0.0 % / 0 — figures a reader takes for measurements ("this org ran
- * nothing and fails every operation") rather than for an absent feature. A tab
- * whose data has no producer says so, through the same {@link ComingSoon}
+ * A prop left `undefined` means no producer supplied it. Rendering the panels
+ * anyway once printed four KPI tiles reading 0 / 0 / 0.0 % / 0 — figures with
+ * no source behind them, which a reader takes for measurements ("this org ran
+ * nothing and fails every operation") rather than for an absent feature. A
+ * tab whose data has no producer says so, through the same {@link ComingSoon}
  * notice DataOps uses; the KPI row only appears once every figure it prints
- * has a source.
+ * has a source. A producer that answered with nothing — no run recorded, no
+ * lineage traced — gets an empty state that says what will appear, and when.
  */
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
@@ -53,7 +76,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   operationsOverTime,
   errorTimeSeries,
   auditEntries,
+  auditTotal,
+  auditFacets,
+  auditFilter,
+  onAuditFilterChange,
+  onShowMoreAudit,
+  auditError,
   lineageData,
+  lineageRuns,
+  onSelectLineageRun,
+  lineageError,
   onSelectReport,
   onExportReport,
 }) => {
@@ -80,7 +112,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const reportCount = reports?.length ?? 0;
   const totalOps = analyticsSummary?.totalOperations ?? 0;
   const successRate = analyticsSummary?.successRate ?? 0;
-  const auditCount = auditEntries?.length ?? 0;
+  const auditCount = auditTotal ?? auditEntries?.length ?? 0;
 
   /**
    * Whether each tab has been given something to show. `undefined` means "no
@@ -94,14 +126,21 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     errorTimeSeries !== undefined;
   const hasAudit = auditEntries !== undefined;
   const hasLineage = lineageData !== undefined;
+  /**
+   * A producer that answered with nothing at all: the trail holds no module,
+   * whatever the filter. A filter that matches nothing is not this — the
+   * viewer says so itself, under the filter that caused it.
+   */
+  const auditNothingRecorded =
+    hasAudit && auditEntries.length === 0 && (auditFacets?.modules.length ?? 0) === 0;
 
   /**
    * Every KPI tile needs its OWN source — a tile with no source behind it is
    * the same lie in miniature as the row of four this module used to print.
    *
-   * Gated per tile rather than all-or-nothing: the audit trail has no store
-   * behind it, and tying the three figures that do have one to the one that
-   * does not would hide real measurements to avoid an invented one.
+   * Gated per tile rather than all-or-nothing: a figure with a source is
+   * shown even when another tile has none, rather than hidden to avoid an
+   * invented one.
    */
   const hasMetrics = hasReports || analyticsSummary !== undefined || hasAudit;
 
@@ -212,22 +251,73 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     />
                   ))}
                 {tab.id === 'audit' &&
-                  (hasAudit ? (
-                    <AuditTrailViewer entries={auditEntries} />
-                  ) : (
+                  (auditError ? (
+                    <ErrorBanner
+                      data-testid="reports-audit-error"
+                      message={t('reports.auditUnreadable', { error: auditError })}
+                    />
+                  ) : !hasAudit ? (
                     <ComingSoon
                       data-testid="reports-audit-soon"
                       description={t('reports.auditDesc')}
                     />
+                  ) : auditNothingRecorded ? (
+                    <div data-testid="reports-audit-empty">
+                      <EmptyState
+                        title={t('reports.auditEmptyTitle')}
+                        description={t('reports.auditEmptyDesc')}
+                      />
+                    </div>
+                  ) : (
+                    <AuditTrailViewer
+                      entries={auditEntries}
+                      total={auditTotal}
+                      facets={auditFacets}
+                      filter={auditFilter}
+                      onFilterChange={onAuditFilterChange}
+                      onShowMore={onShowMoreAudit}
+                    />
                   ))}
                 {tab.id === 'lineage' &&
-                  (hasLineage ? (
-                    <LineageGraph lineage={lineageData} />
-                  ) : (
+                  (lineageError ? (
+                    <ErrorBanner
+                      data-testid="reports-lineage-error"
+                      message={t('reports.lineageUnreadable', { error: lineageError })}
+                    />
+                  ) : !hasLineage ? (
                     <ComingSoon
                       data-testid="reports-lineage-soon"
                       description={t('reports.lineageDesc')}
                     />
+                  ) : lineageData === null ? (
+                    <div data-testid="reports-lineage-empty">
+                      <EmptyState
+                        title={t('reports.lineageEmptyTitle')}
+                        description={t('reports.lineageEmptyDesc')}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {lineageRuns && lineageRuns.length > 1 && onSelectLineageRun && (
+                        <Select
+                          data-testid="lineage-run"
+                          label={t('reports.lineageRun')}
+                          options={lineageRuns.map((run) => ({
+                            value: run.operationId,
+                            label: [
+                              run.action ? t(`reports.auditActions.${run.action}`) : run.module,
+                              run.targetLabel,
+                              run.generatedAt.slice(0, 16).replace('T', ' '),
+                            ]
+                              .filter(Boolean)
+                              .join(' · '),
+                          }))}
+                          value={lineageData.operationId}
+                          onChange={(e) => onSelectLineageRun(e.target.value)}
+                        />
+                      )}
+                      <LineageGraph lineage={lineageData} />
+                    </div>
                   ))}
               </div>
             )}

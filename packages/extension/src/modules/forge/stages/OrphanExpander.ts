@@ -159,8 +159,8 @@ export class OrphanExpander {
               // so a string of misses doesn't silently exhaust the budget
               // before the eligible list has had a chance to succeed.
               this.expansionsUsed++;
-              if (parent.existing) remapper.addExisting(entry.sourceId, parent.id);
-              else remapper.add(entry.sourceId, parent.id);
+              if (parent.existing) remapper.addExisting(entry.sourceId, parent.id, entry.object);
+              else remapper.add(entry.sourceId, parent.id, entry.object);
               // Register the parent in scopeCache so multi-hop
               // children that pivot through this object include the
               // newly cloned row in their scope query (otherwise the

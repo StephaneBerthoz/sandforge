@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 
-import type { BackupSummary, ListedAnonymizationTemplate } from '@sandforge/shared';
+import type {
+  AuditObjectCounts,
+  BackupSummary,
+  ListedAnonymizationTemplate,
+} from '@sandforge/shared';
 import {
   duplicateRuleHeaders,
   sanitizeSoqlObjectName,
@@ -47,6 +51,9 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import type { WriteRun } from '../../modules/audit/auditTrail.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -800,6 +807,16 @@ export class DataOpsHandler implements DomainHandler {
     }
     this.activeOrgOperations.add(lockKey);
 
+    /** The restore as the audit trail records it, once the backup is found. */
+    let run: WriteRun | undefined;
+    /** Per object, what the restore wrote so far. */
+    const restored: AuditObjectCounts[] = [];
+    /**
+     * True from the moment the restore is announced until its end is recorded:
+     * it stops at the first object it may not write, and must still be recorded.
+     */
+    let unrecorded = false;
+
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
         this.deps.log(`[WARN] Duplicate rollback operation detected: ${rollbackOpId}`);
@@ -839,6 +856,7 @@ export class DataOpsHandler implements DomainHandler {
         orgId: string;
         objects: Array<{ objectApiName: string; recordCount: number }>;
         totalRecords: number;
+        timestamp?: string;
       }>(backupKey);
 
       if (!backupMeta) {
@@ -854,10 +872,22 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
+      run = {
+        action: 'backup_restore',
+        module: 'dataops',
+        operationId: rollbackOpId,
+        orgId: payload.orgId,
+        outcome: 'failure',
+        // Named by when it was taken: the backup's own id says nothing to a reader.
+        source: {
+          origin: 'backup',
+          label: backupMeta.timestamp?.slice(0, 16).replace('T', ' ') ?? payload.operationId,
+        },
+      };
+
       // Rollback writes records over live data — the same Production Guard as
       // every other write path applies (see handleAnonymize).
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
         const org = this.deps.orgManager.getOrg(payload.orgId);
         const guardRequest = {
           orgId: payload.orgId,
@@ -867,17 +897,22 @@ export class DataOpsHandler implements DomainHandler {
           recordCount: backupMeta.totalRecords ?? 0,
           module: 'dataops',
         };
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          guardRequest,
+        );
+        run.guard = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+        }
+        if (decision === 'refused') {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
         }
         // `safety.requireProdConfirmation`: explicit user consent before
         // writing to a production org.
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const message = 'Operation cancelled by user (production confirmation declined).';
           sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
           sendOperationFailed(this.deps, rollbackOpId, message, false, { context: failure });
@@ -891,6 +926,7 @@ export class DataOpsHandler implements DomainHandler {
         'dataops',
         `Rollback ${backupMeta.objects.length} object(s)`,
       );
+      unrecorded = true;
 
       let totalRestored = 0;
       let totalFailed = 0;
@@ -1015,6 +1051,9 @@ export class DataOpsHandler implements DomainHandler {
         checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
         totalRestored += successCount;
         totalFailed += failureCount;
+        // An upsert on the record's own Id writes over a record that exists —
+        // or was just brought back from the recycle bin — so it updates.
+        restored.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
 
         sendOperationProgress(
           this.deps,
@@ -1027,6 +1066,10 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const status = dmlStatus(totalRestored, totalFailed);
+      if (run) {
+        unrecorded = false;
+        recordWriteRun(this.deps, { ...run, outcome: status, objects: restored });
+      }
       sendOperationCompleted(this.deps, rollbackOpId, { status, totalRestored, totalFailed });
       this.dmlTracker.markCompleted(rollbackOpId);
 
@@ -1064,6 +1107,11 @@ export class DataOpsHandler implements DomainHandler {
       });
     } finally {
       this.activeOrgOperations.delete(lockKey);
+      // A restore that stopped at an object it may not write, or threw, after
+      // it started: recorded as failed, with the objects it had restored.
+      if (unrecorded && run) {
+        recordWriteRun(this.deps, { ...run, outcome: 'failure', objects: restored });
+      }
     }
   }
 
@@ -1080,9 +1128,25 @@ export class DataOpsHandler implements DomainHandler {
     const template = this.findTemplate(payload.templateId);
     const plannedObjects = plannedAnonymizeObjects(payload, template);
 
+    /** The masking run as the audit trail records it: read from the org, written back to it. */
+    const run: WriteRun = {
+      action: 'anonymize_execute',
+      module: 'dataops',
+      operationId,
+      orgId: payload.orgId,
+      outcome: 'failure',
+      source: { origin: 'org', orgId: payload.orgId },
+    };
+    /** Per object, what the run masked so far. */
+    const masked: AuditObjectCounts[] = [];
+    /**
+     * True from the moment the run is announced until its end is recorded: it
+     * stops at the first object it may not write, and must still be recorded.
+     */
+    let unrecorded = false;
+
     try {
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
         const org = this.deps.orgManager.getOrg(payload.orgId);
         const guardRequest = {
           orgId: payload.orgId,
@@ -1096,17 +1160,22 @@ export class DataOpsHandler implements DomainHandler {
           recordCount: 'unknown' as const,
           module: 'dataops',
         };
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          guardRequest,
+        );
+        run.guard = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+        }
+        if (decision === 'refused') {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
         }
         // `safety.requireProdConfirmation`: explicit user consent before
         // writing to a production org.
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const message = 'Operation cancelled by user (production confirmation declined).';
           sendHandlerError(
             this.deps,
@@ -1149,6 +1218,7 @@ export class DataOpsHandler implements DomainHandler {
       });
 
       sendOperationStarted(this.deps, operationId, 'dataops', `Anonymizing with ${template.name}`);
+      unrecorded = true;
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
@@ -1244,6 +1314,7 @@ export class DataOpsHandler implements DomainHandler {
         }
         totalProcessed += successCount;
         totalFailed += failureCount;
+        masked.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
 
         sendOperationProgress(
           this.deps,
@@ -1256,6 +1327,8 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const status = dmlStatus(totalProcessed, totalFailed);
+      unrecorded = false;
+      recordWriteRun(this.deps, { ...run, outcome: status, objects: masked });
       sendOperationCompleted(this.deps, operationId, { status, totalProcessed, totalFailed });
 
       const message =
@@ -1287,6 +1360,12 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
         context: failure,
       });
+    } finally {
+      // A run that stopped at an object it may not write, or threw, after it
+      // started: recorded as failed, with the objects it had masked.
+      if (unrecorded) {
+        recordWriteRun(this.deps, { ...run, outcome: 'failure', objects: masked });
+      }
     }
   }
 

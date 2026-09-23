@@ -1,11 +1,12 @@
 /**
- * The Reports components the panel does not feed yet, rendered with data.
+ * The Reports components a page scan cannot reach with every state, rendered
+ * with data.
  *
- * ReportsContainer passes the analytics summary and nothing else, so the
- * charts and the lineage graph never render in the shipped panel and no page
- * scan can reach them. This page mounts them the way ReportsPage would once
- * their data is wired, with the product stylesheet, for the contrast scans in
- * axe-accessibility.spec.ts.
+ * ReportsContainer passes no time series, so the charts never render in the
+ * shipped panel. The lineage graph does, but only with the node kinds a run
+ * records — source, objects, destination — while this graph draws every kind
+ * it can. This page mounts both with the product stylesheet, for the contrast
+ * scans in axe-accessibility.spec.ts.
  */
 import React from 'react';
 import ReactDOM from 'react-dom/client';

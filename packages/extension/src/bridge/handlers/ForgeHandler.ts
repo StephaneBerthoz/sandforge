@@ -1,9 +1,11 @@
 import type {
+  AuditObjectCounts,
   BaseMessage,
   ForgeConfig,
   ForgeExecutionResult,
   ForgeTemplate,
   ComplianceFrameworkType,
+  GuardDecision,
 } from '@sandforge/shared';
 import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
@@ -33,6 +35,8 @@ import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { RecordTypeMapper, type RecordTypeMapping } from '../../modules/sync/RecordTypeMapper.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 
 /** Strict Salesforce record/org ID format. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
@@ -210,6 +214,43 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
   delete copy.sourceOrgId;
   delete copy.targetOrgId;
   return copy as Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
+}
+
+/**
+ * What a run did per object, for the audit trail: the rows it created,
+ * counted from its remap table, and the rows the run lost at read or at write.
+ *
+ * A row linked to one the target already held was never written and is
+ * neither. The `scope` reports are left out — reference data unmatched by
+ * name was never going to be written — and so are the reports that name a
+ * pass rather than an object (`__pass2__`, `__expandOrphanParents__`).
+ */
+function forgeAuditObjects(result: ForgeExecutionResult): AuditObjectCounts[] {
+  const byObject = new Map<string, AuditObjectCounts>();
+  const countsOf = (objectApiName: string): AuditObjectCounts => {
+    const counts = byObject.get(objectApiName) ?? emptyCounts(objectApiName);
+    byObject.set(objectApiName, counts);
+    return counts;
+  };
+  for (const row of result.idRemapByObject ?? []) {
+    countsOf(row.objectApiName).created += row.created;
+  }
+  for (const error of result.errors ?? []) {
+    if (error.stage === 'scope' || error.objectApiName.startsWith('__')) continue;
+    countsOf(error.objectApiName).failed += error.failedCount;
+  }
+  return [...byObject.values()];
+}
+
+/**
+ * Per object, the source rows the run gave a counterpart in the target —
+ * created, or linked to the record the target already held — as its remap
+ * table counts them.
+ */
+function forgeCarried(result: ForgeExecutionResult): Record<string, number> {
+  return Object.fromEntries(
+    (result.idRemapByObject ?? []).map((row) => [row.objectApiName, row.created + row.linked]),
+  );
 }
 
 /**
@@ -705,8 +746,9 @@ export class ForgeHandler implements DomainHandler {
     // Covers every write path below: BatchWriter insert/upsert, orphan-parent
     // expansion inserts and the pass-2 cycle-FK updates all flow through
     // orchestrator.execute, which runs only after this gate.
+    /** What the guard decided, recorded with the run it let through. */
+    let guardDecision: GuardDecision | undefined;
     if (this.deps.infraServices?.productionGuard) {
-      const guard = this.deps.infraServices.productionGuard;
       const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
       const guardRequest = {
         orgId: config.targetOrgId,
@@ -716,9 +758,23 @@ export class ForgeHandler implements DomainHandler {
         recordCount: graph.totalRecords ?? 0,
         module: 'forge',
       };
-      const check = guard.check(guardRequest);
-      guard.logOperation(guardRequest, check);
-      if (!check.allowed) {
+      const { check, decision } = await consultProductionGuard(
+        this.deps.infraServices.productionGuard,
+        guardRequest,
+      );
+      guardDecision = decision;
+      if (decision === 'refused' || decision === 'declined') {
+        // No run started, so no operation id was minted: the request's stands in.
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId: msg.id,
+          orgId: config.targetOrgId,
+          outcome: 'stopped',
+          guard: decision,
+        });
+      }
+      if (decision === 'refused') {
         // Single error channel (see handleDiscover): forge:execute:error
         // only — no duplicate operation:failed / parasitic error resolution.
         sendHandlerError(
@@ -735,8 +791,7 @@ export class ForgeHandler implements DomainHandler {
       }
       // `safety.requireProdConfirmation`: explicit user consent before
       // writing to a production org.
-      const confirmed = await guard.confirmIfNeeded(check);
-      if (!confirmed) {
+      if (decision === 'declined') {
         sendHandlerError(
           this.deps,
           'forge:execute',
@@ -860,6 +915,18 @@ export class ForgeHandler implements DomainHandler {
         runError = new Error('Forge execution finished with a failure status.');
       }
 
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId,
+        orgId: config.targetOrgId,
+        outcome: result.status,
+        guard: guardDecision,
+        objects: forgeAuditObjects(result),
+        source: { origin: 'org', orgId: config.sourceOrgId },
+        carried: forgeCarried(result),
+      });
+
       // Persist to history via ConfigStore, carrying the config that produced
       // the run. Without it a history entry is inspectable but not repeatable
       // — there is nothing to rebuild a `forge:execute` from. Org ids are
@@ -878,6 +945,16 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       runError = error;
+      // What the run wrote before it threw is not known here: the executor's
+      // tallies go down with it. The entry says the run failed, and no more.
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId,
+        orgId: config.targetOrgId,
+        outcome: 'failure',
+        guard: guardDecision,
+      });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed run wrote nothing worth protecting — clear any cooldown so
       // the user can fix the cause and re-run immediately.

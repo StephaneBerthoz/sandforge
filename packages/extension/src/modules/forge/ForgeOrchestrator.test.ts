@@ -60,6 +60,7 @@ function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSumm
     remapTable: {},
     existingRecords: [],
     existingSourceIds: [],
+    remapByObject: [],
     ...overrides,
   };
 }

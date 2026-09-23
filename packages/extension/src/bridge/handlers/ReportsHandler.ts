@@ -7,9 +7,16 @@ import type {
 
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
+import {
+  reportsAuditPayloadSchema,
+  reportsLineagePayloadSchema,
+  validatePayload,
+} from '../validatePayload.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 /** Message types handled by ReportsHandler. */
-const REPORTS_TYPES = new Set(['reports:list']);
+const REPORTS_TYPES = new Set(['reports:list', 'reports:audit', 'reports:lineage']);
 
 /** Where Forge and Sync already keep their runs. */
 const FORGE_HISTORY_KEY = 'forge:history';
@@ -44,10 +51,10 @@ function forgeRecordCount(run: ForgeExecutionResult): number {
  * and Sync under `sync:history:all` since they shipped, each with a status, a
  * duration and a record count.
  *
- * So this adds no persistence, calls no org, and invents no number. It reads
- * two arrays and reshapes them. Audit trail and data lineage have no such
- * store, and stay marked unbuilt rather than being filled with something
- * plausible.
+ * So the reports add no persistence, call no org, and invent no number: they
+ * read two arrays and reshape them. The audit trail and the lineage are read
+ * the same way, from the stores every write path records its run into when it
+ * ends (`recordWriteRun`).
  */
 export class ReportsHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
@@ -63,8 +70,45 @@ export class ReportsHandler implements DomainHandler {
    */
   async handle(msg: InboundRequest): Promise<boolean> {
     if (!REPORTS_TYPES.has(msg.type)) return false;
-    this.handleList(msg);
-    return true;
+    switch (msg.type) {
+      case 'reports:list':
+        this.handleList(msg);
+        return true;
+      case 'reports:audit':
+        this.handleAudit(msg);
+        return true;
+      case 'reports:lineage':
+        this.handleLineage(msg);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** One page of the audit trail, newest first, for a module or an org when asked. */
+  private handleAudit(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const query = validatePayload(reportsAuditPayloadSchema, msg, 'reports:error', this.deps);
+    if (query === null) return;
+    const page = new AuditTrailStore(this.deps.configStore).list(query ?? {});
+    this.deps.log(`[ReportsHandler] audit trail: ${page.entries.length} of ${page.total} entries`);
+    this.deps.broker.postToWebview(
+      buildResponse(this.deps, msg, 'reports:audit:response', { ...page }),
+    );
+  }
+
+  /** The lineage of the run asked for, or of the latest, and the runs one is kept for. */
+  private handleLineage(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const query = validatePayload(reportsLineagePayloadSchema, msg, 'reports:error', this.deps);
+    if (query === null) return;
+    const store = new LineageStore(this.deps.configStore);
+    this.deps.broker.postToWebview(
+      buildResponse(this.deps, msg, 'reports:lineage:response', {
+        lineage: store.get(query?.operationId),
+        runs: store.runs(),
+      }),
+    );
   }
 
   private handleList(msg: InboundRequest): void {

@@ -161,7 +161,8 @@
  * What the CDC and Production Guard rules do not see, one limit per line:
  *  - The CDC rule is a word and a disclaimer: a sentence, clause (split at `;`) or list item naming CDC or Change Data Capture is refused unless that same piece carries a disclaimer word — refused, not implemented, coming soon, in its own language. It does not read what the word is about: "CDC streams every change, and a rejected record is refused" passes on the comma. "Real-time streaming of every change" names neither and passes.
  *  - The Real-Time panel's strings (`sync.realtime.*`) are not read by it, for as long as the Sync page does not offer that tab — the anchor pins that. A screen that renders one of them elsewhere is not seen. A mode label (`sync.modes.*`) is read like any string, except when it is the mode's bare name.
- *  - The Production Guard rule reads "audit trail" in the six languages in a string that names Production Guard. A persisted log sold under another name — "a history of every decision" — passes, and so does "audit trail" in a paragraph that names the guard only in the next one.
+ *  - The Production Guard rule reads, in a string that names Production Guard, the wordings that kept its decisions to the session as they shipped in the six languages — "session only", "never written to disk", "still to come" and their translations. The same claim put another way — "forgotten when the window closes" — passes, and so does one in a paragraph that names the guard only in the next one.
+ *  - The Production Guard anchor reads calls by name: `confirmIfNeeded`, `consultProductionGuard`, `recordWriteRun`, `onGuardDecision`. A file that records a run it did not consult the guard for, or records one without its decision, satisfies it; the handler tests are what pin the decision to the entry.
  *
  *   node --test docs/product-claims.test.mjs
  */
@@ -1977,21 +1978,48 @@ test('the help rules refuse what shipped and leave an honest rewrite alone', () 
   );
 });
 
-// ── Production Guard: a log kept for the session, not a trail ─────────────
+// ── Production Guard: its decisions, recorded with the run ────────────────
 
 const PRODUCTION_GUARD_FILE = 'packages/extension/src/core/precheck/ProductionGuard.ts';
+const CONSULT_GUARD_FILE = 'packages/extension/src/core/precheck/consultProductionGuard.ts';
+const AUDIT_TRAIL_FILE = 'packages/extension/src/modules/audit/auditTrail.ts';
+const EXTENSION_SRC_DIR = join(repoRoot, 'packages', 'extension', 'src');
+
+/** Names of the properties written in object literals under a node, at any depth. */
+function literalPropertyNames(node) {
+  const names = [];
+  const visit = (child) => {
+    if (ts.isObjectLiteralExpression(child)) {
+      for (const property of child.properties) {
+        const name = memberName(property);
+        if (name) names.push(name);
+      }
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return names;
+}
 
 /**
- * Production Guard records each safety-check decision in `auditLog`, an array
- * field capped at 1 000 entries, and imports nothing: no file, no storage URI,
- * no channel. So the log ends with the window, and nothing can read it back
- * afterwards — which is what "audit trail" promises and what
- * `docs/modules/frozen-dataset.md` said every Frozen Dataset write left behind.
+ * Production Guard keeps its own log of decisions, `auditLog`, an array field
+ * capped at 1 000 entries, and imports nothing: that log ends with the window.
+ * What outlives it is the audit trail. Every write path consults the guard
+ * through `consultProductionGuard`, which hands the decision back, and records
+ * its run with that decision through `recordWriteRun`, into ConfigStore; the
+ * Frozen Dataset loader consults it batch by batch and hands each decision to
+ * the handler that records the load (`onGuardDecision`).
  *
- * Fails in both directions: give the guard somewhere to write, and the import
- * check trips before "kept in memory for the session" goes stale.
+ * `docs/modules/frozen-dataset.md` once said every Frozen Dataset write left an
+ * audit trail behind when nothing could read the guard's log back; then the
+ * surfaces said it was kept for the session only. Both were true of the code
+ * they described, and each went stale when the code moved. This fails in both
+ * directions: a write path that asks for a confirmation without taking the
+ * decision back, or consults the guard and records nothing, trips here before
+ * a surface saying the decisions are recorded goes stale.
  */
-function assertGuardLogStaysInMemory() {
+function assertGuardDecisionsReachTheTrail() {
+  // The guard's own log: still an array field of a class that imports nothing.
   const source = parseFile(PRODUCTION_GUARD_FILE);
   const guard = source.statements.find(
     (node) => ts.isClassDeclaration(node) && node.name?.text === 'ProductionGuard',
@@ -2002,88 +2030,123 @@ function assertGuardLogStaysInMemory() {
   );
   assert.ok(
     field?.initializer && ts.isArrayLiteralExpression(unwrap(field.initializer)),
-    'ProductionGuard no longer keeps its decisions in an auditLog array — the log moved; read ' +
-      'where before trusting the check below',
+    'ProductionGuard no longer keeps its session log in an auditLog array — the log moved; read ' +
+      'where before trusting the checks below',
   );
-  // Positive control: the same walk reads the imports of a file that has them.
-  const imports = (file) =>
-    parseFile(file)
-      .statements.filter((node) => ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly)
-      .map((node) => node.moduleSpecifier.text);
+
+  const sources = sourceFilesUnder(EXTENSION_SRC_DIR).map(toRepoPath);
+  const callsOf = new Map(
+    sources.map((file) => [file, callsWithin(parseFile(file)).map((call) => call.name)]),
+  );
+  const calling = (name) => sources.filter((file) => callsOf.get(file).includes(name));
+
+  // A confirmation is asked in one place, the one that hands the answer back.
+  assert.deepEqual(
+    calling('confirmIfNeeded'),
+    [CONSULT_GUARD_FILE],
+    'a write path asks Production Guard for a confirmation itself: whatever the person answers ' +
+      'is known there and nowhere else, and the audit trail cannot record it',
+  );
+
+  // Every path that consults it records the run, or hands the decision up.
+  const consulting = calling('consultProductionGuard');
   assert.ok(
-    imports(AI_COMPOSITION_FILE).length > 0,
-    `the walk reads no import in ${AI_COMPOSITION_FILE}, which has several — the empty list below ` +
-      'would prove nothing',
+    consulting.length >= 8,
+    `only ${consulting.length} files consult the guard — the write paths moved; re-point this`,
+  );
+  const unrecorded = consulting.filter(
+    (file) =>
+      !callsOf.get(file).includes('recordWriteRun') &&
+      !callsOf.get(file).includes('onGuardDecision'),
   );
   assert.deepEqual(
-    imports(PRODUCTION_GUARD_FILE),
+    unrecorded,
     [],
-    'ProductionGuard.ts now imports code — its decisions may be written somewhere that outlives ' +
-      'the session. Re-read every surface that says the log is kept in memory before relaxing this.',
+    'these consult Production Guard and record nothing of what it decided',
+  );
+  const handingUp = sources.filter((file) =>
+    literalPropertyNames(parseFile(file)).includes('onGuardDecision'),
+  );
+  assert.ok(handingUp.length > 0, 'nothing receives a decision handed up — re-point this');
+  assert.deepEqual(
+    handingUp.filter((file) => !callsOf.get(file).includes('recordWriteRun')),
+    [],
+    'these receive the guard’s decisions and record nothing of them',
+  );
+
+  // The trail writes the decision down, into the store that outlives the window.
+  const trail = parseFile(AUDIT_TRAIL_FILE);
+  assert.ok(
+    literalPropertyNames(trail).includes('guard'),
+    `${AUDIT_TRAIL_FILE} no longer writes the guard's decision into an entry`,
+  );
+  assert.ok(
+    callsWithin(trail).some((call) => call.name === 'set'),
+    `${AUDIT_TRAIL_FILE} no longer writes the trail to ConfigStore`,
   );
 }
 
-test('anchor: Production Guard keeps its decisions in memory, for the session', () => {
-  assertGuardLogStaysInMemory();
+test("anchor: Production Guard's decisions are recorded with the run they concern", () => {
+  assertGuardDecisionsReachTheTrail();
 });
 
-const AUDIT_TRAIL =
-  /audit[- ]?trail|piste d['’]audit|pr(?:ü|ue)fpfad|registro de auditor[ií]a|trilha de auditoria|監査証跡/iu;
-const AUDIT_TRAIL_DISCLAIMER =
-  /still to come|coming soon|not (?:yet )?(?:built|persisted)|à venir|pas encore|noch nicht|todav[ií]a no|pr[óo]ximamente|ainda n[ãa]o|em breve|未実装|今後/iu;
+/**
+ * The wordings that kept the guard's decisions to the session, as they
+ * shipped in the six languages: session only, never written to disk, a
+ * persisted trail still to come, no screen reading it back.
+ */
+const SESSION_ONLY =
+  /session only|for the session|never written to disk|still to come|no screen reads|pour cette session|jamais [ée]crite?s? sur disque|nur f[üu]r diese sitzung|nie auf die festplatte|solo para esta sesi[oó]n|nunca escrit[oa]s? en disco|apenas nesta sess[ãa]o|nunca gravad[oa]s? em disco|このセッション限り|ディスクには書き込まれません/iu;
 
-/** Units that sell Production Guard an audit trail, as `label: text`. */
-function guardAuditTrailClaims(units) {
+/** Units that keep Production Guard's decisions to the session, as `label: text`. */
+function guardSessionOnlyClaims(units) {
   return units
-    .filter(
-      ({ text }) =>
-        /production guard/i.test(text) &&
-        AUDIT_TRAIL.test(text) &&
-        !AUDIT_TRAIL_DISCLAIMER.test(text),
-    )
+    .filter(({ text }) => /production guard/i.test(text) && SESSION_ONLY.test(text))
     .map(({ label, text }) => `${label}: ${text.trim().slice(0, 140)}`);
 }
 
-test('no user-facing surface gives Production Guard an audit trail', () => {
-  assertGuardLogStaysInMemory();
+test("no user-facing surface keeps Production Guard's decisions to the session", () => {
+  assertGuardDecisionsReachTheTrail();
 
   const units = userFacingProse();
-  // Positive control: the walk sees the guard named where its log is described.
+  // Positive control: the walk sees the guard named where its decisions are described.
   assert.ok(
     units.filter(({ text }) => /production guard/i.test(text)).length >= 10,
     'the walk sees Production Guard named on fewer than ten surfaces — it is not reading them',
   );
-  const offenders = guardAuditTrailClaims(units);
+  const offenders = guardSessionOnlyClaims(units);
   assert.deepEqual(
     offenders,
     [],
-    'Production Guard keeps its decisions in memory for the session; these surfaces promise a ' +
-      'trail that outlives it:\n  ' +
+    "Production Guard's decisions are recorded with the run they concern, across sessions; " +
+      'these surfaces say they are kept for the session only:\n  ' +
       offenders.join('\n  '),
   );
 
   const refused = [
-    '- All DML goes through the existing **Production Guard** (tier check + audit trail).',
-    'Production Guard keeps a full audit trail of every write.',
-    "Production Guard conserve une piste d'audit de chaque écriture.",
-    'Production Guard führt einen Prüfpfad über jeden Schreibvorgang.',
-    'Production Guard mantiene un registro de auditoría de cada escritura.',
-    'O Production Guard mantém uma trilha de auditoria de cada gravação.',
-    'Production Guard はすべての書き込みの監査証跡を残します。',
-  ];
-  assert.deepEqual(
-    refused.filter((text) => guardAuditTrailClaims([{ label: 'fixture', text }]).length === 0),
-    [],
-    'these give Production Guard an audit trail, and the rule lets them through',
-  );
-  const honest = [
-    'Its safety-check decisions are held in memory for the session only — a persisted, readable audit trail is still to come.',
-    '| **Reports** | Execution reports and success-rate analytics _(audit trail and data lineage coming soon)_ |',
+    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Its safety-check decisions are held in memory for the session only — a persisted, readable audit trail is still to come.',
     '- All DML goes through the existing **Production Guard** (tier check; with `sandforge.safety.auditLogging` on, its decisions are kept in memory for the session only).',
     'Production Guard, on by default, and its log of safety-check decisions -- kept in memory for the session, never written to disk.',
+    'Record each Production Guard safety-check decision in an in-memory log (last 1000, this session only, never written to disk).',
+    'Enregistrer chaque décision de contrôle de sécurité de Production Guard dans un journal en mémoire (les 1000 dernières, pour cette session uniquement, jamais écrites sur disque).',
+    'Jede Sicherheitsprüfung von Production Guard in einem Protokoll im Arbeitsspeicher festhalten (die letzten 1000, nur für diese Sitzung, nie auf die Festplatte geschrieben).',
+    'Registrar cada decisión de comprobación de seguridad de Production Guard en un registro en memoria (las últimas 1000, solo para esta sesión, nunca escritas en disco).',
+    'Registrar cada decisão de verificação de segurança do Production Guard em um log em memória (os últimos 1000, apenas nesta sessão, nunca gravados em disco).',
+    'Production Guard の安全性チェックの判定をメモリ上のログに記録します（直近 1000 件、このセッション限り、ディスクには書き込まれません）。',
   ];
   assert.deepEqual(
-    honest.filter((text) => guardAuditTrailClaims([{ label: 'fixture', text }]).length > 0),
+    refused.filter((text) => guardSessionOnlyClaims([{ label: 'fixture', text }]).length === 0),
+    [],
+    "these keep Production Guard's decisions to the session, and the rule lets them through",
+  );
+  const honest = [
+    'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.',
+    '- All DML goes through the existing **Production Guard** (tier check; each decision is recorded with the load in the audit trail, unless `sandforge.safety.auditLogging` is off).',
+    'Record each Production Guard safety-check decision: with the run it concerns in the audit trail (Reports → Audit Trail), and in a session log of the last 1000 checks. Off, runs are still recorded, without the decisions.',
+    'Production Guard の安全性チェックの判定を記録します。対象の実行とともに監査ログ（レポート → 監査ログ）に残り、このセッションの直近 1000 件のログにも残ります。オフにすると、実行は判定なしで記録されます。',
+  ];
+  assert.deepEqual(
+    honest.filter((text) => guardSessionOnlyClaims([{ label: 'fixture', text }]).length > 0),
     [],
     'the Production Guard rule refuses these honest sentences',
   );

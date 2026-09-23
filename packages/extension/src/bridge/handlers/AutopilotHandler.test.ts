@@ -10,6 +10,9 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -768,6 +771,127 @@ describe('AutopilotHandler', () => {
         }),
       );
       expect(orchestrator.pause).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('audit trail', () => {
+    const PLAN = {
+      waves: [{ order: 0, objects: ['Account', 'Contact'], dependsOn: [] }],
+      totalRecords: 10,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 2,
+      complianceFramework: 'none',
+      anonymizationSummary: { totalRules: 0, rulesByType: {} },
+      cycleResolutions: [],
+    };
+
+    /** A real store, read back the way the Reports page reads it. */
+    function recordingStore(): ConfigStore {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.initialize();
+      deps.configStore = store;
+      return store;
+    }
+
+    /** Scan, plan and execute with an orchestrator whose run is `executePlan`. */
+    async function run(executePlan: Mock): Promise<void> {
+      handler.setOrchestrator(
+        createMockOrchestrator({ generatePlan: vi.fn().mockReturnValue(PLAN), executePlan }),
+      );
+      mockGetConn.mockResolvedValue({} as never);
+      await handler.handle(scanMsg('scan-audit'));
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-audit',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'exec-audit',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
+    }
+
+    type Settle = (event: Record<string, unknown>) => void;
+
+    it('records a run once, per object as its nodes settled, from the org it scanned', async () => {
+      const store = recordingStore();
+
+      await run(
+        vi.fn(async (_p: unknown, _g: unknown, _r: unknown, _c: unknown, settle: Settle) => {
+          settle({
+            type: 'node-completed',
+            objectApiName: 'Account',
+            successCount: 3,
+            failureCount: 1,
+            elapsedMs: 1,
+            apiCallsUsed: 1,
+          });
+          settle({
+            type: 'node-failed',
+            objectApiName: 'Contact',
+            errors: ['REQUIRED_FIELD_MISSING'],
+            partialSuccessCount: 2,
+            failureCount: 4,
+          });
+          return {
+            totalSuccess: 5,
+            totalFailure: 5,
+            totalSkipped: 0,
+            elapsedMs: 10,
+            completedObjects: ['Account'],
+            failedObjects: ['Contact'],
+            skippedObjects: [],
+          };
+        }),
+      );
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        action: 'autopilot_execute',
+        module: 'autopilot',
+        operationId: 'exec-audit',
+        orgId: 'tgt',
+        sourceOrgId: 'src',
+        outcome: 'partial',
+        objects: [
+          { objectApiName: 'Account', created: 3, failed: 1 },
+          { objectApiName: 'Contact', created: 2, failed: 4 },
+        ],
+      });
+      expect(JSON.stringify(store.get('audit:trail'))).not.toContain('REQUIRED_FIELD_MISSING');
+    });
+
+    it('records a run that died with what the nodes settled before it wrote', async () => {
+      const store = recordingStore();
+
+      await run(
+        vi.fn(async (_p: unknown, _g: unknown, _r: unknown, _c: unknown, settle: Settle) => {
+          settle({
+            type: 'node-completed',
+            objectApiName: 'Account',
+            successCount: 3,
+            failureCount: 0,
+            elapsedMs: 1,
+            apiCallsUsed: 1,
+          });
+          throw new Error('INVALID_SESSION_ID');
+        }),
+      );
+
+      expect(new AuditTrailStore(store).list().entries).toEqual([
+        expect.objectContaining({
+          outcome: 'failure',
+          objects: [expect.objectContaining({ objectApiName: 'Account', created: 3 })],
+        }),
+      ]);
     });
   });
 

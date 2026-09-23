@@ -2,6 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
+  AuditObjectCounts,
+  AuditOutcome,
   ForgeConfig,
   ForgeGraph,
   FrozenControlReport,
@@ -11,8 +13,11 @@ import type {
   FrozenProjectConfig,
   FrozenSelectionSummary,
   FrozenStatusInfo,
+  GuardDecision,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
+import { strongerDecision } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
@@ -307,6 +312,76 @@ function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
     mappingPath: report.mappingPath,
     contractPath: report.contractPath,
   };
+}
+
+/**
+ * How a load ended, for the audit trail: a load that lists no failure
+ * succeeded; one that lists some put part of its records in the target —
+ * inserted, or reused on a reload — or none of them.
+ */
+function frozenOutcome(report: FrozenLoadReport): AuditOutcome {
+  if (report.status === 'completed') return 'success';
+  const landed = report.perObject.reduce((sum, o) => sum + o.inserted + o.reused, 0);
+  return landed > 0 ? 'partial' : 'failure';
+}
+
+/**
+ * What a load did per object, for the audit trail: records inserted and the
+ * placeholders created for them, records a reload deactivated or purged, and
+ * the ones the org refused — duplicates it skipped among them, since the org
+ * would not take them.
+ */
+function frozenAuditObjects(report: FrozenLoadReport): AuditObjectCounts[] {
+  const byObject = new Map<string, AuditObjectCounts>();
+  const countsOf = (objectApiName: string): AuditObjectCounts => {
+    const counts = byObject.get(objectApiName) ?? emptyCounts(objectApiName);
+    byObject.set(objectApiName, counts);
+    return counts;
+  };
+  for (const object of report.perObject) {
+    const counts = countsOf(object.objectApiName);
+    counts.created += object.inserted;
+    counts.failed += object.failed.length + object.skippedDuplicates.length;
+  }
+  for (const placeholder of report.placeholders) {
+    countsOf(placeholder.placeholderObjectApiName).created += 1;
+  }
+  for (const [objectApiName, deleted] of Object.entries(report.purge.deleted)) {
+    countsOf(objectApiName).deleted += deleted;
+  }
+  for (const [objectApiName, deactivated] of Object.entries(report.purge.deactivated)) {
+    countsOf(objectApiName).updated += deactivated;
+  }
+  for (const failure of report.purge.failures) {
+    countsOf(failure.objectApiName).failed += 1;
+  }
+  return [...byObject.values()];
+}
+
+/**
+ * Per object, the dataset records the load gave a real id in the target, read
+ * back from the mapping store it persists — reused and inserted alike. The
+ * store holds this run's mapping only: the loader replaces it whole. Counted,
+ * never copied: the ids stay in the sas.
+ *
+ * @returns `undefined` when the mapping cannot be read back; the lineage then
+ *   counts what the load wrote.
+ */
+async function frozenCarried(
+  dataset: FrozenDataset,
+  mappingStore: SasReferenceIdMappingStore,
+): Promise<Record<string, number> | undefined> {
+  try {
+    const mapping = await mappingStore.load();
+    return Object.fromEntries(
+      dataset.objects.map((object) => [
+        object.objectApiName,
+        object.records.filter((record) => mapping.has(record.referenceId)).length,
+      ]),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -1133,11 +1208,40 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps.broker.postToWebview(progressMsg);
     }, 100);
 
+    /** The most telling of the guard's decisions, one per DML batch. */
+    let guardDecision: GuardDecision | undefined;
+    /** Whether a batch went through: a refusal after one no longer stopped a run that wrote nothing. */
+    let batchLetThrough = false;
+    /** The load is recorded once: the verification chained after it can still fail. */
+    let recorded = false;
+    /** What the dataset is called in its lineage, once its manifest is read. */
+    let datasetLabel: string | undefined;
+    const recordLoad = (
+      outcome: AuditOutcome,
+      objects?: AuditObjectCounts[],
+      carried?: Record<string, number>,
+    ): void => {
+      if (recorded) return;
+      recorded = true;
+      recordWriteRun(this.deps, {
+        action: 'frozen_load',
+        module: 'frozen',
+        operationId,
+        orgId: parsed.targetOrgId,
+        outcome,
+        guard: guardDecision,
+        objects,
+        source: { origin: 'dataset', label: datasetLabel },
+        carried,
+      });
+    };
+
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
       const datasetDir = guard.assertOutsideRepo(this.resolveDatasetDir(config));
       const { dataset, manifest } = await this.readFrozenDataset(datasetDir, guard);
+      datasetLabel = manifest.version;
 
       const orgAccess = this.buildTargetOrgAccess();
       const conn = await getJsforceConnection(
@@ -1184,8 +1288,17 @@ export class FrozenDatasetHandler implements DomainHandler {
         reload: parsed.reload,
         pilot: parsed.pilot ? {} : undefined,
         onProgress: (event) => throttledProgress(event),
+        onGuardDecision: (decision) => {
+          guardDecision = strongerDecision(guardDecision, decision);
+          if (decision === 'allowed' || decision === 'confirmed') batchLetThrough = true;
+        },
       });
       throttledProgress.flush();
+      recordLoad(
+        frozenOutcome(report),
+        frozenAuditObjects(report),
+        await frozenCarried(dataset, mappingStore),
+      );
 
       const lastRun: FrozenLastRun = {
         contractPath: report.contractPath,
@@ -1216,6 +1329,11 @@ export class FrozenDatasetHandler implements DomainHandler {
       settle();
     } catch (err: unknown) {
       throttledProgress.flush();
+      // Stopped when the guard refused the first batch it was asked about:
+      // nothing was written. After a batch went through, the load failed.
+      const stopped =
+        (guardDecision === 'refused' || guardDecision === 'declined') && !batchLetThrough;
+      recordLoad(stopped ? 'stopped' : 'failure');
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
         code: this.errorCodeFor(err, 'LOAD_ERROR'),
         retryable: err instanceof TimeoutError,

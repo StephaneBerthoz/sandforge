@@ -14,6 +14,10 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { LineageStore } from '../../modules/audit/lineage.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -27,6 +31,31 @@ vi.mock('../../logger.js', () => ({
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
+
+/**
+ * The loader's `load`, which the audit cases script: a load needs an org to
+ * write to, and what is tested there is what the bridge records of it. A case
+ * that scripts nothing gets the real loader; every other export of the module
+ * stays the real one.
+ */
+const loaderLoad = vi.hoisted(() => vi.fn());
+vi.mock('../../modules/frozendataset/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../modules/frozendataset/index.js')>();
+  return {
+    ...actual,
+    // Unscripted, a load is the real loader's: its entry guards are what the
+    // cases outside the audit ones test.
+    FrozenDatasetLoader: vi.fn().mockImplementation(function (
+      loaderDeps: ConstructorParameters<typeof actual.FrozenDatasetLoader>[0],
+    ) {
+      const real = new actual.FrozenDatasetLoader(loaderDeps);
+      return {
+        load: (options: Parameters<typeof real.load>[0]) =>
+          loaderLoad.getMockImplementation() ? loaderLoad(options) : real.load(options),
+      };
+    }),
+  };
+});
 
 /** Build a BaseMessage with optional payload. */
 function buildMsg(type: string, payload?: unknown): InboundRequest {
@@ -395,6 +424,182 @@ describe('FrozenDatasetHandler', () => {
       expect(conn.query).not.toHaveBeenCalled();
       expect(conn.describe).not.toHaveBeenCalled();
       expect(conn.sobject).not.toHaveBeenCalled();
+    });
+
+    describe('audit trail', () => {
+      /** A frozen dataset of two accounts and one contact, in a sas outside any repo. */
+      function writeDataset(): { config: FrozenProjectConfig; sasDir: string } {
+        const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-audit-'));
+        tmpDirs.push(sasDir);
+        const datasetDir = path.join(sasDir, 'dataset');
+        fs.mkdirSync(path.join(datasetDir, 'data'), { recursive: true });
+        const manifest = buildFrozenManifest({
+          version: '1.2.0',
+          source: { orgId: '00D000000000002AAA', decisionDate: '2026-09-01' },
+          saltFingerprint: 'abcdef012345',
+          rulesVersion: '1.0.0',
+          volumetry: { budgetMax: 100, measured: {}, measuredAt: '2026-09-01T00:00:00.000Z' },
+          nonReidentification: {
+            passed: true,
+            checks: [],
+            author: 'qa',
+            checkedAt: '2026-09-01T00:00:00.000Z',
+          },
+          author: 'qa',
+        });
+        fs.writeFileSync(path.join(datasetDir, 'manifest.json'), JSON.stringify(manifest));
+        const data = (objectApiName: string, ids: string[]) =>
+          JSON.stringify({
+            objectApiName,
+            records: ids.map((referenceId) => ({ referenceId, fields: { Name: referenceId } })),
+          });
+        fs.writeFileSync(
+          path.join(datasetDir, 'data', 'Account.json'),
+          data('Account', ['A1', 'A2']),
+        );
+        fs.writeFileSync(path.join(datasetDir, 'data', 'Contact.json'), data('Contact', ['C1']));
+        return { config: { ...createMockConfig(), sasDir }, sasDir };
+      }
+
+      /** A report that inserted one account, reused one, and lost the contact. */
+      function report(): Record<string, unknown> {
+        return {
+          status: 'completed-with-errors',
+          orgId: 'org-2',
+          mode: { pilot: false, reload: true },
+          startedAt: '2026-09-02T00:00:00.000Z',
+          durationMs: 10,
+          alignment: {
+            objectResults: [],
+            excludedObjects: [],
+            removals: [],
+            adjustments: [],
+            recordTypeIssues: [],
+          },
+          placeholders: [],
+          requiredDefaults: [],
+          perObject: [
+            {
+              objectApiName: 'Account',
+              fromFiles: 2,
+              inserted: 1,
+              reused: 1,
+              skippedDuplicates: [],
+              failed: [],
+            },
+            {
+              objectApiName: 'Contact',
+              fromFiles: 1,
+              inserted: 0,
+              reused: 0,
+              skippedDuplicates: [],
+              failed: [
+                { objectApiName: 'Contact', referenceId: 'C1', errors: ['REQUIRED_FIELD_MISSING'] },
+              ],
+            },
+          ],
+          pass2: { resolved: 0, unresolved: [] },
+          personContact: { restored: 0, unresolved: [] },
+          statuses: { restored: 0, refused: [] },
+          purge: { deleted: { Case: 3 }, deactivated: {}, failures: [] },
+          mappingPath: '',
+          contractPath: path.join(os.tmpdir(), 'no-such-contract.json'),
+        };
+      }
+
+      function wire(config: FrozenProjectConfig): ConfigStore {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        store.set('frozen:config', config, 'frozen');
+        deps = { ...createMockDeps(), configStore: store };
+        deps.infraServices = {
+          productionGuard: new ProductionGuard(),
+        } as unknown as NonNullable<HandlerDeps['infraServices']>;
+        vi.mocked(getJsforceConnection).mockResolvedValue({} as never);
+        handler = new FrozenDatasetHandler(deps);
+        return store;
+      }
+
+      it('records a load once, counted per object from the mapping it persisted', async () => {
+        const { config, sasDir } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(
+          async (options: { onGuardDecision?: (d: string) => void }) => {
+            options.onGuardDecision?.('allowed');
+            // What the loader persists: this run's reference ids, and their real ids.
+            fs.writeFileSync(
+              path.join(sasDir, 'referenceid-mapping.json'),
+              JSON.stringify({
+                version: 1,
+                orgId: 'org-2',
+                updatedAt: '2026-09-02T00:00:00.000Z',
+                mapping: { A1: '001000000000001AAA', A2: '001000000000002AAA' },
+              }),
+            );
+            return report();
+          },
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true }));
+
+        const { entries } = new AuditTrailStore(store).list();
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({
+          action: 'frozen_load',
+          module: 'frozen',
+          orgId: 'org-2',
+          outcome: 'partial',
+          guard: 'allowed',
+          objects: [
+            { objectApiName: 'Account', created: 1, updated: 0, deleted: 0, failed: 0 },
+            { objectApiName: 'Contact', created: 0, updated: 0, deleted: 0, failed: 1 },
+            { objectApiName: 'Case', created: 0, updated: 0, deleted: 3, failed: 0 },
+          ],
+        });
+        const lineage = new LineageStore(store).get(entries[0].operationId);
+        expect(lineage?.nodes[0]).toMatchObject({ origin: 'dataset', label: '1.2.0' });
+        // Inserted and reused alike, as the mapping holds them; the contact has none.
+        expect(
+          lineage?.nodes.filter((n) => n.type === 'object').map((n) => [n.label, n.recordCount]),
+        ).toEqual([['Account', 2]]);
+        const stored = JSON.stringify([store.get('audit:trail'), store.get('lineage:runs')]);
+        expect(stored).not.toContain('001000000000001AAA');
+      });
+
+      it('records a load the guard refused before any batch as stopped', async () => {
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(
+          async (options: { onGuardDecision?: (d: string) => void }) => {
+            options.onGuardDecision?.('refused');
+            throw new Error('Production guard refused delete on Case: delete is not allowed');
+          },
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({ outcome: 'stopped', guard: 'refused', objects: [] }),
+        ]);
+      });
+
+      it('records a load refused after a batch went through as failed', async () => {
+        const { config } = writeDataset();
+        const store = wire(config);
+        loaderLoad.mockImplementation(
+          async (options: { onGuardDecision?: (d: string) => void }) => {
+            options.onGuardDecision?.('confirmed');
+            options.onGuardDecision?.('declined');
+            throw new Error('Production guard refused insert on Contact: confirmation declined');
+          },
+        );
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({ outcome: 'failure', guard: 'declined' }),
+        ]);
+      });
     });
   });
 

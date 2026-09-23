@@ -2010,6 +2010,31 @@ describe('ForgeExecutor', () => {
       expect(accountDone?.message).toContain('1 linked to records already in the target');
     });
 
+    it('counts its remap table per object, the linked row apart from the created one', async () => {
+      // The table's ids cannot say which object a row belongs to; the run's
+      // lineage is drawn from these counts.
+      describeAccountAndContact();
+      vi.mocked(deps.queryRecords).mockImplementation(async (_orgId, soql) =>
+        soql.includes('FROM Account')
+          ? [{ Id: ACCOUNT_SRC_1, Name: 'Acme' }]
+          : [{ Id: CONTACT_SRC, LastName: 'Doe', AccountId: ACCOUNT_SRC_1 }],
+      );
+      refuseAccounts([
+        `DUPLICATE_VALUE: duplicate value found: ExternalKey__c duplicates value on record with id: ${EXISTING_15}`,
+      ]);
+      const graph = makeGraph(
+        [makeNode('Account', { recordCount: 1 }), makeNode('Contact', { recordCount: 1 })],
+        [accountToContact],
+      );
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(summary.remapByObject).toEqual([
+        { objectApiName: 'Account', created: 0, linked: 1 },
+        { objectApiName: 'Contact', created: 1, linked: 0 },
+      ]);
+    });
+
     it('keeps the lookup of a record-scoped child instead of blanking it', async () => {
       // Scoped runs nullify a lookup whose parent has no target id. Before the
       // refusal was read, a parent the target already held had none.

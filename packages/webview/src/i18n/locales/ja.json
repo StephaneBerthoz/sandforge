@@ -1300,7 +1300,12 @@
       "settings_change": "設定変更",
       "template_create": "テンプレート作成",
       "template_update": "テンプレート更新",
-      "template_delete": "テンプレート削除"
+      "template_delete": "テンプレート削除",
+      "forge_execute": "Forgeクローン",
+      "seed_csv_import": "CSVインポート",
+      "seed_clone": "レコードクローン",
+      "autopilot_execute": "Autopilot実行",
+      "frozen_load": "凍結データセットの読み込み"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",
@@ -1319,7 +1324,47 @@
     "noLineageData": "リネージデータはありません",
     "recordsProcessed": "処理レコード数",
     "totalReports": "合計レポート",
-    "auditEntries": "監査エントリ"
+    "auditEntries": "監査エントリ",
+    "filterByOrg": "Orgでフィルター",
+    "allOrgs": "すべてのOrg",
+    "intoOrg": "書き込み先: {{org}}",
+    "fromOrg": "読み込み元: {{org}}",
+    "outcome": {
+      "success": "成功",
+      "partial": "一部成功",
+      "failure": "失敗",
+      "stopped": "停止"
+    },
+    "guard": {
+      "allowed": "Guard: 許可",
+      "confirmed": "Guard: 承認済み",
+      "declined": "Guard: 確認を拒否",
+      "refused": "Guard: ブロック"
+    },
+    "counts": {
+      "created_other": "{{count}}件作成",
+      "updated_other": "{{count}}件更新",
+      "upserted_other": "{{count}}件をupsertで書き込み",
+      "deleted_other": "{{count}}件削除",
+      "failed_other": "{{count}}件失敗"
+    },
+    "auditShowing": "{{total}}件中{{shown}}件を表示",
+    "showMore": "さらに表示",
+    "auditEmptyTitle": "まだ記録はありません",
+    "auditEmptyDesc": "Orgに書き込む実行（Forgeクローン、Sync、Seed、CSVインポート、レコードクローン、Autopilot実行、リストア、マスキング、凍結データセットの読み込み）は、終了するとここに表示されます。オブジェクトごとに書き込んだ件数と、Production Guardの判定も表示されます。",
+    "auditUnreadable": "監査ログを読み込めませんでした: {{error}}",
+    "lineageEmptyTitle": "まだ追跡された実行はありません",
+    "lineageEmptyDesc": "実行がOrgにレコードを書き込むと、このタブにその出所（別のOrg、生成データ、CSVファイル、バックアップ、凍結データセット）と、オブジェクトごとに届いたレコード数が表示されます。",
+    "lineageUnreadable": "データリネージを読み込めませんでした: {{error}}",
+    "lineageRun": "実行",
+    "lineageOrigin": {
+      "org": "Org",
+      "generator": "生成データ",
+      "csv": "CSVファイル",
+      "backup": "バックアップ",
+      "dataset": "凍結データセット"
+    },
+    "object": "オブジェクト"
   },
   "settings": {
     "title": "設定",

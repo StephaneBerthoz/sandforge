@@ -21,6 +21,7 @@ import {
   SOQL_WHERE_RULE,
 } from '../core/common/soqlValidator.js';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
+import { AUDIT_TRAIL_LIMIT } from '../modules/audit/auditTrail.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
 import { isUncopyableObject } from '@sandforge/shared';
 
@@ -818,6 +819,23 @@ export const governanceEvaluatePayloadSchema = z.object({
   policyId: opaqueIdSchema,
   orgId: orgIdSchema,
 });
+
+// ── reports:* payload schemas ─────────────────────────────────────────────
+// Mirror what ReportsContainer posts. Both payloads are optional: a request
+// with none asks for the newest page, or for the latest lineage.
+
+export const reportsAuditPayloadSchema = z
+  .object({
+    module: z.string().min(1).max(50).optional(),
+    orgId: orgIdSchema.optional(),
+    // Nothing past what the trail keeps is worth asking for.
+    offset: z.number().int().min(0).max(AUDIT_TRAIL_LIMIT).optional(),
+    limit: z.number().int().min(1).max(AUDIT_TRAIL_LIMIT).optional(),
+  })
+  .optional();
+export const reportsLineagePayloadSchema = z
+  .object({ operationId: opaqueIdSchema.optional() })
+  .optional();
 
 // ── config:* payload schemas ──────────────────────────────────────────────
 // Mirror what ConfigProfilePanel posts.

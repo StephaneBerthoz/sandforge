@@ -18,6 +18,7 @@ import type { SfdxBridge, SfdxImportResult } from '../core/connection/SfdxBridge
 import { getJsforceConnection } from '../core/connection/ConnectionHelper';
 import { PipelineOrchestrator } from '../modules/automation/PipelineOrchestrator';
 import type { Services } from '../services';
+import { emptyCounts, recordWriteRun } from '../modules/audit/auditTrail';
 
 /**
  * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
@@ -1034,6 +1035,53 @@ describe('ExtensionHandlers', () => {
       expect(payload.templates[0].name).toBe('Sandbox Refresh');
       expect(payload.templates[1].name).toBe('Migration Pre-flight Check');
       expect(payload.templates[2].name).toBe('Nightly Cleanup');
+    });
+  });
+
+  describe('reports:audit and reports:lineage', () => {
+    /** Record a run through the same call every write path makes. */
+    function recordSync(operationId: string): void {
+      recordWriteRun(
+        { configStore, orgManager, log: () => {} },
+        {
+          action: 'sync_execute',
+          module: 'sync',
+          operationId,
+          orgId: '00D000000000001AAA',
+          outcome: 'success',
+          objects: [{ ...emptyCounts('Account'), created: 1 }],
+          source: { origin: 'org', orgId: '00D000000000002AAA' },
+        },
+      );
+    }
+
+    it('routes an audit request to the trail the write paths record into', async () => {
+      recordSync('op-1');
+
+      broker['dispatch'](msg('reports:audit', { module: 'sync', limit: 10 }));
+      await vi.waitFor(() => expect(posted).toHaveLength(1));
+
+      expect(posted[0].type).toBe('reports:audit:response');
+      const payload = (
+        posted[0] as BaseMessage & {
+          payload: { entries: Array<{ operationId: string }>; total: number };
+        }
+      ).payload;
+      expect(payload.entries.map((e) => e.operationId)).toEqual(['op-1']);
+      expect(payload.total).toBe(1);
+    });
+
+    it('routes a lineage request to the graphs the write paths keep', async () => {
+      recordSync('op-1');
+
+      broker['dispatch'](msg('reports:lineage'));
+      await vi.waitFor(() => expect(posted).toHaveLength(1));
+
+      expect(posted[0].type).toBe('reports:lineage:response');
+      expect(
+        (posted[0] as BaseMessage & { payload: { lineage: { operationId: string } } }).payload
+          .lineage.operationId,
+      ).toBe('op-1');
     });
   });
 

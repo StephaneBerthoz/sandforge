@@ -1,5 +1,11 @@
 import type { BaseMessage } from './base.messages.js';
-import type { GeneratedReport } from '../reporting.types.js';
+import type {
+  AuditFacets,
+  AuditLogEntry,
+  DataLineageGraph,
+  GeneratedReport,
+  LineageRunSummary,
+} from '../reporting.types.js';
 
 /**
  * Execution reporting.
@@ -15,7 +21,9 @@ import type { GeneratedReport } from '../reporting.types.js';
  * persistence, no Salesforce call and no new storage format — only a channel
  * that reads what two modules have been writing all along.
  *
- * Audit trail and data lineage stay unbuilt, and stay marked as such.
+ * The audit trail and the lineage have a producer of their own: every path
+ * that writes to an org records its run once, when it ends — who wrote what
+ * to which org, in counts, and where the records came from.
  */
 
 /** Ask the host for the execution reports it can build from stored history. */
@@ -45,4 +53,49 @@ export interface ReportsListResponse extends BaseMessage {
       errorRate: number;
     };
   };
+}
+
+/** Ask for recorded write runs, newest first, optionally for one module or org. */
+export interface ReportsAuditRequest extends BaseMessage {
+  type: 'reports:audit';
+  payload?: { module?: string; orgId?: string; offset?: number; limit?: number };
+}
+
+/** One page of the audit trail. */
+export interface ReportsAuditResponse extends BaseMessage {
+  type: 'reports:audit:response';
+  payload: {
+    entries: AuditLogEntry[];
+    /** Entries the filter matches, before paging. */
+    total: number;
+    offset: number;
+    /**
+     * Every module and org the trail holds, whatever the filter: what a
+     * filter can offer, which the page alone cannot say.
+     */
+    facets: AuditFacets;
+  };
+}
+
+/** Ask for the lineage of one run, or of the latest when no id is given. */
+export interface ReportsLineageRequest extends BaseMessage {
+  type: 'reports:lineage';
+  payload?: { operationId?: string };
+}
+
+/** The lineage asked for, and the runs a lineage is kept for. */
+export interface ReportsLineageResponse extends BaseMessage {
+  type: 'reports:lineage:response';
+  payload: {
+    /** `null` when no run has been traced yet, or the id asked for is not kept. */
+    lineage: DataLineageGraph | null;
+    /** Newest first. */
+    runs: LineageRunSummary[];
+  };
+}
+
+/** `reports:error`. Extension -> WebView: a malformed reports request. */
+export interface ReportsErrorMessage extends BaseMessage {
+  type: 'reports:error';
+  payload: { message: string; code: string; retryable: boolean };
 }

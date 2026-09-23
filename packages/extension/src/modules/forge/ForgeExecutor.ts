@@ -1,4 +1,9 @@
-import type { ForgeGraph, ForgeGraphNode, ForgeNodeStatus } from '@sandforge/shared';
+import type {
+  ForgeGraph,
+  ForgeGraphNode,
+  ForgeNodeStatus,
+  ForgeRemapObjectCounts,
+} from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -454,6 +459,11 @@ export interface ExecutionSummary {
   existingRecords: ExistingRecordReport[];
   /** Source ids whose `remapTable` entry is a record the target already held. */
   existingSourceIds: string[];
+  /**
+   * Per object, the rows of `remapTable` this run created and the ones it
+   * linked to a record the target already held — the table counted by object.
+   */
+  remapByObject: ForgeRemapObjectCounts[];
 }
 
 /**
@@ -958,6 +968,7 @@ export class ForgeExecutor {
       remapTable: state.remapper.toJSON(),
       existingRecords: state.existingRecords,
       existingSourceIds: state.remapper.existingSourceIds(),
+      remapByObject: state.remapper.countsByObject(),
     };
   }
 

@@ -228,6 +228,7 @@ describe('sandforge-clone summary', () => {
     remapTable: {},
     existingRecords: [],
     existingSourceIds: [],
+    remapByObject: [],
     ...overrides,
   });
 

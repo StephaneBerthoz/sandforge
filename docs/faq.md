@@ -14,7 +14,7 @@ No. A free Developer Edition org works for all SandForge features. Scratch orgs 
 
 ### Does SandForge modify production data?
 
-SandForge includes a **Production Guard** with three safety tiers. Operations targeting a Production org require double confirmation, and DELETE operations are blocked by default. Each safety-check decision is recorded in an in-memory log capped at 1000 entries with FIFO eviction (`sandforge.safety.auditLogging`): it lives for the session only, is never written to disk, and no screen reads it back yet. You can configure these protections in `sandforge.safety.requireProdConfirmation`.
+SandForge includes a **Production Guard** with three safety tiers. Operations targeting a Production org require double confirmation, and DELETE operations are blocked by default. Each safety-check decision is recorded with the run it concerns in the audit trail, which keeps the newest 2000 runs across sessions and is read in Reports → Audit Trail; `sandforge.safety.auditLogging` turns that recording off. You can configure these protections in `sandforge.safety.requireProdConfirmation`.
 
 That said, SandForge is designed primarily for sandbox and scratch org workflows. We recommend always targeting sandboxes for data seeding and sync operations.
 

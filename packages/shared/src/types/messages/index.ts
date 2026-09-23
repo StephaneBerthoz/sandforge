@@ -51,7 +51,15 @@ import type {
   ErrorBoundaryReport,
 } from './bridge.messages.js';
 import type { FileSaveRequest, FileSaveResponse } from './file.messages.js';
-import type { ReportsListRequest, ReportsListResponse } from './reports.messages.js';
+import type {
+  ReportsListRequest,
+  ReportsListResponse,
+  ReportsAuditRequest,
+  ReportsAuditResponse,
+  ReportsLineageRequest,
+  ReportsLineageResponse,
+  ReportsErrorMessage,
+} from './reports.messages.js';
 import type {
   SeedExecuteRequest,
   SeedDescribeGlobalRequest,
@@ -395,6 +403,8 @@ export type WebViewToExtensionMessage =
   | FileSaveRequest
   // Reports
   | ReportsListRequest
+  | ReportsAuditRequest
+  | ReportsLineageRequest
   // Org
   | OrgListRequest
   | OrgConnectRequest
@@ -556,6 +566,9 @@ export type ExtensionToWebViewMessage =
   | FileSaveResponse
   // Reports
   | ReportsListResponse
+  | ReportsAuditResponse
+  | ReportsLineageResponse
+  | ReportsErrorMessage
   // Org
   | OrgListResponse
   | OrgStatusChanged

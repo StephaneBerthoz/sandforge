@@ -204,7 +204,7 @@ export class BatchWriter {
         : new Map<number, string>();
     for (const [index, id] of direct) {
       const oldId = input.cleanedRecords[index]?.source['Id'];
-      if (typeof oldId === 'string') remapper.addExisting(oldId, id);
+      if (typeof oldId === 'string') remapper.addExisting(oldId, id, node.objectApiName);
     }
     const records = input.records.filter((_, i) => !direct.has(i));
     const cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
@@ -290,7 +290,7 @@ export class BatchWriter {
           const built = cleanedRecords[recordOffset + i];
           const oldId = built?.source['Id'];
           if (typeof oldId === 'string') {
-            remapper.add(oldId, result.id);
+            remapper.add(oldId, result.id, node.objectApiName);
           }
           // Record nullified FKs so pass 2 can patch them
           // once the parent target is in the IdRemapper.
@@ -316,7 +316,9 @@ export class BatchWriter {
             // overwrite a record this run did not create.
             nodeLinked++;
             const oldId = cleanedRecords[recordOffset + i]?.source['Id'];
-            if (typeof oldId === 'string') remapper.addExisting(oldId, existing.id);
+            if (typeof oldId === 'string') {
+              remapper.addExisting(oldId, existing.id, node.objectApiName);
+            }
             continue;
           }
           const naturalKey = NATURAL_KEYS[node.objectApiName];
@@ -380,7 +382,7 @@ export class BatchWriter {
       byNaturalKey.forEach((duplicate, i) => {
         const id = found[i];
         if (id && typeof duplicate.sourceId === 'string') {
-          remapper.addExisting(duplicate.sourceId, id);
+          remapper.addExisting(duplicate.sourceId, id, node.objectApiName);
           nodeLinked++;
           return;
         }

@@ -1330,7 +1330,12 @@
       "settings_change": "Settings Change",
       "template_create": "Template Create",
       "template_update": "Template Update",
-      "template_delete": "Template Delete"
+      "template_delete": "Template Delete",
+      "forge_execute": "Forge Clone",
+      "seed_csv_import": "CSV Import",
+      "seed_clone": "Record Clone",
+      "autopilot_execute": "Autopilot Run",
+      "frozen_load": "Frozen Dataset Load"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",
@@ -1349,7 +1354,52 @@
     "noLineageData": "No lineage data available",
     "recordsProcessed": "Records Processed",
     "totalReports": "Total Reports",
-    "auditEntries": "Audit Entries"
+    "auditEntries": "Audit Entries",
+    "filterByOrg": "Filter by org",
+    "allOrgs": "All Orgs",
+    "intoOrg": "into {{org}}",
+    "fromOrg": "from {{org}}",
+    "outcome": {
+      "success": "Succeeded",
+      "partial": "Partial",
+      "failure": "Failed",
+      "stopped": "Stopped"
+    },
+    "guard": {
+      "allowed": "Guard: allowed",
+      "confirmed": "Guard: confirmed",
+      "declined": "Guard: declined",
+      "refused": "Guard: refused"
+    },
+    "counts": {
+      "created_one": "{{count}} created",
+      "created_other": "{{count}} created",
+      "updated_one": "{{count}} updated",
+      "updated_other": "{{count}} updated",
+      "upserted_one": "{{count}} upserted",
+      "upserted_other": "{{count}} upserted",
+      "deleted_one": "{{count}} deleted",
+      "deleted_other": "{{count}} deleted",
+      "failed_one": "{{count}} failed",
+      "failed_other": "{{count}} failed"
+    },
+    "auditShowing": "Showing {{shown}} of {{total}}",
+    "showMore": "Show more",
+    "auditEmptyTitle": "Nothing recorded yet",
+    "auditEmptyDesc": "Every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — is listed here when it ends, with what it wrote to each object and what Production Guard decided.",
+    "auditUnreadable": "The audit trail could not be read: {{error}}",
+    "lineageEmptyTitle": "No run traced yet",
+    "lineageEmptyDesc": "When a run writes records to an org, this tab shows where they came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many records of each object reached it.",
+    "lineageUnreadable": "The data lineage could not be read: {{error}}",
+    "lineageRun": "Run",
+    "lineageOrigin": {
+      "org": "Org",
+      "generator": "Generated data",
+      "csv": "CSV file",
+      "backup": "Backup",
+      "dataset": "Frozen dataset"
+    },
+    "object": "Object"
   },
   "settings": {
     "title": "Settings",

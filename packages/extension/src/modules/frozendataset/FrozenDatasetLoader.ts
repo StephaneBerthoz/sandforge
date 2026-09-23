@@ -30,8 +30,10 @@ import {
   STANDARD_PRICEBOOK_SOQL,
   isPricebookEntry,
 } from '@sandforge/shared';
+import type { GuardDecision } from '@sandforge/shared';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import {
   ACCOUNT_CONTACT_RELATION,
@@ -86,9 +88,9 @@ export interface FrozenDatasetLoaderDeps {
   orgAccess: Omit<TargetOrgAccess, 'count'>;
   writer: FrozenDmlWriter;
   /**
-   * Existing ProductionGuard — tier check on every DML batch; with
-   * `sandforge.safety.auditLogging` on, its decisions are kept in memory
-   * for the session only.
+   * Existing ProductionGuard — tier check on every DML batch. Each decision
+   * goes to the caller of `load` through `onGuardDecision`, and the bridge
+   * records the load with it in the audit trail.
    */
   guard: ProductionGuard;
   mockDetector: CalloutMockDetector;
@@ -120,6 +122,12 @@ export interface FrozenLoadOptions {
   pilot?: { rootReferenceId?: string };
   /** Progress sink — the bridge consumes these callbacks. */
   onProgress?: (event: FrozenLoadProgressEvent) => void;
+  /**
+   * What Production Guard decided about each DML batch, as it decides it —
+   * a refusal included, before the load stops on it. The bridge records the
+   * run with the most telling of them.
+   */
+  onGuardDecision?: (decision: GuardDecision) => void;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -555,9 +563,9 @@ export class FrozenDatasetLoader {
   }
 
   /**
-   * Run one DML batch past the existing ProductionGuard: a tier check, and
-   * a decision kept in memory for the session when
-   * `sandforge.safety.auditLogging` is on.
+   * Run one DML batch past the existing ProductionGuard: a tier check, a
+   * decision kept in the guard's session log when
+   * `sandforge.safety.auditLogging` is on, and handed to the caller.
    */
   private async checkGuard(
     options: FrozenLoadOptions,
@@ -573,12 +581,12 @@ export class FrozenDatasetLoader {
       recordCount,
       module: 'frozendataset',
     };
-    const result = this.deps.guard.check(request);
-    this.deps.guard.logOperation(request, result);
-    if (!(await this.deps.guard.confirmIfNeeded(result))) {
+    const { check, decision } = await consultProductionGuard(this.deps.guard, request);
+    options.onGuardDecision?.(decision);
+    if (decision === 'refused' || decision === 'declined') {
       throw new LoadGuardError(
         'guard-refused',
-        `Production guard refused ${operation} on ${objectApiName}: ${result.blockedReason ?? 'confirmation declined'}`,
+        `Production guard refused ${operation} on ${objectApiName}: ${check.blockedReason ?? 'confirmation declined'}`,
       );
     }
   }

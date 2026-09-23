@@ -33,8 +33,8 @@ type ScannedTheme = (typeof SCANNED_THEMES)[number];
  * is held to the bar or to the theme's own contrast for its colour
  * (helpers/theme-contrast.ts), since Light+ and Quiet Light write description
  * text under 4.5:1 on their own surfaces. The full axe scan runs on the four
- * above as well. Two of the states come from Reports components the panel does
- * not feed yet, mounted with data by harness/unwired-reports.html.
+ * above as well. Two of the states come from Reports components a page scan
+ * cannot reach in every state, mounted with data by harness/unwired-reports.html.
  */
 const STATE_THEMES = [...SCANNED_THEMES, 'Light+', 'Quiet Light', 'Dark+'] as const;
 type StateTheme = (typeof STATE_THEMES)[number];
@@ -224,6 +224,88 @@ const MOCK_PLAN = {
 };
 
 /**
+ * A page of the audit trail as `reports:audit` answers it: a partial clone the
+ * guard asked about, and a restore the guard refused.
+ */
+const REPORTS_AUDIT = {
+  entries: [
+    {
+      id: 'audit-forge',
+      action: 'forge_execute',
+      module: 'forge',
+      orgId: '00D000000000001AAA',
+      orgAlias: QA_SANDBOX.alias,
+      sourceOrgId: '00D000000000002AAA',
+      sourceOrgAlias: DEV_SANDBOX.alias,
+      operationId: 'op-2',
+      outcome: 'partial',
+      guard: 'confirmed',
+      objects: [
+        { objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 1 },
+        { objectApiName: 'Contact', created: 0, updated: 0, deleted: 0, failed: 0, upserted: 12 },
+      ],
+      details: {},
+      timestamp: '2026-09-12T10:00:00.000Z',
+    },
+    {
+      id: 'audit-restore',
+      action: 'backup_restore',
+      module: 'dataops',
+      orgId: '00D000000000001AAA',
+      orgAlias: QA_SANDBOX.alias,
+      operationId: 'op-1',
+      outcome: 'stopped',
+      guard: 'refused',
+      objects: [],
+      details: {},
+      timestamp: '2026-09-11T10:00:00.000Z',
+    },
+  ],
+  total: 240,
+  offset: 0,
+  facets: {
+    modules: ['dataops', 'forge'],
+    orgs: [{ orgId: '00D000000000001AAA', orgAlias: QA_SANDBOX.alias }],
+  },
+};
+
+/** The lineage of the clone above, and the two runs a graph is kept for. */
+const REPORTS_LINEAGE = {
+  lineage: {
+    operationId: 'op-2',
+    generatedAt: '2026-09-12T10:00:00.000Z',
+    module: 'forge',
+    action: 'forge_execute',
+    nodes: [
+      { id: 'source', type: 'source', label: DEV_SANDBOX.alias, origin: 'org' },
+      { id: 'object:Account', type: 'object', label: 'Account', recordCount: 3 },
+      { id: 'object:Contact', type: 'object', label: 'Contact', recordCount: 12 },
+      { id: 'target', type: 'destination', label: QA_SANDBOX.alias, origin: 'org' },
+    ],
+    edges: [
+      { sourceId: 'source', targetId: 'object:Account' },
+      { sourceId: 'object:Account', targetId: 'target', recordCount: 3 },
+      { sourceId: 'source', targetId: 'object:Contact' },
+      { sourceId: 'object:Contact', targetId: 'target', recordCount: 12 },
+    ],
+  },
+  runs: [
+    {
+      operationId: 'op-2',
+      generatedAt: '2026-09-12T10:00:00.000Z',
+      action: 'forge_execute',
+      targetLabel: QA_SANDBOX.alias,
+    },
+    {
+      operationId: 'op-0',
+      generatedAt: '2026-09-10T10:00:00.000Z',
+      action: 'seed_execute',
+      targetLabel: QA_SANDBOX.alias,
+    },
+  ],
+};
+
+/**
  * Assert zero axe violations, with a formatted error message on failure.
  */
 function expectNoViolations(results: Awaited<ReturnType<typeof checkAccessibility>>): void {
@@ -368,6 +450,42 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Reports audit trail and lineage, with runs recorded', async ({ page }) => {
+      await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
+      await answerAll(page, 'reports:audit', 'reports:audit:response', REPORTS_AUDIT);
+      await answerAll(page, 'reports:lineage', 'reports:lineage:response', REPORTS_LINEAGE);
+
+      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.waitForSelector('[data-testid="audit-audit-forge"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.waitForSelector('[data-testid="lineage-run"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Reports audit trail and lineage, before any run is recorded', async ({ page }) => {
+      await navigateToModule(bridge, page, 'reports', 'reports-page', { theme });
+      await answerAll(page, 'reports:audit', 'reports:audit:response', {
+        entries: [],
+        total: 0,
+        offset: 0,
+        facets: { modules: [], orgs: [] },
+      });
+      await answerAll(page, 'reports:lineage', 'reports:lineage:response', {
+        lineage: null,
+        runs: [],
+      });
+
+      await page.getByRole('tab', { name: 'Audit Trail' }).click();
+      await page.waitForSelector('[data-testid="reports-audit-empty"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByRole('tab', { name: 'Data Lineage' }).click();
+      await page.waitForSelector('[data-testid="reports-lineage-empty"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Settings page', async ({ page }) => {
@@ -1690,7 +1808,7 @@ for (const theme of STATE_THEMES) {
       }
     });
 
-    test('Lineage legend and edge labels, on the Reports graph the panel does not feed yet', async ({
+    test('Lineage legend and edge labels, on every kind of node the Reports graph draws', async ({
       page,
     }) => {
       await bridge.setup(page);

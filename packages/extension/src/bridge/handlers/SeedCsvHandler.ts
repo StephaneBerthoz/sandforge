@@ -25,6 +25,9 @@ import { CsvValidator } from '../../modules/seed/CsvValidator.js';
 import type { DescribeField } from '../../modules/seed/describeField.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import type { WriteRun } from '../../modules/audit/auditTrail.js';
 
 /** Message types handled by SeedCsvHandler. */
 const SEED_CSV_TYPES = new Set(['seed:csv:validate', 'seed:csv:execute']);
@@ -146,10 +149,24 @@ export class SeedCsvHandler implements DomainHandler {
     tracked.catch(() => {});
     this.registry?.register(operationId, 'csv', 'CSV import', tracked, abortController);
 
+    /** The run as the audit trail records it, once it ends. */
+    const run: WriteRun = {
+      action: 'seed_csv_import',
+      module: 'seed',
+      operationId,
+      orgId: parsed.orgId,
+      outcome: 'failure',
+      source: { origin: 'csv' },
+    };
+    /**
+     * True from the moment the import is announced until its end is recorded:
+     * a failure before it wrote nothing, and a run is recorded once.
+     */
+    let unrecorded = false;
+
     try {
       // Production guard check on target org (mirror SyncOpsHandler).
       if (this.deps.infraServices?.productionGuard) {
-        const guard = this.deps.infraServices.productionGuard;
         const targetOrg = this.deps.orgManager.getOrg(parsed.orgId);
         const guardRequest = {
           orgId: parsed.orgId,
@@ -159,15 +176,20 @@ export class SeedCsvHandler implements DomainHandler {
           recordCount: parsed.records.length,
           module: 'seed',
         };
-        const check = guard.check(guardRequest);
-        guard.logOperation(guardRequest, check);
-        if (!check.allowed) {
+        const { check, decision } = await consultProductionGuard(
+          this.deps.infraServices.productionGuard,
+          guardRequest,
+        );
+        run.guard = decision;
+        if (decision === 'refused' || decision === 'declined') {
+          recordWriteRun(this.deps, { ...run, outcome: 'stopped', source: undefined });
+        }
+        if (decision === 'refused') {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
         }
-        const confirmed = await guard.confirmIfNeeded(check);
-        if (!confirmed) {
+        if (decision === 'declined') {
           const declined = 'Operation cancelled by user (production confirmation declined).';
           sendOperationFailed(this.deps, operationId, declined, false, { context: failure });
           // Registered before the question was asked: left unsettled, the
@@ -189,6 +211,7 @@ export class SeedCsvHandler implements DomainHandler {
         'seed',
         `CSV import ${parsed.records.length} record(s) into ${parsed.objectApiName}`,
       );
+      unrecorded = true;
 
       const robustnessConfig = robustnessConfigOf(this.deps);
       const defaultBatchSize =
@@ -236,6 +259,19 @@ export class SeedCsvHandler implements DomainHandler {
         }
       }
       const failedCount = outcomes.length - insertedCount;
+      unrecorded = false;
+      recordWriteRun(this.deps, {
+        ...run,
+        outcome: failedCount === 0 ? 'success' : insertedCount > 0 ? 'partial' : 'failure',
+        objects: [
+          {
+            ...emptyCounts(parsed.objectApiName),
+            // An upsert says it wrote the row, not whether it created it.
+            ...(parsed.externalIdField ? { upserted: insertedCount } : { created: insertedCount }),
+            failed: failedCount,
+          },
+        ],
+      });
 
       const payload: CsvExecutionResultPayload = { insertedCount, failedCount, errors };
       sendOperationCompleted(this.deps, operationId, { insertedCount, failedCount });
@@ -251,6 +287,7 @@ export class SeedCsvHandler implements DomainHandler {
       );
       settle();
     } catch (err: unknown) {
+      if (unrecorded) recordWriteRun(this.deps, run);
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       this.deps.log(`[ERR] seed:csv:execute: ${extractErrorMessage(err)}`);
