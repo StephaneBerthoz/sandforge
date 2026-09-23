@@ -182,7 +182,18 @@ export interface DataOpsRollbackResponse extends BaseMessage {
 /** Response after a successful anonymization run. */
 export interface DataOpsAnonymizeResponse extends BaseMessage {
   type: 'dataops:anonymize:response';
-  payload: { templateId: string; status: string; recordsProcessed: number; message: string };
+  payload: {
+    templateId: string;
+    status: string;
+    recordsProcessed: number;
+    /** Records the org refused to update: they still hold their original values. */
+    recordsFailed: number;
+    message: string;
+    /** Why the org refused them, per object. */
+    errors: Array<{ objectApiName: string; message: string }>;
+    /** Present when a cancel stopped the run before every record was masked. */
+    cancelled?: true;
+  };
 }
 
 /**
