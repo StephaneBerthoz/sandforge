@@ -29,6 +29,7 @@ import {
   sendOperationStarted,
   sendOperationProgress,
   sendOperationCompleted,
+  sendOperationFailed,
   PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
 import { validatePayload } from '../validatePayload.js';
@@ -336,6 +337,16 @@ function undoMark(result: ForgeUndoResult): ForgeUndoMark {
     kept: sum((o) => o.keptChanged + o.keptDependents),
     refused: sum((o) => o.refused),
   };
+}
+
+/**
+ * Whether a run ended on the executor's abort (`ForgeAbortedError`) rather
+ * than on a failure. Read by its name: the executor's module is loaded with
+ * the Forge services, after activation, and importing its class here would
+ * bring it and what it loads into the activation bundle.
+ */
+function isForgeAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ForgeAbortedError';
 }
 
 /**
@@ -856,17 +867,17 @@ export class ForgeHandler implements DomainHandler {
         sendOperationCompleted(this.deps, operationId, { aborted: true });
         return;
       }
-      // Single error channel: `forge:discover:error` is what the webview
-      // consumes (ForgeDiscovery clears loading + surfaces the message).
-      // `operation:failed` is intentionally NOT emitted here — every
-      // `operation:failed` also triggers an error resolution
-      // (`sendOperationFailed`), so emitting one alongside the domain error
-      // would make each forge failure pay for a parasitic duplicate.
+      // Dual channel, single display, as for every other module:
+      // `forge:discover:error` is what the discovery screen shows, and
+      // `operation:failed` ends the run where it is listed. Left out, the
+      // recent operations and the side panel showed a failed discovery as
+      // running for the rest of the session.
       runError = error;
       sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', msg, error, {
         code: 'DISCOVER_ERROR',
         retryable: true,
       });
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
     } finally {
       releaseRun(runError);
       if (this.discoverOperationId === operationId) this.discoverOperationId = null;
@@ -1025,6 +1036,9 @@ export class ForgeHandler implements DomainHandler {
     /** What the run failed on, so the registry lists it as failed. */
     let runError: unknown;
 
+    /** Whether the cancel came before the executor started, so nothing was written. */
+    let stoppedBeforeStart = false;
+
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
     // through postMessage adds tens of MB of redundant traffic.
@@ -1068,6 +1082,7 @@ export class ForgeHandler implements DomainHandler {
       // started yet, and execute() clears its abort flag on entry — the run
       // would go ahead and write. Honour it here instead.
       if (runController.signal.aborted) {
+        stoppedBeforeStart = true;
         throw new Error('Forge execution was aborted before it started. Nothing was written.');
       }
       const result = await this.orchestrator.execute(graph, config, {
@@ -1126,7 +1141,11 @@ export class ForgeHandler implements DomainHandler {
       this.dmlTracker.markCompleted(forgeOpId);
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
-      runError = error;
+      // A cancel, not a failure: stopped before the executor started, or by
+      // the executor's own abort. Any other error thrown while the cancel is
+      // pending is still the run's failure.
+      const cancelled = stoppedBeforeStart || isForgeAbort(error);
+      if (!cancelled) runError = error;
       // What the run wrote before it threw travels with the error: an abort
       // after the first objects, or a failure further on, is recorded with
       // the rows it created and lost, not as a run that wrote nothing.
@@ -1153,12 +1172,22 @@ export class ForgeHandler implements DomainHandler {
       // A failed run wrote nothing worth protecting — clear any cooldown so
       // the user can fix the cause and re-run immediately.
       this.lastWriteAt.delete(forgeOpId);
-      // Single error channel (see handleDiscover): `forge:execute:error`
-      // only — no duplicate `operation:failed` / parasitic error resolution.
+      // `forge:execute:error` is what the execution screen shows. The run's
+      // end is posted too, as every other module posts it: with the error
+      // alone, the recent operations and the side panel showed a failed or
+      // stopped clone as running for the rest of the session.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: 'EXECUTE_ERROR',
         retryable: true,
       });
+      if (cancelled) {
+        // Aborted in the registry already when the cancel came through it,
+        // which is then a no-op.
+        this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+      } else {
+        sendOperationFailed(this.deps, operationId, extractErrorMessage(error), true);
+      }
     } finally {
       releaseRun(runError);
       if (this.executeOperationId === operationId) this.executeOperationId = null;

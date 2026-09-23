@@ -4,10 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildFrozenManifest,
+  FrozenLoadCancelledError,
   serializeManifest,
   writeSelectionToSas,
 } from '../../modules/frozendataset/index.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -607,6 +609,52 @@ describe('FrozenDatasetHandler', () => {
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
           expect.objectContaining({ outcome: 'failure', guard: 'declined' }),
+        ]);
+      });
+
+      it('ends a load the cancel stopped as aborted, recorded with what it wrote', async () => {
+        // The load was handed no cancel: once started, it ran to its end.
+        const { config } = writeDataset();
+        const store = wire(config);
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        let handed: AbortSignal | undefined;
+        loaderLoad.mockImplementation(async (options: { signal?: AbortSignal }) => {
+          handed = options.signal;
+          // What execution:abort does with the id the load is listed under.
+          registry.abort(registry.getRunning()[0].operationId);
+          throw new FrozenLoadCancelledError({
+            perObject: [
+              {
+                objectApiName: 'Account',
+                fromFiles: 2,
+                inserted: 2,
+                reused: 0,
+                skippedDuplicates: [],
+                failed: [],
+              },
+            ],
+            placeholders: [],
+            purge: { deleted: {}, deactivated: {}, failures: [] },
+          });
+        });
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        expect(handed?.aborted).toBe(true);
+        const [ended] = posted(deps, 'operation:completed');
+        expect(ended.payload.result).toEqual({ aborted: true });
+        expect(registry.get(String(ended.payload.operationId))?.status).toBe('aborted');
+        // The page's request is settled, with a code it shows as it is.
+        expect(posted(deps, 'frozen:load:error')[0].payload).toMatchObject({
+          code: 'LOAD_CANCELLED',
+        });
+        expect(posted(deps, 'frozen:load:response')).toEqual([]);
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            outcome: 'partial',
+            objects: [expect.objectContaining({ objectApiName: 'Account', created: 2 })],
+          }),
         ]);
       });
     });

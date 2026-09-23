@@ -223,7 +223,9 @@ export class SyncScheduleExecutor {
       try {
         const result = await this.deps.onExecute(config);
         schedule.lastRunAt = new Date(currentTime).toISOString();
-        schedule.lastResult = result.status;
+        // Stored as its status, a cancelled run read as partial on the
+        // schedule's badge, as though some of its records had been refused.
+        schedule.lastResult = result.cancelled ? 'cancelled' : result.status;
         schedule.nextRunAt = this.computeNextRunAt(schedule.cron, schedule.timezone);
         schedule.updatedAt = new Date(currentTime).toISOString();
         this.deps.scheduleStore.save(schedule);

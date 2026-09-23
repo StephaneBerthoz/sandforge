@@ -70,13 +70,19 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
         <>
           {/* Summary table */}
           <div className="flex items-center gap-3 text-xs" data-testid="result-summary">
-            <Badge variant={RESULTS_STATUS_VARIANT[executionResult.status]}>
-              {executionResult.status === 'success'
-                ? t('seed.complete')
-                : executionResult.status === 'partial'
-                  ? t('seed.partial')
-                  : t('seed.failed')}
-            </Badge>
+            {/* A seed the Cancel stopped reads as cancelled, not as partially
+                complete: what it inserted stays in the org, and is listed below. */}
+            {executionResult.cancelled ? (
+              <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+            ) : (
+              <Badge variant={RESULTS_STATUS_VARIANT[executionResult.status]}>
+                {executionResult.status === 'success'
+                  ? t('seed.complete')
+                  : executionResult.status === 'partial'
+                    ? t('seed.partial')
+                    : t('seed.failed')}
+              </Badge>
+            )}
             <span className="text-[var(--sf-text-primary)]">
               {t('seed.recordsCreated')}: <strong>{executionResult.totalRecordsCreated}</strong>
             </span>

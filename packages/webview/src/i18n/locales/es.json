@@ -1105,13 +1105,15 @@
       "paused": "En pausa",
       "nextRun": "Próxima ejecución",
       "lastRun": "Última ejecución",
+      "dateUnknown": "desconocida",
       "pause": "Pausar",
       "resume": "Reanudar",
       "editNamed": "Editar {{name}}",
       "deleteNamed": "Eliminar {{name}}",
       "result_success": "Correcto",
       "result_partial": "Parcial",
-      "result_failure": "Con errores"
+      "result_failure": "Con errores",
+      "result_cancelled": "Cancelado"
     },
     "history": {
       "title": "Historial de sincronizaciones",

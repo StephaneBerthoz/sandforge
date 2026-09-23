@@ -456,9 +456,14 @@ export const MigrationPage: React.FC = () => {
                       className="flex flex-wrap items-center gap-3 text-xs"
                       data-testid="migration-run-result"
                     >
-                      <Badge variant={RUN_STATUS_VARIANTS[runMutation.data.status] ?? 'default'}>
-                        {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'sync.failed')}
-                      </Badge>
+                      {/* A run a cancel stopped reads as cancelled, as on the Sync tab. */}
+                      {runMutation.data.cancelled ? (
+                        <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+                      ) : (
+                        <Badge variant={RUN_STATUS_VARIANTS[runMutation.data.status] ?? 'default'}>
+                          {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'sync.failed')}
+                        </Badge>
+                      )}
                       <span>
                         {t('sync.totalProcessed')}:{' '}
                         <strong>{runMutation.data.totalProcessed}</strong>

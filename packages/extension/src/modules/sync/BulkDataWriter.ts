@@ -16,6 +16,7 @@ import {
   formatSaveError,
 } from '../../core/common/existingRecordMatch.js';
 import type { OperationOutcome } from './DataSync.js';
+import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
 const STREAMING_THRESHOLD = 10_000;
@@ -51,7 +52,11 @@ export interface BulkDataWriterDeps {
   bulkManager: BulkApiManager;
   /** Retry configuration for REST batch calls. */
   retryConfig: Partial<RetryConfig>;
-  /** Abort signal cancelling the streaming upload path. */
+  /**
+   * The run's cancel. It aborts an upload of more than ten thousand records
+   * while its job is still open, and the write then throws
+   * {@link WriteCancelledError}; a job already closed is awaited and counted.
+   */
   signal: AbortSignal;
   /** Progress sink invoked by the streaming and bulk paths. */
   onProgress: (processed: number, total: number, label: string) => void;
@@ -255,6 +260,10 @@ export class BulkDataWriter {
       // assumption, which misattributed failures after partial job errors.
       records,
     );
+    // The cancel aborted the job before it was closed: none of its records
+    // was written. Answered as an empty list, it read as an object with
+    // nothing to write, and a run cancelled on its last object succeeded.
+    if (streamResult.aborted) throw new WriteCancelledError(objectName);
     return (streamResult.outcomes ?? []).map((outcome) =>
       this.withExistingRecord(objectName, {
         id: outcome.id,

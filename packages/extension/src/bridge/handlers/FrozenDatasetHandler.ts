@@ -58,6 +58,7 @@ import {
   FrozenDatasetExtractor,
   FrozenDatasetLoader,
   FrozenDatasetWriter,
+  FrozenLoadCancelledError,
   InsideRepoPathError,
   LoadConfigError,
   LoadGuardError,
@@ -327,12 +328,27 @@ function frozenOutcome(report: FrozenLoadReport): AuditOutcome {
 }
 
 /**
+ * How a load the cancel stopped ended, for the audit trail: never a success,
+ * since it did not write the whole dataset; a failure when the org refused
+ * every record it was sent, and nothing landed.
+ */
+function cancelledFrozenOutcome(
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders'>,
+): AuditOutcome {
+  const landed = written.perObject.reduce((sum, o) => sum + o.inserted + o.reused, 0);
+  const refused = written.perObject.reduce((sum, o) => sum + o.failed.length, 0);
+  return landed === 0 && written.placeholders.length === 0 && refused > 0 ? 'failure' : 'partial';
+}
+
+/**
  * What a load did per object, for the audit trail: records inserted and the
  * placeholders created for them, records a reload deactivated or purged, and
  * the ones the org refused — duplicates it skipped among them, since the org
  * would not take them.
  */
-function frozenAuditObjects(report: FrozenLoadReport): AuditObjectCounts[] {
+function frozenAuditObjects(
+  report: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+): AuditObjectCounts[] {
   const byObject = new Map<string, AuditObjectCounts>();
   const countsOf = (objectApiName: string): AuditObjectCounts => {
     const counts = byObject.get(objectApiName) ?? emptyCounts(objectApiName);
@@ -1302,6 +1318,9 @@ export class FrozenDatasetHandler implements DomainHandler {
           guardDecision = strongerDecision(guardDecision, decision);
           if (decision === 'allowed' || decision === 'confirmed') batchLetThrough = true;
         },
+        // The controller the registry aborts: the load stops before its next
+        // write, where it used to run to its end.
+        signal: abortController.signal,
       });
       throttledProgress.flush();
       recordLoad(
@@ -1339,6 +1358,20 @@ export class FrozenDatasetHandler implements DomainHandler {
       settle();
     } catch (err: unknown) {
       throttledProgress.flush();
+      if (err instanceof FrozenLoadCancelledError) {
+        // Ended the way a cancelled Sync or Seed ends: recorded with what it
+        // wrote, aborted in the registry — already, when the cancel came
+        // through it — and posted as a completion that says so. The page
+        // hears it on the load's error channel, which settles its request.
+        recordLoad(cancelledFrozenOutcome(err.written), frozenAuditObjects(err.written));
+        this.registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
+          code: 'LOAD_CANCELLED',
+        });
+        settle();
+        return;
+      }
       // Stopped when the guard refused the first batch it was asked about:
       // nothing was written. After a batch went through, the load failed.
       const stopped =

@@ -2252,6 +2252,7 @@ for (const theme of STATE_THEMES) {
       });
       // A run past its time, one to come, one days away and one paused, with
       // a last result of each kind: every group and every badge is painted.
+      // The paused one was cancelled, at a time the panel cannot read.
       await answerAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
         schedules: [
           schedule('due', 'Accounts', {
@@ -2269,11 +2270,19 @@ for (const theme of STATE_THEMES) {
             lastRunAt: at(-2 * 86_400_000),
             lastResult: 'partial',
           }),
-          schedule('paused', 'Leads', { enabled: false, nextRunAt: at(3_600_000) }),
+          schedule('paused', 'Leads', {
+            enabled: false,
+            nextRunAt: at(3_600_000),
+            lastRunAt: 'not a date',
+            lastResult: 'cancelled',
+          }),
         ],
       });
       await expect(page.getByTestId('scheduler-group-due')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('scheduler-group-paused')).toBeVisible();
+      const cancelled = page.getByTestId('scheduler-entry-paused');
+      await expect(cancelled).toContainText('Cancelled');
+      await expect(cancelled).toContainText('Last run: unknown');
 
       await expectReadable(page, theme);
     });

@@ -148,6 +148,17 @@ describe('SyncHistoryPanel', () => {
     }
   });
 
+  it('lists a run a cancel stopped as cancelled, not as partial', () => {
+    const cancelled = makeMockEntry('h-1', 'partial');
+    cancelled.result = { ...cancelled.result, cancelled: true };
+    useSyncHistoryStore.setState({ entries: [cancelled], loading: false });
+    render(<SyncHistoryPanel />);
+
+    const panel = screen.getByTestId('sync-history-panel');
+    expect(panel.textContent).toContain('Cancelled');
+    expect(panel.textContent).not.toContain('Partial');
+  });
+
   it('should render DataTable with entries when data exists', () => {
     const entries = [makeMockEntry('h-1'), makeMockEntry('h-2', 'failure')];
     useSyncHistoryStore.setState({ entries, loading: false });

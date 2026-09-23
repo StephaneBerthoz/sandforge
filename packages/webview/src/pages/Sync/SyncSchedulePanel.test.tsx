@@ -107,6 +107,35 @@ describe('SyncSchedulePanel', () => {
     expect(screen.getByText('Weekly Backup')).toBeDefined();
   });
 
+  it('shows a stored date it cannot read as unknown, and the rest of the list with it', () => {
+    // Formatting one threw ("Invalid time value"): no schedule rendered at all.
+    useSyncScheduleStore.setState({
+      schedules: [
+        makeMockSchedule('s-1', { nextRunAt: 'not a date', lastRunAt: 'neither' }),
+        makeMockSchedule('s-2', { name: 'Weekly Backup' }),
+      ],
+      loading: false,
+    });
+    render(<SyncSchedulePanel />);
+
+    const card = screen.getByTestId('schedule-card-s-1');
+    expect(card.textContent).toContain('Next run: unknown');
+    expect(card.textContent).toContain('Last run: unknown');
+    expect(screen.getByText('Weekly Backup')).toBeDefined();
+  });
+
+  it('says a schedule whose last run was cancelled was cancelled, not partial', () => {
+    useSyncScheduleStore.setState({
+      schedules: [makeMockSchedule('s-1', { lastResult: 'cancelled' })],
+      loading: false,
+    });
+    render(<SyncSchedulePanel />);
+
+    const card = screen.getByTestId('schedule-card-s-1');
+    expect(card.textContent).toContain('Cancelled');
+    expect(card.textContent).not.toContain('Partial');
+  });
+
   it('should show New Schedule button when schedules exist', () => {
     useSyncScheduleStore.setState({
       schedules: [makeMockSchedule('s-1')],

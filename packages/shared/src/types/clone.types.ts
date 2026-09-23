@@ -70,6 +70,11 @@ export interface CloneExecutionResult {
   totalFailed: number;
   /** Total duration in milliseconds */
   durationMs: number;
+  /**
+   * Set when a cancel stopped the clone before it had written every object.
+   * The objects listed are the ones it reached; its status is never `success`.
+   */
+  cancelled?: boolean;
 }
 
 /**

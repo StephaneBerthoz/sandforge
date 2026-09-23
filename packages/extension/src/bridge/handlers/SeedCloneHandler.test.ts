@@ -49,6 +49,7 @@ vi.mock('../../modules/seed/CloneReferenceLinker.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -345,6 +346,82 @@ describe('SeedCloneHandler', () => {
         error: 'bulk write exploded',
         retryable: true,
         code: 'CLONE_FAILED',
+      });
+    });
+
+    describe('a clone a cancel stopped', () => {
+      /** The id the clone runs under: its request's. */
+      const OPERATION_ID = 'msg-seed:clone:execute';
+
+      /** Account, then Contact. */
+      const accountsAndContacts = (): Record<string, unknown> =>
+        clonePayload({ objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }] });
+
+      let registry: BackgroundOperationRegistry;
+      beforeEach(() => {
+        registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        linker.resolveInsertOrder.mockReturnValue(['Account', 'Contact']);
+      });
+
+      it('writes no object after the cancel, and ends as aborted with what it wrote', async () => {
+        // Only an upload of more than ten thousand records looked at the
+        // cancel: every other object went on being read and written.
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          return [{ id: '001TGT', success: true, errors: [] }];
+        });
+
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        expect(writer.insert.mock.calls.map((call) => call[0])).toEqual(['Account']);
+        expect(posted(deps, 'operation:failed')).toEqual([]);
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+          operationId: OPERATION_ID,
+          result: { aborted: true, totalInserted: 1, totalFailed: 0 },
+        });
+        expect(registry.get(OPERATION_ID)?.status).toBe('aborted');
+        // The wizard hears what was written, and that the clone did not finish.
+        expect(posted(deps, 'seed:clone:execute:response')[0].payload as unknown).toMatchObject({
+          cancelled: true,
+          status: 'partial',
+          totalInserted: 1,
+        });
+      });
+
+      it('ends cancelled when the cancel aborted the upload of its last object', async () => {
+        writer.insert.mockImplementation(async (name: string) => {
+          if (name === 'Contact') {
+            registry.abort(OPERATION_ID);
+            throw new WriteCancelledError('Contact');
+          }
+          return [{ id: '001TGT', success: true, errors: [] }];
+        });
+
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toMatchObject({
+          result: { aborted: true, totalInserted: 1 },
+        });
+        expect(posted(deps, 'seed:clone:execute:response')[0].payload as unknown).toMatchObject({
+          cancelled: true,
+          objectResults: [{ objectApiName: 'Account' }],
+        });
+      });
+
+      it('still fails when a write fails while the cancel is pending', async () => {
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new Error('bulk write exploded');
+        });
+
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        expect(posted(deps, 'operation:completed')).toEqual([]);
+        expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
+          operationId: OPERATION_ID,
+          error: 'bulk write exploded',
+        });
       });
     });
   });

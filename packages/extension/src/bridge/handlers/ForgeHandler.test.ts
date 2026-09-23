@@ -11,7 +11,7 @@ import type {
 } from '@sandforge/shared';
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
-import { ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
+import { ForgeAbortedError, ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
 import type { ForgeExecutorDeps } from '../../modules/forge/ForgeExecutor.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -1022,6 +1022,136 @@ describe('ForgeHandler', () => {
 
       resolvers[1](createMockGraph());
       await second;
+    });
+
+    describe('the end of a run, as the recent operations read it', () => {
+      /**
+       * A failed or stopped run posted its screen's error and no end: the
+       * recent operations and the side panel showed it running for the rest
+       * of the session.
+       */
+      function ends(): Array<{ type: string; payload: Record<string, unknown> }> {
+        return vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+          .filter((m) => m.type === 'operation:completed' || m.type === 'operation:failed');
+      }
+
+      it('ends a discovery that failed as failed', async () => {
+        vi.mocked(orchestrator.discover).mockRejectedValue(new Error('source org unreachable'));
+
+        await handler.handle(buildMsg('forge:discover', { config: createMockConfig() }));
+
+        expect(ends()).toEqual([
+          expect.objectContaining({
+            type: 'operation:failed',
+            payload: expect.objectContaining({ error: 'source org unreachable' }),
+          }),
+        ]);
+      });
+
+      it('ends a clone that failed as failed, and still shows its error', async () => {
+        vi.mocked(orchestrator.execute).mockRejectedValue(new Error('target refused every insert'));
+
+        await handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+
+        expect(ends()).toEqual([
+          expect.objectContaining({
+            type: 'operation:failed',
+            payload: expect.objectContaining({ error: 'target refused every insert' }),
+          }),
+        ]);
+        const shown = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter(([m]) => (m as BaseMessage).type === 'forge:execute:error');
+        expect(shown).toHaveLength(1);
+      });
+
+      it('ends a clone the user stopped as aborted, in the lifecycle and the registry', async () => {
+        let stop: (err: Error) => void = () => {};
+        vi.mocked(orchestrator.execute).mockReturnValue(
+          new Promise<ForgeExecutionResult>((_resolve, reject) => {
+            stop = reject;
+          }),
+        );
+        const run = handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+        await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+        const [operationId] = registry.getRunning().map((o) => o.operationId);
+
+        await handler.handle(buildMsg('forge:abort', {}));
+        // The executor stops between two batches with its own error.
+        stop(new ForgeAbortedError('Forge execution was aborted by user request.'));
+        await run;
+
+        expect(ends()).toEqual([
+          expect.objectContaining({
+            type: 'operation:completed',
+            payload: { operationId, result: { aborted: true } },
+          }),
+        ]);
+        expect(registry.get(operationId)?.status).toBe('aborted');
+      });
+
+      it('ends a clone stopped before it started as aborted', async () => {
+        let releaseLookup: () => void = () => {};
+        mockGetConn.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              releaseLookup = () => resolve({} as never);
+            }),
+        );
+        try {
+          const run = handler.handle(
+            buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+          );
+          await vi.waitFor(() => expect(registry.getRunning()).toHaveLength(1));
+
+          await handler.handle(buildMsg('forge:abort', {}));
+          releaseLookup();
+          await run;
+        } finally {
+          // The lookup that hangs is this case's alone.
+          mockGetConn.mockReset();
+        }
+
+        expect(orchestrator.execute).not.toHaveBeenCalled();
+        expect(ends()).toEqual([
+          expect.objectContaining({
+            type: 'operation:completed',
+            payload: expect.objectContaining({ result: { aborted: true } }),
+          }),
+        ]);
+      });
+
+      it('still ends a clone as failed when it fails while the stop is pending', async () => {
+        let fail: (err: Error) => void = () => {};
+        vi.mocked(orchestrator.execute).mockReturnValue(
+          new Promise<ForgeExecutionResult>((_resolve, reject) => {
+            fail = reject;
+          }),
+        );
+        const run = handler.handle(
+          buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+        );
+        await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+
+        await handler.handle(buildMsg('forge:abort', {}));
+        fail(new Error('INVALID_SESSION_ID: Session expired or invalid'));
+        await run;
+
+        expect(ends()).toEqual([
+          expect.objectContaining({
+            type: 'operation:failed',
+            payload: expect.objectContaining({
+              error: 'INVALID_SESSION_ID: Session expired or invalid',
+            }),
+          }),
+        ]);
+      });
     });
   });
 

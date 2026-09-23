@@ -2,9 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { addDays, format } from 'date-fns';
 import type { PipelineTrigger, PipelineTriggerStatus, SyncScheduleEntry } from '@sandforge/shared';
-import { Badge } from '../../components/ui/Badge';
-import type { BadgeVariant } from '../../components/ui/Badge';
-import { SyncSchedulePanel } from '../Sync/SyncSchedulePanel';
+import { SyncSchedulePanel, LastResultBadge, formatStoredDate } from '../Sync/SyncSchedulePanel';
 import type { ScheduleLayoutProps } from '../Sync/SyncSchedulePanel';
 import { dateTimeFormat } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
@@ -82,13 +80,6 @@ export function groupByNextRun(
   return groups;
 }
 
-/** Map a last result to its badge, as the Sync tab shows it. */
-const resultVariant: Record<NonNullable<SyncScheduleEntry['lastResult']>, BadgeVariant> = {
-  success: 'success',
-  partial: 'warning',
-  failure: 'error',
-};
-
 /** One schedule in the agenda: when it runs, what it is, how its last run went. */
 const AgendaEntry: React.FC<{
   schedule: SyncScheduleEntry;
@@ -121,11 +112,8 @@ const AgendaEntry: React.FC<{
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex items-center gap-[var(--sf-space-2)]">
             <span className="text-xs font-medium text-text-primary">{schedule.name}</span>
-            {schedule.lastResult && (
-              <Badge variant={resultVariant[schedule.lastResult]}>
-                {t(`sync.schedules.result_${schedule.lastResult}`)}
-              </Badge>
-            )}
+            {/* The Sync tab's badge, a cancelled run included. */}
+            {schedule.lastResult && <LastResultBadge result={schedule.lastResult} />}
           </div>
           <div className="flex flex-wrap gap-x-[var(--sf-space-3)] text-[10px] text-text-secondary">
             <span className="font-mono">{schedule.cron}</span>
@@ -133,7 +121,8 @@ const AgendaEntry: React.FC<{
             {schedule.lastRunAt && (
               <span>
                 {t('sync.schedules.lastRun')}:{' '}
-                {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}
+                {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
+                  t('sync.schedules.dateUnknown')}
               </span>
             )}
           </div>

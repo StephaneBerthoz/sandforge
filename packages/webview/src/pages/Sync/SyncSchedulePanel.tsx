@@ -16,12 +16,42 @@ import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleFormData } from './CronScheduleBuilder';
 import type { SyncConfigListResponse, SyncScheduleEntry } from '@sandforge/shared';
 
-/** Map last result to badge variant. */
-const resultVariant: Record<string, BadgeVariant> = {
-  success: 'success',
-  partial: 'warning',
-  failure: 'error',
+/**
+ * How a schedule's last result reads: its badge colour and its word. A run
+ * cancelled from Live Operations reads as cancelled, in the neutral colour
+ * Home gives a cancelled operation: it was stored as partial, and read as a
+ * run whose records had been refused.
+ */
+const LAST_RESULT_BADGES: Record<
+  NonNullable<SyncScheduleEntry['lastResult']>,
+  { variant: BadgeVariant; labelKey: string }
+> = {
+  success: { variant: 'success', labelKey: 'sync.schedules.result_success' },
+  partial: { variant: 'warning', labelKey: 'sync.schedules.result_partial' },
+  failure: { variant: 'error', labelKey: 'sync.schedules.result_failure' },
+  cancelled: { variant: 'default', labelKey: 'sync.schedules.result_cancelled' },
 };
+
+/** A schedule's last result as its badge; nothing for a value no build writes. */
+export const LastResultBadge: React.FC<{
+  result: NonNullable<SyncScheduleEntry['lastResult']>;
+}> = ({ result }) => {
+  const { t } = useTranslation();
+  const badge = LAST_RESULT_BADGES[result];
+  if (!badge) return null;
+  return <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge>;
+};
+
+/**
+ * A stored date as the schedules show it, or null when it cannot be read.
+ * Formatting one that cannot be read threw ("Invalid time value") and the
+ * schedules did not render at all: a date the host stored is shown as it is
+ * read, and one it cannot read as unknown.
+ */
+export function formatStoredDate(value: string, pattern: string): string | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : format(date, pattern);
+}
 
 /**
  * The picker label of a saved configuration. A changed configuration is saved
@@ -96,11 +126,7 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                   <Badge variant={schedule.enabled ? 'success' : 'default'}>
                     {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
                   </Badge>
-                  {schedule.lastResult && (
-                    <Badge variant={resultVariant[schedule.lastResult] ?? 'default'}>
-                      {t(`sync.schedules.result_${schedule.lastResult}`)}
-                    </Badge>
-                  )}
+                  {schedule.lastResult && <LastResultBadge result={schedule.lastResult} />}
                 </div>
                 <div className="flex gap-[var(--sf-space-3)] text-[10px] text-text-secondary">
                   <span>{cronToHuman(schedule.cron, t)}</span>
@@ -110,13 +136,15 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                   {schedule.enabled && schedule.nextRunAt && (
                     <span>
                       {t('sync.schedules.nextRun')}:{' '}
-                      {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}
+                      {formatStoredDate(schedule.nextRunAt, 'yyyy-MM-dd HH:mm') ??
+                        t('sync.schedules.dateUnknown')}
                     </span>
                   )}
                   {schedule.lastRunAt && (
                     <span>
                       {t('sync.schedules.lastRun')}:{' '}
-                      {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}
+                      {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
+                        t('sync.schedules.dateUnknown')}
                     </span>
                   )}
                 </div>

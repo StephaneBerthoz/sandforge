@@ -33,7 +33,10 @@ export interface ChunkedBulkConfig {
   chunkSize: number;
   /** Polling interval in ms (default 5000). */
   pollIntervalMs: number;
-  /** Abort signal for cancellation. */
+  /**
+   * The run's cancel. It aborts the job while the job is still open; once the
+   * job is closed, Salesforce writes all of it, and it is awaited and counted.
+   */
   signal?: AbortSignal;
 }
 
@@ -114,27 +117,34 @@ export class ChunkedBulkExecutor {
       // Upload phase: stream chunks into the open job
       let uploadedRecords = 0;
       for await (const chunk of recordChunks) {
-        if (this.signal?.aborted) {
-          await this.closeJobSafely(job);
-          deps.bulkManager.updateJobState(jobId, 'Aborted');
-          return this.buildAbortedResult(uploadedRecords);
-        }
-
+        if (this.signal?.aborted) break;
         await job.uploadData(chunk);
         uploadedRecords += chunk.length;
         deps.onProgress?.(uploadedRecords, totalRecords);
       }
 
+      /*
+       * A cancel before the job is closed aborts it. Salesforce processes a
+       * job's data only once the job is closed, and never an aborted one's.
+       * The job used to be closed here instead, which hands its data over for
+       * processing: every chunk uploaded before the cancel was written, and
+       * reported as nothing. The last chunk's upload is covered as well — a
+       * cancel that came during it closed the job too.
+       */
+      if (this.signal?.aborted) {
+        await this.abortOpenJob(job);
+        deps.bulkManager.updateJobState(jobId, 'Aborted');
+        return this.buildAbortedResult(uploadedRecords);
+      }
+
       await job.close();
 
-      // Poll phase: wait for Salesforce to finish processing
+      // Poll phase: wait for Salesforce to finish processing. A cancel no
+      // longer stops the wait: the job is closed and Salesforce writes all of
+      // it whatever happens here, so its results are read and counted like
+      // those of any job. Returning early left them written and uncounted.
       let status = await job.check();
       while (status.state === 'InProgress' || status.state === 'UploadComplete') {
-        if (this.signal?.aborted) {
-          deps.bulkManager.updateJobState(jobId, 'Aborted');
-          return this.buildAbortedResult(uploadedRecords);
-        }
-
         deps.bulkManager.updateJobState(jobId, status.state);
         deps.onProgress?.(status.numberRecordsProcessed ?? 0, totalRecords);
         await new Promise((r) => setTimeout(r, this.pollIntervalMs));
@@ -233,16 +243,23 @@ export class ChunkedBulkExecutor {
     }
   }
 
-  /** Safely close a job, swallowing errors if the job is already closed. */
-  private async closeJobSafely(job: BulkJobHandle): Promise<void> {
+  /**
+   * Abort a job that was never closed. A failed abort leaves it open, and an
+   * open job is never processed either: nothing of it is written, so the
+   * failure is not the run's.
+   */
+  private async abortOpenJob(job: BulkJobHandle): Promise<void> {
     try {
-      await job.close();
+      await job.abort();
     } catch {
-      // Job may already be closed or in an invalid state -- ignore.
+      // Left open, the job is never processed.
     }
   }
 
-  /** Build a StreamingExecutionResult for an aborted execution. */
+  /**
+   * The result of a job the cancel aborted before it was closed: nothing
+   * written, and the records uploaded to it discarded with it.
+   */
   private buildAbortedResult(uploadedRecords: number): StreamingExecutionResult {
     return {
       totalRecords: uploadedRecords,

@@ -90,6 +90,19 @@ describe('QuickSyncPreviewStep', () => {
     expect(screen.getByTestId('quick-sync-new-btn')).toBeDefined();
   });
 
+  it('calls a run a cancel stopped cancelled, not partial', () => {
+    render(
+      <QuickSyncPreviewStep
+        {...defaultProps}
+        result={{ ...mockResult, status: 'partial', cancelled: true }}
+      />,
+    );
+
+    const summary = screen.getByTestId('quick-sync-result-summary');
+    expect(summary.textContent).toContain('Cancelled');
+    expect(summary.textContent).not.toContain('Partially Complete');
+  });
+
   it('calls onExecute when Sync Now button is clicked', () => {
     const onExecute = vi.fn();
     render(<QuickSyncPreviewStep {...defaultProps} onExecute={onExecute} />);

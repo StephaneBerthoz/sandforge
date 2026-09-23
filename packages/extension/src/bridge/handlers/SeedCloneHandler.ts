@@ -36,6 +36,7 @@ import { CloneRecordFetcher } from '../../modules/seed/CloneRecordFetcher.js';
 import { CloneReferenceLinker } from '../../modules/seed/CloneReferenceLinker.js';
 import type { DescribeSObjectResultLike } from '../../modules/seed/CloneReferenceLinker.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { isUncopyableObject } from '@sandforge/shared';
 import {
@@ -447,8 +448,18 @@ export class SeedCloneHandler implements DomainHandler {
       /** sourceId -> targetId across all objects inserted so far. */
       const globalIdMap = new Map<string, string>();
       let objectLevelFailures = 0;
+      /**
+       * Whether the cancel stopped the clone before one of its objects. Only
+       * an upload of more than ten thousand records looked at it: every other
+       * object went on being read and written after the run was cancelled.
+       */
+      let cancelled = false;
 
       for (let index = 0; index < insertOrder.length; index++) {
+        if (abortController.signal.aborted) {
+          cancelled = true;
+          break;
+        }
         const objectApiName = insertOrder[index];
         const objectConfig = configsByName.get(objectApiName)!;
         sendOperationProgress(
@@ -517,15 +528,30 @@ export class SeedCloneHandler implements DomainHandler {
           continue;
         }
 
-        const outcomes =
-          parsed.upsert && parsed.externalIdField
-            ? await writer.upsert(
-                objectApiName,
-                parsed.externalIdField,
-                writeRecords,
-                defaultBatchSize,
-              )
-            : await writer.insert(objectApiName, writeRecords, defaultBatchSize);
+        // Reading an object takes a while: a cancel that came meanwhile is
+        // honoured before any of it is written.
+        if (abortController.signal.aborted) {
+          cancelled = true;
+          break;
+        }
+        let outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>;
+        try {
+          outcomes =
+            parsed.upsert && parsed.externalIdField
+              ? await writer.upsert(
+                  objectApiName,
+                  parsed.externalIdField,
+                  writeRecords,
+                  defaultBatchSize,
+                )
+              : await writer.insert(objectApiName, writeRecords, defaultBatchSize);
+        } catch (writeErr: unknown) {
+          // The cancel aborted the object's upload before any of it was
+          // written; any other error is the clone's failure.
+          if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
+          cancelled = true;
+          break;
+        }
 
         const objectResult: CloneObjectResult = {
           objectApiName,
@@ -568,28 +594,43 @@ export class SeedCloneHandler implements DomainHandler {
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);
       const totalLinked = objectResults.reduce((sum, r) => sum + (r.linkedCount ?? 0), 0);
       const totalFailed = objectResults.reduce((sum, r) => sum + r.failedCount, 0);
+      const reached: CloneExecutionResult['status'] =
+        totalFailed === 0 && objectLevelFailures === 0
+          ? 'success'
+          : totalInserted + totalLinked > 0
+            ? 'partial'
+            : 'failure';
       const result: CloneExecutionResult = {
-        status:
-          totalFailed === 0 && objectLevelFailures === 0
-            ? 'success'
-            : totalInserted + totalLinked > 0
-              ? 'partial'
-              : 'failure',
+        // A clone the cancel stopped did not write every object it was for.
+        status: cancelled && reached === 'success' ? 'partial' : reached,
         objectResults,
         totalSourceRecords,
         totalInserted,
         totalLinked,
         totalFailed,
         durationMs: Date.now() - startedAt,
+        ...(cancelled ? { cancelled: true } : {}),
       };
       unrecorded = false;
       recordWriteRun(this.deps, cloneRun(run, result.status, objectResults, upserts));
 
-      sendOperationCompleted(this.deps, operationId, {
-        status: result.status,
-        totalInserted,
-        totalFailed,
-      });
+      if (cancelled) {
+        // Ended the way a cancelled Sync or Seed ends: aborted in the registry
+        // — already, when the cancel came through it — and posted as a
+        // completion that says so, with what it wrote before it stopped.
+        this.registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, {
+          aborted: true,
+          totalInserted,
+          totalFailed,
+        });
+      } else {
+        sendOperationCompleted(this.deps, operationId, {
+          status: result.status,
+          totalInserted,
+          totalFailed,
+        });
+      }
       const response = buildResponse(
         this.deps,
         msg,

@@ -36,6 +36,7 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
@@ -369,6 +370,73 @@ describe('SeedCsvHandler', () => {
       expect(failures[0].payload as unknown).toMatchObject({
         error: 'bulk write exploded',
         retryable: true,
+      });
+    });
+
+    describe('an import a cancel stopped', () => {
+      /** The id the import runs under: its request's. */
+      const OPERATION_ID = 'msg-seed:csv:execute';
+
+      let registry: BackgroundOperationRegistry;
+      beforeEach(() => {
+        registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+      });
+
+      it('writes no row when the cancel came before the write, and ends as aborted', async () => {
+        // Nothing but an upload of more than ten thousand rows looked at the
+        // cancel: every other import wrote all of its rows.
+        mockGetConn.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          return { limitInfo: undefined } as unknown as Awaited<
+            ReturnType<typeof getJsforceConnection>
+          >;
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(writer.insert).not.toHaveBeenCalled();
+        expect(posted(deps, 'operation:failed')).toEqual([]);
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+          operationId: OPERATION_ID,
+          result: { aborted: true, insertedCount: 0, failedCount: 0 },
+        });
+        expect(registry.get(OPERATION_ID)?.status).toBe('aborted');
+        expect(posted(deps, 'seed:csv:execute:response')[0].payload as unknown).toEqual({
+          insertedCount: 0,
+          failedCount: 0,
+          errors: [],
+          cancelled: true,
+        });
+      });
+
+      it('ends as aborted when the cancel aborted the upload of its rows', async () => {
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new WriteCancelledError('Account');
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(posted(deps, 'operation:failed')).toEqual([]);
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toMatchObject({
+          result: { aborted: true, insertedCount: 0 },
+        });
+      });
+
+      it('still fails when the write fails while the cancel is pending', async () => {
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new Error('bulk write exploded');
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(posted(deps, 'operation:completed')).toEqual([]);
+        expect(posted(deps, 'operation:failed')[0].payload as unknown).toMatchObject({
+          operationId: OPERATION_ID,
+          error: 'bulk write exploded',
+        });
       });
     });
   });

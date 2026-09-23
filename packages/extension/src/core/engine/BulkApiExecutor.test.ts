@@ -30,6 +30,7 @@ function createMockJob(overrides?: {
     open: vi.fn().mockResolvedValue(undefined),
     uploadData: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
+    abort: vi.fn().mockResolvedValue(undefined),
     check: vi.fn().mockImplementation(async (): Promise<BulkJobCheckResult> => {
       const result = checkResults[Math.min(checkCallCount, checkResults.length - 1)];
       checkCallCount++;

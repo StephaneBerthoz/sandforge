@@ -26,6 +26,7 @@ vi.mock('../../core/engine/ChunkedBulkExecutor.js', () => ({
 }));
 
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Records above this count take the streaming path (STREAMING_THRESHOLD). */
 const STREAMING_THRESHOLD = 10_000;
@@ -499,6 +500,25 @@ describe('BulkDataWriter', () => {
       expect(streaming.executeChunked).toHaveBeenCalledTimes(1);
       expect(h.sobject.create).not.toHaveBeenCalled();
       expect(outcomes).toEqual([]);
+    });
+
+    it('throws, rather than answering nothing, when the cancel aborted the upload', async () => {
+      // An empty answer read as an object that had nothing to write: a run
+      // cancelled on its last object ended as a success.
+      const h = createHarness();
+      streaming.executeChunked.mockResolvedValue({
+        totalRecords: 2000,
+        successCount: 0,
+        failureCount: 0,
+        successIds: [],
+        errors: [],
+        aborted: true,
+      });
+
+      const writing = h.writer.insert('Contact', makeRecords(STREAMING_THRESHOLD + 1), 200);
+
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact' });
     });
 
     it('maps a streaming failure without a message to "Streaming error"', async () => {

@@ -37,9 +37,15 @@ export const SyncHistoryDetail: React.FC = () => {
           <h4 className="text-sm font-semibold text-text-primary">
             {configSnapshot.name ?? t('sync.history.detailTitle')}
           </h4>
-          <Badge variant={statusVariant[result.status] ?? 'default'}>
-            {t(`sync.history.status_${result.status}`)}
-          </Badge>
+          {/* A run a cancel stopped reads as cancelled, not as the partial
+              status its objects came to; the text below says before what. */}
+          {result.cancelled ? (
+            <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+          ) : (
+            <Badge variant={statusVariant[result.status] ?? 'default'}>
+              {t(`sync.history.status_${result.status}`)}
+            </Badge>
+          )}
         </div>
         <button
           type="button"

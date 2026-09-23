@@ -268,6 +268,25 @@ describe('SchedulerCalendar', () => {
     expect(entry.textContent).toContain('Last run: 2026-03-01 09:00');
   });
 
+  it('shows a last run that was cancelled as cancelled, and one it cannot read as unknown', () => {
+    // Formatting a stored date that could not be read threw, and the agenda
+    // did not render.
+    useSyncScheduleStore.setState({
+      schedules: [
+        schedule('a', {
+          nextRunAt: at('2026-03-02T09:00:00'),
+          lastRunAt: 'not a date',
+          lastResult: 'cancelled',
+        }),
+      ],
+    });
+    render(<SchedulerCalendar />);
+
+    const entry = screen.getByTestId('scheduler-entry-a');
+    expect(within(entry).getByText('Cancelled')).toBeDefined();
+    expect(entry.textContent).toContain('Last run: unknown');
+  });
+
   it('shows a run whose time has passed as due, with its date', () => {
     useSyncScheduleStore.setState({
       schedules: [schedule('a', { nextRunAt: at('2026-03-02T07:00:00') })],

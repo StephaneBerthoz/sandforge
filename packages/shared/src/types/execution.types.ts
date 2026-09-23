@@ -55,7 +55,10 @@ export interface StreamingExecutionResult {
   successIds: string[];
   /** All error messages. */
   errors: string[];
-  /** Whether execution was aborted. */
+  /**
+   * Whether a cancel aborted the job before it was closed: Salesforce then
+   * processed none of its records, and none of them was written.
+   */
   aborted: boolean;
 }
 

@@ -180,8 +180,8 @@ export interface SyncScheduleEntry {
   nextRunAt?: ISODateString;
   /** Last execution time. */
   lastRunAt?: ISODateString;
-  /** Result of the last execution. */
-  lastResult?: 'success' | 'partial' | 'failure';
+  /** Result of the last execution; `cancelled` when a cancel stopped it before its last object. */
+  lastResult?: 'success' | 'partial' | 'failure' | 'cancelled';
   /** When this schedule was created. */
   createdAt: ISODateString;
   /** When this schedule was last updated. */

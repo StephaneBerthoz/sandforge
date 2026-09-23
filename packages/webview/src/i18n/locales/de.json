@@ -1105,13 +1105,15 @@
       "paused": "Pausiert",
       "nextRun": "Nächste Ausführung",
       "lastRun": "Letzte Ausführung",
+      "dateUnknown": "unbekannt",
       "pause": "Pausieren",
       "resume": "Fortsetzen",
       "editNamed": "{{name}} bearbeiten",
       "deleteNamed": "{{name}} löschen",
       "result_success": "Erfolgreich",
       "result_partial": "Teilweise",
-      "result_failure": "Fehlgeschlagen"
+      "result_failure": "Fehlgeschlagen",
+      "result_cancelled": "Abgebrochen"
     },
     "history": {
       "title": "Sync-Verlauf",

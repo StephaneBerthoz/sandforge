@@ -656,13 +656,19 @@ export const SyncPage: React.FC = () => {
                     className="flex items-center gap-3 text-xs"
                     data-testid="sync-result-summary"
                   >
-                    <Badge variant={statusVariant[result.status]}>
-                      {result.status === 'success'
-                        ? t('sync.complete')
-                        : result.status === 'partial'
-                          ? t('sync.partial')
-                          : t('sync.failed')}
-                    </Badge>
+                    {/* A run a cancel stopped reads as cancelled, not as the
+                        partial status its objects came to. */}
+                    {result.cancelled ? (
+                      <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+                    ) : (
+                      <Badge variant={statusVariant[result.status]}>
+                        {result.status === 'success'
+                          ? t('sync.complete')
+                          : result.status === 'partial'
+                            ? t('sync.partial')
+                            : t('sync.failed')}
+                      </Badge>
+                    )}
                     <span>
                       {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
                     </span>

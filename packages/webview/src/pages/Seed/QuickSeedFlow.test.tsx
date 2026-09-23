@@ -171,6 +171,22 @@ describe('QuickSeedFlow', () => {
     expect(screen.getByTestId('btn-seed-again-quick')).toBeDefined();
   });
 
+  it('calls a quick seed a cancel stopped cancelled, not partially complete', () => {
+    const quickSeed: QuickSeedState = {
+      ...baseQuickSeed,
+      phase: 'results',
+      selectedTemplate: mockTemplate,
+      executionResult: { ...mockExecutionResult, status: 'partial', cancelled: true },
+      overallPercent: 100,
+    };
+
+    render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+
+    const summary = screen.getByTestId('quick-seed-result-summary');
+    expect(summary.textContent).toContain('Cancelled');
+    expect(summary.textContent).not.toContain('Partially Complete');
+  });
+
   it('shows error banner when error is set', () => {
     const quickSeed: QuickSeedState = {
       ...baseQuickSeed,

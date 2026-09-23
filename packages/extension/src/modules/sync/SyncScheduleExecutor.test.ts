@@ -657,7 +657,8 @@ describe('SyncScheduleExecutor', () => {
           'Daily Account Sync: Cancelled before Contact was synced. Its entry in the sync history has what it wrote.',
         ],
       ]);
-      expect(entry.lastResult).toBe('partial');
+      // Stored as its partial status, the schedule's badge read "Partial".
+      expect(entry.lastResult).toBe('cancelled');
     });
   });
 

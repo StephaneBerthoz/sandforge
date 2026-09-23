@@ -96,6 +96,25 @@ describe('SeedResultsStep', () => {
     mockVSCodeApi.postMessage.mockClear();
   });
 
+  it('calls a seed a cancel stopped cancelled, not partially complete, with what it created', () => {
+    render(
+      <SeedResultsStep
+        executionResult={{
+          ...executionResult([objectResult()]),
+          status: 'partial',
+          cancelled: true,
+        }}
+        onSeedAgain={vi.fn()}
+        template={seedTemplate()}
+      />,
+    );
+
+    const summary = screen.getByTestId('result-summary');
+    expect(summary.textContent).toContain('Cancelled');
+    expect(summary.textContent).not.toContain('Partially Complete');
+    expect(summary.textContent).toContain('10');
+  });
+
   it('names the fields that received generated sentences instead of AI values', () => {
     render(
       <SeedResultsStep

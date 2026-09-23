@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
 import { SyncRunFailure } from './SyncRunFailure';
+import { WriteCancelledError } from './WriteCancelledError';
 import { DataSync } from './DataSync';
 import { FieldMappingService } from './FieldMapping';
 import { TransformPipeline } from './TransformPipeline';
@@ -473,6 +474,29 @@ describe('a cancel stops the run before what it has not reached', () => {
     const result = await new SyncOrchestrator(deps).execute(threeObjects());
 
     expect(result).toMatchObject({ cancelled: true, status: 'failure', totalFailed: 1 });
+  });
+
+  it('ends cancelled when the cancel aborted the upload of its last object', async () => {
+    // Answered as an empty list, the aborted upload read as an object with
+    // nothing to write, and the run ended as a success.
+    const deps = createMockDeps();
+    deps.dataSync = {
+      sync: vi.fn(async (objectConfig: SyncObjectConfig) => {
+        if (objectConfig.objectApiName === 'Opportunity') {
+          throw new WriteCancelledError('Opportunity');
+        }
+        return createSuccessResult(objectConfig.objectApiName);
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+
+    const result = await new SyncOrchestrator(deps).execute(threeObjects());
+
+    expect(result).toMatchObject({
+      cancelled: true,
+      status: 'partial',
+      error: 'Cancelled before Opportunity was synced.',
+    });
+    expect(result.objectResults.map((r) => r.objectApiName)).toEqual(['Account', 'Contact']);
   });
 
   it('still fails, and says why, when an object fails while a cancel is pending', async () => {

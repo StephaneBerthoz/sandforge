@@ -94,7 +94,8 @@ Before execution, the Review step shows:
 - The two notification switches on a schedule raise a notification in each
   SandForge panel open at the time: with _Notify on completion_ on, one says the
   run started and another that it completed -- or, when some records failed, a
-  warning that it completed with errors, with the first one; with _Notify on
+  warning that it completed with errors, with the first one, and when it was
+  cancelled from Live Operations, that it was cancelled; with _Notify on
   failure_ on, one says it failed, with the first error the run reported or, when
   it reported none, a pointer to its entry in the sync history. A run that fails
   in the sync engine is reported as failed, not completed. With no panel open, the

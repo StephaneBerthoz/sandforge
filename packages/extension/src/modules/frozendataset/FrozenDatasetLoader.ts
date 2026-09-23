@@ -129,6 +129,13 @@ export interface FrozenLoadOptions {
    * run with the most telling of them.
    */
   onGuardDecision?: (decision: GuardDecision) => void;
+  /**
+   * The load's cancel. Honoured before each write: the purge of each object,
+   * each placeholder, each object of the insert pass, and each pass after it.
+   * The load then keeps its mapping and stops with
+   * {@link FrozenLoadCancelledError}; nothing after the cancel is written.
+   */
+  signal?: AbortSignal;
   /** Clock injection for deterministic tests. */
   now?: () => Date;
 }
@@ -138,6 +145,21 @@ export class LoadConfigError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'LoadConfigError';
+  }
+}
+
+/**
+ * Raised when the load's cancel stops it between two writes. The mapping is
+ * kept by then, so a reload finds what the load wrote; `written` says what
+ * that was, for the audit trail.
+ */
+export class FrozenLoadCancelledError extends Error {
+  constructor(readonly written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>) {
+    super(
+      'The load was cancelled before it had written the whole dataset. What it wrote is kept in ' +
+        'the mapping: a reload reuses or purges it.',
+    );
+    this.name = 'FrozenLoadCancelledError';
   }
 }
 
@@ -269,6 +291,22 @@ export class FrozenDatasetLoader {
       }
     }
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
+    const placeholders: PlaceholderCreation[] = [];
+    const perObject: PerObjectLoadResult[] = [];
+
+    /*
+     * Stop at a cancel, before the next write. A load read no cancel: once
+     * started it purged, inserted and patched to its end. The mapping is kept
+     * first, with the entries of the previous one this load has not replaced:
+     * a reload then finds and purges what this load wrote, and the residuals
+     * it had not purged yet. Kept as this load's alone, it would lose them.
+     */
+    const checkpoint = async (): Promise<void> => {
+      if (!options.signal?.aborted) return;
+      await this.deps.mappingStore.persist(new Map([...previousMapping, ...mapping]));
+      throw new FrozenLoadCancelledError({ perObject, placeholders, purge });
+    };
+
     if (options.reload) {
       emit({ phase: 'reload', status: 'started', progress: 5, message: 'Reusing reference data' });
       await this.reuseByIdentityKeys(options, working, mapping, reused);
@@ -279,6 +317,7 @@ export class FrozenDatasetLoader {
           mapping,
           [...groupOrder].reverse(),
           purge,
+          checkpoint,
         );
       }
       emit({ phase: 'reload', status: 'done', progress: 10, message: 'Reload pass done' });
@@ -383,7 +422,6 @@ export class FrozenDatasetLoader {
       progress: 22,
       message: 'Checking required fields',
     });
-    const placeholders: PlaceholderCreation[] = [];
     const requiredDefaults: FrozenLoadReport['requiredDefaults'] = [];
     // Everything the dataset needs is settled before the first placeholder is
     // written. One at a time, a load created the placeholders it could, then
@@ -393,6 +431,7 @@ export class FrozenDatasetLoader {
     const plans = await this.planRequiredFields(options, alignment.objectResults);
     for (const plan of plans) {
       if (plan.kind === 'placeholder') {
+        await checkpoint();
         await this.createPlaceholder(options, plan, alignedByObject, mapping, placeholders);
       } else {
         this.applyScalarDefault(plan.missing, alignedByObject, requiredDefaults);
@@ -413,7 +452,6 @@ export class FrozenDatasetLoader {
         ? orderWithinGroup(group, requiredDependencies(alignedByObject, requiredLookups, refIndex))
         : group,
     );
-    const perObject: PerObjectLoadResult[] = [];
     const pendingFk: PendingFk[] = [];
     const deferredStatuses: DeferredStatus[] = [];
     const duplicatePatterns =
@@ -424,6 +462,7 @@ export class FrozenDatasetLoader {
       if (!aligned) {
         continue; // object excluded from target — listed in alignment.excludedObjects
       }
+      await checkpoint();
       objectIndex++;
       emit({
         phase: 'insert',
@@ -484,6 +523,7 @@ export class FrozenDatasetLoader {
     }
 
     // 8. Pass 2: patch nullified cycle FKs (CycleFkPatcher pattern).
+    await checkpoint();
     emit({ phase: 'pass2', status: 'started', progress: 82, message: 'Patching cycle FKs' });
     const pass2 = await this.patchCycleFks(options, pendingFk, mapping);
     emit({
@@ -494,6 +534,7 @@ export class FrozenDatasetLoader {
     });
 
     // 8b. Statuses set aside at insert, now that each record's children are in.
+    await checkpoint();
     const statuses = await this.applyDeferredStatuses(options, deferredStatuses, mapping);
     if (statuses.restored + statuses.refused.length > 0) {
       emit({
@@ -505,6 +546,7 @@ export class FrozenDatasetLoader {
     }
 
     // 9. PersonContact post-load — sidecar resolved through the mapping.
+    await checkpoint();
     emit({
       phase: 'personcontact',
       status: 'started',
@@ -518,6 +560,10 @@ export class FrozenDatasetLoader {
       progress: 94,
       message: `PersonContact: ${personContact.restored} restored, ${personContact.unresolved.length} unresolved`,
     });
+    // Nor is the contract written after a cancel that came during that pass:
+    // an upload the cancel aborted wrote nothing and answered nothing, and
+    // the contract would count as loaded what the pass never wrote.
+    await checkpoint();
 
     // 10. Persist mapping + counting contract (sas).
     emit({
@@ -709,6 +755,7 @@ export class FrozenDatasetLoader {
     mapping: Map<string, string>,
     reverseOrder: string[],
     purge: PurgeReport,
+    checkpoint: () => Promise<void>,
   ): Promise<void> {
     const residualsByObject = new Map<string, string[]>();
     for (const [referenceId, realId] of previousMapping) {
@@ -728,6 +775,7 @@ export class FrozenDatasetLoader {
       if (!ids || ids.length === 0) continue;
       const draft = (await this.statusCategories(options.orgId, lifecycle))?.draft;
       if (!draft) continue;
+      await checkpoint();
       await this.checkGuard(options, 'update', objectApiName, ids.length);
       // A refusal here shows again, with its reason, as the delete that follows.
       await this.deps.writer.update(
@@ -742,6 +790,7 @@ export class FrozenDatasetLoader {
       const ids = residualsByObject.get(objectApiName) ?? [];
       const deactivationField = this.config.undeletableObjects?.[objectApiName];
       if (deactivationField !== undefined) {
+        await checkpoint();
         await this.checkGuard(options, 'update', objectApiName, ids.length);
         const outcomes = await this.deps.writer.update(
           options.orgId,
@@ -766,6 +815,7 @@ export class FrozenDatasetLoader {
             : [ids];
         for (const round of rounds) {
           if (round.length === 0) continue;
+          await checkpoint();
           await this.checkGuard(options, 'delete', objectApiName, round.length);
           const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
           // Already gone is what a purge wants: a parent deleted a step

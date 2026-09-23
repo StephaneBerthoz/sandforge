@@ -1104,6 +1104,7 @@
       "paused": "Paused",
       "nextRun": "Next run",
       "lastRun": "Last run",
+      "dateUnknown": "unknown",
       "pause": "Pause",
       "resume": "Resume",
       "editNamed": "Edit {{name}}",
@@ -1111,7 +1112,8 @@
       "builderTitle": "Schedule Builder",
       "result_success": "Succeeded",
       "result_partial": "Partial",
-      "result_failure": "Failed"
+      "result_failure": "Failed",
+      "result_cancelled": "Cancelled"
     },
     "history": {
       "title": "Sync history",

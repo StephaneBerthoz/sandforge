@@ -1042,13 +1042,15 @@
       "paused": "一時停止",
       "nextRun": "次回実行",
       "lastRun": "前回実行",
+      "dateUnknown": "不明",
       "pause": "一時停止",
       "resume": "再開",
       "editNamed": "{{name}} を編集",
       "deleteNamed": "{{name}} を削除",
       "result_success": "成功",
       "result_partial": "一部成功",
-      "result_failure": "失敗"
+      "result_failure": "失敗",
+      "result_cancelled": "キャンセル済み"
     },
     "history": {
       "title": "同期履歴",

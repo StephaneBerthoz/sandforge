@@ -8,6 +8,7 @@ import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
 import { readCountingContract } from './CountingContract.js';
 import {
   FrozenDatasetLoader,
+  FrozenLoadCancelledError,
   LoadConfigError,
   type FrozenDatasetLoaderDeps,
   type FrozenLoadOptions,
@@ -1335,5 +1336,97 @@ describe('FrozenDatasetLoader — degraded mode (native anti-duplicate)', () => 
 
     expect(report.status).toBe('completed-with-errors');
     expect(report.perObject.find((o) => o.objectApiName === 'Contact')?.failed).toHaveLength(1);
+  });
+});
+
+describe('FrozenDatasetLoader — a cancel', () => {
+  /** The mapping the load kept in the sas. */
+  async function keptMapping(sasDir: string): Promise<Map<string, string>> {
+    return new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).load();
+  }
+
+  it('writes no object after the cancel, and keeps the mapping of what it wrote', async () => {
+    // A load read no cancel: once started, it purged, inserted and patched to
+    // its end.
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    const stop = new AbortController();
+    const writer = makeWriter(calls);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      stop.abort();
+      return insert(...args);
+    });
+    const deps = makeDeps({ dataset, writer });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { signal: stop.signal }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['insert:Account']);
+    // What it wrote is counted for the audit trail...
+    expect((error as FrozenLoadCancelledError).written.perObject).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', inserted: 1 }),
+    ]);
+    // ...and kept where a reload looks for it.
+    expect(await keptMapping(deps.sasDir)).toEqual(new Map([['Account-000001', 'REAL-Account-1']]));
+  });
+
+  it('keeps the residuals it had not purged yet when the cancel comes during a reload', async () => {
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Account-000001', '001OLD-ACCOUNT'],
+        ['Contact-000001', '003OLD-CONTACT'],
+      ]),
+    );
+    const calls: DmlCall[] = [];
+    const stop = new AbortController();
+    const writer = makeWriter(calls);
+    const remove = writer.delete;
+    writer.delete = vi.fn(async (...args: Parameters<FrozenDmlWriter['delete']>) => {
+      stop.abort();
+      return remove(...args);
+    });
+    const deps = makeDeps({ dataset, sasDir, writer });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { reload: true, signal: stop.signal }),
+      ),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    // Contact purged, then the cancel: Account is neither purged nor inserted.
+    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual(['delete:Contact']);
+    // Kept as the load's own mapping alone, the Account the purge had not
+    // reached would be known to no later reload.
+    expect((await keptMapping(sasDir)).get('Account-000001')).toBe('001OLD-ACCOUNT');
+  });
+
+  it('writes no contract over a load whose last pass the cancel came during', async () => {
+    const dataset = {
+      ...makeAccountContactDataset(),
+      personContactSidecar: [
+        { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
+      ],
+    };
+    const stop = new AbortController();
+    const writer = makeWriter([]);
+    writer.update = vi.fn(async () => {
+      // The PersonContact upload is the one the cancel aborts: nothing written.
+      stop.abort();
+      return [];
+    });
+    const deps = makeDeps({ dataset, writer });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { signal: stop.signal })),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    expect(writer.update).toHaveBeenCalledTimes(1);
+    // A contract would count the links as restored.
+    expect(fs.existsSync(path.join(deps.sasDir, 'counting-contract.json'))).toBe(false);
   });
 });

@@ -86,11 +86,16 @@ export const SyncHistoryPanel: React.FC = () => {
         key: 'status',
         header: t('sync.history.status'),
         width: '110px',
-        render: (row: HistoryRow) => (
-          <Badge variant={statusVariantMap[row.result.status] ?? 'default'}>
-            {t(`sync.history.status_${row.result.status}`)}
-          </Badge>
-        ),
+        // A run a cancel stopped reads as cancelled, in the neutral colour,
+        // not as the partial status its objects came to.
+        render: (row: HistoryRow) =>
+          row.result.cancelled ? (
+            <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+          ) : (
+            <Badge variant={statusVariantMap[row.result.status] ?? 'default'}>
+              {t(`sync.history.status_${row.result.status}`)}
+            </Badge>
+          ),
       },
       {
         key: 'duration',

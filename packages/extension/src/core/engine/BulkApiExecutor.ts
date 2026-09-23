@@ -242,7 +242,10 @@ export interface BulkJobHandle {
   id?: string;
   open: () => Promise<void>;
   uploadData: (records: Record<string, unknown>[]) => Promise<void>;
+  /** Mark the upload complete (`UploadComplete`): Salesforce then processes the job's data. */
   close: () => Promise<void>;
+  /** Mark the job `Aborted`: Salesforce processes none of its data. */
+  abort: () => Promise<void>;
   check: () => Promise<BulkJobCheckResult>;
   getAllResults: () => Promise<BulkJobRecordResult[] | JsforceIngestJobResults>;
 }

@@ -25,6 +25,7 @@ import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CsvValidator } from '../../modules/seed/CsvValidator.js';
 import type { DescribeField } from '../../modules/seed/describeField.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { WriteCancelledError } from '../../modules/sync/WriteCancelledError.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
@@ -41,6 +42,8 @@ interface CsvExecutionResultPayload {
   insertedCount: number;
   failedCount: number;
   errors: string[];
+  /** Set when a cancel stopped the import before its rows were written. */
+  cancelled?: boolean;
 }
 
 /**
@@ -253,14 +256,30 @@ export class SeedCsvHandler implements DomainHandler {
         buildSalesforceRecord(row, parsed.columnMappings),
       );
 
-      const outcomes = parsed.externalIdField
-        ? await writer.upsert(
-            parsed.objectApiName,
-            parsed.externalIdField,
-            writeRecords,
-            defaultBatchSize,
-          )
-        : await writer.insert(parsed.objectApiName, writeRecords, defaultBatchSize);
+      /*
+       * Whether the cancel stopped the import before its rows were written:
+       * before the write, or by aborting an upload of more than ten thousand
+       * rows while its job was still open. Only that upload looked at it, and
+       * reported a stopped import as one that wrote nothing and refused nothing.
+       */
+      let cancelled = abortController.signal.aborted;
+      let outcomes: Awaited<ReturnType<BulkDataWriter['insert']>> = [];
+      if (!cancelled) {
+        try {
+          outcomes = parsed.externalIdField
+            ? await writer.upsert(
+                parsed.objectApiName,
+                parsed.externalIdField,
+                writeRecords,
+                defaultBatchSize,
+              )
+            : await writer.insert(parsed.objectApiName, writeRecords, defaultBatchSize);
+        } catch (writeErr: unknown) {
+          // Any other error is the import's failure.
+          if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
+          cancelled = true;
+        }
+      }
 
       const errors: string[] = [];
       let insertedCount = 0;
@@ -272,10 +291,12 @@ export class SeedCsvHandler implements DomainHandler {
         }
       }
       const failedCount = outcomes.length - insertedCount;
+      const reached = failedCount === 0 ? 'success' : insertedCount > 0 ? 'partial' : 'failure';
       unrecorded = false;
       recordWriteRun(this.deps, {
         ...run,
-        outcome: failedCount === 0 ? 'success' : insertedCount > 0 ? 'partial' : 'failure',
+        // An import the cancel stopped did not write the rows it was for.
+        outcome: cancelled && reached === 'success' ? 'partial' : reached,
         objects: [
           {
             ...emptyCounts(parsed.objectApiName),
@@ -286,8 +307,25 @@ export class SeedCsvHandler implements DomainHandler {
         ],
       });
 
-      const payload: CsvExecutionResultPayload = { insertedCount, failedCount, errors };
-      sendOperationCompleted(this.deps, operationId, { insertedCount, failedCount });
+      const payload: CsvExecutionResultPayload = {
+        insertedCount,
+        failedCount,
+        errors,
+        ...(cancelled ? { cancelled: true } : {}),
+      };
+      if (cancelled) {
+        // Ended the way a cancelled Sync or Seed ends: aborted in the registry
+        // — already, when the cancel came through it — and posted as a
+        // completion that says so.
+        this.registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, {
+          aborted: true,
+          insertedCount,
+          failedCount,
+        });
+      } else {
+        sendOperationCompleted(this.deps, operationId, { insertedCount, failedCount });
+      }
       const response = buildResponse(
         this.deps,
         msg,

@@ -95,6 +95,22 @@ describe('SyncHistoryDetail', () => {
     expect(screen.getByText('8')).toBeDefined(); // totalFailed
   });
 
+  it('calls a run a cancel stopped cancelled, not partial, and says before what', () => {
+    const entry = makeMockEntry();
+    entry.result = {
+      ...entry.result,
+      cancelled: true,
+      error: 'Cancelled before Opportunity was synced.',
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const detail = screen.getByTestId('sync-history-detail');
+    expect(detail.textContent).toContain('Cancelled');
+    expect(detail.textContent).not.toContain('Partial');
+    expect(detail.textContent).toContain('Cancelled before Opportunity was synced.');
+  });
+
   it('should render per-object result rows', () => {
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry() });
     render(<SyncHistoryDetail />);

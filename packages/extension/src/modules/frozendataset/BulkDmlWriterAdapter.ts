@@ -9,6 +9,8 @@
  */
 
 import type { BulkDataWriter } from '../sync/BulkDataWriter.js';
+import type { OperationOutcome } from '../sync/DataSync.js';
+import { WriteCancelledError } from '../sync/WriteCancelledError.js';
 import type { FrozenDmlWriter } from './loadTypes.js';
 
 /** Default REST batch size delegated to the writer. */
@@ -20,9 +22,28 @@ export function createBulkDmlWriter(
   batchSize: number = DEFAULT_FROZEN_LOAD_BATCH_SIZE,
 ): FrozenDmlWriter {
   return {
-    insert: (_orgId, objectApiName, records) => writer.insert(objectApiName, records, batchSize),
-    update: (_orgId, objectApiName, records) => writer.update(objectApiName, records, batchSize),
+    insert: (_orgId, objectApiName, records) =>
+      writtenBeforeTheCancel(writer.insert(objectApiName, records, batchSize)),
+    update: (_orgId, objectApiName, records) =>
+      writtenBeforeTheCancel(writer.update(objectApiName, records, batchSize)),
     delete: (_orgId, objectApiName, recordIds) =>
-      writer.delete(objectApiName, recordIds, batchSize),
+      writtenBeforeTheCancel(writer.delete(objectApiName, recordIds, batchSize)),
   };
+}
+
+/**
+ * What a write answered, or nothing when the load's cancel aborted it before
+ * any of its records was written. The loader stops at its next check of the
+ * cancel, with its mapping kept; raised through it, the cancel would end the
+ * load as a failure before that mapping was kept.
+ */
+async function writtenBeforeTheCancel(
+  write: Promise<OperationOutcome[]>,
+): Promise<OperationOutcome[]> {
+  try {
+    return await write;
+  } catch (err: unknown) {
+    if (err instanceof WriteCancelledError) return [];
+    throw err;
+  }
 }

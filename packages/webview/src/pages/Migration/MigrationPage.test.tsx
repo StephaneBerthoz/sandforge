@@ -393,6 +393,18 @@ describe('MigrationPage — running an imported config', () => {
     expect(summary.textContent).not.toContain('Sync Complete');
   });
 
+  it('labels a run a cancel stopped as cancelled rather than partial', () => {
+    mockRunState = {
+      ...mockRunState,
+      data: { ...runResult, status: 'partial', cancelled: true },
+    };
+    render(<MigrationPage />);
+
+    const summary = screen.getByTestId('migration-run-result');
+    expect(summary.textContent).toContain('Cancelled');
+    expect(summary.textContent).not.toContain('Partially Complete');
+  });
+
   it('omits the failure and skipped counters when the run reported none', () => {
     mockRunState = {
       ...mockRunState,

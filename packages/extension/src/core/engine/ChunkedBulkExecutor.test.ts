@@ -36,6 +36,7 @@ function createMockJob(opts?: {
     open: vi.fn().mockResolvedValue(undefined),
     uploadData: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
+    abort: vi.fn().mockResolvedValue(undefined),
     check: vi.fn().mockImplementation(async () => {
       pollCalls++;
       if (pollCalls <= pollCount) {
@@ -135,70 +136,121 @@ describe('ChunkedBulkExecutor', () => {
     ).rejects.toThrow('Maximum concurrent bulk jobs reached');
   });
 
-  it('should abort during upload phase and return aborted: true', async () => {
-    const controller = new AbortController();
-    const abortExecutor = new ChunkedBulkExecutor({
-      chunkSize: 2000,
-      pollIntervalMs: 0,
-      signal: controller.signal,
+  describe('a cancel', () => {
+    /** An executor the controller cancels. */
+    function cancellable(controller: AbortController): ChunkedBulkExecutor {
+      return new ChunkedBulkExecutor({
+        chunkSize: 2000,
+        pollIntervalMs: 0,
+        signal: controller.signal,
+      });
+    }
+
+    it('aborts the job still open, and never closes it, so none of it is written', async () => {
+      // The job used to be closed here: closing hands its data to Salesforce
+      // for processing, so the chunk uploaded before the cancel was written,
+      // and the run reported nothing written.
+      const controller = new AbortController();
+      const job = createMockJob();
+      const deps = createMockDeps(job);
+      let uploadCalls = 0;
+      vi.mocked(job.uploadData).mockImplementation(async () => {
+        uploadCalls++;
+        if (uploadCalls === 1) controller.abort();
+      });
+
+      const result = await cancellable(controller).executeChunked(
+        deps,
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(2000), generateRecords(2000), generateRecords(2000)]),
+        6000,
+      );
+
+      expect(uploadCalls).toBe(1);
+      expect(job.abort).toHaveBeenCalledTimes(1);
+      expect(job.close).not.toHaveBeenCalled();
+      expect(job.check).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ aborted: true, successCount: 0, successIds: [] });
+      expect(deps.bulkManager.getJob('job-chunked-001')?.state).toBe('Aborted');
     });
 
-    const job = createMockJob();
-    const deps = createMockDeps(job);
-
-    let uploadCalls = 0;
-    (job.uploadData as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      uploadCalls++;
-      if (uploadCalls === 1) {
+    it('aborts the job when the cancel comes while its last chunk is uploaded', async () => {
+      const controller = new AbortController();
+      const job = createMockJob();
+      const deps = createMockDeps(job);
+      vi.mocked(job.uploadData).mockImplementation(async () => {
         controller.abort();
-      }
+      });
+
+      const result = await cancellable(controller).executeChunked(
+        deps,
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(2000)]),
+        2000,
+      );
+
+      expect(job.abort).toHaveBeenCalledTimes(1);
+      expect(job.close).not.toHaveBeenCalled();
+      expect(result.aborted).toBe(true);
     });
 
-    const chunks = [generateRecords(2000), generateRecords(2000), generateRecords(2000)];
+    it('leaves the job open, and still writes nothing, when the abort itself fails', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const job = createMockJob();
+      vi.mocked(job.abort).mockRejectedValue(new Error('socket hang up'));
+      const deps = createMockDeps(job);
 
-    const result = await abortExecutor.executeChunked(
-      deps,
-      'Account',
-      'insert',
-      toAsyncIterable(chunks),
-      6000,
-    );
+      const result = await cancellable(controller).executeChunked(
+        deps,
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(10)]),
+        10,
+      );
 
-    expect(result.aborted).toBe(true);
-    expect(result.totalRecords).toBe(2000);
-    expect(uploadCalls).toBe(1);
-    expect(job.close).toHaveBeenCalledTimes(1);
-  });
-
-  it('should abort during poll phase and return aborted: true', async () => {
-    const controller = new AbortController();
-    const abortExecutor = new ChunkedBulkExecutor({
-      chunkSize: 2000,
-      pollIntervalMs: 0,
-      signal: controller.signal,
+      expect(job.close).not.toHaveBeenCalled();
+      expect(result.aborted).toBe(true);
+      // The limiter's slot is freed all the same.
+      expect(deps.bulkManager.canStartNewJob()).toBe(true);
     });
 
-    let checkCalls = 0;
-    const job = createMockJob();
-    (job.check as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      checkCalls++;
-      if (checkCalls === 1) {
+    it('awaits a job already closed, and counts what Salesforce wrote of it', async () => {
+      // A closed job is written whatever the run does: returning at the
+      // cancel left its records written and counted as nothing.
+      const controller = new AbortController();
+      const results: BulkJobRecordResult[] = [
+        { success: true, id: '001xx0000001' },
+        { success: false, errors: ['DUPLICATE_VALUE'] },
+      ];
+      const job = createMockJob({ pollCount: 2, results });
+      const check = vi.mocked(job.check).getMockImplementation();
+      vi.mocked(job.check).mockImplementation(async () => {
         controller.abort();
-      }
-      return { state: 'InProgress', numberRecordsProcessed: 0 };
+        return check!();
+      });
+      const deps = createMockDeps(job);
+
+      const result = await cancellable(controller).executeChunked(
+        deps,
+        'Account',
+        'insert',
+        toAsyncIterable([generateRecords(2)]),
+        2,
+      );
+
+      expect(job.abort).not.toHaveBeenCalled();
+      expect(job.getAllResults).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        aborted: false,
+        successCount: 1,
+        failureCount: 1,
+        successIds: ['001xx0000001'],
+      });
+      expect(deps.bulkManager.getJob('job-chunked-001')?.state).toBe('JobComplete');
     });
-    const deps = createMockDeps(job);
-
-    const chunks = [generateRecords(2000)];
-    const result = await abortExecutor.executeChunked(
-      deps,
-      'Account',
-      'insert',
-      toAsyncIterable(chunks),
-      2000,
-    );
-
-    expect(result.aborted).toBe(true);
   });
 
   it('should report upload progress after each chunk', async () => {

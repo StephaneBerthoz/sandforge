@@ -67,13 +67,18 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
     return (
       <div className="flex flex-col gap-3" data-testid="quick-sync-results">
         <div className="flex items-center gap-3 text-xs" data-testid="quick-sync-result-summary">
-          <Badge variant={statusVariant[result.status]}>
-            {result.status === 'success'
-              ? t('quickSync.complete')
-              : result.status === 'partial'
-                ? t('sync.partial')
-                : t('sync.failed')}
-          </Badge>
+          {/* A run a cancel stopped reads as cancelled, as on the Sync tab. */}
+          {result.cancelled ? (
+            <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+          ) : (
+            <Badge variant={statusVariant[result.status]}>
+              {result.status === 'success'
+                ? t('quickSync.complete')
+                : result.status === 'partial'
+                  ? t('sync.partial')
+                  : t('sync.failed')}
+            </Badge>
+          )}
           <span>
             {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
           </span>

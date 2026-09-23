@@ -765,4 +765,28 @@ describe('SyncPage execute step for assistive technology', () => {
       }
     });
   });
+
+  describe('once a run a cancel stopped answers', () => {
+    const idle = mockExecuteMutationState;
+    afterEach(() => {
+      mockExecuteMutationState = idle;
+    });
+
+    it('calls it cancelled on the results step, not partial', () => {
+      mockExecuteMutationState = {
+        ...idle,
+        data: {
+          ...historyEntry.result,
+          status: 'partial',
+          cancelled: true,
+          error: 'Cancelled before Contact was synced.',
+        },
+      };
+      render(<SyncPage />);
+
+      const summary = screen.getByTestId('sync-result-summary');
+      expect(summary.textContent).toContain('Cancelled');
+      expect(summary.textContent).not.toContain('Partially Complete');
+    });
+  });
 });

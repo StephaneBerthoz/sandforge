@@ -120,13 +120,18 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                 className="flex items-center gap-3 text-xs"
                 data-testid="quick-seed-result-summary"
               >
-                <Badge variant={RESULTS_STATUS_VARIANT[quickSeed.executionResult.status]}>
-                  {quickSeed.executionResult.status === 'success'
-                    ? t('seed.complete')
-                    : quickSeed.executionResult.status === 'partial'
-                      ? t('seed.partial')
-                      : t('seed.failed')}
-                </Badge>
+                {/* A seed a cancel stopped reads as cancelled, as on the wizard. */}
+                {quickSeed.executionResult.cancelled ? (
+                  <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
+                ) : (
+                  <Badge variant={RESULTS_STATUS_VARIANT[quickSeed.executionResult.status]}>
+                    {quickSeed.executionResult.status === 'success'
+                      ? t('seed.complete')
+                      : quickSeed.executionResult.status === 'partial'
+                        ? t('seed.partial')
+                        : t('seed.failed')}
+                  </Badge>
+                )}
                 <span className="text-[var(--sf-text-primary)]">
                   {t('seed.recordsCreated')}:{' '}
                   <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
