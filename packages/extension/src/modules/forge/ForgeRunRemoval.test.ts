@@ -40,6 +40,17 @@ class FakeOrg implements RemovalOrg {
   onDelete?: (object: string, row: Row) => void;
   readonly queries: string[] = [];
   readonly deletes: Array<{ object: string; ids: string[] }> = [];
+  /** How far the org's clock runs ahead of this machine's; behind when negative. */
+  clockAheadMs = 0;
+
+  /** The org's clock now, as it dates what it writes. */
+  now(): string {
+    return new Date(Date.now() + this.clockAheadMs).toISOString();
+  }
+
+  async serverTime(): Promise<string> {
+    return this.now();
+  }
 
   add(object: string, ...rows: Row[]): void {
     this.rows.set(object, [...(this.rows.get(object) ?? []), ...rows]);
@@ -335,7 +346,7 @@ describe('removeRunRecords', () => {
 
   it('lets what was added to a record since the run go with it when changes are included', async () => {
     // Editing a cloned record adds records of its own: a tracked change in its
-    // feed, the duplicate rule's match.
+    // feed.
     const { org, plan } = accountWithContacts();
     org.add('Task', {
       Id: id('00T', 1),
@@ -503,7 +514,9 @@ describe('removeRunRecords', () => {
 
   it('refuses a whole object it cannot read, and goes on with the next', async () => {
     const { org, plan } = accountWithContacts();
-    org.failingQueries.push(/^SELECT Id, (LastModifiedDate|SystemModstamp) FROM Contact /);
+    org.failingQueries.push(
+      /^SELECT Id, (CreatedDate, )?(LastModifiedDate|SystemModstamp) FROM Contact /,
+    );
     org.add('Opportunity', runRow(id('006', 1)));
 
     const outcome = await removeRunRecords(
@@ -883,6 +896,146 @@ describe('removeRunRecords', () => {
       expect(org.updates).toEqual([]);
       expect(outcome.objects[0]).toMatchObject({ keptChanged: 1, deleted: 0 });
     });
+  });
+
+  describe("the org's clock, never this machine's", () => {
+    /** A run's opportunity and line item, whose delete the org answers with a feed item. */
+    function opportunityWithLineItem() {
+      const org = new FakeOrg();
+      const opportunity = id('006', 1);
+      org.relationships.set('Opportunity', [
+        { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+        { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+      ]);
+      org.add('Opportunity', runRow(opportunity));
+      org.add('OpportunityLineItem', runRow(id('00k', 1), { OpportunityId: opportunity }));
+      // The amount the line item made changes, and feed tracking says so,
+      // dated by the org.
+      org.onDelete = (object) => {
+        if (object !== 'OpportunityLineItem') return;
+        const now = org.now();
+        org.add('FeedItem', {
+          Id: id('0D5', 1),
+          ParentId: opportunity,
+          CreatedDate: now,
+          LastModifiedDate: now,
+        });
+      };
+      const plan = [
+        { objectApiName: 'OpportunityLineItem', ids: [id('00k', 1)] },
+        { objectApiName: 'Opportunity', ids: [opportunity] },
+      ];
+      return { org, opportunity, plan };
+    }
+
+    it('dates its own start by the org: what the org records about it goes, the org half a minute behind', async () => {
+      const { org, opportunity, plan } = opportunityWithLineItem();
+      org.clockAheadMs = -30_000;
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+      expect(org.has('Opportunity', opportunity)).toBe(false);
+    });
+
+    it('never takes for its own what someone added just before it started, the org half a minute ahead', async () => {
+      const { org, plan } = accountWithContacts();
+      org.clockAheadMs = 30_000;
+      const tenSecondsAgo = new Date(Date.parse(org.now()) - 10_000).toISOString();
+      org.add('Task', {
+        Id: id('00T', 1),
+        WhatId: id('001', 1),
+        CreatedDate: tenSecondsAgo,
+        LastModifiedDate: tenSecondsAgo,
+      });
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1, heldBy: ['Task'] });
+      expect(org.has('Task', id('00T', 1))).toBe(true);
+    });
+
+    it('takes nothing for its own when the org does not tell its clock', async () => {
+      const { org, opportunity, plan } = opportunityWithLineItem();
+      org.serverTime = async () => {
+        throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+      };
+
+      const outcome = await removeRunRecords(org, plan, options());
+
+      expect(outcome.objects[1]).toMatchObject({
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['FeedItem'],
+      });
+      expect(org.has('Opportunity', opportunity)).toBe(true);
+    });
+
+    it("dates a run that kept no dates by its records': from the first created, for as long as it took", async () => {
+      // Created on the org's clock at 10:00:02, whatever this machine's said;
+      // one contact updated by the run three seconds in, one by someone a
+      // minute later; a task a flow opened on the account as it went.
+      const at = (seconds: number): string =>
+        new Date(Date.parse('2026-09-20T10:00:00.000Z') + seconds * 1000).toISOString();
+      const org = new FakeOrg();
+      org.relationships.set('Account', ACCOUNT_CHILDREN);
+      org.add('Account', { Id: id('001', 1), CreatedDate: at(2), LastModifiedDate: at(2) });
+      org.add(
+        'Contact',
+        { Id: id('003', 1), AccountId: id('001', 1), CreatedDate: at(3), LastModifiedDate: at(5) },
+        { Id: id('003', 2), AccountId: id('001', 1), CreatedDate: at(3), LastModifiedDate: at(62) },
+      );
+      org.add('Task', {
+        Id: id('00T', 1),
+        WhatId: id('001', 1),
+        CreatedDate: at(4),
+        LastModifiedDate: at(4),
+      });
+      const plan = [
+        { objectApiName: 'Contact', ids: [id('003', 1), id('003', 2)] },
+        { objectApiName: 'Account', ids: [id('001', 1)] },
+      ];
+
+      const outcome = await removeRunRecords(org, plan, {
+        runDurationMs: 5_000,
+        includeChanged: false,
+      });
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', deleted: 1, keptChanged: 1 }),
+        // Held by the contact changed since, and by nothing that came with the run.
+        expect.objectContaining({
+          objectApiName: 'Account',
+          keptDependents: 1,
+          heldBy: ['Contact'],
+        }),
+      ]);
+      expect(org.has('Contact', id('003', 1))).toBe(false);
+    });
+  });
+
+  it('lets a duplicate rule report on a run record go with it, whenever the platform wrote it', async () => {
+    // The rule matched the cloned account with accounts the org held and
+    // added it to their set a second after the run's last write.
+    const { org, plan } = accountWithContacts();
+    org.relationships.set('Account', [
+      ...ACCOUNT_CHILDREN,
+      { childSObject: 'DuplicateRecordItem', field: 'RecordId', cascadeDelete: true },
+    ]);
+    const aSecondAfter = new Date(Date.parse(RUN_ENDED) + 1_000).toISOString();
+    org.add('DuplicateRecordItem', {
+      Id: id('0GL', 1),
+      RecordId: id('001', 1),
+      DuplicateRecordSetId: id('0GK', 1),
+      CreatedDate: aSecondAfter,
+      LastModifiedDate: aSecondAfter,
+    });
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0, heldBy: [] });
+    expect(org.has('Account', id('001', 1))).toBe(false);
+    expect(org.has('DuplicateRecordItem', id('0GL', 1))).toBe(false);
   });
 
   it('says how many of the run records are settled as it goes', async () => {

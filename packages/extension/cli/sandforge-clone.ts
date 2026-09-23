@@ -568,6 +568,15 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
     }
   }
   if (summary.files) lines.push('', ...fileLines(summary.files, dryRun));
+  // Read, such a field gives its file's address, never the file: the clone
+  // leaves it empty rather than write that address where the content goes.
+  const leftOut = summary.fileContentFieldsLeftOut ?? [];
+  if (leftOut.length > 0) {
+    lines.push('', `left empty, as they hold a file's content (${leftOut.length} object(s)):`);
+    for (const { objectApiName, fields } of leftOut) {
+      lines.push(`  ${objectApiName}  ${fields.join(', ')}`);
+    }
+  }
   if (summary.errors.length > 0) {
     lines.push('', `errors (${summary.errors.length} object(s)):`);
     for (const e of summary.errors) {
@@ -620,6 +629,11 @@ export function jsonResult(summary: ExecutionSummary) {
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),
+    // Per object, the fields left empty because they hold a file's content;
+    // only when there were any.
+    ...(summary.fileContentFieldsLeftOut
+      ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
+      : {}),
   };
 }
 

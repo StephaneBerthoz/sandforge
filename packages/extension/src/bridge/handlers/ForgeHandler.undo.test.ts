@@ -87,9 +87,13 @@ type Row = Record<string, unknown> & { Id: string };
 
 /**
  * The target org, as jsforce shows it to the removal: rows per object, the
- * account's cascading children, a delete that takes what cascades along.
+ * account's cascading children, a delete that takes what cascades along, and
+ * a clock of its own, which may run apart from this machine's.
  */
 function targetOrg() {
+  const accountChildren = [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }];
+  const clock = { aheadMs: 0 };
+  const orgNow = (): string => new Date(Date.now() + clock.aheadMs).toISOString();
   const rows = new Map<string, Row[]>([
     ['Account', [{ Id: id('001', 1), LastModifiedDate: DURING_RUN, CreatedDate: DURING_RUN }]],
     [
@@ -128,13 +132,10 @@ function targetOrg() {
       name: object,
       label: object,
       fields: [],
-      childRelationships:
-        object === 'Account'
-          ? [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }]
-          : [],
+      childRelationships: object === 'Account' ? accountChildren : [],
     })),
     describeGlobal: vi.fn(async () => ({
-      sobjects: ['Account', 'Contact'].map((name) => ({
+      sobjects: ['Account', ...accountChildren.map((c) => c.childSObject)].map((name) => ({
         name,
         label: name,
         queryable: true,
@@ -142,6 +143,7 @@ function targetOrg() {
         layoutable: true,
       })),
     })),
+    soap: { getServerTimestamp: vi.fn(async () => ({ timestamp: orgNow() })) },
     sobject: (object: string) => ({
       destroy: vi.fn(async (ids: string[]) => {
         await beforeDelete(object);
@@ -160,6 +162,9 @@ function targetOrg() {
     conn,
     rows,
     deletes,
+    accountChildren,
+    clock,
+    orgNow,
     onDelete: (hook: (object: string) => void | Promise<void>) => {
       beforeDelete = hook;
     },
@@ -545,6 +550,119 @@ describe('forge:undo', () => {
         module: 'forge',
       });
       check.mockRestore();
+    });
+  });
+
+  describe("the run's dates, by the org's clock", () => {
+    /** The account and contacts, created by the org at 10:05:02 and last updated at 10:05:04. */
+    function datedByTheOrg(): void {
+      for (const row of [...(org.rows.get('Account') ?? []), ...(org.rows.get('Contact') ?? [])]) {
+        row.CreatedDate = '2026-09-20T10:05:02.000+0000';
+        row.LastModifiedDate = '2026-09-20T10:05:04.000+0000';
+      }
+    }
+
+    it('removes a run by the span the org dated it by, whatever this machine said', async () => {
+      // This machine's clock ran five seconds behind the org's: the run ended
+      // at 10:05:00 by it, and the org stamped its last write at 10:05:04.
+      datedByTheOrg();
+      store.set(
+        'forge:history',
+        [
+          runEntry({
+            timestamp: '2026-09-20T10:05:00.000Z',
+            duration: 3_000,
+            writtenBetween: {
+              first: '2026-09-20T10:05:02.000Z',
+              last: '2026-09-20T10:05:04.000Z',
+            },
+          }),
+        ],
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', deleted: 2, keptChanged: 0 },
+          { objectApiName: 'Account', deleted: 1, keptDependents: 0 },
+        ],
+      });
+    });
+
+    it("keeps what changed after the run's last write, however long the run read before it wrote", async () => {
+      // A minute of reading the source, then two seconds of writing; someone
+      // edited a contact half a minute after the last write.
+      datedByTheOrg();
+      (org.rows.get('Contact') ?? [])[0].LastModifiedDate = '2026-09-20T10:05:30.000+0000';
+      store.set(
+        'forge:history',
+        [
+          runEntry({
+            timestamp: '2026-09-20T10:05:04.000Z',
+            duration: 62_000,
+            writtenBetween: {
+              first: '2026-09-20T10:05:02.000Z',
+              last: '2026-09-20T10:05:04.000Z',
+            },
+          }),
+        ],
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'partial',
+        objects: [
+          { objectApiName: 'Contact', deleted: 1, keptChanged: 1 },
+          { objectApiName: 'Account', deleted: 0, keptDependents: 1, heldBy: ['Contact'] },
+        ],
+      });
+    });
+
+    it('dates a run recorded before runs kept their dates by its records, for as long as it took', async () => {
+      datedByTheOrg();
+      store.set(
+        'forge:history',
+        [runEntry({ timestamp: '2026-09-20T10:05:00.000Z', duration: 3_000 })],
+        'forge',
+      );
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({ status: 'success' });
+      expect(org.rows.get('Account')).toEqual([]);
+    });
+
+    it("dates its own start by the org's clock: what the org records of the removal does not hold the account", async () => {
+      // The org runs a minute behind this machine, and answers the contacts'
+      // delete with a feed item on their account.
+      org.clock.aheadMs = -60_000;
+      org.accountChildren.push({
+        childSObject: 'FeedItem',
+        field: 'ParentId',
+        cascadeDelete: true,
+      });
+      org.onDelete((object) => {
+        if (object !== 'Contact' || (org.rows.get('FeedItem') ?? []).length > 0) return;
+        const now = org.orgNow();
+        org.rows.set('FeedItem', [
+          { Id: id('0D5', 1), ParentId: id('001', 1), CreatedDate: now, LastModifiedDate: now },
+        ]);
+      });
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', deleted: 2 },
+          { objectApiName: 'Account', deleted: 1, keptDependents: 0 },
+        ],
+      });
     });
   });
 

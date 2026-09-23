@@ -769,10 +769,18 @@ for (const theme of SCANNED_THEMES) {
             ],
             remainingStorageBytes: 200 * 1_048_576,
           },
+          fileContentFieldsLeftOut: [{ objectApiName: 'QuoteDocument', fields: ['Document'] }],
         },
       });
       await page.waitForSelector('[data-testid="forge-results-files"]', { timeout: 10_000 });
-      expectNoViolations(await checkAccessibility(page));
+      await page.waitForSelector('[data-testid="forge-results-file-content"]', {
+        timeout: 10_000,
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-file-content"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('Grappe page', async ({ page }) => {

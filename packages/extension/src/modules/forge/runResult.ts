@@ -71,5 +71,11 @@ export function forgeRunResult(
     truncatedObjects: summary.truncatedObjects,
     // Only a run asked to copy files says what became of them.
     ...(summary.files ? { files: summary.files } : {}),
+    ...(summary.fileContentFieldsLeftOut
+      ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
+      : {}),
+    // The target's own dates of the run's writes, which removing its records
+    // tells a later change by.
+    ...(summary.writtenBetween ? { writtenBetween: summary.writtenBetween } : {}),
   };
 }

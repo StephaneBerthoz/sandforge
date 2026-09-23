@@ -78,6 +78,12 @@ export interface OrphanExpansionInput {
     sourceId: string,
     fields: FieldInfo[],
   ) => Record<string, unknown>;
+  /**
+   * Hands back the fields of a parent's describe a copy reads, leaving out
+   * those that hold a file's content, and keeps the ones left out for the
+   * run's summary. Absent, the parent is read with every field.
+   */
+  withoutFileContent?: (objectApiName: string, fields: FieldInfo[]) => FieldInfo[];
 }
 
 /**
@@ -165,6 +171,7 @@ export class OrphanExpander {
               input.recordTypeMappings,
               input.recordTypeMapper,
               input.anonymize,
+              input.withoutFileContent,
             );
             if (parent) {
               // Count only successful expansions toward the cap
@@ -241,6 +248,7 @@ export class OrphanExpander {
     recordTypeMappings: RecordTypeMapping[] | undefined,
     recordTypeMapper: RecordTypeMapper | null,
     anonymize: OrphanExpansionInput['anonymize'],
+    withoutFileContent: OrphanExpansionInput['withoutFileContent'],
   ): Promise<{ id: string; existing: boolean } | null> {
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
@@ -253,7 +261,10 @@ export class OrphanExpander {
     // REST path of both describes below, not only into the SOQL. Checking it
     // only at the SOQL line let an unvalidated name reach two requests first.
     const objectName = assertSoqlIdentifier(parentObject);
-    const fields = await this.deps.describeFields(sourceOrgId, objectName);
+    const described = await this.deps.describeFields(sourceOrgId, objectName);
+    // A field holding a file's content reads as its file's address: the
+    // parent is copied without it, as every record of the run is.
+    const fields = withoutFileContent ? withoutFileContent(objectName, described) : described;
     const queryFields = fields.filter((f) => f.queryable).map((f) => f.name);
     if (queryFields.length === 0) queryFields.push('Id');
     const soql = `SELECT ${queryFields.join(', ')} FROM ${objectName} WHERE Id = '${sanitizeSoqlValue(sourceRecordId)}'`;

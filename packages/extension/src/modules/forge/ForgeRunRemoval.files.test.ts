@@ -163,6 +163,11 @@ class TargetOrg implements RemovalOrg {
     return [];
   }
 
+  /** The clock it stamps records by. */
+  async serverTime(): Promise<string> {
+    return new Date().toISOString();
+  }
+
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     return ids.map((recordId) => {
       if (objectApiName === 'ContentVersion') {
@@ -251,26 +256,23 @@ const SOURCE: Record<string, FakeRow[]> = {
   ],
 };
 
-/**
- * Clone the case with its files into `target`, and hand back the run's
- * summary with its time span, as the extension's history keeps them.
- */
+/** Clone the case with its files into `target`, and hand back the run's summary. */
 async function cloneInto(target: TargetOrg) {
-  const startedAt = new Date();
-  const summary = await clone(target);
-  return { summary, startedAt, endedAt: new Date() };
+  return { summary: await clone(target) };
 }
 
-/** Remove what the run created, over the time span its history gives it. */
+/** Remove what the run created, over the span the target dated it by, as the extension does. */
 async function removeRun(target: TargetOrg, run: Awaited<ReturnType<typeof cloneInto>>) {
   const plan = forgeRunCreatedRecords({
     idRemapTable: run.summary.remapTable,
     idRemapExisting: run.summary.existingSourceIds,
     idRemapCreated: run.summary.createdByObject,
   });
+  const span = run.summary.writtenBetween;
+  if (!span) throw new Error('The run was not dated by the target.');
   return removeRunRecords(target, plan, {
-    runStartedAt: run.startedAt,
-    runEndedAt: run.endedAt,
+    runStartedAt: new Date(span.first),
+    runEndedAt: new Date(span.last),
     includeChanged: false,
   });
 }
@@ -305,24 +307,31 @@ describe('removing the records a run created, when the run copied files', () => 
   it('removes the files it created with them: each document, which takes its versions and links', async () => {
     // The file's links are stamped after the run ended, as a real target
     // stamps the last file of a run: read by their date, they held the file
-    // and the case it was published on in the org.
-    const target = new TargetOrg();
-    const run = await cloneInto(target);
-    expect(target.all('ContentVersion')).toHaveLength(1);
-    expect(target.all('ContentDocumentLink')).toHaveLength(2);
-    expect(target.all('Attachment')).toHaveLength(1);
+    // and the case it was published on in the org. The removal comes a
+    // minute later, long after the links were stamped.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const target = new TargetOrg();
+      const run = await cloneInto(target);
+      expect(target.all('ContentVersion')).toHaveLength(1);
+      expect(target.all('ContentDocumentLink')).toHaveLength(2);
+      expect(target.all('Attachment')).toHaveLength(1);
+      vi.setSystemTime(Date.now() + 60_000);
 
-    const outcome = await removeRun(target, run);
+      const outcome = await removeRun(target, run);
 
-    expect(
-      outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents, o.refused]),
-    ).toEqual([
-      ['Attachment', 1, 0, 0],
-      ['ContentDocument', 1, 0, 0],
-      ['Case', 1, 0, 0],
-    ]);
-    for (const object of Object.keys(PREFIX)) {
-      expect({ object, left: target.all(object) }).toEqual({ object, left: [] });
+      expect(
+        outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents, o.refused]),
+      ).toEqual([
+        ['Attachment', 1, 0, 0],
+        ['ContentDocument', 1, 0, 0],
+        ['Case', 1, 0, 0],
+      ]);
+      for (const object of Object.keys(PREFIX)) {
+        expect({ object, left: target.all(object) }).toEqual({ object, left: [] });
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 

@@ -2581,6 +2581,7 @@
     "soqlObjectNameInvalid": "\"{{object}}\" ist kein SObject-API-Name, daher kann die WHERE-Klausel nicht darunter gesendet werden. Er muss mit einem Buchstaben beginnen und höchstens 80 Buchstaben, Ziffern oder Unterstriche enthalten.",
     "hintSoqlObjectNameInvalid": "Korrigieren Sie den Objektnamen nach FROM, um den Graph zu ermitteln",
     "truncatedRead": "Nur teilweise gelesen: {{objects}}. Die Quelle enthält mehr Zeilen, als geklont wurden — teilen Sie den Lauf mit Filtern auf, die jeweils unter der Grenze bleiben, um den Rest zu klonen.",
+    "fileContentLeftOut": "Im Klon leer gelassen: Diese Felder enthalten den Inhalt einer Datei, den ein Lesevorgang nur als Adresse der Datei liefert.",
     "existingRecords": {
       "title": "Bereits in der Ziel-Org",
       "hint": "Die Ziel-Org hat diese Datensätze abgelehnt, weil sie sie bereits enthält. Wo Salesforce den Datensatz benannt hat, verknüpft der Klon damit und ändert ihn nie.",

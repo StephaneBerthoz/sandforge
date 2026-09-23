@@ -2581,6 +2581,7 @@
     "soqlObjectNameInvalid": "« {{object}} » n'est pas un nom d'API d'objet : la clause WHERE ne peut pas être envoyée sous ce nom. Il doit commencer par une lettre et compter au plus 80 lettres, chiffres ou tirets bas.",
     "hintSoqlObjectNameInvalid": "Corrigez le nom de l'objet après FROM pour découvrir le graphe",
     "truncatedRead": "Lecture partielle : {{objects}}. La source contient plus de lignes que ce qui a été cloné — répartissez l'exécution en plusieurs filtres qui restent chacun sous la limite pour cloner le reste.",
+    "fileContentLeftOut": "Laissés vides dans le clone : ces champs contiennent le contenu d'un fichier, qu'une lecture ne donne que sous la forme de l'adresse du fichier.",
     "existingRecords": {
       "title": "Déjà dans l'org cible",
       "hint": "L'org cible a refusé ces enregistrements parce qu'elle les contient déjà. Quand Salesforce a désigné l'enregistrement, le clone s'y rattache sans jamais le modifier.",

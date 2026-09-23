@@ -1,13 +1,15 @@
 import type {
   ForgeCreatedRecords,
+  ForgeFieldsLeftOut,
   ForgeFilesReport,
   ForgeGraph,
   ForgeGraphEdge,
   ForgeGraphNode,
   ForgeNodeStatus,
   ForgeRemapObjectCounts,
+  ForgeWrittenBetween,
 } from '@sandforge/shared';
-import { fileCopyRefusal } from '@sandforge/shared';
+import { fileCopyRefusal, isFileContentField } from '@sandforge/shared';
 import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -49,6 +51,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { idLists } from '../dataops/RecordRemoval.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
@@ -580,6 +583,17 @@ export interface ExecutionSummary {
    * run, would do. Absent when it was not asked to copy them.
    */
   files?: ForgeFilesReport;
+  /**
+   * Per object with records to write, the fields left out because they hold a
+   * file's content: read, each gave its file's address, which written back
+   * would have stood where the content belongs. Absent when there were none.
+   */
+  fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
+  /**
+   * When the target dated the run's writes, read from the records it created
+   * once it had written them. Absent when it created nothing, or on a dry run.
+   */
+  writtenBetween?: ForgeWrittenBetween;
 }
 
 /**
@@ -682,6 +696,10 @@ interface ExecutionState {
   readonly fileScope: Map<string, string[]>;
   /** What the run did with the files, kept up to date as it goes; `null` when it copies none. */
   files: ForgeFilesReport | null;
+  /** Per object, the fields left out of its records because they hold a file's content. */
+  readonly fileContentFieldsLeftOut: Map<string, Set<string>>;
+  /** When the target dated the run's writes, once read back at its end. */
+  writtenBetween?: ForgeWrittenBetween;
   successCount: number;
   updatedCount: number;
   linkedCount: number;
@@ -954,6 +972,7 @@ export class ForgeExecutor {
       detectedPersonalFields: new Map<string, string[]>(),
       fileScope: new Map<string, string[]>(),
       files: null,
+      fileContentFieldsLeftOut: new Map<string, Set<string>>(),
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -968,8 +987,87 @@ export class ForgeExecutor {
       // What the run had done before it stopped goes with the error: thrown
       // bare, an abort or a failure past the first object took the tallies
       // with it, and the run was recorded as failed with nothing written.
+      // Dated by the target first: removing what it created goes by those dates.
+      await this.readWrittenBetween(state);
       keepPartialSummary(err, this.summaryOf(state));
       throw err;
+    }
+  }
+
+  /**
+   * Keep, for an object whose records the run writes, the fields of `described`
+   * that hold a file's content, and hand back the others: the only ones read.
+   *
+   * Read, such a field gives the address of its file, never the file, and a
+   * clone that wrote the value back sent that address where the file's content
+   * belongs — a quote's generated document is one. The files stage reads a
+   * Salesforce File's version and an attachment's body from their own address;
+   * every other field of the kind is left empty, and said so.
+   *
+   * @param writes - Whether the run writes records of the object; a field left
+   *   out of an object it writes nothing of is not worth saying.
+   */
+  private withoutFileContent(
+    state: ExecutionState,
+    objectApiName: string,
+    described: FieldInfo[],
+    writes: boolean,
+  ): FieldInfo[] {
+    const leftOut = described.filter((f) => isFileContentField(f) && f.createable);
+    if (writes && leftOut.length > 0) {
+      const known = state.fileContentFieldsLeftOut.get(objectApiName) ?? new Set<string>();
+      for (const field of leftOut) known.add(field.name);
+      state.fileContentFieldsLeftOut.set(objectApiName, known);
+    }
+    return described.filter((f) => !isFileContentField(f));
+  }
+
+  /**
+   * Read back when the target dated the run's writes: the earliest
+   * `CreatedDate` of the records it created and the latest `LastModifiedDate`
+   * it left on them, by the org's own clock.
+   *
+   * Removing the run's records goes by these, not by this machine's clock: a
+   * record the org stamped after the run ended is one changed since, and a
+   * clock a second behind the org's made every record the run wrote last read
+   * that way. Best effort — a read refused leaves the run undated, and the
+   * removal then dates it from the records themselves.
+   */
+  private async readWrittenBetween(state: ExecutionState): Promise<void> {
+    if (state.config.dryRun || state.writtenBetween) return;
+    let first = Number.POSITIVE_INFINITY;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const { objectApiName, sourceIds } of state.remapper.createdByObject()) {
+      const ids = sourceIds.flatMap((id) => {
+        const target = state.remapper.get(id);
+        return target ? [target] : [];
+      });
+      for (const list of idLists(ids)) {
+        let rows: Record<string, unknown>[];
+        try {
+          rows = await this.deps.queryRecords(
+            state.targetOrgId,
+            `SELECT Id, CreatedDate, LastModifiedDate FROM ${assertSoqlIdentifier(objectApiName)} ` +
+              `WHERE Id IN (${list})`,
+          );
+        } catch {
+          continue;
+        }
+        for (const row of rows) {
+          const created =
+            typeof row['CreatedDate'] === 'string' ? Date.parse(row['CreatedDate']) : NaN;
+          const modified =
+            typeof row['LastModifiedDate'] === 'string' ? Date.parse(row['LastModifiedDate']) : NaN;
+          if (Number.isFinite(created)) first = Math.min(first, created);
+          if (Number.isFinite(modified)) last = Math.max(last, modified);
+        }
+      }
+    }
+    if (Number.isFinite(first) && Number.isFinite(last)) {
+      state.writtenBetween = {
+        first: new Date(first).toISOString(),
+        last: new Date(Math.max(first, last)).toISOString(),
+      };
     }
   }
 
@@ -1316,6 +1414,8 @@ export class ForgeExecutor {
       state.errors.push(orphanExpansionError);
     }
 
+    // Every write is done: the target's dates of them are final.
+    await this.readWrittenBetween(state);
     return this.summaryOf(state);
   }
 
@@ -1601,6 +1701,14 @@ export class ForgeExecutor {
       remapByObject: state.remapper.countsByObject(),
       createdByObject: state.remapper.createdByObject(),
       ...(state.files ? { files: structuredClone(state.files) } : {}),
+      ...(state.fileContentFieldsLeftOut.size > 0
+        ? {
+            fileContentFieldsLeftOut: [...state.fileContentFieldsLeftOut].map(
+              ([objectApiName, fields]) => ({ objectApiName, fields: [...fields].sort() }),
+            ),
+          }
+        : {}),
+      ...(state.writtenBetween ? { writtenBetween: { ...state.writtenBetween } } : {}),
     };
   }
 
@@ -1715,7 +1823,10 @@ export class ForgeExecutor {
         message: `Querying ${node.objectApiName} records...`,
       });
 
-      const fieldInfos = await this.deps.describeFields(sourceOrgId, node.objectApiName);
+      const described = await this.deps.describeFields(sourceOrgId, node.objectApiName);
+      // Never read, so never written: see `withoutFileContent`. Said once the
+      // rows are in, of an object with rows to write.
+      const fieldInfos = described.filter((f) => !isFileContentField(f));
       const createableSet = new Set(fieldInfos.filter((f) => f.createable).map((f) => f.name));
 
       const query = buildNodeQuery({
@@ -1867,6 +1978,7 @@ export class ForgeExecutor {
         const ids = records.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
         state.fileScope.set(node.objectApiName, ids);
       }
+      this.withoutFileContent(state, node.objectApiName, described, records.length > 0);
 
       if (config.dryRun) {
         onProgress({
@@ -2181,6 +2293,8 @@ export class ForgeExecutor {
           ? (objectApiName, payload, sourceId, parentFields) =>
               this.anonymizeRows(state, objectApiName, [payload], [sourceId], parentFields, {})[0]
           : undefined,
+        withoutFileContent: (objectApiName, parentFields) =>
+          this.withoutFileContent(state, objectApiName, parentFields, true),
       });
 
       const cleanedRecords = cleanNodeRecords({

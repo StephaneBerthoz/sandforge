@@ -826,9 +826,10 @@ describe('ForgeExecutor', () => {
         rootObjectApiName: 'Opportunity',
       });
 
+      // Reads of the source: the target is read too, for its dates of the run.
       const entryQueries = vi
         .mocked(deps.queryRecords)
-        .mock.calls.filter(([, soql]) => soql.includes('FROM Entry'));
+        .mock.calls.filter(([org, soql]) => org === 'src' && soql.includes('FROM Entry'));
       expect(entryQueries).toHaveLength(1);
       expect(entryQueries[0][1]).toContain("'01uXX0000000001AAA'");
       const entrySkipped = progressEvents.find(
@@ -973,9 +974,11 @@ describe('ForgeExecutor', () => {
         rootObjectApiName: 'Account',
       });
 
+      // Reads of the source: the target is read too, for its dates of the run.
       const taskQueries = vi
         .mocked(deps.queryRecords)
-        .mock.calls.map((c) => c[1])
+        .mock.calls.filter((c) => c[0] === 'src')
+        .map((c) => c[1])
         .filter((soql) => soql.includes('FROM Task'));
       expect(taskQueries).toHaveLength(3);
       for (const soql of taskQueries) expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
@@ -994,7 +997,9 @@ describe('ForgeExecutor', () => {
       // write pass, where it is needed.
       const graph = makeGraph([makeNode('Case')]);
       let targetDescribedDuringRead = false;
-      vi.mocked(deps.queryRecords).mockImplementation(async () => {
+      vi.mocked(deps.queryRecords).mockImplementation(async (org) => {
+        // The target is read once the run is written, for its dates of it.
+        if (org !== 'src') return [];
         targetDescribedDuringRead = vi
           .mocked(deps.describeFields)
           .mock.calls.some((c) => c[0] === 'tgt');

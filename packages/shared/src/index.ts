@@ -98,6 +98,7 @@ export {
   FILE_COPY_DEFAULT_MAX_MB,
   FILE_COPY_CEILING_MB,
   fileCopyRefusal,
+  isFileContentField,
 } from './constants/file-copy.js';
 export {
   PLATFORM_REQUIRED_FIELDS,

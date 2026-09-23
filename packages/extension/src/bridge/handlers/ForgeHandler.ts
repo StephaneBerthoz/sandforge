@@ -65,10 +65,9 @@ import {
 } from '../../modules/sync/RecordTypeMapper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import { removalOrg, removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
 import { forgeRunResult } from '../../modules/forge/runResult.js';
 import type { ExecutionSummary, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
-import { orgSession } from '../../modules/dataops/RecordRemoval.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
@@ -1567,7 +1566,6 @@ export class ForgeHandler implements DomainHandler {
     includeChanged: boolean,
   ): Promise<void> {
     const { forgeId, targetOrgId } = entry;
-    const runEnded = Date.parse(entry.timestamp);
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
@@ -1638,9 +1636,14 @@ export class ForgeHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const outcome = await removeRunRecords(orgSession(conn, 'forge:undo'), plan, {
-        runStartedAt: new Date(runEnded - entry.duration),
-        runEndedAt: new Date(runEnded),
+      // The run's span as the target dated it; this machine's clock is never
+      // compared with the org's. A run recorded before runs kept it is dated
+      // by its records, for as long as it took.
+      const span = entry.writtenBetween;
+      const outcome = await removeRunRecords(removalOrg(conn, 'forge:undo'), plan, {
+        ...(span
+          ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+          : { runDurationMs: entry.duration }),
         includeChanged,
         signal: stop.signal,
         onProgress: (settled, of, objectApiName) => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Connection } from 'jsforce';
 import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/shared';
 import { isPricebookEntry } from '@sandforge/shared';
 
@@ -14,6 +15,7 @@ import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import type { OrgSession } from '../dataops/RecordRemoval.js';
 import {
   idLists,
+  orgSession,
   readRecordsById,
   RECORDS_PER_CALL,
   workedObjects,
@@ -47,57 +49,129 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
  */
 const DEPENDENCY_REFUSAL = 'DELETE_FAILED';
 
-/** The link of a file to a record, and the two ends it is read with. */
-const FILE_LINK = 'ContentDocumentLink';
-const FILE_LINK_ENDS = ['ContentDocumentId', 'LinkedEntityId'];
-
 /** Key prefix of a user: the owner a file's first link names. */
 const USER_KEY_PREFIX = '005';
 
-/**
- * Whether a file's link came with the run: it links a document the run
- * created to one of the run's records, or to a user — the owner's link the
- * platform adds when the file is written.
- *
- * Read from its two ends rather than its date. A link keeps only a system
- * stamp, which the platform sets a moment after the file is written, and a
- * run copies its files last, at its very end: run against a sandbox, the last
- * file's links were stamped a second after the run ended, read as added since,
- * and held that file, then the record it was published on, in the org.
- */
-function fileLinkCameWithRun(
-  row: Record<string, unknown>,
-  runRecords: ReadonlySet<string>,
-): boolean {
-  const document = row.ContentDocumentId;
-  const linked = row.LinkedEntityId;
-  return (
-    typeof document === 'string' &&
-    typeof linked === 'string' &&
-    runRecords.has(recordKey(document)) &&
-    (runRecords.has(recordKey(linked)) || linked.startsWith(USER_KEY_PREFIX))
-  );
+/** Whether `value` is the id of one of the run's records. */
+function isRunRecord(value: unknown, runRecords: ReadonlySet<string>): boolean {
+  return typeof value === 'string' && runRecords.has(recordKey(value));
 }
 
 /**
- * The dates a snapshot of the run's records reads them by, tried in turn: an
- * object that keeps no `LastModifiedDate` — a relation of an email message —
- * still keeps its system stamp.
+ * The dates a snapshot of the run's records reads them by, tried in turn: when
+ * each was created, which dates a run that kept no dates of its own by the
+ * org's clock, and when each was last modified; or, for an object that keeps
+ * no `LastModifiedDate` — a relation of an email message — its system stamp
+ * alone.
  */
-const SNAPSHOT_DATE_COLUMNS: readonly string[] = ['LastModifiedDate', 'SystemModstamp'];
+const SNAPSHOT_DATE_COLUMNS: readonly { created?: string; modified: string }[] = [
+  { created: 'CreatedDate', modified: 'LastModifiedDate' },
+  { modified: 'SystemModstamp' },
+];
+
+/**
+ * A record the platform adds on its own to a record it has just written: the
+ * fields that tie it to the run, read with it, and whether they do.
+ */
+interface PlatformAdded {
+  /** The fields read with the record to tell. */
+  ends: readonly string[];
+  /** Whether the record came with the run, by those fields. */
+  cameWithRun: (row: Record<string, unknown>, runRecords: ReadonlySet<string>) => boolean;
+}
+
+/**
+ * The records the platform adds on its own to a record right after it is
+ * written, which come with the run and go with it: they never hold a record
+ * of the run in the org. Each is read by the ends that tie it to the run
+ * rather than by its date, because the platform writes it a moment after the
+ * record — after the run's last write when that record was the last — and
+ * dated, it read as added since the run and held the record. Seen on a
+ * sandbox, cloning a quote with its account and files, and an account alone:
+ *
+ * - `ContentDocumentLink`: the owner's link and the record's link to a file
+ *   the run wrote, stamped a second after the file. It came with the run when
+ *   it links a document the run created to one of the run's records or to a
+ *   user; a link to a file from before the run is someone's since.
+ * - `DuplicateRecordItem`: a duplicate rule's report that the record matches
+ *   others, written up to two seconds after the record, into a set the org
+ *   already held. Cloning an account alone, it came after the run's last
+ *   write and held the account. It is bookkeeping about the run's record,
+ *   whenever it was written: the org deletes it with the record.
+ *
+ * The same clone had the platform write QuoteHistory, Pricebook2History and
+ * ContentDocumentHistory rows, which this check never reads (the org gives
+ * them no page layout), and restamp each file's version seconds after the run,
+ * which is read by its created and modified dates, both inside the run.
+ */
+const PLATFORM_ADDED: Readonly<Record<string, PlatformAdded>> = {
+  ContentDocumentLink: {
+    ends: ['ContentDocumentId', 'LinkedEntityId'],
+    cameWithRun: (row, runRecords) => {
+      const linked = row.LinkedEntityId;
+      return (
+        isRunRecord(row.ContentDocumentId, runRecords) &&
+        (isRunRecord(linked, runRecords) ||
+          (typeof linked === 'string' && linked.startsWith(USER_KEY_PREFIX)))
+      );
+    },
+  },
+  DuplicateRecordItem: {
+    ends: ['RecordId'],
+    cameWithRun: (row, runRecords) => isRunRecord(row.RecordId, runRecords),
+  },
+};
 
 /** What the removal of a run's records needs from the org it wrote to. */
 export type RemovalOrg = Pick<
   OrgSession,
   'query' | 'destroy' | 'describe' | 'describeGlobal' | 'update'
->;
+> & {
+  /**
+   * The org's clock now, as the org writes a date: the removal dates its own
+   * start by it, as the org dates what the removal makes it do.
+   */
+  serverTime(): Promise<string>;
+};
 
-/** How a removal of a run's records goes. */
+/**
+ * The org a removal works on, over a jsforce connection: the session the
+ * cleanup work uses, and the org's clock, which only the SOAP API tells.
+ *
+ * @param conn - The run's target org.
+ * @param context - Names the work in the API-usage warnings.
+ */
+export function removalOrg(conn: Connection, context: string): RemovalOrg {
+  return {
+    ...orgSession(conn, context),
+    serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
+  };
+}
+
+/**
+ * How a removal of a run's records goes.
+ *
+ * The run's span is the target's, never this machine's: every date the
+ * removal compares with it is the org's own, and against a clock a second
+ * behind the org's, the records a run wrote last would read as changed since.
+ * Given, it is what the run read back from the org as it ended
+ * (`ForgeExecutionResult.writtenBetween`); absent — a run recorded before runs
+ * kept it — it is read from the records.
+ */
 export interface RunRemovalOptions {
-  /** When the run started: a record older than this did not come with it. */
-  runStartedAt: Date;
-  /** When the run ended: a record modified after it was changed since. */
-  runEndedAt: Date;
+  /**
+   * The target's date of the run's first write: a record older than this did
+   * not come with it. Absent, the earliest `CreatedDate` of the run's records.
+   */
+  runStartedAt?: Date;
+  /**
+   * The target's date of the last stamp the run left: a record modified after
+   * it was changed since. Absent, the start plus `runDurationMs`: the run's
+   * writes all fell within that long after its first, whichever clock timed it.
+   */
+  runEndedAt?: Date;
+  /** How long the run took, for a run whose end the target did not date. */
+  runDurationMs?: number;
   /**
    * Delete the records the run created that were modified since it ended too,
    * and let what was added to its records since go with them.
@@ -167,6 +241,8 @@ function describeError(error: DeleteError): string {
 interface ObjectSnapshot {
   /** Record key -> when the record was last modified, for the records still there. */
   lastModified: Map<string, number>;
+  /** The earliest `CreatedDate` among them; NaN when none could be read. */
+  firstCreated: number;
   /** Why the object could not be read, when it could not. */
   error?: string;
 }
@@ -277,14 +353,11 @@ export async function removeRunRecords(
   plan: readonly ForgeRunObjectRecords[],
   options: RunRemovalOptions,
 ): Promise<RunRemovalOutcome> {
-  const removalStart = Date.now();
   const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
-  const runEnd = options.runEndedAt.getTime();
-  const runStart = options.runStartedAt.getTime();
   const stopped = (): boolean => options.signal?.aborted === true;
 
   // Every record of the run, by key; a record in the org is changed when it
-  // was modified after the run ended.
+  // was modified after the run ended, both by the org's clock.
   const runRecords = new Set(plan.flatMap((object) => object.ids.map(recordKey)));
   const changed = new Set<string>();
   const snapshots = new Map<string, ObjectSnapshot>();
@@ -292,6 +365,7 @@ export async function removeRunRecords(
     if (stopped()) return { objects: [], cancelled: true };
     snapshots.set(objectApiName, await snapshotOf(org, objectApiName, ids));
   }
+  const { start: runStart, end: runEnd } = runSpan(options, snapshots.values());
   for (const snapshot of snapshots.values()) {
     for (const [key, modified] of snapshot.lastModified) {
       // A date that cannot be read cannot show the record was left alone.
@@ -305,6 +379,7 @@ export async function removeRunRecords(
     query: (soql) => org.query(soql),
     destroy: (objectApiName, ids) => org.destroy(objectApiName, ids),
     update: (objectApiName, records) => org.update(objectApiName, records),
+    serverTime: () => org.serverTime(),
     describeGlobal: () => org.describeGlobal(),
     describe: (objectApiName) => {
       let described = describes.get(objectApiName);
@@ -316,6 +391,9 @@ export async function removeRunRecords(
     },
   };
   const order = await removalOrder(session, plan);
+  // Read before the removal's first write: what the org creates from then on
+  // is the removal's doing, dated by the same clock as the run.
+  const removalStart = await removalStartOf(session);
 
   /** Records of the run whose object the removal has been through. */
   const reached = new Set<string>();
@@ -639,10 +717,11 @@ async function removeCandidates(
 }
 
 /**
- * Which records of one object are still in the org, and when each was last
- * modified — by its system stamp when the object keeps no modified date. An
- * email message's relation keeps none: read by it alone, the object was
- * refused whole, and the removal said so of records its message took along.
+ * Which records of one object are still in the org, when each was last
+ * modified — by its system stamp when the object keeps no modified date — and
+ * when the first of them was created. An email message's relation keeps no
+ * modified date: read by it alone, the object was refused whole, and the
+ * removal said so of records its message took along.
  */
 async function snapshotOf(
   org: RemovalOrg,
@@ -650,19 +729,62 @@ async function snapshotOf(
   ids: readonly string[],
 ): Promise<ObjectSnapshot> {
   let error: string | undefined;
-  for (const column of SNAPSHOT_DATE_COLUMNS) {
+  for (const { created, modified } of SNAPSHOT_DATE_COLUMNS) {
     try {
-      const rows = await readRecordsById(org, objectApiName, [column], ids);
+      const columns = created ? [created, modified] : [modified];
+      const rows = await readRecordsById(org, objectApiName, columns, ids);
       const lastModified = new Map<string, number>();
+      let firstCreated = Number.NaN;
       for (const row of rows) {
-        if (typeof row.Id === 'string') lastModified.set(recordKey(row.Id), epochOf(row[column]));
+        if (typeof row.Id === 'string') lastModified.set(recordKey(row.Id), epochOf(row[modified]));
+        if (created) firstCreated = earliest(firstCreated, epochOf(row[created]));
       }
-      return { lastModified };
+      return { lastModified, firstCreated };
     } catch (err: unknown) {
       error ??= extractErrorMessage(err);
     }
   }
-  return { lastModified: new Map(), error };
+  return { lastModified: new Map(), firstCreated: Number.NaN, error };
+}
+
+/**
+ * When a removal starts, by the org's clock, to the second: the org dates
+ * what it writes to the second, so what the removal makes it write within
+ * the second it started is dated to that second's start. An org that does
+ * not tell its clock leaves nothing read as the removal's own doing.
+ */
+async function removalStartOf(org: RemovalOrg): Promise<number> {
+  let now = Number.NaN;
+  try {
+    now = epochOf(await org.serverTime());
+  } catch {
+    // Untold: see above.
+  }
+  return Number.isFinite(now) ? Math.floor(now / 1000) * 1000 : Number.POSITIVE_INFINITY;
+}
+
+/** The earlier of two dates, either of which may be NaN for a date not read. */
+function earliest(a: number, b: number): number {
+  if (Number.isNaN(a)) return b;
+  return b < a ? b : a;
+}
+
+/**
+ * The run's span, in the target's dates: the one given, or, for a run whose
+ * dates the org did not give back, from its first record's `CreatedDate` to
+ * that plus how long the run took. The end is then late rather than early:
+ * the run's first write came after it started, so every write it made fell
+ * before, and none of its own records reads as changed since it.
+ */
+function runSpan(
+  options: Pick<RunRemovalOptions, 'runStartedAt' | 'runEndedAt' | 'runDurationMs'>,
+  snapshots: Iterable<ObjectSnapshot>,
+): { start: number; end: number } {
+  let firstCreated = Number.NaN;
+  for (const snapshot of snapshots) firstCreated = earliest(firstCreated, snapshot.firstCreated);
+  const start = options.runStartedAt?.getTime() ?? firstCreated;
+  const end = options.runEndedAt?.getTime() ?? start + (options.runDurationMs ?? 0);
+  return { start, end };
 }
 
 /** What a delete did to one record. */
@@ -712,7 +834,10 @@ interface DependentsContext {
   stays: (key: string) => boolean;
   runStart: number;
   runEnd: number;
-  /** When this removal started: what was created after it is its own doing. */
+  /**
+   * When this removal started, by the org's clock: what was created after it
+   * is its own doing. Infinite when the org did not tell.
+   */
   removalStart: number;
   /** Whether what changed since the run, and what was added since, goes too. */
   includeChanged: boolean;
@@ -800,9 +925,9 @@ class DependentsCheck {
     const child = assertSoqlIdentifier(relationship.childSObject);
     const field = assertSoqlIdentifier(relationship.field);
     const [list] = idLists(chunk, chunk.length);
-    // A file's link is read with both its ends, whichever one the relationship
-    // follows: see `fileLinkCameWithRun`.
-    const columns = new Set(['Id', field, ...(child === FILE_LINK ? FILE_LINK_ENDS : [])]);
+    // A record the platform adds is read with the ends that tie it to the
+    // run, whichever one the relationship follows: see `PLATFORM_ADDED`.
+    const columns = new Set(['Id', field, ...(PLATFORM_ADDED[child]?.ends ?? [])]);
     for (const dates of DEPENDENT_DATE_COLUMNS) {
       let answer: { records: unknown[] };
       try {
@@ -821,7 +946,7 @@ class DependentsCheck {
         if (typeof record !== 'object' || record === null) continue;
         const row = record as Record<string, unknown>;
         const parent = row[relationship.field];
-        if (typeof parent === 'string' && typeof row.Id === 'string' && this.stays(row)) {
+        if (typeof parent === 'string' && typeof row.Id === 'string' && this.stays(row, child)) {
           holding.add(recordKey(parent));
         }
       }
@@ -845,17 +970,21 @@ class DependentsCheck {
    *   goes with it;
    * - one added or modified since the run stays, unless the request includes
    *   what changed since the run. Editing a cloned record adds records of its
-   *   own — a tracked change in its feed, the duplicate rule's match — and a
-   *   request that asks for the changed records back out means those too.
+   *   own — a tracked change in its feed — and a request that asks for the
+   *   changed records back out means those too.
    *
-   * An object that keeps no created and modified dates is read by its system
-   * stamp; one that keeps no date at all stays.
+   * What the platform adds on its own to a record of the run comes with the
+   * run, whatever its date: see `PLATFORM_ADDED`. An object that keeps no
+   * created and modified dates is read by its system stamp; one that keeps no
+   * date at all stays.
+   *
+   * @param object - The record's object.
    */
-  private stays(row: Record<string, unknown>): boolean {
+  private stays(row: Record<string, unknown>, object: string): boolean {
     const key = recordKey(row.Id as string);
     const { runRecords, reached, runStart, runEnd, removalStart, includeChanged } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
-    if (fileLinkCameWithRun(row, runRecords)) return false;
+    if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     const dated =
       'CreatedDate' in row ? 'CreatedDate' : 'SystemModstamp' in row ? 'SystemModstamp' : undefined;
     if (!dated) return true;

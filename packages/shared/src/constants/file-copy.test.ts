@@ -4,6 +4,7 @@ import {
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
   fileCopyRefusal,
+  isFileContentField,
 } from './file-copy.js';
 
 describe('the size a file is copied up to', () => {
@@ -17,6 +18,15 @@ describe('the size a file is copied up to', () => {
     const encoded = Math.ceil((FILE_COPY_CEILING_MB * BYTES_PER_MB) / 3) * 4;
     expect(encoded).toBeLessThan(50 * 1_000_000);
     expect(encoded).toBeLessThan(50 * BYTES_PER_MB);
+  });
+});
+
+describe('isFileContentField', () => {
+  it("names a field by the type its describe gives it, whatever the field's name", () => {
+    expect(isFileContentField({ type: 'base64' })).toBe(true);
+    expect(isFileContentField({ type: 'string' })).toBe(false);
+    expect(isFileContentField({ type: 'url' })).toBe(false);
+    expect(isFileContentField({})).toBe(false);
   });
 });
 

@@ -68,7 +68,8 @@ ForgeOrchestrator.execute(graph, config)
        │    against the target's FileStorageMB; after the records, each file
        │    is read and written in one request of its own (FileCopier)
        │
-       └─ summary { successCount, failedCount, skippedCount, errors[], files? }
+       └─ summary { successCount, failedCount, skippedCount, errors[], files?,
+                    fileContentFieldsLeftOut?, writtenBetween? }
 ```
 
 A run asked to copy files reads every object before it writes one, whatever
@@ -80,6 +81,19 @@ is left out and listed. Each copied file is recorded under its document
 (`ContentDocument`) or as an `Attachment`, so removing the run's records
 removes it. While the run anonymizes, `files.acceptedAsIs` must say the files
 are copied as they are, or the run is refused before it reads anything.
+
+A field whose describe type is `base64` holds a file's content, and a read gives
+the address of that content instead. No such field is read or written, on any
+object, including an optional parent fetched from outside the graph; the ones
+createable on an object with records to write are listed per object in
+`fileContentFieldsLeftOut`. Files and attachments never reach the graph: their
+content is the files stage's.
+
+Once the run has written, it reads back from the target the `CreatedDate` and
+`LastModifiedDate` of every record it created, and keeps the earliest creation
+and the latest stamp as `writtenBetween`, a stopped run included. Removing the
+run's records compares the org's dates with those, and with the org's time as
+the removal starts, never with this machine's clock.
 
 ## ExecuteOptions
 

@@ -433,6 +433,28 @@ describe('sandforge-clone summary', () => {
     });
   });
 
+  it("names, per object, the fields left empty because they hold a file's content", () => {
+    const fileContentFieldsLeftOut = [
+      { objectApiName: 'Account', fields: ['Logo__c'] },
+      { objectApiName: 'QuoteDocument', fields: ['Document'] },
+    ];
+
+    const lines = summaryLines(summary({ fileContentFieldsLeftOut }));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        "left empty, as they hold a file's content (2 object(s)):",
+        '  Account  Logo__c',
+        '  QuoteDocument  Document',
+      ]),
+    );
+    expect(jsonResult(summary({ fileContentFieldsLeftOut })).fileContentFieldsLeftOut).toEqual(
+      fileContentFieldsLeftOut,
+    );
+    expect(summaryLines(summary({})).some((line) => line.includes("a file's content"))).toBe(false);
+    expect(jsonResult(summary({})).fileContentFieldsLeftOut).toBeUndefined();
+  });
+
   it('prints the reason an object was held back, from its error samples', () => {
     const lines = summaryLines(
       summary({

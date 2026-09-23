@@ -20,6 +20,22 @@ export const FILE_COPY_DEFAULT_MAX_MB = 10;
 export const FILE_COPY_CEILING_MB = 35;
 
 /**
+ * The type a describe gives a field that holds a file's content.
+ *
+ * Read through the data API, such a field comes back as the address of its
+ * content, never as the content: a copy that writes the value it read writes
+ * that address in the file's place. The files stage reads a Salesforce File's
+ * version and an attachment's body from their own address, and every other
+ * field of the type is left out of a copy.
+ */
+const FILE_CONTENT_FIELD_TYPE = 'base64';
+
+/** Whether a field holds a file's content, by the type its describe gives it. */
+export function isFileContentField(field: { readonly type?: string }): boolean {
+  return field.type === FILE_CONTENT_FIELD_TYPE;
+}
+
+/**
  * Why a run that copies files may not start, or null when it may.
  *
  * The content of a file cannot be anonymized: a run that anonymizes its

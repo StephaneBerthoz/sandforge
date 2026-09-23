@@ -711,4 +711,28 @@ describe('ForgeResults', () => {
 
     expect(screen.queryByTestId('forge-results-truncated')).toBeNull();
   });
+
+  it("names, per object, the fields the clone left empty because they hold a file's content", () => {
+    mockResult = Object.assign(makeMockResult(), {
+      fileContentFieldsLeftOut: [
+        { objectApiName: 'Account', fields: ['Logo__c'] },
+        { objectApiName: 'QuoteDocument', fields: ['Document'] },
+      ],
+    });
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-file-content').textContent).toContain(
+      "these fields hold a file's content",
+    );
+    expect(
+      screen.getAllByTestId('forge-results-file-content-row').map((row) => row.textContent),
+    ).toEqual(['Account — Logo__c', 'QuoteDocument — Document']);
+  });
+
+  it('says nothing of file content for a run that left no field empty', () => {
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-file-content')).toBeNull();
+  });
 });

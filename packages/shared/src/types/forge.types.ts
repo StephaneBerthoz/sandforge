@@ -418,6 +418,31 @@ export interface ForgeFilesReport {
 }
 
 /**
+ * The fields of one object a run left out because they hold a file's content:
+ * read through the API, each gave the address of its file, never the file.
+ */
+export interface ForgeFieldsLeftOut {
+  /** API name of the object. */
+  objectApiName: string;
+  /** The fields left empty in every record of it the run wrote. */
+  fields: string[];
+}
+
+/**
+ * When the target org dated a run's writes, by its own clock: what removing
+ * the run's records tells a change made since the run by.
+ */
+export interface ForgeWrittenBetween {
+  /** The earliest `CreatedDate` of the records the run created, ISO 8601. */
+  first: string;
+  /**
+   * The latest `LastModifiedDate` the run left on them, read as it ended:
+   * a record modified after it was changed since the run. ISO 8601.
+   */
+  last: string;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -528,6 +553,17 @@ export interface ForgeExecutionResult {
    * among its objects too, and removing its records removes them.
    */
   files?: ForgeFilesReport;
+  /**
+   * Per object, the fields left out because they hold a file's content. Absent
+   * when the run left none out, and from runs recorded before it was kept.
+   */
+  fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
+  /**
+   * When the target dated the run's writes. Absent from a run that created
+   * nothing, one whose dates could not be read back, and runs recorded before
+   * it was kept: removing their records dates them from the records instead.
+   */
+  writtenBetween?: ForgeWrittenBetween;
   /**
    * The configuration that produced this run, minus the org ids.
    *

@@ -387,6 +387,40 @@ describe('OrphanExpander', () => {
     expect(payload[0]).toEqual({ Name: 'Acme' });
   });
 
+  it("copies a parent without the fields the run leaves out for holding a file's content", async () => {
+    const address = `/services/data/v66.0/sobjects/Account/${ORPHAN_ID}/Logo__c`;
+    const deps = makeDeps({
+      describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Name', queryable: true, createable: true, isReference: false },
+        { name: 'Logo__c', queryable: true, createable: true, isReference: false, type: 'base64' },
+      ]),
+      queryRecords: vi
+        .fn<ExpanderDeps['queryRecords']>()
+        .mockImplementation(async (_org, soql) =>
+          soql.includes('Logo__c')
+            ? [{ Id: ORPHAN_ID, Name: 'Acme', Logo__c: address }]
+            : [{ Id: ORPHAN_ID, Name: 'Acme' }],
+        ),
+    });
+    const leftOut: string[] = [];
+    const { input } = makeInput(deps, {
+      withoutFileContent: (objectApiName, fields) => {
+        leftOut.push(
+          ...fields.filter((f) => f.type === 'base64').map((f) => `${objectApiName}.${f.name}`),
+        );
+        return fields.filter((f) => f.type !== 'base64');
+      },
+    });
+
+    await new OrphanExpander(deps).expandForNode(input);
+
+    const [, , payload] = vi.mocked(deps.insertRecords).mock.calls[0];
+    expect(payload[0]).toEqual({ Name: 'Acme' });
+    expect(vi.mocked(deps.queryRecords).mock.calls[0][1]).not.toContain('Logo__c');
+    expect(leftOut).toEqual(['Account.Logo__c']);
+  });
+
   it('expands more than one wave of orphans (concurrency 4)', async () => {
     const deps = makeDeps();
     const { input } = makeInput(deps, {

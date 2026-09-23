@@ -620,6 +620,26 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           it copied, and every file it left out with why. */}
       {result?.files && <ForgeFilesResult files={result.files} />}
 
+      {/* Read, a field holding a file's content gives its file's address,
+          never the file: the clone left each one empty, and says which. */}
+      {result?.fileContentFieldsLeftOut && result.fileContentFieldsLeftOut.length > 0 && (
+        <div
+          className="rounded border border-subtle px-4 py-2 text-xs text-text-secondary"
+          role="status"
+          data-testid="forge-results-file-content"
+        >
+          <p>{t('forge.fileContentLeftOut')}</p>
+          <ul className="mt-1 space-y-0.5">
+            {result.fileContentFieldsLeftOut.map(({ objectApiName, fields }) => (
+              <li key={objectApiName} data-testid="forge-results-file-content-row">
+                <span className="font-mono text-text-primary">{objectApiName}</span>
+                {` — ${fields.join(', ')}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* A read stopped by a bound is not a failure and would otherwise leave
           the wizard showing an unqualified success for a partial clone. */}
       {result?.truncatedObjects && result.truncatedObjects.length > 0 && (
