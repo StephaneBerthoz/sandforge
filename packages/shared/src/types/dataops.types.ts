@@ -83,8 +83,23 @@ export interface AnonymizationRuleConfig {
   fakerMethod?: string;
   fakerLocale?: string;
   constantValue?: string;
+  /** How many characters a `truncate` rule keeps. Unset, it keeps none. */
+  truncateLength?: number;
+  /**
+   * Which end of the value those characters are kept from: the last ones
+   * unless the rule says `first`, as a postal code cut to its region does.
+   */
+  truncateKeep?: 'first' | 'last';
   preserveLength?: boolean;
 }
+
+/**
+ * The settings a masking template itself gives a rule: the value a constant
+ * writes, how much a truncation keeps. Never a salt — a salt written into a
+ * template is readable by anyone who can read the template, and is then no
+ * key at all; the run that applies the template supplies one.
+ */
+export type AnonymizationTemplateRuleConfig = Omit<AnonymizationRuleConfig, 'hashSalt'>;
 
 /** One object a data-quality scan is asked to read. */
 export interface DataQualityScanTarget {

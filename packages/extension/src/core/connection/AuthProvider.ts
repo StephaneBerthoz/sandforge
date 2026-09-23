@@ -67,7 +67,7 @@ export class AuthProvider {
       case 'usernamePassword':
         return this.authenticateUsernamePassword(credentials);
       case 'sfdx_import':
-        return this.importFromSfdx();
+        return this.importFromSfdx(credentials.username);
       default:
         return {
           success: false,
@@ -187,22 +187,30 @@ export class AuthProvider {
     }
   }
 
-  private async importFromSfdx(): Promise<AuthResult> {
+  /**
+   * The session the CLI holds for `username`.
+   *
+   * It used to be the session of whichever org the CLI listed first, sorted
+   * by alias: an answer about an org nobody asked for.
+   */
+  private async importFromSfdx(username: string | undefined): Promise<AuthResult> {
     if (!this.sfdxBridge) {
       return { success: false, error: 'SFDX bridge not configured' };
     }
+    if (!username) {
+      return { success: false, error: 'An SFDX import needs the username of the org to import' };
+    }
 
     try {
-      const results = await this.sfdxBridge.listOrgs();
-      if (results.length === 0) {
-        return { success: false, error: 'No connected orgs found in SF CLI' };
+      const found = await this.sfdxBridge.findOrg(username);
+      if (!found) {
+        return { success: false, error: `No connected org for ${username} found in SF CLI` };
       }
-      const first = results[0];
       return {
         success: true,
-        accessToken: first.credentials.accessToken,
-        instanceUrl: first.credentials.instanceUrl,
-        orgId: first.org.orgId,
+        accessToken: found.credentials.accessToken,
+        instanceUrl: found.credentials.instanceUrl,
+        orgId: found.org.orgId,
       };
     } catch (err: unknown) {
       const message = extractErrorMessage(err);

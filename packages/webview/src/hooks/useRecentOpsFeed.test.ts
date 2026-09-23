@@ -100,6 +100,28 @@ describe('useRecentOpsFeed', () => {
     expect(op?.recordCount).toBe(1200);
   });
 
+  it('marks the op as failed when it completes with a failure status', () => {
+    // A seed that wrote nothing, a sync whose every record the org refused:
+    // the run ends, says it failed, and was listed as a success.
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-4',
+        module: 'seed',
+        description: 'Seed data generation',
+      });
+    });
+    act(() => {
+      dispatchMessage('operation:completed', {
+        operationId: 'op-4',
+        result: { status: 'failure', totalRecords: 0 },
+      });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.status).toBe('failed');
+  });
+
   it('marks the op as failed on operation:failed', () => {
     renderHook(() => useRecentOpsFeed());
 

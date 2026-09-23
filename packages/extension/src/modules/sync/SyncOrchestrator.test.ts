@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOrchestrator } from './SyncOrchestrator';
 import { SyncRunFailure } from './SyncRunFailure';
+import { DataSync } from './DataSync';
+import { FieldMappingService } from './FieldMapping';
+import { TransformPipeline } from './TransformPipeline';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
@@ -341,5 +344,58 @@ describe('a run that fails partway reports what it wrote', () => {
     // The object that failed carries the reason, and the one before it its counts.
     expect(failure?.result.objectResults[1].errors).toEqual(['target session expired']);
     expect(failure?.result.totalSuccess).toBe(1);
+  });
+});
+
+describe('a mapped sync writes each mapping once', () => {
+  it('writes a renamed, a constant and a formula field with their values', async () => {
+    // The orchestrator maps each record, then DataSync mapped it again by
+    // source field name — on a record that already holds target names. The
+    // second pass found nothing under `Legacy_Code__c`, `FIXED` or the
+    // formula, and the three fields were written empty.
+    const written: Array<Record<string, unknown>> = [];
+    const insert = vi.fn(async (_object: string, records: Array<Record<string, unknown>>) => {
+      written.push(...records);
+      return records.map(() => ({ success: true, errors: [] }));
+    });
+    const deps: SyncOrchestratorDeps = {
+      ...createMockDeps(),
+      dataSync: new DataSync({ insert, upsert: vi.fn(), update: vi.fn(), delete: vi.fn() }),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource: vi
+        .fn()
+        .mockResolvedValue([
+          { Id: '003000000000001', FirstName: 'Ann', LastName: 'Lee', Legacy_Code__c: 'A1' },
+        ]),
+    };
+    const config = createConfig({
+      objects: [
+        createObjectConfig({
+          objectApiName: 'Contact',
+          operation: 'insert',
+          fieldMappings: [
+            { sourceField: 'LastName', targetField: 'LastName', type: 'direct' },
+            { sourceField: 'Legacy_Code__c', targetField: 'Code__c', type: 'rename' },
+            { sourceField: 'FIXED', targetField: 'Source__c', type: 'constant' },
+            { sourceField: '{FirstName} {LastName}', targetField: 'Full__c', type: 'formula' },
+          ],
+          addOnFields: [{ fieldApiName: 'Batch__c', value: 'nightly', overwriteExisting: true }],
+        }),
+      ],
+    });
+
+    const result = await new SyncOrchestrator(deps).execute(config);
+
+    expect(result.status).toBe('success');
+    expect(written).toEqual([
+      {
+        LastName: 'Lee',
+        Code__c: 'A1',
+        Source__c: 'FIXED',
+        Full__c: 'Ann Lee',
+        Batch__c: 'nightly',
+      },
+    ]);
   });
 });

@@ -22,6 +22,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
 
 vi.mock('../../logger.js', () => ({
@@ -677,6 +678,40 @@ describe('ForgeHandler', () => {
       expect(response.payload.result).toEqual(result);
     });
 
+    it('hands the method Review holds for each PII category to the run', async () => {
+      const graph = createMockGraph();
+      const config = { ...createMockConfig(), anonymizePII: true };
+
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph,
+          config,
+          anonymizationRules: { email: 'hash', phone: 'redact' },
+        }),
+      );
+
+      expect(vi.mocked(orchestrator.execute).mock.calls[0][2]).toEqual({
+        recordTypeMappings: undefined,
+        anonymizationRules: { email: 'hash', phone: 'redact' },
+      });
+    });
+
+    it('refuses an anonymization method it does not know, before anything runs', async () => {
+      await handler.handle(
+        buildMsg('forge:execute', {
+          graph: createMockGraph(),
+          config: { ...createMockConfig(), anonymizePII: true },
+          anonymizationRules: { email: 'encrypt' },
+        }),
+      );
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const errors = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:execute:error');
+      expect(errors).toHaveLength(1);
+    });
+
     it('forwards progress events with correlationId', async () => {
       const graph = createMockGraph();
       const config = createMockConfig();
@@ -1058,7 +1093,6 @@ describe('ForgeHandler', () => {
       confirmed?: boolean;
     }): {
       check: ReturnType<typeof vi.fn>;
-      logOperation: ReturnType<typeof vi.fn>;
       confirmIfNeeded: ReturnType<typeof vi.fn>;
     } {
       const check = vi.fn().mockReturnValue({
@@ -1069,15 +1103,14 @@ describe('ForgeHandler', () => {
         warnings: [],
         impactSummary: 'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
       });
-      const logOperation = vi.fn();
       const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
-        productionGuard: { check, logOperation, confirmIfNeeded },
+        productionGuard: { check, confirmIfNeeded },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
-      return { check, logOperation, confirmIfNeeded };
+      return { check, confirmIfNeeded };
     }
 
     function mockTargetOrgType(orgType: string): void {
@@ -1105,6 +1138,17 @@ describe('ForgeHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].correlationId).toBe(msg.id);
       expect(errors[0].payload.code).toBe('NOT_INITIALIZED');
+      // Recorded as the guard's own refusals are, with the code that says why.
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('asks for production confirmation before executing on a production target', async () => {
@@ -1130,7 +1174,7 @@ describe('ForgeHandler', () => {
         module: 'forge',
       });
       expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(orchestrator.execute).toHaveBeenCalledTimes(1);
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
       const responses = postCalls.filter(
@@ -1152,7 +1196,7 @@ describe('ForgeHandler', () => {
       });
       await handler.handle(msg);
 
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(guard.confirmIfNeeded).not.toHaveBeenCalled();
       expect(orchestrator.execute).not.toHaveBeenCalled();
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
@@ -1205,6 +1249,7 @@ describe('ForgeHandler', () => {
       // word to the user.
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
         productionGuard: guard,
@@ -1219,7 +1264,7 @@ describe('ForgeHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(orchestrator.execute).not.toHaveBeenCalled();
       const errors = vi
         .mocked(deps.broker.postToWebview)
@@ -1229,7 +1274,7 @@ describe('ForgeHandler', () => {
       expect(errors[0].payload.code).toBe('GUARD_DECLINED');
     });
 
-    it('lets sandbox executions through and audits them via logOperation', async () => {
+    it('lets sandbox executions through once the guard has judged them', async () => {
       const guard = wireGuard({ allowed: true, requiresConfirmation: false });
       mockTargetOrgType('Sandbox');
 
@@ -1239,8 +1284,8 @@ describe('ForgeHandler', () => {
       });
       await handler.handle(msg);
 
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
-      expect(guard.logOperation.mock.calls[0][0]).toMatchObject({
+      expect(guard.check).toHaveBeenCalledTimes(1);
+      expect(guard.check.mock.calls[0][0]).toMatchObject({
         orgId: 'tgt-org',
         orgTier: 'development',
         module: 'forge',
@@ -1361,7 +1406,6 @@ describe('ForgeHandler', () => {
             warnings: [],
             impactSummary: '',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn(),
         },
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -1386,7 +1430,6 @@ describe('ForgeHandler', () => {
             warnings: [],
             impactSummary: '',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn().mockResolvedValue(true),
           canAskForConfirmation: true,
         },
@@ -1408,6 +1451,53 @@ describe('ForgeHandler', () => {
       expect(new AuditTrailStore(store).list().entries).toEqual([
         expect.objectContaining({ outcome: 'failure', objects: [] }),
       ]);
+    });
+
+    it('records what a run that threw had written, per object, and where from', async () => {
+      // Stopped by an abort after the Accounts and the first Contacts: the
+      // entry said "failed" and nothing else, as if the org had not been touched.
+      const store = recordingStore();
+      const stopped = new Error('Forge execution was aborted by user request.');
+      keepPartialSummary(stopped, {
+        successCount: 5,
+        linkedCount: 0,
+        failedCount: 1,
+        skippedCount: 0,
+        remapCount: 5,
+        errors: [
+          {
+            objectApiName: 'Contact',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 4,
+            samples: [],
+          },
+        ],
+        truncatedObjects: [],
+        remapTable: {},
+        existingRecords: [],
+        existingSourceIds: [],
+        remapByObject: [
+          { objectApiName: 'Account', created: 2, linked: 0 },
+          { objectApiName: 'Contact', created: 3, linked: 0 },
+        ],
+      });
+      vi.mocked(orchestrator.execute).mockRejectedValue(stopped);
+
+      await execute();
+
+      const { entries } = new AuditTrailStore(store).list();
+      expect(entries).toEqual([
+        expect.objectContaining({
+          outcome: 'failure',
+          sourceOrgId: 'src-org',
+          objects: [
+            { objectApiName: 'Account', created: 2, updated: 0, deleted: 0, failed: 0 },
+            { objectApiName: 'Contact', created: 3, updated: 0, deleted: 0, failed: 1 },
+          ],
+        }),
+      ]);
+      expect(new LineageStore(store).get(entries[0].operationId)).not.toBeNull();
     });
   });
 

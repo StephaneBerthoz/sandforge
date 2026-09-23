@@ -377,8 +377,9 @@ export const syncScheduleEntryPayloadSchema = z
     id: opaqueIdSchema,
     name: z.string().min(1).max(200),
     configId: opaqueIdSchema,
-    // 5-field cron expression; syntax is validated by cron-parser at upsert
-    // time (SyncScheduleExecutor logs and yields an empty nextRunAt on error).
+    // 5-field cron expression. Whether it reads, and falls due within the
+    // coming year, is checked by SyncScheduleHandler before the upsert, which
+    // refuses the schedule with the reason (see `nextCronRun`).
     cron: z.string().min(1).max(100),
     // IANA timezone string (e.g. "Europe/Paris").
     timezone: z.string().min(1).max(100),

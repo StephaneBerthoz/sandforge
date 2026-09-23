@@ -163,6 +163,36 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[1]?.recordTypeMappings).toBe(recordTypeMappings);
     });
 
+    it('asks the executor to anonymize the selected fields with the methods sent, in both input modes', async () => {
+      const graph = createMockGraph();
+      graph.nodes[0] = { ...graph.nodes[0], piiFields: ['Phone'], anonymizeFields: ['Phone'] };
+      const anonymized = { anonymizePII: true };
+
+      await orchestrator.execute(graph, createMockConfig(anonymized), {
+        anonymizationRules: { phone: 'redact' },
+      });
+      await orchestrator.execute(
+        graph,
+        createMockConfig({
+          ...anonymized,
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Account',
+        }),
+        { anonymizationRules: { phone: 'redact' } },
+      );
+      await orchestrator.execute(graph, createMockConfig(), {
+        anonymizationRules: { phone: 'redact' },
+      });
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      const expected = { fields: { Account: ['Phone'] }, methods: { phone: 'redact' } };
+      expect(optionsPassed[0]?.anonymization).toEqual(expected);
+      expect(optionsPassed[1]?.anonymization).toEqual(expected);
+      // The toggle off: nothing, whatever the node selects.
+      expect(optionsPassed[2]?.anonymization).toBeUndefined();
+    });
+
     it('should carry the source -> target Id map into the result', async () => {
       // The executor has always returned remapTable; the orchestrator kept
       // only its length, so a finished clone could report a record count while

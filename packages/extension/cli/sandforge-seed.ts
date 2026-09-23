@@ -28,8 +28,9 @@ import type { SeedRelation, SeedTemplate } from '@sandforge/shared';
 import {
   PREBUILT_SEED_TEMPLATES,
   SEED_RELATION_LIMITS,
-  defaultFakerMethod,
+  describedFieldRule,
   duplicateRuleHeaders,
+  integerDigitsOf,
   plannedChildCount,
 } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
@@ -326,11 +327,15 @@ export function prebuiltTemplate(templateId: string | undefined): SeedTemplate |
  *
  * An object with no field rules writes nothing — the validator refuses it now
  * — so `--object Name:count` has to name some. They come from the target's own
- * describe, through the same `defaultFakerMethod` the panel offers, so what
- * this writes is what the panel would write for the same object.
+ * describe, through the same `describedFieldRule` the panel gives a field it
+ * has just described, so what this writes is what the panel would write for
+ * the same object: a text cut to the field's length, a number within its
+ * digits, a percentage within 100. Picking the method alone, as this did,
+ * drew numbers up to 1000 for a two-digit field, which the org refuses.
  *
  * Only what the platform insists on, plus `Name`: a seed is meant to make an
- * org usable, not to fill every column it has.
+ * org usable, not to fill every column it has. A lookup is filled by a
+ * relation the command line names, never by a rule of its own.
  */
 export function rulesFromDescribe(
   fields: Array<{
@@ -339,6 +344,11 @@ export function rulesFromDescribe(
     createable: boolean;
     nillable: boolean;
     defaultedOnCreate?: boolean;
+    length?: number;
+    precision?: number;
+    scale?: number;
+    digits?: number;
+    picklistValues?: Array<{ value?: string | null; active?: boolean }>;
   }>,
 ): SeedTemplate['objects'][number]['fieldRules'] {
   const wanted = fields.filter(
@@ -346,13 +356,23 @@ export function rulesFromDescribe(
   );
   const rules: SeedTemplate['objects'][number]['fieldRules'] = [];
   for (const field of wanted) {
-    const method = defaultFakerMethod(field.type, field.name);
-    if (!method) continue;
+    const rule = describedFieldRule({
+      fieldApiName: field.name,
+      type: field.type,
+      picklistValues: (field.picklistValues ?? [])
+        .filter((p) => p.active !== false && typeof p.value === 'string')
+        .map((p) => p.value as string),
+      referenceTo: [],
+      length: field.length ?? 0,
+      integerDigits: integerDigitsOf(field),
+    });
+    // Nothing to fill it with: the platform answers for the field.
+    if (rule.ruleType === 'static' && rule.config.staticValue === undefined) continue;
     rules.push({
       fieldApiName: field.name,
       fieldType: field.type,
-      ruleType: 'faker',
-      config: { fakerMethod: method },
+      ruleType: rule.ruleType,
+      config: rule.config,
     });
   }
   return rules;

@@ -10,6 +10,16 @@ import type { PipelineOrchestratorDependencies } from '../../modules/automation/
 import { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { PipelineStepRunners } from './pipelineSteps.js';
+import { DataOpsHandler } from './DataOpsHandler.js';
+
+/* A Backup step can run on DataOps's own snapshot flow, which reaches the org
+   through the connection helper: replaced for the whole file, as vi.mock is
+   hoisted above the imports. No other test here opens a connection. */
+vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+  getJsforceConnection: vi.fn(),
+}));
+
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 
 /**
  * Module flows that answer at once, standing in for DataOps, Compare and the
@@ -865,6 +875,70 @@ describe('AutomationHandler', () => {
       ]);
       expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
       expect(posted(deps, 'operation:failed')).toHaveLength(0);
+    });
+
+    it('takes no new snapshot when Live Operations cancels a Backup step, and History records the run cancelled', async () => {
+      // The cancel reaches the snapshot's own registry entry, not the run's:
+      // the step failed, each retry took a new snapshot, and the run was
+      // written as failed — or went on, once a retry's snapshot was taken.
+      deps.services = realServices().services;
+      const registry = new BackgroundOperationRegistry();
+      deps.infraServices = {
+        backgroundRegistry: registry,
+      } as unknown as HandlerDeps['infraServices'];
+      const dataOps = new DataOpsHandler(deps);
+      let snapshots = 0;
+      const flows = fakeRunners({
+        newId: () => `snap-${++snapshots}`,
+        backup: (request, signal) => dataOps.backupForPipeline(request, signal),
+      });
+      handler.setStepRunners(flows);
+      // Cancel on the snapshot, as execution:abort sends it, while the first
+      // of its objects is read.
+      const query = vi.fn(async () => {
+        registry.abort('snap-1');
+        return { records: [{ Id: '001' }], done: true };
+      });
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query,
+      } as never);
+
+      await run(
+        [
+          {
+            type: 'backup',
+            name: 'Snapshot',
+            retries: 2,
+            config: { orgId: 'org-a', objects: ['Account', 'Contact'] },
+          },
+          { type: 'notification', name: 'Tell me', config: { message: 'Snapshot taken.' } },
+        ],
+        'run-snapshot-cancelled',
+      );
+
+      expect(snapshots).toBe(1);
+      expect(query).toHaveBeenCalledTimes(1);
+      const result = runResponse(deps);
+      expect(result.status).toBe('cancelled');
+      expect(result.error).toBeUndefined();
+      expect(result.stepResults).toEqual([
+        expect.objectContaining({
+          stepId: 's1',
+          status: 'failed',
+          error:
+            'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.',
+          cancelled: true,
+        }),
+      ]);
+      expect(flows.notify).not.toHaveBeenCalled();
+      expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
+      // The snapshot says it was stopped; the run is not reported as failing.
+      expect(
+        posted(deps, 'operation:failed').map(
+          (message) => (message.payload as { operationId: string }).operationId,
+        ),
+      ).toEqual(['snap-1']);
     });
 
     it('runs a pipeline that carries no variables and no triggers', async () => {

@@ -1528,7 +1528,6 @@ describe('SeedOpsHandler', () => {
             allowed: true,
             impactSummary: 'writes to production',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded,
         },
         offlineManager: undefined,
@@ -1600,6 +1599,89 @@ describe('SeedOpsHandler', () => {
       // executeSync) — the registry must surface 'failed', never a lying
       // 'completed' + "seed completed" notification.
       await vi.waitFor(() => expect(registry.get(operationId!)?.status).toBe('failed'));
+      registry.dispose();
+    });
+
+    it('reports a run that wrote nothing as failed, everywhere a run is shown', async () => {
+      // The orchestrator answers a refused template, or one whose every record
+      // the org turned down, with a failure-status result. It was announced as
+      // completed: Live Operations listed it done, "seed completed" popped up,
+      // and Home showed a success.
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+      const refused: SeedExecutionResult = {
+        ...seedResult(0),
+        objectResults: [
+          {
+            objectApiName: 'Account',
+            recordsCreated: 0,
+            recordsFailed: 2,
+            createdIds: [],
+            errors: ['REQUIRED_FIELD_MISSING: Name', 'REQUIRED_FIELD_MISSING: Name'],
+          },
+        ],
+        totalRecordsFailed: 2,
+      };
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({ execute: vi.fn().mockResolvedValue(refused) })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-reg-nothing',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+
+      await vi.waitFor(() => expect(registry.get('seed-reg-nothing')?.status).toBe('failed'));
+      const live = tracker.getAll().find((op) => op.operationId === 'seed-reg-nothing');
+      expect(live?.status).toBe('failed');
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload?: Record<string, unknown> },
+      );
+      const completed = posted.find((m) => m.type === 'operation:completed');
+      expect(completed?.payload?.result).toEqual({ status: 'failure', totalRecords: 0 });
+      // The page still gets the result, with what each object was refused for.
+      expect(posted.some((m) => m.type === 'seed:execute:response')).toBe(true);
+      registry.dispose();
+      tracker.dispose();
+    });
+
+    it('reports a run that wrote part of its records as partial', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi
+            .fn()
+            .mockResolvedValue({ ...seedResult(1), status: 'partial', totalRecordsFailed: 1 }),
+        })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-reg-partial',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+
+      await vi.waitFor(() => expect(registry.get('seed-reg-partial')?.status).toBe('completed'));
+      const completed = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: Record<string, unknown> })
+        .find((m) => m.type === 'operation:completed');
+      expect(completed?.payload?.result).toEqual({ status: 'partial', totalRecords: 1 });
       registry.dispose();
     });
 
@@ -1771,7 +1853,7 @@ describe('SeedOpsHandler', () => {
       }));
 
       const completed = postedMessages().find((m) => m.type === 'operation:completed');
-      expect(completed?.payload?.result).toEqual({ totalRecords: 3 });
+      expect(completed?.payload?.result).toEqual({ status: 'success', totalRecords: 3 });
       expect(update).toHaveBeenCalledWith(expect.any(String), 3, 1);
     });
 
@@ -2117,6 +2199,7 @@ describe('SeedOpsHandler', () => {
       const requestConfirmation = vi.fn<(impactSummary: string) => Promise<boolean>>();
       requestConfirmation.mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
         id: 'org-1',
         orgType: 'Production',
@@ -2149,10 +2232,11 @@ describe('SeedOpsHandler', () => {
 
       // 200 000 is above the 1 000-record production threshold: the audited
       // decision must flag approval instead of reading as a one-row insert.
-      const entry = guard.getAuditLog()[0];
-      expect(entry.request.recordCount).toBe(200_000);
-      expect(entry.result.requiresApproval).toBe(true);
-      expect(entry.result.warnings.join(' ')).toContain('200000 records');
+      const [request] = check.mock.calls[0];
+      const result = check.mock.results[0]?.value;
+      expect(request.recordCount).toBe(200_000);
+      expect(result?.requiresApproval).toBe(true);
+      expect(result?.warnings.join(' ')).toContain('200000 records');
     });
   });
 
@@ -2165,6 +2249,7 @@ describe('SeedOpsHandler', () => {
       const requestConfirmation = vi.fn<(impactSummary: string) => Promise<boolean>>();
       requestConfirmation.mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
         id: 'org-1',
         orgType: 'Unknown',
@@ -2195,7 +2280,7 @@ describe('SeedOpsHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 5 SeedData record(s) on production org org-1 [module: seed]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(execute).not.toHaveBeenCalled();
       const seedErrors = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
         .map((c) => c[0] as BaseMessage & { payload?: Record<string, unknown> })
@@ -2239,6 +2324,15 @@ describe('SeedOpsHandler', () => {
         payload: { code: 'NOT_INITIALIZED' },
       });
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      // Recorded as the guard's own refusals are, with the code that says why.
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'seed_execute',
+          operationId: 'seed-guard-3',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
   });
 });

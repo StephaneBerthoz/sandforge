@@ -47,11 +47,28 @@ const MAX_DELAY_MS = 24 * 24 * 60 * 60 * 1000;
 const MAX_TIMEOUT_MS = MAX_DELAY_MS;
 
 /**
+ * What a step handler throws when the work it started was cancelled rather
+ * than failed: a Backup whose snapshot was cancelled from Live Operations,
+ * which is not the run's own cancel. A cancel is not transient, so the step is
+ * not tried again: a retry would take the snapshot the person has just
+ * stopped. The run ends cancelled with it.
+ */
+export class StepCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StepCancelledError';
+  }
+}
+
+/**
  * How one try at a step ended: with the handler's own result, or with the
  * reason it did not give one. `final` marks a try the run itself stopped,
- * which no retry may follow.
+ * which no retry may follow; `cancelled`, a try whose work was cancelled
+ * (see {@link StepCancelledError}), which no retry follows either.
  */
-type Attempt = { result: PipelineStepResult } | { error: string; final: boolean };
+type Attempt =
+  | { result: PipelineStepResult }
+  | { error: string; final: boolean; cancelled?: boolean };
 
 /** What a try settles with when its signal aborts before the handler answers. */
 const STOPPED: unique symbol = Symbol('stopped');
@@ -210,6 +227,9 @@ export class StepExecutor {
    * Execute a pipeline step within the given context.
    * Applies timeout and retry logic as configured on the step. A step that
    * cannot run fails at once, without retries: nothing about it is transient.
+   * Nor is a step whose work was cancelled: its result says it was, and its
+   * run ends cancelled. A Backup cancelled from Live Operations used to be
+   * tried again, and each retry took a new snapshot.
    *
    * A step's timeout stops the step, not only the wait for it. It used to give
    * up on the step and leave it running: the result said the step had timed
@@ -234,6 +254,9 @@ export class StepExecutor {
       const outcome = await this.attempt(handler, step, context);
       if ('result' in outcome) {
         return outcome.result;
+      }
+      if (outcome.cancelled) {
+        return { ...createFailureResult(step, outcome.error, startTime), cancelled: true };
       }
       lastError = outcome.error;
       if (outcome.final) {
@@ -294,6 +317,9 @@ export class StepExecutor {
         ? { error: `Step "${step.name}" timed out after ${timeout} ms.`, final: false }
         : { error: `Step "${step.name}" was stopped before it finished.`, final: true };
     } catch (err) {
+      if (err instanceof StepCancelledError) {
+        return { error: err.message, final: true, cancelled: true };
+      }
       return { error: extractErrorMessage(err), final: false };
     } finally {
       clearTimeout(timer);

@@ -52,6 +52,24 @@ describe('TriggerEngine', () => {
       expect(engine.idleReason(schedule('0 0 31 2 *', 'UTC'))?.idle).toBe('badCron');
     });
 
+    it('starts nothing on a day none of its months has, and says why, rather than planning one decades away', () => {
+      // The parser accepts each field of this one; asked for its next run,
+      // it answered a date in 2054.
+      const now = at('2026-09-23T10:00:00.000Z');
+      const trigger = schedule('0 0 31 2,4 *', 'UTC');
+      const idle = engine.idleReason(trigger, undefined, now);
+      expect(idle?.idle).toBe('noNextRun');
+      expect(idle?.detail).toMatch(/No date in the coming year matches this cron expression/);
+      expect(engine.nextRun(trigger, now)).toEqual(idle);
+    });
+
+    it('can fire on a schedule that falls due once a year, on the day farthest from its run', () => {
+      const secondAfterItsRun = at('2027-03-01T00:00:01.000Z');
+      const yearly = schedule('0 0 1 3 *', 'UTC');
+      expect(engine.idleReason(yearly, undefined, secondAfterItsRun)).toBeUndefined();
+      expect(engine.nextRun(yearly, secondAfterItsRun)).toBe(at('2028-03-01T00:00:00.000Z'));
+    });
+
     it('refuses a time zone that does not exist, and names it', () => {
       expect(engine.idleReason(schedule('0 2 * * *', 'Mars/Olympus_Mons'))).toEqual({
         idle: 'badTimezone',

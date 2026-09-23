@@ -63,8 +63,13 @@ type ReadableType = Parameters<Connection['metadata']['read']>[0];
  * A reader over the two connections of a comparison.
  *
  * @param connectionFor - The connection that reads a given org.
+ * @param signal - The comparison's: once it is aborted, a read sends no
+ *   further request and rejects with its reason.
  */
-export function createContentReader(connectionFor: (orgId: string) => Connection): ContentReader {
+export function createContentReader(
+  connectionFor: (orgId: string) => Connection,
+  signal?: AbortSignal,
+): ContentReader {
   return {
     batchSize(componentType) {
       const how = HOW_TO_READ[componentType];
@@ -76,8 +81,8 @@ export function createContentReader(connectionFor: (orgId: string) => Connection
     async read(orgId, componentType, fullNames) {
       const conn = connectionFor(orgId);
       const how = HOW_TO_READ[componentType];
-      if (how === 'source') return readSource(conn, componentType, fullNames);
-      if (how === 'metadata') return readMetadata(conn, componentType, fullNames);
+      if (how === 'source') return readSource(conn, componentType, fullNames, signal);
+      if (how === 'metadata') return readMetadata(conn, componentType, fullNames, signal);
       return new Map();
     },
   };
@@ -95,11 +100,16 @@ async function readSource(
   conn: Connection,
   componentType: MetadataComponentType,
   fullNames: readonly string[],
+  signal: AbortSignal | undefined,
 ): Promise<ReadContent> {
   const names = [...new Set(fullNames.map(nameWithoutNamespace))];
+  // Each page of the answer is a request of its own: none is asked for once
+  // the comparison is stopped.
   const rows = await queryAll<{ NamespacePrefix: string | null; Name: string; Body: string }>(
     conn,
     `SELECT NamespacePrefix, Name, Body FROM ${componentType} WHERE Name IN (${names.map(soqlString).join(', ')})`,
+    undefined,
+    signal,
   );
   checkApiLimits(conn.limitInfo, `compare:content ${componentType}`);
 
@@ -124,8 +134,9 @@ async function readMetadata(
   conn: Connection,
   componentType: MetadataComponentType,
   fullNames: readonly string[],
+  signal: AbortSignal | undefined,
 ): Promise<ReadContent> {
-  const out = await readRecords(conn, componentType, fullNames);
+  const out = await readRecords(conn, componentType, fullNames, signal);
   if (componentType !== 'Layout') return out;
 
   const retry = new Map<string, string>();
@@ -134,7 +145,8 @@ async function readMetadata(
     if (namespaced) retry.set(namespaced, name);
   }
   if (retry.size === 0) return out;
-  for (const [asked, content] of await readRecords(conn, componentType, [...retry.keys()])) {
+  const readAgain = await readRecords(conn, componentType, [...retry.keys()], signal);
+  for (const [asked, content] of readAgain) {
     out.set(retry.get(asked) ?? asked, content);
   }
   return out;
@@ -152,7 +164,9 @@ async function readRecords(
   conn: Connection,
   componentType: MetadataComponentType,
   fullNames: readonly string[],
+  signal: AbortSignal | undefined,
 ): Promise<ReadContent> {
+  signal?.throwIfAborted();
   const answer: unknown = await conn.metadata.read(componentType as ReadableType, [...fullNames]);
   checkApiLimits(conn.limitInfo, `compare:content ${componentType}`);
   const records = (Array.isArray(answer) ? answer : [answer]).filter(isRecord);

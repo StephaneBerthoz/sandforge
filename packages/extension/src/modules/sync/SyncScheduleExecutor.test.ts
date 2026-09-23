@@ -3,6 +3,7 @@ import { SyncScheduleExecutor } from './SyncScheduleExecutor';
 import type { SyncScheduleExecutorDeps } from './SyncScheduleExecutor';
 import type { SyncScheduleStore } from './SyncScheduleStore';
 import type { SyncScheduleEntry, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
+import { memoryTriggerClaims } from '../automation/TriggerClaims';
 
 /** Fixed "now" time for deterministic tests: 2026-03-27T12:00:00Z */
 const FIXED_NOW = new Date('2026-03-27T12:00:00Z').getTime();
@@ -155,6 +156,16 @@ describe('SyncScheduleExecutor', () => {
       expect(updated.lastRunAt).toBe('2026-03-26T09:00:00Z');
       expect(updated.lastResult).toBe('success');
     });
+
+    it('gives a schedule on a day its months do not have no next run, rather than one decades away', () => {
+      // The parser accepts each field of `0 0 31 2,4 *`; unbounded, it answered 2054.
+      const entry = executor.upsert(createScheduleEntry({ cron: '0 0 31 2,4 *' }));
+
+      expect(entry.nextRunAt).toBe('');
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining('No date in the coming year matches this cron expression'),
+      );
+    });
   });
 
   describe('tick', () => {
@@ -306,6 +317,71 @@ describe('SyncScheduleExecutor', () => {
       // Should execute exactly once despite 3 hours of missed ticks
       expect(deps.onExecute).toHaveBeenCalledTimes(1);
       expect(deps.log).toHaveBeenCalledWith(expect.stringContaining('sleep-wake detected'));
+    });
+  });
+
+  describe('two windows', () => {
+    /** One window's executor over the schedules every window stores, with the claims they share. */
+    function windowWith(
+      entry: SyncScheduleEntry,
+      claims: ReturnType<typeof memoryTriggerClaims>,
+    ): SyncScheduleExecutorDeps {
+      return createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
+        scheduleStore: {
+          loadAll: vi.fn(() => [{ ...entry }]),
+          save: vi.fn(),
+          load: vi.fn(),
+          delete: vi.fn(() => true),
+          list: vi.fn(() => [entry]),
+        } as unknown as SyncScheduleStore,
+        claims,
+      });
+    }
+
+    it('runs a due schedule once, in the window that claims it', async () => {
+      // Every window runs its own tick loop over the same schedules. A sync
+      // writes, so a schedule due with two windows open wrote twice.
+      const entry = createScheduleEntry({ nextRunAt: '2026-03-27T09:00:00.000Z' });
+      const claims = memoryTriggerClaims();
+      const first = windowWith(entry, claims);
+      const second = windowWith(entry, claims);
+      const executors = [new SyncScheduleExecutor(first), new SyncScheduleExecutor(second)];
+      for (const each of executors) each.start();
+
+      await Promise.all(executors.map((each) => each.tick()));
+
+      expect(vi.mocked(first.onExecute).mock.calls.length).toBe(1);
+      expect(vi.mocked(second.onExecute)).not.toHaveBeenCalled();
+      // The other window moves on to the next start, without writing over the
+      // result the first one records.
+      const other = executors[1].getSchedule('sched-1')!;
+      expect(new Date(other.nextRunAt!).getTime()).toBeGreaterThan(FIXED_NOW);
+      expect(second.scheduleStore.save).not.toHaveBeenCalled();
+      for (const each of executors) each.stop();
+    });
+
+    it('lets each window run the starts it claims', async () => {
+      const entry = createScheduleEntry({ nextRunAt: '2026-03-27T09:00:00.000Z' });
+      const claims = memoryTriggerClaims();
+      const first = windowWith(entry, claims);
+      const executor = new SyncScheduleExecutor(first);
+      executor.start();
+      await executor.tick();
+
+      // The next start is a new claim: the window that lost the last one may win it.
+      const later = windowWith(
+        createScheduleEntry({ nextRunAt: '2026-03-27T11:00:00.000Z' }),
+        claims,
+      );
+      const other = new SyncScheduleExecutor(later);
+      other.start();
+      await other.tick();
+
+      expect(first.onExecute).toHaveBeenCalledTimes(1);
+      expect(later.onExecute).toHaveBeenCalledTimes(1);
+      executor.stop();
+      other.stop();
     });
   });
 

@@ -103,15 +103,23 @@ function fakeConnection(orgId: string) {
   };
 }
 
+/** The PII scan discovery runs, reduced to the part the composition reads. */
+type DetectPII = (
+  objectName: string,
+  fields: Array<{ apiName: string; type: string }>,
+) => { piiFields: Array<{ fieldApiName: string }> };
+
 /** Wire the composition and hand back what it injects into the handlers. */
-async function compose(): Promise<{ orchestrator: ForgeOrchestrator; services: ForgeServices }> {
+async function compose(
+  detectPII: DetectPII = () => ({ piiFields: [] }),
+): Promise<{ orchestrator: ForgeOrchestrator; services: ForgeServices }> {
   const setForgeOrchestrator = vi.fn();
   const deps = {
     handlers: { setForgeOrchestrator },
     orgRegistry: {},
     orgManager: {},
     configStore: { get: vi.fn(), set: vi.fn() },
-    piiDetector: { detectPII: () => ({ piiFields: [] }) },
+    piiDetector: { detectPII },
     log: vi.fn(),
   } as unknown as ForgeCompositionDeps;
   initForgeComposition(deps);
@@ -323,6 +331,120 @@ describe('initForgeComposition', () => {
       expect(created).toContain('Account');
       expect(retry.errors?.find((e) => e.objectApiName === 'Account')).toBeUndefined();
       expect(describeCalls.get('tgt::Account')).toBe(2);
+    });
+  });
+
+  describe('anonymization', () => {
+    /** Contacts carry an email and a phone, and the scan flags both. */
+    function contactsWithPersonalData(
+      created: Map<string, Array<Record<string, unknown>>>,
+    ): DetectPII {
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId: string) => {
+        const connection = fakeConnection(orgId);
+        return {
+          ...connection,
+          describe: vi.fn(async (objectApiName: string) => {
+            const described = (await connection.describe(objectApiName)) as { fields: unknown[] };
+            if (objectApiName !== 'Contact') return described;
+            return {
+              ...described,
+              fields: [...described.fields, field('Email', 'email'), field('Phone', 'phone')],
+            };
+          }),
+          query: vi.fn(async (soql: string) => {
+            const page = (await connection.query(soql)) as {
+              records: Array<Record<string, unknown>>;
+            };
+            if (!/\bFROM\s+Contact\b/i.test(soql) || /COUNT\(\)/i.test(soql)) return page;
+            return {
+              ...page,
+              records: page.records.map((r, i) => ({
+                ...r,
+                Email: `person${i + 1}@source.test`,
+                Phone: `0102030${i}`,
+              })),
+            };
+          }),
+          sobject: (objectApiName: string) => ({
+            create: vi.fn(async (records: Array<Record<string, unknown>>) => {
+              created.set(objectApiName, records);
+              return records.map((_, i) => ({
+                id: sfId(objectApiName, 900 + i),
+                success: true,
+                errors: [],
+              }));
+            }),
+          }),
+        } as unknown as Connection;
+      });
+      return (_objectName, fields) => ({
+        piiFields: fields
+          .filter((f) => f.type === 'email' || f.type === 'phone')
+          .map((f) => ({ fieldApiName: f.apiName })),
+      });
+    }
+
+    it('writes the fields selected on a node anonymized, with the methods Review sent', async () => {
+      const created = new Map<string, Array<Record<string, unknown>>>();
+      const { orchestrator } = await compose(contactsWithPersonalData(created));
+      const config: ForgeConfig = { ...SOQL_CONFIG, anonymizePII: true };
+
+      const graph = await orchestrator.discover(config);
+      expect(graph.nodes.find((n) => n.objectApiName === 'Contact')?.anonymizeFields).toEqual([
+        'Email',
+        'Phone',
+      ]);
+      await orchestrator.execute(graph, config, { anonymizationRules: { phone: 'redact' } });
+
+      const contacts = created.get('Contact') ?? [];
+      expect(contacts).toHaveLength(2);
+      for (const contact of contacts) {
+        expect(String(contact['Email'])).not.toMatch(/@source\.test$/);
+        expect(String(contact['Email'])).toMatch(/@example\.com$/);
+      }
+      expect(contacts.map((c) => c['Phone'])).toEqual(['[REDACTED]', '[REDACTED]']);
+    });
+
+    it('leaves a field the user deselected as the source holds it', async () => {
+      const created = new Map<string, Array<Record<string, unknown>>>();
+      const { orchestrator } = await compose(contactsWithPersonalData(created));
+      const config: ForgeConfig = { ...SOQL_CONFIG, anonymizePII: true };
+      const discovered = await orchestrator.discover(config);
+      const graph = {
+        ...discovered,
+        nodes: discovered.nodes.map((n) =>
+          n.objectApiName === 'Contact' ? { ...n, anonymizeFields: ['Phone'] } : n,
+        ),
+      };
+
+      await orchestrator.execute(graph, config);
+
+      const contacts = created.get('Contact') ?? [];
+      expect(contacts.map((c) => c['Email'])).toEqual([
+        'person1@source.test',
+        'person2@source.test',
+      ]);
+      expect(contacts.map((c) => c['Phone'])).not.toContain('01020300');
+    });
+
+    it('writes every field as the source holds it with the toggle off', async () => {
+      const created = new Map<string, Array<Record<string, unknown>>>();
+      const { orchestrator } = await compose(contactsWithPersonalData(created));
+      const discovered = await orchestrator.discover(SOQL_CONFIG);
+      // Selections the toggle overrules: nothing is anonymized with it off.
+      const graph = {
+        ...discovered,
+        nodes: discovered.nodes.map((n) =>
+          n.objectApiName === 'Contact' ? { ...n, anonymizeFields: ['Email'] } : n,
+        ),
+      };
+
+      await orchestrator.execute(graph, SOQL_CONFIG);
+
+      expect(created.get('Contact')?.map((c) => c['Email'])).toEqual([
+        'person1@source.test',
+        'person2@source.test',
+      ]);
     });
   });
 

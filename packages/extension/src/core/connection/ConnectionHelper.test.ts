@@ -3,6 +3,7 @@ import {
   getJsforceConnection,
   getConnectionPool,
   getCircuitBreaker,
+  isUsableAccessToken,
   observeValidatedIdentities,
   resetCircuitBreakers,
   resetConnectionValidation,
@@ -125,6 +126,23 @@ function createMockOrgRegistry(creds?: ConnectionConfig): OrgRegistry {
   } as unknown as OrgRegistry;
 }
 
+describe('isUsableAccessToken', () => {
+  it.each([
+    ['a session id', '00D000000000001AAA!AQ0AQ.fake_session', true],
+    ['a JWT access token', 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.ZmFrZQ', true],
+    [
+      'the placeholder the CLI prints',
+      "[REDACTED] Use 'sf org auth show-access-token' to view",
+      false,
+    ],
+    ['the placeholder alone', '[REDACTED]', false],
+    ['an empty string', '', false],
+    ['nothing', undefined, false],
+  ])('says whether %s can be sent as a token', (_label, token, usable) => {
+    expect(isUsableAccessToken(token)).toBe(usable);
+  });
+});
+
 describe('ConnectionHelper', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -229,6 +247,35 @@ describe('ConnectionHelper', () => {
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /Authentication expired for org "test-org".*sf org login web --alias test-org/,
       );
+    });
+
+    it('never takes the placeholder sf org display prints for a token', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      // What CLI 2.150 answers: display hides the token, and show-access-token
+      // fails when the session cannot be refreshed.
+      const displayJson = JSON.stringify({
+        status: 0,
+        result: {
+          instanceUrl: 'https://test.my.salesforce.com',
+          accessToken: "[REDACTED] Use 'sf org auth show-access-token' to view",
+        },
+      });
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockRejectedValueOnce(new Error('Command failed: sf org auth show-access-token') as never)
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never);
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        /Authentication expired for org "test-org".*Neither "sf org auth show-access-token" nor "sf org display" returned an access token/,
+      );
+      // No identity call is spent on the placeholder, and nothing is saved.
+      expect(mockIdentity).toHaveBeenCalledTimes(1);
+      expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
     });
 
     it('should reject malicious usernames to prevent command injection', async () => {

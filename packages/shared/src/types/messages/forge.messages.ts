@@ -1,11 +1,13 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
+  ForgeAnonymizationCategory,
   ForgeConfig,
   ForgeExecutionResult,
   ForgeGraph,
   ForgePlan,
   ForgeTemplate,
 } from '../forge.types.js';
+import type { AnonymizationMethod } from '../common.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
 
 /** `forge:preview`. WebView -> Extension. Preview records for a single source record. */
@@ -23,7 +25,17 @@ export interface ForgeDiscoverRequest extends BaseMessage {
 /** `forge:execute`. WebView -> Extension. Execute a forge run over a discovered graph. */
 export interface ForgeExecuteRequest extends BaseMessage {
   type: 'forge:execute';
-  payload: { graph: ForgeGraph; config: ForgeConfig };
+  payload: {
+    graph: ForgeGraph;
+    config: ForgeConfig;
+    /**
+     * The method Review holds for each PII category, applied when
+     * `config.anonymizePII` is on to the fields selected on each node
+     * (`ForgeGraphNode.anonymizeFields`). A category left out takes its
+     * default method.
+     */
+    anonymizationRules?: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+  };
 }
 
 /** `forge:pause`. WebView -> Extension. Pause the running forge operation (no payload). */

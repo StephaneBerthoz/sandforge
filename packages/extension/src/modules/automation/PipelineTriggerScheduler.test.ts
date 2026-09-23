@@ -469,6 +469,36 @@ describe('PipelineTriggerScheduler', () => {
       h.scheduler.stop();
     });
 
+    it('starts nothing, and plans nothing, on a day none of its months has', async () => {
+      // Each field of `0 0 31 2,4 *` parses; its next run used to come out in 2054.
+      const h = harness({ pipelines: [pipeline('p1', [schedule('0 0 31 2,4 *')])] });
+      h.scheduler.start();
+      await settle(2 * 60_000);
+      expect(h.started).toEqual([]);
+      expect((await h.scheduler.statuses())[0]).toMatchObject({
+        armed: false,
+        idle: 'noNextRun',
+        detail: expect.stringContaining('No date in the coming year'),
+      });
+      expect(h.store.get('pipeline-trigger:p1:sched')).toBeUndefined();
+      h.scheduler.stop();
+    });
+
+    it('drops a start it planned decades away for such a schedule before it was refused', async () => {
+      const store = new ConfigStore(new InMemoryConfigStoreBackend());
+      store.set(
+        'pipeline-trigger:p1:sched',
+        { cron: '0 0 31 2,4 *', timezone: 'UTC', nextRunAt: iso('2054-02-07T00:00:00.000Z') },
+        'pipeline-triggers',
+      );
+      const h = harness({ pipelines: [pipeline('p1', [schedule('0 0 31 2,4 *')])], store });
+      h.scheduler.start();
+      await settle();
+      expect((await h.scheduler.statuses())[0]).toMatchObject({ armed: false, idle: 'noNextRun' });
+      expect(h.store.get('pipeline-trigger:p1:sched')).toEqual({});
+      h.scheduler.stop();
+    });
+
     it('tells the user when a run it started failed', async () => {
       const h = harness({
         pipelines: [pipeline('p1', [schedule('0 2 * * *')], 'Nightly compare')],

@@ -57,6 +57,11 @@ export interface OperationOutcome {
    * not can leave it alone.
    */
   existingId?: string;
+  /**
+   * For an upsert the org wrote: whether it created the record (true) or
+   * updated the one it found (false). Absent when the write does not say.
+   */
+  created?: boolean;
 }
 
 /** Dependencies required by DataSync */
@@ -428,10 +433,13 @@ function buildResult(
   let success = 0;
   let failed = 0;
   const errors: string[] = [];
+  const split = { created: 0, updated: 0 };
 
   for (const outcome of outcomes) {
     if (outcome.success) {
       success++;
+      if (outcome.created === true) split.created++;
+      else if (outcome.created === false) split.updated++;
     } else {
       failed++;
       errors.push(...outcome.errors);
@@ -448,5 +456,8 @@ function buildResult(
     conflictCount: 0,
     // Notices last: what was refused matters more than what was recovered.
     errors: [...errors, ...notes],
+    // What each upserted record became, as the org said: the audit trail
+    // counts them as created or updated rather than as "upserted".
+    ...(operation === 'upsert' ? { upsertSplit: split } : {}),
   };
 }

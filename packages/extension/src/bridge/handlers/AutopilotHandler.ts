@@ -308,6 +308,14 @@ export class AutopilotHandler implements DomainHandler {
     // the guard nothing is written.
     const guard = this.deps.infraServices?.productionGuard;
     if (!guard) {
+      recordWriteRun(this.deps, {
+        action: 'autopilot_execute',
+        module: 'autopilot',
+        operationId: msg.id,
+        orgId: operation.targetOrgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
       sendHandlerError(
         this.deps,
         'autopilot:execute',

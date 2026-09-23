@@ -7,16 +7,17 @@ import {
 
 describe('SAVED_TEMPLATE_METHODS', () => {
   it('offers no method that needs a setting the page cannot give it', () => {
-    for (const needsSetting of ['hash', 'constant', 'truncate']) {
+    for (const needsSetting of ['constant', 'truncate']) {
       expect(SAVED_TEMPLATE_METHODS).not.toContain(needsSetting);
       expect(isSavedTemplateMethod(needsSetting)).toBe(false);
     }
   });
 
-  it('offers the methods that run with no setting', () => {
+  it('offers the methods that run with no setting, hash among them since the run keys it', () => {
     expect([...SAVED_TEMPLATE_METHODS]).toEqual([
       'fake',
       'mask',
+      'hash',
       'nullify',
       'shuffle',
       'preserve_format',

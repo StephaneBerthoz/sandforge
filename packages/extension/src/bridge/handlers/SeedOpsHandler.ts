@@ -7,6 +7,7 @@ import type {
 } from '@sandforge/shared';
 import {
   duplicateRuleHeaders,
+  integerDigitsOf,
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
 } from '@sandforge/shared';
@@ -117,20 +118,30 @@ function capResultForBridge(result: SeedExecutionResult): SeedExecutionResult {
   };
 }
 
+/** Why a seed that wrote nothing failed: the first thing one of its objects was refused for. */
+function seedFailureReason(result: SeedExecutionResult): string {
+  const first = result.objectResults.flatMap((object) => object.errors)[0];
+  return first ?? 'The seed wrote no records.';
+}
+
+/** The most errors kept for one refused record; the rest are counted. */
+const MAX_ERRORS_PER_RECORD = 5;
+
 /**
- * The digits a number field holds before its decimal point, 0 for any other
- * type. The describe gives an integer field's as `digits`, and a double's,
- * currency's or percent's as its `precision` less its `scale`. The wizard
- * draws a field's default number within them.
+ * What the org said about one refused record, as one entry: the orchestrator
+ * counts refused records by the entries. Every error is kept, up to
+ * {@link MAX_ERRORS_PER_RECORD}. Only the first used to be: a row refused for
+ * a missing name and a bad email said only the first, and the run that fixed
+ * it met the second.
  */
-function integerDigitsOf(field: {
-  type: string;
-  precision?: number;
-  scale?: number;
-  digits?: number;
-}): number {
-  if (field.type === 'int') return field.digits ?? 0;
-  return Math.max(0, (field.precision ?? 0) - (field.scale ?? 0));
+function recordErrorText(errors: Array<{ message?: string }> | undefined): string {
+  const messages = (errors ?? [])
+    .map((error) => error.message)
+    .filter((message): message is string => typeof message === 'string' && message !== '');
+  if (messages.length === 0) return 'Unknown insert error';
+  const kept = messages.slice(0, MAX_ERRORS_PER_RECORD).join('; ');
+  const more = messages.length - MAX_ERRORS_PER_RECORD;
+  return more > 0 ? `${kept} (and ${more} more)` : kept;
 }
 
 /** Message types handled by SeedOpsHandler. */
@@ -595,6 +606,14 @@ export class SeedOpsHandler implements DomainHandler {
       // injected refuses the run instead of waving it through.
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          code: PRODUCTION_GUARD_MISSING.code,
+        });
         sendHandlerError(
           this.deps,
           'seed:execute',
@@ -835,7 +854,7 @@ export class SeedOpsHandler implements DomainHandler {
               if (r.success && r.id) {
                 successIds.push(r.id);
               } else {
-                errors.push(r.errors?.[0]?.message ?? 'Unknown insert error');
+                errors.push(recordErrorText(r.errors));
               }
             }
           } else {
@@ -939,8 +958,17 @@ export class SeedOpsHandler implements DomainHandler {
       const totalRecords = result.totalRecordsCreated;
       this.deps.infraServices?.performanceTracker?.update(operationId, totalRecords, 1);
       this.deps.infraServices?.performanceTracker?.complete(operationId);
-      sendOperationCompleted(this.deps, operationId, { totalRecords });
-      this.liveTracker?.complete(operationId);
+      // The run's own status, the way the other write paths report theirs. A
+      // template the validator refused, or one whose every record the org
+      // turned down, ends here with a failure status, and was announced as
+      // completed: Live Operations listed it done, "seed completed" popped up
+      // and Home showed a success.
+      sendOperationCompleted(this.deps, operationId, { status: result.status, totalRecords });
+      if (result.status === 'failure') {
+        this.liveTracker?.fail(operationId, seedFailureReason(result));
+      } else {
+        this.liveTracker?.complete(operationId);
+      }
       recordWriteRun(this.deps, {
         action: 'seed_execute',
         module: 'seed',
@@ -964,6 +992,9 @@ export class SeedOpsHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      // A failure status, not a bare resolve, so the registry marks the run
+      // failed — see the method docstring for the contract.
+      if (result.status === 'failure') return { status: 'failure' };
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));

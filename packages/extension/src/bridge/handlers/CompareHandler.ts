@@ -500,20 +500,28 @@ export class CompareHandler implements DomainHandler {
    * only read.
    *
    * @param payload - The two orgs and the component types to compare.
+   * @param signal - Stops the comparison: once it is aborted no request goes
+   *   to either org, and the comparison settles at once with its reason, not
+   *   with a result. A pipeline's Compare step passes its own.
    * @returns The comparison, every diff included.
    * @throws With the reason, when the orgs could not be compared.
    */
-  async compareOrgs(payload: {
-    sourceOrgId: string;
-    targetOrgId: string;
-    types: string[];
-    includeManaged?: boolean;
-  }): Promise<CompareResult> {
+  async compareOrgs(
+    payload: {
+      sourceOrgId: string;
+      targetOrgId: string;
+      types: string[];
+      includeManaged?: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<CompareResult> {
+    signal?.throwIfAborted();
     const sourceConn = await getJsforceConnection(
       payload.sourceOrgId,
       this.deps.orgRegistry,
       this.deps.orgManager,
     );
+    signal?.throwIfAborted();
     const targetConn = await getJsforceConnection(
       payload.targetOrgId,
       this.deps.orgRegistry,
@@ -530,6 +538,9 @@ export class CompareHandler implements DomainHandler {
       const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
       const components = new Map<string, string>();
       const list = async (queries: Array<{ type: string; folder?: string }>) => {
+        // A folder-filed type takes a call per three folders: each is one more
+        // request, and none goes out once the comparison is stopped.
+        signal?.throwIfAborted();
         const listResult = (await conn.metadata.list(queries)) as Array<{ fullName: string }>;
         checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
         return Array.isArray(listResult) ? listResult : [];
@@ -552,8 +563,9 @@ export class CompareHandler implements DomainHandler {
 
     // What each org holds of a component both list: the listing alone
     // differs between any two orgs, whatever the component says.
-    const contentReader = createContentReader((orgId) =>
-      orgId === payload.sourceOrgId ? sourceConn : targetConn,
+    const contentReader = createContentReader(
+      (orgId) => (orgId === payload.sourceOrgId ? sourceConn : targetConn),
+      signal,
     );
     const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine, contentReader);
 
@@ -581,7 +593,7 @@ export class CompareHandler implements DomainHandler {
       createdAt: new Date().toISOString(),
     };
 
-    return orchestrator.execute(config);
+    return orchestrator.execute(config, signal);
   }
 
   /**

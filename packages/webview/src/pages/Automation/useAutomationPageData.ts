@@ -144,8 +144,7 @@ function toCondition(raw: unknown): PipelineCondition | undefined {
  * strings). Every field is narrowed rather than cast — an unknown step type
  * becomes a `script` step so the user still sees the step, marked as one that
  * cannot run (and so is the pipeline holding it), and an unknown trigger
- * string ('error_detected' is one the generator emits) is dropped instead of
- * poisoning the trigger panel.
+ * string is dropped instead of poisoning the trigger panel.
  *
  * @param raw - The `pipeline` payload of the AI response.
  * @param fallbackName - Name to use when the generator returned none.

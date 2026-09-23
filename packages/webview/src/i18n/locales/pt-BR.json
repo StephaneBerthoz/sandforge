@@ -1457,7 +1457,7 @@
       "noCron": "Não inicia nada enquanto não tiver uma expressão cron.",
       "badCron": "Não inicia nada: o SandForge não consegue ler esta expressão cron.",
       "badTimezone": "Não inicia nada: o SandForge não conhece este fuso horário.",
-      "noNextRun": "Não inicia nada: nenhuma data corresponde a esta expressão cron.",
+      "noNextRun": "Não inicia nada: nenhuma data do próximo ano corresponde a esta expressão cron.",
       "noSandbox": "Não inicia nada enquanto não indicar um sandbox.",
       "unknownSandbox": "Não inicia nada: o SandForge não conhece mais o sandbox indicado. Escolha-o de novo.",
       "notSandbox": "Não inicia nada: a org indicada não é um sandbox, e apenas um sandbox é atualizado.",

@@ -337,4 +337,44 @@ describe('rulesFromDescribe', () => {
     const rules = rulesFromDescribe([field('Blob__c', 'base64', { nillable: false })]);
     expect(rules).toEqual([]);
   });
+
+  it('gives a field the bounds the panel gives it, so the org takes what is drawn', () => {
+    // A two-digit score drawn up to 1000, a percentage past 100, a name longer
+    // than its field: each refuses the record. The panel bounds all three.
+    const rules = rulesFromDescribe([
+      { ...field('Name', 'string'), length: 80 },
+      { ...field('Score__c', 'double', { nillable: false }), precision: 4, scale: 2 },
+      { ...field('Rate__c', 'percent', { nillable: false }), precision: 5, scale: 2 },
+      { ...field('Units__c', 'int', { nillable: false }), digits: 3 },
+    ]);
+
+    expect(Object.fromEntries(rules.map((r) => [r.fieldApiName, r.config]))).toEqual({
+      Name: { fakerMethod: 'name', maxLength: 80 },
+      Score__c: { fakerMethod: 'integer', maxValue: 99 },
+      Rate__c: { fakerMethod: 'integer', maxValue: 100 },
+      Units__c: { fakerMethod: 'integer', maxValue: 999 },
+    });
+  });
+
+  it('picks a required picklist among its active values, and leaves a lookup to a relation', () => {
+    const rules = rulesFromDescribe([
+      {
+        ...field('Stage__c', 'picklist', { nillable: false }),
+        picklistValues: [
+          { value: 'Open', active: true },
+          { value: 'Retired', active: false },
+        ],
+      },
+      field('Account__c', 'reference', { nillable: false }),
+    ]);
+
+    expect(rules).toEqual([
+      {
+        fieldApiName: 'Stage__c',
+        fieldType: 'picklist',
+        ruleType: 'picklist_random',
+        config: { picklistValues: ['Open'] },
+      },
+    ]);
+  });
 });

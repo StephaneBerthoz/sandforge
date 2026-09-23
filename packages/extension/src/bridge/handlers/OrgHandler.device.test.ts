@@ -446,6 +446,7 @@ describe.skipIf(process.platform === 'win32')(
                       username: 'jane@example.com',
                       alias: 'uat',
                       instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+                      accessToken: '00D000000000001AAA!cli-session',
                       connectedStatus: 'Connected',
                       isSandbox: true,
                     },

@@ -266,6 +266,38 @@ describe('createContentReader', () => {
       expect([...content.keys()]).toEqual(['Kept']);
     });
   });
+
+  describe('once the comparison is stopped', () => {
+    it('sends no query and no readMetadata, and rejects with the reason', async () => {
+      const { conn, query, read } = connection();
+      const stop = new AbortController();
+      stop.abort();
+      const reader = createContentReader(() => conn, stop.signal);
+
+      await expect(reader.read('src', 'ApexClass', ['Invoicing'])).rejects.toBe(stop.signal.reason);
+      await expect(reader.read('src', 'Flow', ['Onboarding'])).rejects.toBe(stop.signal.reason);
+      expect(query).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it('does not ask again for a managed layout under its namespaced name', async () => {
+      const stop = new AbortController();
+      // Stopped while the listed names were being read: the second call, for
+      // the namespaced one, is a request of its own.
+      const read = vi.fn((_type: string, names: string[]) => {
+        stop.abort();
+        return Promise.resolve(names.map(() => ({ showEmailCheckbox: false })));
+      });
+      const conn = { metadata: { read }, limitInfo: undefined } as unknown as Connection;
+
+      const outcome = await createContentReader(() => conn, stop.signal)
+        .read('src', 'Layout', ['pkg__Lock__c-Lock Layout'])
+        .catch((reason: unknown) => reason);
+
+      expect(outcome).toBe(stop.signal.reason);
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe('canonicalMetadata', () => {

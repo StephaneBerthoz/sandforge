@@ -142,6 +142,13 @@ export interface PipelineStepResult {
    */
   summary?: string;
   error?: string;
+  /**
+   * Set when the work the step started was cancelled rather than failed: a
+   * Backup whose snapshot was cancelled from Live Operations. The step is not
+   * tried again, and its run ends cancelled. Its status stays `failed`, as for
+   * the step a cancelled run stops: it did not do its work.
+   */
+  cancelled?: boolean;
   startTime?: ISODateString;
   endTime?: ISODateString;
   duration?: number;
@@ -225,7 +232,7 @@ export interface PipelineHistoryEntry {
  * - `disabled`: it is switched off.
  * - `noCron`, `badCron`, `badTimezone`, `noNextRun`: its schedule gives no
  *   time — no expression, one that does not parse, a time zone that does not
- *   exist, or an expression no date ever matches.
+ *   exist, or an expression no date of the coming year matches.
  * - `noSandbox`, `unknownSandbox`, `notSandbox`: it names no sandbox, one
  *   SandForge does not know, or an org that is not a sandbox.
  * - `cannotRun`: a step of the pipeline cannot run in a pipeline.

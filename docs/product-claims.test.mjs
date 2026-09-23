@@ -2223,9 +2223,9 @@ function literalPropertyNames(node) {
 }
 
 /**
- * Production Guard keeps its own log of decisions, `auditLog`, an array field
- * capped at 1 000 entries, and imports nothing: that log ends with the window.
- * What outlives it is the audit trail. Every write path consults the guard
+ * Production Guard keeps no log of its own: the session log it once kept, of
+ * the last 1 000 checks, was read by nothing and is gone. What keeps its
+ * decisions is the audit trail. Every write path consults the guard
  * through `consultProductionGuard`, which hands the decision back, and records
  * its run with that decision through `recordWriteRun`, into ConfigStore; the
  * Frozen Dataset loader consults it batch by batch and hands each decision to
@@ -2240,20 +2240,11 @@ function literalPropertyNames(node) {
  * a surface saying the decisions are recorded goes stale.
  */
 function assertGuardDecisionsReachTheTrail() {
-  // The guard's own log: still an array field of a class that imports nothing.
   const source = parseFile(PRODUCTION_GUARD_FILE);
   const guard = source.statements.find(
     (node) => ts.isClassDeclaration(node) && node.name?.text === 'ProductionGuard',
   );
   assert.ok(guard, `${PRODUCTION_GUARD_FILE} no longer declares ProductionGuard — re-point this`);
-  const field = guard.members.find(
-    (member) => ts.isPropertyDeclaration(member) && memberName(member) === 'auditLog',
-  );
-  assert.ok(
-    field?.initializer && ts.isArrayLiteralExpression(unwrap(field.initializer)),
-    'ProductionGuard no longer keeps its session log in an auditLog array — the log moved; read ' +
-      'where before trusting the checks below',
-  );
 
   const sources = sourceFilesUnder(EXTENSION_SRC_DIR).map(toRepoPath);
   const callsOf = new Map(
@@ -2363,8 +2354,8 @@ test("no user-facing surface keeps Production Guard's decisions to the session",
   const honest = [
     'Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Each of its decisions is recorded with the run it concerns, in Reports → Audit Trail.',
     '- All DML goes through the existing **Production Guard** (tier check; each decision is recorded with the load in the audit trail, unless `sandforge.safety.auditLogging` is off).',
-    'Record each Production Guard safety-check decision: with the run it concerns in the audit trail (Reports → Audit Trail), and in a session log of the last 1000 checks. Off, runs are still recorded, without the decisions.',
-    'Production Guard の安全性チェックの判定を記録します。対象の実行とともに監査ログ（レポート → 監査ログ）に残り、このセッションの直近 1000 件のログにも残ります。オフにすると、実行は判定なしで記録されます。',
+    'Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.',
+    'Production Guard の安全性チェックの判定を、対象の実行とともに監査ログ（レポート → 監査ログ）に記録します。オフにすると、実行は判定なしで記録されます。',
   ];
   assert.deepEqual(
     honest.filter((text) => guardSessionOnlyClaims([{ label: 'fixture', text }]).length > 0),

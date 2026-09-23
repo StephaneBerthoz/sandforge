@@ -47,7 +47,7 @@
   "config.backup.maxCount.description": "Maximale Anzahl der pro Org aufzubewahrenden Backups",
   "config.pipeline.timeout.description": "Timeout für die Pipeline-Ausführung in Millisekunden",
   "config.safety.requireProdConfirmation.description": "Bestätigungsdialog für Vorgänge in Produktions-Orgs erforderlich",
-  "config.safety.auditLogging.description": "Jede Sicherheitsprüfung von Production Guard festhalten: mit dem betroffenen Lauf im Audit-Protokoll (Berichte → Audit-Protokoll) und in einem Sitzungsprotokoll der letzten 1000 Prüfungen. Ausgeschaltet werden Läufe weiterhin aufgezeichnet, ohne die Entscheidungen.",
+  "config.safety.auditLogging.description": "Jede Sicherheitsprüfung von Production Guard mit dem betroffenen Lauf im Audit-Protokoll festhalten (Berichte → Audit-Protokoll). Ausgeschaltet werden Läufe weiterhin aufgezeichnet, ohne die Entscheidungen.",
   "config.grappe.enabled.description": "Große Seed-, Sync- und Autopilot-Vorgänge im partitionierten Modus (Grappe) ausführen. Ab sandforge.grappe.autoActivateThreshold Datensätzen meldet Seed jede Partition nach Abschluss in der Grappe-Ansicht, Sync meldet eine Partition je Objekt, und Autopilot meldet nur Beginn und Ende des Laufs.",
   "config.grappe.autoActivateThreshold.description": "Datensatzanzahl, ab der der Grappe-Modus aktiviert wird (Seed, Sync und Autopilot). Wird ignoriert, wenn sandforge.grappe.enabled deaktiviert ist.",
   "config.grappe.grappeSize.description": "Datensätze pro Grappe-Partition."

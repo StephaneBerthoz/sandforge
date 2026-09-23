@@ -140,13 +140,17 @@ describe('useSeedWizardState', () => {
       return view;
     }
 
-    it('asks for the fields of every selected object on the execute step', () => {
-      onExecuteStep();
+    it('asks for the fields of every selected object on the execute step, once each', () => {
+      const { rerender } = onExecuteStep();
+      for (const name of THREE) {
+        seedBridge.described = describeOf(name);
+        rerender();
+      }
 
       const asked = seedBridge.describe.mock.calls.map(
         (call) => (call[0] as { objectApiName: string }).objectApiName,
       );
-      expect([...new Set(asked)]).toEqual(THREE);
+      expect(asked).toEqual(THREE);
     });
 
     it('holds the run until every selected object is described', () => {

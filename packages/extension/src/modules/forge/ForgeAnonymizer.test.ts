@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ForgeAnonymizer } from './ForgeAnonymizer.js';
+import { ForgeAnonymizer, runAnonymization } from './ForgeAnonymizer.js';
 import type { PIIFieldInfo } from './ForgeAnonymizer.js';
-import type { ForgeAnonymizationCategory } from '@sandforge/shared';
+import type { ForgeAnonymizationCategory, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 
 describe('ForgeAnonymizer', () => {
   const anonymizer = new ForgeAnonymizer();
@@ -202,6 +202,134 @@ describe('ForgeAnonymizer', () => {
       expect(result[0]['Phone']).not.toBe('555-1234');
       expect(result[1]['Phone']).not.toBe('555-5678');
       expect(result).toHaveLength(2);
+    });
+  });
+
+  describe('anonymize', () => {
+    it('anonymizes each field with the method of its category, the default where none is given', () => {
+      const [row] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Email: 'one@source.test', Phone: '0102030405', LastName: 'Source' }],
+        sourceIds: ['003000000000001'],
+        fields: [
+          { name: 'Email', type: 'email' },
+          { name: 'Phone', type: 'phone' },
+        ],
+        methods: { email: 'redact' },
+      });
+
+      // Redacted, and still an address the email field takes.
+      expect(row['Email']).toBe('REDACTED@example.com');
+      // No method given for phones: their default, a mask keeping the last four.
+      expect(row['Phone']).toBe('******0405');
+      expect(row['LastName']).toBe('Source');
+    });
+
+    it('writes an address into every email field, whatever the method made of it', () => {
+      const rows = anonymizer.anonymize({
+        objectApiName: 'Account',
+        records: [
+          { PersonEmail: 'one@source.test', Backup_Email__c: 'b@source.test', Other__c: 'x' },
+        ],
+        sourceIds: ['001000000000001'],
+        fields: [
+          { name: 'PersonEmail', type: 'email' },
+          { name: 'Backup_Email__c', type: 'email' },
+        ],
+        methods: { email: 'hash' },
+      });
+
+      // A hash alone is refused by the email field; kept as the local part, it is not.
+      for (const field of ['PersonEmail', 'Backup_Email__c']) {
+        expect(String(rows[0][field])).toMatch(/^[0-9a-f]{32}@example\.com$/);
+      }
+      expect(rows[0]['Other__c']).toBe('x');
+
+      const [redacted] = anonymizer.anonymize({
+        objectApiName: 'Account',
+        records: [{ PersonEmail: 'one@source.test' }],
+        sourceIds: ['001000000000001'],
+        fields: [{ name: 'PersonEmail', type: 'email' }],
+        methods: { email: 'fake' },
+      });
+      // `fake` knows Email's persona address, not PersonEmail's.
+      expect(String(redacted['PersonEmail'])).toMatch(/^fake_[0-9a-f]{8}@example\.com$/);
+    });
+
+    it('leaves an email field empty when the method empties it', () => {
+      const [row] = anonymizer.anonymize({
+        objectApiName: 'Contact',
+        records: [{ Email: 'one@source.test' }],
+        sourceIds: ['003000000000001'],
+        fields: [{ name: 'Email', type: 'email' }],
+        methods: { email: 'nullify' },
+      });
+
+      expect(row['Email']).toBeNull();
+    });
+
+    it('keys each row to its source record, and gives it no Id it did not have', () => {
+      const records = [{ FirstName: 'Ann' }, { FirstName: 'Bob' }];
+      const request = {
+        objectApiName: 'Contact',
+        records,
+        sourceIds: ['003000000000001', '003000000000002'],
+        fields: [{ name: 'FirstName', type: 'string' }],
+        methods: {},
+      };
+
+      const first = anonymizer.anonymize(request);
+      const again = anonymizer.anonymize(request);
+
+      // The same record draws the same persona, whichever call it comes in.
+      expect(again).toEqual(first);
+      expect(first.every((row) => !('Id' in row))).toBe(true);
+      expect(records).toEqual([{ FirstName: 'Ann' }, { FirstName: 'Bob' }]);
+    });
+  });
+
+  describe('runAnonymization', () => {
+    const node = (objectApiName: string, overrides: Partial<ForgeGraphNode>): ForgeGraphNode => ({
+      objectApiName,
+      recordCount: 1,
+      fieldCount: 3,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 0,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 2,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 1,
+      batchStrategy: 'auto',
+      ...overrides,
+    });
+    const graph: ForgeGraph = {
+      nodes: [
+        node('Contact', { piiFields: ['Email', 'Phone'], anonymizeFields: ['Email'] }),
+        node('Lead', { anonymizeFields: ['Email'], included: false }),
+        node('Account', {}),
+      ],
+      edges: [],
+      totalRecords: 3,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    };
+
+    it('takes the fields selected on each node, copied or not, and the methods sent', () => {
+      // A node left out of the copy can still have a required parent fetched.
+      expect(runAnonymization(true, graph, { email: 'hash' })).toEqual({
+        fields: { Contact: ['Email'], Lead: ['Email'] },
+        methods: { email: 'hash' },
+      });
+    });
+
+    it('anonymizes nothing with the toggle off, whatever the nodes select', () => {
+      expect(runAnonymization(false, graph, { email: 'hash' })).toBeUndefined();
     });
   });
 });

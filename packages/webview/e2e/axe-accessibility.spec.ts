@@ -2003,24 +2003,30 @@ for (const theme of STATE_THEMES) {
         {
           templates: [
             {
-              id: 'tpl-ccpa',
-              name: 'CCPA California',
-              description: 'Consumer personal information.',
-              complianceFramework: 'ccpa',
+              id: 'tpl-scrub',
+              name: 'Sandbox Data Scrub',
+              description: 'Mask all PII for safe development use.',
+              complianceFramework: 'custom',
               rules: [
-                { fieldPattern: 'Contact.Email', ruleType: 'hash', description: '' },
-                { fieldPattern: 'Contact.Phone', ruleType: 'nullify', description: '' },
+                {
+                  fieldPattern: 'Account.Website',
+                  ruleType: 'constant',
+                  description: '',
+                  config: { constantValue: 'https://example.com' },
+                },
+                { fieldPattern: 'Contact.FirstName', ruleType: 'fake', description: '' },
               ],
             },
           ],
         },
       );
       await page.getByTestId('page-tab-anonymize').click();
-      await page.getByTestId('template-select').selectOption('tpl-ccpa');
+      await page.getByTestId('template-select').selectOption('tpl-scrub');
       await page.getByTestId('create-template-btn').click();
-      // A name taken and a method that needs a salt: both reasons are on screen.
-      await page.getByTestId('template-name-input').fill('CCPA California');
+      // A name taken and a method that needs a value: both reasons are on screen.
+      await page.getByTestId('template-name-input').fill('Sandbox Data Scrub');
       await expect(page.getByTestId('template-name-taken')).toBeVisible();
+      await expect(page.getByTestId('template-rule-0')).toContainText('needs a setting');
 
       await expectReadable(page, theme);
     });

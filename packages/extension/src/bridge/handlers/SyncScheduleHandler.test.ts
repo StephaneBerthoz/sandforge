@@ -195,6 +195,34 @@ describe('SyncScheduleHandler', () => {
     expect(persistedSchedule(deps)).toBeUndefined();
   });
 
+  it('refuses a schedule no date of the coming year matches, says why, and stores nothing', async () => {
+    // Saved all the same, it was given a next run in 2054 and never ran.
+    seedSyncConfig(deps);
+    expect(await handler.handle(upsertMessage('sched-1', { cron: '0 0 31 2,4 *' }))).toBe(true);
+
+    const error = deps.posted.find((m) => m.type === 'sync:schedule:error');
+    const payload = error?.payload as { code?: string; message?: string } | undefined;
+    expect(payload?.code).toBe('INVALID_SCHEDULE');
+    expect(payload?.message).toMatch(/^The schedule was not saved\. No date in the coming year/);
+    expect(payload?.message).toContain('31st of February or April');
+    expect(deps.posted.some((m) => m.type === 'sync:schedule:upsert:response')).toBe(false);
+    expect(persistedSchedule(deps)).toBeUndefined();
+  });
+
+  it("refuses a cron expression it cannot read, in the parser's words, and stores nothing", async () => {
+    // Saved all the same, it was given no next run and never ran, without a word.
+    seedSyncConfig(deps);
+    await handler.handle(upsertMessage('sched-1', { cron: '0 0 30 2 *' }));
+
+    const error = deps.posted.find((m) => m.type === 'sync:schedule:error');
+    const payload = error?.payload as { code?: string; message?: string } | undefined;
+    expect(payload?.code).toBe('INVALID_SCHEDULE');
+    expect(payload?.message).toContain(
+      'The schedule was not saved: SandForge cannot read the cron expression "0 0 30 2 *"',
+    );
+    expect(persistedSchedule(deps)).toBeUndefined();
+  });
+
   it('executes a due schedule on the 60s tick once startScheduler is wired', async () => {
     seedSyncConfig(deps);
     await handler.handle(upsertMessage());
@@ -212,6 +240,22 @@ describe('SyncScheduleHandler', () => {
     const persisted = persistedSchedule(deps);
     expect(persisted?.lastResult).toBe('success');
     expect(persisted?.lastRunAt).toBeTruthy();
+  });
+
+  it('leaves a due schedule another window claimed to that window', async () => {
+    seedSyncConfig(deps);
+    // The executor exists before the scheduler starts, built by the upsert.
+    await handler.handle(upsertMessage());
+
+    const execute = vi.fn(async () => successResult());
+    const claim = vi.fn(() => false);
+    handler.startScheduler(execute, { claim, prune: vi.fn() });
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(claim).toHaveBeenCalledWith(expect.stringContaining('sched-1'));
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('marks the schedule as failed when the execution bridge rejects', async () => {
@@ -269,22 +313,25 @@ describe('SyncScheduleHandler', () => {
     } as unknown as HandlerDeps['services'];
     // notifyOnFailure surfaces the skip reason through the notification-center log.
     await handler.handle(upsertMessage('sched-1', { notifyOnFailure: true }));
+    await handler.handle(upsertMessage('sched-2', { notifyOnFailure: true }));
 
     // First execution never resolves -> stays in flight across the next tick.
     const execute = vi.fn(() => new Promise<SyncExecutionResult>(() => {}));
     handler.startScheduler(execute);
 
-    // Tick 1 (12:01): schedule due, execution starts and stays in flight.
+    // Tick 1 (12:01): sched-1 due, its execution starts and stays in flight.
     await vi.advanceTimersByTimeAsync(61_000);
     await vi.advanceTimersByTimeAsync(0);
     expect(execute).toHaveBeenCalledTimes(1);
 
-    // Tick 2 (12:02): still due (nextRunAt not recomputed yet) but the
-    // in-flight cap (1) rejects the re-entry instead of stacking a second run.
+    // Tick 2 (12:02): sched-1's start is still being made and is left alone;
+    // sched-2 is due, and the in-flight cap (1) rejects it instead of stacking
+    // a second run.
     await vi.advanceTimersByTimeAsync(60_000);
     await vi.advanceTimersByTimeAsync(0);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(persistedSchedule(deps)?.lastResult).toBe('failure');
+    expect(persistedSchedule(deps, 'sched-2')?.lastResult).toBe('failure');
+    expect(persistedSchedule(deps, 'sched-1')?.lastResult).toBeUndefined();
     expect(deps.log).toHaveBeenCalledWith(expect.stringContaining('already in flight'));
   });
 });

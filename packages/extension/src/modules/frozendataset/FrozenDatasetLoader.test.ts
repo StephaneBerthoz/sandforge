@@ -230,6 +230,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
     const dataset = makeAccountContactDataset();
     const calls: DmlCall[] = [];
     const guard = new ProductionGuard();
+    const check = vi.spyOn(guard, 'check');
     const deps = makeDeps({ dataset, writer: makeWriter(calls), guard });
     const progress: string[] = [];
     const loader = new FrozenDatasetLoader(deps);
@@ -258,10 +259,10 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contract.objects.Account).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(contract.objects.Contact).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(report.mappingPath).toContain('referenceid-mapping.json');
-    // The ProductionGuard log holds every DML batch of the session —
+    // The ProductionGuard judges every DML batch of the session —
     // exactly the two inserts of the fixture, no silent extra write.
-    expect(guard.getAuditLog()).toHaveLength(2);
-    expect(guard.getAuditLog()[0].request.module).toBe('frozendataset');
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(check.mock.calls[0][0].module).toBe('frozendataset');
     // Progress callbacks for the bridge.
     expect(progress).toContain('guards');
     expect(progress).toContain('insert');

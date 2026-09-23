@@ -71,10 +71,10 @@ export interface AuditObjectCounts {
   deleted: number;
   failed: number;
   /**
-   * Records an upsert wrote. Salesforce answers an upsert without saying, as
-   * the run reads it, whether it created the record or updated it, so these
-   * are counted apart rather than guessed into either column. Absent when the
-   * run did not upsert.
+   * Records an upsert wrote without the run knowing whether it created or
+   * updated them, counted apart rather than guessed into either column. An
+   * upsert whose answer says which, record by record, counts its records as
+   * created or updated instead. Absent when there are none.
    */
   upserted?: number;
 }

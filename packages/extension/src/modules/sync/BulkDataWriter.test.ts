@@ -337,6 +337,38 @@ describe('BulkDataWriter', () => {
       expect(upsertOptions.headers['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
       expect(insertOptions.headers['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
     });
+
+    it('keeps what the org did with each record, created or updated', async () => {
+      // The answer says it for every record, and was dropped: the audit trail
+      // could only count the records of an upsert as "upserted".
+      const h = createHarness();
+      h.sobject.upsert.mockResolvedValue([
+        { success: true, id: '001000000000001', created: true },
+        { success: true, id: '001000000000002', created: false },
+      ]);
+
+      const outcomes = await h.writer.upsert('Account', 'External_Id__c', makeRecords(2), 200);
+
+      expect(outcomes.map((o) => o.created)).toEqual([true, false]);
+    });
+
+    it('keeps it from the Bulk API answer too', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        successCount: 2,
+        failureCount: 0,
+        successIds: ['001000000000001', '001000000000002'],
+        failures: [],
+        outcomes: [
+          { recordIndex: 0, id: '001000000000001', success: true, created: false },
+          { recordIndex: 1, id: '001000000000002', success: true, created: true },
+        ],
+      });
+
+      const outcomes = await h.writer.upsert('Account', 'External_Id__c', makeRecords(2), 200);
+
+      expect(outcomes.map((o) => o.created)).toEqual([false, true]);
+    });
   });
 
   describe('Bulk API path', () => {

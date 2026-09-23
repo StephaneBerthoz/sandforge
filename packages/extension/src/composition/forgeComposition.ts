@@ -102,7 +102,7 @@ export interface ForgeCompositionDeps {
  * Wire up the Forge orchestrator via dynamic imports, then inject it
  * into the handlers through the late setter (`setForgeOrchestrator`).
  *
- * Fire-and-forget by design: the 11 dynamic imports stay OFF the activation
+ * Fire-and-forget by design: the 10 dynamic imports stay OFF the activation
  * hot path. The injection therefore lands AFTER `handlers.registerAll(router)`
  * — see the late-injection contract in `./lateServices.ts`. Failures are
  * logged, never thrown (the rest of the extension stays usable).
@@ -117,7 +117,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
     import('../modules/forge/ForgeExecutor.js'),
     import('../modules/forge/ForgeOrchestrator.js'),
     import('../modules/forge/ForgePlanGenerator.js'),
-    import('../modules/forge/ForgeAnonymizer.js'),
     import('../modules/forge/ForgeComplianceService.js'),
     import('../modules/forge/ForgeMetadataDiff.js'),
     import('../modules/forge/ForgeBatchStrategy.js'),
@@ -131,7 +130,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { ForgeExecutor },
         { ForgeOrchestrator },
         { ForgePlanGenerator },
-        { ForgeAnonymizer },
         { ForgeComplianceService },
         { ForgeMetadataDiff },
         { ForgeBatchStrategy: ForgeBatchStrategyService },
@@ -297,7 +295,6 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         });
 
         const batchStrategyService = new ForgeBatchStrategyService();
-        const anonymizer = new ForgeAnonymizer();
 
         const executor = new ForgeExecutor({
           queryRecords: async (orgId, soql, onTruncated) => {
@@ -384,6 +381,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const described = await describeOnce(orgId, objectName);
             return described.fields.map((f) => ({
               name: f.name,
+              type: f.type,
               queryable: true,
               createable: f.createable,
               isReference: f.type === 'reference',
@@ -409,14 +407,11 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             return { keyPrefix: described.keyPrefix, recordTypes: described.recordTypes };
           },
           batchStrategy: batchStrategyService,
-          anonymize: (records, objectApiName) => {
-            return anonymizer.anonymizeRecords(
-              records,
-              [],
-              anonymizer.getDefaults(),
-              objectApiName,
-            );
-          },
+          // No `anonymize`: what a run anonymizes comes with the run — the
+          // fields selected on each node, the methods Review holds — and the
+          // executor keys an anonymizer of its own to each run. The one wired
+          // here was handed an empty field list, so every record was written
+          // as the source held it whatever the page said.
         });
 
         const planGenerator = new ForgePlanGenerator();

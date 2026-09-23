@@ -69,11 +69,13 @@ describe('AnonymizationTemplateStore', () => {
   });
 
   it('leaves out an entry that does not read as a saved template', () => {
-    // A hash rule could never run from DataOps: it needs a salt nothing sets.
+    // A constant rule saved without its value would write an empty one.
     configStore.set(
       'anonymization:template:bad',
       template('bad', {
-        rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash' as 'fake', description: '' }],
+        rules: [
+          { fieldPattern: 'Account.Website', ruleType: 'constant' as 'fake', description: '' },
+        ],
       }),
       'anonymizationTemplates',
     );

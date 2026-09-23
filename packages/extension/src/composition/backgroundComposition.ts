@@ -171,13 +171,12 @@ export function createBackgroundComposition(
 
   const performanceTracker = new PerformanceTracker();
   // Safety settings are read live so toggling them takes effect without reload:
-  // - `safety.requireProdConfirmation` gates the modal confirmation shown
-  //   before any write to a production org;
-  // - `safety.auditLogging` gates ProductionGuard audit-log writes.
+  // `safety.requireProdConfirmation` gates the modal confirmation shown before
+  // any write to a production org. `safety.auditLogging` is read where the
+  // decisions are kept, by the audit trail.
   const productionGuard = new ProductionGuard({
     isProdConfirmationRequired: () =>
       services.getSandforgeSetting('safety.requireProdConfirmation', true),
-    isAuditLoggingEnabled: () => services.getSandforgeSetting('safety.auditLogging', true),
     requestConfirmation: async (impactSummary) => {
       // The action label doubles as the equality check, so it MUST be the same
       // value on both sides — comparing against a hardcoded 'Execute' would

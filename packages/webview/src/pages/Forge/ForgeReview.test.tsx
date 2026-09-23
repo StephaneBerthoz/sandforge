@@ -191,10 +191,26 @@ describe('ForgeReview', () => {
     expect(mockSendBridgeMessage).toHaveBeenCalledWith('forge:execute', {
       graph: defaultGraph,
       config: mockConfig,
+      anonymizationRules: mockAnonymizationRules,
     });
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
     // Mission control reads it to ignore messages answering another run.
     expect(mockSetExecutionRequestId).toHaveBeenCalledWith('wv-forge-request');
+  });
+
+  it('sends the method chosen for each PII category with the run', () => {
+    mockAnonymizationRules.phone = 'redact';
+    try {
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('execute-button'));
+
+      const [, payload] = mockSendBridgeMessage.mock.calls.find(
+        ([type]) => type === 'forge:execute',
+      ) as [string, { anonymizationRules: Record<string, string> }];
+      expect(payload.anonymizationRules.phone).toBe('redact');
+    } finally {
+      mockAnonymizationRules.phone = 'mask';
+    }
   });
 
   it('should not send forge:execute when the graph is missing', () => {

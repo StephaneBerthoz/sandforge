@@ -67,6 +67,22 @@ const SCHEDULE_KEYWORDS: Record<string, string> = {
 };
 
 /**
+ * The trigger types a draft may hold: those that start runs. Manual runs from
+ * the Run button, and the extension fires a schedule and a sandbox refresh
+ * trigger. An event, webhook or deployment trigger starts nothing: a draft
+ * holding one offered a trigger that would never fire.
+ */
+const DRAFT_TRIGGERS = ['manual', 'schedule', 'sandbox_refresh'] as const;
+
+/** A trigger type a draft may hold (see {@link DRAFT_TRIGGERS}). */
+type DraftTrigger = (typeof DRAFT_TRIGGERS)[number];
+
+/** Whether a trigger named by the model is one a draft may hold. */
+function isDraftTrigger(trigger: string): trigger is DraftTrigger {
+  return (DRAFT_TRIGGERS as readonly string[]).includes(trigger);
+}
+
+/**
  * Generates ETL pipelines from natural language descriptions
  * by parsing keywords and resolving org references.
  */
@@ -240,13 +256,16 @@ export class PipelineGenerator {
     // A sandbox refresh trigger starts the pipeline once the page names the
     // sandbox. The draft cannot know which one: it arrives naming none, and
     // the page asks for it, and says the trigger starts nothing until then.
-    const triggerKeywords: Record<string, string> = {
+    //
+    // A deployment, an error or a change starts nothing, so a wish for one
+    // draws no trigger. "on deploy" used to draw a Deployment Complete
+    // trigger, which nothing fires, and "on error" and "on change" strings
+    // that name no trigger type at all, which the page dropped. No trigger
+    // that starts runs fits them: a schedule fires on the clock, a refresh
+    // trigger on a sandbox refresh, neither on a deployment.
+    const triggerKeywords: Record<string, DraftTrigger> = {
       'on refresh': 'sandbox_refresh',
       'after refresh': 'sandbox_refresh',
-      'on deploy': 'deployment_complete',
-      'after deploy': 'deployment_complete',
-      'on error': 'error_detected',
-      'on change': 'metadata_change',
     };
 
     for (const [keyword, trigger] of Object.entries(triggerKeywords)) {
@@ -284,8 +303,9 @@ export class PipelineGenerator {
         steps: draft.steps,
         schedule: draft.schedule,
         // A sandbox_refresh trigger the model names arrives naming no sandbox,
-        // as the keyword path's does, for the page to ask for one.
-        triggers: draft.triggers,
+        // as the keyword path's does, for the page to ask for one. A trigger
+        // that starts nothing is left out, whatever the model calls it.
+        triggers: draft.triggers?.filter(isDraftTrigger),
       };
     } catch {
       // A reply that is not a pipeline object leaves a draft with no step,

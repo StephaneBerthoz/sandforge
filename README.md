@@ -171,7 +171,7 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | `sandforge.backup.maxCount`                | Maximum number of backups retained per org                                                                                           | `10`                         |
 | `sandforge.pipeline.timeout`               | Pipeline execution timeout (ms)                                                                                                      | `300000`                     |
 | `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations                                                                                   | `true`                       |
-| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail, and in a session log of the last 1000 checks      | `true`                       |
+| `sandforge.safety.auditLogging`            | Record each Production Guard decision with the run it concerns in the audit trail                                                    | `true`                       |
 | `sandforge.grappe.enabled`                 | Report large Seed and Sync runs partition by partition (an Autopilot run reports only its start and end); execution stays sequential | `false`                      |
 | `sandforge.grappe.autoActivateThreshold`   | Record count at or above which that partitioned reporting starts                                                                     | `10000`                      |
 | `sandforge.grappe.grappeSize`              | Records per grappe partition                                                                                                         | `5000`                       |

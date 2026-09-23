@@ -65,12 +65,15 @@ describe('consultProductionGuard', () => {
     expect(decision).toBe('allowed');
   });
 
-  it('keeps the decision in the guard’s own log, as the write paths always did', async () => {
-    const guard = new ProductionGuard({ isAuditLoggingEnabled: () => true });
+  it('asks the guard to judge the run once, as the run is described', async () => {
+    const guard = new ProductionGuard();
+    const check = vi.spyOn(guard, 'check');
+    const run = request();
 
-    await consultProductionGuard(guard, request());
+    await consultProductionGuard(guard, run);
 
-    expect(guard.getAuditLog()).toHaveLength(1);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledWith(run);
   });
 });
 

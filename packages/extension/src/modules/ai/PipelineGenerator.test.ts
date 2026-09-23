@@ -95,9 +95,33 @@ describe('PipelineGenerator', () => {
 
   // --- Trigger extraction ---
 
-  it('should extract deployment trigger', async () => {
-    const pipeline = await generator.generatePipeline('sync data on deploy to devbox', testOrgs);
-    expect(pipeline.triggers).toContain('deployment_complete');
+  it.each([
+    'sync data on deploy to devbox',
+    'sync data after deploy to devbox',
+    'sync data on error',
+    'sync data on change',
+  ])(
+    'draws no trigger from a wish no trigger that starts runs can meet: %s',
+    async (description) => {
+      // A Deployment Complete trigger starts nothing; a schedule or a refresh
+      // trigger would start the pipeline at a time the wish did not name.
+      const pipeline = await generator.generatePipeline(description, testOrgs);
+      expect(pipeline.steps.some((s) => s.type === 'sync')).toBe(true);
+      expect(pipeline.triggers).toBeUndefined();
+    },
+  );
+
+  it('leaves out of a model draft every trigger that starts nothing', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({
+        name: 'x',
+        steps: [{ name: 's', type: 'seed' }],
+        triggers: ['deployment_complete', 'event', 'webhook', 'on_deploy', 'sandbox_refresh'],
+      }),
+    );
+    const pipeline = await generator.generatePipeline('prepare the box', testOrgs);
+    expect(mockProvider).toHaveBeenCalled();
+    expect(pipeline.triggers).toEqual(['sandbox_refresh']);
   });
 
   it.each(['compare devbox with prod after refresh', 'compare devbox with prod on refresh'])(

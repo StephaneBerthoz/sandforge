@@ -3,6 +3,7 @@ import type { ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgePlan } from '@
 import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoveryService.js';
 import type { ExecuteOptions, ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
+import { runAnonymization, type ForgeAnonymizationMethods } from './ForgeAnonymizer.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 
@@ -196,14 +197,16 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   }
 
   /**
-   * @param runOptions - Execution inputs that come from the orgs rather than
-   *   from the user's config: the RecordType translation table the bridge
-   *   builds by querying both orgs before a run.
+   * @param runOptions - Execution inputs that are not part of the user's
+   *   config: the RecordType translation table the bridge builds by querying
+   *   both orgs before a run, and the method per PII category Review holds.
    */
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
-    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings'>,
+    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings'> & {
+      anonymizationRules?: ForgeAnonymizationMethods;
+    },
   ): Promise<ForgeExecutionResult> {
     const startTime = Date.now();
 
@@ -214,6 +217,11 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // through ForgeConfig. The maxRecordsPerObject cap
       // applies to all input modes — it's a safety knob, not scope-only.
       const recordTypeMappings = runOptions?.recordTypeMappings;
+      const anonymization = runAnonymization(
+        config.anonymizePII,
+        graph,
+        runOptions?.anonymizationRules,
+      );
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
@@ -226,13 +234,15 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               objectSoqlFilters: config.objectSoqlFilters,
               fieldMappings: config.fieldMappings,
               recordTypeMappings,
+              anonymization,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
               config.ownerMappings ||
               config.objectSoqlFilters ||
               config.fieldMappings ||
-              recordTypeMappings
+              recordTypeMappings ||
+              anonymization
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
@@ -240,6 +250,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 objectSoqlFilters: config.objectSoqlFilters,
                 fieldMappings: config.fieldMappings,
                 recordTypeMappings,
+                anonymization,
               }
             : undefined;
 

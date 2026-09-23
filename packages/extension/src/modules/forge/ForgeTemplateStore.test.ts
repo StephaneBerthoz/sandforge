@@ -54,6 +54,54 @@ describe('ForgeTemplateStore', () => {
     expect(result[0].id).toBe('tpl-1');
   });
 
+  it.each([
+    ['an object', JSON.stringify({ templates: [sampleTemplate] })],
+    ['a template on its own', JSON.stringify(sampleTemplate)],
+    ['a string', JSON.stringify('tpl-1')],
+    ['a number', '42'],
+    ['null', 'null'],
+  ])('reads a file holding %s as holding no template', async (_what, content) => {
+    mockReadFile.mockResolvedValue(content);
+    const store = createStore();
+    expect(await store.list()).toEqual([]);
+  });
+
+  it('leaves out the entries no template operation can address, and keeps every entry with an id', async () => {
+    // An entry another version wrote, or one edited by hand, keeps its place:
+    // the handler leaves it out of the list the page gets.
+    const handEdited = { id: 'broken', name: 'no config at all' };
+    mockReadFile.mockResolvedValue(
+      JSON.stringify([
+        null,
+        7,
+        'tpl-2',
+        [],
+        { name: 'no id' },
+        { id: '' },
+        sampleTemplate,
+        handEdited,
+      ]),
+    );
+    const store = createStore();
+    expect(await store.list()).toEqual([sampleTemplate, handEdited]);
+  });
+
+  it('saves over a file holding an object, rather than failing on it', async () => {
+    mockReadFile.mockResolvedValue(JSON.stringify({ id: 'tpl-0' }));
+    const store = createStore();
+    await store.save(sampleTemplate);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string) as ForgeTemplate[];
+    expect(written).toEqual([sampleTemplate]);
+  });
+
+  it('deletes from a list holding a null entry, rather than failing on it', async () => {
+    mockReadFile.mockResolvedValue(JSON.stringify([null, sampleTemplate]));
+    const store = createStore();
+    await store.delete('tpl-1');
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string) as ForgeTemplate[];
+    expect(written).toEqual([]);
+  });
+
   it('should save a new template to file', async () => {
     mockReadFile.mockResolvedValue('[]');
     const store = createStore();

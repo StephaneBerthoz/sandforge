@@ -4,15 +4,17 @@ import type { AnonymizationMethod } from '../types/common.types.js';
  * The methods a masking template the user saves may give a rule: those a
  * DataOps run applies with no setting of its own.
  *
- * A DataOps run hands every rule an empty configuration. `hash` then throws,
- * since an unkeyed digest of an email or a phone number is reversed by
- * enumeration; `constant` writes an empty value and `truncate` keeps nothing,
- * which is not what either name says. Nothing on the page sets a salt, a value
- * or a length, so a saved template offers the five that need none.
+ * A saved rule carries no setting: nothing on the page sets one. The run gives
+ * `hash` its salt — the key the window draws when it starts — so hash needs
+ * none from the template. `constant` and `truncate` do: without a value a
+ * constant writes an empty one, and without a length a truncation keeps
+ * nothing, which is not what either name says. Only the templates that ship
+ * carry those, so a saved template offers the six that need nothing.
  */
 export const SAVED_TEMPLATE_METHODS = [
   'fake',
   'mask',
+  'hash',
   'nullify',
   'shuffle',
   'preserve_format',

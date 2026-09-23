@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
+import { partialSummaryOf } from './interruptedRun.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { logger } from '../../logger.js';
@@ -468,34 +469,114 @@ describe('ForgeExecutor', () => {
   });
 
   describe('anonymization', () => {
-    it('should apply anonymization before insert', async () => {
-      const anonymize = vi.fn((records: Record<string, unknown>[]) => {
-        return records.map((r) => ({ ...r, Name: 'ANON' }));
+    /** Contacts as the source holds them, with the fields a PII scan selects. */
+    function contactsWithEmail(): void {
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false, type: 'id' },
+        { name: 'LastName', queryable: true, createable: true, isReference: false, type: 'string' },
+        { name: 'Email', queryable: true, createable: true, isReference: false, type: 'email' },
+        { name: 'Phone', queryable: true, createable: true, isReference: false, type: 'phone' },
+      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: '003OLD1', LastName: 'Source One', Email: 'one@source.test', Phone: '0102030405' },
+        { Id: '003OLD2', LastName: 'Source Two', Email: 'two@source.test', Phone: '0607080910' },
+      ]);
+    }
+
+    /** The rows the run sent to the target for its first insert. */
+    function inserted(): Array<Record<string, unknown>> {
+      return vi.mocked(deps.insertRecords).mock.calls[0][2];
+    }
+
+    it('anonymizes the fields selected on the node, each with the method of its category', async () => {
+      contactsWithEmail();
+      const graph = makeGraph([makeNode('Contact', { anonymizeFields: ['Email', 'Phone'] })]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        anonymization: {
+          fields: { Contact: ['Email', 'Phone'] },
+          methods: { email: 'fake', phone: 'redact' },
+        },
       });
 
-      const depsWithAnon: ForgeExecutorDeps = {
-        ...createMockDeps(),
-        anonymize,
-      };
-      const anonExecutor = new ForgeExecutor(depsWithAnon);
-
-      const graph = makeGraph([makeNode('Account')]);
-      await anonExecutor.execute(graph, 'src', 'tgt', onProgress);
-
-      expect(anonymize).toHaveBeenCalledTimes(1);
-      expect(anonymize).toHaveBeenCalledWith(expect.any(Array), 'Account');
-
-      // Verify inserted records have anonymized names
-      const insertCall = vi.mocked(depsWithAnon.insertRecords).mock.calls[0];
-      expect(insertCall[2][0].Name).toBe('ANON');
+      const rows = inserted();
+      // A fake address, and a different person for each record.
+      expect(rows.map((r) => r['Email'])).not.toContain('one@source.test');
+      expect(rows.map((r) => r['Email'])).not.toContain('two@source.test');
+      expect(String(rows[0]['Email'])).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
+      // The method Review chose for phones, not the default mask.
+      expect(rows.map((r) => r['Phone'])).toEqual(['[REDACTED]', '[REDACTED]']);
+      // A field nobody selected goes as the source holds it, and no row gains an Id.
+      expect(rows.map((r) => r['LastName'])).toEqual(['Source One', 'Source Two']);
+      expect(rows.every((r) => !('Id' in r))).toBe(true);
     });
 
-    it('should not call anonymize when not configured', async () => {
-      const graph = makeGraph([makeNode('Account')]);
+    it('draws each record from a persona of its own, so the rows stay distinct people', async () => {
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false, type: 'id' },
+        { name: 'Email', queryable: true, createable: true, isReference: false, type: 'email' },
+      ]);
+      const sourceRows = Array.from({ length: 40 }, (_, i) => ({
+        Id: `003OLD${String(i).padStart(3, '0')}`,
+        Email: `person${i}@source.test`,
+      }));
+      vi.mocked(deps.queryRecords).mockResolvedValue(sourceRows);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_org, _obj, recs) =>
+        recs.map((_, i) => ({ id: `003NEW${i}`, success: true, errors: [] })),
+      );
+      const graph = makeGraph([makeNode('Contact', { recordCount: 40 })]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        anonymization: { fields: { Contact: ['Email'] }, methods: {} },
+      });
+
+      // A cleaned row has no Id: keyed by nothing, all forty were one person.
+      const emails = new Set(inserted().map((r) => r['Email']));
+      expect(emails.size).toBeGreaterThan(1);
+    });
+
+    it('anonymizes a renamed field under the name it is written by', async () => {
+      contactsWithEmail();
+      const graph = makeGraph([makeNode('Contact')]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        fieldMappings: { Contact: { Phone: 'MobilePhone' } },
+        anonymization: { fields: { Contact: ['Phone'] }, methods: { phone: 'redact' } },
+      });
+
+      expect(inserted().map((r) => r['MobilePhone'])).toEqual(['[REDACTED]', '[REDACTED]']);
+    });
+
+    it('writes the source values when the run asks for no anonymization', async () => {
+      contactsWithEmail();
+      const graph = makeGraph([makeNode('Contact', { anonymizeFields: ['Email'] })]);
+
       await executor.execute(graph, 'src', 'tgt', onProgress);
 
-      // No anonymize in default deps, should still work
-      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      expect(inserted().map((r) => r['Email'])).toEqual(['one@source.test', 'two@source.test']);
+    });
+
+    it('hands the rows, their source ids and the selected fields to an injected anonymizer', async () => {
+      contactsWithEmail();
+      const anonymize = vi.fn<NonNullable<ForgeExecutorDeps['anonymize']>>((request) =>
+        request.records.map((r) => ({ ...r, Email: 'x@example.com' })),
+      );
+      const anonExecutor = new ForgeExecutor({ ...deps, anonymize });
+      const graph = makeGraph([makeNode('Contact'), makeNode('Account')]);
+
+      await anonExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        anonymization: { fields: { Contact: ['Email'] }, methods: { email: 'hash' } },
+      });
+
+      // Account has nothing selected: it is not handed over at all.
+      expect(anonymize).toHaveBeenCalledTimes(1);
+      expect(anonymize.mock.calls[0][0]).toMatchObject({
+        objectApiName: 'Contact',
+        sourceIds: ['003OLD1', '003OLD2'],
+        fields: [{ name: 'Email', type: 'email' }],
+        methods: { email: 'hash' },
+      });
+      expect(inserted().map((r) => r['Email'])).toEqual(['x@example.com', 'x@example.com']);
     });
   });
 
@@ -593,6 +674,27 @@ describe('ForgeExecutor', () => {
       // The per-node abort guard is what stops the second object; without it
       // the loop advanced and Contact was written after the abort.
       expect(written).toEqual(['Account']);
+    });
+
+    it('keeps what an aborted run wrote with the error it throws', async () => {
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '001OLD1', Name: 'R1' }]);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+      });
+      const graph = makeGraph([
+        makeNode('Account', { recordCount: 1, batchStrategy: 'rest' }),
+        makeNode('Contact', { recordCount: 1, batchStrategy: 'rest' }),
+      ]);
+
+      const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      // The Account written before the abort is recorded with the run.
+      expect(error).toBeInstanceOf(ForgeAbortedError);
+      expect(partialSummaryOf(error)).toMatchObject({
+        successCount: 1,
+        remapByObject: [{ objectApiName: 'Account', created: 1, linked: 0 }],
+      });
     });
   });
 
@@ -1308,6 +1410,54 @@ describe('ForgeExecutor', () => {
       expect(
         summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__'),
       ).toBeUndefined();
+    });
+
+    it('anonymizes an expanded parent with the fields selected on its object', async () => {
+      // Account is in the graph, left out of the copy: its selection still
+      // says what of an Account is personal, and a parent fetched from
+      // outside the scope carries it like any other row.
+      const graph = makeGraph([makeNode('Asset'), makeNode('Account', { included: false })]);
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Asset') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            {
+              name: 'AccountId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Account'],
+              nillable: false,
+            },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Name', queryable: true, createable: true, isReference: false, type: 'string' },
+          { name: 'Phone', queryable: true, createable: true, isReference: false, type: 'phone' },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Asset')) return [{ Id: '02iOLD1', AccountId: '001AP00ORPHAN12' }];
+        if (soql.includes('FROM Account'))
+          return [{ Id: '001AP00ORPHAN12', Name: 'Parent', Phone: '0102030405' }];
+        return [];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => [
+        { id: name === 'Account' ? '001NEW_EXPANDED' : '02iNEW1', success: true, errors: [] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Asset',
+        expandOrphanParents: true,
+        anonymization: { fields: { Account: ['Phone'] }, methods: { phone: 'redact' } },
+      });
+
+      const accountInsert = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Account');
+      expect(accountInsert?.[2]).toEqual([{ Name: 'Parent', Phone: '[REDACTED]' }]);
     });
 
     it('respects maxOrphanParentExpansions cap', async () => {

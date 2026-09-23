@@ -205,4 +205,30 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     expect(result.successIds).toEqual(['001000000000001']);
     expect(result.errors).toEqual(['REQUIRED_FIELD_MISSING: Name']);
   });
+
+  it('keeps every error the org gives a record, in its one entry, up to a bound', async () => {
+    // Only the first was kept: a row refused for a missing name and a bad
+    // email said only the first, and fixing it met the second on the next run.
+    const eight = Array.from({ length: 8 }, (_, i) => ({ message: `problem ${i + 1}` }));
+    const create = vi.fn().mockResolvedValue([
+      {
+        success: false,
+        errors: [
+          { message: 'REQUIRED_FIELD_MISSING: Name' },
+          { message: 'INVALID_EMAIL_ADDRESS: Email' },
+        ],
+      },
+      { success: false, errors: eight },
+    ]);
+    mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+
+    const insert = await captureInsertFn(deps);
+    const result = await insert('org-1', 'Account', [{}, {}], 200);
+
+    // One entry per record: the orchestrator counts refused records by them.
+    expect(result.errors).toEqual([
+      'REQUIRED_FIELD_MISSING: Name; INVALID_EMAIL_ADDRESS: Email',
+      'problem 1; problem 2; problem 3; problem 4; problem 5 (and 3 more)',
+    ]);
+  });
 });

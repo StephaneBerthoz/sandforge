@@ -1175,6 +1175,15 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!config) return;
     const productionGuard = this.deps.infraServices?.productionGuard;
     if (!productionGuard) {
+      // No run was minted: the request's id stands in, as for a guard refusal.
+      recordWriteRun(this.deps, {
+        action: 'frozen_load',
+        module: 'frozen',
+        operationId: msg.id,
+        orgId: parsed.targetOrgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
       sendHandlerError(
         this.deps,
         'frozen:load',

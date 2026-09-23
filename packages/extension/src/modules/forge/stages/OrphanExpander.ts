@@ -67,6 +67,17 @@ export interface OrphanExpansionInput {
   enabled: boolean;
   /** Cap on expansions per `execute()` call. */
   maxExpansions: number;
+  /**
+   * Anonymizes a parent's payload before it is inserted, when the run
+   * anonymizes: a parent copied from outside the scope carries the same
+   * personal data as the rows the run anonymizes.
+   */
+  anonymize?: (
+    objectApiName: string,
+    payload: Record<string, unknown>,
+    sourceId: string,
+    fields: FieldInfo[],
+  ) => Record<string, unknown>;
 }
 
 /**
@@ -153,6 +164,7 @@ export class OrphanExpander {
               entry.sourceId,
               input.recordTypeMappings,
               input.recordTypeMapper,
+              input.anonymize,
             );
             if (parent) {
               // Count only successful expansions toward the cap
@@ -228,6 +240,7 @@ export class OrphanExpander {
     sourceRecordId: string,
     recordTypeMappings: RecordTypeMapping[] | undefined,
     recordTypeMapper: RecordTypeMapper | null,
+    anonymize: OrphanExpansionInput['anonymize'],
   ): Promise<{ id: string; existing: boolean } | null> {
     // Defense-in-depth: although sourceRecordId originates from a trusted
     // SOQL query result, validate before interpolating to block injection
@@ -280,12 +293,13 @@ export class OrphanExpander {
       }
       cleaned[key] = value;
     }
-    const payload =
+    const mapped =
       recordTypeMapper && recordTypeMappings
         ? recordTypeMapper.apply([cleaned], recordTypeMappings, (id) =>
             warnUnmappedRecordType(objectName, id),
           )[0]
         : cleaned;
+    const payload = anonymize ? anonymize(objectName, mapped, sourceRecordId, fields) : mapped;
     const result = await this.deps.insertRecords(targetOrgId, objectName, [payload]);
     const written = result[0];
     if (!written) return null;

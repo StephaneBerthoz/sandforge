@@ -74,8 +74,11 @@ export function useRecentOpsFeed(): void {
     'operation:completed',
     useCallback((msg) => {
       const recordCount = extractRecordCount(msg.payload.result);
+      // A run that ends with a failure status — nothing written, or refused —
+      // is a failed run, however it ended.
+      const failed = msg.payload.result['status'] === 'failure';
       useRecentOpsStore.getState().updateOp(msg.payload.operationId, {
-        status: 'success',
+        status: failed ? 'failed' : 'success',
         timestamp: Date.now(),
         ...(recordCount !== undefined ? { recordCount } : {}),
       });

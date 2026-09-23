@@ -59,11 +59,19 @@ export interface ExportResult {
   error?: string;
 }
 
-/** Internal key prefix to category mapping. */
+/**
+ * Internal key prefix to category mapping.
+ *
+ * A saved pipeline is kept under `pipeline:saved:<id>`, and each of its runs
+ * under `pipeline:history:<runId>` (see `AutomationHandler`). The pipelines
+ * category used to take every `pipeline:` key, so a profile carried the run
+ * history too, and an import wrote each run back into the category the
+ * saved pipelines are listed from.
+ */
 const CATEGORY_PREFIXES: Record<ConfigCategory, string> = {
   syncMappings: 'sync:',
   forgePlans: 'forge:',
-  pipelines: 'pipeline:',
+  pipelines: 'pipeline:saved:',
   anonymizationTemplates: 'anonymization:',
   settings: 'settings:',
 };

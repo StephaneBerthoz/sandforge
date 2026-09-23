@@ -194,6 +194,12 @@ export interface SyncObjectResult {
   /** Number of conflicts detected during this object's sync */
   conflictCount: number;
   errors: string[];
+  /**
+   * Of the records an upsert wrote, those it created and those it updated,
+   * as the org said for each. A record the org said neither of is in
+   * neither. Absent for the other operations.
+   */
+  upsertSplit?: { created: number; updated: number };
 }
 
 /** Conflict record needing resolution */

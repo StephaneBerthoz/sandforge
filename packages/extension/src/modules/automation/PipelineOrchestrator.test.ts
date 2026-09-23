@@ -708,6 +708,39 @@ describe('PipelineOrchestrator', () => {
       expect(run.status).toBe('completed_with_warnings');
     });
 
+    it('ends the run cancelled at a step whose work was cancelled, even one that carries on after a failure', async () => {
+      // A Backup cancelled from Live Operations: the run was written as failed,
+      // or went on without the snapshot when the step carried on.
+      vi.mocked(deps.stepExecutor.execute).mockResolvedValueOnce({
+        stepId: 'a',
+        stepName: 'A',
+        stepType: 'backup',
+        status: 'failed',
+        error: 'Backup was cancelled before it finished.',
+        cancelled: true,
+      });
+
+      const run = await orchestrator.execute(
+        createPipeline({
+          steps: [
+            delayStep('a', { continueOnError: true, onFailure: 'c' }),
+            delayStep('b'),
+            delayStep('c'),
+          ],
+        }),
+        {},
+        'manual',
+      );
+
+      expect(executed()).toEqual(['a']);
+      expect(statuses(run)).toEqual([['a', 'failed']]);
+      expect(run.status).toBe('cancelled');
+      expect(run.error).toBeUndefined();
+      expect(deps.history.record).toHaveBeenCalledWith(
+        expect.objectContaining({ id: run.id, status: 'cancelled' }),
+      );
+    });
+
     it('refuses, before any step runs, a route that points back', async () => {
       const run = await orchestrator.execute(
         createPipeline({ steps: [delayStep('a'), delayStep('b', { onSuccess: 'a' })] }),

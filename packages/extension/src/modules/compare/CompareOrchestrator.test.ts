@@ -63,6 +63,7 @@ describe('CompareOrchestrator', () => {
         'target-org',
         ['ApexClass', 'Flow'],
         { includeManaged: true },
+        undefined,
       );
     });
 
@@ -74,7 +75,53 @@ describe('CompareOrchestrator', () => {
         'target-org',
         ['ApexClass'],
         { includeManaged: false },
+        undefined,
       );
+    });
+
+    it('hands the comparison the signal that stops it', async () => {
+      const stop = new AbortController();
+
+      await orchestrator.execute(createConfig(), stop.signal);
+
+      expect(deps.metadataCompare.compare).toHaveBeenCalledWith(
+        'source-org',
+        'target-org',
+        ['ApexClass'],
+        { includeManaged: true },
+        stop.signal,
+      );
+    });
+
+    it('settles at once with the cancellation, not a result, when the signal aborts mid-read', async () => {
+      // A read already sent cannot be taken back: the comparison answered once
+      // it came back, and answered with a result.
+      let answer: (comparison: { items: CompareItem[]; managedLeftOut: number }) => void = () => {};
+      vi.mocked(deps.metadataCompare.compare).mockReturnValue(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const stop = new AbortController();
+      let settled: unknown = 'still running';
+      void orchestrator.execute(createConfig({ id: 'stopped' }), stop.signal).then(
+        () => {
+          settled = 'answered with a result';
+        },
+        (reason: unknown) => {
+          settled = reason;
+        },
+      );
+
+      stop.abort();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Settled while the read is still out, with the cancellation.
+      expect(settled).toBe(stop.signal.reason);
+      answer({ items: [createItem('Late', 'modified')], managedLeftOut: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toBe(stop.signal.reason);
+      expect(orchestrator.getLastResult('stopped')).toBeUndefined();
     });
 
     it('says how many components a managed package installed were left out', async () => {

@@ -47,7 +47,7 @@
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes à conserver par org",
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les opérations sur les orgs de production",
-  "config.safety.auditLogging.description": "Enregistrer chaque décision de contrôle de sécurité de Production Guard : avec l’exécution qu’elle concerne dans le journal d’audit (Rapports → Journal d’audit), et dans un journal de session des 1000 derniers contrôles. Désactivé, les exécutions restent enregistrées, sans les décisions.",
+  "config.safety.auditLogging.description": "Enregistrer chaque décision de contrôle de sécurité de Production Guard avec l’exécution qu’elle concerne dans le journal d’audit (Rapports → Journal d’audit). Désactivé, les exécutions restent enregistrées, sans les décisions.",
   "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe). À partir de sandforge.grappe.autoActivateThreshold enregistrements, Seed signale chaque partition à sa fin dans la vue Grappe, Sync signale une partition par objet, et Autopilot ne signale que le début et la fin de l'exécution.",
   "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed, sync et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
   "config.grappe.grappeSize.description": "Nombre d'enregistrements par partition de grappe."

@@ -392,6 +392,7 @@ export class DataOpsComplianceHandler implements DomainHandler {
           'dataops:error',
           msg,
           new Error(result.message),
+          result.code ? { code: result.code } : undefined,
         );
         return;
       }

@@ -25,7 +25,14 @@ type JsforceResult = {
   success: boolean;
   id?: string;
   errors?: Array<{ statusCode?: string; message: string }>;
+  /** On an upsert: whether the org created the record rather than updated it. */
+  created?: boolean;
 };
+
+/** The `created` flag of a write's answer, kept when the answer carries one. */
+function createdOf(answer: { created?: boolean }): Pick<OperationOutcome, 'created'> {
+  return typeof answer.created === 'boolean' ? { created: answer.created } : {};
+}
 
 /** Dependencies required by BulkDataWriter. */
 export interface BulkDataWriterDeps {
@@ -253,6 +260,7 @@ export class BulkDataWriter {
         id: outcome.id,
         success: outcome.success,
         errors: outcome.success ? [] : [outcome.error ?? 'Streaming error'],
+        ...createdOf(outcome),
       }),
     );
   }
@@ -291,6 +299,7 @@ export class BulkDataWriter {
         id: outcome.id,
         success: outcome.success,
         errors: outcome.success ? [] : [outcome.error ?? 'Bulk error'],
+        ...createdOf(outcome),
       }),
     );
   }
@@ -347,7 +356,9 @@ export class BulkDataWriter {
    * the target named the record it already holds.
    */
   private restOutcome(objectName: string, r: JsforceResult): OperationOutcome {
-    if (r.success) return { id: r.id, success: true, errors: [] };
+    // An upsert's answer says whether it created the record or updated it:
+    // dropped, the audit trail could only count the records as "upserted".
+    if (r.success) return { id: r.id, success: true, errors: [], ...createdOf(r) };
     const errors: unknown[] = r.errors ?? [];
     const formatted = errors.map(formatSaveError);
     const outcome: OperationOutcome = {

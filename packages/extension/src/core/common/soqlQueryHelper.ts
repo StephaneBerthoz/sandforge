@@ -17,14 +17,17 @@ const DEFAULT_MAX_RECORDS = 50_000;
  * @param conn - The jsforce Connection to query against.
  * @param soql - The SOQL query string.
  * @param maxRecords - Safety cap on the total number of records to fetch (default: 50000).
+ * @param signal - Once aborted, no further page is asked for: the read
+ *   rejects with the signal's reason.
  * @returns All records across all pages, capped at maxRecords.
  */
 export async function queryAll<T extends Record<string, unknown>>(
   conn: Connection,
   soql: string,
   maxRecords: number = DEFAULT_MAX_RECORDS,
+  signal?: AbortSignal,
 ): Promise<T[]> {
-  return (await queryAllBounded<T>(conn, soql, maxRecords)).records;
+  return (await queryAllBounded<T>(conn, soql, maxRecords, signal)).records;
 }
 
 /** Rows read from the org, and whether a bound cut the read short. */
@@ -53,11 +56,14 @@ export async function queryAllBounded<T extends Record<string, unknown>>(
   conn: Connection,
   soql: string,
   maxRecords: number = DEFAULT_MAX_RECORDS,
+  signal?: AbortSignal,
 ): Promise<BoundedRecords<T>> {
+  signal?.throwIfAborted();
   let result: QueryResult<T> = await conn.query<T>(soql);
   const records: T[] = [...result.records];
 
   while (!result.done && result.nextRecordsUrl && records.length < maxRecords) {
+    signal?.throwIfAborted();
     result = await conn.queryMore<T>(result.nextRecordsUrl);
     records.push(...result.records);
   }

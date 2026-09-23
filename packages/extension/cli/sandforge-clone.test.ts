@@ -9,11 +9,14 @@ import { execFileSync } from 'node:child_process';
 import {
   adaptDescribe,
   describeObjectInfo,
+  executeOptions,
   loadRecordTypes,
   main,
+  parseArgs,
   summaryLines,
 } from './sandforge-clone';
 import type { ExecutionSummary } from '../src/modules/forge/ForgeExecutor.js';
+import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 
 const mockExecFileSync = vi.mocked(execFileSync);
 
@@ -308,5 +311,49 @@ describe('sandforge-clone describe adapter', () => {
       ['Parent__c', true],
       ['AccountId', false],
     ]);
+  });
+});
+
+describe('sandforge-clone anonymization', () => {
+  /** A discovered node, with the PII fields discovery selected on it. */
+  const node = (objectApiName: string, anonymizeFields: string[]): ForgeGraphNode => ({
+    objectApiName,
+    recordCount: 1,
+    fieldCount: 5,
+    status: 'idle',
+    progress: 0,
+    included: true,
+    piiFields: anonymizeFields,
+    anonymizeFields,
+    level: 0,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: 4,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 1,
+    batchStrategy: 'auto',
+  });
+  const graph: ForgeGraph = {
+    nodes: [node('Contact', ['Email', 'Phone']), node('Account', [])],
+    edges: [],
+    totalRecords: 2,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it('asks the run to anonymize the fields discovery selected when --anonymize is given', () => {
+    const options = executeOptions(parseArgs(argv('--anonymize')), graph, []);
+
+    expect(options.anonymization).toEqual({
+      fields: { Contact: ['Email', 'Phone'] },
+      methods: {},
+    });
+  });
+
+  it('asks for no anonymization without --anonymize', () => {
+    const options = executeOptions(parseArgs(argv()), graph, []);
+
+    expect(options.anonymization).toBeUndefined();
   });
 });

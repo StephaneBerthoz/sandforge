@@ -43,6 +43,11 @@ export interface BulkRecordOutcome {
   success: boolean;
   /** Error message on failure. */
   error?: string;
+  /**
+   * For an upsert, whether the job created the record (true) or updated one
+   * (false), from its `sf__Created` column. Absent when the row does not say.
+   */
+  created?: boolean;
 }
 
 /**
@@ -103,6 +108,16 @@ function stripBulkMetadataKeys(row: Record<string, unknown>): Record<string, unk
 }
 
 /**
+ * The `sf__Created` column of a successful row: what an upsert did with the
+ * record. A result read as CSV holds it as text.
+ */
+function createdFlag(value: unknown): boolean | undefined {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return undefined;
+}
+
+/**
  * Normalize bulk job results into per-input-record outcomes.
  *
  * Two input shapes are supported:
@@ -129,10 +144,15 @@ export function normalizeBulkJobResults(
   const unattributedFailures: string[] = [];
   const claimed = new Array<boolean>(records.length).fill(false);
 
-  const claim = (id: string | undefined, recordIndex: number): void => {
+  const claim = (id: string | undefined, recordIndex: number, created?: boolean): void => {
     if (recordIndex >= 0 && recordIndex < records.length && !claimed[recordIndex]) {
       claimed[recordIndex] = true;
-      outcomes.push({ recordIndex, id, success: true });
+      outcomes.push({
+        recordIndex,
+        id,
+        success: true,
+        ...(created !== undefined ? { created } : {}),
+      });
     } else if (id !== undefined) {
       unattributedSuccessIds.push(id);
     }
@@ -176,6 +196,7 @@ export function normalizeBulkJobResults(
       claim(
         typeof row['sf__Id'] === 'string' ? (row['sf__Id'] as string) : undefined,
         takeIndex(row),
+        createdFlag(row['sf__Created']),
       );
     }
     for (const row of rawResults.failedResults ?? []) {

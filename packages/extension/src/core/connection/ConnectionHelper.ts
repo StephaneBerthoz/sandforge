@@ -163,10 +163,32 @@ function reportIdentity(orgId: string, identity: unknown): void {
 }
 
 /** Fresh credentials as currently known by the SF CLI. */
-interface CliCredentials {
+export interface CliCredentials {
   accessToken: string;
   /** Present when the CLI reports one (always in practice) — may differ from the stored URL. */
   instanceUrl?: string;
+}
+
+/**
+ * What the CLI prints where an access token was: "[REDACTED] Use 'sf org auth
+ * show-access-token' to view". CLI 2.150 does so in `sf org list`, `sf org
+ * display` and the login commands; only `sf org auth show-access-token` still
+ * prints the token itself.
+ */
+const REDACTED_TOKEN_PREFIX = '[REDACTED]';
+
+/**
+ * Whether `token` can be sent to Salesforce as an access token. The CLI's
+ * placeholder is a sentence, and a real token holds no space; a token missing
+ * altogether is no more usable than a hidden one.
+ */
+export function isUsableAccessToken(token: unknown): token is string {
+  return (
+    typeof token === 'string' &&
+    token.length > 0 &&
+    !token.startsWith(REDACTED_TOKEN_PREFIX) &&
+    !/\s/.test(token)
+  );
 }
 
 /**
@@ -185,9 +207,11 @@ interface CliCredentials {
  * points at the wrong instance and even a fresh token is rejected there).
  *
  * Falls back to the legacy display-token behavior on CLIs too old to have
- * `org auth show-access-token`. Throws when no usable session exists.
+ * `org auth show-access-token`. A CLI recent enough to have it prints a
+ * placeholder in display's token instead, which is never returned as one.
+ * Throws when no usable session exists.
  */
-async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
+export async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
   // Validate username (defense in depth — argv-as-array on POSIX makes
   // shell-injection moot, but the regex still catches obviously malformed
   // input early and is the only defense on the Windows shell branch below).
@@ -289,7 +313,7 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
       '--json',
     ]);
     const result = parseResult(stdout, 'sf org auth show-access-token');
-    if (typeof result.accessToken === 'string' && result.accessToken) {
+    if (isUsableAccessToken(result.accessToken)) {
       return { accessToken: result.accessToken, instanceUrl };
     }
   } catch (err: unknown) {
@@ -305,9 +329,12 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
     '--json',
   ]);
   const legacy = parseResult(stdout, 'sf org display');
-  if (typeof legacy.accessToken !== 'string' || !legacy.accessToken) {
+  // On a CLI that hides it, display's token is the placeholder. Returned as a
+  // token, it cost a doomed identity call here, whose failure then stood as
+  // the cause, and it would be stored as the token of an org being imported.
+  if (!isUsableAccessToken(legacy.accessToken)) {
     throw new Error(
-      'No accessToken returned by "sf org display". The org session may have expired — try re-authenticating with "sf org login".',
+      'Neither "sf org auth show-access-token" nor "sf org display" returned an access token. The org session may have expired — try re-authenticating with "sf org login".',
     );
   }
   if (!instanceUrl && typeof legacy.instanceUrl === 'string') {

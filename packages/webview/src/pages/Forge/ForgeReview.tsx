@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BaseMessage, ForgeConfig, ForgeGraph, ForgePlanResponse } from '@sandforge/shared';
+import type { BaseMessage, ForgeExecuteRequest, ForgePlanResponse } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { MetadataDiffEntry } from '../../stores/useForgeStore';
@@ -134,10 +134,14 @@ export const ForgeReview: React.FC = () => {
     // Clear the previous run's node statuses first: they live as long as the
     // panel, so a run after an abort opened already half "done" and sat there.
     useForgeStore.getState().resetNodeStatuses();
-    const requestId = sendBridgeMessage<{ graph: ForgeGraph; config: ForgeConfig }>(
-      'forge:execute',
-      { graph, config },
-    );
+    // The methods chosen in the Anonymization tab go with the run: the fields
+    // travel on the graph's nodes, and the run used to receive only those, so
+    // every category was written with no method at all.
+    const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
+      graph,
+      config,
+      anonymizationRules: useForgeStore.getState().anonymizationRules,
+    });
     // Mission control takes only the messages correlated to this request.
     useForgeStore.getState().setExecutionRequestId(requestId);
     setPhase('execution');

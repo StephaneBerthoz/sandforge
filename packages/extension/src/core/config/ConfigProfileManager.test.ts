@@ -29,7 +29,7 @@ describe('ConfigProfileManager', () => {
     it('exports selected categories', () => {
       store.set('sync:mapping-1', { source: 'Account', target: 'Account' }, 'syncMappings');
       store.set('sync:mapping-2', { source: 'Contact', target: 'Contact' }, 'syncMappings');
-      store.set('pipeline:pipe-1', { name: 'Nightly Backup' }, 'pipelines');
+      store.set('pipeline:saved:pipe-1', { name: 'Nightly Backup' }, 'pipelines');
 
       const result = manager.exportProfile(['syncMappings', 'pipelines']);
       expect(result.success).toBe(true);
@@ -40,6 +40,24 @@ describe('ConfigProfileManager', () => {
       const parsed = JSON.parse(result.json!) as ConfigProfile;
       expect(parsed.version).toBe('1.0.0');
       expect(parsed.categories).toEqual(['syncMappings', 'pipelines']);
+    });
+
+    it('exports the saved pipelines, and not the history of their runs', () => {
+      // Where AutomationHandler keeps each: a saved pipeline, and one run of it.
+      store.set('pipeline:saved:pipe-1', { id: 'pipe-1', name: 'Nightly Backup' }, 'pipelines');
+      store.set(
+        'pipeline:history:run-1',
+        { runId: 'run-1', pipelineId: 'pipe-1', status: 'completed' },
+        'pipeline-history',
+      );
+
+      const result = manager.exportProfile(['pipelines']);
+
+      expect(result.entriesExported).toBe(1);
+      const parsed = JSON.parse(result.json!) as ConfigProfile;
+      expect(parsed.data.pipelines).toEqual({
+        'pipeline:saved:pipe-1': { id: 'pipe-1', name: 'Nightly Backup' },
+      });
     });
 
     it('exports empty categories without error', () => {
@@ -134,6 +152,32 @@ describe('ConfigProfileManager', () => {
       expect(value?.source).toBe('Imported');
     });
 
+    it('imports the saved pipelines a profile carries, and not the run history an older one also carried', () => {
+      // Written back under the category the saved pipelines are listed from,
+      // each run came back as a pipeline.
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['pipelines'],
+        data: {
+          pipelines: {
+            'pipeline:saved:pipe-1': { id: 'pipe-1', name: 'Nightly Backup' },
+            'pipeline:history:run-1': { runId: 'run-1', pipelineId: 'pipe-1' },
+          },
+        },
+      };
+
+      const result = manager.importProfile(JSON.stringify(profile));
+
+      expect(result.success).toBe(true);
+      expect(result.entriesImported).toBe(1);
+      expect(store.getByCategory('pipelines')).toEqual({
+        'pipeline:saved:pipe-1': { id: 'pipe-1', name: 'Nightly Backup' },
+      });
+      expect(store.has('pipeline:history:run-1')).toBe(false);
+      expect(result.warnings).toEqual([expect.stringContaining('"pipeline:history:run-1"')]);
+    });
+
     it('warns about empty categories', () => {
       const profile: ConfigProfile = {
         version: '1.0.0',
@@ -176,7 +220,8 @@ describe('ConfigProfileManager', () => {
     it('returns all categories with counts', () => {
       store.set('sync:mapping-1', { a: 1 }, 'syncMappings');
       store.set('sync:mapping-2', { b: 2 }, 'syncMappings');
-      store.set('pipeline:pipe-1', { c: 3 }, 'pipelines');
+      store.set('pipeline:saved:pipe-1', { c: 3 }, 'pipelines');
+      store.set('pipeline:history:run-1', { d: 4 }, 'pipeline-history');
 
       const categories = manager.listCategories();
       expect(categories).toHaveLength(5);

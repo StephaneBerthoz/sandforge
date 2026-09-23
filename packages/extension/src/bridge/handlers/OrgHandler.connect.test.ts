@@ -154,8 +154,14 @@ describe('org:connect answers on every branch', () => {
     // it could build a correlated reply.
     deps.sfdxBridge = {
       isCliAvailable: vi.fn().mockResolvedValue(true),
-      loginWeb: vi.fn().mockResolvedValue(undefined),
-      listOrgs: vi.fn().mockResolvedValue([{ org: { id: 'org-9' }, credentials: {} }]),
+      loginWeb: vi.fn().mockResolvedValue({
+        username: 'admin@example.com',
+        orgId: 'org-9',
+        instanceUrl: 'https://acme.my.salesforce.com',
+      }),
+      listOrgs: vi
+        .fn()
+        .mockResolvedValue([{ org: { id: 'org-9', orgId: 'org-9' }, credentials: {} }]),
     } as unknown as HandlerDeps['sfdxBridge'];
 
     await new OrgHandler(deps).handle(connectMsg({ authMethod: 'oauth_web' }));

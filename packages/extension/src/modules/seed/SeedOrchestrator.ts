@@ -5,6 +5,7 @@ import type {
   SeedDataPlan,
   SeedRelation,
   GrappeConfig,
+  GrappePartition,
   GrappeResult,
   UUID,
 } from '@sandforge/shared';
@@ -429,10 +430,21 @@ export class SeedOrchestrator {
     );
     const grappeResults: GrappeResult[] = [];
     let processedPartitions = 0;
+    const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
 
     for (const obj of sortedObjects) {
+      // As many as the adapter planned for the object, from the same size.
+      const planned = Math.ceil(obj.recordCount / grappeSize);
       const ready = await this.readyToWrite(obj, run, totalRecords);
-      if (!ready) continue;
+      if (!ready) {
+        processedPartitions = this.settleUnusedPartitions(
+          partitions,
+          processedPartitions,
+          planned,
+          0,
+        );
+        continue;
+      }
 
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
       const records = startsEmpty(ready.config, ready.relation)
@@ -441,7 +453,6 @@ export class SeedOrchestrator {
             fallback.aiFallback = aiFallback;
           });
       fillLookup(records, ready.relation, ready.placed);
-      const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
       const chunks = chunkArray(records, grappeSize);
 
       let objSuccess = 0;
@@ -490,6 +501,12 @@ export class SeedOrchestrator {
           payload: { grappeId: partitionId, percentage, processedRecords: objSuccess + objFailed },
         });
       }
+      processedPartitions = this.settleUnusedPartitions(
+        partitions,
+        processedPartitions,
+        planned - chunks.length,
+        objSuccess + objFailed,
+      );
 
       recordWrite(
         run,
@@ -515,6 +532,41 @@ export class SeedOrchestrator {
       startTime,
       this.deps.now(),
     );
+  }
+
+  /**
+   * Report the partitions planned for an object that its run did not use —
+   * all of them for an object skipped, the ones past its records for a
+   * relation that placed fewer children than planned — so the partitions
+   * reported reach the ones announced. Left unused, a skipped object held the
+   * run's progress short of 100% for good.
+   *
+   * @param partitions - The partitions announced for the run.
+   * @param processed - The partitions reported so far.
+   * @param unused - How many of the object's planned partitions it did not use.
+   * @param processedRecords - The object's records written or refused.
+   * @returns The partitions reported so far, these included.
+   */
+  private settleUnusedPartitions(
+    partitions: GrappePartition[],
+    processed: number,
+    unused: number,
+    processedRecords: number,
+  ): number {
+    let reported = processed;
+    for (let left = unused; left > 0; left--) {
+      const grappeId = partitions[reported]?.id ?? this.deps.generateId();
+      reported++;
+      this.deps.onGrappeEvent?.({
+        type: 'grappe:partitionProgress',
+        payload: {
+          grappeId,
+          percentage: Math.round((reported / Math.max(partitions.length, 1)) * 100),
+          processedRecords,
+        },
+      });
+    }
+    return reported;
   }
 }
 

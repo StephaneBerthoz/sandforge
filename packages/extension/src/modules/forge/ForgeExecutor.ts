@@ -44,6 +44,12 @@ import {
 } from '@sandforge/shared';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 import {
+  ForgeAnonymizer,
+  type ForgeAnonymizeRequest,
+  type ForgeRunAnonymization,
+} from './ForgeAnonymizer.js';
+import { keepPartialSummary } from './interruptedRun.js';
+import {
   findUnavailableRecordTypes,
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
@@ -110,6 +116,12 @@ export interface FieldInfo {
   createable: boolean;
   /** Whether the field is a reference (lookup/master-detail). */
   isReference: boolean;
+  /**
+   * The field's Salesforce type (`email`, `phone`, `string`…). Anonymization
+   * reads it to put a field in its category; without it a field is placed by
+   * its name alone.
+   */
+  type?: string;
   /**
    * Objects this reference field can point to (one entry for monomorphic,
    * many for polymorphic fields like Task.WhatId). Only meaningful when
@@ -249,6 +261,12 @@ export interface ExecuteOptions {
    */
   fieldExclusions?: Record<string, string[]>;
   /**
+   * What to anonymize before insert: per object, the fields selected on its
+   * node, and the method for each PII category. Absent, every record is
+   * written as the source holds it.
+   */
+  anonymization?: ForgeRunAnonymization;
+  /**
    * Per-object owner remap. When the source-org `OwnerId` of a record
    * matches a key, the cleaned record gets the mapped target Id instead.
    * Useful when cloning records authored by users that don't exist on
@@ -350,11 +368,13 @@ export interface ForgeExecutorDeps {
   describeObject?: (orgId: string, objectName: string) => Promise<TargetObjectInfo>;
   /** Optional batch strategy for splitting inserts into batches. */
   batchStrategy?: ForgeBatchStrategyService;
-  /** Optional anonymization function applied before insert. */
-  anonymize?: (
-    records: Record<string, unknown>[],
-    objectApiName: string,
-  ) => Record<string, unknown>[];
+  /**
+   * Anonymize one object's rows before insert, as `ExecuteOptions.anonymization`
+   * asks. Optional: without it each run anonymizes with a `ForgeAnonymizer`
+   * of its own, so a caller that asks for anonymization cannot get the rows
+   * back untouched for want of wiring.
+   */
+  anonymize?: (request: ForgeAnonymizeRequest) => Record<string, unknown>[];
 }
 
 /** Progress event emitted during execution. */
@@ -534,6 +554,8 @@ interface ExecutionState {
   standardPricebookId: string | null;
   /** Rows the target already held, per object, in the order they were written. */
   readonly existingRecords: ExistingRecordReport[];
+  /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
+  readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
   successCount: number;
   linkedCount: number;
   failedCount: number;
@@ -611,6 +633,51 @@ export class ForgeExecutor {
   }
 
   /**
+   * Anonymize rows of `objectApiName` as the run asks: the fields selected on
+   * the object's node, each with the method of its category. Rows of an
+   * object with nothing selected, or of a run that anonymizes nothing, are
+   * returned as they are.
+   *
+   * @param sourceIds - The source id of each row, index-aligned with `rows`.
+   * @param fieldInfos - The object's source fields, for their types.
+   * @param rename - Source to target field names: a renamed field is
+   *   anonymized under the name the row holds it by.
+   */
+  private anonymizeRows(
+    state: ExecutionState,
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    sourceIds: string[],
+    fieldInfos: FieldInfo[],
+    rename: Record<string, string>,
+  ): Record<string, unknown>[] {
+    const anonymization = state.config.anonymization;
+    const selected = anonymization?.fields[objectApiName] ?? [];
+    if (!state.anonymize || !anonymization || selected.length === 0) return rows;
+    const typeOf = new Map(fieldInfos.map((f) => [f.name, f.type ?? '']));
+    return state.anonymize({
+      objectApiName,
+      records: rows,
+      sourceIds,
+      fields: selected.map((name) => ({
+        name: rename[name] ?? name,
+        type: typeOf.get(name) ?? '',
+      })),
+      methods: anonymization.methods,
+    });
+  }
+
+  /**
+   * The anonymizer a run uses: the one injected, or one of the run's own —
+   * so the fake values and hashes of one run are keyed apart from the next.
+   */
+  private anonymizerForRun(): (request: ForgeAnonymizeRequest) => Record<string, unknown>[] {
+    if (this.deps.anonymize) return this.deps.anonymize;
+    const anonymizer = new ForgeAnonymizer();
+    return (request) => anonymizer.anonymize(request);
+  }
+
+  /**
    * Execute the forge plan for the given graph.
    *
    * @param graph - The dependency graph to execute.
@@ -656,11 +723,27 @@ export class ForgeExecutor {
       preread: new Map<string, PrereadNode>(),
       standardPricebookId: null,
       existingRecords: [],
+      anonymize: config.anonymization ? this.anonymizerForRun() : null,
       successCount: 0,
       linkedCount: 0,
       failedCount: 0,
       skippedCount: 0,
     };
+
+    try {
+      return await this.runPasses(state);
+    } catch (err: unknown) {
+      // What the run had done before it stopped goes with the error: thrown
+      // bare, an abort or a failure past the first object took the tallies
+      // with it, and the run was recorded as failed with nothing written.
+      keepPartialSummary(err, this.summaryOf(state));
+      throw err;
+    }
+  }
+
+  /** The read and write passes of {@link execute}, over the state it opened. */
+  private async runPasses(state: ExecutionState): Promise<ExecutionSummary> {
+    const { config, graph, sourceOrgId, targetOrgId, onProgress } = state;
 
     if (state.scopeCache && config.rootRecordId && config.rootObjectApiName) {
       state.scopeCache.add(config.rootObjectApiName, [config.rootRecordId]);
@@ -953,20 +1036,25 @@ export class ForgeExecutor {
       state.errors.push(orphanExpansionError);
     }
 
+    return this.summaryOf(state);
+  }
+
+  /** What a run has done so far: the summary a finished run returns. */
+  private summaryOf(state: ExecutionState): ExecutionSummary {
     return {
       successCount: state.successCount,
       linkedCount: state.linkedCount,
       failedCount: state.failedCount,
       skippedCount: state.skippedCount,
       remapCount: state.remapper.count,
-      errors: state.errors,
+      errors: [...state.errors],
       truncatedObjects: [...state.truncatedObjects],
       // BA reconciliation: dump the full source→target ID map so callers
       // can audit, export to CSV, or persist as part of a checkpoint.
       // toJSON returns a plain object (Record) so it serializes cleanly
       // through the bridge envelope.
       remapTable: state.remapper.toJSON(),
-      existingRecords: state.existingRecords,
+      existingRecords: [...state.existingRecords],
       existingSourceIds: state.remapper.existingSourceIds(),
       remapByObject: state.remapper.countsByObject(),
     };
@@ -1407,6 +1495,10 @@ export class ForgeExecutor {
         recordTypeMapper: state.recordTypeMapper,
         enabled: config.expandOrphanParents,
         maxExpansions: config.maxOrphanParentExpansions,
+        anonymize: state.anonymize
+          ? (objectApiName, payload, sourceId, parentFields) =>
+              this.anonymizeRows(state, objectApiName, [payload], [sourceId], parentFields, {})[0]
+          : undefined,
       });
 
       const cleanedRecords = cleanNodeRecords({
@@ -1432,10 +1524,17 @@ export class ForgeExecutor {
         );
       }
 
-      // Step 2b: Apply anonymization if configured
-      if (this.deps.anonymize) {
-        recordsToInsert = this.deps.anonymize(recordsToInsert, node.objectApiName);
-      }
+      // Step 2b: anonymize the fields selected on the node, each with the
+      // method Review holds for its category. After the rename, under the
+      // name the field is written by.
+      recordsToInsert = this.anonymizeRows(
+        state,
+        node.objectApiName,
+        recordsToInsert,
+        cleanedRecords.map((c) => String(c.source['Id'] ?? '')),
+        fieldInfos,
+        config.fieldMappings[node.objectApiName] ?? {},
+      );
 
       // Step 3: Running — batch and insert into target.
       //

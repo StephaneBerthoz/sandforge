@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
-import type { SfdxImportResult } from './SfdxBridge';
+import type { CliTokenReader, SfdxImportResult, SfdxUnreadableOrg } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
@@ -17,7 +17,7 @@ const mockExec = vi.mocked(exec);
 const mockExecFile = vi.mocked(execFile);
 
 /**
- * `loginWeb` branches on `process.platform`:
+ * `getDefaultOrgUsername` branches on `process.platform`:
  * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
  * - POSIX uses `execFile` with argv-as-array (no shell — no interpolation)
  *
@@ -40,12 +40,24 @@ function makeSfOrgListOutput(
   });
 }
 
+/** What CLI 2.150 prints where each org's access token was. */
+const REDACTED = "[REDACTED] Use 'sf org auth show-access-token' to view";
+
+/** The token the stand-in CLI reads for `username`. */
+function liveTokenOf(username: string): string {
+  return `00Dlive!${username}`;
+}
+
 describe('SfdxBridge', () => {
   let bridge: SfdxBridge;
+  let readToken: ReturnType<typeof vi.fn<CliTokenReader>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    bridge = new SfdxBridge();
+    readToken = vi.fn<CliTokenReader>(async (username) => ({
+      accessToken: liveTokenOf(username),
+    }));
+    bridge = new SfdxBridge(readToken);
   });
 
   describe('isCliAvailable', () => {
@@ -361,12 +373,187 @@ describe('SfdxBridge', () => {
   });
 
   /**
+   * CLI 2.150 prints a placeholder where each org's access token was. Stored
+   * as the token, it failed the first call made with it.
+   */
+  describe('an org whose token sf org list hides', () => {
+    const UAT = {
+      orgId: '00D000000000001AAA',
+      username: 'admin@uat.example',
+      alias: 'uat',
+      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+      accessToken: REDACTED,
+      connectedStatus: 'Connected',
+      isSandbox: true,
+    };
+    const DEV = {
+      ...UAT,
+      orgId: '00D000000000002AAA',
+      username: 'admin@dev.example',
+      alias: 'dev',
+      instanceUrl: 'https://acme--dev.sandbox.my.salesforce.com',
+    };
+
+    function listing(...orgs: Record<string, unknown>[]): void {
+      mockExec.mockResolvedValueOnce({ stdout: makeSfOrgListOutput(orgs), stderr: '' } as never);
+    }
+
+    it.each([
+      ['the placeholder', REDACTED],
+      ['no token at all', undefined],
+    ])('stores the token the CLI reads for an org listed with %s', async (_label, accessToken) => {
+      listing({ ...UAT, accessToken });
+
+      const [imported] = await bridge.listOrgs();
+
+      expect(readToken).toHaveBeenCalledWith('admin@uat.example');
+      expect(imported.credentials.accessToken).toBe(liveTokenOf('admin@uat.example'));
+    });
+
+    it('reads no token for an org whose listed token can be used', async () => {
+      listing({ ...UAT, accessToken: '00D000000000001AAA!listed-session' });
+
+      const [imported] = await bridge.listOrgs();
+
+      expect(readToken).not.toHaveBeenCalled();
+      expect(imported.credentials.accessToken).toBe('00D000000000001AAA!listed-session');
+    });
+
+    it('stores the instance the CLI read the token for', async () => {
+      listing(UAT);
+      readToken.mockResolvedValueOnce({
+        accessToken: '00D000000000001AAA!live-session',
+        instanceUrl: 'https://acme--uat2.sandbox.my.salesforce.com',
+      });
+
+      const [imported] = await bridge.listOrgs();
+
+      expect(imported.org.instanceUrl).toBe('https://acme--uat2.sandbox.my.salesforce.com');
+      expect(imported.credentials.instanceUrl).toBe('https://acme--uat2.sandbox.my.salesforce.com');
+    });
+
+    it('leaves out an org the CLI gives no token for, says which and why, and imports the others', async () => {
+      listing(UAT, DEV);
+      readToken.mockImplementation(async (username) => {
+        if (username === 'admin@uat.example') {
+          throw new Error('sf did not answer within 30 s — check the Salesforce CLI');
+        }
+        return { accessToken: liveTokenOf(username) };
+      });
+      const unreadable: SfdxUnreadableOrg[] = [];
+
+      const results = await bridge.listOrgs((org) => {
+        unreadable.push(org);
+      });
+
+      expect(results.map(({ org }) => org.alias)).toEqual(['dev']);
+      expect(unreadable).toEqual([
+        {
+          username: 'admin@uat.example',
+          alias: 'uat',
+          orgId: '00D000000000001AAA',
+          reason: 'sf did not answer within 30 s — check the Salesforce CLI',
+        },
+      ]);
+    });
+
+    it('leaves out an org the CLI hands the placeholder back for', async () => {
+      listing(UAT);
+      readToken.mockResolvedValueOnce({ accessToken: REDACTED });
+      const unreadable: SfdxUnreadableOrg[] = [];
+
+      const results = await bridge.listOrgs((org) => {
+        unreadable.push(org);
+      });
+
+      expect(results).toEqual([]);
+      expect(unreadable.map((org) => org.reason)).toEqual([
+        'the Salesforce CLI showed no usable access token',
+      ]);
+    });
+
+    it('reads four tokens at a time, and every one of them', async () => {
+      listing(
+        ...Array.from({ length: 10 }, (_, i) => ({
+          ...UAT,
+          orgId: `00D00000000000${i}AAA`,
+          username: `admin${i}@example.com`,
+          alias: `org-${i}`,
+        })),
+      );
+      let reading = 0;
+      let most = 0;
+      readToken.mockImplementation(async (username) => {
+        reading += 1;
+        most = Math.max(most, reading);
+        await new Promise((resolve) => setImmediate(resolve));
+        reading -= 1;
+        return { accessToken: liveTokenOf(username) };
+      });
+
+      const results = await bridge.listOrgs();
+
+      expect(results).toHaveLength(10);
+      expect(readToken).toHaveBeenCalledTimes(10);
+      expect(most).toBe(4);
+    });
+
+    /**
+     * Without a reader of its own, the bridge reads the token the way the
+     * connection helper refreshes one. POSIX is forced so the argv is checked
+     * on every CI host.
+     */
+    describe('through the CLI', () => {
+      const realPlatform = process.platform;
+
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+      });
+
+      afterEach(() => {
+        Object.defineProperty(process, 'platform', { value: realPlatform });
+        // An answer left unread must not reach the next test.
+        mockExecFile.mockReset();
+      });
+
+      it('asks sf org auth show-access-token for the token, and stores the one it shows', async () => {
+        listing(UAT);
+        mockExecFile
+          .mockResolvedValueOnce({
+            stdout: JSON.stringify({
+              status: 0,
+              result: { instanceUrl: UAT.instanceUrl, accessToken: REDACTED },
+            }),
+            stderr: '',
+          } as never)
+          .mockResolvedValueOnce({
+            stdout: JSON.stringify({
+              status: 0,
+              result: { accessToken: '00D000000000001AAA!live-session' },
+            }),
+            stderr: '',
+          } as never);
+
+        const [imported] = await new SfdxBridge().listOrgs();
+
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'sf',
+          ['org', 'auth', 'show-access-token', '-o', 'admin@uat.example', '--json'],
+          expect.objectContaining({ timeout: 30_000 }),
+        );
+        expect(imported.credentials.accessToken).toBe('00D000000000001AAA!live-session');
+      });
+    });
+  });
+
+  /**
    * The answer `sf org list --json` (CLI 2.150) gives, key for key, with the
    * values replaced. A pinged org carries `connectedStatus`; a scratch org
    * sits in its own bucket with the Dev Hub's `status` and no
    * `connectedStatus`; the type is in `isSandbox` and `isScratch`, the edition
    * in `orgEdition`, and `name` is the org's own name. Sandboxes and Dev Hubs
-   * are listed twice, once in `nonScratchOrgs`.
+   * are listed twice, once in `nonScratchOrgs`. Every token is the
+   * placeholder, as the CLI prints it.
    */
   describe('a real sf org list --json answer', () => {
     const pinged = (org: {
@@ -378,7 +565,7 @@ describe('SfdxBridge', () => {
       orgEdition: string;
       connectedStatus?: string;
     }): Record<string, unknown> => ({
-      accessToken: `${org.orgId}!fake-token`,
+      accessToken: REDACTED,
       instanceUrl: `https://${org.alias}.my.salesforce.com`,
       orgId: org.orgId,
       username: `admin@${org.alias}.example`,
@@ -407,7 +594,7 @@ describe('SfdxBridge', () => {
       status: string;
       isExpired: boolean;
     }): Record<string, unknown> => ({
-      accessToken: `${org.orgId}!fake-token`,
+      accessToken: REDACTED,
       instanceUrl: `https://${org.alias}.scratch.my.salesforce.com`,
       orgId: org.orgId,
       username: `test-${org.alias}@example.com`,
@@ -511,6 +698,24 @@ describe('SfdxBridge', () => {
       return new Map(results.map(({ org }) => [org.orgId, org]));
     }
 
+    it('stores for each org imported the token the CLI reads for it, never the placeholder', async () => {
+      mockExec.mockResolvedValueOnce({ stdout: realOrgList(), stderr: '' } as never);
+
+      const results = await bridge.listOrgs();
+
+      expect(results).toHaveLength(4);
+      for (const { org, credentials } of results) {
+        expect(credentials.accessToken).toBe(liveTokenOf(org.username));
+      }
+      // One read per org imported; none for the orgs left out.
+      expect(readToken.mock.calls.map(([username]) => username).sort()).toEqual([
+        'admin@acme-prod.example',
+        'admin@acme-uat.example',
+        'admin@hub.example',
+        'test-feature@example.com',
+      ]);
+    });
+
     it('imports an active scratch org as a scratch org, at the lowest safety tier', async () => {
       const orgs = await importReal();
 
@@ -550,71 +755,8 @@ describe('SfdxBridge', () => {
     });
   });
 
+  /** What reaches the CLI on success is checked in SfdxBridge.login.test.ts. */
   describe('loginWeb', () => {
-    it('should call sf org login web with alias and instanceUrl', async () => {
-      mockCliInvoker.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
-
-      await bridge.loginWeb('my-org', 'https://login.salesforce.com');
-
-      if (process.platform === 'win32') {
-        // Windows: shell-based exec with double-quoted, regex-validated values
-        expect(mockExec).toHaveBeenCalledWith(
-          'sf org login web --instance-url "https://login.salesforce.com" --alias "my-org"',
-          expect.objectContaining({
-            timeout: 120_000,
-            maxBuffer: 10 * 1024 * 1024,
-            windowsHide: true,
-          }),
-        );
-      } else {
-        // POSIX: argv-as-array execFile — no shell, no interpolation
-        expect(mockExecFile).toHaveBeenCalledWith(
-          'sf',
-          [
-            'org',
-            'login',
-            'web',
-            '--instance-url',
-            'https://login.salesforce.com',
-            '--alias',
-            'my-org',
-          ],
-          expect.objectContaining({
-            timeout: 120_000,
-            maxBuffer: 10 * 1024 * 1024,
-            windowsHide: true,
-          }),
-        );
-      }
-    });
-
-    it('should omit --alias when alias is empty', async () => {
-      mockCliInvoker.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
-
-      await bridge.loginWeb('', 'https://test.salesforce.com');
-
-      if (process.platform === 'win32') {
-        expect(mockExec).toHaveBeenCalledWith(
-          'sf org login web --instance-url "https://test.salesforce.com"',
-          expect.objectContaining({
-            timeout: 120_000,
-            maxBuffer: 10 * 1024 * 1024,
-            windowsHide: true,
-          }),
-        );
-      } else {
-        expect(mockExecFile).toHaveBeenCalledWith(
-          'sf',
-          ['org', 'login', 'web', '--instance-url', 'https://test.salesforce.com'],
-          expect.objectContaining({
-            timeout: 120_000,
-            maxBuffer: 10 * 1024 * 1024,
-            windowsHide: true,
-          }),
-        );
-      }
-    });
-
     it('should reject a malicious alias to prevent shell injection', async () => {
       await expect(
         bridge.loginWeb('my-org; rm -rf /', 'https://login.salesforce.com'),
@@ -684,17 +826,6 @@ describe('SfdxBridge', () => {
         await expect(bridge.loginWeb('my-org', instanceUrl)).rejects.toThrow('Invalid instanceUrl');
         expect(mockExec).not.toHaveBeenCalled();
         expect(mockExecFile).not.toHaveBeenCalled();
-      });
-
-      it('puts only the origin of the URL into the command', async () => {
-        mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
-
-        await bridge.loginWeb('my-org', 'https://Acme.my.salesforce.com/');
-
-        expect(mockExec).toHaveBeenCalledWith(
-          'sf org login web --instance-url "https://acme.my.salesforce.com" --alias "my-org"',
-          expect.objectContaining({ timeout: 120_000 }),
-        );
       });
     });
   });

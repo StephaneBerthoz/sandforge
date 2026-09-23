@@ -4,6 +4,7 @@ import {
   FAKER_METHOD_BY_FIELD_NAME,
   defaultFakerMethod,
   describedFieldRule,
+  integerDigitsOf,
 } from './faker-field-defaults.js';
 import { SUPPORTED_FAKER_METHODS } from './faker-methods.js';
 
@@ -124,6 +125,19 @@ describe('faker field defaults', () => {
       expect(describedFieldRule(described('Discount__c', 'percent', { integerDigits: 2 }))).toEqual(
         { ruleType: 'faker', config: { fakerMethod: 'integer', maxValue: 99 } },
       );
+    });
+  });
+
+  describe('integerDigitsOf', () => {
+    it("reads an integer field's digits, and the precision less the scale of any other number", () => {
+      expect(integerDigitsOf({ type: 'int', digits: 9 })).toBe(9);
+      expect(integerDigitsOf({ type: 'double', precision: 4, scale: 2 })).toBe(2);
+      expect(integerDigitsOf({ type: 'currency', precision: 18, scale: 2 })).toBe(16);
+    });
+
+    it('says nothing of a field that gives no digits', () => {
+      expect(integerDigitsOf({ type: 'string' })).toBe(0);
+      expect(integerDigitsOf({ type: 'int' })).toBe(0);
     });
   });
 });

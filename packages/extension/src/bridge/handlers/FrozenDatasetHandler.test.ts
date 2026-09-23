@@ -356,6 +356,15 @@ describe('FrozenDatasetHandler', () => {
       const errors = posted(deps, 'frozen:load:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('NOT_INITIALIZED');
+      // Recorded as the guard's own refusals are, with the code that says why.
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'frozen_load',
+          orgId: 'org-2',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('refuses to load into an org stored with a type outside OrgType, before touching it', async () => {

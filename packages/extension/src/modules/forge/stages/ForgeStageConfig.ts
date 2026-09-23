@@ -9,6 +9,7 @@
 
 import type { ExecuteOptions } from '../ForgeExecutor.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
+import type { ForgeRunAnonymization } from '../ForgeAnonymizer.js';
 
 /** Normalized configuration consumed by the execution stages. */
 export interface ForgeStageConfig {
@@ -49,6 +50,8 @@ export interface ForgeStageConfig {
   readonly objectSoqlFilters?: Record<string, string>;
   /** Per-object source→target field rename map. */
   readonly fieldMappings: Record<string, Record<string, string>>;
+  /** Fields to anonymize per object and the method per PII category; absent, none. */
+  readonly anonymization?: ForgeRunAnonymization;
 }
 
 /**
@@ -75,5 +78,6 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
     ownerMappings: options?.ownerMappings ?? {},
     objectSoqlFilters: options?.objectSoqlFilters,
     fieldMappings: options?.fieldMappings ?? {},
+    anonymization: options?.anonymization,
   };
 }

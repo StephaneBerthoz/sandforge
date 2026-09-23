@@ -78,9 +78,9 @@ export interface AnonymizationTemplateEditorProps {
  *
  * Each rule is an `Object.Field` and a method a DataOps run applies with no
  * setting of its own (SAVED_TEMPLATE_METHODS). A rule it starts from that uses
- * another method — the salted hash of the CCPA template, say — is kept on
+ * another method — the placeholder URL of Sandbox Data Scrub, say — is kept on
  * screen with the reason, and the template cannot be saved until it is changed
- * or removed: carried over silently, it would fail the run it was saved for.
+ * or removed: carried over without its value, it would not do what it says.
  */
 export const AnonymizationTemplateEditor: React.FC<AnonymizationTemplateEditorProps> = ({
   initialRules,

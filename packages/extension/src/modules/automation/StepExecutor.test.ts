@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StepExecutor } from './StepExecutor';
+import { StepCancelledError, StepExecutor } from './StepExecutor';
 import type { StepContext } from './StepExecutor';
 import type { PipelineStep, PipelineStepType } from '@sandforge/shared';
 
@@ -436,6 +436,38 @@ describe('StepExecutor', () => {
 
       expect(result.status).toBe('completed');
       expect(attempts).toBe(3);
+    });
+
+    it('does not try again a step whose work was cancelled, and says it was cancelled', async () => {
+      // A Backup cancelled from Live Operations failed like any other error,
+      // and each retry took a new snapshot of what the person had stopped.
+      const handler = vi.fn(async () => {
+        throw new StepCancelledError('Backup was cancelled before it finished.');
+      });
+      executor.registerHandler('backup', handler);
+
+      const result = await executor.execute(
+        createStep({ type: 'backup', name: 'Snap', retries: 3 }),
+        createContext(),
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        status: 'failed',
+        error: 'Backup was cancelled before it finished.',
+        cancelled: true,
+      });
+    });
+
+    it('marks no other failure cancelled', async () => {
+      executor.registerHandler('backup', async () => {
+        throw new Error('socket hang up');
+      });
+
+      const result = await executor.execute(createStep({ type: 'backup' }), createContext());
+
+      expect(result.error).toBe('socket hang up');
+      expect(result).not.toHaveProperty('cancelled');
     });
   });
 

@@ -12,6 +12,7 @@ import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LineageStore } from '../../modules/audit/lineage.js';
+import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 
 /* The connection helper is replaced for the whole file: vi.mock is hoisted above
    the imports whichever block it is written in, so one factory is all there
@@ -326,7 +327,7 @@ describe('DataOpsHandler', () => {
       });
       deps.infraServices = {
         performanceTracker: undefined,
-        productionGuard: { check, logOperation: vi.fn(), confirmIfNeeded: vi.fn() },
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -362,7 +363,7 @@ describe('DataOpsHandler', () => {
       });
       deps.infraServices = {
         performanceTracker: undefined,
-        productionGuard: { check, logOperation: vi.fn(), confirmIfNeeded: vi.fn() },
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -390,7 +391,6 @@ describe('DataOpsHandler', () => {
         performanceTracker: undefined,
         productionGuard: {
           check: vi.fn().mockReturnValue({ allowed: true }),
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn().mockResolvedValue(false),
         },
         offlineManager: undefined,
@@ -444,6 +444,17 @@ describe('DataOpsHandler', () => {
         payload: { code: 'NOT_INITIALIZED' },
       });
       expect(postedMessages().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      // Recorded as the guard's own refusals are, with the code that says why.
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'anonymize_execute',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('asks before masking an org the registry does not know, and opens no connection when declined', async () => {
@@ -454,6 +465,7 @@ describe('DataOpsHandler', () => {
       vi.mocked(getJsforceConnection).mockClear();
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
         performanceTracker: undefined,
         productionGuard: guard,
@@ -473,7 +485,7 @@ describe('DataOpsHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'UPDATE an unknown number of Contact record(s) on production org org-unknown [module: dataops]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(getJsforceConnection).not.toHaveBeenCalled();
       const errors = postedMessages().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
@@ -954,6 +966,17 @@ describe('DataOpsHandler', () => {
           payload: { code: 'ORG_REPLACED_SINCE_BACKUP' },
         });
         expect(errors[0].payload.message).toContain(`answers as org ${REFRESHED_INTO}`);
+        // Recorded as the guard's own refusals are, with the code that says why.
+        const trail = vi
+          .mocked(deps.configStore.set)
+          .mock.calls.filter(([key]) => key === 'audit:trail');
+        expect(trail.at(-1)?.[1]).toEqual([
+          expect.objectContaining({
+            action: 'backup_restore',
+            outcome: 'stopped',
+            details: { code: 'ORG_REPLACED_SINCE_BACKUP' },
+          }),
+        ]);
       });
 
       it('restores into the org it is now once the user says to', async () => {
@@ -1026,6 +1049,17 @@ describe('DataOpsHandler', () => {
         payload: { code: 'NOT_INITIALIZED' },
       });
       expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      // Recorded as the guard's own refusals are, with the code that says why.
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'backup_restore',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('blocks a rollback the Production Guard refuses', async () => {
@@ -1042,9 +1076,8 @@ describe('DataOpsHandler', () => {
         warnings: [],
         impactSummary: '',
       });
-      const logOperation = vi.fn();
       deps.infraServices = {
-        productionGuard: { check, logOperation, confirmIfNeeded: vi.fn() },
+        productionGuard: { check, confirmIfNeeded: vi.fn() },
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
 
       await handler.handle(rollbackMsg('org-prod'));
@@ -1057,7 +1090,7 @@ describe('DataOpsHandler', () => {
           module: 'dataops',
         }),
       );
-      expect(logOperation).toHaveBeenCalledTimes(1);
+      expect(check).toHaveBeenCalledTimes(1);
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('Production writes are blocked');
@@ -1078,7 +1111,6 @@ describe('DataOpsHandler', () => {
             warnings: [],
             impactSummary: 'upsert 1 record',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn().mockResolvedValue(false),
         },
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -1104,6 +1136,7 @@ describe('DataOpsHandler', () => {
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Unknown' });
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
         productionGuard: guard,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
@@ -1113,7 +1146,7 @@ describe('DataOpsHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'UPSERT 1 Account record(s) on production org org-A [module: dataops]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(upsert).not.toHaveBeenCalled();
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
@@ -2018,14 +2051,57 @@ describe('DataOpsHandler — templates the user saves', () => {
 
     expect(last('dataops:error')).toBeUndefined();
     expect(update).toHaveBeenCalledTimes(1);
+    // The field the rule masks, and the Id to find the record by: a field the
+    // template does not name stays in the org as it is, unsent.
     const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(record.FirstName).toBeNull();
-    expect(record.LastName).toBe('Lovelace');
+    expect(record).toEqual({ Id: '003000000000001', FirstName: null });
     expect(last('dataops:anonymize:response')?.payload).toMatchObject({
       templateId,
       status: 'success',
       recordsProcessed: 1,
     });
+  });
+
+  it('saves a hash rule, which the run keys with the window’s key', async () => {
+    await send('dataops:anonymization-template:save', {
+      name: 'Emails hashed',
+      rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash' }],
+    });
+    expect(last('dataops:error')).toBeUndefined();
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () => ({
+        records: [{ Id: '003000000000001', Email: 'ada@example.org' }],
+        done: true,
+      })),
+      describe: vi.fn().mockResolvedValue({
+        name: 'Contact',
+        label: 'Contact',
+        createable: true,
+        updateable: true,
+        deletable: true,
+        queryable: true,
+        fields: [
+          { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+          { name: 'Email', label: 'Email', type: 'email', createable: true, updateable: true },
+        ],
+        recordTypeInfos: [],
+        childRelationships: [],
+      }),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    expect(last('dataops:error')).toBeUndefined();
+    const [record] = update.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(record.Email).toMatch(/^sha256-[0-9a-f]{32}@example\.invalid$/);
   });
 
   it('refuses a name a template already goes by, whatever its case', async () => {
@@ -2037,7 +2113,7 @@ describe('DataOpsHandler — templates the user saves', () => {
   });
 
   it.each([
-    ['a method that needs a salt', [{ fieldPattern: 'Contact.Email', ruleType: 'hash' }]],
+    ['a method that needs a value', [{ fieldPattern: 'Account.Website', ruleType: 'constant' }]],
     ['a field written without its object', [{ fieldPattern: 'Email', ruleType: 'fake' }]],
     [
       'a field with two rules',
@@ -2196,6 +2272,62 @@ describe('DataOpsHandler — a snapshot taken for a pipeline', () => {
       ),
     ).rejects.toThrow('Backup was cancelled before it finished. Nothing was saved');
     expect(query).toHaveBeenCalledTimes(1);
+    expect(deps.configStore.set).not.toHaveBeenCalled();
+  });
+
+  /** Handler deps with the registry a cancel from Live Operations reaches a snapshot through. */
+  function depsWithRegistry(): { deps: HandlerDeps; registry: BackgroundOperationRegistry } {
+    const deps = createMockDeps();
+    const registry = new BackgroundOperationRegistry();
+    deps.infraServices = {
+      ...deps.infraServices,
+      backgroundRegistry: registry,
+    } as unknown as HandlerDeps['infraServices'];
+    return { deps, registry };
+  }
+
+  it('tells the step its snapshot was cancelled when Live Operations cancels it, so it is not taken again', async () => {
+    const { deps, registry } = depsWithRegistry();
+    // Cancel, as execution:abort does, while the first object is read.
+    const query = vi.fn(async () => {
+      registry.abort('snap-4');
+      return { records: [{ Id: '001' }], done: true };
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+    const handler = new DataOpsHandler(deps);
+
+    const taking = handler.backupForPipeline({
+      operationId: 'snap-4',
+      orgId: 'org-1',
+      objects: ['Account', 'Contact'],
+    });
+
+    // A cancel, not a failure: the step executor tries a failure again.
+    await expect(taking).rejects.toBeInstanceOf(StepCancelledError);
+    await expect(taking).rejects.toThrow(
+      'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.',
+    );
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(deps.configStore.set).not.toHaveBeenCalled();
+    expect(registry.get('snap-4')?.status).toBe('aborted');
+  });
+
+  it('saves nothing when the cancel comes while the last object is read', async () => {
+    // The loop only looked between two objects: a snapshot of one object was
+    // saved, and the step completed, after Live Operations had said it stopped.
+    const { deps, registry } = depsWithRegistry();
+    const query = vi.fn(async () => {
+      registry.abort('snap-5');
+      return { records: [{ Id: '001' }], done: true };
+    });
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+    const handler = new DataOpsHandler(deps);
+
+    await expect(
+      handler.backupForPipeline({ operationId: 'snap-5', orgId: 'org-1', objects: ['Account'] }),
+    ).rejects.toBeInstanceOf(StepCancelledError);
     expect(deps.configStore.set).not.toHaveBeenCalled();
   });
 });

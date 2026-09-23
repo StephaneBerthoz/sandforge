@@ -321,6 +321,12 @@ export class SeedCloneHandler implements DomainHandler {
       // clone without it.
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: PRODUCTION_GUARD_MISSING.code,
+        });
         sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
           context: failure,
           extraPayload: { code: PRODUCTION_GUARD_MISSING.code },

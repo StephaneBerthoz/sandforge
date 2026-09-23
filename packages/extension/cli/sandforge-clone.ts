@@ -26,7 +26,7 @@
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig } from '@sandforge/shared';
+import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 import { forgeConfigSchemaStrict, duplicateRuleHeaders } from '@sandforge/shared';
 import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryService.js';
 import type {
@@ -36,7 +36,9 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { runAnonymization } from '../src/modules/forge/ForgeAnonymizer.js';
 import type {
+  ExecuteOptions,
   ExecutionSummary,
   ForgeExecutorDeps,
   FieldInfo,
@@ -48,7 +50,7 @@ import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { formatSaveError, toSaveOutcomes } from '../src/core/common/existingRecordMatch.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 
-interface CliArgs {
+export interface CliArgs {
   record: string;
   source: string;
   target: string;
@@ -161,7 +163,8 @@ const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
   fieldMappings: '--map',
 };
 
-function parseArgs(argv: string[]): CliArgs {
+/** The command line read and checked; exits on `--help` or a bad flag. Exported so it can be tested. */
+export function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
   if (args.includes('-h') || args.includes('--help')) {
     process.stdout.write(HELP);
@@ -436,6 +439,41 @@ export function summaryLines(summary: ExecutionSummary): string[] {
   return lines;
 }
 
+/**
+ * What the executor is asked to do, from the command line and the graph
+ * discovery built. Exported so it can be tested.
+ */
+export function executeOptions(
+  args: CliArgs,
+  graph: ForgeGraph,
+  recordTypeMappings: RecordTypeMapping[],
+): ExecuteOptions {
+  return {
+    rootRecordId: args.record,
+    rootObjectApiName: graph.nodes[0]?.objectApiName ?? '',
+    dryRun: args.dryRun,
+    recordTypeMappings,
+    maxRecordsPerObject: args.maxRecordsPerObject,
+    // Force 'nullify' for cross-org CLI clones. The default
+    // ('keep' for non-scoped) preserves source IDs which would be
+    // invalid on the target unless source and target share state, which
+    // is never the case for a real cross-org clone via this CLI.
+    referenceFallback: 'nullify',
+    upsertMode: args.upsert ? 'auto' : undefined,
+    expandOrphanParents: args.expandOrphans,
+    fieldExclusions:
+      Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
+    ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
+    objectSoqlFilters:
+      Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
+    fieldMappings: Object.keys(args.fieldMappings).length > 0 ? args.fieldMappings : undefined,
+    // `--anonymize` had discovery select each object's PII fields, and every
+    // record was then written as the source held it. The selected fields go,
+    // each with its category's default method.
+    anonymization: runAnonymization(args.anonymize, graph),
+  };
+}
+
 /** Run one clone from the given command line; exported so its flag checks can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -565,6 +603,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const meta = await c.sobject(name).describe();
       return meta.fields.map<FieldInfo>((f) => ({
         name: f.name,
+        type: f.type,
         queryable: true,
         createable: f.createable ?? false,
         isReference: f.type === 'reference',
@@ -645,26 +684,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     args.source,
     args.target,
     () => undefined,
-    {
-      rootRecordId: args.record,
-      rootObjectApiName: graph.nodes[0]?.objectApiName ?? '',
-      dryRun: args.dryRun,
-      recordTypeMappings,
-      maxRecordsPerObject: args.maxRecordsPerObject,
-      // Force 'nullify' for cross-org CLI clones. The default
-      // ('keep' for non-scoped) preserves source IDs which would be
-      // invalid on the target unless source and target share state, which
-      // is never the case for a real cross-org clone via this CLI.
-      referenceFallback: 'nullify',
-      upsertMode: args.upsert ? 'auto' : undefined,
-      expandOrphanParents: args.expandOrphans,
-      fieldExclusions:
-        Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
-      ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
-      objectSoqlFilters:
-        Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
-      fieldMappings: Object.keys(args.fieldMappings).length > 0 ? args.fieldMappings : undefined,
-    },
+    executeOptions(args, graph, recordTypeMappings),
   );
 
   const elapsed = Date.now() - t0;

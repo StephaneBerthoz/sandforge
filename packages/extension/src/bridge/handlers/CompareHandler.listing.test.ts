@@ -213,4 +213,76 @@ describe('compare:execute listing', () => {
       expect(result.summary.removed).toBe(0);
     });
   });
+
+  describe('a comparison its signal stops, as a pipeline step stops it', () => {
+    const payload = { sourceOrgId: 'src', targetOrgId: 'tgt', types: ['Report', 'ApexClass'] };
+    /** Lets every answer already given reach the code waiting on it. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it('asks nothing of either org when stopped before it starts', async () => {
+      const stop = new AbortController();
+      stop.abort();
+
+      await expect(handler.compareOrgs(payload, stop.signal)).rejects.toBe(stop.signal.reason);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('settles at once with the cancellation, and sends no further request to either org', async () => {
+      // A Compare step whose run was cancelled, or ran out of time, left the
+      // comparison listing and reading both orgs to its end.
+      const source = orgListing(
+        { ReportFolder: ['A', 'B', 'C', 'D'], ApexClass: ['Invoicing'] },
+        { 'Report:A': ['A/One'], 'Report:D': ['D/Four'] },
+      );
+      const target = orgListing(
+        { ReportFolder: ['A'], ApexClass: ['Invoicing'] },
+        { 'Report:A': ['A/One'] },
+      );
+      // The source's first listing answers only when the test lets it.
+      let answer: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const listFolders = source.metadata.list.getMockImplementation();
+      source.metadata.list.mockImplementationOnce(async (queries: ListQuery[]) => {
+        await held;
+        return listFolders?.(queries) ?? [];
+      });
+      mockGetConn.mockImplementation((orgId: string) =>
+        Promise.resolve((orgId === 'src' ? source : target) as never),
+      );
+      const requests = () => ({
+        sourceLists: source.metadata.list.mock.calls.length,
+        targetLists: target.metadata.list.mock.calls.length,
+        reads: source.metadata.read.mock.calls.length + target.metadata.read.mock.calls.length,
+        queries: source.query.mock.calls.length + target.query.mock.calls.length,
+      });
+      const stop = new AbortController();
+      let settled: unknown = 'still running';
+      void handler.compareOrgs(payload, stop.signal).then(
+        () => {
+          settled = 'answered with a result';
+        },
+        (reason: unknown) => {
+          settled = reason;
+        },
+      );
+      // The comparison loads its modules before it lists anything.
+      await vi.waitFor(() => expect(source.metadata.list).toHaveBeenCalledTimes(1));
+      await settle();
+
+      stop.abort();
+      await settle();
+
+      // Settled while the source's listing is still out, with the cancellation.
+      expect(settled).toBe(stop.signal.reason);
+      const sentBeforeTheAnswer = requests();
+      answer();
+      await settle();
+      // The source's answer names four folders: listing them would take two
+      // more calls, and the Apex classes two more, then the reads.
+      expect(requests()).toEqual(sentBeforeTheAnswer);
+      expect(sentBeforeTheAnswer.reads + sentBeforeTheAnswer.queries).toBe(0);
+    });
+  });
 });

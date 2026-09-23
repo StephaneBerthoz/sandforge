@@ -8,6 +8,7 @@ import { OrgManager } from '../../core/connection/OrgManager';
 import { OrgRegistry } from '../../core/connection/OrgRegistry';
 import { ConfigStore } from '../../core/storage/ConfigStore';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector';
+import type { SfdxUnreadableOrg } from '../../core/connection/SfdxBridge';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
@@ -538,14 +539,21 @@ describe('OrgHandler', () => {
       return { configStore, orgManager, detector, storeObject };
     }
 
-    /** Import from a CLI that lists `orgs`, through the path `authMethod` names. */
+    /**
+     * Import from a CLI that lists `orgs`, through the path `authMethod` names;
+     * a browser sign-in signs in to the first of them.
+     */
     async function importing(
       authMethod: 'sfdx_import' | 'oauth_web',
       ...orgs: Array<ReturnType<typeof listed>>
     ): Promise<void> {
       deps.sfdxBridge = {
         isCliAvailable: vi.fn().mockResolvedValue(true),
-        loginWeb: vi.fn().mockResolvedValue(undefined),
+        loginWeb: vi.fn().mockResolvedValue({
+          username: orgs[0]?.org.username,
+          orgId: orgs[0]?.org.orgId,
+          instanceUrl: INSTANCE_URL,
+        }),
         listOrgs: vi.fn().mockResolvedValue(orgs),
       } as unknown as HandlerDeps['sfdxBridge'];
       await handler.handle(createMsg('org:connect', { orgId: '', authMethod }));
@@ -654,6 +662,150 @@ describe('OrgHandler', () => {
 
       expect(orgManager.getAllOrgs()).toHaveLength(2);
       expect(orgManager.getOrg(FORMER_ORG_ID)?.username).toBe(USERNAME);
+    });
+  });
+
+  describe('what the CLI lists after a sign-in or for an import', () => {
+    /** An org as the bridge hands it over: mapped, with a usable token. */
+    function imported(alias: string, orgId: string) {
+      const username = `admin@${alias}.example`;
+      const instanceUrl = `https://acme--${alias}.sandbox.my.salesforce.com`;
+      return {
+        org: {
+          id: orgId,
+          alias,
+          username,
+          instanceUrl,
+          orgId,
+          orgType: 'Sandbox',
+          authMethod: 'sfdx_import',
+          safetyTier: OrgSafetyTier.MEDIUM,
+          appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+          metadata: { apiVersion: '62.0', edition: 'Enterprise Edition', features: [] },
+          status: 'connected',
+          lastConnected: '2026-09-23T09:00:00.000Z',
+          tags: [],
+        } satisfies SalesforceOrg,
+        credentials: {
+          loginUrl: instanceUrl,
+          accessToken: `${orgId}!session`,
+          instanceUrl,
+          username,
+        },
+      };
+    }
+
+    // Listed first: the CLI sorts its orgs by alias.
+    const ALPHA = imported('alpha', '00D000000000001AAA');
+    const UAT = imported('uat', '00D000000000002AAA');
+    const UAT_UNREADABLE: SfdxUnreadableOrg = {
+      username: 'admin@uat.example',
+      alias: 'uat',
+      orgId: '00D000000000002AAA',
+      reason: 'sf did not answer within 30 s — check the Salesforce CLI',
+    };
+
+    /** A CLI listing `orgs`, and reporting `unreadable` as orgs it gave no token for. */
+    function cliListing(
+      orgs: Array<ReturnType<typeof imported>>,
+      unreadable: SfdxUnreadableOrg[] = [],
+    ): void {
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        loginWeb: vi.fn().mockResolvedValue({
+          username: 'admin@uat.example',
+          orgId: '00D000000000002AAA',
+          instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+        }),
+        listOrgs: vi.fn(async (onUnreadable?: (org: SfdxUnreadableOrg) => void) => {
+          unreadable.forEach((org) => onUnreadable?.(org));
+          return orgs;
+        }),
+      } as unknown as HandlerDeps['sfdxBridge'];
+    }
+
+    const posted = (): Array<BaseMessage & { payload: Record<string, unknown> }> =>
+      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        ([m]) => m as BaseMessage & { payload: Record<string, unknown> },
+      );
+    const notifications = (): Array<{ level: string; message: string }> =>
+      posted()
+        .filter((m) => m.type === 'notification')
+        .map((m) => m.payload as { level: string; message: string });
+
+    const browserSignIn = createMsg('org:connect', {
+      orgId: '',
+      authMethod: 'oauth_web',
+      alias: 'uat',
+      loginUrl: 'https://test.salesforce.com',
+    });
+
+    it('confirms the org the user just signed in to through the browser, not the first one the CLI lists', async () => {
+      cliListing([ALPHA, UAT]);
+
+      await handler.handle(browserSignIn);
+
+      const confirmed = posted().filter((m) => m.type === 'org:statusChanged');
+      expect(confirmed).toHaveLength(1);
+      expect(confirmed[0].correlationId).toBe('req-99');
+      expect(confirmed[0].payload).toEqual({ orgId: '00D000000000002AAA', status: 'connected' });
+    });
+
+    it('fails the browser sign-in, saying why, when the CLI gave no token for the org signed in to', async () => {
+      cliListing([ALPHA], [UAT_UNREADABLE]);
+
+      await handler.handle(browserSignIn);
+
+      expect(posted().some((m) => m.type === 'org:statusChanged')).toBe(false);
+      const error = posted().find((m) => m.type === 'org:error');
+      expect(error?.correlationId).toBe('req-99');
+      expect(error?.payload.message).toBe(
+        'Signed in as admin@uat.example, but the Salesforce CLI gave no access token for it: sf did not answer within 30 s — check the Salesforce CLI',
+      );
+    });
+
+    it('fails the browser sign-in when the CLI does not list the org signed in to as connected', async () => {
+      cliListing([ALPHA]);
+
+      await handler.handle(browserSignIn);
+
+      expect(posted().some((m) => m.type === 'org:statusChanged')).toBe(false);
+      expect(posted().find((m) => m.type === 'org:error')?.payload.message).toBe(
+        'Signed in as admin@uat.example, but "sf org list" does not list that org as connected.',
+      );
+    });
+
+    it('imports the orgs the CLI gave a token for, and says which it left out and why', async () => {
+      cliListing([ALPHA], [UAT_UNREADABLE]);
+
+      await handler.handle(createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
+
+      expect(deps.orgRegistry.saveOrg).toHaveBeenCalledTimes(1);
+      expect(deps.orgRegistry.saveOrg).toHaveBeenCalledWith(ALPHA.org, ALPHA.credentials);
+      expect(notifications()).toEqual([
+        expect.objectContaining({ level: 'success', message: 'Imported 1 org(s) from SF CLI.' }),
+        {
+          level: 'warning',
+          title: 'Import',
+          message:
+            'No access token from the Salesforce CLI, so not imported: uat (sf did not answer within 30 s — check the Salesforce CLI)',
+        },
+      ]);
+      expect(posted().find((m) => m.type === 'org:statusChanged')?.correlationId).toBe('req-99');
+    });
+
+    it('fails the import, saying why, when the CLI gave a token for none of the orgs it lists', async () => {
+      cliListing([], [UAT_UNREADABLE]);
+
+      await handler.handle(createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
+
+      expect(deps.orgRegistry.saveOrg).not.toHaveBeenCalled();
+      const error = posted().find((m) => m.type === 'org:error');
+      expect(error?.payload).toMatchObject({
+        code: 'SFDX_IMPORT_FAILED',
+        message:
+          'No access token from the Salesforce CLI, so not imported: uat (sf did not answer within 30 s — check the Salesforce CLI)',
+      });
     });
   });
 

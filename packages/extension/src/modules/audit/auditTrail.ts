@@ -157,6 +157,12 @@ export interface WriteRun {
    * counts what the run wrote: created, updated and upserted.
    */
   carried?: Readonly<Record<string, number>>;
+  /**
+   * Why a run that was stopped before it wrote was stopped, when it was not
+   * Production Guard's decision: a SandForge code such as
+   * `PRODUCTION_GUARD_MISSING`, never a message.
+   */
+  code?: string;
 }
 
 /** What {@link recordWriteRun} needs from the window. */
@@ -175,7 +181,8 @@ export interface AuditDeps {
  * Record one write run: its entry in the audit trail, and its lineage.
  *
  * The one call every path that writes to an org makes, once per run, when
- * the run ends — or when Production Guard stops it before it starts. Nothing
+ * the run ends — or when it is stopped before it starts: by Production
+ * Guard, or by a check of the path's own, which names itself by `code`. Nothing
  * of the data goes in: object names and counts, the org, the outcome and the
  * guard's decision. Error messages stay out too, because a Salesforce error
  * can quote the value it refused.
@@ -192,10 +199,11 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
     // `safety.auditLogging` is the switch a user turns off to have Production
     // Guard's decisions recorded nowhere. Off, a run is recorded without the
     // decision, and a run the guard stopped — nothing but its decision — is
-    // not recorded at all.
+    // not recorded at all. A run a check of the path's own stopped is no
+    // decision of the guard's, and is recorded all the same.
     const decisionsKept =
       deps.services?.getSandforgeSetting?.<boolean>('safety.auditLogging', true) !== false;
-    if (!decisionsKept && run.outcome === 'stopped') return;
+    if (!decisionsKept && run.outcome === 'stopped' && run.code === undefined) return;
 
     const timestamp = now.toISOString();
     const orgAlias = deps.orgManager.getOrg(run.orgId)?.alias;
@@ -216,7 +224,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       outcome: run.outcome,
       ...(decisionsKept && run.guard ? { guard: run.guard } : {}),
       objects: [...objects],
-      details: {},
+      details: run.code ? { code: run.code } : {},
       timestamp,
     });
 

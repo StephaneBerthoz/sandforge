@@ -1,4 +1,14 @@
-/** Predefined anonymization rule templates for data privacy compliance. */
+import type { ListedAnonymizationTemplate } from '@sandforge/shared';
+
+/**
+ * Predefined anonymization rule templates for data privacy compliance.
+ *
+ * A rule whose method needs a setting carries it here: the value a constant
+ * writes, how much of a value a truncation keeps. Without them a constant
+ * wrote an empty value and a truncation kept nothing. A hash rule carries no
+ * salt: the run hashes with the key its window draws, and a salt written into
+ * a template ships to everyone who installs it.
+ */
 export const ANONYMIZATION_TEMPLATES = [
   {
     id: 'tpl-gdpr-standard',
@@ -161,6 +171,7 @@ export const ANONYMIZATION_TEMPLATES = [
         fieldPattern: 'Contact.MailingPostalCode',
         ruleType: 'truncate',
         description: 'Truncate to first 3 digits.',
+        config: { truncateLength: 3, truncateKeep: 'first' },
       },
       { fieldPattern: 'Account.Name', ruleType: 'fake', description: 'Replace facility name.' },
       { fieldPattern: 'Account.Phone', ruleType: 'mask', description: 'Mask facility phone.' },
@@ -197,8 +208,9 @@ export const ANONYMIZATION_TEMPLATES = [
         fieldPattern: 'Account.Website',
         ruleType: 'constant',
         description: 'Replace with placeholder URL.',
+        config: { constantValue: 'https://example.com' },
       },
       { fieldPattern: 'Opportunity.Name', ruleType: 'fake', description: 'Fake opportunity name.' },
     ],
   },
-] as const;
+] as const satisfies readonly ListedAnonymizationTemplate[];

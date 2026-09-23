@@ -435,12 +435,41 @@ describe('BulkApiExecutor', () => {
       expect(result.successCount).toBe(2);
       expect(result.failureCount).toBe(1);
       expect(result.outcomes).toEqual([
-        { recordIndex: 0, id: '001xx000001AAA', success: true },
+        { recordIndex: 0, id: '001xx000001AAA', success: true, created: true },
         { recordIndex: 1, success: false, error: 'REQUIRED_FIELD_MISSING: X' },
-        { recordIndex: 2, id: '001xx000001CCC', success: true },
+        { recordIndex: 2, id: '001xx000001CCC', success: true, created: true },
       ]);
       expect(result.failures).toEqual([{ recordIndex: 1, error: 'REQUIRED_FIELD_MISSING: X' }]);
       expect(result.successIds).toEqual(['001xx000001AAA', '001xx000001CCC']);
+    });
+
+    it("keeps what an upsert did with each record, from the job's sf__Created column", async () => {
+      // The column was stripped with the other job columns, so an upsert
+      // could not say which records it created and which it updated.
+      const job = createMockJob({
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 2 }],
+      });
+      (job.getAllResults as ReturnType<typeof vi.fn>).mockResolvedValue({
+        successfulResults: [
+          { sf__Id: '001xx000001BBB', sf__Created: 'false', Ext__c: 'B' },
+          { sf__Id: '001xx000001AAA', sf__Created: 'true', Ext__c: 'A' },
+        ],
+        failedResults: [],
+        unprocessedRecords: [],
+      });
+      const deps = createDeps(createMockConnection(job));
+
+      const promise = new BulkApiExecutor().executeBulk(
+        deps,
+        'Account',
+        'upsert',
+        [{ Ext__c: 'A' }, { Ext__c: 'B' }],
+        'Ext__c',
+      );
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.outcomes.map((o) => o.created)).toEqual([true, false]);
     });
   });
 });

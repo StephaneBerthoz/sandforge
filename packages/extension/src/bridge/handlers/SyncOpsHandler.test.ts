@@ -381,7 +381,6 @@ describe('SyncOpsHandler', () => {
             blockedReason: 'prod org write blocked',
             impactSummary: 'writes to production',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn(),
         },
         offlineManager: undefined,
@@ -515,7 +514,6 @@ describe('SyncOpsHandler', () => {
             warnings: [],
             impactSummary: 'upsert 1 object',
           }),
-          logOperation: vi.fn(),
           // The confirmation is a host dialog: when it fails the run ends
           // before a connection is ever opened.
           confirmIfNeeded: vi
@@ -1268,7 +1266,6 @@ describe('SyncOpsHandler', () => {
         performanceTracker: undefined,
         productionGuard: {
           check,
-          logOperation: vi.fn(),
           confirmIfNeeded: vi.fn().mockResolvedValue(true),
         },
         offlineManager: undefined,
@@ -1319,6 +1316,15 @@ describe('SyncOpsHandler', () => {
       });
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
       expect(mockGetConn).not.toHaveBeenCalled();
+      // Recorded as the guard's own refusals are, with the code that says why.
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'sync_execute',
+          operationId: 'sync-no-guard',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('rejects a scheduled run, opening no connection, when no Production Guard was injected', async () => {
@@ -1326,12 +1332,23 @@ describe('SyncOpsHandler', () => {
       mockTargetOrgType('Production');
       mockWorkingConnection();
 
+      // With the code a manual run's refusal carries: it said the message only.
       await expect(
         handler.executeScheduled(
           validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
         ),
-      ).rejects.toThrow(/^Production Guard is not initialized/);
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/^Production Guard is not initialized/),
+        code: 'NOT_INITIALIZED',
+      });
       expect(mockGetConn).not.toHaveBeenCalled();
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({
+          action: 'sync_execute',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('blocks a delete-mode sync to a production org', async () => {
@@ -1410,6 +1427,7 @@ describe('SyncOpsHandler', () => {
     it('asks before a scheduled sync writes to an org the registry does not know', async () => {
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = wireRealGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       mockWorkingConnection();
 
       await expect(
@@ -1421,7 +1439,7 @@ describe('SyncOpsHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT an unknown number of Account record(s) on production org tgt-org [module: sync]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(mockGetConn).not.toHaveBeenCalled();
     });
 
@@ -1441,7 +1459,6 @@ describe('SyncOpsHandler', () => {
             warnings: [],
             impactSummary: 'upsert 1 object on a production org',
           }),
-          logOperation: vi.fn(),
           confirmIfNeeded,
         },
         offlineManager: undefined,
@@ -1659,6 +1676,32 @@ describe('SyncOpsHandler', () => {
         'Account',
         'Contact',
         'Lead',
+      ]);
+    });
+
+    it('records the records of an upsert as created or updated when the org said which', async () => {
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
+      mockWorkingConnection();
+      orchestratorAnswers({
+        status: 'success',
+        objectResults: [
+          { ...objectResult('Contact', 'upsert', 6), upsertSplit: { created: 2, updated: 3 } },
+        ],
+      });
+
+      await handler.handle(
+        executeMsg(
+          'sync-audit-split',
+          syncConfigWithObjects([{ objectApiName: 'Contact', operation: 'upsert' }]),
+        ),
+      );
+
+      const { entries } = new AuditTrailStore(deps.configStore).list();
+      // The one record the answer said nothing of is counted apart.
+      expect(entries[0].objects).toEqual([
+        { objectApiName: 'Contact', created: 2, updated: 3, deleted: 0, failed: 0, upserted: 1 },
       ]);
     });
 

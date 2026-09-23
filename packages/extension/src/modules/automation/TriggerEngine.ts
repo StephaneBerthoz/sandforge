@@ -1,6 +1,8 @@
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 import type { PipelineTrigger, PipelineTriggerIdleReason } from '@sandforge/shared';
+import { isKnownTimezone, nextCronRun } from '../../core/common/cronSchedule.js';
+import type { CronRefusal } from '../../core/common/cronSchedule.js';
 
 /**
  * A trigger as a saved pipeline holds it.
@@ -55,30 +57,28 @@ function hostTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-/** Whether `timezone` is an IANA time zone this runtime knows. */
-function isKnownTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** A parser error as a sentence. */
 function parserMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/** How the trigger card names each reason a schedule gives no run. */
+const IDLE_FOR_REFUSAL: Record<CronRefusal['refused'], PipelineTriggerIdleReason> = {
+  unknownTimezone: 'badTimezone',
+  unreadable: 'badCron',
+  noRunWithinYear: 'noNextRun',
+};
 
 /**
  * Decides what a pipeline's triggers do: when a schedule falls due, and
  * whether a trigger can fire at all.
  *
  * Two types start a run without a click. A **schedule** reads a five-field
- * cron expression in its time zone; the extension checks it while VS Code
- * runs (see `PipelineTriggerScheduler`). A **sandbox refresh** trigger names
- * a registered sandbox and starts the pipeline when SandForge notices that the
- * sandbox was refreshed (`SandboxRefreshDetector`).
+ * cron expression in its time zone, and must fall due within a year; the
+ * extension checks it while VS Code runs (see `PipelineTriggerScheduler`).
+ * A **sandbox refresh** trigger names a registered sandbox and starts the
+ * pipeline when SandForge notices that the sandbox was refreshed
+ * (`SandboxRefreshDetector`).
  *
  * The other three start nothing, and nothing here pretends otherwise: nothing
  * outside VS Code can reach a webhook (SandForge opens no port), no event
@@ -97,30 +97,37 @@ export class TriggerEngine {
    *
    * @param trigger - A schedule or sandbox refresh trigger.
    * @param org - The org a sandbox refresh trigger names, when one is registered under its id.
+   * @param now - The instant a schedule must fall due within a year of.
    */
-  idleReason(trigger: PipelineTrigger, org?: TriggerOrg): TriggerIdle | undefined {
+  idleReason(
+    trigger: PipelineTrigger,
+    org?: TriggerOrg,
+    now: number = Date.now(),
+  ): TriggerIdle | undefined {
     if (!trigger.enabled) return { idle: 'disabled' };
-    if (trigger.type === 'schedule') return this.scheduleProblem(trigger);
+    if (trigger.type === 'schedule') {
+      // An expression that parses can still fall due on no date of the year
+      // to come. Checked here, not only when a start is planned: the
+      // scheduler then also drops a start it planned for one before such
+      // expressions were refused, decades away.
+      const next = this.nextRun(trigger, now);
+      return typeof next === 'number' ? undefined : next;
+    }
     if (trigger.type === 'sandbox_refresh') return this.refreshProblem(trigger, org);
     return undefined;
   }
 
   /**
    * The first time after `after` the schedule falls due, in epoch
-   * milliseconds, or why it gives none.
+   * milliseconds, or why it gives none: one that falls due on no date in the
+   * year after `after` gives none (see `nextCronRun`).
    */
   nextRun(trigger: PipelineTrigger, after: number): number | TriggerIdle {
     const problem = this.scheduleProblem(trigger);
     if (problem) return problem;
-    try {
-      const expression = CronExpressionParser.parse(this.cronOf(trigger), {
-        tz: this.timezoneOf(trigger),
-        currentDate: new Date(after),
-      });
-      return expression.next().getTime();
-    } catch (err: unknown) {
-      return { idle: 'noNextRun', detail: parserMessage(err) };
-    }
+    const next = nextCronRun(this.cronOf(trigger), this.timezoneOf(trigger), after);
+    if (typeof next === 'number') return next;
+    return { idle: IDLE_FOR_REFUSAL[next.refused], detail: next.reason };
   }
 
   /**

@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 
 import type {
+  AnonymizationRuleConfig,
+  AnonymizationTemplateRule,
   AuditObjectCounts,
   BackupSummary,
   ListedAnonymizationTemplate,
@@ -52,6 +54,8 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
+import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
+import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
@@ -146,6 +150,10 @@ function sameOrg(a: string, b: string): boolean {
 /** The code of a restore refused because the org is no longer the one the backup was taken from. */
 const ORG_REPLACED_SINCE_BACKUP = 'ORG_REPLACED_SINCE_BACKUP';
 
+/** Why a snapshot a cancel stopped was not taken. */
+const BACKUP_CANCELLED =
+  'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.';
+
 /**
  * The three words Seed, Sync and Clone already use for a write that did not
  * fully land. Reused here rather than invented: a restore or a masking run
@@ -199,6 +207,8 @@ interface BackupNotTaken {
   error: unknown;
   retryable: boolean;
   context: OperationFailureContext;
+  /** Whether a cancel stopped it, rather than a failure. */
+  cancelled?: boolean;
 }
 
 /**
@@ -226,7 +236,8 @@ export class DataOpsHandler implements DomainHandler {
   private backupRecords?: BackupRecordStore;
 
   /**
-   * HMAC key the masking engine falls back to for rules that carry no salt.
+   * HMAC key the masking engine falls back to for rules that carry no salt,
+   * and the salt every hash rule is given (see `ruleConfig`).
    *
    * Held here rather than left to the engine, which mints a random one per
    * instance: a fresh engine per request meant two masking runs of the same
@@ -252,6 +263,25 @@ export class DataOpsHandler implements DomainHandler {
       ANONYMIZATION_TEMPLATES.find((t) => t.id === templateId) ??
       this.savedTemplates.load(templateId)
     );
+  }
+
+  /**
+   * What a template's rule hands the masking engine: the settings the
+   * template gives it, and for a hash the window's key as its salt.
+   *
+   * Every rule used to go in with an empty configuration, so the CCPA and
+   * HIPAA templates threw on their first email, which the engine will not hash
+   * without a salt, and nothing was masked. No template carries a salt, and
+   * none may: one written into a template is readable by everyone who has the
+   * template. The window's key is the one the run's other keyed methods
+   * already draw from, never written down, so an address gets the same digest
+   * on every object of a run and on every run of the window, and another one
+   * in the next window.
+   */
+  private ruleConfig(rule: AnonymizationTemplateRule): AnonymizationRuleConfig {
+    const config: AnonymizationRuleConfig = { ...rule.config };
+    if (rule.ruleType === 'hash') config.hashSalt = this.maskingKey;
+    return config;
   }
 
   /**
@@ -401,9 +431,14 @@ export class DataOpsHandler implements DomainHandler {
    * to local storage, where the DataOps page lists them.
    *
    * @param request - The snapshot's id, the org, and the objects to read.
-   * @param signal - Stops the snapshot between two objects, with nothing saved.
+   * @param signal - Stops the snapshot between two objects or before it is
+   *   saved, with nothing saved.
    * @returns What the snapshot holds.
-   * @throws With the reason, when no snapshot was taken.
+   * @throws {StepCancelledError} When a cancel stopped the snapshot — Live
+   *   Operations' on its own registry entry, or the run's — so the step is not
+   *   tried again: a retry took a new snapshot of what the person had just
+   *   stopped.
+   * @throws With the reason, when no snapshot was taken for any other reason.
    */
   async backupForPipeline(
     request: { operationId: string; orgId: string; objects: string[] },
@@ -420,6 +455,7 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, request.operationId, message, outcome.retryable, {
         context: outcome.context,
       });
+      if (outcome.cancelled) throw new StepCancelledError(message);
       throw outcome.error instanceof Error ? outcome.error : new Error(message);
     }
     return outcome;
@@ -434,8 +470,8 @@ export class DataOpsHandler implements DomainHandler {
    * @param operationId - The snapshot's id: its storage key and its registry entry.
    * @param payload - The org and the objects to read.
    * @param origin - The request that asked for it, for the fix suggestion.
-   * @param signal - Stops the snapshot between two objects, as a cancel from
-   *   Live Operations does.
+   * @param signal - Stops the snapshot between two objects or before it is
+   *   saved, as a cancel from Live Operations does.
    */
   private async takeBackup(
     operationId: string,
@@ -524,9 +560,7 @@ export class DataOpsHandler implements DomainHandler {
       let processedObjects = 0;
       for (const objectApiName of payload.objects) {
         if (stop.signal.aborted) {
-          throw new Error(
-            'Backup was cancelled before it finished. Nothing was saved — run it again to take a complete snapshot.',
-          );
+          throw new Error(BACKUP_CANCELLED);
         }
         const safeObj = sanitizeSoqlObjectName(objectApiName);
         failure.objectName = safeObj;
@@ -571,6 +605,14 @@ export class DataOpsHandler implements DomainHandler {
       // org it would write to, which a sandbox refresh replaces behind the
       // same registered id.
       const organizationId = await this.organizationIdOf(conn);
+
+      // And once more before anything is saved. A cancel that came while the
+      // last object was read was honoured by nothing: the snapshot of a single
+      // object was saved and called taken, after Live Operations had said it
+      // was stopped.
+      if (stop.signal.aborted) {
+        throw new Error(BACKUP_CANCELLED);
+      }
 
       const backupKey = `backup:${operationId}`;
       const backupMeta = {
@@ -635,7 +677,7 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       backupError = err;
       this.dmlTracker.markFailed(operationId);
-      return { error: err, retryable: true, context: failure };
+      return { error: err, retryable: true, context: failure, cancelled: stop.signal.aborted };
     } finally {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);
@@ -834,14 +876,22 @@ export class DataOpsHandler implements DomainHandler {
   /**
    * Refuse a write whose Production Guard is not there, on both channels the
    * page listens on — the same as a declined confirmation, with the code the
-   * frozen load refuses with.
+   * frozen load refuses with — and record it in the audit trail, as the
+   * guard's own refusals are.
    */
   private refuseWithoutGuard(
     context: 'dataops:rollback' | 'dataops:anonymize',
     msg: InboundRequest,
     operationId: string,
     failure: OperationFailureContext,
+    run: WriteRun,
   ): void {
+    recordWriteRun(this.deps, {
+      ...run,
+      outcome: 'stopped',
+      source: undefined,
+      code: PRODUCTION_GUARD_MISSING.code,
+    });
     sendHandlerError(
       this.deps,
       context,
@@ -960,7 +1010,7 @@ export class DataOpsHandler implements DomainHandler {
       // without it.
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
-        this.refuseWithoutGuard('dataops:rollback', msg, rollbackOpId, failure);
+        this.refuseWithoutGuard('dataops:rollback', msg, rollbackOpId, failure, run);
         return;
       }
       const org = this.deps.orgManager.getOrg(payload.orgId);
@@ -1004,6 +1054,15 @@ export class DataOpsHandler implements DomainHandler {
             ? await ask({ alias, backedUpFrom: backupMeta.organizationId, now })
             : false;
           if (!restoreAnyway) {
+            // Stopped before anything was written, and recorded as the
+            // guard's refusals are: the trail said nothing of a restore the
+            // check turned down.
+            recordWriteRun(this.deps, {
+              ...run,
+              outcome: 'stopped',
+              source: undefined,
+              code: ORG_REPLACED_SINCE_BACKUP,
+            });
             const message =
               `Restore not run: ${alias} answers as org ${now}, not as org ` +
               `${backupMeta.organizationId}, which backup ${payload.operationId} was taken from, ` +
@@ -1254,7 +1313,7 @@ export class DataOpsHandler implements DomainHandler {
     try {
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
-        this.refuseWithoutGuard('dataops:anonymize', msg, operationId, failure);
+        this.refuseWithoutGuard('dataops:anonymize', msg, operationId, failure, run);
         return;
       }
       const org = this.deps.orgManager.getOrg(payload.orgId);
@@ -1383,18 +1442,40 @@ export class DataOpsHandler implements DomainHandler {
             | 'truncate'
             | 'constant'
             | 'preserve_format',
-          config: {},
+          config: this.ruleConfig(r),
         }));
 
         const anonymized = engine.anonymize(records, rules);
+
+        // Only the Id and the template's fields that held something go back.
+        // The read takes every field, so each record went back with its audit
+        // dates, its compound name and address and every flag the org keeps,
+        // and Salesforce refuses a record carrying any of those, whole — Sync
+        // and Autopilot saw it refuse every record of a run over the same
+        // fields — so no record could be masked. An empty field holds nobody's
+        // data, and a value made up for it — a fake street, the digest of
+        // nothing, which an Email field refuses along with the rest of the
+        // record — is data the record never had.
+        const payloads: Array<Record<string, unknown>> = [];
+        let nothingToMask = 0;
+        records.forEach((original, index) => {
+          const payload: Record<string, unknown> = { Id: original.Id };
+          for (const rule of rules) {
+            if (isFilledValue(original[rule.fieldApiName])) {
+              payload[rule.fieldApiName] = anonymized[index][rule.fieldApiName];
+            }
+          }
+          if (Object.keys(payload).length > 1) payloads.push(payload);
+          else nothingToMask++;
+        });
 
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
         failure.batchSize = batchSize;
         let successCount = 0;
         let failureCount = 0;
-        for (let bi = 0; bi < anonymized.length; bi += batchSize) {
-          const batch = anonymized.slice(bi, bi + batchSize);
+        for (let bi = 0; bi < payloads.length; bi += batchSize) {
+          const batch = payloads.slice(bi, bi + batchSize);
           const updateResults = (await conn
             .sobject(objectName)
             .update(
@@ -1412,7 +1493,9 @@ export class DataOpsHandler implements DomainHandler {
             collectDmlError(maskErrors, safeObj, r.errors);
           }
         }
-        totalProcessed += successCount;
+        // A record none of whose masked fields held anything is done, as an
+        // erasure counts one; the audit trail keeps to what was written.
+        totalProcessed += successCount + nothingToMask;
         totalFailed += failureCount;
         masked.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
 
@@ -1422,7 +1505,7 @@ export class DataOpsHandler implements DomainHandler {
           Math.round(((oi + 1) / plannedObjects.length) * 100),
           oi + 1,
           plannedObjects.length,
-          `Anonymized ${objectName} (${successCount}/${records.length})`,
+          `Anonymized ${objectName} (${successCount + nothingToMask}/${records.length})`,
         );
       }
 

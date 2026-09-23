@@ -627,12 +627,13 @@ describe('SeedPage', () => {
       const { rerender } = pickAndMoveOn(THREE);
 
       expect(screen.getByTestId('seed-step-execute-content')).toBeDefined();
+      for (const name of THREE) answerDescribe(rerender, name, THREE_OBJECT_DESCRIBES[name]);
+      // Each object is asked for once, the next when the last has answered.
       const asked = mockDescribeFieldsMutate.mock.calls.map(
         (call) => (call[0] as { objectApiName: string }).objectApiName,
       );
-      expect([...new Set(asked)].sort()).toEqual([...THREE].sort());
+      expect(asked).toEqual(THREE);
 
-      for (const name of THREE) answerDescribe(rerender, name, THREE_OBJECT_DESCRIBES[name]);
       fireEvent.click(screen.getByTestId('seed-wizard-next'));
       fireEvent.click(screen.getByTestId('seed-wizard-finish'));
 
@@ -707,11 +708,15 @@ describe('SeedPage', () => {
       expect((screen.getByTestId('seed-wizard-next') as HTMLButtonElement).disabled).toBe(true);
 
       mockDescribeFieldsMutate.mockClear();
+      // As the mutation does: a reset clears the failure it holds.
+      mockDescribeFieldsReset.mockImplementationOnce(() => {
+        mockDescribeFieldsState = { ...mockDescribeFieldsState, error: null };
+      });
       fireEvent.click(screen.getByTestId('seed-fields-retry'));
 
       expect(mockDescribeFieldsMutate).toHaveBeenCalledWith({
         orgId: 'org-1',
-        objectApiName: 'Opportunity',
+        objectApiName: 'Account',
       });
     });
   });

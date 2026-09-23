@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
-import type { JwtLoginRequest } from './SfdxBridge';
+import type { CliTokenReader, JwtLoginRequest } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
@@ -279,6 +279,99 @@ describe('SfdxBridge.loginJwt on Windows', () => {
   });
 });
 
+describe('SfdxBridge.loginWeb', () => {
+  const realPlatform = process.platform;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: realPlatform });
+  });
+
+  it('runs sf org login web with the login origin, the alias and --json, and no shell', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    const calls = scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
+
+    await new SfdxBridge().loginWeb('my-org', 'https://Acme.my.salesforce.com/');
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(calls[0].file).toBe('sf');
+    expect(calls[0].args).toEqual([
+      'org',
+      'login',
+      'web',
+      '--instance-url',
+      'https://acme.my.salesforce.com',
+      '--alias',
+      'my-org',
+      '--json',
+    ]);
+    expect(calls[0].stdinEnded).toBe(true);
+  });
+
+  it('leaves the alias out when none is given', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    const calls = scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
+
+    await new SfdxBridge().loginWeb('', 'https://test.salesforce.com');
+
+    expect(calls[0].args).toEqual([
+      'org',
+      'login',
+      'web',
+      '--instance-url',
+      'https://test.salesforce.com',
+      '--json',
+    ]);
+  });
+
+  it('double-quotes every argument on the command line cmd.exe runs', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const calls = scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
+
+    await new SfdxBridge().loginWeb('my-org', 'https://Acme.my.salesforce.com/');
+
+    expect(execFile).not.toHaveBeenCalled();
+    expect(calls[0].command).toBe(
+      'sf "org" "login" "web" "--instance-url" "https://acme.my.salesforce.com" "--alias" "my-org" "--json"',
+    );
+  });
+
+  it('returns the org the CLI signed in to', async () => {
+    scriptCli([{ stdout: loginOutput(SIGNED_IN) }]);
+
+    expect(await new SfdxBridge().loginWeb('uat', 'https://test.salesforce.com')).toEqual(
+      SIGNED_IN,
+    );
+  });
+
+  it("surfaces the CLI's own message when the sign-in fails", async () => {
+    scriptCli([
+      {
+        stdout: JSON.stringify({
+          status: 1,
+          name: 'AuthCodeExchangeError',
+          message: 'Error authenticating with auth code due to: invalid_grant',
+        }),
+        error: Object.assign(new Error('Command failed: sf org login web'), { code: 1 }),
+      },
+    ]);
+
+    await expect(new SfdxBridge().loginWeb('uat', 'https://test.salesforce.com')).rejects.toThrow(
+      'Error authenticating with auth code due to: invalid_grant',
+    );
+  });
+
+  it('says the sign-in did not finish when the CLI is killed on its timeout', async () => {
+    scriptCli([{ error: Object.assign(new Error('Command failed'), { killed: true }) }]);
+
+    await expect(new SfdxBridge().loginWeb('uat', 'https://test.salesforce.com')).rejects.toThrow(
+      'sf org login web did not finish within 120 s.',
+    );
+  });
+});
+
 // These read the argv sf receives from a POSIX spawn. On Windows the command
 // goes through cmd.exe instead, quoted, and a path holding a quote is refused
 // there: the Windows suite checks that path with the platform stubbed.
@@ -423,10 +516,16 @@ describe('SfdxBridge.findOrg', () => {
     username: 'admin@example.com',
     alias: 'uat-admin',
     instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+    accessToken: '00D000000000001AAA!admin-session',
     connectedStatus: 'Connected',
     isSandbox: true,
   };
-  const INTEGRATION = { ...ADMIN, username: 'integration@example.com', alias: 'uat-ci' };
+  const INTEGRATION = {
+    ...ADMIN,
+    username: 'integration@example.com',
+    alias: 'uat-ci',
+    accessToken: '00D000000000001AAA!integration-session',
+  };
 
   it('finds the user who signed in, even when another user of the same org is listed first', async () => {
     orgList({ nonScratchOrgs: [ADMIN, INTEGRATION], sandboxes: [ADMIN, INTEGRATION] });
@@ -449,5 +548,34 @@ describe('SfdxBridge.findOrg', () => {
     orgList({ nonScratchOrgs: [ADMIN] });
 
     expect(await new SfdxBridge().findOrg('integration@example.com')).toBeUndefined();
+  });
+
+  it('reads through the CLI the token of the user found when the listing hides it', async () => {
+    orgList({
+      nonScratchOrgs: [
+        ADMIN,
+        { ...INTEGRATION, accessToken: "[REDACTED] Use 'sf org auth show-access-token' to view" },
+      ],
+    });
+    const readToken = vi.fn<CliTokenReader>(async () => ({
+      accessToken: '00D000000000001AAA!live-session',
+    }));
+
+    const found = await new SfdxBridge(readToken).findOrg('integration@example.com');
+
+    expect(readToken).toHaveBeenCalledTimes(1);
+    expect(readToken).toHaveBeenCalledWith('integration@example.com');
+    expect(found?.credentials.accessToken).toBe('00D000000000001AAA!live-session');
+  });
+
+  it('says which user it could not get a token for, and why, instead of finding it', async () => {
+    orgList({ nonScratchOrgs: [{ ...INTEGRATION, accessToken: undefined }] });
+    const readToken = vi.fn<CliTokenReader>(async () => {
+      throw new Error('sf did not answer within 30 s — check the Salesforce CLI');
+    });
+
+    await expect(new SfdxBridge(readToken).findOrg('integration@example.com')).rejects.toThrow(
+      'The Salesforce CLI gave no access token for integration@example.com: sf did not answer within 30 s',
+    );
   });
 });

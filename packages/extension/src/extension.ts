@@ -39,6 +39,8 @@ import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
 import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
+import { fileTriggerClaims } from './modules/automation/TriggerClaims';
+import * as path from 'node:path';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
@@ -254,8 +256,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Start the sync schedule tick loop (wires SyncScheduleHandler.onExecute
   // to SyncOpsHandler.executeScheduled; idempotent, stops in deactivate()).
+  // Every window runs one, over the same schedules: the claims kept in the
+  // global storage, which every window of the machine reaches, make each due
+  // start run once, as the pipeline triggers do.
   handlersRef = handlers;
-  handlers.startSyncScheduler();
+  handlers.startSyncScheduler(
+    fileTriggerClaims(path.join(context.globalStorageUri.fsPath, 'sync-schedules'), { log }),
+  );
 
   // 7. Async compositions — dynamic imports stay off the activation hot path,
   // so these injections resolve AFTER registerAll (handlers guard with

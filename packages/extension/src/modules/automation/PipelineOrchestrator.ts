@@ -168,6 +168,8 @@ export class PipelineOrchestrator {
    *   twice: once when routed to, and again when its turn came.
    * - A completed step may hand values on to the steps after it (see
    *   {@link handedOn}); they are laid over the run's variables.
+   * - A step whose work was cancelled (its result says `cancelled`) ends the
+   *   run there, cancelled, whatever its `continueOnError` says.
    *
    * A pipeline with a step that cannot do its work does not start: see
    * {@link refuseUnrunnable}.
@@ -237,8 +239,11 @@ export class PipelineOrchestrator {
       Object.assign(values, handedOn(result));
 
       // A step cut short by the abort failed because the run was stopped, not
-      // on its own: the run is cancelled, and nothing is routed from it.
-      if (aborter.signal.aborted) {
+      // on its own: the run is cancelled, and nothing is routed from it. So is
+      // a step whose own work was cancelled, a Backup cancelled from Live
+      // Operations: the steps after it would go on without that work, and the
+      // run used to be written as failed.
+      if (aborter.signal.aborted || result.cancelled) {
         run.status = 'cancelled';
         break;
       }

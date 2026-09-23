@@ -84,7 +84,9 @@ Before execution, the Review step shows:
   saved until one is chosen. A schedule naming a configuration that was never
   saved is refused.
 - The check runs every 60 seconds and fires each schedule whose cron time has
-  passed, once, however long the editor was closed.
+  passed, once, however long the editor was closed and however many VS Code
+  windows are open: the windows of one machine share which of them makes each
+  run, as they do for pipeline triggers.
 - When the configuration a schedule names has since been deleted, the run is
   recorded as a failure at each of its run times, the next run time moves on, and
   -- if the schedule asks to be told about failures -- a notification says which
@@ -101,6 +103,10 @@ Before execution, the Review step shows:
   next runs, with the same buttons. Both ask for the list again once the
   soonest run is past, so the next run and the last result follow the runs
   while the tab is open.
+- A schedule is refused when it is saved, with the reason, if SandForge cannot
+  read its cron expression or if no date of the coming year matches it: the
+  31st of February or April never comes, and 29 February only once in four
+  years.
 
 ### Real-Time
 

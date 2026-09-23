@@ -218,6 +218,19 @@ describe('recordWriteRun', () => {
       expect(new AuditTrailStore(deps.configStore).list().total).toBe(0);
     });
 
+    it('records a run a check of its own stopped, with its code: that was no decision', () => {
+      const deps = { ...makeDeps(), services: settings(false) };
+
+      recordWriteRun(
+        deps,
+        run({ outcome: 'stopped', objects: [], source: undefined, code: 'NOT_INITIALIZED' }),
+      );
+
+      expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+        expect.objectContaining({ outcome: 'stopped', details: { code: 'NOT_INITIALIZED' } }),
+      ]);
+    });
+
     it('keeps both when the switch is on, as it is by default', () => {
       const deps = { ...makeDeps(), services: settings(true) };
 

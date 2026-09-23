@@ -32,22 +32,12 @@ export interface SafetyCheckResult {
   impactSummary: string;
 }
 
-/** Audit log entry recording a safety check decision */
-export interface AuditEntry {
-  request: OperationRequest;
-  result: SafetyCheckResult;
-  timestamp: string;
-}
-
 const DESTRUCTIVE_OPERATIONS = new Set<string>(['delete', 'hardDelete']);
 
 /** Volume thresholds that trigger safety gates per tier */
 const PRODUCTION_APPROVAL_THRESHOLD = 1_000;
 const STAGING_CONFIRMATION_THRESHOLD = 10_000;
 const DEV_WARNING_THRESHOLD = 50_000;
-
-/** Maximum audit log entries retained (FIFO rotation — unbounded growth otherwise). */
-const MAX_AUDIT_ENTRIES = 1_000;
 
 /** Optional runtime configuration for {@link ProductionGuard}. */
 export interface ProductionGuardOptions {
@@ -57,11 +47,6 @@ export interface ProductionGuardOptions {
    * request an explicit confirmation. Read at call time.
    */
   isProdConfirmationRequired?: () => boolean;
-  /**
-   * Mirrors the `sandforge.safety.auditLogging` setting (manifest default
-   * true). When off, {@link logOperation} becomes a no-op. Read at call time.
-   */
-  isAuditLoggingEnabled?: () => boolean;
   /**
    * UI callback invoked by {@link confirmIfNeeded} when a check result
    * requires explicit user confirmation. Resolves to the user's consent.
@@ -77,7 +62,6 @@ export interface ProductionGuardOptions {
  */
 export class ProductionGuard {
   private readonly overrides: Map<string, boolean> = new Map();
-  private readonly auditLog: AuditEntry[] = [];
   private readonly options: ProductionGuardOptions;
 
   constructor(options?: ProductionGuardOptions) {
@@ -110,11 +94,6 @@ export class ProductionGuard {
     return this.overrides.get(orgId) === true;
   }
 
-  /** Return a copy of all recorded audit log entries */
-  getAuditLog(): AuditEntry[] {
-    return [...this.auditLog];
-  }
-
   /**
    * Whether a confirmation can be put to someone. With no confirmation UI — a
    * unit test, a command-line runner — {@link confirmIfNeeded} lets through a
@@ -123,25 +102,6 @@ export class ProductionGuard {
    */
   get canAskForConfirmation(): boolean {
     return this.options.requestConfirmation !== undefined;
-  }
-
-  /**
-   * Record a safety check decision in the audit log.
-   * No-op when audit logging is disabled via `safety.auditLogging`.
-   * The log is capped at {@link MAX_AUDIT_ENTRIES} with FIFO eviction.
-   */
-  logOperation(request: OperationRequest, result: SafetyCheckResult): void {
-    if (this.options.isAuditLoggingEnabled && !this.options.isAuditLoggingEnabled()) {
-      return;
-    }
-    this.auditLog.push({
-      request,
-      result,
-      timestamp: new Date().toISOString(),
-    });
-    if (this.auditLog.length > MAX_AUDIT_ENTRIES) {
-      this.auditLog.splice(0, this.auditLog.length - MAX_AUDIT_ENTRIES);
-    }
   }
 
   /**

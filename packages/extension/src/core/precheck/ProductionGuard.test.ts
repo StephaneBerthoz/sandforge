@@ -419,60 +419,6 @@ describe('ProductionGuard', () => {
     });
   });
 
-  describe('audit log', () => {
-    it('should start with an empty audit log', () => {
-      expect(guard.getAuditLog()).toHaveLength(0);
-    });
-
-    it('should record operations via logOperation', () => {
-      const request = createRequest({ orgTier: 'production', operation: 'insert' });
-      const result = guard.check(request);
-
-      guard.logOperation(request, result);
-
-      const log = guard.getAuditLog();
-      expect(log).toHaveLength(1);
-      expect(log[0].request).toEqual(request);
-      expect(log[0].result).toEqual(result);
-      expect(log[0].timestamp).toBeTruthy();
-    });
-
-    it('should record multiple operations in order', () => {
-      const req1 = createRequest({ operation: 'insert', orgTier: 'production' });
-      const req2 = createRequest({ operation: 'update', orgTier: 'staging' });
-
-      guard.logOperation(req1, guard.check(req1));
-      guard.logOperation(req2, guard.check(req2));
-
-      const log = guard.getAuditLog();
-      expect(log).toHaveLength(2);
-      expect(log[0].request.operation).toBe('insert');
-      expect(log[1].request.operation).toBe('update');
-    });
-
-    it('should return a copy of the audit log (not a reference)', () => {
-      const request = createRequest({ orgTier: 'development' });
-      const result = guard.check(request);
-      guard.logOperation(request, result);
-
-      const log1 = guard.getAuditLog();
-      const log2 = guard.getAuditLog();
-
-      expect(log1).toEqual(log2);
-      expect(log1).not.toBe(log2);
-    });
-
-    it('should include ISO timestamp in audit entries', () => {
-      const request = createRequest({ orgTier: 'scratch' });
-      const result = guard.check(request);
-      guard.logOperation(request, result);
-
-      const log = guard.getAuditLog();
-      const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-      expect(isoRegex.test(log[0].timestamp)).toBe(true);
-    });
-  });
-
   describe('safety settings wiring', () => {
     it('requiresConfirmation follows isProdConfirmationRequired=false', () => {
       const noConfirmGuard = new ProductionGuard({ isProdConfirmationRequired: () => false });
@@ -486,34 +432,6 @@ describe('ProductionGuard', () => {
     it('requiresConfirmation stays true by default (no options)', () => {
       const result = guard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
       expect(result.requiresConfirmation).toBe(true);
-    });
-
-    it('logOperation is a no-op when auditLogging is disabled', () => {
-      const noAuditGuard = new ProductionGuard({ isAuditLoggingEnabled: () => false });
-      const request = createRequest({ orgTier: 'production', operation: 'insert' });
-      noAuditGuard.logOperation(request, noAuditGuard.check(request));
-      expect(noAuditGuard.getAuditLog()).toHaveLength(0);
-    });
-
-    it('logOperation reads the auditLogging flag at call time', () => {
-      let enabled = false;
-      const togglable = new ProductionGuard({ isAuditLoggingEnabled: () => enabled });
-      const request = createRequest();
-      togglable.logOperation(request, togglable.check(request));
-      expect(togglable.getAuditLog()).toHaveLength(0);
-      enabled = true;
-      togglable.logOperation(request, togglable.check(request));
-      expect(togglable.getAuditLog()).toHaveLength(1);
-    });
-
-    it('audit log is capped at 1000 entries with FIFO eviction', () => {
-      const request = createRequest();
-      const result = guard.check(request);
-      for (let i = 0; i < 1100; i++) {
-        guard.logOperation(request, result);
-      }
-      const log = guard.getAuditLog();
-      expect(log).toHaveLength(1000);
     });
 
     it('confirmIfNeeded returns true when confirmation not required', async () => {

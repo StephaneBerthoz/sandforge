@@ -10,6 +10,7 @@ import {
   buildResponse,
   bulkManagerOf,
   PRODUCTION_GUARD_MISSING,
+  productionGuardMissingError,
   robustnessConfigOf,
   sendHandlerError,
   sendNotification,
@@ -548,7 +549,17 @@ export class RealtimeHandler implements DomainHandler {
     plans: ReadonlyArray<{ objectApiName: string; applyDeletes: boolean }>,
   ): Promise<GuardDecision | undefined> {
     const guard = this.deps.infraServices?.productionGuard;
-    if (!guard) throw new Error(PRODUCTION_GUARD_MISSING.message);
+    if (!guard) {
+      recordWriteRun(this.deps, {
+        action: 'realtime_sync',
+        module: 'sync',
+        operationId: msg.id,
+        orgId: targetOrgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
+      throw productionGuardMissingError();
+    }
     const request = {
       orgId: targetOrgId,
       orgTier: orgTypeToGuardTier(this.deps.orgManager.getOrg(targetOrgId)?.orgType ?? ''),

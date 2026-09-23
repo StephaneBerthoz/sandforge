@@ -138,6 +138,17 @@ export const PRODUCTION_GUARD_MISSING = {
   message: 'Production Guard is not initialized — infrastructure services missing',
 } as const;
 
+/**
+ * The refusal of a write with no Production Guard, as an error to reject or
+ * throw with: its message, and its code for whoever keys off the kind of
+ * failure rather than its English text.
+ */
+export function productionGuardMissingError(): Error & { code: string } {
+  return Object.assign(new Error(PRODUCTION_GUARD_MISSING.message), {
+    code: PRODUCTION_GUARD_MISSING.code,
+  });
+}
+
 /** The retry, timeout and bulk settings of a run. */
 export function robustnessConfigOf(deps: Pick<HandlerDeps, 'robustness'>): RobustnessConfig {
   return deps.robustness ?? DEFAULT_ROBUSTNESS_CONFIG;

@@ -119,6 +119,27 @@ describe('DataSync', () => {
       expect(result.processed).toBe(2);
     });
 
+    it('splits the records of an upsert into created and updated, as the org said', async () => {
+      const outcomes: OperationOutcome[] = [
+        { id: '001', success: true, errors: [], created: true },
+        { id: '002', success: true, errors: [], created: false },
+        { id: '003', success: true, errors: [], created: false },
+        { success: false, errors: ['DUPLICATE_VALUE'] },
+      ];
+      deps = createDeps({ upsert: vi.fn().mockResolvedValue(outcomes) });
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(createConfig({ operation: 'upsert' }), [
+        { Name: 'A' },
+        { Name: 'B' },
+        { Name: 'C' },
+        { Name: 'D' },
+      ]);
+
+      expect(result.upsertSplit).toEqual({ created: 1, updated: 2 });
+      expect(result.success).toBe(3);
+    });
+
     it('should return failure count and errors from outcomes', async () => {
       const outcomes: OperationOutcome[] = [
         { id: '001', success: true, errors: [] },

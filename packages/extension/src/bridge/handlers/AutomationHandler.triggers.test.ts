@@ -15,6 +15,7 @@ import type { PipelineOrchestratorDependencies } from '../../modules/automation/
 import { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
 import type { TriggerReport } from '../../modules/automation/PipelineTriggerScheduler.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 
 /** The registered orgs, by SandForge id: one sandbox, one production org. */
@@ -193,6 +194,22 @@ describe('AutomationHandler triggers', () => {
     expect(started.payload.operationId.startsWith(TRIGGERED_RUN_PREFIX)).toBe(true);
     expect(posted(deps, 'operation:completed')).toHaveLength(1);
     expect(reports).toEqual([]);
+  });
+
+  it('leaves the runs of a saved pipeline out of a profile of the pipelines', async () => {
+    // The keys the handler writes, read the way Settings exports them: the
+    // pipelines category used to carry the run history along.
+    handler.startTriggers({ report: (report) => reports.push(report) });
+    await save(definition('p1', [{ type: 'delay', config: { seconds: 0 } }], [nightly], 'Nightly'));
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(history(deps)).toHaveLength(1);
+
+    const exported = new ConfigProfileManager(deps.configStore).exportProfile(['pipelines']);
+
+    const profile = JSON.parse(exported.json ?? '{}') as {
+      data: { pipelines: Record<string, unknown> };
+    };
+    expect(Object.keys(profile.data.pipelines)).toEqual(['pipeline:saved:p1']);
   });
 
   it('lists the next start of a saved schedule, and why each trigger that starts nothing does not', async () => {

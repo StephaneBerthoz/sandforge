@@ -795,8 +795,16 @@ export class MonitorOpsHandler implements DomainHandler {
         MONITOR_KEY_LIMITS,
       );
 
-      // 4. Fetch org info (cached, non-blocking failure)
-      const orgInfo = await this.fetchOrgInfo(payload.orgId, conn);
+      // 4. Fetch org info (cached, non-blocking failure) and compute the org
+      // health status at the same time. Neither needs the other: the health
+      // check reads /limits from the cache the tick just filled, the job rows
+      // published above, and the day's error logs. Awaited in turn, each tick
+      // waited for both round trips back to back. Neither rejects: each logs
+      // its own failure and answers undefined.
+      const [orgInfo, orgHealthStatus] = await Promise.all([
+        this.fetchOrgInfo(payload.orgId, conn),
+        this.computeOrgHealth(payload.orgId),
+      ]);
 
       // 4b. The Organization row just read names the org this entry reaches:
       // a refreshed sandbox answers with a new id under the same entry.
@@ -818,14 +826,6 @@ export class MonitorOpsHandler implements DomainHandler {
         orgInfo,
       });
       const healthScore = healthReport.overallScore;
-
-      // 5b. Compute org health status
-      let orgHealthStatus: OrgHealthStatus | undefined;
-      try {
-        orgHealthStatus = await this.healthCheck.computeHealth(payload.orgId);
-      } catch (healthErr) {
-        this.deps.log(`[WARN] HealthCheck failed: ${String(healthErr)}`);
-      }
 
       // 6. Send response
       if (this.pastDeadline(deadline, 'the monitor:data reply')) return;
@@ -850,6 +850,22 @@ export class MonitorOpsHandler implements DomainHandler {
       sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', msg, err);
     } finally {
       this.inFlightJobRecords.delete(payload.orgId);
+    }
+  }
+
+  /**
+   * The org's health status, from the signals the health check aggregates. A
+   * failure is logged and gives `undefined`: the status never fails the reply
+   * that asked for it.
+   *
+   * @param orgId - Org whose health to compute.
+   */
+  private async computeOrgHealth(orgId: string): Promise<OrgHealthStatus | undefined> {
+    try {
+      return await this.healthCheck.computeHealth(orgId);
+    } catch (healthErr) {
+      this.deps.log(`[WARN] HealthCheck failed: ${String(healthErr)}`);
+      return undefined;
     }
   }
 

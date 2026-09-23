@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest';
+import { logger } from '../../logger.js';
 import {
   MetadataCompare,
   planReads,
@@ -445,6 +446,119 @@ describe('MetadataCompare', () => {
         'ApexClass',
       ]),
     ).rejects.toThrow('Connection failed');
+  });
+
+  describe('stopped by its signal', () => {
+    /** What `comparing` rejected with, or else what it answered. */
+    const outcomeOf = (comparing: Promise<unknown>) => comparing.catch((reason: unknown) => reason);
+
+    /** Eight Apex classes both orgs hold, each listed differently, so each is read. */
+    function eightClasses(): FetchMetadataFn {
+      const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      return fetchFrom({
+        src: { ApexClass: new Map(names.map((n) => [n, listed(n, `01pA${n}`)])) },
+        tgt: { ApexClass: new Map(names.map((n) => [n, listed(n, `01pB${n}`)])) },
+      });
+    }
+
+    it('lists no further type, and rejects rather than answering', async () => {
+      const stop = new AbortController();
+      const fetchMetadata = vi.fn<FetchMetadataFn>(async () => {
+        stop.abort();
+        return new Map();
+      });
+      const { reader } = readerOf({});
+
+      const outcome = await outcomeOf(
+        new MetadataCompare(fetchMetadata, diffEngine, reader).compare(
+          'src',
+          'tgt',
+          ['ApexClass', 'Flow'],
+          { includeManaged: true },
+          stop.signal,
+        ),
+      );
+
+      expect(outcome).toBe(stop.signal.reason);
+      expect(fetchMetadata.mock.calls.map(([, type]) => type)).toEqual(['ApexClass', 'ApexClass']);
+    });
+
+    it('reads no further batch, and rejects rather than answering with what it read', async () => {
+      // A comparison given up on went on reading both orgs, batch after batch,
+      // and answered as if it had been asked to.
+      const stop = new AbortController();
+      const read = vi.fn(
+        async (_org: string, _type: MetadataComponentType, batch: readonly string[]) => {
+          stop.abort();
+          return new Map(batch.map((n) => [n, 'public class X {}'] as const));
+        },
+      );
+
+      const outcome = await outcomeOf(
+        new MetadataCompare(eightClasses(), diffEngine, { batchSize: () => 1, read }).compare(
+          'src',
+          'tgt',
+          ['ApexClass'],
+          { includeManaged: true },
+          stop.signal,
+        ),
+      );
+
+      expect(outcome).toBe(stop.signal.reason);
+      // The batch in flight when the signal aborted, from both orgs, and no other.
+      expect(read.mock.calls.map(([org, , batch]) => [org, ...batch])).toEqual([
+        ['src', 'A'],
+        ['tgt', 'A'],
+      ]);
+    });
+
+    it('rejects rather than answering when the signal aborts during its last read', async () => {
+      const stop = new AbortController();
+      // Every batch is out when the signal aborts, and each comes back whole.
+      const read = vi.fn(
+        async (_org: string, _type: MetadataComponentType, batch: readonly string[]) => {
+          stop.abort();
+          return new Map(batch.map((n) => [n, 'public class X {}'] as const));
+        },
+      );
+
+      const outcome = await outcomeOf(
+        new MetadataCompare(eightClasses(), diffEngine, { batchSize: () => 8, read }).compare(
+          'src',
+          'tgt',
+          ['ApexClass'],
+          { includeManaged: true },
+          stop.signal,
+        ),
+      );
+
+      expect(outcome).toBe(stop.signal.reason);
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not report a read the signal stopped as a read that failed', async () => {
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      onTestFinished(() => warn.mockRestore());
+      const stop = new AbortController();
+      // What a reader does once the comparison is stopped: it sends nothing.
+      const read = vi.fn(async (): Promise<ReadContent> => {
+        stop.abort();
+        throw stop.signal.reason;
+      });
+
+      const outcome = await outcomeOf(
+        new MetadataCompare(eightClasses(), diffEngine, { batchSize: () => 8, read }).compare(
+          'src',
+          'tgt',
+          ['ApexClass'],
+          { includeManaged: true },
+          stop.signal,
+        ),
+      );
+
+      expect(outcome).toBe(stop.signal.reason);
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 });
 

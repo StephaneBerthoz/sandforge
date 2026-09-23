@@ -284,7 +284,7 @@ export class PipelineTriggerScheduler {
             : {}),
           ...(type === 'schedule' ? { timezone: this.engine.timezoneOf(trigger) } : {}),
         };
-        let idle = this.engine.idleReason(trigger, this.orgOf(trigger));
+        let idle = this.engine.idleReason(trigger, this.orgOf(trigger), now);
         if (!idle) {
           problems ??= await this.problemsOf(pipeline);
           if (problems.length > 0) idle = { idle: 'cannotRun', detail: problems.join(' ') };
@@ -352,7 +352,7 @@ export class PipelineTriggerScheduler {
       for (const trigger of this.triggersOf(pipeline)) {
         kept.add(stateKey(pipeline.id, trigger.id));
         if (trigger.type !== 'schedule') continue;
-        let idle: TriggerIdle | undefined = this.engine.idleReason(trigger);
+        let idle: TriggerIdle | undefined = this.engine.idleReason(trigger, undefined, now);
         if (!idle) {
           problems ??= await this.problemsOf(pipeline);
           if (problems.length > 0) idle = { idle: 'cannotRun' };

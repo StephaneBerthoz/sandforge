@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CompareResult, PipelineStep, PipelineStepType } from '@sandforge/shared';
-import { StepExecutor } from '../../modules/automation/StepExecutor.js';
+import { StepCancelledError, StepExecutor } from '../../modules/automation/StepExecutor.js';
 import type { StepContext } from '../../modules/automation/StepExecutor.js';
 import type { HealthSignal } from '../../modules/monitor/HealthCheck.js';
 import type { HealthSignalName } from '../../modules/monitor/MonitorOpsFactory.js';
@@ -187,6 +187,24 @@ describe('registerPipelineSteps', () => {
         'snap-2',
       ]);
     });
+
+    it('takes no new snapshot when the one it took was cancelled from Live Operations', async () => {
+      flows.backup = vi
+        .fn()
+        .mockRejectedValue(new StepCancelledError('Backup was cancelled before it finished.'));
+
+      const result = await executor.execute(
+        step('backup', { orgId: 'org-a', objects: ['Account'] }, { retries: 2 }),
+        context(),
+      );
+
+      expect(flows.backup).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        status: 'failed',
+        error: 'Backup was cancelled before it finished.',
+        cancelled: true,
+      });
+    });
   });
 
   describe('Compare', () => {
@@ -215,16 +233,41 @@ describe('registerPipelineSteps', () => {
         context(),
       );
 
-      expect(flows.compare).toHaveBeenCalledWith({
-        sourceOrgId: 'org-a',
-        targetOrgId: 'org-b',
-        types: ['ApexClass'],
-      });
+      expect(flows.compare).toHaveBeenCalledWith(
+        {
+          sourceOrgId: 'org-a',
+          targetOrgId: 'org-b',
+          types: ['ApexClass'],
+        },
+        expect.any(AbortSignal),
+      );
       expect(result.summary).toBe(
         'Compared 1 component type of uat with dev: 2 added, 1 removed, 3 modified, 5 unchanged, 1 not compared.',
       );
       expect(result.output).not.toHaveProperty('diffs');
       expect(result.output).toMatchObject({ summary: { modified: 3 } });
+    });
+
+    it('hands the comparison the signal that stops the step, so a run given up on stops reading the orgs', async () => {
+      // The comparison took no signal: a run cancelled, or out of time, moved
+      // on while it went on listing and reading both orgs to its end.
+      let given: AbortSignal | undefined;
+      flows.compare = vi.fn((_request, signal?: AbortSignal) => {
+        given = signal;
+        return new Promise<never>(() => {});
+      });
+      const run = new AbortController();
+
+      const comparing = executor.execute(
+        step('compare', { sourceOrgId: 'org-a', targetOrgId: 'org-b', types: ['Flow'] }),
+        context({ signal: run.signal }),
+      );
+      await vi.waitFor(() => expect(flows.compare).toHaveBeenCalled());
+      expect(given?.aborted).toBe(false);
+      run.abort();
+
+      expect((await comparing).error).toBe('Step "Step" was stopped before it finished.');
+      expect(given?.aborted).toBe(true);
     });
   });
 

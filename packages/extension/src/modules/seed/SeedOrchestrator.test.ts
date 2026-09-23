@@ -533,6 +533,28 @@ describe('SeedOrchestrator — a parent that wrote nothing', () => {
     expect(result.status).toBe('failure');
   });
 
+  it('counts the partitions of a skipped object, so the run reaches every partition', async () => {
+    // The partitions are planned before the run, one set per object. A skipped
+    // object used none of its own, and the last partition the run reported
+    // stood at half: the Grappe view never reached 100%.
+    const insert = vi.fn(async () => ({ successIds: [], errors: ['refused', 'refused'] }));
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const orchestrator = new SeedOrchestrator(
+      partitionedDeps({
+        ...createMockDeps(),
+        insert,
+        onGrappeEvent: (event) => events.push(event),
+      }),
+    );
+
+    await orchestrator.execute(accountThenContact() as never, 'org');
+
+    const started = events.find((e) => e.type === 'grappe:started');
+    const progress = events.filter((e) => e.type === 'grappe:partitionProgress');
+    expect(progress).toHaveLength(Number(started?.payload.totalPartitions));
+    expect(progress.map((e) => e.payload.percentage)).toEqual([50, 100]);
+  });
+
   it('writes the children when the parent wrote something on the partitioned path', async () => {
     const insert = vi.fn<InsertFn>(async () => ({ successIds: ['001A', '001B'], errors: [] }));
     const orchestrator = new SeedOrchestrator(partitionedDeps({ ...createMockDeps(), insert }));

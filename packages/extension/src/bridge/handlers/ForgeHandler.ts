@@ -6,7 +6,12 @@ import type {
   ForgeTemplate,
   ComplianceFrameworkType,
 } from '@sandforge/shared';
-import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
+import {
+  forgeAnonymizationRulesSchema,
+  forgeConfigSchema,
+  forgeGraphSchema,
+  forgeTemplateSchema,
+} from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -34,6 +39,7 @@ import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
+import { partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
@@ -54,7 +60,13 @@ const previewPayloadSchema = z.object({
   orgId: orgIdSchema,
 });
 const discoverPayloadSchema = z.object({ config: forgeConfigSchema });
-const executePayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const executePayloadSchema = z.object({
+  graph: forgeGraphSchema,
+  config: forgeConfigSchema,
+  // The method Review holds per PII category. The fields travel on the
+  // graph's nodes; a category left out takes its default method.
+  anonymizationRules: forgeAnonymizationRulesSchema.optional(),
+});
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
 const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
@@ -216,7 +228,9 @@ function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'ta
  * name was never going to be written — and so are the reports that name a
  * pass rather than an object (`__pass2__`, `__expandOrphanParents__`).
  */
-function forgeAuditObjects(result: ForgeExecutionResult): AuditObjectCounts[] {
+function forgeAuditObjects(
+  result: Pick<ForgeExecutionResult, 'idRemapByObject' | 'errors'>,
+): AuditObjectCounts[] {
   const byObject = new Map<string, AuditObjectCounts>();
   const countsOf = (objectApiName: string): AuditObjectCounts => {
     const counts = byObject.get(objectApiName) ?? emptyCounts(objectApiName);
@@ -238,7 +252,9 @@ function forgeAuditObjects(result: ForgeExecutionResult): AuditObjectCounts[] {
  * created, or linked to the record the target already held — as its remap
  * table counts them.
  */
-function forgeCarried(result: ForgeExecutionResult): Record<string, number> {
+function forgeCarried(
+  result: Pick<ForgeExecutionResult, 'idRemapByObject'>,
+): Record<string, number> {
   return Object.fromEntries(
     (result.idRemapByObject ?? []).map((row) => [row.objectApiName, row.created + row.linked]),
   );
@@ -730,7 +746,7 @@ export class ForgeHandler implements DomainHandler {
 
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config } = parsed;
+    const { graph, config, anonymizationRules } = parsed;
 
     // Production guard check on the target org — same policy as sync/seed
     // runs (guard instance from backgroundComposition via infraServices).
@@ -740,6 +756,16 @@ export class ForgeHandler implements DomainHandler {
     // guard there is no gate, and nothing is written.
     const guard = this.deps.infraServices?.productionGuard;
     if (!guard) {
+      // Refused as the guard refuses, and recorded as the guard's refusals
+      // are: the trail kept no trace of a run no guard could judge.
+      recordWriteRun(this.deps, {
+        action: 'forge_execute',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: config.targetOrgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
       sendHandlerError(
         this.deps,
         'forge:execute',
@@ -896,7 +922,10 @@ export class ForgeHandler implements DomainHandler {
       if (runController.signal.aborted) {
         throw new Error('Forge execution was aborted before it started. Nothing was written.');
       }
-      const result = await this.orchestrator.execute(graph, config, { recordTypeMappings });
+      const result = await this.orchestrator.execute(graph, config, {
+        recordTypeMappings,
+        anonymizationRules,
+      });
 
       // Arm the duplicate cooldown only when the run wrote something: a
       // failure, or a run that remapped no record at all, leaves the recipe
@@ -943,8 +972,13 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       runError = error;
-      // What the run wrote before it threw is not known here: the executor's
-      // tallies go down with it. The entry says the run failed, and no more.
+      // What the run wrote before it threw travels with the error: an abort
+      // after the first objects, or a failure further on, is recorded with
+      // the rows it created and lost, not as a run that wrote nothing.
+      const partial = partialSummaryOf(error);
+      const tallies = partial
+        ? { idRemapByObject: partial.remapByObject, errors: partial.errors }
+        : undefined;
       recordWriteRun(this.deps, {
         action: 'forge_execute',
         module: 'forge',
@@ -952,6 +986,13 @@ export class ForgeHandler implements DomainHandler {
         orgId: config.targetOrgId,
         outcome: 'failure',
         guard: guardDecision,
+        ...(tallies
+          ? {
+              objects: forgeAuditObjects(tallies),
+              source: { origin: 'org' as const, orgId: config.sourceOrgId },
+              carried: forgeCarried(tallies),
+            }
+          : {}),
       });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed run wrote nothing worth protecting — clear any cooldown so

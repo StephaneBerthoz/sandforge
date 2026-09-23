@@ -245,7 +245,15 @@ export class SyncOrchestrator {
       }
     }
 
-    return this.deps.dataSync.sync(objectConfig, finalRecords);
+    // The records are mapped, transformed and carry their add-ons, so DataSync
+    // is handed nothing left to apply — as Real-time hands it. Given the
+    // object's own mappings, it mapped every record a second time, by source
+    // field name, on records that hold target names: a rename, a constant or a
+    // formula found nothing there and wrote its field empty.
+    return this.deps.dataSync.sync(
+      { ...objectConfig, fieldMappings: [], addOnFields: [] },
+      finalRecords,
+    );
   }
 }
 

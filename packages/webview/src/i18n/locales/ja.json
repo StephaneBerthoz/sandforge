@@ -1396,7 +1396,7 @@
       "noCron": "cron 式が設定されるまで何も開始しません。",
       "badCron": "何も開始しません: SandForge はこの cron 式を読み取れません。",
       "badTimezone": "何も開始しません: SandForge はこのタイムゾーンを認識しません。",
-      "noNextRun": "何も開始しません: この cron 式に一致する日付はありません。",
+      "noNextRun": "何も開始しません: 今後 1 年間に、この cron 式に一致する日付はありません。",
       "noSandbox": "Sandbox が指定されるまで何も開始しません。",
       "unknownSandbox": "何も開始しません: 指定された Sandbox を SandForge はもう認識していません。もう一度選択してください。",
       "notSandbox": "何も開始しません: 指定された Org は Sandbox ではなく、リフレッシュされるのは Sandbox だけです。",

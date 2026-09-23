@@ -183,33 +183,50 @@ export function useSeedFieldRules(
   }, [describeFieldsMutation.data]);
 
   const describeFieldsMutate = describeFieldsMutation.mutate;
+  const describeFieldsReset = describeFieldsMutation.reset;
+  const describing = describeFieldsMutation.loading;
+  const describeFailed = describeFieldsMutation.error !== null;
   /** Bumped by a retry, so the describes below are asked for again. */
   const [describeAttempt, setDescribeAttempt] = useState(0);
+  /** The objects asked for since the last retry, by org: each is asked once. */
+  const askedRef = useRef(new Set<string>());
 
   /* Fetch field details on any step past the selection. Below five objects
      the wizard skips the configure step, and describing only there sent those
-     runs with no rule at all: the run refused every one of them. */
+     runs with no rule at all: the run refused every one of them.
+
+     One object at a time. The mutation listens for the answer to the last
+     request it sent only, so asking for every missing object at once heard one
+     answer per round and asked again for all the others each time one came
+     back: N(N+1)/2 describes for N objects. A failure stops the round, so its
+     reason stays on screen until the retry. */
   useEffect(() => {
-    if (currentStep >= 1 && selectedOrgId && selectedObjects.length > 0) {
-      const missing = selectedObjects.filter(
-        (o) => !fieldConfigs.some((c) => c.objectApiName === o),
-      );
-      if (missing.length > 0) {
-        for (const objectApiName of missing) {
-          describeFieldsMutate({ orgId: selectedOrgId, objectApiName });
-        }
-      }
-    }
+    if (currentStep < 1 || !selectedOrgId || selectedObjects.length === 0) return;
+    if (describing || describeFailed) return;
+    const next = selectedObjects.find(
+      (o) =>
+        !fieldConfigs.some((c) => c.objectApiName === o) &&
+        !askedRef.current.has(`${selectedOrgId}::${o}`),
+    );
+    if (!next) return;
+    askedRef.current.add(`${selectedOrgId}::${next}`);
+    describeFieldsMutate({ orgId: selectedOrgId, objectApiName: next });
   }, [
     currentStep,
     selectedOrgId,
     selectedObjects,
     fieldConfigs,
     describeFieldsMutate,
+    describing,
+    describeFailed,
     describeAttempt,
   ]);
 
-  const retryFieldDescribes = useCallback(() => setDescribeAttempt((n) => n + 1), []);
+  const retryFieldDescribes = useCallback(() => {
+    askedRef.current.clear();
+    describeFieldsReset();
+    setDescribeAttempt((n) => n + 1);
+  }, [describeFieldsReset]);
   const fieldsReady = selectedObjects.every((o) => fieldConfigs.some((c) => c.objectApiName === o));
 
   const handleChangeFieldRule = useCallback(

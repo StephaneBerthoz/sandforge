@@ -8,6 +8,7 @@ import {
   forgeExecutionStatusSchema,
   forgeBatchStrategySchema,
   forgeAnonymizationCategorySchema,
+  forgeAnonymizationRulesSchema,
   forgeCycleStrategySchema,
   forgeConfigSchema,
   forgeGraphNodeSchema,
@@ -586,6 +587,20 @@ describe('forgeAnonymizationCategorySchema', () => {
 
   it('should reject invalid category', () => {
     expect(() => forgeAnonymizationCategorySchema.parse('biometric')).toThrow();
+  });
+});
+
+describe('forgeAnonymizationRulesSchema', () => {
+  it('accepts a method for some of the categories', () => {
+    expect(forgeAnonymizationRulesSchema.parse({ email: 'hash', phone: 'redact' })).toEqual({
+      email: 'hash',
+      phone: 'redact',
+    });
+  });
+
+  it('refuses a method it does not know, and a category it does not know', () => {
+    expect(forgeAnonymizationRulesSchema.safeParse({ email: 'encrypt' }).success).toBe(false);
+    expect(forgeAnonymizationRulesSchema.safeParse({ biometric: 'hash' }).success).toBe(false);
   });
 });
 

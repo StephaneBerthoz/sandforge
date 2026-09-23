@@ -178,16 +178,23 @@ export class MetadataCompare {
    * Compare metadata between source and target orgs for the given component types.
    * Lists each type in both orgs, leaves out what the scope excludes, reads
    * what both hold within the budget, and produces a unified diff list.
+   *
+   * `signal` stops it before the next type is listed and before the next
+   * batch is read, and it then rejects with the signal's reason rather than
+   * answering with what it had read: a comparison stopped halfway is not a
+   * comparison.
    */
   async compare(
     sourceOrgId: string,
     targetOrgId: string,
     types: MetadataComponentType[],
     scope: CompareScope = { includeManaged: true },
+    signal?: AbortSignal,
   ): Promise<MetadataComparison> {
     const listings: Listing[] = [];
     let managedLeftOut = 0;
     for (const componentType of types) {
+      signal?.throwIfAborted();
       const [listedInSource, listedInTarget] = await Promise.all([
         this.fetchMetadata(sourceOrgId, componentType),
         this.fetchMetadata(targetOrgId, componentType),
@@ -206,7 +213,8 @@ export class MetadataCompare {
       (componentType) => this.reader.batchSize(componentType),
       this.budget.components,
     );
-    const contents = await this.readPlanned(sourceOrgId, targetOrgId, plan.toRead);
+    const contents = await this.readPlanned(sourceOrgId, targetOrgId, plan.toRead, signal);
+    signal?.throwIfAborted();
 
     const allItems: CompareItem[] = [];
     for (const { componentType, source, target } of listings) {
@@ -224,11 +232,15 @@ export class MetadataCompare {
     return { items: allItems, managedLeftOut };
   }
 
-  /** Read every planned batch from both orgs, a few at a time, until the time runs out. */
+  /**
+   * Read every planned batch from both orgs, a few at a time, until the time
+   * runs out or `signal` aborts.
+   */
   private async readPlanned(
     sourceOrgId: string,
     targetOrgId: string,
     toRead: Map<MetadataComponentType, string[]>,
+    signal: AbortSignal | undefined,
   ): Promise<Map<MetadataComponentType, TypeContent>> {
     const startedAt = this.now();
     const deadline = startedAt + this.budget.seconds * 1000;
@@ -242,13 +254,16 @@ export class MetadataCompare {
       for (let i = 0; i < names.length; i += size) {
         const batch = names.slice(i, i + size);
         batches.push(async () => {
+          // The lanes still reading when the signal aborts come back here for
+          // their next batch: it is not read.
+          signal?.throwIfAborted();
           if (this.now() >= deadline) {
             for (const name of batch) content.unread.add(name);
             return;
           }
           const [source, target] = await Promise.all([
-            this.readOne(sourceOrgId, componentType, batch),
-            this.readOne(targetOrgId, componentType, batch),
+            this.readOne(sourceOrgId, componentType, batch, signal),
+            this.readOne(targetOrgId, componentType, batch, signal),
           ]);
           for (const [name, value] of source) content.source.set(name, value);
           for (const [name, value] of target) content.target.set(name, value);
@@ -268,15 +283,20 @@ export class MetadataCompare {
     return contents;
   }
 
-  /** One read; a failure leaves its names unread, which the verdict reports. */
+  /**
+   * One read; a failure leaves its names unread, which the verdict reports. A
+   * read the signal stopped did not fail: the comparison stops with it.
+   */
   private async readOne(
     orgId: string,
     componentType: MetadataComponentType,
     batch: string[],
+    signal: AbortSignal | undefined,
   ): Promise<ReadContent> {
     try {
       return await this.reader.read(orgId, componentType, batch);
     } catch (err: unknown) {
+      signal?.throwIfAborted();
       logger.warn(
         `[compare] reading ${batch.length} ${componentType} failed: ${err instanceof Error ? err.message : String(err)}`,
       );

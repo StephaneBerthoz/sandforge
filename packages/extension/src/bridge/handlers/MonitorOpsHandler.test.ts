@@ -1627,6 +1627,52 @@ describe('MonitorOpsHandler', () => {
       ]);
     });
 
+    it('reads the org info and the health signals at the same time', async () => {
+      // The Organization row is held back until the health check's own read
+      // of the org, the count of the day's error logs, has gone out. Awaited
+      // in turn, the health check waited for the org info to answer first.
+      let answerOrgRow: (rows: unknown[]) => void = () => {};
+      const orgRow = new Promise<unknown[]>((resolve) => {
+        answerOrgRow = resolve;
+      });
+      const conn = createRefreshConn(vi.fn().mockResolvedValue(FAKE_LIMITS));
+      const query = conn.query as ReturnType<typeof vi.fn>;
+      mockGetJsforceConnection.mockResolvedValue(conn);
+      mockQueryAll.mockImplementation(async (_conn: unknown, soql: string) =>
+        soql.includes('FROM Organization') ? orgRow : [],
+      );
+
+      const tick = handler.handle(request('req-overlap', 'monitor:refresh', 'org-overlap'));
+      try {
+        await vi.waitFor(() =>
+          expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM ApexLog')),
+        );
+      } finally {
+        answerOrgRow([
+          {
+            Name: 'TestOrg',
+            Id: '00D000000000001AAA',
+            OrganizationType: 'Developer Edition',
+            InstanceName: 'EU42S',
+            NamespacePrefix: null,
+            CreatedDate: '2026-01-01',
+          },
+        ]);
+      }
+      await tick;
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const reply = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: {
+          orgInfo?: { instanceName: string };
+          orgHealthStatus?: { recentErrorLogs: number | null };
+        };
+      };
+      expect(reply.type).toBe('monitor:data');
+      expect(reply.payload.orgInfo?.instanceName).toBe('EU42S');
+      expect(reply.payload.orgHealthStatus?.recentErrorLogs).toBe(10);
+    });
+
     it('reports the /limits failure when both org calls fail, whichever fails first', async () => {
       mockGetJsforceConnection.mockResolvedValue(
         createRefreshConn(

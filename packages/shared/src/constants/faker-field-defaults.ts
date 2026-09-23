@@ -74,6 +74,22 @@ export interface DescribedSeedField {
   integerDigits?: number;
 }
 
+/**
+ * The digits a number field holds before its decimal point, 0 for any other
+ * type. The describe gives an integer field's as `digits`, and a double's,
+ * currency's or percent's as its `precision` less its `scale`. A seed draws a
+ * field's default number within them.
+ */
+export function integerDigitsOf(field: {
+  type: string;
+  precision?: number;
+  scale?: number;
+  digits?: number;
+}): number {
+  if (field.type === 'int') return field.digits ?? 0;
+  return Math.max(0, (field.precision ?? 0) - (field.scale ?? 0));
+}
+
 /** The most a generated whole number reaches when no rule says otherwise. */
 const DEFAULT_MOST = 1000;
 

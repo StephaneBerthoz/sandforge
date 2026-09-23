@@ -21,7 +21,11 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
 import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
-import type { CliLogin, SfdxImportResult } from '../../core/connection/SfdxBridge.js';
+import type {
+  CliLogin,
+  SfdxImportResult,
+  SfdxUnreadableOrg,
+} from '../../core/connection/SfdxBridge.js';
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 
 /** Message types handled by OrgHandler. */
@@ -202,7 +206,16 @@ export class OrgHandler implements DomainHandler {
         return;
       }
 
-      const results = await this.deps.sfdxBridge.listOrgs();
+      const unreadable: SfdxUnreadableOrg[] = [];
+      const results = await this.deps.sfdxBridge.listOrgs((org) => {
+        unreadable.push(org);
+      });
+      if (results.length === 0 && unreadable.length > 0) {
+        const message = this.reportUnreadable(unreadable);
+        sendNotification(this.deps, 'error', 'Import Failed', message);
+        this.failConnect(msg, message, 'SFDX_IMPORT_FAILED');
+        return;
+      }
       if (results.length === 0) {
         sendNotification(
           this.deps,
@@ -229,6 +242,12 @@ export class OrgHandler implements DomainHandler {
         'Import',
         `Imported ${results.length} org(s) from SF CLI.`,
       );
+      if (unreadable.length > 0) {
+        // It stays up: it names orgs the user expected, and why they are missing.
+        sendNotification(this.deps, 'warning', 'Import', this.reportUnreadable(unreadable), {
+          autoDismissMs: null,
+        });
+      }
       // The org:list:response above is not correlated to this request — the
       // mutation listens on org:statusChanged, so this is what ends it.
       this.ackConnect(msg, savedIds[0]);
@@ -238,6 +257,22 @@ export class OrgHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Import Failed', message);
       this.failConnect(msg, message, 'SFDX_IMPORT_FAILED');
     }
+  }
+
+  /**
+   * Log each org an import left out because the CLI gave no access token for
+   * it, and word them for the user.
+   *
+   * @returns What the user reads: which orgs, and why.
+   */
+  private reportUnreadable(unreadable: readonly SfdxUnreadableOrg[]): string {
+    for (const org of unreadable) {
+      this.deps.log(
+        `[WARN] org:import: no access token for ${org.alias ?? org.username}: ${org.reason}`,
+      );
+    }
+    const orgs = unreadable.map((org) => `${org.alias ?? org.username} (${org.reason})`);
+    return `No access token from the Salesforce CLI, so not imported: ${orgs.join('; ')}`;
   }
 
   /**
@@ -437,10 +472,13 @@ export class OrgHandler implements DomainHandler {
       }
 
       const alias = payload.alias ?? '';
-      await this.deps.sfdxBridge.loginWeb(alias, loginUrl);
+      const login = await this.deps.sfdxBridge.loginWeb(alias, loginUrl);
 
-      const results = await this.deps.sfdxBridge.listOrgs();
-      if (results.length === 0) {
+      const unreadable: SfdxUnreadableOrg[] = [];
+      const results = await this.deps.sfdxBridge.listOrgs((org) => {
+        unreadable.push(org);
+      });
+      if (results.length === 0 && unreadable.length === 0) {
         sendNotification(
           this.deps,
           'warning',
@@ -453,13 +491,31 @@ export class OrgHandler implements DomainHandler {
 
       const savedIds = await this.saveImported(results);
 
+      // The CLI lists its orgs sorted by alias: confirming the first one
+      // confirmed whichever org came first, not the one the user had just
+      // signed in to. The login's own answer names that org.
+      const signedIn = results.findIndex((result) => result.org.orgId === login.orgId);
+      if (signedIn === -1) {
+        const hidden = unreadable.find((org) => org.orgId === login.orgId);
+        throw new Error(
+          hidden
+            ? `Signed in as ${login.username}, but the Salesforce CLI gave no access token for it: ${hidden.reason}`
+            : `Signed in as ${login.username}, but "sf org list" does not list that org as connected.`,
+        );
+      }
+
       sendNotification(
         this.deps,
         'success',
         'OAuth',
-        `Authenticated via browser. ${results.length} org(s) available.`,
+        `Authenticated via browser as ${login.username}. ${results.length} org(s) available.`,
       );
-      this.ackConnect(msg, savedIds[0]);
+      if (unreadable.length > 0) {
+        sendNotification(this.deps, 'warning', 'OAuth', this.reportUnreadable(unreadable), {
+          autoDismissMs: null,
+        });
+      }
+      this.ackConnect(msg, savedIds[signedIn]);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:oauth-web: ${message}`);

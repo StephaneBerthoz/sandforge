@@ -107,30 +107,42 @@ describe('AnonymizationTemplateEditor', () => {
   });
 
   it('keeps a rule whose method cannot run here on screen, says why, and saves once it is changed', () => {
-    // The CCPA template hashes emails, with a salt nothing on the page sets:
-    // copied over silently, the rule would fail the run it was saved for.
+    // Sandbox Data Scrub writes a placeholder URL it carries itself, and the
+    // page sets no value: copied over silently, the rule would write an empty one.
     const { onSave } = editor({
-      initialRules: [rule('Contact.Email', 'hash'), rule('Contact.Phone', 'nullify')],
+      initialRules: [rule('Account.Website', 'constant'), rule('Contact.Phone', 'nullify')],
     });
     fireEvent.change(nameInput(), { target: { value: 'Mine' } });
 
     const method = screen.getByTestId('template-rule-method-0') as HTMLSelectElement;
-    expect(method.value).toBe('hash');
+    expect(method.value).toBe('constant');
     expect(screen.getByTestId('template-rule-0').textContent).toContain(
-      'Hash needs a setting this page cannot give it: pick another method.',
+      'Constant needs a setting this page cannot give it: pick another method.',
     );
     expect(method.getAttribute('aria-invalid')).toBe('true');
     expect(saveButton().disabled).toBe(true);
 
-    fireEvent.change(method, { target: { value: 'fake' } });
+    fireEvent.change(method, { target: { value: 'nullify' } });
     expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     expect(onSave).toHaveBeenCalledWith({
       name: 'Mine',
       rules: [
-        { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+        { fieldPattern: 'Account.Website', ruleType: 'nullify' },
         { fieldPattern: 'Contact.Phone', ruleType: 'nullify' },
       ],
+    });
+  });
+
+  it('saves the hash of a template that ships as it is, since the run keys it', () => {
+    const { onSave } = editor({ initialRules: [rule('Contact.Email', 'hash')] });
+    fireEvent.change(nameInput(), { target: { value: 'Mine' } });
+
+    expect(screen.getByTestId('template-rule-0').textContent).not.toContain('needs a setting');
+    fireEvent.click(saveButton());
+    expect(onSave).toHaveBeenCalledWith({
+      name: 'Mine',
+      rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash' }],
     });
   });
 
@@ -141,7 +153,7 @@ describe('AnonymizationTemplateEditor', () => {
     const options = Array.from(
       (screen.getByTestId('template-rule-method-0') as HTMLSelectElement).options,
     ).map((option) => option.value);
-    expect(options).toEqual(['fake', 'mask', 'nullify', 'shuffle', 'preserve_format']);
+    expect(options).toEqual(['fake', 'mask', 'hash', 'nullify', 'shuffle', 'preserve_format']);
   });
 
   it('removes a rule, named by its number for a screen reader', () => {
@@ -180,10 +192,10 @@ describe('AnonymizationTemplateEditor', () => {
   it('speaks the language the panel is set to', async () => {
     i18n.addResourceBundle('fr', 'translation', fr, true, true);
     await i18n.changeLanguage('fr');
-    editor({ initialRules: [rule('Contact.Email', 'hash')] });
+    editor({ initialRules: [rule('Contact.MailingPostalCode', 'truncate')] });
 
     expect(screen.getByTestId('template-rule-0').textContent).toContain(
-      'Hachage nécessite un réglage que cette page ne peut pas lui donner',
+      'Tronquer nécessite un réglage que cette page ne peut pas lui donner',
     );
   });
 });

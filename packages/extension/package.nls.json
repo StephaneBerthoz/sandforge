@@ -47,7 +47,7 @@
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
-  "config.safety.auditLogging.description": "Record each Production Guard safety-check decision: with the run it concerns in the audit trail (Reports → Audit Trail), and in a session log of the last 1000 checks. Off, runs are still recorded, without the decisions.",
+  "config.safety.auditLogging.description": "Record each Production Guard safety-check decision with the run it concerns in the audit trail (Reports → Audit Trail). Off, runs are still recorded, without the decisions.",
   "config.grappe.enabled.description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode. At or above sandforge.grappe.autoActivateThreshold records, seed reports each partition as it completes in the Grappe view, sync reports one partition per object, and autopilot reports only the start and the end of the run.",
   "config.grappe.autoActivateThreshold.description": "Record count at or above which grappe mode activates (seed, sync and autopilot). Ignored when sandforge.grappe.enabled is off.",
   "config.grappe.grappeSize.description": "Records per grappe partition."

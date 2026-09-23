@@ -362,7 +362,7 @@ describe('RealtimeHandler', () => {
   });
 
   it('refuses a session that writes when no Production Guard is wired', async () => {
-    const { handler, access, ofType } = setup({ noGuard: true });
+    const { handler, access, ofType, configStore } = setup({ noGuard: true });
 
     await handler.handle(start());
 
@@ -370,6 +370,14 @@ describe('RealtimeHandler', () => {
     expect(started.payload.success).toBe(false);
     expect(String(started.payload.error)).toContain('Production Guard is not initialized');
     expect(access.openTransport).not.toHaveBeenCalled();
+    // Recorded as the guard's own refusals are, with the code that says why.
+    expect(new AuditTrailStore(configStore as unknown as ConfigStore).list().entries).toEqual([
+      expect.objectContaining({
+        action: 'realtime_sync',
+        outcome: 'stopped',
+        details: { code: 'NOT_INITIALIZED' },
+      }),
+    ]);
   });
 
   it('records in the audit trail a session the guard stopped, with its decision', async () => {

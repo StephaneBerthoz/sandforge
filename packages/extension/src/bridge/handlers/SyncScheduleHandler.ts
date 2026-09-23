@@ -8,7 +8,9 @@ import {
   syncScheduleTogglePayloadSchema,
   syncScheduleIdPayloadSchema,
 } from '../validatePayload.js';
+import { nextCronRun } from '../../core/common/cronSchedule.js';
 import { SyncScheduleExecutor } from '../../modules/sync/SyncScheduleExecutor.js';
+import { memoryTriggerClaims, type TriggerClaims } from '../../modules/automation/TriggerClaims.js';
 import { SyncScheduleStore } from '../../modules/sync/SyncScheduleStore.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 
@@ -45,6 +47,13 @@ export class SyncScheduleHandler implements DomainHandler {
 
   /** Number of scheduled executions currently in flight (concurrency cap). */
   private inFlight = 0;
+
+  /**
+   * The claims the windows share, set by the composition root with the
+   * scheduler. The executor can be built earlier, by a message, so it reads
+   * them through this field rather than holding its own.
+   */
+  private claims: Pick<TriggerClaims, 'claim' | 'prune'> = memoryTriggerClaims();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -101,6 +110,10 @@ export class SyncScheduleHandler implements DomainHandler {
           },
         },
         log: this.deps.log,
+        claims: {
+          claim: (key) => this.claims.claim(key),
+          prune: (ageMs) => this.claims.prune(ageMs),
+        },
       });
       executor.start();
       executor.stop();
@@ -143,9 +156,16 @@ export class SyncScheduleHandler implements DomainHandler {
    * Idempotent — SyncScheduleExecutor.start() is a no-op when already running.
    *
    * @param execute - Executes a due schedule's sync config (SyncOpsHandler.executeScheduled).
+   * @param claims - What the windows of the machine share about the starts
+   *   they make, so a due schedule runs in one of them. Left out, this
+   *   window's claims are its own.
    */
-  startScheduler(execute: (config: SyncConfig) => Promise<SyncExecutionResult>): void {
+  startScheduler(
+    execute: (config: SyncConfig) => Promise<SyncExecutionResult>,
+    claims?: Pick<TriggerClaims, 'claim' | 'prune'>,
+  ): void {
     this.executeBridge = execute;
+    if (claims) this.claims = claims;
     this.getExecutor().start();
     this.deps.log('[SyncScheduleHandler] scheduler started (tick loop running)');
   }
@@ -197,6 +217,27 @@ export class SyncScheduleHandler implements DomainHandler {
         msg,
         new Error(`Sync configuration not found: ${configId}. Save it from the Sync tab first.`),
         { code: 'NOT_FOUND' },
+      );
+      return;
+    }
+    // A schedule with no run in the coming year used to be saved all the
+    // same: with no next run when the parser refused it, or with one decades
+    // away when it named a day its months do not have. Either way it never
+    // ran, and nothing said why.
+    const { cron, timezone } = parsed.schedule;
+    const next = nextCronRun(cron, timezone, Date.now());
+    if (typeof next !== 'number') {
+      sendHandlerError(
+        this.deps,
+        'sync:schedule:upsert',
+        'sync:schedule:error',
+        msg,
+        new Error(
+          next.refused === 'unreadable'
+            ? `The schedule was not saved: SandForge cannot read the cron expression "${cron}" (${next.reason}).`
+            : `The schedule was not saved. ${next.reason}`,
+        ),
+        { code: 'INVALID_SCHEDULE' },
       );
       return;
     }

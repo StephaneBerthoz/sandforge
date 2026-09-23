@@ -72,7 +72,7 @@ The Trigger Config Panel offers these trigger types:
 - **Sandbox Refresh** -- Starts the pipeline when SandForge notices that the sandbox the trigger names was refreshed (see [Monitor](monitor.md#sandbox-refreshes)), provided every step of the pipeline can run
 - **Deployment Complete** _(coming soon)_ -- nothing watches an org's deployments
 
-A trigger starts the pipeline as it was last saved: an edit on the Triggers tab takes effect when the pipeline is saved, and the tab says so until then. For each saved trigger the tab shows what it will do -- the next run of a schedule, in its time zone, the sandbox a refresh trigger waits for, and when it last fired -- or why it starts nothing: switched off, a cron expression it cannot read, a sandbox SandForge no longer knows, a step of the pipeline that cannot run.
+A trigger starts the pipeline as it was last saved: an edit on the Triggers tab takes effect when the pipeline is saved, and the tab says so until then. For each saved trigger the tab shows what it will do -- the next run of a schedule, in its time zone, the sandbox a refresh trigger waits for, and when it last fired -- or why it starts nothing: switched off, a cron expression it cannot read or that no date of the coming year matches (the 31st of February or April never comes), a sandbox SandForge no longer knows, a step of the pipeline that cannot run.
 
 How a run a trigger starts goes:
 

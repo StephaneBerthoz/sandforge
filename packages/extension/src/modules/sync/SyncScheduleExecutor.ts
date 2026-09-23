@@ -1,6 +1,7 @@
-import { CronExpressionParser } from 'cron-parser';
 import type { SyncScheduleEntry, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
+import { nextCronRun } from '../../core/common/cronSchedule.js';
 import type { SyncScheduleStore } from './SyncScheduleStore.js';
+import { memoryTriggerClaims, type TriggerClaims } from '../automation/TriggerClaims.js';
 
 /** Dependencies required by SyncScheduleExecutor. */
 export interface SyncScheduleExecutorDeps {
@@ -22,10 +23,23 @@ export interface SyncScheduleExecutorDeps {
   log: (msg: string) => void;
   /** Overridable clock for testing. Defaults to Date.now. */
   now?: () => number;
+  /**
+   * What the VS Code windows share about the starts they make — the claims
+   * the pipeline triggers take. Every window runs its own tick loop over the
+   * same schedules, and a sync writes: a start is made by the one window that
+   * claims it. Without it the claims are this window's alone.
+   */
+  claims?: Pick<TriggerClaims, 'claim' | 'prune'>;
 }
 
 /** Tick interval in milliseconds (60 seconds). */
 const TICK_INTERVAL_MS = 60_000;
+
+/** How long a claim is kept: far longer than two windows could both see one start. */
+const CLAIM_LIFETIME_MS = 2 * 24 * 60 * 60_000;
+
+/** How often old claims are pruned. */
+const PRUNE_INTERVAL_MS = 60 * 60_000;
 
 /**
  * Cron-based sync schedule executor with persistence, sleep-wake resilience,
@@ -40,10 +54,15 @@ export class SyncScheduleExecutor {
   private readonly schedules: Map<string, SyncScheduleEntry> = new Map();
   private checkInterval: ReturnType<typeof setInterval> | undefined;
   private lastTickTime: number = 0;
+  private readonly claims: Pick<TriggerClaims, 'claim' | 'prune'>;
+  private lastPrune = 0;
+  /** Schedules whose run this window started and has not seen finish. */
+  private readonly running = new Set<string>();
 
   /** @param deps - Injected dependencies for testability. */
   constructor(deps: SyncScheduleExecutorDeps) {
     this.deps = deps;
+    this.claims = deps.claims ?? memoryTriggerClaims();
   }
 
   /**
@@ -93,6 +112,10 @@ export class SyncScheduleExecutor {
     }
 
     this.lastTickTime = currentTime;
+    if (currentTime - this.lastPrune >= PRUNE_INTERVAL_MS) {
+      this.lastPrune = currentTime;
+      this.claims.prune(CLAIM_LIFETIME_MS);
+    }
 
     for (const schedule of this.schedules.values()) {
       if (!schedule.enabled) continue;
@@ -100,6 +123,20 @@ export class SyncScheduleExecutor {
 
       const nextRun = new Date(schedule.nextRunAt).getTime();
       if (nextRun > currentTime) continue;
+      // Its start is being made here: the ticks that come round while the run
+      // lasts see the same start due, and it is not made twice.
+      if (this.running.has(schedule.id)) continue;
+
+      // Every window sees the start fall due; the one that claims it makes it.
+      // The others move on to the next start and leave the stored schedule to
+      // the window that ran it: saving their copy would write over its result.
+      if (!this.claims.claim(`sync-schedule:${schedule.id}:${nextRun}`)) {
+        this.deps.log(
+          `[SyncScheduleExecutor] ${schedule.id} due at ${schedule.nextRunAt} is run by another window`,
+        );
+        schedule.nextRunAt = this.computeNextRunAt(schedule.cron, schedule.timezone);
+        continue;
+      }
 
       const config = this.deps.configStore.load(schedule.configId);
       if (!config) {
@@ -131,6 +168,7 @@ export class SyncScheduleExecutor {
         this.deps.notificationCenter.notify('info', 'Sync schedule started', schedule.name);
       }
 
+      this.running.add(schedule.id);
       try {
         const result = await this.deps.onExecute(config);
         schedule.lastRunAt = new Date(currentTime).toISOString();
@@ -177,6 +215,8 @@ export class SyncScheduleExecutor {
             `${schedule.name}: ${errorMsg}`,
           );
         }
+      } finally {
+        this.running.delete(schedule.id);
       }
     }
   }
@@ -257,23 +297,20 @@ export class SyncScheduleExecutor {
   /**
    * Compute the next run time for a cron expression in a given timezone.
    *
+   * A schedule saved before such expressions were refused can still name a
+   * day its months do not have: it gets no next run, never one decades away
+   * (see `nextCronRun`).
+   *
    * @param cron - Standard 5-field cron expression.
    * @param timezone - IANA timezone string.
-   * @returns ISO date string of the next occurrence, or empty string on parse error.
+   * @returns ISO date string of the next occurrence, or empty string when the
+   *   expression does not parse or falls due on no date in the coming year.
    */
   private computeNextRunAt(cron: string, timezone: string): string {
-    try {
-      const expression = CronExpressionParser.parse(cron, {
-        tz: timezone,
-        currentDate: new Date(this.now()),
-      });
-      const next = expression.next();
-      return next.toDate().toISOString();
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.deps.log(`[SyncScheduleExecutor] invalid cron "${cron}": ${errorMsg}`);
-      return '';
-    }
+    const next = nextCronRun(cron, timezone, this.now());
+    if (typeof next === 'number') return new Date(next).toISOString();
+    this.deps.log(`[SyncScheduleExecutor] no next run for cron "${cron}": ${next.reason}`);
+    return '';
   }
 
   /** Get current timestamp using the injectable clock. */

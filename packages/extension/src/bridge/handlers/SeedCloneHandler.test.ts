@@ -450,7 +450,6 @@ describe('SeedCloneHandler', () => {
       confirmed?: boolean;
     }): {
       check: ReturnType<typeof vi.fn>;
-      logOperation: ReturnType<typeof vi.fn>;
       confirmIfNeeded: ReturnType<typeof vi.fn>;
     } {
       const check = vi.fn().mockReturnValue({
@@ -462,15 +461,14 @@ describe('SeedCloneHandler', () => {
         impactSummary:
           'INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
       });
-      const logOperation = vi.fn();
       const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
-        productionGuard: { check, logOperation, confirmIfNeeded },
+        productionGuard: { check, confirmIfNeeded },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
-      return { check, logOperation, confirmIfNeeded };
+      return { check, confirmIfNeeded };
     }
 
     function mockTargetOrgType(orgType: string): void {
@@ -494,6 +492,17 @@ describe('SeedCloneHandler', () => {
       expect(failed).toHaveLength(1);
       expect(failed[0].payload).toMatchObject({ code: 'NOT_INITIALIZED', retryable: false });
       expect(posted(deps, 'seed:clone:execute:response')).toHaveLength(0);
+      // Recorded as the guard's own refusals are, with the code that says why.
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'seed_clone',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('resolves the guard tier from the target org and clones once confirmed', async () => {
@@ -513,7 +522,7 @@ describe('SeedCloneHandler', () => {
         objectName: 'Account',
         module: 'clone',
       });
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(writer.insert).toHaveBeenCalledTimes(1);
       expect(posted(deps, 'seed:clone:execute:response')).toHaveLength(1);
     });
@@ -570,7 +579,7 @@ describe('SeedCloneHandler', () => {
 
       await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
 
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(guard.confirmIfNeeded).not.toHaveBeenCalled();
       expect(writer.insert).not.toHaveBeenCalled();
       expect(writer.upsert).not.toHaveBeenCalled();
@@ -631,6 +640,7 @@ describe('SeedCloneHandler', () => {
       // word to the user.
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
         productionGuard: guard,
@@ -643,7 +653,7 @@ describe('SeedCloneHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT an unknown number of Account record(s) on production org tgt-org [module: clone]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(mockGetConn).not.toHaveBeenCalled();
       expect(writer.insert).not.toHaveBeenCalled();
       expect(writer.upsert).not.toHaveBeenCalled();

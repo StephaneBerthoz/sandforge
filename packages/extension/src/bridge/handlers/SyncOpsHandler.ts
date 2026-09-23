@@ -32,6 +32,7 @@ import {
   bulkManagerOf,
   syntheticRequest,
   PRODUCTION_GUARD_MISSING,
+  productionGuardMissingError,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -99,8 +100,9 @@ const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
 
 /**
  * What a sync did per object, for the audit trail. Each object runs one
- * operation, so its successes are created, updated, deleted or — for an upsert,
- * which Salesforce answers without saying which it did — upserted.
+ * operation, so its successes are created, updated or deleted — for an upsert,
+ * created or updated as the org said for each record, and upserted when it
+ * did not say.
  */
 function syncAuditObjects(results: readonly SyncObjectResult[]): AuditObjectCounts[] {
   return results.map((result) => {
@@ -112,8 +114,18 @@ function syncAuditObjects(results: readonly SyncObjectResult[]): AuditObjectCoun
         return { ...counts, updated: result.success };
       case 'delete':
         return { ...counts, deleted: result.success };
-      case 'upsert':
-        return { ...counts, upserted: result.success };
+      case 'upsert': {
+        // Created and updated as the org said for each record; a record it
+        // said neither of is counted apart, not guessed into either.
+        const split = result.upsertSplit ?? { created: 0, updated: 0 };
+        const unsaid = result.success - split.created - split.updated;
+        return {
+          ...counts,
+          created: split.created,
+          updated: split.updated,
+          ...(unsaid > 0 ? { upserted: unsaid } : {}),
+        };
+      }
     }
   });
 }
@@ -358,6 +370,18 @@ export class SyncOpsHandler implements DomainHandler {
       guard: guardDecision,
       objects: syncAuditObjects(result.objectResults ?? []),
       source: { origin: 'org', orgId: config.sourceOrgId },
+    });
+  }
+
+  /** Record a run refused before the guard could judge it, by the code of the refusal. */
+  private recordRefused(operationId: string, targetOrgId: string, code: string): void {
+    recordWriteRun(this.deps, {
+      action: 'sync_execute',
+      module: 'sync',
+      operationId,
+      orgId: targetOrgId,
+      outcome: 'stopped',
+      code,
     });
   }
 
@@ -657,10 +681,12 @@ export class SyncOpsHandler implements DomainHandler {
 
     // Production guard on target org — same policy as manual runs. A blocked
     // or declined run rejects so the scheduler marks the schedule as failed,
-    // and so does a run with no guard to pass.
+    // and so does a run with no guard to pass: with the code a manual run's
+    // refusal carries, and recorded as a manual run's refusal is.
     const guard = this.deps.infraServices?.productionGuard;
     if (!guard) {
-      throw new Error(PRODUCTION_GUARD_MISSING.message);
+      this.recordRefused(operationId, filledConfig.targetOrgId, PRODUCTION_GUARD_MISSING.code);
+      throw productionGuardMissingError();
     }
     const { check, decision } = await consultProductionGuard(
       guard,
@@ -742,6 +768,7 @@ export class SyncOpsHandler implements DomainHandler {
       // that was never injected refuses the run.
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
+        this.recordRefused(operationId, config.targetOrgId, PRODUCTION_GUARD_MISSING.code);
         sendHandlerError(
           this.deps,
           'sync:execute',

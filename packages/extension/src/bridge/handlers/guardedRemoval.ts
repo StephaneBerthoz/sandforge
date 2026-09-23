@@ -8,6 +8,7 @@ import { orgTypeToGuardTier } from '@sandforge/shared';
 
 import type { HandlerDeps } from './HandlerTypes.js';
 import {
+  PRODUCTION_GUARD_MISSING,
   sendOperationCompleted,
   sendOperationFailed,
   sendOperationProgress,
@@ -51,7 +52,15 @@ export type GuardedRemovalResult =
       /** Why the run stopped half way, when it did. */
       error?: string;
     }
-  | { ran: false; operationId: string; guard: 'refused' | 'declined'; message: string };
+  | {
+      ran: false;
+      operationId: string;
+      /** The guard's decision, when it was the guard that stopped the run. */
+      guard?: 'refused' | 'declined';
+      /** The code of a refusal made before the guard could judge the run. */
+      code?: string;
+      message: string;
+    };
 
 /** One object's counts in the audit trail's columns. */
 function auditCounts(
@@ -81,38 +90,55 @@ export async function runGuardedRemoval(
   removal: GuardedRemoval,
 ): Promise<GuardedRemovalResult> {
   const operationId = crypto.randomUUID();
-  let guard: GuardDecision | undefined;
 
-  if (deps.infraServices?.productionGuard) {
-    const org = deps.orgManager.getOrg(removal.orgId);
-    const { check, decision } = await consultProductionGuard(deps.infraServices.productionGuard, {
-      orgId: removal.orgId,
-      orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-      operation: removal.operation,
-      objectName: removal.objectNames.join(', '),
-      recordCount: removal.recordCount,
+  // No removal without a guard to pass, as on every other write path: with
+  // none injected, this one deleted on, to a production org as readily as to
+  // a scratch one.
+  const productionGuard = deps.infraServices?.productionGuard;
+  if (!productionGuard) {
+    recordWriteRun(deps, {
+      action: removal.action,
       module: 'dataops',
+      operationId,
+      orgId: removal.orgId,
+      outcome: 'stopped',
+      code: PRODUCTION_GUARD_MISSING.code,
     });
-    guard = decision;
-    if (decision === 'refused' || decision === 'declined') {
-      recordWriteRun(deps, {
-        action: removal.action,
-        module: 'dataops',
-        operationId,
-        orgId: removal.orgId,
-        outcome: 'stopped',
-        guard: decision,
-      });
-      return {
-        ran: false,
-        operationId,
-        guard: decision,
-        message:
-          decision === 'refused'
-            ? `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`
-            : 'Operation cancelled by user (production confirmation declined).',
-      };
-    }
+    return {
+      ran: false,
+      operationId,
+      code: PRODUCTION_GUARD_MISSING.code,
+      message: PRODUCTION_GUARD_MISSING.message,
+    };
+  }
+  const org = deps.orgManager.getOrg(removal.orgId);
+  const { check, decision } = await consultProductionGuard(productionGuard, {
+    orgId: removal.orgId,
+    orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+    operation: removal.operation,
+    objectName: removal.objectNames.join(', '),
+    recordCount: removal.recordCount,
+    module: 'dataops',
+  });
+  const guard: GuardDecision = decision;
+  if (decision === 'refused' || decision === 'declined') {
+    recordWriteRun(deps, {
+      action: removal.action,
+      module: 'dataops',
+      operationId,
+      orgId: removal.orgId,
+      outcome: 'stopped',
+      guard: decision,
+    });
+    return {
+      ran: false,
+      operationId,
+      guard: decision,
+      message:
+        decision === 'refused'
+          ? `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`
+          : 'Operation cancelled by user (production confirmation declined).',
+    };
   }
 
   sendOperationStarted(deps, operationId, 'dataops', removal.description);

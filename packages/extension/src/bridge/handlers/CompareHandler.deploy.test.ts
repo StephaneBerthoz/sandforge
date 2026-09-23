@@ -309,15 +309,6 @@ describe('CompareHandler deployments', () => {
       expect(String(error()?.payload.message)).toContain('Setup › Deployment Status');
     });
 
-    it('does not put a validation in the audit log, which records writes', async () => {
-      const guard = new ProductionGuard();
-      deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];
-
-      await handler.handle(validateRequest());
-
-      expect(guard.getAuditLog()).toEqual([]);
-    });
-
     it.each([
       ['a permission set', { components: [{ componentType: 'PermissionSet', fullName: 'Sales' }] }],
       ['a type that is not one', { components: [{ componentType: 'Other', fullName: 'X' }] }],
@@ -440,14 +431,15 @@ describe('CompareHandler deployments', () => {
       expect(error()?.payload.code).toBe('GUARD_BLOCKED');
     });
 
-    it('records the deployment in the audit log of the guard the extension wired', async () => {
+    it('has the guard the extension wired judge the deployment', async () => {
       const guard = new ProductionGuard();
       deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];
       const validationId = await validated();
+      const check = vi.spyOn(guard, 'check');
 
       await handler.handle(deployRequest({ validationId, targetOrgId: 'tgt' }));
 
-      expect(guard.getAuditLog().map((entry) => entry.request)).toEqual([
+      expect(check.mock.calls.map(([request]) => request)).toEqual([
         {
           orgId: 'tgt',
           orgTier: 'development',
@@ -468,7 +460,6 @@ describe('CompareHandler deployments', () => {
           warnings: [],
           impactSummary: 'DEPLOY 2 component(s)',
         })),
-        logOperation: vi.fn(),
         confirmIfNeeded: vi.fn(() => Promise.resolve(false)),
       };
       deps.infraServices = { productionGuard: guard } as unknown as HandlerDeps['infraServices'];

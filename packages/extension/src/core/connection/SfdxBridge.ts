@@ -1,7 +1,10 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
 import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
 import { z } from 'zod';
+import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
+import { isUsableAccessToken, refreshTokenViaCli } from './ConnectionHelper.js';
+import type { CliCredentials } from './ConnectionHelper.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
@@ -10,6 +13,20 @@ const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
  * one token request, an identity call and the auth file written.
  */
 const CLI_LOGIN_TIMEOUT_MS = 60_000;
+
+/**
+ * Longest `sf org login web` may run: the user signs in in the browser the CLI
+ * opens. The page that asked waits 180 s for the whole connection.
+ */
+const CLI_WEB_LOGIN_TIMEOUT_MS = 120_000;
+
+/**
+ * How many orgs may have their token read from the CLI at once. A read runs
+ * `sf` twice, one run after the other, each a Node process of its own: a few
+ * at a time keeps an import of many orgs short without starting a dozen of
+ * them together.
+ */
+const TOKEN_READS_AT_ONCE = 4;
 
 /**
  * How long past its own timeout a login run may keep the caller waiting. On
@@ -119,9 +136,9 @@ function quoteForCmd(arg: string, role: string): string {
  *
  * Windows: `sf` is `sf.cmd`, and Node refuses to start a `.cmd` without a
  * shell (CVE-2024-27980), so the command goes through `cmd.exe` as `exec`
- * builds it — the one place a command line is written, as loginWeb and
- * ConnectionHelper already do. Every argument is double-quoted after the
- * characters cmd.exe would still act on are refused (see {@link CMD_UNSAFE}).
+ * builds it — the one place a command line is written, as ConnectionHelper
+ * also does. Every argument is double-quoted after the characters cmd.exe
+ * would still act on are refused (see {@link CMD_UNSAFE}).
  *
  * stdin is always ended: nothing the CLI might prompt for can hold the run
  * open. `input` is how a secret reaches the CLI without ever appearing on a
@@ -225,8 +242,9 @@ const cliLoginResultSchema = z
  * `SF_TEMP_SHOW_SECRETS` set, the CLI prints the org's live access token in it.
  *
  * @param command - The command, for messages (`sf org login jwt`).
+ * @param timeoutMs - How long the run was allowed, for the message when it ran out.
  */
-function readLogin(run: SfRun, command: string): CliLogin {
+function readLogin(run: SfRun, command: string, timeoutMs = CLI_LOGIN_TIMEOUT_MS): CliLogin {
   let document: z.infer<typeof cliJsonSchema> | undefined;
   try {
     const parsed = cliJsonSchema.safeParse(JSON.parse(extractJson(run.stdout)));
@@ -239,7 +257,7 @@ function readLogin(run: SfRun, command: string): CliLogin {
     const cliMessage = document?.message?.trim();
     if (cliMessage) throw new Error(cliMessage);
     if (run.failure?.killed) {
-      throw new Error(`${command} did not finish within ${CLI_LOGIN_TIMEOUT_MS / 1000} s.`);
+      throw new Error(`${command} did not finish within ${timeoutMs / 1000} s.`);
     }
     const firstStderrLine = run.stderr
       .split(/\r?\n/)
@@ -264,9 +282,10 @@ function readLogin(run: SfRun, command: string): CliLogin {
 /**
  * Reduce a Salesforce instance URL to the origin passed to the CLI.
  *
- * This is the shell-injection defense for the Windows exec branch of loginWeb.
- * Checking the hostname alone was not enough: the path went into the command
- * string verbatim, so `https://login.salesforce.com/"&calc&"` reached cmd.exe.
+ * This is the shell-injection defense for the login URL on Windows, where the
+ * command goes through cmd.exe. Checking the hostname alone was not enough:
+ * the path went into loginWeb's command string verbatim, so
+ * `https://login.salesforce.com/"&calc&"` reached cmd.exe.
  * Only the origin of an https Salesforce login host — letters, digits, dots
  * and dashes — is ever returned.
  */
@@ -308,6 +327,10 @@ export interface SfdxOrgEntry {
   username: string;
   alias?: string;
   instanceUrl: string;
+  /**
+   * The org's token, or the placeholder CLI 2.150 prints in its place: see
+   * {@link isUsableAccessToken}.
+   */
   accessToken?: string;
   /**
    * The CLI's reachability verdict. Written on the orgs it pings, not on the
@@ -341,6 +364,32 @@ function isUsable(entry: SfdxOrgEntry): boolean {
 export interface SfdxImportResult {
   org: SalesforceOrg;
   credentials: ConnectionConfig;
+}
+
+/** Reads, through the CLI, a live access token for one of the users it holds. */
+export type CliTokenReader = (username: string) => Promise<CliCredentials>;
+
+/** An org the CLI lists as connected but gave no access token for. */
+export interface SfdxUnreadableOrg {
+  username: string;
+  alias?: string;
+  orgId: string;
+  /** Why, as the failed read worded it. */
+  reason: string;
+}
+
+/** Run `tasks` with at most `limit` in flight; the results come back in the tasks' order. */
+async function inPool<T>(tasks: ReadonlyArray<() => Promise<T>>, limit: number): Promise<T[]> {
+  const results = new Array<T>(tasks.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < tasks.length) {
+      const index = next++;
+      results[index] = await tasks[index]();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
 }
 
 /** The org a CLI login authorized, as its `--json` result names it. */
@@ -380,6 +429,13 @@ export interface RefreshTokenLoginRequest {
  * Executes sf commands, parses output, and maps to SandForge types.
  */
 export class SfdxBridge {
+  /**
+   * @param readToken - Reads a live token for an org whose listed one is
+   *   hidden; by default the CLI refresh the connection helper recovers an
+   *   expired session with.
+   */
+  constructor(private readonly readToken: CliTokenReader = refreshTokenViaCli) {}
+
   /** Verify that sf CLI is available on PATH */
   async isCliAvailable(): Promise<boolean> {
     try {
@@ -418,12 +474,47 @@ export class SfdxBridge {
     }
   }
 
-  /** Execute sf org list --json --no-color, parse, dedupe, and return connected orgs */
-  async listOrgs(): Promise<SfdxImportResult[]> {
-    const deduped = this.dedupeByOrgId(await this.readOrgEntries());
-    return deduped
-      .filter((entry) => isUsable(entry))
-      .map((entry) => this.mapToSalesforceOrg(entry));
+  /**
+   * The orgs `sf org list --json` lists as connected, deduped by org id, each
+   * with an access token that can be used.
+   *
+   * The CLI now prints a placeholder where each token was. Stored as the
+   * token, it failed the first call made with it, and the org worked only once
+   * the connection helper had refreshed it through the CLI. Such an org has
+   * its token read from the CLI here, a few orgs at a time, before anything is
+   * stored; an org the CLI gives no token for is left out and reported.
+   *
+   * @param onUnreadable - Told of each org left out for want of a token.
+   */
+  async listOrgs(onUnreadable?: (org: SfdxUnreadableOrg) => void): Promise<SfdxImportResult[]> {
+    const connected = this.dedupeByOrgId(await this.readOrgEntries()).filter((entry) =>
+      isUsable(entry),
+    );
+    const outcomes = await inPool(
+      connected.map((entry) => async (): Promise<{ entry: SfdxOrgEntry; reason?: string }> => {
+        try {
+          return { entry: await this.withUsableToken(entry) };
+        } catch (err: unknown) {
+          return { entry, reason: extractErrorMessage(err) };
+        }
+      }),
+      TOKEN_READS_AT_ONCE,
+    );
+
+    const imported: SfdxImportResult[] = [];
+    for (const { entry, reason } of outcomes) {
+      if (reason === undefined) {
+        imported.push(this.mapToSalesforceOrg(entry));
+      } else {
+        onUnreadable?.({
+          username: entry.username,
+          alias: entry.alias,
+          orgId: entry.orgId,
+          reason,
+        });
+      }
+    }
+    return imported;
   }
 
   /**
@@ -433,13 +524,22 @@ export class SfdxBridge {
    * Looked up before any dedupe: two users of one org share its orgId, and the
    * dedupe in listOrgs keeps whichever the CLI listed first — not necessarily
    * the user who just signed in.
+   *
+   * @throws When the CLI lists the user but gives no access token for it.
    */
   async findOrg(username: string): Promise<SfdxImportResult | undefined> {
     const wanted = username.toLowerCase();
     const entry = (await this.readOrgEntries()).find(
       (candidate) => candidate.username?.toLowerCase() === wanted && isUsable(candidate),
     );
-    return entry ? this.mapToSalesforceOrg(entry) : undefined;
+    if (!entry) return undefined;
+    try {
+      return this.mapToSalesforceOrg(await this.withUsableToken(entry));
+    } catch (err: unknown) {
+      throw new Error(
+        `The Salesforce CLI gave no access token for ${entry.username}: ${extractErrorMessage(err)}`,
+      );
+    }
   }
 
   /**
@@ -558,33 +658,35 @@ export class SfdxBridge {
     ];
   }
 
-  /** Execute sf org login web to open browser auth flow */
-  async loginWeb(alias: string, instanceUrl: string): Promise<void> {
-    // Validate before any shell/exec use (same pattern as
-    // ConnectionHelper.refreshTokenViaCli). These checks are the only
-    // shell-injection defense on the Windows exec branch below.
+  /**
+   * Sign in through the browser: `sf org login web --json`.
+   *
+   * @returns The org the CLI signed in to. `sf org list` sorts every org the
+   *   CLI holds by alias, so only this answer names the one just authorized.
+   * @throws With the CLI's own message when the sign-in fails or runs out of time.
+   */
+  async loginWeb(alias: string, instanceUrl: string): Promise<CliLogin> {
+    // The same characters the payload schema allows, checked again where the
+    // alias reaches a command line.
     if (alias && !/^[\w.-]+$/.test(alias)) {
       throw new Error(`Invalid alias format: "${alias}"`);
     }
-    const origin = toLoginOrigin(instanceUrl);
-
-    // POSIX: argv-as-array via execFile — no shell, no interpolation.
-    // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
-    // resolution, so keep exec there; the validated values (word/dot/dash
-    // alias + the origin's host characters) are shell-safe inside double quotes.
-    if (process.platform === 'win32') {
-      let command = `sf org login web --instance-url "${origin}"`;
-      if (alias) {
-        command += ` --alias "${alias}"`;
-      }
-      await execAsync(command, { timeout: 120_000 });
-    } else {
-      const args = ['org', 'login', 'web', '--instance-url', origin];
-      if (alias) {
-        args.push('--alias', alias);
-      }
-      await execFileAsync('sf', args, { timeout: 120_000 });
+    const args = [
+      { value: 'org', role: 'command' },
+      { value: 'login', role: 'command' },
+      { value: 'web', role: 'command' },
+      { value: '--instance-url', role: 'flag' },
+      { value: toLoginOrigin(instanceUrl), role: 'login URL' },
+    ];
+    if (alias) {
+      args.push({ value: '--alias', role: 'flag' }, { value: alias, role: 'alias' });
     }
+    args.push({ value: '--json', role: 'flag' });
+    return readLogin(
+      await runSf(args, { timeoutMs: CLI_WEB_LOGIN_TIMEOUT_MS }),
+      'sf org login web',
+      CLI_WEB_LOGIN_TIMEOUT_MS,
+    );
   }
 
   private dedupeByOrgId(entries: SfdxOrgEntry[]): SfdxOrgEntry[] {
@@ -595,6 +697,27 @@ export class SfdxBridge {
       }
     }
     return Array.from(map.values());
+  }
+
+  /**
+   * `entry` holding a token that can be used: its own, or one read from the
+   * CLI when the listing hides it.
+   *
+   * @throws When the CLI gives none; the message says why.
+   */
+  private async withUsableToken(entry: SfdxOrgEntry): Promise<SfdxOrgEntry> {
+    if (isUsableAccessToken(entry.accessToken)) return entry;
+    const live = await this.readToken(entry.username);
+    if (!isUsableAccessToken(live.accessToken)) {
+      throw new Error('the Salesforce CLI showed no usable access token');
+    }
+    // The token goes with the instance it was read for, which the CLI reports
+    // afresh; the listed URL is the one its auth file held.
+    return {
+      ...entry,
+      accessToken: live.accessToken,
+      instanceUrl: live.instanceUrl ?? entry.instanceUrl,
+    };
   }
 
   private mapToSalesforceOrg(entry: SfdxOrgEntry): SfdxImportResult {

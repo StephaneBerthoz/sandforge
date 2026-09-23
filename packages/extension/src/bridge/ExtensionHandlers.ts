@@ -47,6 +47,7 @@ import { DataOpsComplianceHandler } from './handlers/DataOpsComplianceHandler.js
 import { DataOpsCleanupHandler } from './handlers/DataOpsCleanupHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import type { PipelineTriggerWiring } from './handlers/AutomationHandler.js';
+import type { TriggerClaims } from '../modules/automation/TriggerClaims.js';
 import { AIHandler } from './handlers/AIHandler.js';
 import type { AIModules, RuleModules } from './handlers/AIHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
@@ -236,7 +237,7 @@ export class ExtensionHandlers {
       },
       newId: () => crypto.randomUUID(),
       backup: (request, signal) => this.dataOpsHandler.backupForPipeline(request, signal),
-      compare: (request) => this.compareHandler.compareOrgs(request),
+      compare: (request, signal) => this.compareHandler.compareOrgs(request, signal),
       readOrgHealth: (orgId, signals) => this.monitorHandler.readOrgHealth(orgId, signals),
       notify: deps.services?.showNotification,
     });
@@ -400,9 +401,15 @@ export class ExtensionHandlers {
    * so due `sync:schedule:*` entries actually run (60 s tick). Call once from
    * extension.ts after service injection (setBackgroundRegistry & co.).
    * Pair with {@link stopSyncScheduler} on extension deactivate.
+   *
+   * @param claims - The claims the windows of the machine share, so a due
+   *   schedule runs in one window however many are open.
    */
-  startSyncScheduler(): void {
-    this.syncScheduleHandler.startScheduler((config) => this.syncHandler.executeScheduled(config));
+  startSyncScheduler(claims?: Pick<TriggerClaims, 'claim' | 'prune'>): void {
+    this.syncScheduleHandler.startScheduler(
+      (config) => this.syncHandler.executeScheduled(config),
+      claims,
+    );
   }
 
   /** Stop the sync schedule executor tick loop. Call from extension deactivate(). */

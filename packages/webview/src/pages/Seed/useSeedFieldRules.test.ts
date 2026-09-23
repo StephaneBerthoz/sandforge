@@ -66,15 +66,18 @@ const bridge = vi.hoisted(() => ({
   data: null as unknown,
   /* why the last describe failed, as the mutation reports it */
   error: null as string | null,
+  /* whether a describe is on its way, as the mutation reports it */
+  loading: false,
+  reset: vi.fn(),
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => ({
     mutate: bridge.mutate,
     data: bridge.data,
-    loading: false,
+    loading: bridge.loading,
     error: bridge.error,
-    reset: vi.fn(),
+    reset: bridge.reset,
   }),
 }));
 
@@ -87,18 +90,57 @@ function describedAsked(): string[] {
 
 describe('useSeedFieldRules', () => {
   beforeEach(() => {
-    bridge.mutate.mockClear();
+    bridge.mutate.mockReset();
+    bridge.reset.mockClear();
     bridge.data = null;
     bridge.error = null;
+    bridge.loading = false;
     useSeedWizardStore.getState().resetSeedWizard();
   });
+
+  /** The describe the mutation answers, as `object` with one text field. */
+  function describeOf(objectApiName: string): Record<string, unknown> {
+    return {
+      objectApiName,
+      objectLabel: objectApiName,
+      fields: [describedField('Name', 'string')],
+    };
+  }
 
   it('describes the selected objects on the execute step too, which a small run reaches directly', () => {
     // Below five objects the wizard goes from the selection to the execute
     // step, and a describe asked for on the configure step alone never came.
-    renderHook(() => useSeedFieldRules('org-1', ['Account', 'Contact'], 2));
+    const { rerender } = renderHook(() => useSeedFieldRules('org-1', ['Account', 'Contact'], 2));
+    expect(describedAsked()).toEqual(['Account']);
+
+    bridge.data = describeOf('Account');
+    rerender();
 
     expect(describedAsked()).toEqual(['Account', 'Contact']);
+  });
+
+  it('asks for each object once, the next one when the last one has answered', () => {
+    // The mutation hears the answer to its last request only. Asking for every
+    // missing object at once heard one answer per round and asked for all the
+    // others again each time: fifteen describes for five objects.
+    const objects = ['Account', 'Contact', 'Opportunity', 'Case', 'Lead'];
+    // As the mutation does: a request clears the last answer and is on its way.
+    bridge.mutate.mockImplementation(() => {
+      bridge.loading = true;
+      bridge.data = null;
+    });
+    const { rerender } = renderHook(() => useSeedFieldRules('org-1', objects, 2));
+
+    for (const [index, objectApiName] of objects.entries()) {
+      expect(describedAsked()).toEqual(objects.slice(0, index + 1));
+      rerender();
+      expect(bridge.mutate).toHaveBeenCalledTimes(index + 1);
+      bridge.loading = false;
+      bridge.data = describeOf(objectApiName);
+      rerender();
+    }
+
+    expect(describedAsked()).toEqual(objects);
   });
 
   it('asks for no describe while the objects are still being picked', () => {
@@ -146,14 +188,20 @@ describe('useSeedFieldRules', () => {
   });
 
   it('gives the reason a describe failed while an object waits, and asks again on retry', () => {
+    const { result, rerender } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 2));
+    expect(describedAsked()).toEqual(['Account']);
     bridge.error = 'INVALID_SESSION_ID';
-    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 2));
+    rerender();
     expect(result.current.fieldsError).toBe('INVALID_SESSION_ID');
     bridge.mutate.mockClear();
 
     act(() => {
       result.current.retryFieldDescribes();
     });
+    // The retry clears the failure the mutation holds.
+    expect(bridge.reset).toHaveBeenCalled();
+    bridge.error = null;
+    rerender();
 
     expect(describedAsked()).toEqual(['Account']);
   });

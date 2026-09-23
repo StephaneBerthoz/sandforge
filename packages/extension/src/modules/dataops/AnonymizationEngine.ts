@@ -5,17 +5,26 @@ import type { DataOpsAnonymizationRule, AnonymizationMethod } from '@sandforge/s
 import { keyedShuffle, PERSONA_FIELD_MAP, PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 
 /**
- * Number of trailing characters a `truncate` rule keeps.
+ * Number of characters a `truncate` rule keeps.
  *
- * `truncateLength` is not declared on the shared `AnonymizationRuleConfig` yet,
- * so it is read structurally: a rule that already carries one is honoured, and
- * a rule that says nothing keeps nothing. Zero is the only safe default — the
- * caller who never thought about N must not get a plaintext fragment by accident.
+ * A rule that says nothing keeps nothing. Zero is the only safe default — the
+ * caller who never thought about N must not get a plaintext fragment by
+ * accident — and anything that is not a positive number counts as saying
+ * nothing.
  */
 function truncateLengthOf(config: DataOpsAnonymizationRule['config']): number {
-  const raw: unknown = (config as { truncateLength?: unknown }).truncateLength;
+  const raw: unknown = config.truncateLength;
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
 }
+
+/** A value an Email field would hold: something, an @, something, and no space. */
+const EMAIL_ADDRESS = /^[^\s@]+@[^\s@]+$/;
+
+/**
+ * Where a hashed address is written. `.invalid` is reserved never to resolve
+ * (RFC 6761), so no mail sent from the masked org reaches anybody.
+ */
+const HASHED_EMAIL_DOMAIN = 'example.invalid';
 
 /** Thrown when a hash rule would produce an unkeyed, brute-forceable digest. */
 export class MissingHashSaltError extends Error {
@@ -225,6 +234,12 @@ export class AnonymizationEngine {
    * The digest is truncated to 32 hex chars (128 bits): far beyond collision
    * range for a sandbox dataset, and short enough that the result still fits
    * the Salesforce text fields these values are written back into.
+   *
+   * An address is hashed into an address. An Email field takes an address or
+   * nothing, and `sha256:…` is neither: the org refuses the whole record, so
+   * its name and phone keep their real values along with the email. The digest
+   * becomes the local part at {@link HASHED_EMAIL_DOMAIN}, and the same address
+   * still gives the same pseudonym on every object it appears on.
    */
   private applyHash(value: unknown, rule: DataOpsAnonymizationRule): string {
     const salt = rule.config.hashSalt;
@@ -232,11 +247,11 @@ export class AnonymizationEngine {
       throw new MissingHashSaltError(rule.fieldApiName);
     }
     const algo = rule.config.hashAlgorithm ?? 'sha256';
-    const digest = createHmac(algo, salt)
-      .update(String(value ?? ''))
-      .digest('hex')
-      .slice(0, 32);
-    return `${algo}:${digest}`;
+    const input = String(value ?? '');
+    const digest = createHmac(algo, salt).update(input).digest('hex').slice(0, 32);
+    return EMAIL_ADDRESS.test(input)
+      ? `${algo}-${digest}@${HASHED_EMAIL_DOMAIN}`
+      : `${algo}:${digest}`;
   }
 
   /**
@@ -280,17 +295,24 @@ export class AnonymizationEngine {
   }
 
   /**
-   * Truncate: keep the last N characters, N from `config.truncateLength`.
+   * Truncate: keep N characters, N from `config.truncateLength` — the last N
+   * unless `config.truncateKeep` says `first`.
    *
-   * The last N and not the first N: the opening characters of a name, an email
-   * local part or a record id are the identifying ones, so a kept prefix leaves
+   * The last N by default: the opening characters of a name, an email local
+   * part or a record id are the identifying ones, so a kept prefix leaves
    * "Ale…" standing for Alexander. A suffix narrows far less, and N defaults to
-   * 0 so a rule that never specified a length keeps nothing at all.
+   * 0 so a rule that never specified a length keeps nothing at all. A postal
+   * code runs the other way: its opening characters name a region and the rest
+   * narrow it to a street, which is why HIPAA's de-identification keeps the
+   * first three digits of a ZIP code. The first N are kept only when a rule
+   * asks for them.
    */
   private applyTruncate(value: unknown, rule: DataOpsAnonymizationRule): string {
     const keep = truncateLengthOf(rule.config);
     // `slice(-0)` returns the whole string, so zero has to short-circuit.
-    return keep === 0 ? '' : String(value ?? '').slice(-keep);
+    if (keep === 0) return '';
+    const str = String(value ?? '');
+    return rule.config.truncateKeep === 'first' ? str.slice(0, keep) : str.slice(-keep);
   }
 
   /** HMAC over `input`, keyed by the rule salt when set and the instance key otherwise. */

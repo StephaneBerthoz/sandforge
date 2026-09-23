@@ -275,7 +275,8 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     const { result, rerender } = renderHook(() => useAutomationPageData());
 
     // The host generator maps keywords to strings that are not PipelineStepType
-    // members ('dataops', 'monitor'), and emits 'error_detected' as a trigger.
+    // members ('dataops', 'monitor'); a trigger string that names no trigger
+    // type ('error_detected') is dropped.
     mutationFor('ai:generate-pipeline').data = {
       success: true,
       pipeline: {

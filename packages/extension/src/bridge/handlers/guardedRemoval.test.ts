@@ -101,6 +101,28 @@ describe('runGuardedRemoval', () => {
     expect(run.run).not.toHaveBeenCalled();
   });
 
+  it('refuses to delete without a Production Guard, and records the refusal', async () => {
+    // Every other write path refuses without its guard; this one deleted on,
+    // to a production org as readily as to a scratch one.
+    const d = deps('Production');
+    const run = removal();
+
+    const result = await runGuardedRemoval(d, run);
+
+    expect(result).toMatchObject({ ran: false, code: 'NOT_INITIALIZED' });
+    expect(result.ran === false && result.message).toMatch(/^Production Guard is not initialized/);
+    expect(run.run).not.toHaveBeenCalled();
+    expect(posted(d)).toEqual([]);
+    expect(new AuditTrailStore(d.configStore).list().entries).toEqual([
+      expect.objectContaining({
+        action: 'cleanup_delete',
+        outcome: 'stopped',
+        objects: [],
+        details: { code: 'NOT_INITIALIZED' },
+      }),
+    ]);
+  });
+
   it('records an erasure in place as updates', async () => {
     const d = deps('Sandbox', new ProductionGuard());
 

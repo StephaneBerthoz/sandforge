@@ -122,6 +122,33 @@ describe('AnonymizationEngine', () => {
       expect(a).not.toBe(b);
     });
 
+    it('hashes an address into an address at a domain that receives no mail', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Email',
+        method: 'hash',
+        config: { hashSalt: 'salt' },
+      };
+      // An Email field refuses `sha256:…`, and the org then keeps the whole
+      // record as it was, real name and phone included.
+      const expected = createHmac('sha256', 'salt')
+        .update('ada@example.org')
+        .digest('hex')
+        .slice(0, 32);
+      expect(engine.applyRule('ada@example.org', rule)).toBe(`sha256-${expected}@example.invalid`);
+    });
+
+    it('keeps the labelled digest for a value that is not an address', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Description',
+        method: 'hash',
+        config: { hashSalt: 'salt' },
+      };
+      expect(engine.applyRule('met at the fair', rule)).toMatch(/^sha256:[0-9a-f]{32}$/);
+      expect(engine.applyRule('write to me @ home', rule)).toMatch(/^sha256:[0-9a-f]{32}$/);
+    });
+
     it('should refuse to hash without a salt rather than emit a reversible digest', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',
@@ -230,16 +257,34 @@ describe('AnonymizationEngine', () => {
     });
 
     it('should keep the last N characters when config.truncateLength is set', () => {
-      const config: DataOpsAnonymizationRule['config'] & { truncateLength: number } = {
-        truncateLength: 4,
-      };
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',
         fieldApiName: 'Description',
         method: 'truncate',
-        config,
+        config: { truncateLength: 4 },
       };
       expect(engine.applyRule('Long description text', rule)).toBe('text');
+    });
+
+    it('keeps the first N characters when the rule asks for them, as a postal code cut to its region', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'MailingPostalCode',
+        method: 'truncate',
+        config: { truncateLength: 3, truncateKeep: 'first' },
+      };
+      expect(engine.applyRule('90210-1234', rule)).toBe('902');
+      expect(engine.applyRule('75', rule)).toBe('75');
+    });
+
+    it('keeps nothing when asked for the first characters but given no length', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'MailingPostalCode',
+        method: 'truncate',
+        config: { truncateKeep: 'first' },
+      };
+      expect(engine.applyRule('90210', rule)).toBe('');
     });
 
     it('should handle preserve_format rule type', () => {

@@ -264,10 +264,23 @@ export const forgeExecutionResultSchema = z.object({
 
 // ─── Template Schema ────────────────────────────────────────────────────────
 
+/**
+ * The method for some PII categories, as Review holds them. Built here rather
+ * than by each caller: `z.record` tells its two forms apart with `instanceof`
+ * on its second argument, and a package whose zod is another copy of it (the
+ * extension's tests load the ES build, this package the CommonJS one) read
+ * the method schema as options and checked every method against the
+ * categories.
+ */
+export const forgeAnonymizationRulesSchema = z.record(
+  forgeAnonymizationCategorySchema,
+  anonymizationMethodSchema,
+);
+
 /** Zod schema for ForgeTemplateAnonymization */
 export const forgeTemplateAnonymizationSchema = z.object({
   presetId: z.string().min(1).max(100).optional(),
-  rules: z.record(forgeAnonymizationCategorySchema, anonymizationMethodSchema),
+  rules: forgeAnonymizationRulesSchema,
 });
 
 /** Zod schema for ForgeTemplate */

@@ -176,6 +176,39 @@ describe('forge template portability', () => {
     expect(ids).toContain('new');
   });
 
+  it('answers the template list from a workspace file that holds no list', async () => {
+    // A file holding a string reached the list as one: the handler threw on
+    // it, and the page got no answer.
+    const { files, store } = createFakeFs();
+    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify('forge templates'));
+    const handler = new ForgeHandler(deps);
+    withStore(handler, store);
+
+    await handler.handle(msg('forge:templates:list', {}));
+
+    const listed = vi.mocked(deps.broker.postToWebview).mock.calls[0]?.[0] as BaseMessage & {
+      payload: { templates: ForgeTemplate[] };
+    };
+    expect(listed.type).toBe('forge:templates:list:response');
+    expect(listed.payload.templates).toEqual([]);
+  });
+
+  it('saves a template over a workspace file that holds an object', async () => {
+    const { files, store } = createFakeFs();
+    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify({ id: 'not-a-list' }));
+    const handler = new ForgeHandler(deps);
+    withStore(handler, store);
+
+    await handler.handle(msg('forge:templates:save', { template: template('t6') }));
+
+    const posted = vi.mocked(deps.broker.postToWebview).mock.calls.map((c) => c[0] as BaseMessage);
+    expect(posted.map((p) => p.type)).toEqual(['forge:templates:save:response']);
+    const saved = JSON.parse(files.get('/ws/.sandforge/forge-templates.json') as string) as Array<{
+      id: string;
+    }>;
+    expect(saved.map((t) => t.id)).toEqual(['t6']);
+  });
+
   it('answers a save the workspace refuses on the save error channel', async () => {
     const handler = new ForgeHandler(deps);
     handler.setForgeOrchestrator({ on: vi.fn() } as never, {

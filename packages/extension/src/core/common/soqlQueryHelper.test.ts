@@ -502,3 +502,36 @@ describe('queryAllBounded — saying when a bound cut the read', () => {
     await expect(queryAll(conn, 'SELECT Id FROM Account')).resolves.toEqual([{ Id: '1' }]);
   });
 });
+
+describe('queryAll — stopped by a signal', () => {
+  it('asks for no further page once the signal aborts, and rejects with its reason', async () => {
+    const stop = new AbortController();
+    const queryMore = vi.fn();
+    const conn = {
+      query: vi.fn(async () => {
+        stop.abort();
+        return { records: [{ Id: '1' }], done: false, nextRecordsUrl: '/more' };
+      }),
+      queryMore,
+    } as unknown as Connection;
+
+    const outcome = await queryAll(conn, 'SELECT Id FROM Account', undefined, stop.signal).catch(
+      (reason: unknown) => reason,
+    );
+
+    expect(outcome).toBe(stop.signal.reason);
+    expect(queryMore).not.toHaveBeenCalled();
+  });
+
+  it('sends no query at all once it has aborted', async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const query = vi.fn();
+    const conn = { query, queryMore: vi.fn() } as unknown as Connection;
+
+    await expect(queryAllBounded(conn, 'SELECT Id FROM Account', 10, stop.signal)).rejects.toBe(
+      stop.signal.reason,
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
+});

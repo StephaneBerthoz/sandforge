@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
+  AnonymizationTemplateRuleConfig,
   BackupStatus,
   CleanupRecommendation,
   CleanupScanResult,
@@ -72,6 +73,12 @@ export interface AnonymizationTemplateRule {
   fieldPattern: string;
   ruleType: string;
   description: string;
+  /**
+   * What the method needs that the template itself decides: a constant's
+   * value, a truncation's length. Absent on a rule whose method needs nothing,
+   * and on every rule of a template the user saved.
+   */
+  config?: AnonymizationTemplateRuleConfig;
 }
 
 /** A masking template as the host lists it: one that ships, or one the user saved. */

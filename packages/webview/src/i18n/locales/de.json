@@ -1457,7 +1457,7 @@
       "noCron": "Startet nichts, solange kein Cron-Ausdruck gesetzt ist.",
       "badCron": "Startet nichts: SandForge kann diesen Cron-Ausdruck nicht lesen.",
       "badTimezone": "Startet nichts: SandForge kennt diese Zeitzone nicht.",
-      "noNextRun": "Startet nichts: Kein Datum passt zu diesem Cron-Ausdruck.",
+      "noNextRun": "Startet nichts: Kein Datum im kommenden Jahr passt zu diesem Cron-Ausdruck.",
       "noSandbox": "Startet nichts, solange er keine Sandbox nennt.",
       "unknownSandbox": "Startet nichts: SandForge kennt die genannte Sandbox nicht mehr. Wählen Sie sie erneut.",
       "notSandbox": "Startet nichts: Die genannte Org ist keine Sandbox, und nur eine Sandbox wird aktualisiert.",

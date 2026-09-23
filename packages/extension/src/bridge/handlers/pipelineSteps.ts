@@ -85,17 +85,27 @@ export interface PipelineStepRunners {
   orgName(orgId: string): string | undefined;
   /** A new id for each snapshot a Backup step takes: a retry is a new snapshot. */
   newId(): string;
-  /** DataOps's snapshot flow (`DataOpsHandler.backupForPipeline`). */
+  /**
+   * DataOps's snapshot flow (`DataOpsHandler.backupForPipeline`). Rejects with
+   * a `StepCancelledError` when a cancel from Live Operations stopped the
+   * snapshot, which ends the step without a retry.
+   */
   backup(
     request: { operationId: string; orgId: string; objects: string[] },
     signal?: AbortSignal,
   ): Promise<BackupTaken>;
-  /** The Compare page's diff (`CompareHandler.compareOrgs`). */
-  compare(request: {
-    sourceOrgId: string;
-    targetOrgId: string;
-    types: string[];
-  }): Promise<CompareResult>;
+  /**
+   * The Compare page's diff (`CompareHandler.compareOrgs`). `signal` stops it
+   * reading the orgs: it makes no request once aborted.
+   */
+  compare(
+    request: {
+      sourceOrgId: string;
+      targetOrgId: string;
+      types: string[];
+    },
+    signal?: AbortSignal,
+  ): Promise<CompareResult>;
   /** The Monitor's health signals (`MonitorOpsHandler.readOrgHealth`). */
   readOrgHealth(orgId: string, signals: readonly HealthSignalName[]): Promise<HealthSignal[]>;
   /** Shows a notification in the VS Code window; absent where there is no window. */
@@ -303,14 +313,17 @@ function backupHandler(runners: PipelineStepRunners): StepHandler {
 }
 
 function compareHandler(runners: PipelineStepRunners): StepHandler {
-  return async (step: PipelineStep) => {
+  return async (step: PipelineStep, context: StepContext) => {
     const startTime = new Date().toISOString();
     const { sourceOrgId, targetOrgId, types } = compareExecutePayloadSchema.parse({
       sourceOrgId: step.config['sourceOrgId'],
       targetOrgId: step.config['targetOrgId'],
       types: step.config['types'],
     });
-    const result = await runners.compare({ sourceOrgId, targetOrgId, types });
+    // The step's signal, which the run's cancel and time budget and the
+    // step's own timeout abort. Without it a comparison given up on went on
+    // listing and reading both orgs to its end, unobserved.
+    const result = await runners.compare({ sourceOrgId, targetOrgId, types }, context.signal);
     const { added, removed, modified, unchanged, notCompared } = result.summary;
     const source = runners.orgName(sourceOrgId) ?? sourceOrgId;
     const target = runners.orgName(targetOrgId) ?? targetOrgId;

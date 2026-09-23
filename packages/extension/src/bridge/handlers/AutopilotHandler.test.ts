@@ -919,7 +919,7 @@ describe('AutopilotHandler', () => {
       requiresConfirmation?: boolean;
       blockedReason?: string;
       confirmed?: boolean;
-    }): { check: Mock; logOperation: Mock; confirmIfNeeded: Mock } {
+    }): { check: Mock; confirmIfNeeded: Mock } {
       const check = vi.fn().mockReturnValue({
         allowed: behavior.allowed,
         requiresConfirmation: behavior.requiresConfirmation ?? false,
@@ -928,15 +928,14 @@ describe('AutopilotHandler', () => {
         warnings: [],
         impactSummary: 'INSERT 5 Account record(s) on production org tgt [module: autopilot]',
       });
-      const logOperation = vi.fn();
       const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
-        productionGuard: { check, logOperation, confirmIfNeeded },
+        productionGuard: { check, confirmIfNeeded },
         offlineManager: undefined,
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
-      return { check, logOperation, confirmIfNeeded };
+      return { check, confirmIfNeeded };
     }
 
     /** Runs scan → generate-plan so the operation is ready for execute. */
@@ -992,7 +991,7 @@ describe('AutopilotHandler', () => {
         module: 'autopilot',
       });
       expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
       const completed = postedMessages(deps).find((m) => m.type === 'autopilot:completed');
       expect(completed).toBeDefined();
@@ -1017,6 +1016,18 @@ describe('AutopilotHandler', () => {
         correlationId: 'exec-guard',
         payload: { code: 'NOT_INITIALIZED' },
       });
+      // Recorded as the guard's own refusals are, with the code that says why.
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'autopilot_execute',
+          operationId: 'exec-guard',
+          outcome: 'stopped',
+          details: { code: 'NOT_INITIALIZED' },
+        }),
+      ]);
     });
 
     it('blocks the execution when the guard refuses — no insert, actionable autopilot:error', async () => {
@@ -1032,7 +1043,7 @@ describe('AutopilotHandler', () => {
 
       await handler.handle(executeMsg());
 
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.check).toHaveBeenCalledTimes(1);
       expect(guard.confirmIfNeeded).not.toHaveBeenCalled();
       expect(orchestrator.executePlan).not.toHaveBeenCalled();
       const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
@@ -1071,6 +1082,7 @@ describe('AutopilotHandler', () => {
       // as development, and the plan ran without a word to the user.
       const requestConfirmation = vi.fn().mockResolvedValue(false);
       const guard = new ProductionGuard({ requestConfirmation });
+      const check = vi.spyOn(guard, 'check');
       deps.infraServices = {
         performanceTracker: { start: vi.fn(), complete: vi.fn() },
         productionGuard: guard,
@@ -1087,7 +1099,7 @@ describe('AutopilotHandler', () => {
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT 0 Account record(s) on production org tgt [module: autopilot]',
       );
-      expect(guard.getAuditLog().map((entry) => entry.request.orgTier)).toEqual(['production']);
+      expect(check.mock.calls.map(([request]) => request.orgTier)).toEqual(['production']);
       expect(orchestrator.executePlan).not.toHaveBeenCalled();
       const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
       expect(errors).toHaveLength(1);
@@ -1096,7 +1108,7 @@ describe('AutopilotHandler', () => {
       ).toContain('production confirmation declined');
     });
 
-    it('lets sandbox executions through and audits them via logOperation', async () => {
+    it('lets sandbox executions through once the guard has judged them', async () => {
       const guard = wireGuard({ allowed: true, requiresConfirmation: false });
       mockTargetOrgType('Sandbox');
       const orchestrator = createMockOrchestrator({
@@ -1106,8 +1118,8 @@ describe('AutopilotHandler', () => {
 
       await handler.handle(executeMsg());
 
-      expect(guard.logOperation).toHaveBeenCalledTimes(1);
-      expect(guard.logOperation.mock.calls[0][0]).toMatchObject({
+      expect(guard.check).toHaveBeenCalledTimes(1);
+      expect(guard.check.mock.calls[0][0]).toMatchObject({
         orgId: 'tgt',
         orgTier: 'development',
         module: 'autopilot',

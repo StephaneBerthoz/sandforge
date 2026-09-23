@@ -159,29 +159,88 @@ describe('AuthProvider', () => {
       expect(result.error).toContain('bridge not configured');
     });
 
-    it('should import orgs from sfdx bridge', async () => {
-      const mockBridge = createMockSfdxBridge({
-        listOrgs: vi.fn().mockResolvedValue([createTestImportResult()]),
+    it('answers an SFDX import with the session of the user asked for, not the first org the CLI lists', async () => {
+      const wanted = createTestImportResult();
+      const listedFirst: SfdxImportResult = {
+        org: { ...wanted.org, id: '00D0', orgId: '00D0', alias: 'alpha', username: 'a@test.com' },
+        credentials: { ...wanted.credentials, accessToken: 'token-of-another-org' },
+      };
+      const findOrg = vi.fn().mockResolvedValue(wanted);
+      provider.setSfdxBridge(
+        createMockSfdxBridge({
+          listOrgs: vi.fn().mockResolvedValue([listedFirst, wanted]),
+          findOrg,
+        }),
+      );
+
+      const result = await provider.authenticate(
+        createCredentials({ method: 'sfdx_import', username: 'admin@test.com' }),
+      );
+
+      expect(result).toEqual({
+        success: true,
+        accessToken: 'sfdx-token-1',
+        instanceUrl: 'https://test.my.salesforce.com',
+        orgId: '00D1',
       });
-      provider.setSfdxBridge(mockBridge);
-
-      const result = await provider.authenticate(createCredentials({ method: 'sfdx_import' }));
-
-      expect(result.success).toBe(true);
-      expect(result.orgId).toBe('00D1');
-      expect(result.accessToken).toBe('sfdx-token-1');
+      expect(findOrg).toHaveBeenCalledWith('admin@test.com');
     });
 
-    it('should return error when sfdx has no connected orgs', async () => {
-      const mockBridge = createMockSfdxBridge({
-        listOrgs: vi.fn().mockResolvedValue([]),
-      });
-      provider.setSfdxBridge(mockBridge);
+    it('refuses an SFDX import that names no username', async () => {
+      const findOrg = vi.fn();
+      provider.setSfdxBridge(
+        createMockSfdxBridge({
+          listOrgs: vi.fn().mockResolvedValue([createTestImportResult()]),
+          findOrg,
+        }),
+      );
 
       const result = await provider.authenticate(createCredentials({ method: 'sfdx_import' }));
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('No connected orgs');
+      expect(result).toEqual({
+        success: false,
+        error: 'An SFDX import needs the username of the org to import',
+      });
+      expect(findOrg).not.toHaveBeenCalled();
+    });
+
+    it('says so when the CLI holds no connected org for the username', async () => {
+      provider.setSfdxBridge(
+        createMockSfdxBridge({ findOrg: vi.fn().mockResolvedValue(undefined) }),
+      );
+
+      const result = await provider.authenticate(
+        createCredentials({ method: 'sfdx_import', username: 'admin@test.com' }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: 'No connected org for admin@test.com found in SF CLI',
+      });
+    });
+
+    it('passes on why the CLI gave no access token for the username', async () => {
+      provider.setSfdxBridge(
+        createMockSfdxBridge({
+          findOrg: vi
+            .fn()
+            .mockRejectedValue(
+              new Error(
+                'The Salesforce CLI gave no access token for admin@test.com: sf did not answer within 30 s — check the Salesforce CLI',
+              ),
+            ),
+        }),
+      );
+
+      const result = await provider.authenticate(
+        createCredentials({ method: 'sfdx_import', username: 'admin@test.com' }),
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error:
+          'SFDX import failed: The Salesforce CLI gave no access token for admin@test.com: sf did not answer within 30 s — check the Salesforce CLI',
+      });
     });
   });
 
