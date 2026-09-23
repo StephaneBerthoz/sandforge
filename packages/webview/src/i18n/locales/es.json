@@ -2989,6 +2989,8 @@
     "includeObject": "Incluir {{object}} en el clon",
     "recordCountFor": "Número de registros para {{object}}",
     "batchSizeFor": "Tamaño de lote para {{object}}",
+    "fieldRuleFor": "Regla de generación para {{field}}",
+    "fieldRuleValueFor": "{{rule}} para {{field}}",
     "runProgress": "Progreso de {{name}}",
     "progressAnnouncement": "Progreso de {{name}}: {{percent}} %",
     "orgDropdownValue": "{{label}}: {{org}}, estado: {{status}}",

@@ -144,6 +144,10 @@ const ObjectPanel: React.FC<{
         <div className="flex flex-col gap-2 px-3 pb-3">
           {/* Field rows */}
           {obj.fields.map((field) => {
+            // The field's name sits beside its controls, in no label: each is
+            // named after it, or every row read "combo box" and nothing more.
+            const rule = ruleOptions.find((o) => o.value === field.ruleType)?.label ?? '';
+            const valueLabel = t('a11y.fieldRuleValueFor', { rule, field: field.label });
             return (
               <div
                 key={field.fieldApiName}
@@ -156,6 +160,7 @@ const ObjectPanel: React.FC<{
                 </div>
                 <span className="w-16 text-[var(--sf-text-secondary)] truncate">{field.type}</span>
                 <Select
+                  aria-label={t('a11y.fieldRuleFor', { field: field.label })}
                   options={ruleOptionsFor(field, ruleOptions)}
                   value={field.ruleType}
                   onChange={(e) =>
@@ -171,6 +176,7 @@ const ObjectPanel: React.FC<{
                 {/* Contextual config inputs */}
                 {field.ruleType === 'static' && (
                   <Input
+                    aria-label={valueLabel}
                     placeholder={t('seed.fieldRules.static')}
                     value={String(field.config['staticValue'] ?? '')}
                     onChange={(e) =>
@@ -186,6 +192,7 @@ const ObjectPanel: React.FC<{
                 )}
                 {field.ruleType === 'faker' && (
                   <Select
+                    aria-label={valueLabel}
                     {...fakerMethodSelection(field.config['fakerMethod'])}
                     placeholder={t('seed.fieldRules.faker')}
                     onChange={(e) =>
@@ -201,6 +208,7 @@ const ObjectPanel: React.FC<{
                 )}
                 {field.ruleType === 'sequence' && (
                   <Input
+                    aria-label={valueLabel}
                     placeholder={t('seed.sequencePattern', 'PREFIX-{n}')}
                     value={String(field.config['sequencePrefix'] ?? '')}
                     onChange={(e) =>
@@ -216,6 +224,7 @@ const ObjectPanel: React.FC<{
                 )}
                 {field.ruleType === 'regex' && (
                   <Input
+                    aria-label={valueLabel}
                     placeholder={t('seed.regexPlaceholder', '[A-Z]{3}-\\d{4}')}
                     value={String(field.config['regexPattern'] ?? '')}
                     onChange={(e) =>
@@ -231,6 +240,7 @@ const ObjectPanel: React.FC<{
                 )}
                 {field.ruleType === 'ai_generate' && (
                   <Input
+                    aria-label={valueLabel}
                     placeholder={t('seed.aiPromptPlaceholder', 'Generate...')}
                     value={String(field.config['aiPrompt'] ?? '')}
                     onChange={(e) =>
@@ -246,6 +256,7 @@ const ObjectPanel: React.FC<{
                 )}
                 {field.ruleType === 'from_csv' && (
                   <Input
+                    aria-label={valueLabel}
                     placeholder={t('seed.csvColumnPlaceholder', 'column_name')}
                     value={String(field.config['csvColumn'] ?? '')}
                     onChange={(e) =>

@@ -146,6 +146,19 @@ describe('Step3ConfigureFields', () => {
     expect(screen.getByTestId('step-configure-fields')).toBeDefined();
   });
 
+  it('names each control of a field row after its field', () => {
+    render(
+      <Step3ConfigureFields
+        objectConfigs={configs}
+        onChangeRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: 'Generation rule for Name' })).toBeDefined();
+    expect(screen.getByRole('combobox', { name: 'Faker for Name' })).toBeDefined();
+    expect(screen.getByRole('combobox', { name: 'Generation rule for Industry' })).toBeDefined();
+  });
+
   it('should render object headers', () => {
     render(
       <Step3ConfigureFields

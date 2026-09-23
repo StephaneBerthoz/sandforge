@@ -2861,6 +2861,8 @@
     "includeObject": "{{object}} をクローンに含める",
     "recordCountFor": "{{object}} のレコード件数",
     "batchSizeFor": "{{object}} のバッチサイズ",
+    "fieldRuleFor": "{{field}} の生成ルール",
+    "fieldRuleValueFor": "{{field}} の{{rule}}",
     "runProgress": "{{name}} の進捗",
     "progressAnnouncement": "{{name}} の進捗: {{percent}}%",
     "orgDropdownValue": "{{label}}: {{org}}、状態: {{status}}",

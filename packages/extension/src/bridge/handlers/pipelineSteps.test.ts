@@ -242,7 +242,7 @@ describe('registerPipelineSteps', () => {
         expect.any(AbortSignal),
       );
       expect(result.summary).toBe(
-        'Compared 1 component type of uat with dev: 2 added, 1 removed, 3 modified, 5 unchanged, 1 not compared.',
+        'Compared 1 component type of uat with dev: 1 only in uat, 2 only in dev, 3 modified, 5 unchanged, 1 not compared.',
       );
       expect(result.output).not.toHaveProperty('diffs');
       expect(result.output).toMatchObject({ summary: { modified: 3 } });

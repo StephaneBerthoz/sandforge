@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { MotionProvider } from '../../motion/MotionProvider';
 import { Wizard } from './Wizard';
 import type { WizardStep } from './Wizard';
 
@@ -212,5 +213,28 @@ describe('Wizard', () => {
     // step alpha has descriptionKey, step beta does not
     const alphaButton = screen.getByTestId('wizard-step-alpha');
     expect(alphaButton.querySelectorAll('span').length).toBeGreaterThan(2);
+  });
+
+  it('never draws the next step beside the one leaving', async () => {
+    // The step that leaves stays in the page while it fades out. Drawn beside
+    // it, the next step doubled every control the two share: a click could
+    // land on the leaving step, and Seed's relation editor was on screen twice.
+    const { rerender } = render(
+      <MotionProvider>
+        <Wizard steps={steps} currentStep={0} onStepChange={vi.fn()}>
+          <button data-testid="alpha-action">Alpha</button>
+        </Wizard>
+      </MotionProvider>,
+    );
+    rerender(
+      <MotionProvider>
+        <Wizard steps={steps} currentStep={1} onStepChange={vi.fn()}>
+          <button data-testid="beta-action">Beta</button>
+        </Wizard>
+      </MotionProvider>,
+    );
+    expect(screen.queryByTestId('beta-action')).toBeNull();
+    await screen.findByTestId('beta-action');
+    expect(screen.queryByTestId('alpha-action')).toBeNull();
   });
 });

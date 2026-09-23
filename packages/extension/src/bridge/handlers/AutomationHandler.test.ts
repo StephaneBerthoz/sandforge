@@ -793,7 +793,7 @@ describe('AutomationHandler', () => {
         expect.objectContaining({
           stepName: 'Diff',
           summary:
-            'Compared 1 component type of uat with dev: 1 added, 0 removed, 1 modified, 1 unchanged, 0 not compared.',
+            'Compared 1 component type of uat with dev: 0 only in uat, 1 only in dev, 1 modified, 1 unchanged, 0 not compared.',
         }),
         expect.objectContaining({
           stepName: 'Limits',

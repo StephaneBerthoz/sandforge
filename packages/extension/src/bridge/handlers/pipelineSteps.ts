@@ -329,6 +329,9 @@ function compareHandler(runners: PipelineStepRunners): StepHandler {
     const target = runners.orgName(targetOrgId) ?? targetOrgId;
     // The counts only: every diff of a large org is the Compare page's to
     // show, and a history entry that carried them would grow without bound.
+    // They are named by the org that holds them, as the Compare page names
+    // them: DiffEngine's `added` is a component only the target holds, which
+    // "added" read as one the run had created.
     return completed(
       step,
       startTime,
@@ -340,8 +343,8 @@ function compareHandler(runners: PipelineStepRunners): StepHandler {
         content: result.content,
       },
       `Compared ${counted(types.length, 'component type')} of ${source} with ${target}: ` +
-        `${added} added, ${removed} removed, ${modified} modified, ${unchanged} unchanged, ` +
-        `${notCompared} not compared.`,
+        `${removed} only in ${source}, ${added} only in ${target}, ${modified} modified, ` +
+        `${unchanged} unchanged, ${notCompared} not compared.`,
     );
   };
 }
