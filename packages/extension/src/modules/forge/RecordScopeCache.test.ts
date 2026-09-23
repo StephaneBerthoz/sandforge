@@ -60,6 +60,41 @@ describe('RecordScopeCache', () => {
     expect(cache.has('Account')).toBe(false);
   });
 
+  it('scopes an object still to be read by every id cached for it', () => {
+    const cache = new RecordScopeCache();
+    cache.add('Contact', ['003A']);
+    cache.add('Contact', ['003B']);
+    expect([...(cache.scopeOf('Contact') ?? [])]).toEqual(['003A', '003B']);
+    expect(cache.scopeOf('Account')).toBeUndefined();
+  });
+
+  it('keeps an id met after the object was read, and leaves it out of its scope', () => {
+    const cache = new RecordScopeCache();
+    cache.add('Account', ['001ROOT']);
+    cache.addRead('Account', ['001ROOT', '001READ']);
+    // Named by a row read afterwards: nothing will read it now.
+    cache.add('Account', ['001PARENT']);
+    expect([...(cache.get('Account') ?? [])]).toEqual(['001ROOT', '001READ', '001PARENT']);
+    expect([...(cache.scopeOf('Account') ?? [])]).toEqual(['001ROOT', '001READ']);
+  });
+
+  it('keeps in scope an id cached before the read, whether the read returned it or not', () => {
+    // The standard price book is put in scope before anything is read, and
+    // left out of the rows of the price book read.
+    const cache = new RecordScopeCache();
+    cache.add('Pricebook2', ['01sSTANDARD']);
+    cache.addRead('Pricebook2', ['01sCUSTOM']);
+    expect([...(cache.scopeOf('Pricebook2') ?? [])]).toEqual(['01sSTANDARD', '01sCUSTOM']);
+  });
+
+  it('forgets what was read on clear', () => {
+    const cache = new RecordScopeCache();
+    cache.addRead('Account', ['001A']);
+    cache.clear();
+    cache.add('Account', ['001B']);
+    expect([...(cache.scopeOf('Account') ?? [])]).toEqual(['001B']);
+  });
+
   it('exposes entries iterator', () => {
     const cache = new RecordScopeCache();
     cache.add('Account', ['001A']);

@@ -13,6 +13,7 @@ import {
 } from './FrozenDatasetExtractor.js';
 import { InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
 import { to18 } from './salesforceId.js';
+import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 const tmpDirs: string[] = [];
 
@@ -652,5 +653,48 @@ describe('FrozenDatasetExtractor — the dossier edge and the catalog', () => {
     const lineRead = queries.find((q) => q.includes('FROM Line__c'));
     expect(lineRead).toContain('AND (AccountId IN (');
     expect(lineRead).not.toContain('PricebookEntryId IN');
+  });
+});
+
+describe('FrozenDatasetExtractor — a required lookup at an object it never reads', () => {
+  it('keeps the contacts of a root account whoever owns or created them', async () => {
+    // `OwnerId` and `CreatedById` are required lookups at a User, which the
+    // extraction never reads. Held to the users the root account named, a
+    // contact of anyone else was left out of the dataset.
+    const dir = makeTmpDir();
+    const FIRST_USER = to18('005A00000000us1');
+    const SECOND_USER = to18('005A00000000us2');
+    const tables: Record<string, FakeRow[]> = {
+      Account: [{ Id: ACCOUNT_A, OwnerId: FIRST_USER, CreatedById: FIRST_USER }],
+      Contact: [
+        { Id: CONTACT_1, AccountId: ACCOUNT_A, OwnerId: FIRST_USER, CreatedById: FIRST_USER },
+        { Id: CONTACT_2, AccountId: ACCOUNT_A, OwnerId: SECOND_USER, CreatedById: SECOND_USER },
+      ],
+    };
+    const user = (name: string): ScopableField => ({
+      name,
+      type: 'reference',
+      referenceTo: ['User'],
+      nillable: false,
+    });
+    const extractor = new FrozenDatasetExtractor({
+      query: async (soql) => (soql.includes('FROM RecordType') ? [] : selectRows(tables, soql)),
+      describeFields: async (objectApiName) => [
+        { name: 'Id', type: 'id', referenceTo: [] },
+        ...(objectApiName === 'Contact'
+          ? [{ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }]
+          : []),
+        user('OwnerId'),
+        user('CreatedById'),
+      ],
+    });
+
+    const dataset = await extractor.extract({
+      ...makeOptions(dir, []),
+      rootRecordIds: [ACCOUNT_A],
+    });
+
+    const contacts = dataset.objects.find((o) => o.objectApiName === 'Contact')?.records;
+    expect(contacts?.map((r) => r.sourceId)).toEqual([CONTACT_1, CONTACT_2]);
   });
 });

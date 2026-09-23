@@ -28,6 +28,12 @@ export type ScopeKind =
   | 'self-cached'
   /** Scoped via foreign-key fields pointing to cached parents. */
   | 'parent-fk'
+  /**
+   * Both of the above, when the build asks for every edge: the IDs cached
+   * for this object, then its rows whose foreign key points at a cached
+   * parent.
+   */
+  | 'self-and-parent-fk'
   /** No scoping possible — the query was rewritten to return zero rows. */
   | 'unscoped';
 
@@ -76,6 +82,18 @@ export interface ScopedSoqlBuildOpts {
    * Caller is responsible for length-bounding via Zod (see schema).
    */
   extraWhere?: string;
+  /**
+   * Read an object that has IDs cached through every edge that reaches it:
+   * the rows those IDs name, and its rows under a cached parent. Left off, the
+   * cached IDs alone decide the read and its foreign keys are not consulted.
+   */
+  everyEdge?: boolean;
+  /**
+   * The objects whose records this run reads, or otherwise holds a target
+   * record for: the included nodes of its graph. Only a required lookup at
+   * one of them narrows a read. Left off, none does.
+   */
+  readObjects?: ReadonlySet<string>;
 }
 
 /**
@@ -98,6 +116,10 @@ const ZERO_RESULT_WHERE = 'Id = NULL';
  *   3. **parent-fk**   — the node has at least one reference field pointing
  *                        at a parent whose IDs are in the cache → `WHERE
  *                        FK1 IN (...) OR FK2 IN (...)`.
+ *
+ * With `everyEdge`, 2 and 3 are not alternatives: a node with cached IDs is
+ * read through its reference fields as well, and the statements of both come
+ * back, those by ID first.
  *
  * If none of the above applies, the query is rewritten to return zero rows
  * (`Id = NULL`) and the result is flagged `scoped: false` so the executor
@@ -136,19 +158,24 @@ export class ScopedSoqlBuilder {
     }
 
     const ownIds = opts.cache.get(opts.node.objectApiName);
-    if (ownIds && ownIds.size > 0) {
-      return {
-        statements: packInClauses(
-          { prefix, suffix: extraSuffix, wrap: false, objectApiName: opts.node.objectApiName },
-          [{ field: 'Id', ids: ownIds }],
-        ),
-        scoped: true,
-        scope: 'self-cached',
-        reason: `${ownIds.size} ID(s) cached from earlier wave${reasonSuffix}`,
-        parentObjectsUsed: [],
-        scopeIdCount: ownIds.size,
-      };
-    }
+    const ownCount = ownIds?.size ?? 0;
+    const ownStatements =
+      ownIds && ownCount > 0
+        ? packInClauses(
+            { prefix, suffix: extraSuffix, wrap: false, objectApiName: opts.node.objectApiName },
+            [{ field: 'Id', ids: ownIds }],
+          )
+        : [];
+    const ownReason = `${ownCount} ID(s) cached from earlier wave`;
+    const selfCached: ScopedSoqlResult = {
+      statements: ownStatements,
+      scoped: true,
+      scope: 'self-cached',
+      reason: `${ownReason}${reasonSuffix}`,
+      parentObjectsUsed: [],
+      scopeIdCount: ownCount,
+    };
+    if (ownCount > 0 && !opts.everyEdge) return selfCached;
 
     const fkClauses: InClause[] = [];
     const parentObjectsUsed: string[] = [];
@@ -156,7 +183,14 @@ export class ScopedSoqlBuilder {
 
     for (const edge of opts.edges) {
       if (edge.targetObject !== opts.node.objectApiName) continue;
-      const parentIds = opts.cache.get(edge.sourceObject);
+      // A lookup from an object to itself (`ParentId`, `ReportsToId`) brings
+      // nothing: discovery keeps no such edge, and read under this node's own
+      // cached IDs it would take one level of a hierarchy — a key contact's
+      // reports, and not theirs.
+      if (edge.sourceObject === edge.targetObject) continue;
+      // The parent's scope, not every ID met for it: one met after the parent
+      // was read names a row no read fetches, and its children are not ours.
+      const parentIds = opts.cache.scopeOf(edge.sourceObject);
       if (!parentIds || parentIds.size === 0) continue;
 
       const fkFields = opts.fields.filter(
@@ -184,17 +218,26 @@ export class ScopedSoqlBuilder {
      * carried all the way to the insert and refused there.
      *
      * So each lookup the platform will not let the row omit, whose target
-     * this run has actually read, is required to land inside what was read.
+     * this run reads, is required to land inside what the run has of it.
      * A target with nothing cached is left alone: there is nothing to
      * restrict against, and an empty IN list would select no rows at all.
-     * Only this branch is narrowed — the root must be read whatever it points
-     * at, and self-cached ids already came from a row that was read.
+     * Only the rows found through a parent are narrowed — the root must be
+     * read whatever it points at, and cached ids came from a row that was
+     * read, which needs the row they name whatever that row points at.
+     *
+     * A target the run never reads says nothing about which rows belong to
+     * the clone, even though every lookup at it caches the ids it meets.
+     * `OwnerId`, `CreatedById` and `LastModifiedById` are required lookups at
+     * a `User`: held to the users the rows read before happened to name, a
+     * contact created by anyone else was left out of the clone, without an
+     * error.
      */
     const requiredTerms: string[] = [];
     for (const field of opts.fields) {
       if (field.type !== 'reference' || field.nillable !== false) continue;
       const ids = new Set<string>();
       for (const target of field.referenceTo) {
+        if (!opts.readObjects?.has(target)) continue;
         const cached = opts.cache.get(target);
         if (cached) for (const id of cached) ids.add(id);
       }
@@ -207,6 +250,7 @@ export class ScopedSoqlBuilder {
     const requiredReason = requiredTerms.length > 0 ? ' + required parents in scope' : '';
 
     if (fkClauses.length === 0) {
+      if (ownCount > 0) return selfCached;
       return {
         statements: [`${prefix}${ZERO_RESULT_WHERE}`],
         scoped: false,
@@ -220,21 +264,49 @@ export class ScopedSoqlBuilder {
     // Wrap fk clauses in parens only when an extraWhere is appended, so
     // existing callers / snapshot tests aren't broken by gratuitous
     // parens. The extraWhere itself is always wrapped on its own.
+    const fkStatements = packInClauses(
+      {
+        prefix,
+        suffix: scopedSuffix,
+        wrap: scopedSuffix !== '',
+        objectApiName: opts.node.objectApiName,
+      },
+      fkClauses,
+    );
+    const viaReason = `via ${parentObjectsUsed.join(', ')}${reasonSuffix}${requiredReason}`;
+    if (ownCount === 0) {
+      return {
+        statements: fkStatements,
+        scoped: true,
+        scope: 'parent-fk',
+        reason: viaReason,
+        parentObjectsUsed,
+        scopeIdCount: totalScopeIds,
+      };
+    }
+
+    /**
+     * An object reached both ways is read both ways.
+     *
+     * Its cached ids are the rows something already read points at; its
+     * foreign keys find its rows under the parents in scope. Either alone
+     * misses rows: an account's lookup to a contact made Contact a cached
+     * object, and run against a sandbox the clone took the one contact the
+     * account named and left out its sibling, whose `AccountId` was the root.
+     *
+     * Kept as two sets of statements rather than one OR: the rows named by id
+     * are not narrowed to the required parents in scope, and under a
+     * per-object cap they are read first, so the rows already read find what
+     * they point at. A row both sets return is kept once — the caller merges
+     * the statements by `Id`.
+     */
     return {
-      statements: packInClauses(
-        {
-          prefix,
-          suffix: scopedSuffix,
-          wrap: scopedSuffix !== '',
-          objectApiName: opts.node.objectApiName,
-        },
-        fkClauses,
-      ),
+      statements: [...ownStatements, ...fkStatements],
       scoped: true,
-      scope: 'parent-fk',
-      reason: `via ${parentObjectsUsed.join(', ')}${reasonSuffix}${requiredReason}`,
+      scope: 'self-and-parent-fk',
+      reason: `${ownReason}, and ${viaReason}`,
       parentObjectsUsed,
-      scopeIdCount: totalScopeIds,
+      scopeIdCount: ownCount + totalScopeIds,
     };
   }
 

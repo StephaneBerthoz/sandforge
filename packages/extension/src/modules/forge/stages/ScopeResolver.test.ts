@@ -317,6 +317,74 @@ describe('buildNodeQuery', () => {
     for (const soql of result.statements) expect(soql.endsWith(' LIMIT 25')).toBe(true);
     expect(result.limit).toBe(25);
   });
+
+  it('reads a node through every edge that reaches it in scoped mode', () => {
+    // The root account names one contact through a lookup; its other
+    // contacts are found through their `AccountId`.
+    const cache = new RecordScopeCache();
+    cache.addRead('Account', ['001000000000001AAA']);
+    cache.add('Contact', ['003000000000001AAA']);
+    const result = buildNodeQuery({
+      node: makeNode('Contact'),
+      edges: [LOOKUP_EDGE],
+      fieldInfos: [
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        {
+          name: 'AccountId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+        },
+      ],
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Account',
+      rootRecordId: '001000000000001AAA',
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        "SELECT Id, AccountId FROM Contact WHERE Id IN ('003000000000001AAA')",
+        "SELECT Id, AccountId FROM Contact WHERE AccountId IN ('001000000000001AAA')",
+      ],
+    });
+  });
+
+  it('holds a scoped read to the required parents of the objects the run reads, and no others', () => {
+    const cache = new RecordScopeCache();
+    cache.addRead('Account', ['001000000000001AAA']);
+    cache.add('User', ['005000000000001AAA']);
+    const requiredLookup = (name: string, target: string): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: [target],
+      nillable: false,
+    });
+    const result = buildNodeQuery({
+      node: makeNode('AccountContactRelation'),
+      edges: [{ ...LOOKUP_EDGE, targetObject: 'AccountContactRelation' }],
+      fieldInfos: [
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        requiredLookup('AccountId', 'Account'),
+        requiredLookup('CreatedById', 'User'),
+      ],
+      scopedBuilder: new ScopedSoqlBuilder(),
+      scopeCache: cache,
+      rootObjectApiName: 'Account',
+      rootRecordId: '001000000000001AAA',
+      readObjects: new Set(['Account', 'AccountContactRelation']),
+    });
+    expect(result).toEqual({
+      kind: 'query',
+      statements: [
+        'SELECT Id, AccountId, CreatedById FROM AccountContactRelation ' +
+          "WHERE (AccountId IN ('001000000000001AAA')) AND (AccountId IN ('001000000000001AAA'))",
+      ],
+    });
+  });
 });
 
 describe('queryNodeRecords', () => {
@@ -391,5 +459,23 @@ describe('seedOwnIds / seedScopeCache', () => {
     expect([...(cache.get('Account') ?? [])].sort()).toEqual(['001A', '006O']);
     expect([...(cache.get('Opportunity') ?? [])]).toEqual(['006O']);
     expect(cache.has('NoTarget__c')).toBe(false);
+  });
+
+  it('settles the scope of the object it read: its self-lookup names a row kept out of scope', () => {
+    const cache = new RecordScopeCache();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account'],
+      },
+    ];
+    seedScopeCache(cache, 'Account', [{ Id: '001A', ParentId: '001P' }], fields);
+
+    expect([...(cache.get('Account') ?? [])]).toEqual(['001A', '001P']);
+    expect([...(cache.scopeOf('Account') ?? [])]).toEqual(['001A']);
   });
 });

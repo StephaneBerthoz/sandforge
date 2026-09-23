@@ -92,6 +92,11 @@ export interface NodeQueryInput {
   extraWhere?: string;
   /** Per-object hard cap appended as `LIMIT N` when > 0. */
   maxRecordsPerObject?: number;
+  /**
+   * Objects the run reads or maps (scoped mode): only a required lookup at
+   * one of them narrows a read. See `ScopedSoqlBuildOpts.readObjects`.
+   */
+  readObjects?: ReadonlySet<string>;
 }
 
 /** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
@@ -144,6 +149,12 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
       rootObjectApiName: input.rootObjectApiName,
       rootRecordId: input.rootRecordId,
       extraWhere: input.extraWhere,
+      // An object is read once, so its read has to take what every edge
+      // brings to it: the rows already read point at, and its rows under a
+      // parent in scope. A clone of an account whose lookup names one of its
+      // contacts read that contact and none of the others.
+      everyEdge: true,
+      readObjects: input.readObjects,
     });
     if (!scopeResult.scoped) {
       return { kind: 'skip', reason: scopeResult.reason };
@@ -207,6 +218,10 @@ export async function queryNodeRecords(
  * Register a node's own record IDs in the scope cache. Used by every
  * branch that queried source records — including the reference-data and
  * dry-run branches — so FK propagation keeps working downstream.
+ *
+ * The node's read is done, so its scope is settled here: an ID of this
+ * object met later — through the node's own self-lookup, or a lookup of a
+ * row read after it — no longer puts its children in scope.
  */
 export function seedOwnIds(
   scopeCache: RecordScopeCache,
@@ -218,7 +233,7 @@ export function seedOwnIds(
     const id = rec['Id'];
     if (typeof id === 'string' && id) ownIds.push(id);
   }
-  scopeCache.add(objectApiName, ownIds);
+  scopeCache.addRead(objectApiName, ownIds);
 }
 
 /**

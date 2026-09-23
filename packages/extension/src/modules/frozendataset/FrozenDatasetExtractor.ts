@@ -182,6 +182,11 @@ export class FrozenDatasetExtractor {
     const nodes = [...options.graph.nodes]
       .filter((n) => n.included)
       .sort((a, b) => a.level - b.level);
+    // A required lookup holds a row to the dossier only through an object the
+    // extraction reads. The user of `OwnerId` or `CreatedById` is never read:
+    // held to the users earlier rows named, a contact created by anyone else
+    // was left out of the dataset.
+    const readObjects = new Set(nodes.map((n) => n.objectApiName));
 
     const recordsByObject = new Map<string, Map<string, Record<string, unknown>>>();
 
@@ -230,6 +235,7 @@ export class FrozenDatasetExtractor {
         rootObjectApiName: `__frozen_root_${options.rootObject}__`,
         rootRecordId: options.rootRecordIds[0],
         extraWhere: hasCreatedDate ? asOfWhere : undefined,
+        readObjects,
       });
       if (!built.scoped) {
         // Unscoped node (no path to the root) — nothing to pull.

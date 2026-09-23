@@ -4,6 +4,7 @@ import { partialSummaryOf } from './interruptedRun.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { logger } from '../../logger.js';
+import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -1041,6 +1042,462 @@ describe('ForgeExecutor', () => {
       const accountIndex = queryCalls.findIndex((s) => s.includes('FROM Account'));
       expect(caseIndex).toBeGreaterThanOrEqual(0);
       expect(caseIndex).toBeLessThan(accountIndex >= 0 ? accountIndex : Infinity);
+    });
+  });
+
+  describe('record-scoped mode, read from a fake source org', () => {
+    const idField: FieldInfo = {
+      name: 'Id',
+      queryable: true,
+      createable: false,
+      isReference: false,
+    };
+    const text = (name: string): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      isReference: false,
+    });
+    const lookup = (name: string, target: string, required = false): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      isReference: true,
+      referenceTo: [target],
+      nillable: !required,
+    });
+    const edge = (sourceObject: string, targetObject: string): ForgeGraphEdge => ({
+      sourceObject,
+      targetObject,
+      relationshipName: `${sourceObject}To${targetObject}`,
+      type: 'lookup',
+    });
+
+    /**
+     * A source org holding `tables`, and a target that names each record it
+     * creates after the row's name: the contact named Key becomes
+     * `Contact:Key`. What the target was sent is kept per object.
+     */
+    function fakeOrgs(tables: Record<string, FakeRow[]>, fields: Record<string, FieldInfo[]>) {
+      const inserted: Record<string, Array<Record<string, unknown>>> = {};
+      const updated: Array<{ object: string; rows: Array<Record<string, unknown>> }> = [];
+      let unnamed = 0;
+      const orgDeps: ForgeExecutorDeps = {
+        describeFields: async (_org, object) => fields[object] ?? [idField],
+        queryRecords: async (_org, soql) => selectRows(tables, soql),
+        insertRecords: async (_org, object, rows) => {
+          (inserted[object] ??= []).push(...rows);
+          return rows.map((row) => ({
+            id: `${object}:${String(row['Name'] ?? row['LastName'] ?? ++unnamed)}`,
+            success: true,
+            errors: [],
+          }));
+        },
+        updateRecords: async (_org, object, rows) => {
+          updated.push({ object, rows });
+          return rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] }));
+        },
+      };
+      return { orgDeps, inserted, updated };
+    }
+
+    const ACCOUNT = '001000000000001AAA';
+    const KEY_CONTACT = '003000000000001AAA';
+    const OTHER_CONTACT = '003000000000002AAA';
+    const ELSEWHERE_ACCOUNT = '001000000000009AAA';
+    const ELSEWHERE_CONTACT = '003000000000009AAA';
+
+    describe('an object several edges of the graph reach', () => {
+      it('clones every contact of the root account, the key contact once, when the account names one', async () => {
+        // Account carries a lookup to Contact, so Contact is a child of the root
+        // account and a parent of it at once: a cycle. Run against a sandbox,
+        // the clone took the contact the account named and dropped its sibling,
+        // with no error — the rows the account pointed at were all Contact was
+        // read for, and the relations followed the contacts that were read.
+        const { orgDeps, inserted, updated } = fakeOrgs(
+          {
+            Account: [{ Id: ACCOUNT, Name: 'Root', Key_Contact__c: KEY_CONTACT }],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT },
+              { Id: OTHER_CONTACT, LastName: 'Other', AccountId: ACCOUNT },
+              { Id: ELSEWHERE_CONTACT, LastName: 'Elsewhere', AccountId: ELSEWHERE_ACCOUNT },
+            ],
+            AccountContactRelation: [
+              { Id: '07k000000000001AAA', AccountId: ACCOUNT, ContactId: KEY_CONTACT },
+              { Id: '07k000000000002AAA', AccountId: ACCOUNT, ContactId: OTHER_CONTACT },
+              {
+                Id: '07k000000000009AAA',
+                AccountId: ELSEWHERE_ACCOUNT,
+                ContactId: ELSEWHERE_CONTACT,
+              },
+            ],
+          },
+          {
+            Account: [idField, text('Name'), lookup('Key_Contact__c', 'Contact')],
+            Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+            AccountContactRelation: [
+              idField,
+              lookup('AccountId', 'Account', true),
+              lookup('ContactId', 'Contact', true),
+            ],
+          },
+        );
+        // The graph discovery builds around an account at depth "direct".
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Contact'), makeNode('AccountContactRelation')],
+          [
+            edge('Contact', 'Account'),
+            edge('Account', 'AccountContactRelation'),
+            edge('Account', 'Contact'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Key', 'Other']);
+        expect(inserted['AccountContactRelation'].map((r) => r['ContactId'])).toEqual([
+          'Contact:Key',
+          'Contact:Other',
+        ]);
+        // The lookup that closes the cycle is written once its contact exists.
+        expect(updated).toEqual([
+          { object: 'Account', rows: [{ Id: 'Account:Root', Key_Contact__c: 'Contact:Key' }] },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('reads the contact a root case names and the other contacts of the account it names', async () => {
+        // No cycle: Contact is a parent of the root case and a child of the
+        // case's account, two edges into the same object.
+        const CASE = '500000000000001AAA';
+        const CALLER = '003000000000003AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Case: [{ Id: CASE, Subject: 'Root', AccountId: ACCOUNT, ContactId: CALLER }],
+            Account: [{ Id: ACCOUNT, Name: 'Customer' }],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT },
+              { Id: OTHER_CONTACT, LastName: 'Other', AccountId: ACCOUNT },
+              { Id: CALLER, LastName: 'Caller', AccountId: ELSEWHERE_ACCOUNT },
+              { Id: ELSEWHERE_CONTACT, LastName: 'Elsewhere', AccountId: ELSEWHERE_ACCOUNT },
+            ],
+          },
+          {
+            Case: [
+              idField,
+              text('Subject'),
+              lookup('AccountId', 'Account'),
+              lookup('ContactId', 'Contact'),
+            ],
+            Account: [idField, text('Name')],
+            Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Case'), makeNode('Account'), makeNode('Contact')],
+          [edge('Account', 'Case'), edge('Contact', 'Case'), edge('Account', 'Contact')],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: CASE,
+          rootObjectApiName: 'Case',
+        });
+
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Caller', 'Key', 'Other']);
+      });
+
+      it("leaves out the root account's parent and its contacts, which only a self-lookup names", async () => {
+        // Discovery keeps no edge from an object to itself, so the account that
+        // `ParentId` names is never read. Counted in scope all the same, it
+        // would bring every contact under it, written with an account nothing
+        // created.
+        const PARENT_ACCOUNT = '001000000000002AAA';
+        const { orgDeps, inserted, updated } = fakeOrgs(
+          {
+            Account: [
+              { Id: ACCOUNT, Name: 'Root', ParentId: PARENT_ACCOUNT, Key_Contact__c: KEY_CONTACT },
+              { Id: PARENT_ACCOUNT, Name: 'Group', ParentId: null, Key_Contact__c: null },
+            ],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT, ReportsToId: null },
+              {
+                Id: OTHER_CONTACT,
+                LastName: 'Other',
+                AccountId: ACCOUNT,
+                ReportsToId: KEY_CONTACT,
+              },
+              {
+                Id: '003000000000008AAA',
+                LastName: 'Head office',
+                AccountId: PARENT_ACCOUNT,
+                ReportsToId: null,
+              },
+            ],
+          },
+          {
+            Account: [
+              idField,
+              text('Name'),
+              lookup('ParentId', 'Account'),
+              lookup('Key_Contact__c', 'Contact'),
+            ],
+            Contact: [
+              idField,
+              text('LastName'),
+              lookup('AccountId', 'Account'),
+              lookup('ReportsToId', 'Contact'),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Contact')],
+          [edge('Contact', 'Account'), edge('Account', 'Contact')],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Account'].map((r) => r['Name'])).toEqual(['Root']);
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Key', 'Other']);
+        // The contacts' own self-lookup is written once both of them exist.
+        expect(updated).toContainEqual({
+          object: 'Contact',
+          rows: [{ Id: 'Contact:Other', ReportsToId: 'Contact:Key' }],
+        });
+      });
+
+      it('reads a contact that either of two account lookups names once, with the account’s others', async () => {
+        const BILLING_CONTACT = '003000000000003AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Account: [
+              {
+                Id: ACCOUNT,
+                Name: 'Root',
+                Key_Contact__c: KEY_CONTACT,
+                Billing_Contact__c: BILLING_CONTACT,
+              },
+            ],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT },
+              { Id: OTHER_CONTACT, LastName: 'Other', AccountId: ACCOUNT },
+              { Id: BILLING_CONTACT, LastName: 'Billing', AccountId: ELSEWHERE_ACCOUNT },
+              { Id: ELSEWHERE_CONTACT, LastName: 'Elsewhere', AccountId: ELSEWHERE_ACCOUNT },
+            ],
+          },
+          {
+            Account: [
+              idField,
+              text('Name'),
+              lookup('Key_Contact__c', 'Contact'),
+              lookup('Billing_Contact__c', 'Contact'),
+            ],
+            Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Contact')],
+          [edge('Contact', 'Account'), edge('Account', 'Contact')],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Contact'].map((r) => r['LastName']).sort()).toEqual([
+          'Billing',
+          'Key',
+          'Other',
+        ]);
+      });
+
+      it('reads a contact through either of its two lookups to the root account', async () => {
+        const MOVED_CONTACT = '003000000000004AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Account: [{ Id: ACCOUNT, Name: 'Root', Key_Contact__c: KEY_CONTACT }],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT, Previous_Account__c: null },
+              {
+                Id: MOVED_CONTACT,
+                LastName: 'Moved',
+                AccountId: ELSEWHERE_ACCOUNT,
+                Previous_Account__c: ACCOUNT,
+              },
+              {
+                Id: ELSEWHERE_CONTACT,
+                LastName: 'Elsewhere',
+                AccountId: ELSEWHERE_ACCOUNT,
+                Previous_Account__c: null,
+              },
+            ],
+          },
+          {
+            Account: [idField, text('Name'), lookup('Key_Contact__c', 'Contact')],
+            Contact: [
+              idField,
+              text('LastName'),
+              lookup('AccountId', 'Account'),
+              lookup('Previous_Account__c', 'Account'),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Contact')],
+          [edge('Contact', 'Account'), edge('Account', 'Contact')],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Key', 'Moved']);
+      });
+    });
+
+    describe('a required lookup at an object the run does not read', () => {
+      const FIRST_USER = '005000000000001AAA';
+      const SECOND_USER = '005000000000002AAA';
+      /** The system lookups every record carries, all three required, all at a User. */
+      const auditFields: FieldInfo[] = [
+        lookup('OwnerId', 'User', true),
+        { ...lookup('CreatedById', 'User', true), createable: false },
+        { ...lookup('LastModifiedById', 'User', true), createable: false },
+      ];
+      const madeBy = (user: string): FakeRow => ({
+        OwnerId: user,
+        CreatedById: user,
+        LastModifiedById: user,
+      });
+
+      it('clones the contacts of the root account whoever owns, created or last changed them', async () => {
+        // A User is never read: every lookup at one caches the id it meets,
+        // and the required ones held each later read to the users the rows
+        // before had named. Run against a sandbox, a contact of another user
+        // would have been left out without an error.
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Account: [{ Id: ACCOUNT, Name: 'Root', ...madeBy(FIRST_USER) }],
+            Contact: [
+              { Id: KEY_CONTACT, LastName: 'Mine', AccountId: ACCOUNT, ...madeBy(FIRST_USER) },
+              { Id: OTHER_CONTACT, LastName: 'Theirs', AccountId: ACCOUNT, ...madeBy(SECOND_USER) },
+            ],
+            AccountContactRelation: [
+              {
+                Id: '07k000000000001AAA',
+                AccountId: ACCOUNT,
+                ContactId: KEY_CONTACT,
+                ...madeBy(FIRST_USER),
+              },
+              {
+                Id: '07k000000000002AAA',
+                AccountId: ACCOUNT,
+                ContactId: OTHER_CONTACT,
+                ...madeBy(SECOND_USER),
+              },
+              // The second contact's place at an account the run never reads:
+              // still held out, by the account, which is read.
+              {
+                Id: '07k000000000003AAA',
+                AccountId: ELSEWHERE_ACCOUNT,
+                ContactId: OTHER_CONTACT,
+                ...madeBy(SECOND_USER),
+              },
+            ],
+          },
+          {
+            Account: [idField, text('Name'), ...auditFields],
+            Contact: [idField, text('LastName'), lookup('AccountId', 'Account'), ...auditFields],
+            AccountContactRelation: [
+              idField,
+              lookup('AccountId', 'Account', true),
+              lookup('ContactId', 'Contact', true),
+              ...auditFields.slice(1),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Contact'), makeNode('AccountContactRelation')],
+          [
+            edge('Account', 'Contact'),
+            edge('Account', 'AccountContactRelation'),
+            edge('Contact', 'AccountContactRelation'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Mine', 'Theirs']);
+        expect(inserted['AccountContactRelation'].map((r) => r['ContactId'])).toEqual([
+          'Contact:Mine',
+          'Contact:Theirs',
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('holds price book entries to the standard book it matches, when the graph has no price book', async () => {
+        // The standard book is never read, only matched, and the entries in
+        // it can be written. A custom book outside the graph cannot be: its
+        // entries stay out, as they did while every cached id narrowed.
+        const PRODUCT = '01t000000000001AAA';
+        const STANDARD_BOOK = '01s000000000001AAA';
+        const CUSTOM_BOOK = '01s000000000002AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Product2: [{ Id: PRODUCT, Name: 'Widget' }],
+            Pricebook2: [
+              { Id: STANDARD_BOOK, IsStandard: true },
+              { Id: CUSTOM_BOOK, IsStandard: false },
+            ],
+            PricebookEntry: [
+              {
+                Id: '01u000000000001AAA',
+                Product2Id: PRODUCT,
+                Pricebook2Id: STANDARD_BOOK,
+                UnitPrice: '10',
+              },
+              {
+                Id: '01u000000000002AAA',
+                Product2Id: PRODUCT,
+                Pricebook2Id: CUSTOM_BOOK,
+                UnitPrice: '8',
+              },
+            ],
+          },
+          {
+            Product2: [idField, text('Name')],
+            PricebookEntry: [
+              idField,
+              lookup('Product2Id', 'Product2', true),
+              lookup('Pricebook2Id', 'Pricebook2', true),
+              text('UnitPrice'),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Product2'), makeNode('PricebookEntry')],
+          [edge('Product2', 'PricebookEntry')],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: PRODUCT,
+          rootObjectApiName: 'Product2',
+        });
+
+        expect(inserted['PricebookEntry']).toEqual([
+          { Product2Id: 'Product2:Widget', Pricebook2Id: STANDARD_BOOK, UnitPrice: '10' },
+        ]);
+      });
     });
   });
 

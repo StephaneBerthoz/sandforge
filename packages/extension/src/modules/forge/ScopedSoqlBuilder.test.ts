@@ -468,6 +468,182 @@ describe('ScopedSoqlBuilder', () => {
     });
   });
 
+  describe('every edge', () => {
+    const contactsOfAccount: ForgeGraphEdge = {
+      sourceObject: 'Account',
+      targetObject: 'Contact',
+      relationshipName: 'Contacts',
+      type: 'lookup',
+    };
+
+    /** A cache holding the root account and the contact its lookup names. */
+    function keyContactCache(): RecordScopeCache {
+      const cache = new RecordScopeCache();
+      cache.addRead('Account', ['001AAA']);
+      cache.add('Contact', ['003KEY']);
+      return cache;
+    }
+
+    it('reads an object rows already read point at by those ids, then under its cached parents', () => {
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id', 'AccountId'],
+        edges: [contactsOfAccount],
+        cache: keyContactCache(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        everyEdge: true,
+      });
+
+      expect(result.scoped).toBe(true);
+      expect(result.scope).toBe('self-and-parent-fk');
+      expect(result.statements).toEqual([
+        "SELECT Id, AccountId FROM Contact WHERE Id IN ('003KEY')",
+        "SELECT Id, AccountId FROM Contact WHERE AccountId IN ('001AAA')",
+      ]);
+      expect(result.parentObjectsUsed).toEqual(['Account']);
+      expect(result.scopeIdCount).toBe(2);
+    });
+
+    it('reads it by the cached ids alone when not asked for every edge', () => {
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache: keyContactCache(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+      });
+
+      expect(result.scope).toBe('self-cached');
+      expect(result.statements).toEqual(["SELECT Id FROM Contact WHERE Id IN ('003KEY')"]);
+    });
+
+    it('holds the rows found under a parent to the required parents in scope, not those named by id', () => {
+      // The contact the account names is needed whatever its region; a
+      // sibling found through `AccountId` is kept inside what was read.
+      const cache = keyContactCache();
+      cache.addRead('Region__c', ['a0R000000000001AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [
+          lookup('AccountId', 'Account'),
+          { name: 'Region__c', type: 'reference', referenceTo: ['Region__c'], nillable: false },
+        ],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        everyEdge: true,
+        readObjects: new Set(['Account', 'Contact', 'Region__c']),
+      });
+
+      expect(result.statements).toEqual([
+        "SELECT Id FROM Contact WHERE Id IN ('003KEY')",
+        "SELECT Id FROM Contact WHERE (AccountId IN ('001AAA')) AND (Region__c IN ('a0R000000000001AAA'))",
+      ]);
+    });
+
+    it('takes nothing from a lookup of the object to itself', () => {
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('ReportsToId', 'Contact')],
+        selectFields: ['Id'],
+        edges: [
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Contact',
+            relationshipName: 'ReportsTo',
+            type: 'lookup',
+          },
+        ],
+        cache: keyContactCache(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        everyEdge: true,
+      });
+
+      expect(result.scope).toBe('self-cached');
+      expect(result.statements).toEqual(["SELECT Id FROM Contact WHERE Id IN ('003KEY')"]);
+    });
+
+    it('reads a child under the ids its parent held when read, not under ids met for it since', () => {
+      // The root account's `ParentId` names an account no read will fetch.
+      const cache = new RecordScopeCache();
+      cache.addRead('Account', ['001AAA']);
+      cache.add('Account', ['001PARENT']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        everyEdge: true,
+      });
+
+      expect(result.statements).toEqual(["SELECT Id FROM Contact WHERE AccountId IN ('001AAA')"]);
+    });
+
+    it('carries the extra filter on the reads by id and under parents alike', () => {
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache: keyContactCache(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        extraWhere: "Status__c = 'Open'",
+        everyEdge: true,
+      });
+
+      expect(result.statements).toEqual([
+        "SELECT Id FROM Contact WHERE Id IN ('003KEY') AND (Status__c = 'Open')",
+        "SELECT Id FROM Contact WHERE (AccountId IN ('001AAA')) AND (Status__c = 'Open')",
+      ]);
+    });
+
+    it('lays both reads under the URI limit and asks for every id once', () => {
+      const ids = (prefix: string, count: number): string[] =>
+        Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(15, '0')}`);
+      const contactIds = ids('003', 1300);
+      const accountIds = ids('001', 600);
+      const cache = new RecordScopeCache();
+      cache.addRead('Account', accountIds);
+      cache.add('Contact', contactIds);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [lookup('AccountId', 'Account')],
+        selectFields: ['Id', 'AccountId'],
+        edges: [contactsOfAccount],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+        everyEdge: true,
+      });
+
+      for (const soql of result.statements) {
+        expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+      }
+      const byId = result.statements.filter((soql) => soql.includes(' WHERE Id IN ('));
+      const underParent = result.statements.filter((soql) =>
+        soql.includes(' WHERE AccountId IN ('),
+      );
+      expect(byId.length + underParent.length).toBe(result.statements.length);
+      expect(result.statements.indexOf(underParent[0])).toBe(byId.length);
+      expect(byId.flatMap((soql) => soql.match(/003\d{15}/g) ?? [])).toEqual(contactIds);
+      expect(underParent.flatMap((soql) => soql.match(/001\d{15}/g) ?? [])).toEqual(accountIds);
+    });
+  });
+
   describe('unscoped', () => {
     it('returns a zero-result query when no parent is in cache', () => {
       const builder = new ScopedSoqlBuilder();
@@ -605,6 +781,7 @@ describe('ScopedSoqlBuilder', () => {
       cache,
       rootObjectApiName: 'Opportunity',
       rootRecordId: '0061',
+      readObjects: new Set(['Opportunity', 'Product2', 'Pricebook2', 'PricebookEntry']),
     });
 
     expect(result.scoped).toBe(true);
@@ -613,6 +790,103 @@ describe('ScopedSoqlBuilder', () => {
     expect(soql).toContain("Product2Id IN ('01t1', '01t2')");
     // ...and they must also sit in a price book this run read.
     expect(soql).toContain("AND (Pricebook2Id IN ('01s1'))");
+  });
+
+  describe('a required lookup at an object the run does not read', () => {
+    /** A contact's scope: the root account, and the users its row named. */
+    function contactScope(): RecordScopeCache {
+      const cache = new RecordScopeCache();
+      cache.addRead('Account', ['001AAA']);
+      cache.add('User', ['005FIRST']);
+      return cache;
+    }
+    const contactsOfAccount: ForgeGraphEdge = {
+      sourceObject: 'Account',
+      targetObject: 'Contact',
+      relationshipName: 'Contacts',
+      type: 'lookup',
+    };
+    const requiredUser = (name: string): ScopableField => ({
+      name,
+      type: 'reference',
+      referenceTo: ['User'],
+      nillable: false,
+    });
+
+    it('does not narrow on the users the rows read before named', () => {
+      // Every lookup at a User caches the id it meets, and no read ever
+      // fetches a User: held to them, a contact created by anyone else was
+      // left out of the clone.
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [
+          lookup('AccountId', 'Account'),
+          requiredUser('OwnerId'),
+          requiredUser('CreatedById'),
+          requiredUser('LastModifiedById'),
+        ],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache: contactScope(),
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        readObjects: new Set(['Account', 'Contact']),
+      });
+
+      expect(result.statements).toEqual(["SELECT Id FROM Contact WHERE AccountId IN ('001AAA')"]);
+      expect(result.reason).not.toContain('required parents');
+    });
+
+    it('holds a lookup that may name either kind to the kind the run reads', () => {
+      // An event's relation names a contact or a user. The user can never be
+      // written; the contact must be one the run has.
+      const cache = contactScope();
+      cache.addRead('Contact', ['003AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('EventRelation'),
+        fields: [
+          lookup('AccountId', 'Account'),
+          {
+            name: 'RelationId',
+            type: 'reference',
+            referenceTo: ['Contact', 'User'],
+            nillable: false,
+          },
+        ],
+        selectFields: ['Id'],
+        edges: [{ ...contactsOfAccount, targetObject: 'EventRelation' }],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+        readObjects: new Set(['Account', 'Contact', 'EventRelation']),
+      });
+
+      expect(result.statements).toEqual([
+        "SELECT Id FROM EventRelation WHERE (AccountId IN ('001AAA')) AND (RelationId IN ('003AAA'))",
+      ]);
+    });
+
+    it('narrows on nothing when the caller does not say which objects it reads', () => {
+      const cache = contactScope();
+      cache.addRead('Region__c', ['a0R000000000001AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [
+          lookup('AccountId', 'Account'),
+          { name: 'Region__c', type: 'reference', referenceTo: ['Region__c'], nillable: false },
+          requiredUser('OwnerId'),
+        ],
+        selectFields: ['Id'],
+        edges: [contactsOfAccount],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001AAA',
+      });
+
+      expect(result.statements).toEqual(["SELECT Id FROM Contact WHERE AccountId IN ('001AAA')"]);
+    });
   });
 
   it('does not restrict on a required parent the run has not read', () => {

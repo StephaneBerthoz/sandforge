@@ -566,6 +566,12 @@ interface ExecutionState {
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
   /**
+   * Objects this run reads or maps, the only ones a required lookup may hold
+   * a scoped read to: the included nodes, and the standard price book's
+   * object once that book is matched.
+   */
+  readonly readObjects: Set<string>;
+  /**
    * The source org's standard price book, once looked up. `null` when the run
    * carries no price book entries, or when the lookup found nothing.
    */
@@ -767,6 +773,7 @@ export class ForgeExecutor {
       pendingFkUpdates: [],
       deferredNodes: [],
       preread: new Map<string, PrereadNode>(),
+      readObjects: new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       standardPricebookId: null,
       existingRecords: [],
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
@@ -843,6 +850,9 @@ export class ForgeExecutor {
           // are read alongside the custom ones, instead of being filtered out
           // as belonging to a book outside the graph.
           state.scopeCache?.add(PRICEBOOK_OBJECT, [sourceId]);
+          // Matched rather than read, and the entries in it can be written
+          // all the same, so it holds them in scope like a book that is read.
+          state.readObjects.add(PRICEBOOK_OBJECT);
         }
       } catch (err) {
         state.errors.push({
@@ -1152,6 +1162,7 @@ export class ForgeExecutor {
         rootRecordId: config.rootRecordId,
         extraWhere: config.objectSoqlFilters?.[node.objectApiName],
         maxRecordsPerObject: config.maxRecordsPerObject,
+        readObjects: state.readObjects,
       });
       if (query.kind === 'skip') {
         if (allowDefer && query.reason === UNSCOPED_NO_PARENT_REASON) {
