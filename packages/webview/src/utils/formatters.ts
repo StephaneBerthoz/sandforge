@@ -148,6 +148,11 @@ export function formatRelativeTimeI18n(
   t: (key: string, opts?: Record<string, unknown>) => string,
   keyPrefix: string,
 ): string {
+  // A timestamp that is not a number of milliseconds — an ISO string, nothing
+  // at all — made every sum NaN, and Home and the side panel read "NaN h ago".
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+    return t('common.dateUnknown');
+  }
   const diffMs = Date.now() - timestamp;
   const diffMin = Math.floor(diffMs / 60_000);
   if (diffMin < 1) return t(`${keyPrefix}.justNow`);

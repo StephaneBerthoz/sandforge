@@ -207,6 +207,26 @@ describe('SidePanel', () => {
     expect(screen.getByTestId('sidepanel-last-op')).toHaveTextContent('Clone Accounts');
   });
 
+  it('says the last operation happened at an unknown time when its time is not a number', () => {
+    // Every sum on it was NaN: the panel read "NaN h ago".
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'forge',
+          label: 'Clone Accounts',
+          status: 'success',
+          timestamp: undefined as unknown as number,
+        },
+      ],
+    });
+    render(<SidePanel />);
+
+    const lastOp = screen.getByTestId('sidepanel-last-op');
+    expect(lastOp).toHaveTextContent('common.dateUnknown');
+    expect(lastOp).not.toHaveTextContent('NaN');
+  });
+
   it('shows a cancelled last operation with its own icon, not the success tick', () => {
     useRecentOpsStore.setState({
       ops: [

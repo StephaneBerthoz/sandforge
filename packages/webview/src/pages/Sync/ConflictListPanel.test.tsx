@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { ConflictListPanel } from './ConflictListPanel';
 import { useConflictStore } from '../../stores/useConflictStore';
 import type { UIConflict } from '@sandforge/shared';
@@ -69,6 +70,27 @@ describe('ConflictListPanel', () => {
     const table = screen.getByTestId('data-table');
     expect(table.textContent).toContain('unknown');
     expect(table.textContent).not.toContain('Invalid Date');
+  });
+
+  it('names its columns in the interface language, not in English', async () => {
+    // Record ID, Status and Timestamp were written in English, in every language.
+    useConflictStore.setState({ conflicts: [makeMockConflict(1)] });
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<ConflictListPanel />);
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '');
+      expect(headers).toEqual(
+        expect.arrayContaining(["ID d'enregistrement", 'Statut', 'Horodatage']),
+      );
+      expect(headers.join(' | ')).not.toMatch(/Record ID|Status|Timestamp/);
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('should filter by object when dropdown changes', () => {

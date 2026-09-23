@@ -27,7 +27,7 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
-import { formatElapsed, uiLocale } from '../../utils/formatters';
+import { formatElapsed, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { templateFromRun } from './forgeRunConfig';
 import { useSaveForgeTemplate } from './useSaveForgeTemplate';
 
@@ -390,7 +390,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <span data-testid="forge-results-timestamp">
             {t('forge.executionTimestamp')}:{' '}
             <strong className="text-text-primary">
-              {new Date(result.timestamp).toLocaleString(uiLocale())}
+              {/* A stored time that is not a date read "Invalid Date". */}
+              {formatStoredDate(result.timestamp, (date) => date.toLocaleString(uiLocale())) ??
+                t('common.dateUnknown')}
             </strong>
           </span>
         </div>

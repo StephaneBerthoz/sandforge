@@ -1031,6 +1031,7 @@
       "noConflicts": "No se detectaron conflictos",
       "filterByObject": "Filtrar por objeto",
       "filterByType": "Filtrar por tipo",
+      "recordId": "ID de registro",
       "sourceValue": "Valor de origen",
       "targetValue": "Valor de destino",
       "baseValue": "Valor base",

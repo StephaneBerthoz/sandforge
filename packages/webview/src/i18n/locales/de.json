@@ -1031,6 +1031,7 @@
       "noConflicts": "Keine Konflikte erkannt",
       "filterByObject": "Nach Objekt filtern",
       "filterByType": "Nach Typ filtern",
+      "recordId": "Datensatz-ID",
       "sourceValue": "Quellwert",
       "targetValue": "Zielwert",
       "baseValue": "Basiswert",

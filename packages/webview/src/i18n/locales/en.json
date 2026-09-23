@@ -1031,6 +1031,7 @@
       "noConflicts": "No conflicts detected",
       "filterByObject": "Filter by object",
       "filterByType": "Filter by type",
+      "recordId": "Record ID",
       "sourceValue": "Source value",
       "targetValue": "Target value",
       "baseValue": "Base value",

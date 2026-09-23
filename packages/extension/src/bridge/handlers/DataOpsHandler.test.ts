@@ -1786,6 +1786,129 @@ describe('DataOpsHandler', () => {
       expect(notes).toHaveLength(1);
       expect(notes[0].payload.message).toContain('FIELD_CUSTOM_VALIDATION_EXCEPTION');
     });
+
+    describe('a masking run a cancel stopped', () => {
+      let registry: BackgroundOperationRegistry;
+      /** Lifecycle events the registry emitted, in order. */
+      let events: string[];
+
+      beforeEach(() => {
+        registry = new BackgroundOperationRegistry();
+        events = [];
+        registry.onEvent((_operationId, type) => events.push(type));
+        deps.infraServices = {
+          productionGuard: new ProductionGuard(),
+          backgroundRegistry: registry,
+        } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      });
+
+      /** 450 contacts to mask: three batches of the run's 200. */
+      const contacts = Array.from({ length: 450 }, (_, i) => ({
+        Id: `003${String(i).padStart(12, '0')}`,
+        FirstName: `Person ${i}`,
+      }));
+
+      /** Run a masking over Contact then Lead, `update` answering each batch. */
+      async function anonymizeWith(
+        update: ReturnType<typeof vi.fn>,
+      ): Promise<ReturnType<typeof vi.fn>> {
+        const query = vi.fn(async () => ({ records: contacts, done: true }));
+        const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query,
+          describe: vi.fn().mockResolvedValue(contactDescribe),
+          sobject: vi.fn(() => ({ update })),
+        } as never);
+        (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+          orgType: 'Sandbox',
+        });
+
+        await handler.handle(
+          inboundRequest({
+            id: 'an-cancel',
+            type: 'dataops:anonymize',
+            timestamp: Date.now(),
+            payload: {
+              orgId: 'org-1',
+              templateId: 'tpl-gdpr-standard',
+              objects: ['Contact', 'Lead'],
+            },
+          } as BaseMessage),
+        );
+        return query;
+      }
+
+      /** Cancel what the registry lists as running, the way `execution:abort` does. */
+      function cancelTheRun(): void {
+        for (const running of registry.getActiveOperations()) registry.abort(running.operationId);
+      }
+
+      it('masks no batch after the cancel, and no object after it', async () => {
+        // Nothing looked at a cancel: every batch of every object was masked.
+        const update = vi.fn(async (batch: unknown[]) => {
+          cancelTheRun();
+          return batch.map(() => ({ success: true }));
+        });
+
+        const query = await anonymizeWith(update);
+
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(query).toHaveBeenCalledTimes(1);
+      });
+
+      it('ends as aborted, with what it masked, answered and recorded', async () => {
+        const store = new ConfigStore(new InMemoryConfigStoreBackend());
+        store.initialize();
+        deps.configStore = store;
+        const update = vi.fn(async (batch: unknown[]) => {
+          cancelTheRun();
+          return batch.map(() => ({ success: true }));
+        });
+
+        await anonymizeWith(update);
+
+        expect(events).toEqual(['started', 'aborted']);
+        expect(posted().find((m) => m.type === 'operation:completed')?.payload).toMatchObject({
+          result: { aborted: true, totalProcessed: 200, totalFailed: 0 },
+        });
+        expect(posted().filter((m) => m.type === 'operation:failed')).toEqual([]);
+        expect(anonymizePayload()).toMatchObject({
+          cancelled: true,
+          status: 'partial',
+          recordsProcessed: 200,
+        });
+        // The 200 masked stay masked: the trail keeps them, the run as partial.
+        expect(new AuditTrailStore(store).list().entries).toEqual([
+          expect.objectContaining({
+            action: 'anonymize_execute',
+            outcome: 'partial',
+            objects: [
+              { objectApiName: 'Contact', created: 0, updated: 200, deleted: 0, failed: 0 },
+            ],
+          }),
+        ]);
+      });
+
+      it('still fails when the org refuses a batch while the cancel is pending', async () => {
+        const update = vi.fn(async () => {
+          cancelTheRun();
+          throw new Error('UNABLE_TO_LOCK_ROW: unable to obtain exclusive access');
+        });
+
+        await anonymizeWith(update);
+
+        expect(posted().find((m) => m.type === 'operation:failed')?.payload).toMatchObject({
+          error: 'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access',
+        });
+        expect(
+          posted().filter(
+            (m) =>
+              m.type === 'operation:completed' &&
+              (m.payload.result as { aborted?: boolean } | undefined)?.aborted,
+          ),
+        ).toEqual([]);
+      });
+    });
   });
 
   describe('dataops:error correlation', () => {

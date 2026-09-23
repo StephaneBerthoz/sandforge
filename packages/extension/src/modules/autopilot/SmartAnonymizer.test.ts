@@ -34,10 +34,13 @@ describe('PersonaRegistry', () => {
   });
 
   it('returns different personas for different IDs', () => {
-    const persona1 = registry.getPersona('003xx000001');
-    const persona2 = registry.getPersona('003xx000002');
+    // Under a key of its own: the default key is random, and one key in about
+    // four hundred gives these two ids the same name, which failed the test on
+    // that run. A fixed key keeps the check on the id, run after run.
+    const keyed = new PersonaRegistry('persona-test-key');
+    const persona1 = keyed.getPersona('003xx000001');
+    const persona2 = keyed.getPersona('003xx000002');
     expect(persona1.sourceRecordId).not.toBe(persona2.sourceRecordId);
-    // Very unlikely all fields match for different IDs
     expect(
       persona1.firstName === persona2.firstName &&
         persona1.lastName === persona2.lastName &&

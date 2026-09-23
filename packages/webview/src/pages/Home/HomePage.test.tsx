@@ -243,6 +243,26 @@ describe('HomePage', () => {
     expect(screen.getByText('No recent operations')).toBeDefined();
   });
 
+  it('says an operation whose time is not a number happened at an unknown time', () => {
+    // Every sum on it was NaN: the row read "NaN h ago".
+    useRecentOpsStore.setState({
+      ops: [
+        {
+          id: 'op-1',
+          type: 'sync',
+          label: 'Sync Accounts',
+          status: 'success',
+          timestamp: '2026-09-23T10:00:00Z' as unknown as number,
+        },
+      ],
+    });
+    render(<HomePage />);
+
+    const row = screen.getByTestId('recent-op-item');
+    expect(row.textContent).toContain('unknown');
+    expect(row.textContent).not.toContain('NaN');
+  });
+
   it('should use bridge data when store is empty', () => {
     mockOrgListState.data = {
       orgs: [createMockOrg({ id: 'bridge-org', alias: 'BridgeOrg' })],

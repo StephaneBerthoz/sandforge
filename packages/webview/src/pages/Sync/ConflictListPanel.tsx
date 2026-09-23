@@ -68,7 +68,8 @@ export const ConflictListPanel: React.FC = () => {
       },
       {
         key: 'recordId',
-        header: 'Record ID',
+        // The headers were written in English, in every language.
+        header: t('sync.conflictResolution.recordId'),
         render: (row: UIConflict) => <span className="font-mono text-[10px]">{row.recordId}</span>,
       },
       {
@@ -89,7 +90,7 @@ export const ConflictListPanel: React.FC = () => {
       },
       {
         key: 'resolved',
-        header: 'Status',
+        header: t('common.status'),
         render: (row: UIConflict) =>
           row.resolved ? (
             <Badge variant="success">{t('sync.conflictResolution.resolved')}</Badge>
@@ -99,7 +100,7 @@ export const ConflictListPanel: React.FC = () => {
       },
       {
         key: 'timestamp',
-        header: 'Timestamp',
+        header: t('reports.timestamp'),
         sortable: true,
         // A time the extension sent that is not a date read "Invalid Date".
         render: (row: UIConflict) => (

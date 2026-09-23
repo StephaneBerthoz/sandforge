@@ -269,6 +269,22 @@ describe('ForgeHistoryPanel', () => {
     expect(entry.textContent).toContain('Cancelled');
     expect(entry.textContent).not.toContain('Partial');
   });
+
+  it('lists a run whose stored time is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and the history did not render.
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...SOQL_RUN, timestamp: 'not a date' }, RECORD_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    const entry = screen.getByTestId('forge-history-entry-forge-soql');
+    expect(entry.textContent).toContain('unknown');
+    expect(entry.textContent).toContain('Success');
+    expect(screen.getByTestId('forge-history-entry-forge-record')).toBeDefined();
+  });
 });
 
 /** A fake record id: the object's prefix, then a counter. */
@@ -526,6 +542,25 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
     expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
       /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 2 deleted · 1 kept$/,
+    );
+  });
+
+  it('says when records were removed is unknown when the stored time is not a date', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[
+          {
+            ...REMOVABLE_RUN,
+            undo: { removedAt: 'not a date', deleted: 2, alreadyGone: 0, kept: 1, refused: 0 },
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-mark').textContent).toBe(
+      'Records removed on unknown: 2 deleted · 1 kept',
     );
   });
 

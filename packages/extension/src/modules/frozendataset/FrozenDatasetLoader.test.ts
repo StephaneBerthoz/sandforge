@@ -1405,6 +1405,79 @@ describe('FrozenDatasetLoader — a cancel', () => {
     expect((await keptMapping(sasDir)).get('Account-000001')).toBe('001OLD-ACCOUNT');
   });
 
+  it('writes no custom price after a cancel that came during the standard prices', async () => {
+    // The two price writes had nothing between them to look at the cancel:
+    // the custom prices were written after it.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [
+            { referenceId: 'Pricebook2-000001', fields: { Name: 'Resellers' } },
+            { referenceId: 'Pricebook2-000002', fields: { Name: 'Standard' } },
+          ],
+        },
+        {
+          objectApiName: 'Product2',
+          records: [{ referenceId: 'Product2-000001', fields: { Name: 'A' } }],
+        },
+        {
+          objectApiName: 'PricebookEntry',
+          records: [
+            {
+              referenceId: 'PricebookEntry-000001',
+              fields: {
+                Pricebook2Id: 'Pricebook2-000001',
+                Product2Id: 'Product2-000001',
+                UnitPrice: 9,
+              },
+            },
+            {
+              referenceId: 'PricebookEntry-000002',
+              fields: {
+                Pricebook2Id: 'Pricebook2-000002',
+                Product2Id: 'Product2-000001',
+                UnitPrice: 10,
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000002',
+    };
+    const calls: DmlCall[] = [];
+    const stop = new AbortController();
+    const writer = makeWriter(calls);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      if (args[1] === 'PricebookEntry') stop.abort();
+      return insert(...args);
+    });
+    const deps = makeDeps({
+      dataset,
+      writer,
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01sTARGETSTANDARD' }] : [],
+    });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { signal: stop.signal }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    const prices = calls.filter((c) => c.objectApiName === 'PricebookEntry');
+    expect(
+      prices.map((c) => (c.payload as Array<Record<string, unknown>>)[0].Pricebook2Id),
+    ).toEqual(['01sTARGETSTANDARD']);
+    // The standard price it did write is counted for the audit trail.
+    expect((error as FrozenLoadCancelledError).written.perObject).toContainEqual(
+      expect.objectContaining({ objectApiName: 'PricebookEntry', fromFiles: 2, inserted: 1 }),
+    );
+  });
+
   it('writes no contract over a load whose last pass the cancel came during', async () => {
     const dataset = {
       ...makeAccountContactDataset(),

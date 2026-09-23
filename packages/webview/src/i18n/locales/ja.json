@@ -971,6 +971,7 @@
       "noConflicts": "競合は検出されませんでした",
       "filterByObject": "オブジェクトでフィルター",
       "filterByType": "タイプでフィルター",
+      "recordId": "レコード ID",
       "sourceValue": "ソースの値",
       "targetValue": "ターゲットの値",
       "baseValue": "ベースの値",

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { format } from 'date-fns';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { forgeRunCreatedRecords } from '@sandforge/shared';
 import type { ForgeUndoResult } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { formatStoredDate } from '../../utils/formatters';
 import type { ForgeExecutionResult } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -37,9 +37,12 @@ const STATUS_CLASSES: Record<ForgeExecutionResult['status'], string> = {
   failure: 'text-status-error',
 };
 
-/** How the panel writes a date. */
-function shown(iso: string): string {
-  return format(new Date(iso), 'yyyy-MM-dd HH:mm');
+/**
+ * How the panel writes a stored date, or null when it is not one. Formatting
+ * such a value threw "Invalid time value", and the history did not render.
+ */
+function shown(iso: string): string | null {
+  return formatStoredDate(iso, 'yyyy-MM-dd HH:mm');
 }
 
 /** What `forge:undo` answers. */
@@ -146,7 +149,12 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     const answer = mine ? removal.data?.result : undefined;
     let action: React.ReactNode = null;
     if (entry.undo) {
-      action = <ForgeRunRemovalMark mark={entry.undo} date={shown(entry.undo.removedAt)} />;
+      action = (
+        <ForgeRunRemovalMark
+          mark={entry.undo}
+          date={shown(entry.undo.removedAt) ?? t('common.dateUnknown')}
+        />
+      );
     } else if (!entry.idRemapCreated || !entry.targetOrgId) {
       // Recorded before a run kept what it created and where: said only of a
       // run that did write something.
@@ -211,7 +219,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
 
       {entries.map((entry) => {
         const config = entry.config;
-        const when = shown(entry.timestamp);
+        const when = shown(entry.timestamp) ?? t('common.dateUnknown');
         const subject = config ? configSubject(config) : undefined;
         const removalBlock = removalOf(entry);
 

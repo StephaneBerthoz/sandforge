@@ -1345,6 +1345,16 @@ export class DataOpsHandler implements DomainHandler {
      * stops at the first object it may not write, and must still be recorded.
      */
     let unrecorded = false;
+    /**
+     * Aborted by the registry: a cancel of the run, the window closing. A run
+     * was never registered, so nothing could stop it, and it masked every
+     * batch of every object to its end.
+     */
+    const stop = new AbortController();
+    /** Settles the promise the registry watches, so it stops listing the run. */
+    let settleRun: (error?: unknown) => void = () => {};
+    /** What the run failed on, read by `settleRun` in `finally`. */
+    let runError: unknown;
 
     try {
       const guard = this.deps.infraServices?.productionGuard;
@@ -1412,8 +1422,21 @@ export class DataOpsHandler implements DomainHandler {
         return describeToObjectDescribe(desc);
       });
 
-      sendOperationStarted(this.deps, operationId, 'dataops', `Anonymizing with ${template.name}`);
+      const description = `Anonymizing with ${template.name}`;
+      sendOperationStarted(this.deps, operationId, 'dataops', description);
       unrecorded = true;
+      this.deps.infraServices?.backgroundRegistry?.register(
+        operationId,
+        'dataops',
+        description,
+        new Promise<void>((resolve, reject) => {
+          settleRun = (error) => {
+            if (error === undefined) resolve();
+            else reject(error instanceof Error ? error : new Error(String(error)));
+          };
+        }),
+        stop,
+      );
 
       const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
       // The window's key, not a fresh random one: see `maskingKey`.
@@ -1422,8 +1445,14 @@ export class DataOpsHandler implements DomainHandler {
       let totalProcessed = 0;
       let totalFailed = 0;
       const maskErrors: Array<{ objectApiName: string; message: string }> = [];
+      /** Whether a cancel stopped the run before every record it was for was masked. */
+      let cancelled = false;
 
       for (let oi = 0; oi < plannedObjects.length; oi++) {
+        if (stop.signal.aborted) {
+          cancelled = true;
+          break;
+        }
         const objectName = plannedObjects[oi];
         const safeObj = sanitizeSoqlObjectName(objectName);
         failure.objectName = safeObj;
@@ -1461,7 +1490,15 @@ export class DataOpsHandler implements DomainHandler {
             new Error(flsCheck.reason),
           );
           sendOperationFailed(this.deps, operationId, flsCheck.reason, false, { context: failure });
+          runError = new Error(flsCheck.reason);
           return;
+        }
+
+        // Reading an object takes a while: a cancel that came meanwhile is
+        // honoured before any of it is written.
+        if (stop.signal.aborted) {
+          cancelled = true;
+          break;
         }
 
         const rules = objectRules.map((r) => ({
@@ -1511,6 +1548,12 @@ export class DataOpsHandler implements DomainHandler {
         let successCount = 0;
         let failureCount = 0;
         for (let bi = 0; bi < payloads.length; bi += batchSize) {
+          // A cancel stops the run between two batches, with what the batches
+          // before it masked counted below.
+          if (bi > 0 && stop.signal.aborted) {
+            cancelled = true;
+            break;
+          }
           const batch = payloads.slice(bi, bi + batchSize);
           const updateResults = (await conn
             .sobject(objectName)
@@ -1534,6 +1577,7 @@ export class DataOpsHandler implements DomainHandler {
         totalProcessed += successCount + nothingToMask;
         totalFailed += failureCount;
         masked.push({ ...emptyCounts(safeObj), updated: successCount, failed: failureCount });
+        if (cancelled) break;
 
         sendOperationProgress(
           this.deps,
@@ -1545,13 +1589,29 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
-      const status = dmlStatus(totalProcessed, totalFailed);
+      const reached = dmlStatus(totalProcessed, totalFailed);
+      // A run the cancel stopped did not mask every record it was for.
+      const status = cancelled && reached === 'success' ? 'partial' : reached;
       unrecorded = false;
       recordWriteRun(this.deps, { ...run, outcome: status, objects: masked });
-      sendOperationCompleted(this.deps, operationId, { status, totalProcessed, totalFailed });
+      if (cancelled) {
+        // Ended the way a cancelled Sync or Seed ends: aborted in the registry
+        // — already, when the cancel came through it — and posted as a
+        // completion that says so, with what it masked before it stopped.
+        this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, {
+          aborted: true,
+          totalProcessed,
+          totalFailed,
+        });
+      } else {
+        sendOperationCompleted(this.deps, operationId, { status, totalProcessed, totalFailed });
+      }
 
-      const message =
-        totalFailed === 0
+      const message = cancelled
+        ? `Anonymization cancelled: ${totalProcessed} masked before the cancel` +
+          ' — the records it did not reach still hold their original values.'
+        : totalFailed === 0
           ? `Anonymization completed: ${totalProcessed} records processed.`
           : `Anonymization ${status}: ${totalProcessed} masked, ${totalFailed} rejected by the org` +
             ' — those records still hold their original values.';
@@ -1562,6 +1622,7 @@ export class DataOpsHandler implements DomainHandler {
         recordsFailed: totalFailed,
         message,
         errors: maskErrors,
+        ...(cancelled ? { cancelled: true } : {}),
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
@@ -1574,6 +1635,10 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
     } catch (err: unknown) {
+      // An error the org answered while a cancel was pending is still the
+      // run's failure: only the loop, stopping at the cancel, says a run was
+      // cancelled.
+      runError = err;
       // Dual channel, single display (see handleBackup).
       sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, {
@@ -1585,6 +1650,7 @@ export class DataOpsHandler implements DomainHandler {
       if (unrecorded) {
         recordWriteRun(this.deps, { ...run, outcome: 'failure', objects: masked });
       }
+      settleRun(runError);
     }
   }
 

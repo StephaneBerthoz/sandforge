@@ -514,6 +514,16 @@ describe('ForgeResults', () => {
     expect(timestamp.textContent).toContain('2026');
   });
 
+  it('says when the run ended is unknown when its stored time is not a date', () => {
+    // It read "Invalid Date".
+    mockResult = { ...makeMockResult(), timestamp: 'not a date' };
+    render(<ForgeResults />);
+
+    const timestamp = screen.getByTestId('forge-results-timestamp');
+    expect(timestamp.textContent).toContain('unknown');
+    expect(timestamp.textContent).not.toContain('Invalid Date');
+  });
+
   /* ---- Sort by column ---- */
 
   it('should sort table rows when clicking a column header', () => {

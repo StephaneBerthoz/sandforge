@@ -499,19 +499,28 @@ export class FrozenDatasetLoader {
       // A custom price is refused for a product with no standard one, so the
       // standard prices are written first, in a call of their own.
       const standardRef = working.standardPricebook;
-      const objectResult =
-        isPricebookEntry(objectApiName) && standardRef
-          ? mergeResults(
-              await insert(
-                startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardRef),
-                0,
-              ),
-              await insert(
-                startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
-                fromFiles,
-              ),
-            )
-          : await insert(startingRecords, fromFiles);
+      let objectResult: PerObjectLoadResult;
+      if (isPricebookEntry(objectApiName) && standardRef) {
+        const standardPrices = await insert(
+          startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] === standardRef),
+          0,
+        );
+        // The custom prices are a write of their own: a cancel that came
+        // during the standard ones stops the load before them, as it stops it
+        // before any other write, with the standard prices counted. Nothing
+        // looked at it here, and the custom prices were written after it.
+        if (options.signal?.aborted) perObject.push({ ...standardPrices, fromFiles });
+        await checkpoint();
+        objectResult = mergeResults(
+          standardPrices,
+          await insert(
+            startingRecords.filter((r) => r.fields[PRICEBOOK_ENTRY_BOOK_FIELD] !== standardRef),
+            fromFiles,
+          ),
+        );
+      } else {
+        objectResult = await insert(startingRecords, fromFiles);
+      }
       perObject.push(objectResult);
       emit({
         phase: 'insert',

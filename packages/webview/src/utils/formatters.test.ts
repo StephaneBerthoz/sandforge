@@ -266,6 +266,14 @@ describe('formatRelativeTimeI18n', () => {
     expect(result).toBe('ns.justNow');
   });
 
+  it('says unknown for a timestamp that is not a number, where it read "NaN h ago"', () => {
+    const notNumbers: unknown[] = ['2026-03-11T11:00:00Z', undefined, null, Number.NaN];
+    for (const ts of notNumbers) {
+      expect(formatRelativeTimeI18n(ts as number, mockT, 'ns')).toBe('common.dateUnknown');
+    }
+    expect(mockT).not.toHaveBeenCalledWith('ns.hoursAgo', expect.anything());
+  });
+
   it('should return minutesAgo with count for timestamps 1-59 minutes ago', () => {
     const ts = Date.now() - 5 * 60_000; // 5 minutes ago
     formatRelativeTimeI18n(ts, mockT, 'ns');
