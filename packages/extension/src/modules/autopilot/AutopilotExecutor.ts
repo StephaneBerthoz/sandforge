@@ -20,12 +20,25 @@ import {
   PRICEBOOK_ENTRY_OBJECT,
   PRICEBOOK_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
+  isPlatformRequiredField,
   isPricebookEntry,
   splitStandardPricebookEntries,
 } from '@sandforge/shared';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
-import type { RecordIdRemapper } from './RecordIdRemapper.js';
+import type { RecordIdRemapper, UnresolvedLookup } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
+import { LookupPatchSet } from '../../core/common/lookupPatches.js';
+import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { lookupsAtObjectsLeftOut } from '../forge/excludedObjects.js';
+import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
+import {
+  RECORD_TYPES_SOQL,
+  RecordTypeMapper,
+  parseRecordTypeRows,
+  warnUnmappedRecordType,
+  type RecordTypeMapping,
+} from '../sync/RecordTypeMapper.js';
 import {
   NO_STATUS_CODE,
   existingRecordOf,
@@ -111,6 +124,14 @@ export type AutopilotExecutorEvents = {
   resumed: AutopilotEvent;
 };
 
+/** A lookup a run did not send, and on how many records it held a value. */
+export interface DefaultedLookup {
+  /** The lookup's API name. */
+  field: string;
+  /** Records that carried a value for it in the source. */
+  count: number;
+}
+
 /** What became of one object's records. */
 export interface ObjectOutcome {
   /** Records written. */
@@ -123,6 +144,24 @@ export interface ObjectOutcome {
   /** Records refused. */
   failed: number;
   /** Why, by status code and fields. */
+  refusals: AutopilotRefusal[];
+  /**
+   * Lookups at objects the run does not copy — a `User`, a queue, metadata —
+   * left to the target's default instead of sent with an id from the source,
+   * which the target does not hold. `OwnerId` becomes the running user. Only
+   * the lookups that held a value are listed.
+   */
+  leftToDefault?: DefaultedLookup[];
+}
+
+/**
+ * The lookups a record was written without — the record they point at came
+ * later in its wave — filled once it was in.
+ */
+export interface LookupOutcome {
+  /** Records whose lookups were filled. */
+  filled: number;
+  /** Why the others were not: those records keep the lookups empty. */
   refusals: AutopilotRefusal[];
 }
 
@@ -165,6 +204,8 @@ export interface ExecutionResult {
   objectOutcomes?: Record<string, ObjectOutcome>;
   /** The statuses applied once the children were in, per object born a draft. */
   statuses?: Record<string, StatusOutcome>;
+  /** The lookups filled once the records they point at were in, per object. */
+  lookups?: Record<string, LookupOutcome>;
   /**
    * Message the run died with. Set only when execution crashed, in which case
    * the counters above are partial and the executor rethrows instead of
@@ -224,6 +265,18 @@ export interface AutopilotExecutorDeps {
    * form alone.
    */
   describeKeyPrefix?: (objectApiName: string) => Promise<string | null | undefined>;
+  /**
+   * The object's lookups in the TARGET org, from the same describe: what each
+   * may point at, and whether it may be set on create and on update.
+   *
+   * What it answers decides three things. A lookup whose every target is an
+   * object the run does not copy is left to the target's default rather than
+   * sent with an id of the source. A lookup the second pass cannot set —
+   * createable but not updateable — has to be right at insert, so the object
+   * it points at is written first. And the second pass fills only what an
+   * update can set. Without it, lookups are sent as the remapper leaves them.
+   */
+  describeLookups?: (objectApiName: string) => Promise<readonly DescribedLookup[]>;
   /** SOQL against the SOURCE org — the standard price book's id there. */
   querySource?: SoqlQuery;
   /**
@@ -306,6 +359,8 @@ interface ObjectState {
   errors: string[];
   refusals: RefusalTally;
   apiCallsUsed: number;
+  /** Lookups left to the target's default → records that held a value. */
+  defaulted: Map<string, number>;
 }
 
 /** Result of executing a single object */
@@ -317,6 +372,19 @@ interface ObjectResult {
   refusals: AutopilotRefusal[];
   apiCallsUsed: number;
   elapsedMs: number;
+  leftToDefault: DefaultedLookup[];
+}
+
+/** A lookup a written record went in without, owed until the record it points at is in. */
+interface OwedLookup {
+  objectApiName: string;
+  /** Target id of the record written without it. */
+  recordId: string;
+  fieldApiName: string;
+  /** Source id of the record it points at. */
+  sourceId: string;
+  /** The objects that record may belong to. */
+  parents: readonly ApiName[];
 }
 
 /** A status a record could not be born with, to apply once its children are in. */
@@ -349,6 +417,16 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private standardPricebook: { source: string; target: string } | undefined;
   /** Statuses set aside at insert, applied once the last wave is in. */
   private readonly deferredStatuses: DeferredStatus[] = [];
+  /** The target's lookups per object, kept for the run. */
+  private readonly lookupsByObject = new Map<string, Promise<readonly DescribedLookup[] | null>>();
+  /** Source record type → target record type, when both orgs said. */
+  private recordTypeMappings: RecordTypeMapping[] | undefined;
+  /** The objects of the plan: the only ones whose records the run writes. */
+  private planned: ReadonlySet<string> = new Set();
+  /** Lookups written empty, filled at the end of their wave. */
+  private readonly owedLookups: OwedLookup[] = [];
+  /** Source record types the target has no match for, reported once each. */
+  private readonly unmappedRecordTypes = new Set<string>();
 
   /**
    * What the target will take on a write, or `null` when nothing can say.
@@ -375,6 +453,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
   }
 
+  /** The object's lookups in the target, or `null` when nothing can say. */
+  private lookupsOf(objectApiName: string): Promise<readonly DescribedLookup[] | null> {
+    const describe = this.deps.describeLookups;
+    if (!describe) return Promise.resolve(null);
+    let cached = this.lookupsByObject.get(objectApiName);
+    if (!cached) {
+      cached = describe(objectApiName).catch(() => null);
+      this.lookupsByObject.set(objectApiName, cached);
+    }
+    return cached;
+  }
+
   /** The object's key prefix in the target, or nothing when the describe cannot say. */
   private keyPrefixOf(objectApiName: string): Promise<string | null | undefined> {
     const describe = this.deps.describeKeyPrefix;
@@ -397,11 +487,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
    * The record types the object's records carry that the running user cannot
    * use in the target org — empty when none, or when nothing can say.
    *
-   * A run copies `RecordTypeId` as it read it, and a type that exists in the
-   * target but is closed to the running user refuses every record carrying
-   * it, with an INVALID_CROSS_REFERENCE_KEY that names the id and not the
-   * reason. The count is asked only when the describe shows such a type, and
-   * only when `RecordTypeId` is sent at all.
+   * A type that exists in the target but is closed to the running user
+   * refuses every record carrying it, with an INVALID_CROSS_REFERENCE_KEY
+   * that names the id and not the reason. The count is asked only when the
+   * describe shows such a type, and only when `RecordTypeId` is sent at all.
+   * It is read in the source, so its ids are the source's: translated first,
+   * or they never match a type of the target and nothing is ever held back.
    */
   private async recordTypesHeldBack(objectApiName: string): Promise<UnavailableRecordTypeUse[]> {
     const { describeRecordTypes, countRecordTypes } = this.deps;
@@ -411,9 +502,56 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     try {
       const infos = await describeRecordTypes(objectApiName);
       if (!infos.some((info) => !info.available && !info.master)) return [];
-      return unavailableRecordTypeUses(objectApiName, await countRecordTypes(objectApiName), infos);
+      const counts = this.inTargetRecordTypes(await countRecordTypes(objectApiName));
+      return unavailableRecordTypeUses(objectApiName, counts, infos);
     } catch {
       return [];
+    }
+  }
+
+  /** Records per record type, keyed by the target's ids where the mapping knows one. */
+  private inTargetRecordTypes(counts: ReadonlyMap<string, number>): Map<string, number> {
+    const targetIdOf = new Map(this.recordTypeMappings?.map((m) => [m.sourceId, m.targetId]));
+    const translated = new Map<string, number>();
+    for (const [id, count] of counts) {
+      const target = targetIdOf.get(id) ?? id;
+      translated.set(target, (translated.get(target) ?? 0) + count);
+    }
+    return translated;
+  }
+
+  /**
+   * Match the record types of the plan's objects between the two orgs, by
+   * object and API name.
+   *
+   * Two sandboxes of one production org can hold the same record type — the
+   * same object, the same API name — under two different ids, one deployed to
+   * each after it was made. Carried as it was read, the source's id was
+   * refused by the target: every product of a real run, with
+   * INVALID_CROSS_REFERENCE_KEY on `RecordTypeId`. Matched the way Forge
+   * matches them; a type the target lacks keeps the source id and says so in
+   * the log. Best effort: when either org cannot say, record types are sent
+   * as they were read.
+   */
+  private async mapRecordTypes(plan: ExecutionPlan): Promise<void> {
+    const { querySource, queryTarget } = this.deps;
+    if (!querySource || !queryTarget) return;
+    const objects = [...new Set(plan.waves.flatMap((wave) => wave.objects))];
+    if (objects.length === 0) return;
+    // Bounded to the plan's objects: each query then answers in one page.
+    const soql =
+      `${RECORD_TYPES_SOQL} AND SobjectType IN ` +
+      `(${objects.map((name) => `'${sanitizeSoqlValue(name)}'`).join(', ')})`;
+    try {
+      const [source, target] = await Promise.all([querySource(soql), queryTarget(soql)]);
+      this.recordTypeMappings = new RecordTypeMapper().buildMapping(
+        parseRecordTypeRows(source),
+        parseRecordTypeRows(target),
+      );
+    } catch (err) {
+      logger.warn('Autopilot could not match the record types of the two orgs', {
+        error: extractErrorMessage(err),
+      });
     }
   }
 
@@ -489,97 +627,103 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       }),
     );
 
-    try {
-      await this.matchStandardPricebooks(plan);
+    /** Write one object of a wave, and say how it went. */
+    const writeNode = async (objectApiName: string): Promise<void> => {
+      if (this.skippedObjects.has(objectApiName)) {
+        const totalRecords = recordCounts.get(objectApiName) ?? 0;
+        result.skippedObjects.push(objectApiName);
+        result.totalSkipped += totalRecords;
+        return;
+      }
 
-      for (const wave of plan.waves) {
-        const waveResults = await Promise.all(
-          wave.objects.map(async (objectApiName) => {
-            if (this.skippedObjects.has(objectApiName)) {
-              const totalRecords = recordCounts.get(objectApiName) ?? 0;
-              result.skippedObjects.push(objectApiName);
-              result.totalSkipped += totalRecords;
-              return;
-            }
+      await this.checkPause();
 
-            await this.checkPause();
-
-            const totalRecords = recordCounts.get(objectApiName) ?? 0;
-            try {
-              const objResult = await this.executeObject(
-                objectApiName as ApiName,
-                edges,
-                rules,
-                totalRecords,
-              );
-
-              result.totalSuccess += objResult.success;
-              result.totalFailure += objResult.failure;
-              result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
-              objectOutcomes[objectApiName] = {
-                written: objResult.success,
-                linked: objResult.linked,
-                failed: objResult.failure,
-                refusals: objResult.refusals,
-              };
-
-              // A node that wrote nothing is still whole when every record it
-              // holds is in the target: linked to, its children point at it.
-              if (objResult.errors.length > 0 && objResult.success + objResult.linked === 0) {
-                result.failedObjects.push(objectApiName);
-                nodeErrors[objectApiName] = objResult.errors[0];
-                this.emit(
-                  'node-failed',
-                  this.makeEvent({
-                    type: 'node-failed' as const,
-                    timestamp: '',
-                    objectApiName: objectApiName as ApiName,
-                    errors: objResult.errors,
-                    partialSuccessCount: objResult.success,
-                    failureCount: objResult.failure,
-                    linkedCount: objResult.linked,
-                    refusals: objResult.refusals,
-                  }),
-                );
-              } else {
-                result.completedObjects.push(objectApiName);
-                this.emit(
-                  'node-completed',
-                  this.makeEvent({
-                    type: 'node-completed' as const,
-                    timestamp: '',
-                    objectApiName: objectApiName as ApiName,
-                    successCount: objResult.success,
-                    failureCount: objResult.failure,
-                    linkedCount: objResult.linked,
-                    refusals: objResult.refusals,
-                    elapsedMs: objResult.elapsedMs,
-                    apiCallsUsed: objResult.apiCallsUsed,
-                  }),
-                );
-              }
-            } catch (err) {
-              result.failedObjects.push(objectApiName);
-              const errorMsg = extractErrorMessage(err);
-              nodeErrors[objectApiName] = errorMsg;
-              this.emit(
-                'node-failed',
-                this.makeEvent({
-                  type: 'node-failed' as const,
-                  timestamp: '',
-                  objectApiName: objectApiName as ApiName,
-                  errors: [errorMsg],
-                  partialSuccessCount: 0,
-                  failureCount: 0,
-                  linkedCount: 0,
-                  refusals: [],
-                }),
-              );
-            }
-          }),
+      const totalRecords = recordCounts.get(objectApiName) ?? 0;
+      try {
+        const objResult = await this.executeObject(
+          objectApiName as ApiName,
+          edges,
+          rules,
+          totalRecords,
         );
 
-        void waveResults;
+        result.totalSuccess += objResult.success;
+        result.totalFailure += objResult.failure;
+        result.totalLinked = (result.totalLinked ?? 0) + objResult.linked;
+        objectOutcomes[objectApiName] = {
+          written: objResult.success,
+          linked: objResult.linked,
+          failed: objResult.failure,
+          refusals: objResult.refusals,
+          ...(objResult.leftToDefault.length > 0 ? { leftToDefault: objResult.leftToDefault } : {}),
+        };
+
+        // A node that wrote nothing is still whole when every record it
+        // holds is in the target: linked to, its children point at it.
+        if (objResult.errors.length > 0 && objResult.success + objResult.linked === 0) {
+          result.failedObjects.push(objectApiName);
+          nodeErrors[objectApiName] = objResult.errors[0];
+          this.emit(
+            'node-failed',
+            this.makeEvent({
+              type: 'node-failed' as const,
+              timestamp: '',
+              objectApiName: objectApiName as ApiName,
+              errors: objResult.errors,
+              partialSuccessCount: objResult.success,
+              failureCount: objResult.failure,
+              linkedCount: objResult.linked,
+              refusals: objResult.refusals,
+            }),
+          );
+        } else {
+          result.completedObjects.push(objectApiName);
+          this.emit(
+            'node-completed',
+            this.makeEvent({
+              type: 'node-completed' as const,
+              timestamp: '',
+              objectApiName: objectApiName as ApiName,
+              successCount: objResult.success,
+              failureCount: objResult.failure,
+              linkedCount: objResult.linked,
+              refusals: objResult.refusals,
+              elapsedMs: objResult.elapsedMs,
+              apiCallsUsed: objResult.apiCallsUsed,
+            }),
+          );
+        }
+      } catch (err) {
+        result.failedObjects.push(objectApiName);
+        const errorMsg = extractErrorMessage(err);
+        nodeErrors[objectApiName] = errorMsg;
+        this.emit(
+          'node-failed',
+          this.makeEvent({
+            type: 'node-failed' as const,
+            timestamp: '',
+            objectApiName: objectApiName as ApiName,
+            errors: [errorMsg],
+            partialSuccessCount: 0,
+            failureCount: 0,
+            linkedCount: 0,
+            refusals: [],
+          }),
+        );
+      }
+    };
+
+    try {
+      await this.matchStandardPricebooks(plan);
+      await this.mapRecordTypes(plan);
+      this.planned = new Set(plan.waves.flatMap((wave) => wave.objects));
+      const lookups: Record<string, LookupOutcome> = {};
+
+      for (const wave of plan.waves) {
+        await this.writeWave(wave.objects, edges, writeNode);
+        // What the wave's records went in without, now that what they point
+        // at is in: before the next wave, whose records may read it.
+        await this.fillOwedLookups(lookups);
 
         this.emit(
           'wave-completed',
@@ -590,9 +734,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         );
       }
 
+      // Whatever is still owed points at a record no wave wrote.
+      this.owedLookups.length = 0;
+
       // Statuses set aside at insert, now that every record's children are in.
       const statuses = await this.applyDeferredStatuses();
       if (Object.keys(statuses).length > 0) result.statuses = statuses;
+      if (Object.keys(lookups).length > 0) result.lookups = lookups;
 
       result.elapsedMs = Date.now() - startTime;
       this.emit(
@@ -623,6 +771,127 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   }
 
   /**
+   * Write the objects of one wave: those that point at each other one after
+   * the other, parents first, and the others side by side.
+   *
+   * A wave is a level of the plan, and the objects of a cycle share one:
+   * `Account` and `Contact` point at each other, and so do an opportunity
+   * and its synced quote. Written all at once, whichever came first lost its
+   * lookup — a real run left 18 contacts out of 18 without their account and
+   * 8 opportunities out of 8 without theirs. Ordered the way Frozen Dataset
+   * orders its load: each cycle a group, written after the groups it depends
+   * on and, inside, after what its members cannot be written without. What
+   * still points forward is filled by the second pass at the end of the wave.
+   */
+  private async writeWave(
+    objects: readonly string[],
+    edges: readonly AutopilotEdge[],
+    writeNode: (objectApiName: string) => Promise<void>,
+  ): Promise<void> {
+    const members = new Set(objects);
+    const within = edges.filter(
+      (edge) => edge.from !== edge.to && members.has(edge.from) && members.has(edge.to),
+    );
+    const deps = new Map(objects.map((name) => [name, new Set<string>()]));
+    for (const edge of within) deps.get(edge.to)?.add(edge.from);
+    const groups = insertionGroups(deps);
+    const groupOf = new Map<string, number>();
+    groups.forEach((group, index) => group.forEach((name) => groupOf.set(name, index)));
+
+    // A group starts once the groups it depends on are written; groups that
+    // depend on nothing of the wave — every group of a wave the plan built —
+    // are written side by side, as they always were.
+    const written: Array<Promise<void>> = [];
+    for (const [index, group] of groups.entries()) {
+      const before = new Set<Promise<void>>();
+      for (const name of group) {
+        for (const parent of deps.get(name) ?? []) {
+          const other = groupOf.get(parent);
+          if (other !== undefined && other !== index) before.add(written[other]);
+        }
+      }
+      written.push(
+        (async () => {
+          await Promise.all(before);
+          const order =
+            group.length > 1
+              ? orderWithinGroup(group, await this.setAtInsert(group, within))
+              : group;
+          for (const name of order) await writeNode(name);
+        })(),
+      );
+    }
+    await Promise.all(written);
+  }
+
+  /**
+   * Within one cycle, what each object cannot be written without: what its
+   * required lookups point at, and what its lookups the second pass cannot
+   * set — the target takes them on create and not on update — point at.
+   */
+  private async setAtInsert(
+    group: readonly string[],
+    edges: readonly AutopilotEdge[],
+  ): Promise<Map<string, Set<string>>> {
+    const members = new Set(group);
+    const needs = new Map<string, Set<string>>();
+    for (const edge of edges) {
+      if (!members.has(edge.to) || !members.has(edge.from)) continue;
+      const lookup = (await this.lookupsOf(edge.to))?.find((l) => l.name === edge.fieldApiName);
+      const insertOnly = lookup !== undefined && lookup.createable && !lookup.updateable;
+      if (!edge.required && !isPlatformRequiredField(edge.to, edge.fieldApiName) && !insertOnly) {
+        continue;
+      }
+      needs.set(edge.to, (needs.get(edge.to) ?? new Set()).add(edge.from));
+    }
+    return needs;
+  }
+
+  /**
+   * The second pass: fill the lookups the wave's records went in without,
+   * now that the records they point at are in — Forge's pass 2, one update
+   * per record however many lookups it owes. A lookup whose record is not in
+   * yet stays owed; one whose record never reaches the target stays empty.
+   */
+  private async fillOwedLookups(outcomes: Record<string, LookupOutcome>): Promise<void> {
+    const owed = this.owedLookups.splice(0, this.owedLookups.length);
+    const { update } = this.deps;
+    if (!update || owed.length === 0) return;
+    const patches = new LookupPatchSet();
+    for (const lookup of owed) {
+      const value = lookup.parents
+        .map((parent) => this.deps.remapper.getTargetId(parent, lookup.sourceId))
+        .find((id) => id !== undefined);
+      if (!value) {
+        this.owedLookups.push(lookup);
+        continue;
+      }
+      patches.add({
+        objectApiName: lookup.objectApiName,
+        recordId: lookup.recordId,
+        fieldName: lookup.fieldApiName,
+        value,
+      });
+    }
+    for (const [objectApiName, records] of patches.updates()) {
+      const known = outcomes[objectApiName];
+      let filled = known?.filled ?? 0;
+      const refusals = new RefusalTally();
+      for (const refusal of known?.refusals ?? []) refusals.addCounted(refusal);
+      for (let i = 0; i < records.length; i += this.batchSize) {
+        const part = records.slice(i, i + this.batchSize);
+        const results = await updateEach(update, objectApiName, part);
+        part.forEach((_, index) => {
+          const outcome = results[index];
+          if (outcome?.success) filled++;
+          else refusals.add(detailsOf(outcome));
+        });
+      }
+      outcomes[objectApiName] = { filled, refusals: refusals.list() };
+    }
+  }
+
+  /**
    * Execute a single object transfer: query, anonymize, remap, insert in batches.
    * @param objectApiName - The object to transfer
    * @param edges - Dependency edges for remapping
@@ -644,6 +913,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       errors: [],
       refusals: new RefusalTally(),
       apiCallsUsed: 0,
+      defaulted: new Map(),
     };
     const finish = (): ObjectResult => ({
       success: state.written,
@@ -653,12 +923,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       refusals: state.refusals.list(),
       apiCallsUsed: state.apiCallsUsed,
       elapsedMs: Date.now() - objStart,
+      leftToDefault: [...state.defaulted].map(([field, count]) => ({ field, count })),
     });
 
-    // Held back whole, before its first page: a run clears a lookup it cannot
-    // resolve but never touches a record type, so there is no default to fall
-    // back on without the user choosing it. The node fails with what to
-    // change in the target, and nothing of it is written.
+    // Held back whole, before its first page: a run translates a record type
+    // into the target's own but never picks another one, so there is no
+    // default to fall back on without the user choosing it. The node fails
+    // with what to change in the target, and nothing of it is written.
     const heldBack = totalRecords > 0 ? await this.recordTypesHeldBack(objectApiName) : [];
     if (heldBack.length > 0) {
       state.failed = totalRecords;
@@ -772,7 +1043,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
     if (rows.length === 0) return;
 
-    this.deps.remapper.remapRecords(rows, edges, objectApiName);
+    const remap = this.deps.remapper.remapRecords(rows, edges, objectApiName);
+    await this.leaveToDefault(objectApiName, rows, state);
 
     // With the fields the target will take. `Id` and `attributes` stay: the
     // insert function strips them itself, and `Id` is what maps the record.
@@ -788,6 +1060,8 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
           return kept;
         })
       : rows;
+    payload = this.translateRecordTypes(objectApiName, payload);
+    const owedBySource = await this.lookupsOwed(objectApiName, rows, remap.unresolved, writable);
 
     // Each read of the target counted as it is made: the lookups below ask
     // nothing when there is nothing to ask about.
@@ -841,6 +1115,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         if (status && outcome.id) {
           this.deferredStatuses.push({ objectApiName, id: outcome.id, status });
         }
+        // Only a record the run wrote owes a lookup: one the target already
+        // held is linked to, and never written to.
+        const owed = sourceId ? owedBySource.get(sourceId) : undefined;
+        for (const lookup of outcome.id ? (owed ?? []) : []) {
+          this.owedLookups.push({
+            objectApiName,
+            recordId: outcome.id,
+            fieldApiName: lookup.fieldApiName,
+            sourceId: lookup.sourceId,
+            parents: lookup.parents,
+          });
+        }
         return;
       }
       // Refused because the target holds the record, and says which: its
@@ -878,6 +1164,86 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     this.register(objectApiName, mappings);
+  }
+
+  /**
+   * Take out of each record the lookups at objects the run does not copy, and
+   * count those that held a value.
+   *
+   * The rule Forge applies to a lookup no copy can remap: every object it may
+   * point at is one no wave writes — a `User`, a queue, metadata — so no
+   * target id will ever stand for the source's. Carried as read, the source
+   * id reached a target that did not hold it: every order of a real run was
+   * refused over an `OwnerId`. Left out, the platform fills the field in:
+   * `OwnerId` becomes the running user, a custom lookup at a user is empty.
+   * `RecordTypeId` has its own translation, by name.
+   */
+  private async leaveToDefault(
+    objectApiName: string,
+    rows: Record<string, unknown>[],
+    state: ObjectState,
+  ): Promise<void> {
+    const lookups = await this.lookupsOf(objectApiName);
+    if (!lookups) return;
+    const fields = lookupsAtObjectsLeftOut(
+      lookups.filter((lookup) => lookup.name !== 'RecordTypeId'),
+      (target) => !this.planned.has(target),
+    );
+    if (fields.size === 0) return;
+    const writable = await this.creatableFieldsOf(objectApiName);
+    for (const record of rows) {
+      for (const field of fields) {
+        const value = record[field];
+        // Counted only when it would have been sent: an audit field the
+        // target sets itself was never the run's to give.
+        const held = value !== null && value !== undefined && value !== '';
+        if (held && (!writable || writable.has(field))) {
+          state.defaulted.set(field, (state.defaulted.get(field) ?? 0) + 1);
+        }
+        delete record[field];
+      }
+    }
+  }
+
+  /** `RecordTypeId` as the target knows it, when the two orgs' record types were matched. */
+  private translateRecordTypes(
+    objectApiName: string,
+    payload: Record<string, unknown>[],
+  ): Record<string, unknown>[] {
+    const mappings = this.recordTypeMappings;
+    if (!mappings || !payload.some((record) => typeof record['RecordTypeId'] === 'string')) {
+      return payload;
+    }
+    return new RecordTypeMapper().apply(payload, mappings, (recordTypeId) => {
+      if (this.unmappedRecordTypes.has(recordTypeId)) return;
+      this.unmappedRecordTypes.add(recordTypeId);
+      warnUnmappedRecordType(objectApiName, recordTypeId, 'autopilot');
+    });
+  }
+
+  /**
+   * The lookups each record goes in without and a second pass can fill, by
+   * the record's source id: the ones the remapper cleared, that the insert
+   * sends and an update can set.
+   */
+  private async lookupsOwed(
+    objectApiName: string,
+    rows: readonly Record<string, unknown>[],
+    unresolved: readonly UnresolvedLookup[],
+    writable: ReadonlySet<string> | null,
+  ): Promise<Map<string, UnresolvedLookup[]>> {
+    const owed = new Map<string, UnresolvedLookup[]>();
+    if (!this.deps.update || unresolved.length === 0) return owed;
+    const lookups = await this.lookupsOf(objectApiName);
+    for (const lookup of unresolved) {
+      if (writable && !writable.has(lookup.fieldApiName)) continue;
+      const described = lookups?.find((l) => l.name === lookup.fieldApiName);
+      if (described && !described.updateable) continue;
+      const sourceId = rows[lookup.index]?.['Id'];
+      if (typeof sourceId !== 'string') continue;
+      owed.set(sourceId, [...(owed.get(sourceId) ?? []), lookup]);
+    }
+    return owed;
   }
 
   /** Record a refused record with why. */
@@ -944,21 +1310,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const refusals = new RefusalTally();
       for (let i = 0; i < entries.length; i += this.batchSize) {
         const part = entries.slice(i, i + this.batchSize);
-        let results: SaveOutcome[];
-        try {
-          results = await update(
-            objectApiName,
-            part.map((entry) => ({ Id: entry.id, Status: entry.status })),
-          );
-        } catch (err) {
-          const message = extractErrorMessage(err);
-          results = part.map(() => ({
-            id: '',
-            success: false,
-            errors: [message],
-            errorDetails: [saveErrorDetail(message)],
-          }));
-        }
+        const results = await updateEach(
+          update,
+          objectApiName,
+          part.map((entry) => ({ Id: entry.id, Status: entry.status })),
+        );
         part.forEach((_, index) => {
           const outcome = results[index];
           if (outcome?.success) applied++;
@@ -1021,6 +1377,28 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   /** Create a timestamped event, overriding the timestamp field. */
   private makeEvent<T extends AutopilotEvent>(event: T): T {
     return { ...event, timestamp: new Date().toISOString() };
+  }
+}
+
+/**
+ * Update records of the target, one outcome per record: a call that throws
+ * is every record of it refused, with the message it threw.
+ */
+async function updateEach(
+  update: UpdateFn,
+  objectApiName: string,
+  records: Record<string, unknown>[],
+): Promise<SaveOutcome[]> {
+  try {
+    return await update(objectApiName, records);
+  } catch (err) {
+    const message = extractErrorMessage(err);
+    return records.map(() => ({
+      id: '',
+      success: false,
+      errors: [message],
+      errorDetails: [saveErrorDetail(message)],
+    }));
   }
 }
 

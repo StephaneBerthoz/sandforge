@@ -572,3 +572,122 @@ describe('autopilotComposition — the rules a copy needs', () => {
     expect(target.sobject).not.toHaveBeenCalledWith('AppUsageAssignment');
   });
 });
+
+describe('autopilotComposition — a plan that keeps its links', () => {
+  it('writes the accounts of a wave before their contacts, and gives each its key contact after', async () => {
+    // An account points at its key contact, the contact at its account: they
+    // share a wave. Written side by side, a real run left every contact of it
+    // without its account.
+    const objects = {
+      Account: {
+        keyPrefix: '001',
+        lookups: { KeyContact__c: 'Contact' },
+        rows: [{ Id: 'accSrc', Name: 'Acme', KeyContact__c: 'conSrc' }],
+      },
+      Contact: {
+        keyPrefix: '003',
+        lookups: { AccountId: 'Account' },
+        rows: [{ Id: 'conSrc', Name: 'Doe', AccountId: 'accSrc' }],
+      },
+    };
+    const source = fakeDataOrg(objects);
+    // The source takes its time over the accounts: a contact written
+    // alongside would be in before them.
+    const read = source.conn.query.bind(source.conn);
+    source.conn.query = vi.fn(async (soql: string) => {
+      if (soql.startsWith('SELECT FIELDS(ALL) FROM Account ')) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      return read(soql);
+    });
+    const target = fakeDataOrg(objects);
+
+    const { plan, result } = await compose(['Contact'], source.conn, target.conn);
+
+    expect(plan.waves.map((wave) => [...wave.objects].sort())).toEqual([['Account', 'Contact']]);
+    expect(target.created.map((call) => call.objectName)).toEqual(['Account', 'Contact']);
+    expect(target.created[1].records[0]['AccountId']).toBe('Account-new-0');
+    expect(target.updated).toEqual([
+      { objectName: 'Account', records: [{ Id: 'Account-new-0', KeyContact__c: 'Contact-new-0' }] },
+    ]);
+    expect(result.lookups).toEqual({ Account: { filled: 1, refusals: [] } });
+  });
+
+  it('sends the record type the target holds under the same name', async () => {
+    const objects = {
+      Product2: {
+        keyPrefix: '01t',
+        fields: ['RecordTypeId'],
+        rows: [{ Id: 'prodSrc', Name: 'Widget', RecordTypeId: '012SRC00000SaLeSAAA' }],
+      },
+    };
+    const recordTypes =
+      (id: string) =>
+      (query: string): Record<string, unknown>[] | undefined =>
+        query.startsWith('SELECT Id, Name, DeveloperName, SobjectType FROM RecordType')
+          ? [{ Id: id, Name: 'Sales', DeveloperName: 'SalesProduct', SobjectType: 'Product2' }]
+          : undefined;
+    const source = fakeDataOrg(objects, { soql: recordTypes('012SRC00000SaLeSAAA') });
+    const target = fakeDataOrg(objects, { soql: recordTypes('012TGT00000SaLeSAAA') });
+
+    await compose(['Product2'], source.conn, target.conn);
+
+    expect(target.created[0].records[0]['RecordTypeId']).toBe('012TGT00000SaLeSAAA');
+  });
+
+  it("leaves an owner the target does not hold to the target's default, and says so", async () => {
+    // Every order of a real run was refused over its owner, a user the target
+    // did not hold.
+    const objects = {
+      Order: {
+        keyPrefix: '801',
+        lookups: { OwnerId: 'User' },
+        rows: [{ Id: 'ordSrc', Name: 'O-1', OwnerId: '005SRC000000001AAA' }],
+      },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects);
+
+    const { result } = await compose(['Order'], source.conn, target.conn);
+
+    expect(target.created[0].records[0]).not.toHaveProperty('OwnerId');
+    expect(result.objectOutcomes?.['Order']?.leftToDefault).toEqual([
+      { field: 'OwnerId', count: 1 },
+    ]);
+  });
+
+  it('never plans the metadata a product reaches, as the target describes it', async () => {
+    const objects = {
+      Product2: {
+        keyPrefix: '01t',
+        lookups: { ExternalDataSourceId: 'ExternalDataSource' },
+        rows: [{ Id: 'prodSrc', Name: 'Widget' }],
+      },
+      ExternalDataSource: {
+        keyPrefix: '0XC',
+        lookups: { LargeIconId: 'StaticResource' },
+        rows: [{ Id: 'xdsSrc', Name: 'Catalog' }],
+      },
+      StaticResource: { keyPrefix: '081', rows: [{ Id: 'srSrc', Name: 'Icon' }] },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects);
+    // The data API will not create an external data source, and the Tooling
+    // API serves static resources: both are metadata to the target.
+    target.conn.describeGlobal = vi.fn(async () => ({
+      sobjects: Object.keys(objects).map((name) => ({
+        ...globalSObject(name),
+        createable: name !== 'ExternalDataSource',
+      })),
+    }));
+    const withTooling = {
+      ...target.conn,
+      tooling: { describeGlobal: async () => ({ sobjects: [{ name: 'StaticResource' }] }) },
+    };
+
+    const { plan } = await compose(['Product2'], source.conn, withTooling);
+
+    expect(plan.waves.flatMap((wave) => wave.objects)).toEqual(['Product2']);
+    expect(target.sobject).not.toHaveBeenCalledWith('StaticResource');
+  });
+});

@@ -214,6 +214,31 @@ describe('ExecutionPlanGenerator', () => {
     expect(plan.estimatedDurationSec).toBe(3.5);
   });
 
+  it('adds up the calls of the objects of one cycle, written one after the other', () => {
+    // Wave 0: Account(3) and Contact(4) point at each other -> 7; Lead(5) beside them
+    // Total duration = 7 * 0.5 = 3.5
+    const nodes = [
+      makeNode('Account', { insertOrder: 0, level: 0, estimatedApiCalls: 3 }),
+      makeNode('Contact', { insertOrder: 1, level: 0, estimatedApiCalls: 4 }),
+      makeNode('Lead', { insertOrder: 2, level: 0, estimatedApiCalls: 5 }),
+    ];
+    const graph = makeGraph(
+      nodes,
+      [makeEdge('Account', 'Contact'), makeEdge('Contact', 'Account')],
+      [
+        { objects: ['Account'], strategy: 'two_pass', description: 'Account.ParentId' },
+        {
+          objects: ['Account', 'Contact'],
+          strategy: 'nullable_lookup',
+          description: 'Account and Contact point at each other',
+        },
+      ],
+    );
+    const plan = generator.generate(graph, framework, summary);
+
+    expect(plan.estimatedDurationSec).toBe(3.5);
+  });
+
   it('should pass through cycle resolutions from the graph', () => {
     const cycleResolutions: CycleResolution[] = [
       {

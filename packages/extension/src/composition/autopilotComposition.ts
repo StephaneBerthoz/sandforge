@@ -12,6 +12,7 @@ import {
   recordTypeCountSoql,
   type RecordTypeAvailability,
 } from '../core/metadata/recordTypeAvailability';
+import { describedLookups, type DescribedLookup } from '../core/metadata/describedLookups';
 
 /** Inputs required to wire the Autopilot orchestrator. */
 export interface AutopilotCompositionDeps {
@@ -112,6 +113,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
           creatable: ReadonlySet<string>;
           recordTypes: RecordTypeAvailability[];
           keyPrefix: string | null;
+          lookups: DescribedLookup[];
         };
         const describedByTarget = new WeakMap<Connection, Map<string, TargetDescribe>>();
         const describeTarget = async (
@@ -134,6 +136,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             ),
             recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
             keyPrefix: typeof described.keyPrefix === 'string' ? described.keyPrefix : null,
+            lookups: describedLookups(described.fields),
           };
           byObject.set(objectApiName, answer);
           return answer;
@@ -213,6 +216,11 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
                 (await target.query<Record<string, unknown>>(soql)).records,
               describeKeyPrefix: async (objectApiName: string) =>
                 (await describeTarget(target, objectApiName)).keyPrefix,
+              // What each lookup may point at and when it may be set: which
+              // are left to the target's default, what a cycle writes first,
+              // and what the second pass may fill.
+              describeLookups: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).lookups,
               anonymizer,
               // Per-execution remapper: source→target ID mappings are scoped to
               // a single run — a shared instance would remap lookups to IDs

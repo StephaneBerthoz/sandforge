@@ -12,7 +12,20 @@
  * `OpportunityHistory` in its plan and the platform answered "entity type
  * cannot be inserted". The rule is about what a copy can carry, not about
  * which module is asking — which is why this is no longer named for one.
+ *
+ * Metadata is the other half. Autopilot walked from `Product2` into the
+ * external data source it may name, from there into its auth provider, the
+ * Apex class behind it and the static resources it shows, and from a
+ * location's logo into the Content objects — then copied those whole tables.
+ * Each real run wrote five static resources whose body was their own URL, a
+ * folder and six content assets, and tried twenty-two Apex classes. Metadata
+ * is deployed, not copied as data, and an org says which objects are
+ * metadata: the Tooling API serves them, and the data API will not create
+ * the rest. {@link excludedByDescribe} reads both; the list below keeps what
+ * no describe singles out.
  */
+
+import { isUncopyableObject } from '@sandforge/shared';
 
 /** Hub, system and non-queryable objects excluded by exact API name. */
 const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
@@ -66,6 +79,12 @@ const EXCLUDED_OBJECTS: ReadonlySet<string> = new Set([
   // refused — "you can't modify quotes with an app usage assignment" — and
   // the platform assigns it itself to what it manages.
   'AppUsageAssignment',
+  // Setup the describe cannot tell from data: the Tooling API serves neither,
+  // the data API creates both, and every flag they carry — not layoutable,
+  // not triggerable — is shared by data objects such as a case team member.
+  // A real run wrote a folder into the target.
+  'AuthProvider',
+  'Folder',
 ]);
 
 /** History, feed, sharing and change-event variants of any object. */
@@ -87,9 +106,93 @@ const EXCLUDED_SUFFIXES: readonly string[] = [
  */
 const EXCLUDED_PREFIXES: readonly string[] = ['vlocity_'];
 
-/** Whether a copy refuses to discover or write `objectApiName`. */
-export function isExcludedFromCopy(objectApiName: string): boolean {
+/**
+ * Whether a copy refuses to discover or write `objectApiName`.
+ *
+ * @param described - The objects the org's own describes say no copy writes,
+ *   from {@link excludedByDescribe}, when the caller read them.
+ */
+export function isExcludedFromCopy(
+  objectApiName: string,
+  described?: ReadonlySet<string>,
+): boolean {
   if (EXCLUDED_OBJECTS.has(objectApiName)) return true;
+  if (described?.has(objectApiName)) return true;
   if (EXCLUDED_PREFIXES.some((prefix) => objectApiName.startsWith(prefix))) return true;
   return EXCLUDED_SUFFIXES.some((suffix) => objectApiName.endsWith(suffix));
+}
+
+/**
+ * Whether no copy ever creates `objectApiName`: the platform will not take it
+ * as data, or every copy leaves it out.
+ *
+ * @param described - As for {@link isExcludedFromCopy}.
+ */
+export function isNeverCopied(objectApiName: string, described?: ReadonlySet<string>): boolean {
+  return isUncopyableObject(objectApiName) || isExcludedFromCopy(objectApiName, described);
+}
+
+/** An object as an org's global describe lists it. */
+export interface DescribedObject {
+  /** API name. */
+  readonly name: string;
+  /** Whether the data API creates records of it. */
+  readonly createable?: boolean;
+}
+
+/**
+ * The objects an org's own describes say no copy writes: those the Tooling
+ * API serves — metadata, deployed rather than inserted — and those the data
+ * API will not create.
+ *
+ * Read from the org rather than listed by hand, because the list is the org's
+ * own and grows with its licences: an org with Revenue Cloud serves its
+ * pricing procedures and context definitions through the Tooling API, and a
+ * hand list would chase every one of them.
+ *
+ * @param dataObjects - The data API's global describe of the org.
+ * @param toolingObjects - The names the org's Tooling API serves; none when it could not say.
+ */
+export function excludedByDescribe(
+  dataObjects: readonly DescribedObject[],
+  toolingObjects: readonly string[] = [],
+): Set<string> {
+  const excluded = new Set(toolingObjects);
+  for (const object of dataObjects) {
+    if (object.createable === false) excluded.add(object.name);
+  }
+  return excluded;
+}
+
+/** A lookup as a describe gives it: the field, and every object it may point at. */
+export interface LookupField {
+  /** Field API name. */
+  readonly name: string;
+  /** The objects the lookup may point at. */
+  readonly referenceTo?: readonly string[];
+}
+
+/**
+ * The lookups among `fields` that can only ever point at an object the copy
+ * does not create — `OwnerId` at a `User`, and the other provisioning and
+ * metadata objects. None of them can be remapped: no record they point at is
+ * ever written. Carried, they send the target an id from the source, which it
+ * refuses; left out, the platform fills them in, and `OwnerId` becomes the
+ * running user.
+ *
+ * @param leftOut - Whether the copy leaves an object out; by default, the
+ *   objects no copy ever creates.
+ */
+export function lookupsAtObjectsLeftOut(
+  fields: readonly LookupField[],
+  leftOut: (objectApiName: string) => boolean = (name) => isNeverCopied(name),
+): Set<string> {
+  return new Set(
+    fields
+      .filter((field) => {
+        const targets = field.referenceTo ?? [];
+        return targets.length > 0 && targets.every((target) => leftOut(target));
+      })
+      .map((field) => field.name),
+  );
 }

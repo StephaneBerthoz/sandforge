@@ -5,7 +5,12 @@ vi.mock('../../logger.js', () => ({
 }));
 
 import { logger } from '../../logger.js';
-import { RecordTypeMapper, warnUnmappedRecordType } from './RecordTypeMapper';
+import {
+  RECORD_TYPES_SOQL,
+  RecordTypeMapper,
+  parseRecordTypeRows,
+  warnUnmappedRecordType,
+} from './RecordTypeMapper';
 import type { RecordTypeInfo, RecordTypeMapping } from './RecordTypeMapper';
 
 function createTypeInfo(overrides?: Partial<RecordTypeInfo>): RecordTypeInfo {
@@ -231,6 +236,44 @@ describe('RecordTypeMapper', () => {
       expect(line).toContain('Case');
       expect(line).toContain('012SRC000000001AAA');
       expect(line).toContain('no active Case record type with the same API name');
+    });
+
+    it('names the module that met it', () => {
+      vi.mocked(logger.warn).mockClear();
+
+      warnUnmappedRecordType('Product2', '012SRC000000001AAA', 'autopilot');
+
+      expect(vi.mocked(logger.warn).mock.calls[0][0]).toMatch(/^\[autopilot\] Product2:/);
+    });
+  });
+
+  describe('parseRecordTypeRows', () => {
+    it('reads the rows of the record type query into what buildMapping matches', () => {
+      expect(RECORD_TYPES_SOQL).toContain('SobjectType');
+
+      const types = parseRecordTypeRows([
+        {
+          attributes: { type: 'RecordType' },
+          Id: '012SRC000000001AAA',
+          Name: 'Produit de vente',
+          DeveloperName: 'SalesProduct',
+          SobjectType: 'Product2',
+        },
+      ]);
+
+      expect(types).toEqual([
+        {
+          id: '012SRC000000001AAA',
+          name: 'Produit de vente',
+          developerName: 'SalesProduct',
+          sobjectType: 'Product2',
+        },
+      ]);
+    });
+
+    it('refuses rows that are not the shape the query returns', () => {
+      expect(() => parseRecordTypeRows([{ Id: '012SRC000000001AAA', Name: 'X' }])).toThrow();
+      expect(() => parseRecordTypeRows('not rows')).toThrow();
     });
   });
 });

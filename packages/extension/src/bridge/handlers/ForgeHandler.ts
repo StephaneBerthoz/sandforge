@@ -34,7 +34,12 @@ import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
-import { RecordTypeMapper, type RecordTypeMapping } from '../../modules/sync/RecordTypeMapper.js';
+import {
+  RECORD_TYPES_SOQL,
+  RecordTypeMapper,
+  parseRecordTypeRows,
+  type RecordTypeMapping,
+} from '../../modules/sync/RecordTypeMapper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 
@@ -73,20 +78,6 @@ const metadataDiffRequestPayloadSchema = z.object({
     )
     .max(100),
 });
-
-/** Active record types of an org, with the object each belongs to. */
-const RECORD_TYPES_SOQL =
-  'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
-
-/** Shape of the rows {@link RECORD_TYPES_SOQL} returns, checked before mapping. */
-const recordTypeRowsSchema = z.array(
-  z.object({
-    Id: z.string().min(1),
-    Name: z.string(),
-    DeveloperName: z.string().min(1),
-    SobjectType: z.string().min(1),
-  }),
-);
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -1063,12 +1054,7 @@ export class ForgeHandler implements DomainHandler {
           },
           RECORD_TYPES_SOQL,
         );
-        return recordTypeRowsSchema.parse(records).map((r) => ({
-          id: r.Id,
-          name: r.Name,
-          developerName: r.DeveloperName,
-          sobjectType: r.SobjectType,
-        }));
+        return parseRecordTypeRows(records);
       }),
     );
     return new RecordTypeMapper().buildMapping(sourceTypes, targetTypes);

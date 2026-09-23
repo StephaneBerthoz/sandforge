@@ -47,6 +47,7 @@ import {
   recordTypeCountSoql,
   type RecordTypeAvailability,
 } from '../src/core/metadata/recordTypeAvailability.js';
+import { describedLookups, type DescribedLookup } from '../src/core/metadata/describedLookups.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -171,6 +172,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       creatable: ReadonlySet<string>;
       recordTypes: RecordTypeAvailability[];
       keyPrefix: string | null;
+      lookups: DescribedLookup[];
     }
   >();
   const describeTarget = async (objectApiName: string) => {
@@ -181,6 +183,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       creatable: new Set(described.fields.filter((f) => f.createable).map((f) => f.name)),
       recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
       keyPrefix: described.keyPrefix ?? null,
+      lookups: describedLookups(described.fields),
     };
     targetByObject.set(objectApiName, answer);
     return answer;
@@ -236,6 +239,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         queryTarget: async (soql) =>
           (await targetConn.query<Record<string, unknown>>(soql)).records,
         describeKeyPrefix: async (objectApiName) => (await describeTarget(objectApiName)).keyPrefix,
+        describeLookups: async (objectApiName) => (await describeTarget(objectApiName)).lookups,
         anonymizer,
         remapper: new RecordIdRemapper(),
         describeCreateableFields: async (objectApiName) =>
@@ -308,9 +312,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 /**
  * One line per object — written, linked, refused — then one per reason the
- * target gave, by status code and fields, and the statuses applied once the
- * children were in. The code is printed rather than read from the message:
- * the message is in the language of the target's running user.
+ * target gave, by status code and fields, and one per lookup left to the
+ * target's default; then the lookups the second pass filled and the statuses
+ * applied once the children were in. The code is printed rather than read
+ * from the message: the message is in the language of the target's running
+ * user.
  */
 export function outcomeLines(result: ExecutionResult): string[] {
   const lines: string[] = [];
@@ -326,10 +332,19 @@ export function outcomeLines(result: ExecutionResult): string[] {
         `refused ${outcome.failed}`,
     );
     reasons(outcome.refusals);
+    // Not sent: the target filled each in itself — the running user as owner.
+    for (const lookup of outcome.leftToDefault ?? []) {
+      lines.push(`      left to the target's default: ${lookup.field} x${lookup.count}`);
+    }
   }
   for (const name of result.failedObjects) {
     if (result.objectOutcomes?.[name]) continue;
     lines.push(`  ${name.padEnd(28)} FAILED: ${result.nodeErrors?.[name] ?? '(no message)'}`);
+  }
+  for (const [name, lookups] of Object.entries(result.lookups ?? {})) {
+    const refused = lookups.refusals.reduce((sum, refusal) => sum + refusal.count, 0);
+    lines.push(`  ${name.padEnd(28)} lookups filled ${lookups.filled}  refused ${refused}`);
+    reasons(lookups.refusals);
   }
   for (const [name, statuses] of Object.entries(result.statuses ?? {})) {
     const refused = statuses.refusals.reduce((sum, refusal) => sum + refusal.count, 0);

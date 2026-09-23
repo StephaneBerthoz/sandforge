@@ -1,4 +1,37 @@
+import { z } from 'zod';
 import { logger } from '../../logger.js';
+
+/**
+ * Active record types of an org, with the object each belongs to: what
+ * {@link RecordTypeMapper.buildMapping} matches, read the same way by every
+ * module that translates `RecordTypeId` between two orgs.
+ */
+export const RECORD_TYPES_SOQL =
+  'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
+
+/** Shape of the rows {@link RECORD_TYPES_SOQL} returns, checked before mapping. */
+const recordTypeRowsSchema = z.array(
+  z.object({
+    Id: z.string().min(1),
+    Name: z.string(),
+    DeveloperName: z.string().min(1),
+    SobjectType: z.string().min(1),
+  }),
+);
+
+/**
+ * The record types in the rows of {@link RECORD_TYPES_SOQL}.
+ *
+ * @throws {z.ZodError} When a row is not the shape the query returns.
+ */
+export function parseRecordTypeRows(rows: unknown): RecordTypeInfo[] {
+  return recordTypeRowsSchema.parse(rows).map((r) => ({
+    id: r.Id,
+    name: r.Name,
+    developerName: r.DeveloperName,
+    sobjectType: r.SobjectType,
+  }));
+}
 
 /**
  * The master record type: an object with no record type of its own stores
@@ -12,9 +45,13 @@ const MASTER_RECORD_TYPE_ID_RE = /^012000000000000(AAA)?$/;
  * keeps the source Id, so its insert is refused with an error that names the
  * field but not why the value was wrong; this line in the output is the link.
  */
-export function warnUnmappedRecordType(objectApiName: string, recordTypeId: string): void {
+export function warnUnmappedRecordType(
+  objectApiName: string,
+  recordTypeId: string,
+  module = 'forge',
+): void {
   logger.warn(
-    `[forge] ${objectApiName}: RecordTypeId ${recordTypeId} has no active ${objectApiName} ` +
+    `[${module}] ${objectApiName}: RecordTypeId ${recordTypeId} has no active ${objectApiName} ` +
       `record type with the same API name on the target org. Records keep the source Id and ` +
       `the target org will likely refuse them — create or activate that record type on the target.`,
   );

@@ -232,7 +232,7 @@ function createRealExecutorDeps(): {
       insert,
       anonymizer: { anonymize: vi.fn() } as unknown as SmartAnonymizer,
       remapper: {
-        remapRecords: vi.fn(),
+        remapRecords: vi.fn(() => ({ remapped: 0, missing: 0, skipped: 0, unresolved: [] })),
         registerMappings: vi.fn(),
       } as unknown as RecordIdRemapper,
       batchSize: 2,

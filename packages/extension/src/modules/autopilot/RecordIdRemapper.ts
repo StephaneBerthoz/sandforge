@@ -31,7 +31,7 @@ export class RecordIdRemapper {
    * @param records Records to remap (mutated in place)
    * @param edges Edges describing which fields are lookups to which objects
    * @param objectApiName The object being remapped (child object with lookup fields)
-   * @returns Object with stats: remapped, missing, skipped
+   * @returns Object with stats: remapped, missing, skipped, and the lookups cleared
    */
   remapRecords(
     records: Record<string, unknown>[],
@@ -43,15 +43,16 @@ export class RecordIdRemapper {
     let remapped = 0;
     let missing = 0;
     let skipped = 0;
+    const unresolved: UnresolvedLookup[] = [];
 
-    for (const record of records) {
+    for (const [index, record] of records.entries()) {
       // A polymorphic lookup carries one edge per possible parent — `WhatId`
       // has one for Account and one for Opportunity — and only one of them
       // can match. Clearing on the first miss would wipe the value the other
       // edge had just resolved, so the decision waits until every edge of the
       // field has been tried.
       const resolvedFields = new Set<string>();
-      const unresolvedFields = new Set<string>();
+      const unresolvedFields = new Map<string, { sourceId: string; parents: ApiName[] }>();
 
       for (const edge of relevantEdges) {
         const sourceId = record[edge.fieldApiName];
@@ -74,7 +75,9 @@ export class RecordIdRemapper {
           resolvedFields.add(edge.fieldApiName);
           remapped++;
         } else {
-          unresolvedFields.add(edge.fieldApiName);
+          const known = unresolvedFields.get(edge.fieldApiName);
+          if (known) known.parents.push(edge.from);
+          else unresolvedFields.set(edge.fieldApiName, { sourceId, parents: [edge.from] });
           missing++;
         }
       }
@@ -87,13 +90,18 @@ export class RecordIdRemapper {
       // referencing objects makes unavoidable: `Account` and `Contact`
       // reference each other, so they share a wave, so one of them is written
       // before the other exists.
-      for (const fieldApiName of unresolvedFields) {
+      //
+      // The id it held is handed back with the field: a parent written after
+      // this record — later in its cycle, or further down the same object —
+      // has a target id by the end of the wave, and the lookup is filled then.
+      for (const [fieldApiName, { sourceId, parents }] of unresolvedFields) {
         if (resolvedFields.has(fieldApiName)) continue;
         record[fieldApiName] = null;
+        unresolved.push({ index, fieldApiName, sourceId, parents });
       }
     }
 
-    return { remapped, missing, skipped };
+    return { remapped, missing, skipped, unresolved };
   }
 
   /**
@@ -139,6 +147,18 @@ export class RecordIdRemapper {
   }
 }
 
+/** A lookup cleared because the record it points at had no target id yet. */
+export interface UnresolvedLookup {
+  /** Position of the record in the records remapped. */
+  index: number;
+  /** The lookup, now empty. */
+  fieldApiName: string;
+  /** The source id it held. */
+  sourceId: string;
+  /** Every object it may point at, one per edge of the field. */
+  parents: ApiName[];
+}
+
 /** Result of a remap operation */
 export interface RemapResult {
   /** Number of fields successfully remapped */
@@ -147,4 +167,6 @@ export interface RemapResult {
   missing: number;
   /** Number of null/empty fields skipped */
   skipped: number;
+  /** The lookups cleared, with the id each held. */
+  unresolved: UnresolvedLookup[];
 }

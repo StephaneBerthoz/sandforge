@@ -341,4 +341,65 @@ describe('RecordIdRemapper — a lookup that cannot be resolved', () => {
 
     expect(records[0]['AccountId']).toBe('001SOURCE');
   });
+
+  it('hands back each lookup it cleared, with the id it held and where it may point', () => {
+    // The parent is written after the child — later in its cycle — so the id
+    // is owed, not lost: the second pass fills it once the parent is in.
+    const remapper = new RecordIdRemapper();
+    remapper.registerMappings('Account', [['001xx0001', '001yy0001']]);
+    const edges: AutopilotEdge[] = [
+      {
+        from: 'Account',
+        to: 'Contact',
+        fieldApiName: 'AccountId',
+        relationshipType: 'lookup',
+        required: false,
+      },
+      {
+        from: 'Contact',
+        to: 'Contact',
+        fieldApiName: 'ReportsToId',
+        relationshipType: 'hierarchical',
+        required: false,
+      },
+    ];
+    const records: Record<string, unknown>[] = [
+      { Id: '003xx0001', AccountId: '001xx0001', ReportsToId: '003xx0002' },
+      { Id: '003xx0002', AccountId: '001xx0404', ReportsToId: null },
+    ];
+
+    const result = remapper.remapRecords(records, edges, 'Contact');
+
+    expect(result.unresolved).toEqual([
+      { index: 0, fieldApiName: 'ReportsToId', sourceId: '003xx0002', parents: ['Contact'] },
+      { index: 1, fieldApiName: 'AccountId', sourceId: '001xx0404', parents: ['Account'] },
+    ]);
+  });
+
+  it('names every parent a polymorphic lookup may have, and none it resolved', () => {
+    const remapper = new RecordIdRemapper();
+    remapper.registerMappings('Opportunity', [['006xx0001', '006yy0001']]);
+    const edges: AutopilotEdge[] = ['Account', 'Opportunity'].map((from) => ({
+      from,
+      to: 'Task',
+      fieldApiName: 'WhatId',
+      relationshipType: 'polymorphic',
+      required: false,
+    }));
+    const records: Record<string, unknown>[] = [
+      { Id: '00Txx1', WhatId: '006xx0001' },
+      { Id: '00Txx2', WhatId: '001xx0404' },
+    ];
+
+    const result = remapper.remapRecords(records, edges, 'Task');
+
+    expect(result.unresolved).toEqual([
+      {
+        index: 1,
+        fieldApiName: 'WhatId',
+        sourceId: '001xx0404',
+        parents: ['Account', 'Opportunity'],
+      },
+    ]);
+  });
 });

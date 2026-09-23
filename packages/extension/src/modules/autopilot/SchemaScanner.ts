@@ -6,8 +6,9 @@
 
 import type { ApiName } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
-import { isUncopyableObject } from '@sandforge/shared';
-import { isExcludedFromCopy } from '../forge/excludedObjects.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { excludedByDescribe, isNeverCopied } from '../forge/excludedObjects.js';
+import { logger } from '../../logger.js';
 
 /** Abstraction over Salesforce describe API for testability. */
 export interface AutopilotConnection {
@@ -17,6 +18,17 @@ export interface AutopilotConnection {
   describeGlobal(): Promise<GlobalDescribeResult>;
   /** Execute a SOQL query. */
   query(soql: string): Promise<QueryResult>;
+  /**
+   * The org's Tooling API, when the connection has one — a jsforce
+   * connection does. The objects it serves are metadata, deployed rather
+   * than copied as data.
+   */
+  tooling?: ToolingDescribe;
+}
+
+/** What the scan asks of the Tooling API: which objects it serves. */
+export interface ToolingDescribe {
+  describeGlobal(): Promise<{ sobjects: ReadonlyArray<{ name: string }> }>;
 }
 
 /** Subset of Salesforce global describe result. */
@@ -150,6 +162,21 @@ export class SchemaScanner {
     }
 
     /*
+     * What the target itself says no copy writes: the objects its Tooling API
+     * serves, which are metadata, and those its data API will not create.
+     * Read before the walk, because the walk is where they came in: from a
+     * product to the external data source it may name, to that source's auth
+     * provider and the Apex class behind it, and from a location's logo into
+     * the Content objects — a real run copied those whole tables.
+     */
+    const targetGlobal = await targetConn.describeGlobal();
+    const described = excludedByDescribe(
+      targetGlobal.sobjects,
+      await this.toolingObjects(targetConn),
+    );
+    const leftOut = (name: ApiName): boolean => isNeverCopied(name, described);
+
+    /*
      * Applied to a selection as well as to a discovery, because the rule is
      * about what a copy can do and not about how the name got into the list.
      * A saved configuration, a template, or a picker written before this
@@ -163,9 +190,7 @@ export class SchemaScanner {
      * deployed rather than inserted. A node that fails in wave one leaves every
      * later wave remapping foreign keys onto records that were never created.
      */
-    rootObjects = rootObjects.filter(
-      (name) => !isUncopyableObject(name) && !isExcludedFromCopy(name),
-    );
+    rootObjects = rootObjects.filter((name) => !leftOut(name));
 
     // Step 2: Describe all root objects on source
     const objectDescribes = await this.describeAll(sourceConn, rootObjects);
@@ -173,7 +198,7 @@ export class SchemaScanner {
     // Step 3: Recursively discover lookup dependencies
     const autoDiscoveredObjects: ApiName[] = [];
     const visited = new Set<ApiName>(objectDescribes.keys());
-    let newReferences = this.findNewReferences(objectDescribes, visited);
+    let newReferences = this.findNewReferences(objectDescribes, visited, leftOut);
 
     while (newReferences.length > 0) {
       const newDescribes = await this.describeAll(sourceConn, newReferences);
@@ -182,11 +207,10 @@ export class SchemaScanner {
         autoDiscoveredObjects.push(name);
         visited.add(name);
       }
-      newReferences = this.findNewReferences(objectDescribes, visited);
+      newReferences = this.findNewReferences(objectDescribes, visited, leftOut);
     }
 
     // Step 4: Verify objects exist on target org
-    const targetGlobal = await targetConn.describeGlobal();
     const targetObjectNames = new Set(targetGlobal.sobjects.map((s) => s.name));
     const missingInTarget = [...objectDescribes.keys()].filter(
       (name) => !targetObjectNames.has(name),
@@ -205,15 +229,36 @@ export class SchemaScanner {
   }
 
   /**
+   * The objects the org's Tooling API serves, or none when it cannot say —
+   * a connection without one, or a user the org does not let read it. The
+   * data API's own answer, and the list of objects every copy leaves out,
+   * still apply.
+   */
+  private async toolingObjects(conn: AutopilotConnection): Promise<string[]> {
+    if (!conn.tooling) return [];
+    try {
+      const answer = await conn.tooling.describeGlobal();
+      return answer.sobjects.map((sobject) => sobject.name);
+    } catch (err) {
+      logger.warn('Autopilot could not ask the Tooling API which objects are metadata', {
+        error: extractErrorMessage(err),
+      });
+      return [];
+    }
+  }
+
+  /**
    * Find referenced objects that have not yet been described.
    *
    * @param describes - Already-described objects.
    * @param visited - Set of already-visited object names.
+   * @param leftOut - Whether the copy leaves an object out.
    * @returns Array of new object names to describe.
    */
   private findNewReferences(
     describes: Map<ApiName, ObjectDescribeResult>,
     visited: Set<ApiName>,
+    leftOut: (name: ApiName) => boolean,
   ): ApiName[] {
     const newRefs = new Set<ApiName>();
     for (const desc of describes.values()) {
@@ -228,8 +273,9 @@ export class SchemaScanner {
         // has no business walking into at all — history, feeds, shares, a
         // managed package's catalogue — which is how an `OpportunityHistory`
         // reached a plan and the platform answered "entity type cannot be
-        // inserted".
-        if (isUncopyableObject(ref) || isExcludedFromCopy(ref)) continue;
+        // inserted". The third is the org's own: its metadata, and what its
+        // data API will not create.
+        if (leftOut(ref)) continue;
         if (!visited.has(ref)) {
           newRefs.add(ref);
         }

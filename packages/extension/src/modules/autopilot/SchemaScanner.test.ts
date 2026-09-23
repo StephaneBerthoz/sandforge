@@ -393,3 +393,158 @@ describe('objects no copy can create', () => {
     expect([...result.objectDescribes.keys()]).toEqual(['Account']);
   });
 });
+
+/** `conn` with a Tooling API that serves `names`, or fails with the error given. */
+function withTooling(conn: AutopilotConnection, names: string[] | Error): AutopilotConnection {
+  return {
+    ...conn,
+    tooling: {
+      describeGlobal: vi.fn(async () => {
+        if (names instanceof Error) throw names;
+        return { sobjects: names.map((name) => ({ name })) };
+      }),
+    },
+  };
+}
+
+describe('metadata and what the target will not create', () => {
+  const scanner = new SchemaScanner();
+
+  /** The lookups a real run walked from Order, object by object. */
+  const LOOKUPS: Record<string, Array<[string, string[]]>> = {
+    Order: [
+      ['AccountId', ['Account']],
+      ['Pricebook2Id', ['Pricebook2']],
+      ['OwnerId', ['Group', 'User']],
+    ],
+    OrderItem: [
+      ['OrderId', ['Order']],
+      ['PricebookEntryId', ['PricebookEntry']],
+      ['OrderActionId', ['OrderAction']],
+    ],
+    OrderAction: [['SourceAssetId', ['Asset']]],
+    PricebookEntry: [
+      ['Pricebook2Id', ['Pricebook2']],
+      ['Product2Id', ['Product2']],
+    ],
+    Product2: [['ExternalDataSourceId', ['ExternalDataSource']]],
+    ExternalDataSource: [
+      ['AuthProviderId', ['AuthProvider']],
+      ['LargeIconId', ['StaticResource']],
+      ['NamedCredentialId', ['NamedCredential']],
+    ],
+    NamedCredential: [['AuthProviderId', ['AuthProvider']]],
+    AuthProvider: [['RegistrationHandlerId', ['ApexClass']]],
+    Account: [['PersonActionCadenceId', ['ActionCadence']]],
+    ActionCadence: [['FolderId', ['Folder']]],
+    Asset: [['LocationId', ['Location']]],
+    Location: [['LogoId', ['ContentAsset']]],
+    ContentAsset: [['ContentDocumentId', ['ContentDocument']]],
+    ContentDocument: [['ParentId', ['ContentWorkspace']]],
+    ContentWorkspace: [['RootContentFolderId', ['ContentFolder']]],
+  };
+  const OBJECTS = [
+    ...Object.keys(LOOKUPS),
+    'Pricebook2',
+    'ApexClass',
+    'StaticResource',
+    'Folder',
+    'ContentFolder',
+  ];
+  /** As the target's data API answered: these it will not create. */
+  const NOT_CREATEABLE = [
+    'ActionCadence',
+    'ContentDocument',
+    'ExternalDataSource',
+    'NamedCredential',
+  ];
+  /** As the target's Tooling API answered, among the objects of the walk. */
+  const TOOLING = [
+    'ApexClass',
+    'ContentAsset',
+    'ExternalDataSource',
+    'NamedCredential',
+    'StaticResource',
+  ];
+
+  /** An org holding the objects of the walk, as a real one described them. */
+  function org(): AutopilotConnection {
+    return mockConn({
+      globalSObjects: OBJECTS.map((name) =>
+        mockGlobalSObject(name, { createable: !NOT_CREATEABLE.includes(name) }),
+      ),
+      describes: Object.fromEntries(
+        OBJECTS.map((name) => [
+          name,
+          mockDescribe(
+            name,
+            (LOOKUPS[name] ?? []).map(([field, to]) => lookupField(field, to)),
+          ),
+        ]),
+      ),
+    });
+  }
+
+  it('does not reach a setup object from a plan rooted at Order', async () => {
+    const result = await scanner.scan(
+      org(),
+      withTooling(org(), TOOLING),
+      ['Order', 'OrderItem'],
+      true,
+    );
+
+    expect([...result.objectDescribes.keys()].sort()).toEqual([
+      'Account',
+      'Asset',
+      'Location',
+      'Order',
+      'OrderAction',
+      'OrderItem',
+      'Pricebook2',
+      'PricebookEntry',
+      'Product2',
+    ]);
+  });
+
+  it('leaves out what the Tooling API serves, though no list of its own names it', async () => {
+    const source = mockConn({
+      describes: {
+        Order: mockDescribe('Order', [lookupField('ConfirmationTemplate__c', ['EmailTemplate'])]),
+      },
+    });
+    const target = mockConn({
+      globalSObjects: [mockGlobalSObject('Order'), mockGlobalSObject('EmailTemplate')],
+    });
+
+    const blind = await scanner.scan(source, target, ['Order'], true);
+    const told = await scanner.scan(
+      source,
+      withTooling(target, ['EmailTemplate']),
+      ['Order'],
+      true,
+    );
+
+    expect([...blind.objectDescribes.keys()]).toEqual(['Order', 'EmailTemplate']);
+    expect([...told.objectDescribes.keys()]).toEqual(['Order']);
+  });
+
+  it('leaves out what the target will not create, even asked for by name', async () => {
+    const result = await scanner.scan(org(), org(), ['Order', 'ContentDocument'], true);
+
+    const planned = [...result.objectDescribes.keys()];
+    expect(planned).toContain('Order');
+    for (const name of NOT_CREATEABLE) expect(planned).not.toContain(name);
+  });
+
+  it('still leaves out the rest when the Tooling API cannot be read', async () => {
+    const target = withTooling(org(), new Error('API_DISABLED_FOR_ORG: API is not enabled'));
+
+    const result = await scanner.scan(org(), target, ['Order', 'OrderItem'], true);
+
+    const planned = [...result.objectDescribes.keys()];
+    expect(planned).toContain('Product2');
+    for (const name of ['ExternalDataSource', 'AuthProvider', 'Folder', 'ContentDocument']) {
+      expect(planned).not.toContain(name);
+    }
+  });
+});

@@ -68,6 +68,47 @@ describe('sandforge-autopilot — the run summary', () => {
     ]);
   });
 
+  it("prints the lookups left to the target's default, and those filled after the wave", () => {
+    const lines = outcomeLines({
+      totalSuccess: 12,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 1,
+      completedObjects: ['Order', 'Account'],
+      failedObjects: [],
+      skippedObjects: [],
+      objectOutcomes: {
+        Order: {
+          written: 11,
+          linked: 0,
+          failed: 0,
+          refusals: [],
+          leftToDefault: [{ field: 'OwnerId', count: 11 }],
+        },
+      },
+      lookups: {
+        Account: {
+          filled: 15,
+          refusals: [
+            {
+              statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+              fields: ['KeyContact__c'],
+              count: 1,
+              message: 'Le contact doit appartenir au compte',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      `  ${'Order'.padEnd(28)} written 11  linked 0  refused 0`,
+      "      left to the target's default: OwnerId x11",
+      `  ${'Account'.padEnd(28)} lookups filled 15  refused 1`,
+      '      FIELD_CUSTOM_VALIDATION_EXCEPTION [KeyContact__c] x1: Le contact doit appartenir au compte',
+    ]);
+  });
+
   it('prints a node that died before writing with the error it died with', () => {
     const lines = outcomeLines({
       totalSuccess: 0,

@@ -23,6 +23,7 @@ import type {
   ForgeProgressEvent,
 } from '../ForgeExecutor.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
+import { LookupPatchSet } from '../../../core/common/lookupPatches.js';
 import type { IdRemapper } from '../IdRemapper.js';
 import {
   WRITE_API_MAX_BATCH,
@@ -73,7 +74,7 @@ export async function patchCycleFkUpdates(
   }
   const updateRecords = input.updateRecords;
 
-  const updatesByObject = new Map<string, Map<string, Record<string, unknown>>>();
+  const owed = new LookupPatchSet();
   let resolvedCount = 0;
   const unresolved: ExecutionErrorSample[] = [];
   for (const upd of pendingFkUpdates) {
@@ -93,42 +94,32 @@ export async function patchCycleFkUpdates(
       }
       continue;
     }
-    let perObj = updatesByObject.get(upd.objectApiName);
-    if (!perObj) {
-      perObj = new Map();
-      updatesByObject.set(upd.objectApiName, perObj);
-    }
-    // Explicit "read current → check conflict → build → set"
-    // pattern so the mutable-by-reference semantics are obvious.
-    // Previous code relied on `existing` aliasing the map entry and
-    // mutating it in place — silently broken if a refactor introduces
-    // defensive cloning. Now the intent is unambiguous.
-    const current = perObj.get(upd.newId);
-    const previousValue = current?.[upd.fieldName];
     // Detect dup-on-same-record collisions (same record, same field,
     // different remapped target) — surface explicitly so the user
     // can investigate ambiguous polymorphic FKs (Task.WhatId etc.).
-    if (previousValue !== undefined && previousValue !== newRefId) {
+    const patched = owed.add({
+      objectApiName: upd.objectApiName,
+      recordId: upd.newId,
+      fieldName: upd.fieldName,
+      value: newRefId,
+    });
+    if (!patched.taken) {
       if (unresolved.length < 3) {
         unresolved.push({
           recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
           messages: [
-            `Conflicting cycle FK update for ${upd.fieldName}: ${String(previousValue)} vs ${newRefId}`,
+            `Conflicting cycle FK update for ${upd.fieldName}: ${String(patched.kept)} vs ${newRefId}`,
           ],
         });
       }
       continue;
     }
-    const updated = current ?? { Id: upd.newId };
-    updated[upd.fieldName] = newRefId;
-    perObj.set(upd.newId, updated);
     resolvedCount++;
   }
   let pass2Failed = 0;
   const pass2Samples: ExecutionErrorSample[] = [];
   const maxPerCall = WRITE_API_MAX_BATCH['rest'];
-  for (const [objectApiName, perObj] of updatesByObject) {
-    const recordsToUpdate = [...perObj.values()];
+  for (const [objectApiName, recordsToUpdate] of owed.updates()) {
     for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
       const batch = recordsToUpdate.slice(offset, offset + maxPerCall);
       try {

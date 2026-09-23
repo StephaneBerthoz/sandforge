@@ -15,9 +15,13 @@ import {
   type AutopilotExecutorDeps,
   type QueryFn,
   type InsertFn,
+  type UpdateFn,
 } from './AutopilotExecutor.js';
 import type { SaveOutcome } from '../../core/common/existingRecordMatch.js';
 import type { SoqlQuery } from '../../core/common/platformRecords.js';
+import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
+import { RECORD_TYPES_SOQL } from '../sync/RecordTypeMapper.js';
+import { logger } from '../../logger.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import { RecordIdRemapper } from './RecordIdRemapper.js';
 
@@ -112,7 +116,7 @@ function makeDeps(overrides: Partial<AutopilotExecutorDeps> = {}): AutopilotExec
   } as unknown as SmartAnonymizer;
 
   const remapperMock = {
-    remapRecords: vi.fn().mockReturnValue({ remapped: 0, missing: 0, skipped: 0 }),
+    remapRecords: vi.fn().mockReturnValue({ remapped: 0, missing: 0, skipped: 0, unresolved: [] }),
     registerMappings: vi.fn(),
     getTargetId: vi.fn(),
     hasObject: vi.fn(),
@@ -1160,5 +1164,491 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
       expect(vi.mocked(deps.insert).mock.calls[0][1][0]['Status']).toBe('Draft');
       expect(update).toHaveBeenCalledWith('Contract', [{ Id: '800A', Status: 'Activated' }]);
     });
+  });
+});
+
+/** An insert that writes every record, under the target id prefix given per object. */
+function insertAs(prefixes: Record<string, string>): InsertFn {
+  return vi.fn(async (objectApiName: string, records: Record<string, unknown>[]) =>
+    written(...records.map((_, i) => `${prefixes[objectApiName] ?? 'X'}${i}`)),
+  );
+}
+
+/** An update that takes every record. */
+function updateAll(): UpdateFn {
+  return vi.fn(async (_objectApiName: string, records: Record<string, unknown>[]) =>
+    written(...records.map((record) => String(record['Id']))),
+  );
+}
+
+/** A lookup of the target, settable on create and on update unless told otherwise. */
+function lookup(name: string, referenceTo: string[], flags: Partial<DescribedLookup> = {}) {
+  return { name, referenceTo, createable: true, updateable: true, ...flags };
+}
+
+describe('AutopilotExecutor — objects of one wave that point at each other', () => {
+  /** A source that answers late for one object, so a racing write would overtake it. */
+  function slowFor(slow: string, rows: Record<string, Record<string, unknown>[]>): QueryFn {
+    const read = sourceOf(rows);
+    return vi.fn(async (objectApiName: string, offset: number, limit: number) => {
+      if (objectApiName === slow) await new Promise((resolve) => setTimeout(resolve, 5));
+      return read(objectApiName, offset, limit);
+    });
+  }
+
+  it('writes the parent of a cycle first, so its children keep their link', async () => {
+    // An account points at its key contact, the contact at its account: they
+    // share a wave. Written all at once, a real run left 18 contacts out of
+    // 18 without their account.
+    const rows = {
+      Account: [{ Id: 'accSrc', Name: 'Acme', KeyContact__c: 'conSrc' }],
+      Contact: [{ Id: 'conSrc', LastName: 'Doe', AccountId: 'accSrc' }],
+    };
+    const insert = insertAs({ Account: '001T', Contact: '003T' });
+    const update = updateAll();
+    const deps = makeDeps({
+      query: slowFor('Account', rows),
+      insert,
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Contact', 'Account'], dependsOn: [] }]),
+      [
+        makeEdge({ from: 'Account' as ApiName, to: 'Contact' as ApiName }),
+        makeEdge({
+          from: 'Contact' as ApiName,
+          to: 'Account' as ApiName,
+          fieldApiName: 'KeyContact__c',
+        }),
+      ],
+      [],
+      countsOf(rows),
+    );
+
+    const calls = vi.mocked(insert).mock.calls;
+    expect(calls.map((call) => call[0])).toEqual(['Account', 'Contact']);
+    expect(calls[1][1][0]['AccountId']).toBe('001T0');
+    // The account went in without the contact written after it, and was given
+    // it once both were in.
+    expect(calls[0][1][0]['KeyContact__c']).toBeNull();
+    expect(update).toHaveBeenCalledWith('Account', [{ Id: '001T0', KeyContact__c: '003T0' }]);
+    expect(result.lookups).toEqual({ Account: { filled: 1, refusals: [] } });
+  });
+
+  it('writes first what a required lookup points at, whatever the names', async () => {
+    const rows = {
+      Alpha__c: [{ Id: 'alphaSrc', Zulu__c: 'zuluSrc' }],
+      Zulu__c: [{ Id: 'zuluSrc', Alpha__c: 'alphaSrc' }],
+    };
+    const insert = insertAs({ Alpha__c: 'a0AT', Zulu__c: 'a0ZT' });
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Alpha__c', 'Zulu__c'], dependsOn: [] }]),
+      [
+        makeEdge({
+          from: 'Zulu__c' as ApiName,
+          to: 'Alpha__c' as ApiName,
+          fieldApiName: 'Zulu__c',
+          required: true,
+        }),
+        makeEdge({
+          from: 'Alpha__c' as ApiName,
+          to: 'Zulu__c' as ApiName,
+          fieldApiName: 'Alpha__c',
+        }),
+      ],
+      [],
+      countsOf(rows),
+    );
+
+    const calls = vi.mocked(insert).mock.calls;
+    expect(calls.map((call) => call[0])).toEqual(['Zulu__c', 'Alpha__c']);
+    expect(calls[1][1][0]['Zulu__c']).toBe('a0ZT0');
+  });
+
+  it('writes first what a lookup an update cannot set points at', async () => {
+    // A quote takes its opportunity on create and never on update: written
+    // before its opportunity, it would have kept none.
+    const rows = {
+      Agreement__c: [{ Id: 'agrSrc', Opportunity__c: 'oppSrc' }],
+      Opportunity: [{ Id: 'oppSrc', Agreement__c: 'agrSrc' }],
+    };
+    const insert = insertAs({ Agreement__c: 'a0GT', Opportunity: '006T' });
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert,
+      remapper: new RecordIdRemapper(),
+      describeLookups: async (name) =>
+        name === 'Agreement__c'
+          ? [lookup('Opportunity__c', ['Opportunity'], { updateable: false })]
+          : [lookup('Agreement__c', ['Agreement__c'])],
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Agreement__c', 'Opportunity'], dependsOn: [] }]),
+      [
+        makeEdge({
+          from: 'Opportunity' as ApiName,
+          to: 'Agreement__c' as ApiName,
+          fieldApiName: 'Opportunity__c',
+        }),
+        makeEdge({
+          from: 'Agreement__c' as ApiName,
+          to: 'Opportunity' as ApiName,
+          fieldApiName: 'Agreement__c',
+        }),
+      ],
+      [],
+      countsOf(rows),
+    );
+
+    const calls = vi.mocked(insert).mock.calls;
+    expect(calls.map((call) => call[0])).toEqual(['Opportunity', 'Agreement__c']);
+    expect(calls[1][1][0]['Opportunity__c']).toBe('006T0');
+  });
+
+  it('still writes side by side the objects of a wave that do not point at each other', async () => {
+    const rows = { Account: [{ Id: 'a1' }], Lead: [{ Id: 'l1' }] };
+    const read = sourceOf(rows);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const query = vi.fn(async (objectApiName: string, offset: number, limit: number) => {
+      if (objectApiName === 'Account') await held;
+      return read(objectApiName, offset, limit);
+    });
+    const deps = makeDeps({ query, insert: insertAs({ Account: '001T', Lead: '00QT' }) });
+
+    const run = new AutopilotExecutor(deps).execute(
+      makePlan([{ order: 0, objects: ['Account', 'Lead'], dependsOn: [] }]),
+      [],
+      [],
+      countsOf(rows),
+    );
+
+    await vi.waitFor(() => expect(query).toHaveBeenCalledWith('Lead', 0, 2));
+    release();
+    expect((await run).completedObjects.sort()).toEqual(['Account', 'Lead']);
+  });
+});
+
+describe('AutopilotExecutor — the second pass', () => {
+  const parentEdge = makeEdge({
+    from: 'Account' as ApiName,
+    to: 'Account' as ApiName,
+    fieldApiName: 'ParentId',
+    relationshipType: 'hierarchical',
+  });
+  /** A child account read before its parent. */
+  const rows = {
+    Account: [
+      { Id: 'child', Name: 'Child', ParentId: 'parent' },
+      { Id: 'parent', Name: 'Parent', ParentId: null },
+    ],
+  };
+
+  it('fills a lookup at a record written after it, at the end of its wave', async () => {
+    const insert = vi.fn<InsertFn>(async (_name, records) =>
+      written(...records.map((record) => `001T_${String(record['Id'])}`)),
+    );
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert,
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(wavesOf('Account'), [parentEdge], [], countsOf(rows));
+
+    expect(vi.mocked(insert).mock.calls[0][1][0]['ParentId']).toBeNull();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith('Account', [{ Id: '001T_child', ParentId: '001T_parent' }]);
+  });
+
+  it('says why a lookup could not be filled', async () => {
+    const update = vi.fn<UpdateFn>(async () => [
+      refused('FIELD_CUSTOM_VALIDATION_EXCEPTION', 'Le parent doit être actif', ['ParentId']),
+    ]);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.lookups).toEqual({
+      Account: {
+        filled: 0,
+        refusals: [
+          {
+            statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+            fields: ['ParentId'],
+            count: 1,
+            message: 'Le parent doit être actif',
+          },
+        ],
+      },
+    });
+  });
+
+  it('never writes to a record the target already held', async () => {
+    const ACCOUNT_15 = '001Fk00000AbCdE';
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: vi.fn<InsertFn>(async () => [
+        refused(
+          'DUPLICATE_VALUE',
+          `duplicate value found: ExternalKey__c duplicates value on record with id: ${ACCOUNT_15}`,
+        ),
+        ...written('001T_parent'),
+      ]),
+      update,
+      remapper: new RecordIdRemapper(),
+      describeKeyPrefix: async () => '001',
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 1, linked: 1 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('fills only what an update can set', async () => {
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T' }),
+      update,
+      remapper: new RecordIdRemapper(),
+      describeLookups: async () => [lookup('ParentId', ['Account'], { updateable: false })],
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(wavesOf('Account'), [parentEdge], [], countsOf(rows));
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('leaves a lookup empty when the record it points at never reached the target', async () => {
+    const update = updateAll();
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: vi.fn<InsertFn>(async () => [
+        ...written('001T_child'),
+        refused('REQUIRED_FIELD_MISSING', 'Champ obligatoire manquant', ['Industry']),
+      ]),
+      update,
+      remapper: new RecordIdRemapper(),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account'),
+      [parentEdge],
+      [],
+      countsOf(rows),
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    expect(result.lookups).toBeUndefined();
+  });
+});
+
+describe('AutopilotExecutor — record types matched by name', () => {
+  /** The same record type, as each org names it. */
+  const SOURCE_SALES = '012SRC00000SaLeSAAA';
+  const TARGET_SALES = '012TGT00000SaLeSAAA';
+  const rows = { Product2: [{ Id: 'p1', Name: 'Widget', RecordTypeId: SOURCE_SALES }] };
+
+  /** An org whose record type query answers the one type, under its own id. */
+  function org(id: string) {
+    return vi.fn<SoqlQuery>(async (soql) =>
+      soql.startsWith(RECORD_TYPES_SOQL)
+        ? [{ Id: id, Name: 'Sales', DeveloperName: 'SalesProduct', SobjectType: 'Product2' }]
+        : [],
+    );
+  }
+
+  it("sends the target's id for the record type of the same object and name", async () => {
+    const querySource = org(SOURCE_SALES);
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      querySource,
+      queryTarget: org(TARGET_SALES),
+      insert: insertAs({ Product2: '01tT' }),
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(deps).execute(wavesOf('Product2'), [], [], countsOf(rows));
+
+    expect(querySource).toHaveBeenCalledWith(
+      `${RECORD_TYPES_SOQL} AND SobjectType IN ('Product2')`,
+    );
+    expect(vi.mocked(deps.insert).mock.calls[0][1][0]['RecordTypeId']).toBe(TARGET_SALES);
+  });
+
+  it('holds the object back when the type of that name is closed to the running user', async () => {
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      querySource: org(SOURCE_SALES),
+      queryTarget: org(TARGET_SALES),
+      describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
+      describeRecordTypes: async () => [
+        {
+          recordTypeId: TARGET_SALES,
+          developerName: 'SalesProduct',
+          name: 'Sales',
+          available: false,
+          active: true,
+          master: false,
+          defaultRecordTypeMapping: false,
+        },
+      ],
+      // Counted in the source, so by the source's id.
+      countRecordTypes: async () => new Map([[SOURCE_SALES, 1]]),
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Product2'),
+      [],
+      [],
+      countsOf(rows),
+    );
+
+    expect(deps.insert).not.toHaveBeenCalled();
+    expect(result.failedObjects).toEqual(['Product2']);
+    expect(result.nodeErrors?.['Product2']).toContain('record type SalesProduct (Sales)');
+  });
+
+  it('keeps the id of a type the target does not have, and says so once', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const twice = { Product2: [...rows.Product2, { ...rows.Product2[0], Id: 'p2' }] };
+    const deps = makeDeps({
+      query: sourceOf(twice),
+      querySource: org(SOURCE_SALES),
+      queryTarget: vi.fn<SoqlQuery>(async () => []),
+      insert: insertAs({ Product2: '01tT' }),
+      batchSize: 1,
+    });
+
+    await new AutopilotExecutor(deps).execute(wavesOf('Product2'), [], [], countsOf(twice));
+
+    expect(vi.mocked(deps.insert).mock.calls[0][1][0]['RecordTypeId']).toBe(SOURCE_SALES);
+    const unmapped = warn.mock.calls.filter(([line]) => line.includes(SOURCE_SALES));
+    expect(unmapped).toHaveLength(1);
+    expect(unmapped[0][0]).toMatch(/^\[autopilot\] Product2:/);
+    warn.mockRestore();
+  });
+});
+
+describe('AutopilotExecutor — lookups at objects the run does not copy', () => {
+  const rows = {
+    Account: [{ Id: 'accSrc', Name: 'Acme' }],
+    Order: [
+      {
+        Id: 'o1',
+        Name: 'First',
+        OwnerId: '005SRC000000001AAA',
+        AccountId: 'accSrc',
+        CreatedById: '005SRC000000001AAA',
+        RecordTypeId: '012SRC000000001AAA',
+      },
+      { Id: 'o2', Name: 'Second', OwnerId: '005SRC000000002AAA', AccountId: null },
+    ],
+  };
+  const accountEdge = makeEdge({
+    from: 'Account' as ApiName,
+    to: 'Order' as ApiName,
+    fieldApiName: 'AccountId',
+  });
+
+  /** The target's describe of an order: its owner a user or a queue, its account a copy. */
+  const orderDescribe = {
+    describeCreateableFields: async () => new Set(['Name', 'OwnerId', 'AccountId', 'RecordTypeId']),
+    describeLookups: async (name: string) =>
+      name === 'Order'
+        ? [
+            lookup('OwnerId', ['Group', 'User']),
+            lookup('AccountId', ['Account']),
+            lookup('CreatedById', ['User'], { createable: false, updateable: false }),
+            lookup('RecordTypeId', ['RecordType']),
+          ]
+        : [],
+  };
+
+  it("leaves the owner to the target's default, and says on how many records", async () => {
+    // Every order of a real run was refused over an owner the target did not
+    // hold. Left out, the platform makes the running user the owner.
+    const deps = makeDeps({
+      query: sourceOf(rows),
+      insert: insertAs({ Account: '001T', Order: '801T' }),
+      remapper: new RecordIdRemapper(),
+      ...orderDescribe,
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Order'),
+      [accountEdge],
+      [],
+      countsOf(rows),
+    );
+
+    const orders = vi.mocked(deps.insert).mock.calls[1][1];
+    expect(orders.map((order) => 'OwnerId' in order)).toEqual([false, false]);
+    // A lookup at a copied object is kept, and the record type goes its own way.
+    expect(orders[0]).toMatchObject({ AccountId: '001T0', RecordTypeId: '012SRC000000001AAA' });
+    expect(result.objectOutcomes?.['Order']?.leftToDefault).toEqual([
+      { field: 'OwnerId', count: 2 },
+    ]);
+  });
+
+  it('says nothing of a lookup that held no value, nor of one the target sets itself', async () => {
+    const quiet = { Account: rows.Account, Order: [{ Id: 'o3', Name: 'Third' }] };
+    const deps = makeDeps({
+      query: sourceOf(quiet),
+      insert: insertAs({ Account: '001T', Order: '801T' }),
+      remapper: new RecordIdRemapper(),
+      ...orderDescribe,
+      batchSize: 200,
+    });
+
+    const result = await new AutopilotExecutor(deps).execute(
+      wavesOf('Account', 'Order'),
+      [accountEdge],
+      [],
+      countsOf(quiet),
+    );
+
+    expect(result.objectOutcomes?.['Order']).not.toHaveProperty('leftToDefault');
   });
 });
