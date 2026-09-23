@@ -14,7 +14,15 @@ title = "SandForge"
 useDefault = true
 
 [allowlist]
-description = "Generated trees and resolved dependency metadata"
+description = "Generated trees and resolved dependency metadata, and one fake token in history"
+# A test of which access tokens are usable, committed in 1.36.0 with a JWT of
+# the right shape and no content — {"alg":"RS256"}.{"sub":"fake"}.fake — which
+# gitleaks' jwt rule reads as a token. The test now assembles it from parts;
+# the commit that wrote it whole stays in the history this scan reads.
+regexTarget = "line"
+regexes = [
+  '''eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJmYWtlIn0\.ZmFrZQ''',
+]
 paths = [
   # Build output and installed packages: third-party bytes, none of them ours,
   # and an npm package shipping an example key is not this repository leaking.

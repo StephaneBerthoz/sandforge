@@ -180,7 +180,7 @@ describe('forge template portability', () => {
     // A file holding a string reached the list as one: the handler threw on
     // it, and the page got no answer.
     const { files, store } = createFakeFs();
-    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify('forge templates'));
+    files.set(TEMPLATES_FILE, JSON.stringify('forge templates'));
     const handler = new ForgeHandler(deps);
     withStore(handler, store);
 
@@ -195,7 +195,7 @@ describe('forge template portability', () => {
 
   it('saves a template over a workspace file that holds an object', async () => {
     const { files, store } = createFakeFs();
-    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify({ id: 'not-a-list' }));
+    files.set(TEMPLATES_FILE, JSON.stringify({ id: 'not-a-list' }));
     const handler = new ForgeHandler(deps);
     withStore(handler, store);
 
@@ -203,7 +203,7 @@ describe('forge template portability', () => {
 
     const posted = vi.mocked(deps.broker.postToWebview).mock.calls.map((c) => c[0] as BaseMessage);
     expect(posted.map((p) => p.type)).toEqual(['forge:templates:save:response']);
-    const saved = JSON.parse(files.get('/ws/.sandforge/forge-templates.json') as string) as Array<{
+    const saved = JSON.parse(files.get(TEMPLATES_FILE) as string) as Array<{
       id: string;
     }>;
     expect(saved.map((t) => t.id)).toEqual(['t6']);

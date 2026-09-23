@@ -129,7 +129,13 @@ function createMockOrgRegistry(creds?: ConnectionConfig): OrgRegistry {
 describe('isUsableAccessToken', () => {
   it.each([
     ['a session id', '00D000000000001AAA!AQ0AQ.fake_session', true],
-    ['a JWT access token', 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.ZmFrZQ', true],
+    // Assembled here: written whole, a token of this shape is what the secret
+    // scan looks for, however fake — {"alg":"RS256"}.{"sub":"fake"}.fake.
+    [
+      'a JWT access token',
+      ['eyJhbGciOiJSUzI1NiJ9', 'eyJzdWIiOiJmYWtlIn0', 'ZmFrZQ'].join('.'),
+      true,
+    ],
     [
       'the placeholder the CLI prints',
       "[REDACTED] Use 'sf org auth show-access-token' to view",
