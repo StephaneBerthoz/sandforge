@@ -281,27 +281,19 @@ else
   echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
 fi
 
-# 11. Activation-path bundle size.
+# 11. Activation-path bundle size, for the record.
 #
-# This measures one number: the bytes of the bundle VSCode loads to activate
-# the extension. It is not an activation time and it has never been one —
-# nothing here starts an extension host. What it catches is the regression that
-# would lengthen activation: a heavy dependency finding its way back out of a
-# lazy chunk and into the entry point. The limit sits above the extension's own
-# code (about 1 180 kB in 1.35.0, after deployments, real-time sync, triggers
-# and compliance landed) and well below that code plus jsforce, which adds
-# about 1 300 kB; scripts/jsforce-lazy-boundary.test.mjs names the import that
-# would bring jsforce back before any build.
-BUNDLE_LIMIT_KB=1300
+# VS Code sets no limit on an extension's size, and a byte budget here only
+# mixed the extension's own growth with the leak it was there to catch: a
+# heavy dependency back in the entry point. That leak is gated by what it is
+# since 1.35.0: scripts/activation-bundle.test.mjs lists the packages the
+# activation bundle may carry, and scripts/jsforce-lazy-boundary.test.mjs the
+# import that would bring jsforce back — both run with the gates above. The
+# size is printed so a jump shows in the log.
 if [[ -f "packages/extension/dist/extension.js" ]]; then
   BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
   BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
-  if (( BUNDLE_KB > BUNDLE_LIMIT_KB )); then
-    echo "FAIL: Extension bundle ${BUNDLE_KB}KB > ${BUNDLE_LIMIT_KB}KB — jsforce (or another heavy dep) is being bundled into the activation path again"
-    ERRORS=$((ERRORS + 1))
-  else
-    echo "PASS: Extension bundle ${BUNDLE_KB}KB (limit ${BUNDLE_LIMIT_KB}KB)"
-  fi
+  echo "INFO: Extension bundle ${BUNDLE_KB}KB (its packages are gated by scripts/activation-bundle.test.mjs)"
 else
   echo "FAIL: packages/extension/dist/extension.js not found — run the build first"
   ERRORS=$((ERRORS + 1))
