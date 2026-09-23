@@ -3,6 +3,7 @@ import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 import type { ScopableField } from './ScopedSoqlBuilder.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import type { ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
+import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 
 function makeNode(objectApiName: string, level = 0): ForgeGraphNode {
   return {
@@ -922,6 +923,145 @@ describe('ScopedSoqlBuilder', () => {
 
     expect(result.statements.join(' | ')).not.toContain('Pricebook2Id IN ()');
     expect(result.statements.join(' | ')).not.toContain('Pricebook2Id');
+  });
+
+  describe('a required parent whose scope is too large for one query', () => {
+    const ids = (prefix: string, count: number): string[] =>
+      Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(15, '0')}`);
+    const required = (name: string, target: string): ScopableField => ({
+      name,
+      type: 'reference',
+      referenceTo: [target],
+      nillable: false,
+    });
+    const childOf = (parent: string, child: string): ForgeGraphEdge => ({
+      sourceObject: parent,
+      targetObject: child,
+      relationshipName: `${parent}To${child}`,
+      type: 'lookup',
+    });
+    /** The rows of `tables` every statement selects, once each. */
+    const readAll = (tables: Record<string, FakeRow[]>, statements: string[]): Set<string> =>
+      new Set(statements.flatMap((soql) => selectRows(tables, soql).map((row) => String(row.Id))));
+
+    it('reads the items of 1,300 orders, and of their promotions, each statement under the URI limit', () => {
+      // Every item must belong to an order the run has: the narrowing that
+      // says so repeated all 1,300 order ids in every statement, and a query
+      // URI holds about 500. The read threw before a single item was read.
+      const orders = ids('801', 1300);
+      // Named by a row read after the orders were: in the narrowing, not in
+      // the orders' scope.
+      const namedLater = ids('802', 5);
+      const promotions = ids('a0P', 3);
+      const cache = new RecordScopeCache();
+      cache.addRead('Order', orders);
+      cache.add('Order', namedLater);
+      cache.addRead('Promotion__c', promotions);
+      const item = (n: number, order: string, promotion: string | null): FakeRow => ({
+        Id: `802${String(n).padStart(15, '0')}X`,
+        OrderId: order,
+        Promotion__c: promotion,
+      });
+      const tables = {
+        OrderItem: [
+          ...orders.map((order, n) => item(n, order, null)),
+          // Under a promotion, on an order named later: in scope.
+          item(5000, namedLater[0], promotions[0]),
+          // Under a promotion, on an order the run does not have: out.
+          item(5001, '801999999999999999', promotions[1]),
+          // Under neither.
+          item(5002, '801999999999999998', null),
+        ],
+      };
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('OrderItem'),
+        fields: [required('OrderId', 'Order'), lookup('Promotion__c', 'Promotion__c')],
+        selectFields: ['Id', 'OrderId', 'Promotion__c'],
+        edges: [childOf('Order', 'OrderItem'), childOf('Promotion__c', 'OrderItem')],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001000000000001AAA',
+        everyEdge: true,
+        readObjects: new Set(['Account', 'Order', 'Promotion__c', 'OrderItem']),
+      });
+
+      for (const soql of result.statements) {
+        expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+      }
+      const read = readAll(tables, result.statements);
+      expect(read.size).toBe(1301);
+      expect(read.has(tables.OrderItem[1300].Id as string)).toBe(true);
+      expect(read.has(tables.OrderItem[1301].Id as string)).toBe(false);
+      expect(read.has(tables.OrderItem[1302].Id as string)).toBe(false);
+    });
+
+    it('holds rows to two large required parents at once, splitting both', () => {
+      // A relation between an account and a contact, both required, found
+      // under 900 accounts and 900 contacts.
+      const accounts = ids('001', 900);
+      const contacts = ids('003', 900);
+      const cache = new RecordScopeCache();
+      cache.addRead('Account', accounts);
+      cache.addRead('Contact', contacts);
+      const relation = (n: number, account: string, contact: string): FakeRow => ({
+        Id: `07k${String(n).padStart(15, '0')}`,
+        AccountId: account,
+        ContactId: contact,
+      });
+      const tables = {
+        AccountContactRelation: [
+          ...accounts.map((account, n) => relation(n, account, contacts[n])),
+          // Its contact outside what the run has: out.
+          relation(5000, accounts[0], '003999999999999999'),
+          // Its account outside what the run has: out.
+          relation(5001, '001999999999999999', contacts[0]),
+        ],
+      };
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('AccountContactRelation'),
+        fields: [required('AccountId', 'Account'), required('ContactId', 'Contact')],
+        selectFields: ['Id', 'AccountId', 'ContactId'],
+        edges: [
+          childOf('Account', 'AccountContactRelation'),
+          childOf('Contact', 'AccountContactRelation'),
+        ],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+        everyEdge: true,
+        readObjects: new Set(['Case', 'Account', 'Contact', 'AccountContactRelation']),
+      });
+
+      for (const soql of result.statements) {
+        expect(encodeURIComponent(soql).length).toBeLessThan(16_000);
+      }
+      const read = readAll(tables, result.statements);
+      expect(read.size).toBe(900);
+      expect([...read].some((id) => id.includes('5000') || id.includes('5001'))).toBe(false);
+    });
+
+    it('keeps carrying a narrowing that fits in the statement it always did', () => {
+      const cache = new RecordScopeCache();
+      cache.addRead('Order', ['801000000000001AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('OrderItem'),
+        fields: [required('OrderId', 'Order')],
+        selectFields: ['Id'],
+        edges: [childOf('Order', 'OrderItem')],
+        cache,
+        rootObjectApiName: 'Account',
+        rootRecordId: '001000000000001AAA',
+        everyEdge: true,
+        readObjects: new Set(['Order', 'OrderItem']),
+      });
+
+      expect(result.statements).toEqual([
+        "SELECT Id FROM OrderItem WHERE (OrderId IN ('801000000000001AAA')) AND (OrderId IN ('801000000000001AAA'))",
+      ]);
+    });
   });
 
   describe('rows joining two sets of records', () => {

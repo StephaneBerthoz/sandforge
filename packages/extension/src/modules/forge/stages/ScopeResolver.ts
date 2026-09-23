@@ -86,6 +86,15 @@ export function sortNodesForExecution(
  * not form cycles, and the optional ones only break ties. A graph with no
  * required edges sorts exactly as before.
  *
+ * Breaking ties is what they did not do. Each object was ranked by its place
+ * in the order of the required edges, a place no two objects share, so the
+ * optional edges were never asked: an opportunity, met first by discovery,
+ * was written before its account and its price book, inserted without them,
+ * and patched by the second pass. Among the objects the required edges leave
+ * free, the next one written is now the one with the fewest optional parents
+ * still to write, and on a tie the one first in the order of every edge — so
+ * where nothing but a cycle stands in the way, parents come first.
+ *
  * @param orderEdges - Orders the graph does not hold as lookups, kept like
  *   required edges: the catalog's, see {@link catalogWriteEdges}.
  */
@@ -95,17 +104,77 @@ export function sortNodesForWriting(
 ): ForgeGraphNode[] {
   const requiredEdges = [...graph.edges.filter((e) => e.required === true), ...orderEdges];
   if (requiredEdges.length === 0) return topologicalSort(graph);
-  const byRequired = topologicalSort(graph, requiredEdges);
-  const rank = new Map<string, number>();
-  byRequired.forEach((node, index) => rank.set(node.objectApiName, index));
-  // Within what the required edges leave free, keep the full order so an
-  // optional parent still tends to come before its child.
+
+  const names = new Set(graph.nodes.map((n) => n.objectApiName));
   const full = topologicalSort(graph);
-  return [...full].sort(
-    (a, b) =>
-      (rank.get(a.objectApiName) ?? 0) - (rank.get(b.objectApiName) ?? 0) ||
-      full.indexOf(a) - full.indexOf(b),
-  );
+  const fullIndex = new Map(full.map((node, index) => [node.objectApiName, index]));
+  const requiredParents = new Map<string, Set<string>>();
+  const requiredChildren = new Map<string, Set<string>>();
+  const optionalParents = new Map<string, Set<string>>();
+  const link = (map: Map<string, Set<string>>, from: string, to: string): void => {
+    const set = map.get(from) ?? new Set<string>();
+    set.add(to);
+    map.set(from, set);
+  };
+  for (const edge of requiredEdges) {
+    const { sourceObject: parent, targetObject: child } = edge;
+    if (parent === child || !names.has(parent) || !names.has(child)) continue;
+    link(requiredParents, child, parent);
+    link(requiredChildren, parent, child);
+  }
+  for (const edge of graph.edges) {
+    const { sourceObject: parent, targetObject: child } = edge;
+    if (parent === child || !names.has(parent) || !names.has(child)) continue;
+    if (requiredParents.get(child)?.has(parent)) continue;
+    link(optionalParents, child, parent);
+  }
+  const optionalChildren = new Map<string, Set<string>>();
+  for (const [child, parents] of optionalParents) {
+    for (const parent of parents) link(optionalChildren, parent, child);
+  }
+
+  const requiredLeft = new Map<string, number>();
+  const optionalLeft = new Map<string, number>();
+  for (const name of names) {
+    requiredLeft.set(name, requiredParents.get(name)?.size ?? 0);
+    optionalLeft.set(name, optionalParents.get(name)?.size ?? 0);
+  }
+  const ready = new Set([...names].filter((name) => requiredLeft.get(name) === 0));
+  const byName = new Map(graph.nodes.map((n) => [n.objectApiName, n]));
+  const sorted: ForgeGraphNode[] = [];
+  const written = new Set<string>();
+  while (ready.size > 0) {
+    let next: string | undefined;
+    for (const name of ready) {
+      if (
+        next === undefined ||
+        (optionalLeft.get(name) ?? 0) < (optionalLeft.get(next) ?? 0) ||
+        ((optionalLeft.get(name) ?? 0) === (optionalLeft.get(next) ?? 0) &&
+          (fullIndex.get(name) ?? 0) < (fullIndex.get(next) ?? 0))
+      ) {
+        next = name;
+      }
+    }
+    if (next === undefined) break;
+    ready.delete(next);
+    written.add(next);
+    const node = byName.get(next);
+    if (node) sorted.push(node);
+    for (const child of requiredChildren.get(next) ?? []) {
+      const left = (requiredLeft.get(child) ?? 1) - 1;
+      requiredLeft.set(child, left);
+      if (left === 0 && !written.has(child)) ready.add(child);
+    }
+    for (const child of optionalChildren.get(next) ?? []) {
+      optionalLeft.set(child, (optionalLeft.get(child) ?? 1) - 1);
+    }
+  }
+  // Members of a cycle of required edges, which no order satisfies: as Kahn's
+  // algorithm leaves them, in the graph's order.
+  for (const node of graph.nodes) {
+    if (!written.has(node.objectApiName)) sorted.push(node);
+  }
+  return sorted;
 }
 
 /**

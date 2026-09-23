@@ -265,7 +265,7 @@ export class ScopedSoqlBuilder {
      * it is read by the ids the rows name, this row's among them (see
      * `catalog`).
      */
-    const requiredTerms: string[] = [];
+    const requiredTerms: InClause[] = [];
     for (const field of opts.fields) {
       if (field.type !== 'reference' || field.nillable !== false) continue;
       const ids = new Set<string>();
@@ -276,11 +276,8 @@ export class ScopedSoqlBuilder {
         if (cached) for (const id of cached) ids.add(id);
       }
       if (ids.size === 0) continue;
-      const values = [...ids].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
-      requiredTerms.push(`${assertSoqlIdentifier(field.name)} IN (${values})`);
+      requiredTerms.push({ field: assertSoqlIdentifier(field.name), ids });
     }
-    const requiredSuffix = requiredTerms.map((term) => ` AND (${term})`).join('');
-    const scopedSuffix = `${requiredSuffix}${extraSuffix}`;
     const requiredReason = requiredTerms.length > 0 ? ' + required parents in scope' : '';
 
     if (fkClauses.length === 0) {
@@ -296,17 +293,10 @@ export class ScopedSoqlBuilder {
       };
     }
 
-    // Wrap fk clauses in parens only when an extraWhere is appended, so
-    // existing callers / snapshot tests aren't broken by gratuitous
-    // parens. The extraWhere itself is always wrapped on its own.
-    const fkStatements = packInClauses(
-      {
-        prefix,
-        suffix: scopedSuffix,
-        wrap: scopedSuffix !== '',
-        objectApiName: opts.node.objectApiName,
-      },
+    const fkStatements = narrowedStatements(
+      { prefix, extraSuffix, objectApiName: opts.node.objectApiName },
       fkClauses,
+      requiredTerms,
     );
     const viaReason = `via ${parentObjectsUsed.join(', ')}${reasonSuffix}${requiredReason}`;
     if (ownCount === 0) {
@@ -358,16 +348,11 @@ export class ScopedSoqlBuilder {
   buildJoining(opts: JoiningOpts): string[] {
     const objectName = assertSoqlIdentifier(opts.objectApiName);
     const prefix = `SELECT ${this.formatSelect(opts.selectFields)} FROM ${objectName} WHERE `;
-    const whole = [...opts.whole.ids].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
     const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
-    return packInClauses(
-      {
-        prefix,
-        suffix: ` AND (${assertSoqlIdentifier(opts.whole.field)} IN (${whole}))${extraSuffix}`,
-        wrap: true,
-        objectApiName: opts.objectApiName,
-      },
+    return narrowedStatements(
+      { prefix, extraSuffix, objectApiName: opts.objectApiName },
       [{ field: assertSoqlIdentifier(opts.split.field), ids: opts.split.ids }],
+      [{ field: assertSoqlIdentifier(opts.whole.field), ids: opts.whole.ids }],
     );
   }
 
@@ -434,6 +419,134 @@ export function uriLength(text: string): number {
   return encodeURIComponent(text).length;
 }
 
+/** What every statement of one read carries around the clauses it is given. */
+interface NarrowedFrame {
+  /** `SELECT ... FROM ... WHERE `. */
+  prefix: string;
+  /** ` AND (extraWhere)`, or empty. */
+  extraSuffix: string;
+  /** Named in the error when not even one Id fits. */
+  objectApiName: string;
+}
+
+/** ` AND (field IN (...))` for one narrowing term. */
+function narrowingTerm(term: InClause, ids: Iterable<string>): string {
+  const values = [...ids].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
+  return ` AND (${term.field} IN (${values}))`;
+}
+
+/** Whether every row `clause` selects is one `narrowing` holds already: the same field, among its ids. */
+function implies(clause: InClause, narrowing: InClause): boolean {
+  if (clause.field !== narrowing.field) return false;
+  for (const id of clause.ids) if (!narrowing.ids.has(id)) return false;
+  return true;
+}
+
+/**
+ * The lists `term`'s ids are cut into, so that none takes more than `budget`
+ * characters of a query URI once written as a narrowing term.
+ *
+ * @throws Error when not even one id fits the budget.
+ */
+function narrowingLists(term: InClause, budget: number, objectApiName: string): string[][] {
+  const frame = uriLength(narrowingTerm(term, []));
+  const separator = uriLength(', ');
+  const lists: string[][] = [];
+  let list: string[] = [];
+  let length = frame;
+  for (const id of term.ids) {
+    const value = uriLength(`'${sanitizeSoqlValue(id)}'`);
+    if (list.length > 0 && length + separator + value > budget) {
+      lists.push(list);
+      list = [];
+      length = frame;
+    }
+    if (list.length === 0 && frame + value > budget) throw noRoomLeft(objectApiName);
+    length += (list.length > 0 ? separator : 0) + value;
+    list.push(id);
+  }
+  if (list.length > 0) lists.push(list);
+  return lists;
+}
+
+/** Every combination of one list per term, written as the narrowing suffix of a statement. */
+function narrowingSuffixes(
+  terms: readonly InClause[],
+  budget: number,
+  objectApiName: string,
+): string[] {
+  let suffixes = [''];
+  for (const term of terms) {
+    const lists = narrowingLists(term, budget / terms.length, objectApiName);
+    suffixes = suffixes.flatMap((suffix) =>
+      lists.map((list) => suffix + narrowingTerm(term, list)),
+    );
+  }
+  return suffixes;
+}
+
+/**
+ * The statements that read the rows `clauses` select — OR-joined — whose
+ * `narrowing` lookups — AND-joined — all land among their ids, each within
+ * the URI budget.
+ *
+ * A narrowing written whole into every statement took the room the clauses
+ * were to be split into, and past some five hundred parent ids it took more
+ * than a query URI holds: the read threw before a single row was read, blaming
+ * the field list. Where the narrowing fits in half the room a statement
+ * leaves, it is still carried whole, as it always was. Past that, a clause on
+ * the narrowed field itself, whose ids all lie among the narrowing's, already
+ * holds its rows to it and is read without it — an order's items read under
+ * the orders in scope need no second list of the same orders. What the other
+ * clauses still need is cut into lists that fit, and they are read under each
+ * combination of those lists. The rows are those of the single statement that
+ * no URI could carry; a row two statements return is kept once by the caller.
+ *
+ * @throws Error when the fixed part of a statement leaves no room for a
+ *   single Id — only a field list of many hundreds of long names gets there.
+ */
+function narrowedStatements(
+  frame: NarrowedFrame,
+  clauses: readonly InClause[],
+  narrowing: readonly InClause[],
+): string[] {
+  const pack = (suffix: string, packed: readonly InClause[]): string[] =>
+    // Wrap the clauses in parens only when something is appended, so a read
+    // with nothing to add keeps the statement it always had.
+    packInClauses(
+      { prefix: frame.prefix, suffix, wrap: suffix !== '', objectApiName: frame.objectApiName },
+      packed,
+    );
+  const whole = narrowing.map((term) => narrowingTerm(term, term.ids)).join('');
+  const room = MAX_STATEMENT_URI_CHARS - uriLength(`${frame.prefix}()${frame.extraSuffix}`);
+  if (uriLength(whole) <= room / 2) return pack(`${whole}${frame.extraSuffix}`, clauses);
+
+  const groups = new Map<string, { needed: InClause[]; clauses: InClause[] }>();
+  for (const clause of clauses) {
+    const needed = narrowing.filter((term) => !implies(clause, term));
+    const key = needed.map((term) => term.field).join('|');
+    const group = groups.get(key) ?? { needed, clauses: [] };
+    group.clauses.push(clause);
+    groups.set(key, group);
+  }
+  const statements: string[] = [];
+  for (const group of groups.values()) {
+    for (const suffix of narrowingSuffixes(group.needed, room / 2, frame.objectApiName)) {
+      statements.push(...pack(`${suffix}${frame.extraSuffix}`, group.clauses));
+    }
+  }
+  return statements;
+}
+
+/** The error a statement with no room left for a single Id is refused with. */
+function noRoomLeft(objectApiName: string): Error {
+  return new Error(
+    `Scoped clone for ${objectApiName} selects so many fields that a Salesforce ` +
+      `query URI has no room left for a single record Id. Exclude fields from this ` +
+      `object and run it again.`,
+  );
+}
+
 /**
  * Lay `clauses` out over as few statements as fit the URI budget.
  *
@@ -490,11 +603,7 @@ function packInClauses(frame: StatementFrame, clauses: readonly InClause[]): str
         cost = clauseFrameLength + valueLength;
       }
       if (terms.length === 0 && length + cost > MAX_STATEMENT_URI_CHARS) {
-        throw new Error(
-          `Scoped clone for ${frame.objectApiName} selects so many fields that a Salesforce ` +
-            `query URI has no room left for a single record Id. Exclude fields from this ` +
-            `object and run it again.`,
-        );
+        throw noRoomLeft(frame.objectApiName);
       }
 
       if (continuesTerm) {

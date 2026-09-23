@@ -1376,6 +1376,287 @@ describe('ForgeExecutor', () => {
       });
     });
 
+    it('clones the relations of an account with 1,300 contacts, each holding both its parents', async () => {
+      // A relation needs its account and its contact, both required: the read
+      // held it to the 1,300 contacts in scope with one list in every
+      // statement, longer than a query URI holds, and threw before reading any.
+      const contacts = Array.from({ length: 1300 }, (_, i) => `003${String(i).padStart(15, '0')}`);
+      const { orgDeps, inserted } = fakeOrgs(
+        {
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          Contact: contacts.map((Id, i) => ({ Id, LastName: `C${i}`, AccountId: ACCOUNT })),
+          AccountContactRelation: [
+            ...contacts.map((ContactId, i) => ({
+              Id: `07k${String(i).padStart(15, '0')}`,
+              Name: `R${i}`,
+              AccountId: ACCOUNT,
+              ContactId,
+            })),
+            // A relation of the account's first contact to another account.
+            {
+              Id: '07k999999999999999',
+              Name: 'Elsewhere',
+              AccountId: ELSEWHERE_ACCOUNT,
+              ContactId: contacts[0],
+            },
+          ],
+        },
+        {
+          Account: [idField, text('Name')],
+          Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+          AccountContactRelation: [
+            idField,
+            text('Name'),
+            lookup('AccountId', 'Account', true),
+            lookup('ContactId', 'Contact', true),
+          ],
+        },
+      );
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact'), makeNode('AccountContactRelation')],
+        [
+          edge('Account', 'Contact'),
+          { ...edge('Account', 'AccountContactRelation'), required: true },
+          { ...edge('Contact', 'AccountContactRelation'), required: true },
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ACCOUNT,
+        rootObjectApiName: 'Account',
+      });
+
+      expect(summary.errors).toEqual([]);
+      expect(inserted['AccountContactRelation']).toHaveLength(1300);
+      expect(inserted['AccountContactRelation'].some((r) => r['Name'] === 'Elsewhere')).toBe(false);
+    });
+
+    it('writes a root opportunity after its account, instead of patching the account in afterwards', async () => {
+      // A line of the opportunity has a required lookup, so the order is
+      // settled on required edges — and the opportunity, met first, was
+      // written first with its account left out and patched by pass 2.
+      const OPPORTUNITY = '006000000000001AAA';
+      const { orgDeps, inserted, updated } = fakeOrgs(
+        {
+          Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', AccountId: ACCOUNT }],
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          OpportunityContactRole: [
+            { Id: '00K000000000001AAA', Name: 'Buyer', OpportunityId: OPPORTUNITY },
+          ],
+        },
+        {
+          Opportunity: [idField, text('Name'), lookup('AccountId', 'Account')],
+          Account: [idField, text('Name')],
+          OpportunityContactRole: [
+            idField,
+            text('Name'),
+            lookup('OpportunityId', 'Opportunity', true),
+          ],
+        },
+      );
+      const graph = makeGraph(
+        [makeNode('Opportunity'), makeNode('Account'), makeNode('OpportunityContactRole')],
+        [
+          edge('Account', 'Opportunity'),
+          { ...edge('Opportunity', 'OpportunityContactRole'), required: true },
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: OPPORTUNITY,
+        rootObjectApiName: 'Opportunity',
+      });
+
+      expect(Object.keys(inserted)).toEqual(['Account', 'Opportunity', 'OpportunityContactRole']);
+      expect(inserted['Opportunity']).toEqual([{ Name: 'Deal', AccountId: 'Account:Acme' }]);
+      expect(updated).toEqual([]);
+      expect(summary.errors).toEqual([]);
+    });
+
+    it('writes a line after the opportunity it requires, where the graph lost that the lookup is required', async () => {
+      // Discovery keeps one edge per pair of objects, and the one it met first
+      // — the opportunity's list of its line items — says nothing of a
+      // required lookup. The opportunity and the quote synced to it point at
+      // each other, as do it and a contract: it always had a parent still to
+      // write, its line never did, and parents first put the line first.
+      const OPPORTUNITY = '006000000000001AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const CONTRACT = 'a0C000000000001AAA';
+      const { orgDeps, inserted } = fakeOrgs(
+        {
+          Opportunity: [
+            { Id: OPPORTUNITY, Name: 'Deal', SyncedQuoteId: QUOTE, Contract__c: CONTRACT },
+          ],
+          Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY }],
+          Contract__c: [{ Id: CONTRACT, Name: 'Frame', Opportunity__c: OPPORTUNITY }],
+          OpportunityLineItem: [
+            { Id: '00k000000000001AAA', Name: 'Line', OpportunityId: OPPORTUNITY },
+          ],
+          OpportunityContactRole: [
+            { Id: '00K000000000001AAA', Name: 'Buyer', OpportunityId: OPPORTUNITY },
+          ],
+        },
+        {
+          Opportunity: [
+            idField,
+            text('Name'),
+            lookup('SyncedQuoteId', 'Quote'),
+            lookup('Contract__c', 'Contract__c'),
+          ],
+          Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+          Contract__c: [idField, text('Name'), lookup('Opportunity__c', 'Opportunity')],
+          OpportunityLineItem: [
+            idField,
+            text('Name'),
+            lookup('OpportunityId', 'Opportunity', true),
+          ],
+          OpportunityContactRole: [
+            idField,
+            text('Name'),
+            lookup('OpportunityId', 'Opportunity', true),
+          ],
+        },
+      );
+      const insert = orgDeps.insertRecords;
+      orgDeps.insertRecords = async (org, object, rows) => {
+        // As the platform does: no line without its opportunity.
+        if (object === 'OpportunityLineItem' && rows.some((r) => !r['OpportunityId'])) {
+          return rows.map(() => ({
+            id: '',
+            success: false,
+            errors: ['REQUIRED_FIELD_MISSING: Required fields are missing: [OpportunityId]'],
+          }));
+        }
+        return insert(org, object, rows);
+      };
+      // In the order discovery met them: the line before the quote and the
+      // contract, one level down from the opportunity.
+      const graph = makeGraph(
+        [
+          makeNode('Opportunity'),
+          makeNode('OpportunityLineItem'),
+          makeNode('Quote'),
+          makeNode('Contract__c'),
+          makeNode('OpportunityContactRole'),
+        ],
+        [
+          edge('Quote', 'Opportunity'),
+          edge('Opportunity', 'Quote'),
+          edge('Contract__c', 'Opportunity'),
+          edge('Opportunity', 'Contract__c'),
+          edge('Opportunity', 'OpportunityLineItem'),
+          { ...edge('Opportunity', 'OpportunityContactRole'), required: true },
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: OPPORTUNITY,
+        rootObjectApiName: 'Opportunity',
+      });
+
+      const written = Object.keys(inserted);
+      expect(written.indexOf('Opportunity')).toBeLessThan(written.indexOf('OpportunityLineItem'));
+      expect(inserted['OpportunityLineItem']).toEqual([
+        { Name: 'Line', OpportunityId: 'Opportunity:Deal' },
+      ]);
+      expect(summary.errors).toEqual([]);
+    });
+
+    it('writes a root opportunity and its lines when the quote synced to it is held back', async () => {
+      // As a real org has it: the running user cannot use the quotes' record
+      // types in the target, so every quote is held back. Parents first, the
+      // quote now goes before the opportunity that points at it; a failed
+      // parent, required or not, took the opportunity down with it, and every
+      // line behind the opportunity.
+      const OPPORTUNITY = '006000000000001AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const CONTRACT = 'a0C000000000001AAA';
+      const OFFER = '012000000000001AAA';
+      const { orgDeps, inserted } = fakeOrgs(
+        {
+          Opportunity: [
+            { Id: OPPORTUNITY, Name: 'Deal', SyncedQuoteId: QUOTE, Contract__c: CONTRACT },
+          ],
+          Quote: [{ Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY, RecordTypeId: OFFER }],
+          Contract__c: [{ Id: CONTRACT, Name: 'Frame', Opportunity__c: OPPORTUNITY }],
+          OpportunityLineItem: [
+            { Id: '00k000000000001AAA', Name: 'Line', OpportunityId: OPPORTUNITY },
+          ],
+        },
+        {
+          Opportunity: [
+            idField,
+            text('Name'),
+            lookup('SyncedQuoteId', 'Quote'),
+            lookup('Contract__c', 'Contract__c'),
+          ],
+          Quote: [
+            idField,
+            text('Name'),
+            lookup('OpportunityId', 'Opportunity'),
+            lookup('RecordTypeId', 'RecordType'),
+          ],
+          Contract__c: [idField, text('Name'), lookup('Opportunity__c', 'Opportunity')],
+          OpportunityLineItem: [
+            idField,
+            text('Name'),
+            lookup('OpportunityId', 'Opportunity', true),
+          ],
+        },
+      );
+      orgDeps.describeObject = async (_org, object) => ({
+        keyPrefix: null,
+        recordTypes:
+          object === 'Quote'
+            ? [
+                {
+                  recordTypeId: OFFER,
+                  developerName: 'Offer',
+                  name: 'Offer',
+                  available: false,
+                  active: true,
+                  master: false,
+                  defaultRecordTypeMapping: false,
+                },
+              ]
+            : [],
+      });
+      const graph = makeGraph(
+        [
+          makeNode('Opportunity'),
+          makeNode('Quote'),
+          makeNode('Contract__c'),
+          makeNode('OpportunityLineItem'),
+        ],
+        [
+          edge('Quote', 'Opportunity'),
+          edge('Opportunity', 'Quote'),
+          edge('Contract__c', 'Opportunity'),
+          edge('Opportunity', 'Contract__c'),
+          { ...edge('Opportunity', 'OpportunityLineItem'), required: true },
+        ],
+      );
+
+      const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: OPPORTUNITY,
+        rootObjectApiName: 'Opportunity',
+      });
+
+      expect(inserted['Quote']).toBeUndefined();
+      expect(inserted['Opportunity'].map((r) => r['Name'])).toEqual(['Deal']);
+      expect(inserted['Contract__c'].map((r) => r['Name'])).toEqual(['Frame']);
+      expect(inserted['OpportunityLineItem']).toEqual([
+        { Name: 'Line', OpportunityId: 'Opportunity:Deal' },
+      ]);
+      // The quote is reported as held back, and the lookup at it as one the
+      // second pass could not fill in.
+      expect(summary.errors.map((e) => [e.objectApiName, e.stage])).toEqual([
+        ['Quote', 'scope'],
+        ['__pass2__', 'insert'],
+      ]);
+      expect(summary.errors[1].samples[0].messages[0]).toContain("'SyncedQuoteId'");
+    });
+
     describe('a required lookup at an object the run does not read', () => {
       const FIRST_USER = '005000000000001AAA';
       const SECOND_USER = '005000000000002AAA';
@@ -1631,11 +1912,12 @@ describe('ForgeExecutor', () => {
         );
         expect(read['Product2']).toEqual(new Set([1, 2, 3].map(product)));
         // Products, then the standard prices, then the custom ones, then the
-        // line items that point at them.
+        // line items that point at them — and the opportunity after the price
+        // book it names.
         expect(Object.keys(inserted)).toEqual([
-          'Opportunity',
           'Pricebook2',
           'Product2',
+          'Opportunity',
           'PricebookEntry',
           'OpportunityLineItem',
         ]);
@@ -2177,6 +2459,50 @@ describe('ForgeExecutor', () => {
         // Nothing of the fourth widget, sold under the same model.
         expect([...read['PricebookEntry']].filter((id) => id.endsWith('40AAA'))).toEqual([]);
         expect(inserted['PricebookEntry']).toHaveLength(8);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('clones the catalog in a run that reads whole tables, options and order included', async () => {
+        // No record to start from: every object is read whole and written as
+        // soon as it is read, in one order settled before the first read. A
+        // quote line met before the prices, the prices before their products,
+        // and no option in the graph: every price was refused.
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const everyRow = tables();
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) => {
+          const whole = /^SELECT .+ FROM (\w+)$/.exec(soql);
+          return whole ? [...(everyRow[whole[1]] ?? [])] : query(org, soql, onTruncated);
+        };
+        const refused = platform(orgDeps, inserted);
+        const graph = makeGraph(
+          [
+            makeNode('Quote'),
+            makeNode('QuoteLineItem'),
+            makeNode('Pricebook2'),
+            makeNode('PricebookEntry'),
+            makeNode('Product2'),
+            makeNode('ProductSellingModel'),
+          ],
+          [
+            { ...edge('Quote', 'QuoteLineItem'), required: true },
+            edge('Pricebook2', 'PricebookEntry'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress);
+
+        expect(refused).toEqual([]);
+        expect(inserted['ProductSellingModelOption']).toHaveLength(5);
+        expect(inserted['PricebookEntry']).toHaveLength(18);
+        expect(inserted['QuoteLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+          'PricebookEntry:Widget 2 custom once',
+        ]);
+        const written = Object.keys(inserted);
+        expect(written.indexOf('ProductSellingModelOption')).toBeLessThan(
+          written.indexOf('PricebookEntry'),
+        );
+        expect(written.indexOf('PricebookEntry')).toBeLessThan(written.indexOf('QuoteLineItem'));
         expect(summary.errors).toEqual([]);
       });
 

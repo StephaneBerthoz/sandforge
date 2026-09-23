@@ -51,6 +51,7 @@ import {
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
+  isRequiredLookup,
   splitStandardPricebookEntries,
   dedupePricebookEntries,
 } from '@sandforge/shared';
@@ -627,6 +628,41 @@ interface ExecutionState {
   skippedCount: number;
 }
 
+/** Whether an object with these fields prices from the catalog: one of them points at a price. */
+function pricesFrom(fieldInfos: readonly FieldInfo[]): boolean {
+  return fieldInfos.some(
+    (f) => f.isReference && (f.referenceTo ?? []).includes(PRICEBOOK_ENTRY_OBJECT),
+  );
+}
+
+/**
+ * The objects a record of `objectApiName` cannot be written without: those
+ * behind a required or master-detail edge of the graph, and those behind a
+ * lookup its fields say it may not leave empty — which the graph can have
+ * lost.
+ */
+function requiredParentsOf(
+  objectApiName: string,
+  graph: ForgeGraph,
+  fieldInfos: readonly FieldInfo[],
+): string[] {
+  const parents = new Set(
+    graph.edges
+      .filter(
+        (e) =>
+          e.targetObject === objectApiName && (e.required === true || e.type === 'master-detail'),
+      )
+      .map((e) => e.sourceObject),
+  );
+  for (const field of fieldInfos) {
+    if (!field.isReference || !isRequiredLookup(objectApiName, field.name, field.nillable))
+      continue;
+    for (const target of field.referenceTo ?? []) parents.add(target);
+  }
+  parents.delete(objectApiName);
+  return [...parents];
+}
+
 /**
  * Executes a Forge plan by processing graph nodes in topological order.
  *
@@ -788,9 +824,7 @@ export class ForgeExecutor {
     this.pauseResolve = null;
 
     const config = resolveStageConfig(options);
-    const runGraph = config.isScoped
-      ? await this.withSellingModelOptions(graph, sourceOrgId)
-      : graph;
+    const runGraph = await this.withSellingModelOptions(graph, sourceOrgId);
     const state: ExecutionState = {
       config,
       sourceOrgId,
@@ -870,9 +904,11 @@ export class ForgeExecutor {
      * refused for want of a price book entry that was written too late.
      *
      * A full-table run has no scope to resolve, so it keeps the single pass:
-     * two would hold every row of every object in memory to no purpose.
+     * two would hold every row of every object in memory to no purpose. Its
+     * one order is the one writing needs.
      */
     const twoPhase = config.isScoped === true;
+    const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state, sortedNodes);
 
     // The standard price book, when the run carries prices at all. See
     // `standard-pricebook.ts`: the platform refuses a custom price for a
@@ -949,7 +985,7 @@ export class ForgeExecutor {
       }
     }
 
-    for (const node of sortedNodes) {
+    for (const node of runOrder) {
       // Abort is checked per node, not only per batch: waitIfPaused() runs
       // between batches, so a node small enough to fit one batch never reached
       // it, and the per-node catch below swallowed every error anyway — the
@@ -1101,8 +1137,20 @@ export class ForgeExecutor {
         }
         // Nodes excluded, out of scope, resolved as reference data or read in
         // a dry run left nothing to write and have already reported.
-        if (!state.preread.has(node.objectApiName)) continue;
-        if (getParentObjects(node.objectApiName, graph).some((o) => state.failedObjects.has(o))) {
+        const read = state.preread.get(node.objectApiName);
+        if (!read) continue;
+        // Only a parent the rows cannot be written without takes them down.
+        // Parents now come first wherever nothing but a cycle stands in the
+        // way, and a failed optional one — the quote synced to an opportunity,
+        // held back for its record type in a real org — skipped the
+        // opportunity and every line behind it, where written first it had
+        // gone in with that lookup left empty. It still is: the second pass
+        // reports the lookup it could not fill in.
+        if (
+          requiredParentsOf(node.objectApiName, graph, read.fieldInfos).some((o) =>
+            state.failedObjects.has(o),
+          )
+        ) {
           state.skippedCount++;
           state.failedObjects.add(node.objectApiName);
           onProgress({
@@ -1166,23 +1214,94 @@ export class ForgeExecutor {
    * as read, point at a price.
    */
   private writeOrderOf(state: ExecutionState): ForgeGraphNode[] {
-    const objects = new Set(
-      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    return this.orderByFields(
+      state,
+      new Map([...state.preread].map(([objectApiName, read]) => [objectApiName, read.fieldInfos])),
     );
-    const lines = [...state.preread]
-      .filter(([, read]) =>
-        read.fieldInfos.some(
-          (f) => f.isReference && (f.referenceTo ?? []).includes(PRICEBOOK_ENTRY_OBJECT),
-        ),
-      )
-      .map(([objectApiName]) => objectApiName);
-    return sortNodesForWriting(state.graph, catalogWriteEdges(objects, lines));
   }
 
   /**
-   * The graph of a record-scoped run, with the selling model options its
-   * prices need when it carries prices, products and selling models and
-   * discovery left the options out.
+   * Required parents first, and the catalog as `catalogWriteEdges` lays it
+   * out, both read from the fields of the objects written.
+   *
+   * The graph keeps one edge per pair of objects, the first discovery met,
+   * and when that was a parent's list of its children it says nothing of a
+   * required lookup: in a real graph, the opportunity's line items, the
+   * quote's lines and the order's items all read as optional. While the
+   * order followed discovery's, the parent happened to come first. With
+   * optional parents breaking ties, an opportunity that points at a quote
+   * pointing back at it waited for it, and its line went first — refused for
+   * want of the opportunity. The fields a run described say it plainly.
+   *
+   * @param fieldsByObject - The source fields of each object the run writes.
+   */
+  private orderByFields(
+    state: ExecutionState,
+    fieldsByObject: ReadonlyMap<string, readonly FieldInfo[]>,
+  ): ForgeGraphNode[] {
+    const objects = new Set(
+      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    );
+    const required: ForgeGraphEdge[] = [];
+    const lines: string[] = [];
+    for (const [child, fields] of fieldsByObject) {
+      if (pricesFrom(fields)) lines.push(child);
+      for (const field of fields) {
+        if (!field.isReference || !isRequiredLookup(child, field.name, field.nillable)) continue;
+        for (const parent of field.referenceTo ?? []) {
+          if (parent === child || !objects.has(parent)) continue;
+          required.push({
+            sourceObject: parent,
+            targetObject: child,
+            relationshipName: field.name,
+            type: 'lookup',
+            required: true,
+          });
+        }
+      }
+    }
+    return sortNodesForWriting(state.graph, [...required, ...catalogWriteEdges(objects, lines)]);
+  }
+
+  /**
+   * The order a full-table run reads and writes its nodes in, one after the
+   * other, when it carries prices: the order a record-scoped run writes them
+   * in. Anything else keeps its parents-first order.
+   *
+   * A full-table run writes each node as soon as it has read it, so the order
+   * is settled before anything is read — from the fields of every node,
+   * described first, as a record-scoped run settles it from what it read.
+   * Taken from the graph alone, a line at the edge of discovery, whose
+   * lookups were never walked, went before the prices it could not be
+   * written without, as it did in a record-scoped run. A node whose describe
+   * fails is ordered as one with no lookup: its own read reports why.
+   */
+  private async singlePassOrder(
+    state: ExecutionState,
+    sortedNodes: ForgeGraphNode[],
+  ): Promise<ForgeGraphNode[]> {
+    const included = state.graph.nodes.filter((n) => n.included);
+    if (!included.some((n) => isPricebookEntry(n.objectApiName))) return sortedNodes;
+    const fieldsByObject = new Map<string, readonly FieldInfo[]>();
+    for (let i = 0; i < included.length; i += CONCURRENT_DESCRIBE_LIMIT) {
+      if (this.isAborted) break;
+      const wave = included.slice(i, i + CONCURRENT_DESCRIBE_LIMIT);
+      const settled = await Promise.allSettled(
+        wave.map((node) => this.deps.describeFields(state.sourceOrgId, node.objectApiName)),
+      );
+      settled.forEach((described, j) => {
+        if (described.status === 'fulfilled') {
+          fieldsByObject.set(wave[j].objectApiName, described.value);
+        }
+      });
+    }
+    return this.orderByFields(state, fieldsByObject);
+  }
+
+  /**
+   * The graph of a run, with the selling model options its prices need when
+   * it carries prices, products and selling models and discovery left the
+   * options out.
    *
    * They sit two levels past the line items that name the prices: out of
    * reach of the depth a clone of an opportunity is usually asked for, and
@@ -1733,7 +1852,7 @@ export class ForgeExecutor {
           message:
             `Held back ${node.objectApiName}, nothing written: ` +
             heldBack.map(recordTypeBlockedReason).join(' ') +
-            ' Objects that depend on it will be skipped.',
+            ' Objects that cannot be written without it will be skipped.',
         });
         return;
       }

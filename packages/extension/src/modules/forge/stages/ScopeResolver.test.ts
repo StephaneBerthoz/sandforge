@@ -622,6 +622,67 @@ describe('the catalog', () => {
   });
 });
 
+describe('sortNodesForWriting', () => {
+  const link = (parent: string, child: string, required = false): ForgeGraphEdge => ({
+    sourceObject: parent,
+    targetObject: child,
+    relationshipName: `${parent}To${child}`,
+    type: 'lookup',
+    required,
+  });
+  const order = (graph: ForgeGraph): string[] =>
+    sortNodesForWriting(graph).map((n) => n.objectApiName);
+
+  it('writes an optional parent before its child where the required edges leave it free', () => {
+    // Discovery meets the root opportunity first; its account and price book
+    // are optional parents, and one line item has a required one.
+    const graph = makeGraph(
+      ['Opportunity', 'Account', 'Pricebook2', 'OpportunityLineItem', 'PricebookEntry'].map((n) =>
+        makeNode(n),
+      ),
+      [
+        link('Account', 'Opportunity'),
+        link('Pricebook2', 'Opportunity'),
+        link('Opportunity', 'OpportunityLineItem', true),
+        link('PricebookEntry', 'OpportunityLineItem', true),
+      ],
+    );
+
+    const written = order(graph);
+
+    expect(written.indexOf('Account')).toBeLessThan(written.indexOf('Opportunity'));
+    expect(written.indexOf('Pricebook2')).toBeLessThan(written.indexOf('Opportunity'));
+    expect(written.indexOf('Opportunity')).toBeLessThan(written.indexOf('OpportunityLineItem'));
+  });
+
+  it('keeps what a required edge decides against an optional parent, and writes optional parents first elsewhere', () => {
+    // B needs A; A merely points back at B: A goes first whatever its lookup
+    // says. C is A's optional parent, and nothing stops it going before A.
+    const graph = makeGraph(
+      ['B', 'A', 'C'].map((n) => makeNode(n)),
+      [link('A', 'B', true), link('B', 'A'), link('C', 'A')],
+    );
+
+    expect(order(graph)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('writes the members of a cycle of optional edges with the fewest parents still to write first', () => {
+    // An opportunity and the quote synced to it point at each other; the
+    // account points at neither and is written before both.
+    const graph = makeGraph(
+      ['Opportunity', 'Quote', 'Account', 'QuoteLineItem'].map((n) => makeNode(n)),
+      [
+        link('Quote', 'Opportunity'),
+        link('Opportunity', 'Quote'),
+        link('Account', 'Opportunity'),
+        link('Quote', 'QuoteLineItem', true),
+      ],
+    );
+
+    expect(order(graph)).toEqual(['Account', 'Opportunity', 'Quote', 'QuoteLineItem']);
+  });
+});
+
 describe('the catalog write order', () => {
   const nodes = (...names: string[]) => names.map((name) => makeNode(name));
   const lineEdge = (parent: string, child: string, required = false): ForgeGraphEdge => ({
