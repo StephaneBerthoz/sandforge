@@ -1,4 +1,5 @@
-import type { SeedObjectConfig } from '@sandforge/shared';
+import type { SeedObjectConfig, SeedRelation } from '@sandforge/shared';
+import { seedDependencies } from '@sandforge/shared';
 
 /**
  * Links reference fields between seed objects and resolves
@@ -29,8 +30,15 @@ export class ReferenceLinker {
    * Topologically sort objects by their reference dependencies.
    * Objects that are depended upon are placed before their dependents.
    * Throws if a circular dependency is detected.
+   *
+   * A relation that draws its parents from the records of the run makes its
+   * child depend on the parent object: the children are given the ids the
+   * parents got, so the parents are written first.
    */
-  resolveInsertOrder(objects: SeedObjectConfig[]): SeedObjectConfig[] {
+  resolveInsertOrder(
+    objects: SeedObjectConfig[],
+    relations: readonly SeedRelation[] = [],
+  ): SeedObjectConfig[] {
     const objectMap = new Map<string, SeedObjectConfig>();
     for (const obj of objects) {
       objectMap.set(obj.objectApiName, obj);
@@ -52,7 +60,7 @@ export class ReferenceLinker {
 
       const obj = objectMap.get(name);
       if (obj) {
-        const deps = extractDependencies(obj);
+        const deps = seedDependencies(obj, relations);
         for (const dep of deps) {
           visit(dep);
         }
@@ -69,15 +77,4 @@ export class ReferenceLinker {
 
     return sorted;
   }
-}
-
-/** Extract reference dependency object names from an object config */
-function extractDependencies(obj: SeedObjectConfig): string[] {
-  const deps = new Set<string>();
-  for (const rule of obj.fieldRules) {
-    if (rule.ruleType === 'reference' && rule.config.referenceObject) {
-      deps.add(rule.config.referenceObject);
-    }
-  }
-  return Array.from(deps);
 }

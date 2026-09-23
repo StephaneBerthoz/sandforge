@@ -7,6 +7,7 @@ import { useOperationProgress } from '../../hooks/useOperationProgress';
 import { useElapsedSince } from '../../hooks/useElapsedSince';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { ObjectProgress } from './Step7_Execute';
+import type { CheckedRelation } from './seedRelationDrafts';
 
 /** Return type for the useSeedExecution hook. */
 export interface SeedExecutionState {
@@ -46,7 +47,10 @@ export interface SeedExecutionState {
 /**
  * Hook managing seed execution and progress tracking for the Seed wizard.
  *
- * Handles the execute mutation and tracks per-object progress.
+ * Handles the execute mutation and tracks per-object progress. A relation
+ * row that can be sent decides the record count of its child and fills the
+ * lookup it names; a row with a problem is not sent, and the wizard does not
+ * let the run start while there is one.
  */
 export function useSeedExecution(
   selectedOrgId: string,
@@ -54,6 +58,7 @@ export function useSeedExecution(
   volumes: Record<string, { count: number; batchSize: number }>,
   fieldConfigs: ObjectFieldConfig[],
   t: TFunction,
+  relations: readonly CheckedRelation[] = [],
 ): SeedExecutionState {
   const addNotification = useNotificationStore((s) => s.addNotification);
 
@@ -93,6 +98,14 @@ export function useSeedExecution(
     }
   }, [executeSeedMutation.error, addNotification, t]);
 
+  const sent = useMemo(
+    () =>
+      relations.flatMap((checked) =>
+        checked.relation ? [{ relation: checked.relation, children: checked.children }] : [],
+      ),
+    [relations],
+  );
+
   const handleExecute = useCallback(() => {
     if (!selectedOrgId) return;
 
@@ -105,17 +118,27 @@ export function useSeedExecution(
       objects: selectedObjects.map((apiName, index): SeedObjectConfig => {
         const vol = volumes[apiName] ?? { count: 100, batchSize: 200 };
         const objConfig = fieldConfigs.find((c) => c.objectApiName === apiName);
+        const related = sent.find((s) => s.relation.childObject === apiName);
         return {
           objectApiName: apiName,
-          recordCount: vol.count,
+          // A relation plans its child's records from the parents it finds;
+          // the count set for the child on the first step does not apply.
+          recordCount: related ? related.children : vol.count,
           batchSize: vol.batchSize,
           insertOrder: index,
           excludedFields: [],
           fieldRules: (objConfig?.fields ?? [])
+            // The relation fills its lookup; the field's own rule would draw
+            // a parent at random.
+            .filter((f) => f.fieldApiName !== related?.relation.lookupField)
             // A lookup points at records this run inserts: an optional one to
             // an object the run does not seed, such as OwnerId to User, made
             // the run refuse the whole template. It is left for the org to
-            // default. A required one is still sent, so the run is refused
+            // default, and so is an optional one to the object itself, such
+            // as ParentId on Account or ReportsToId on Contact: the insert
+            // that writes the object has no id of its own records to give,
+            // and the run refused every such template as a circular
+            // dependency. A required one is still sent, so the run is refused
             // before it writes anything rather than failing every record of
             // the object on REQUIRED_FIELD_MISSING.
             .filter(
@@ -123,7 +146,8 @@ export function useSeedExecution(
                 f.ruleType !== 'reference' ||
                 f.required ||
                 typeof f.config['referenceObject'] !== 'string' ||
-                selectedObjects.includes(f.config['referenceObject']),
+                (f.config['referenceObject'] !== apiName &&
+                  selectedObjects.includes(f.config['referenceObject'])),
             )
             .map((f) => ({
               fieldApiName: f.fieldApiName,
@@ -133,6 +157,7 @@ export function useSeedExecution(
             })),
         };
       }),
+      ...(sent.length > 0 ? { relations: sent.map((s) => s.relation) } : {}),
       tags: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -144,7 +169,7 @@ export function useSeedExecution(
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
     });
-  }, [selectedOrgId, selectedObjects, volumes, fieldConfigs, executeSeedMutation]);
+  }, [selectedOrgId, selectedObjects, volumes, fieldConfigs, sent, executeSeedMutation]);
 
   // Live figures from the extension, for this run only: SeedOpsHandler uses the
   // request id as the operationId, and every panel receives every run's events.
@@ -163,7 +188,8 @@ export function useSeedExecution(
       : -1;
 
     return selectedObjects.map((o, index): ObjectProgress => {
-      const total = volumes[o]?.count ?? 100;
+      const total =
+        sent.find((s) => s.relation.childObject === o)?.children ?? volumes[o]?.count ?? 100;
       let status: ObjectProgress['status'];
       if (currentIndex === -1) {
         status = isRunning ? 'running' : 'pending';
@@ -183,7 +209,7 @@ export function useSeedExecution(
         status,
       };
     });
-  }, [selectedObjects, volumes, isRunning, progress]);
+  }, [selectedObjects, volumes, sent, isRunning, progress]);
 
   return {
     isRunning,

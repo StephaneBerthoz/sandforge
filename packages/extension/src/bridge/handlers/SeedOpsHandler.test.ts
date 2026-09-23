@@ -1043,6 +1043,147 @@ describe('SeedOpsHandler', () => {
     });
   });
 
+  describe('relations', () => {
+    /** Accounts and contacts, the contacts spread over accounts as `relation` says. */
+    function templateWith(relation: Record<string, unknown>): Record<string, unknown> {
+      const template = validSeedTemplate();
+      template.objects = [
+        {
+          objectApiName: 'Account',
+          recordCount: 5,
+          batchSize: 200,
+          insertOrder: 0,
+          excludedFields: [],
+          fieldRules: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'A' } }],
+        },
+        {
+          objectApiName: 'Contact',
+          recordCount: 15,
+          batchSize: 200,
+          insertOrder: 1,
+          excludedFields: [],
+          fieldRules: [
+            { fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'Doe' } },
+          ],
+        },
+      ];
+      template.relations = [relation];
+      return template;
+    }
+
+    const contactsUnderExistingAccounts = {
+      childObject: 'Contact',
+      lookupField: 'AccountId',
+      parentObject: 'Account',
+      parents: { kind: 'existing', where: "Industry = 'Energy'", limit: 10 },
+      distribution: { mode: 'perParent', count: 3 },
+    };
+
+    /** The orchestrator deps and template of one seed:execute carrying `template`. */
+    async function run(
+      template: Record<string, unknown>,
+      conn: Record<string, unknown> = {},
+    ): Promise<{
+      seedDeps?: {
+        readExistingParentIds?: (o: string, w: string | undefined, l: number) => Promise<string[]>;
+      };
+      template?: { relations?: unknown[] };
+    }> {
+      const seen: Awaited<ReturnType<typeof run>> = {};
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps) => {
+          seen.seedDeps = seedDeps;
+          return {
+            execute: vi.fn(async (sent) => {
+              seen.template = sent;
+              return seedResult(15);
+            }),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue(conn as never);
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-relations',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template },
+        }),
+      );
+      return seen;
+    }
+
+    /** The seed:error the handler posted, if any. */
+    function refusal(): { code: string; message: string } | undefined {
+      const posted = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => call[0] as { type: string; payload: { code: string; message: string } },
+      );
+      return posted.find((m) => m.type === 'seed:error')?.payload;
+    }
+
+    it('hands the relations of the template to the run', async () => {
+      const seen = await run(templateWith(contactsUnderExistingAccounts));
+
+      expect(seen.template?.relations).toEqual([contactsUnderExistingAccounts]);
+      expect(refusal()).toBeUndefined();
+    });
+
+    it('reads the parents a relation draws from the org it seeds', async () => {
+      const query = vi.fn(async () => ({
+        records: [{ Id: '001000000000001AAA' }, { Id: '001000000000002AAA' }],
+        done: true,
+        totalSize: 2,
+      }));
+      const seen = await run(templateWith(contactsUnderExistingAccounts), { query });
+
+      const ids = await seen.seedDeps?.readExistingParentIds?.(
+        'Account',
+        "Industry = 'Energy'",
+        10,
+      );
+
+      expect(query).toHaveBeenCalledWith(
+        "SELECT Id FROM Account WHERE Industry = 'Energy' LIMIT 10",
+      );
+      expect(ids).toEqual(['001000000000001AAA', '001000000000002AAA']);
+    });
+
+    it('refuses a relation whose filter goes on past the filter, before touching the org', async () => {
+      await run(
+        templateWith({
+          ...contactsUnderExistingAccounts,
+          parents: { kind: 'existing', where: 'Id != null LIMIT 1', limit: 10 },
+        }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(refusal()?.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('refuses a relation naming a field that is not an API name, before touching the org', async () => {
+      await run(
+        templateWith({ ...contactsUnderExistingAccounts, lookupField: "AccountId' OR '1'='1" }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(refusal()?.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('refuses a relation reading parents from the org without a bound', async () => {
+      await run(
+        templateWith({
+          ...contactsUnderExistingAccounts,
+          parents: { kind: 'existing', where: "Industry = 'Energy'" },
+        }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(refusal()?.code).toBe('INVALID_PAYLOAD');
+    });
+  });
+
   describe('live operation tracker', () => {
     it('registers the operation and marks it failed when execution fails', async () => {
       const tracker = new LiveOperationTracker();

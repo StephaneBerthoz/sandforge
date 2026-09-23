@@ -6,7 +6,8 @@ import { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import { FieldMapper } from './FieldMapper';
 import type { FieldMapperDependencies } from './FieldMapper';
 import { FakerFallback } from './FakerFallback';
-import type { SeedTemplate } from '@sandforge/shared';
+import { ReferenceLinker } from './ReferenceLinker';
+import type { SeedRelation, SeedTemplate } from '@sandforge/shared';
 
 function createMockDeps(): SeedOrchestratorDependencies {
   return {
@@ -572,5 +573,400 @@ describe('SeedOrchestrator — a field the org does not have', () => {
 
     const result = await orchestrator.execute(oneObject([nameRule]) as never, 'org');
     expect(result.objectResults[0].recordsCreated).toBe(2);
+  });
+});
+
+describe('SeedOrchestrator — relations', () => {
+  /** Accounts and contacts, contacts listed first, the relation given. */
+  function accountsAndContacts(
+    relation: SeedRelation,
+    counts: { accounts: number; contacts: number },
+  ): SeedTemplate {
+    return createTemplate({
+      objects: [
+        {
+          objectApiName: 'Contact',
+          recordCount: counts.contacts,
+          fieldRules: [
+            { fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'Doe' } },
+            {
+              fieldApiName: 'AccountId',
+              ruleType: 'reference',
+              config: { referenceObject: 'Account', referenceField: 'Id' },
+            },
+          ],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+        {
+          objectApiName: 'Account',
+          recordCount: counts.accounts,
+          fieldRules: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'A' } }],
+          excludedFields: [],
+          insertOrder: 1,
+          batchSize: 200,
+        },
+      ],
+      relations: [relation],
+    });
+  }
+
+  /** Contacts spread over accounts the way the relation's two last parts say. */
+  function contactsUnder(
+    parents: SeedRelation['parents'],
+    distribution: SeedRelation['distribution'] = { mode: 'perParent', count: 3 },
+  ): SeedRelation {
+    return {
+      childObject: 'Contact',
+      lookupField: 'AccountId',
+      parentObject: 'Account',
+      parents,
+      distribution,
+    };
+  }
+
+  /**
+   * An org that answers each insert with one id per record, `001…` for the
+   * accounts and `003…` for the contacts, and keeps what it was sent.
+   */
+  function recordingOrg() {
+    const sent: Array<{ objectApiName: string; records: Record<string, unknown>[] }> = [];
+    const insert = vi.fn<InsertFn>(async (_orgId, objectApiName, records) => {
+      sent.push({ objectApiName, records });
+      const prefix = objectApiName === 'Account' ? '001' : '003';
+      return {
+        successIds: records.map((_, i) => `${prefix}${String.fromCharCode(65 + i)}`),
+        errors: [],
+      };
+    });
+    const contacts = (): Record<string, unknown>[] =>
+      sent.find((call) => call.objectApiName === 'Contact')?.records ?? [];
+    return { insert, sent, contacts };
+  }
+
+  /** The real validator, linker and field mapper, so the relation runs as it would. */
+  function orchestratorWith(overrides: Partial<SeedOrchestratorDependencies>): SeedOrchestrator {
+    return new SeedOrchestrator({
+      ...createMockDeps(),
+      validator: new SeedValidator(),
+      referenceLinker: new ReferenceLinker(),
+      fieldMapper: new FieldMapper({
+        aiGenerator: { generate: vi.fn().mockResolvedValue([]) } as never,
+        fakerFallback: new FakerFallback(),
+      }),
+      ...overrides,
+    });
+  }
+
+  it('writes the accounts first and points each contact at an account the insert returned', async () => {
+    const org = recordingOrg();
+
+    const result = await orchestratorWith({ insert: org.insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }), { accounts: 2, contacts: 6 }),
+      'org-1',
+    );
+
+    expect(org.sent.map((call) => call.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      '001A',
+      '001A',
+      '001A',
+      '001B',
+      '001B',
+      '001B',
+    ]);
+    expect(org.contacts().every((record) => record['LastName'] === 'Doe')).toBe(true);
+    expect(result.status).toBe('success');
+  });
+
+  it('fills the lookup from the relation, not from a random pick of its reference rule', async () => {
+    // Three per account is 3 and 3; a random pick over two accounts almost
+    // never lands that way twelve times over.
+    const org = recordingOrg();
+
+    await orchestratorWith({ insert: org.insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }, { mode: 'perParent', count: 6 }), {
+        accounts: 2,
+        contacts: 12,
+      }),
+      'org-1',
+    );
+
+    const perAccount = new Map<unknown, number>();
+    for (const record of org.contacts()) {
+      perAccount.set(record['AccountId'], (perAccount.get(record['AccountId']) ?? 0) + 1);
+    }
+    expect([...perAccount.entries()]).toEqual([
+      ['001A', 6],
+      ['001B', 6],
+    ]);
+  });
+
+  it('gives the children only to the parents the org accepted', async () => {
+    const insert = vi.fn<InsertFn>(async (_orgId, objectApiName, records) =>
+      objectApiName === 'Account'
+        ? { successIds: ['001A'], errors: ['DUPLICATES_DETECTED'] }
+        : { successIds: records.map((_, i) => `003${i}`), errors: [] },
+    );
+
+    const result = await orchestratorWith({ insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }), { accounts: 2, contacts: 6 }),
+      'org-1',
+    );
+
+    const contacts = insert.mock.calls.find((call) => call[1] === 'Contact')?.[2] ?? [];
+    expect(contacts.map((record) => record['AccountId'])).toEqual(['001A', '001A', '001A']);
+    expect(result.objectResults.find((r) => r.objectApiName === 'Contact')?.recordsCreated).toBe(3);
+  });
+
+  it('writes no child when the parents it draws from wrote none', async () => {
+    const insert = vi.fn<InsertFn>(async () => ({ successIds: [], errors: ['No such column'] }));
+
+    const result = await orchestratorWith({ insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }), { accounts: 2, contacts: 6 }),
+      'org-1',
+    );
+
+    expect(insert.mock.calls.map((call) => call[1])).toEqual(['Account']);
+    const contact = result.objectResults.find((r) => r.objectApiName === 'Contact');
+    expect(contact?.recordsCreated).toBe(0);
+    expect(contact?.errors[0]).toContain('Account wrote no records');
+  });
+
+  it('draws the parents from the org with the filter and the bound of the relation', async () => {
+    const org = recordingOrg();
+    const readExistingParentIds = vi.fn(async () => ['001X', '001Y']);
+    const template = accountsAndContacts(
+      contactsUnder(
+        { kind: 'existing', where: "Industry = 'Energy'", limit: 10 },
+        {
+          mode: 'perParent',
+          count: 2,
+        },
+      ),
+      { accounts: 1, contacts: 20 },
+    );
+    template.objects = template.objects.filter((o) => o.objectApiName === 'Contact');
+
+    const result = await orchestratorWith({ insert: org.insert, readExistingParentIds }).execute(
+      template,
+      'org-1',
+    );
+
+    expect(readExistingParentIds).toHaveBeenCalledWith('Account', "Industry = 'Energy'", 10);
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      '001X',
+      '001X',
+      '001Y',
+      '001Y',
+    ]);
+    expect(result.objectResults[0].recordsCreated).toBe(4);
+  });
+
+  it('writes no child when no record of the org matches the filter, and says which filter', async () => {
+    const org = recordingOrg();
+    const template = accountsAndContacts(
+      contactsUnder({ kind: 'existing', where: "Industry = 'Mining'", limit: 10 }),
+      { accounts: 1, contacts: 30 },
+    );
+    template.objects = template.objects.filter((o) => o.objectApiName === 'Contact');
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      readExistingParentIds: async () => [],
+    }).execute(template, 'org-1');
+
+    expect(org.insert).not.toHaveBeenCalled();
+    expect(result.objectResults[0].errors[0]).toContain(`"Industry = 'Mining'"`);
+  });
+
+  it('calls a run whose relation wrote no child partial, not a success', async () => {
+    // Nothing failed, and nothing was written for Contact: counting failures
+    // alone read "Seed Complete".
+    const org = recordingOrg();
+    const template = accountsAndContacts(
+      contactsUnder({ kind: 'existing', where: "Industry = 'Mining'", limit: 10 }),
+      { accounts: 2, contacts: 30 },
+    );
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      readExistingParentIds: async () => [],
+    }).execute(template, 'org-1');
+
+    expect(result.totalRecordsCreated).toBe(2);
+    expect(result.totalRecordsFailed).toBe(0);
+    expect(result.status).toBe('partial');
+  });
+
+  it('calls a run that skipped its only object a failure', async () => {
+    const template = accountsAndContacts(
+      contactsUnder({ kind: 'existing', where: "Industry = 'Mining'", limit: 10 }),
+      { accounts: 1, contacts: 30 },
+    );
+    template.objects = template.objects.filter((o) => o.objectApiName === 'Contact');
+
+    const result = await orchestratorWith({
+      insert: recordingOrg().insert,
+      readExistingParentIds: async () => [],
+    }).execute(template, 'org-1');
+
+    expect(result.status).toBe('failure');
+  });
+
+  it('writes no child when the parents cannot be read, and says why', async () => {
+    const org = recordingOrg();
+    const template = accountsAndContacts(contactsUnder({ kind: 'existing', limit: 10 }), {
+      accounts: 1,
+      contacts: 30,
+    });
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      readExistingParentIds: async () => {
+        throw new Error("No such column 'Industri' on entity 'Account'");
+      },
+    }).execute(template, 'org-1');
+
+    const contact = result.objectResults.find((r) => r.objectApiName === 'Contact');
+    expect(contact?.recordsCreated).toBe(0);
+    expect(contact?.errors[0]).toContain('Industri');
+    expect(org.sent.map((call) => call.objectApiName)).toEqual(['Account']);
+  });
+
+  it('writes no child when the run has no way to read the org', async () => {
+    const org = recordingOrg();
+    const template = accountsAndContacts(contactsUnder({ kind: 'existing', limit: 10 }), {
+      accounts: 1,
+      contacts: 30,
+    });
+
+    const result = await orchestratorWith({ insert: org.insert }).execute(template, 'org-1');
+
+    expect(result.objectResults.find((r) => r.objectApiName === 'Contact')?.errors[0]).toContain(
+      'cannot read the Account records already in the org',
+    );
+  });
+
+  it('stops at the record count of the child, and says the relation would have written more', async () => {
+    // The count is what the plan and the production guard confirmed.
+    const org = recordingOrg();
+
+    const result = await orchestratorWith({ insert: org.insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }), { accounts: 2, contacts: 4 }),
+      'org-1',
+    );
+
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      '001A',
+      '001A',
+      '001A',
+      '001B',
+    ]);
+    const contact = result.objectResults.find((r) => r.objectApiName === 'Contact');
+    expect(contact?.recordsFailed).toBe(0);
+    expect(contact?.errors).toEqual([
+      'Stopped at 4 Contact records, the most the template asks for: the relation spreads 6 over 2 Account records.',
+    ]);
+  });
+
+  it('draws each parent a number of children inside the range', async () => {
+    const org = recordingOrg();
+    const draws = [0, 0.99];
+    let at = 0;
+
+    await orchestratorWith({ insert: org.insert, random: () => draws[at++] }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }, { mode: 'range', min: 1, max: 4 }), {
+        accounts: 2,
+        contacts: 8,
+      }),
+      'org-1',
+    );
+
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      '001A',
+      '001B',
+      '001B',
+      '001B',
+      '001B',
+    ]);
+  });
+
+  it('gives a child to every other parent at half a child per parent', async () => {
+    const org = recordingOrg();
+
+    await orchestratorWith({ insert: org.insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }, { mode: 'ratio', ratio: 0.5 }), {
+        accounts: 4,
+        contacts: 2,
+      }),
+      'org-1',
+    );
+
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual(['001B', '001D']);
+  });
+
+  it('writes records whose only field is the lookup the relation fills', async () => {
+    const org = recordingOrg();
+    const template = accountsAndContacts(contactsUnder({ kind: 'generated' }), {
+      accounts: 1,
+      contacts: 3,
+    });
+    template.objects[0].fieldRules = [];
+
+    await orchestratorWith({ insert: org.insert }).execute(template, 'org-1');
+
+    expect(org.contacts()).toEqual([
+      { AccountId: '001A' },
+      { AccountId: '001A' },
+      { AccountId: '001A' },
+    ]);
+  });
+
+  it('writes no child when the org does not let a seed write the lookup', async () => {
+    const org = recordingOrg();
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      describeCreateableFields: async (objectApiName) =>
+        new Set(objectApiName === 'Account' ? ['Name'] : ['LastName']),
+    }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }), { accounts: 1, contacts: 3 }),
+      'org-1',
+    );
+
+    expect(org.sent.map((call) => call.objectApiName)).toEqual(['Account']);
+    expect(result.objectResults.find((r) => r.objectApiName === 'Contact')?.errors[0]).toContain(
+      'Contact.AccountId',
+    );
+  });
+
+  it('honours the relation on the partitioned path too', async () => {
+    const org = recordingOrg();
+
+    await orchestratorWith({
+      insert: org.insert,
+      grappeAdapter: new SeedGrappeAdapter(() => 'gid'),
+      grappeConfig: {
+        enabled: true,
+        autoActivateThreshold: 1,
+        grappeSize: 2000,
+      } as SeedOrchestratorDependencies['grappeConfig'],
+    }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'generated' }, { mode: 'perParent', count: 2 }), {
+        accounts: 2,
+        contacts: 4,
+      }),
+      'org-1',
+    );
+
+    expect(org.sent.map((call) => call.objectApiName)).toEqual(['Account', 'Contact']);
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      '001A',
+      '001A',
+      '001B',
+      '001B',
+    ]);
   });
 });

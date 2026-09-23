@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useSeedWizardState } from './useSeedWizardState';
 
 /* ------------------------------------------------------------------ */
@@ -144,19 +145,48 @@ describe('useSeedWizardState', () => {
     expect(result.current.volumes['Account']?.batchSize).toBe(500);
   });
 
-  it('should add and remove relations', () => {
+  it('adds no relation while no selected object has a lookup to fill', () => {
     const { result } = renderHook(() => useSeedWizardState(mockT));
 
     act(() => {
       result.current.handleAddRelation();
     });
-    expect(result.current.relations).toHaveLength(1);
-    expect(result.current.relations[0].parentField).toBe('Id');
+    expect(result.current.relations).toEqual([]);
+  });
+
+  it('holds the wizard while a relation row cannot be sent, and lets it go once removed', () => {
+    // A row with a problem is left out of the payload: moving on would seed
+    // its child with parents drawn at random, or none.
+    const { result } = renderHook(() => useSeedWizardState(mockT));
+    act(() => {
+      result.current.setCurrentStep(1);
+      useSeedWizardStore.setState({
+        relations: [
+          {
+            key: 'r1',
+            childObject: 'Contact',
+            lookupField: 'AccountId',
+            parentObject: 'Account',
+            source: 'generated',
+            where: '',
+            limit: 10,
+            mode: 'perParent',
+            count: 3,
+            min: 1,
+            max: 3,
+            ratio: 0.5,
+          },
+        ],
+      });
+    });
+
+    expect(result.current.checked[0].problem).toBe('incomplete');
+    expect(result.current.canGoNext).toBe(false);
 
     act(() => {
       result.current.handleRemoveRelation(0);
     });
-    expect(result.current.relations).toHaveLength(0);
+    expect(result.current.canGoNext).toBe(true);
   });
 
   it('should update step via setCurrentStep', () => {

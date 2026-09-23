@@ -10,7 +10,7 @@ import type {
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useLatestRef } from '../../hooks/useLatestRef';
-import type { SeedRelation } from '../../stores/useSeedWizardStore';
+import type { SeedRelationDraft, SeedRelationDraftPatch } from '../../stores/useSeedWizardStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
@@ -20,6 +20,7 @@ import { useSeedOrgSelection } from './useSeedOrgSelection';
 import { useSeedObjectSelection } from './useSeedObjectSelection';
 import { useSeedFieldConfig } from './useSeedFieldConfig';
 import { useSeedRelations } from './useSeedRelations';
+import type { CheckedRelation, RelationLookup } from './seedRelationDrafts';
 import { useSeedExecution } from './useSeedExecution';
 import { useSeedNL2SOQL } from './useSeedNL2SOQL';
 
@@ -77,10 +78,14 @@ export interface SeedWizardState {
   ) => void;
 
   /* Relations */
-  relations: SeedRelation[];
+  relations: SeedRelationDraft[];
+  lookups: RelationLookup[];
+  checked: CheckedRelation[];
+  /** Whether every relation row can be sent; the wizard does not move on otherwise. */
+  relationsReady: boolean;
   handleAddRelation: () => void;
   handleRemoveRelation: (index: number) => void;
-  handleChangeRelation: (index: number, field: keyof SeedRelation, value: string) => void;
+  handleChangeRelation: (index: number, patch: SeedRelationDraftPatch) => void;
 
   /* NL2SOQL */
   nl2soqlQuery: string;
@@ -164,7 +169,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     currentStep,
     t,
   );
-  const relations = useSeedRelations();
+  const relations = useSeedRelations(fieldConfig.fieldConfigs, fieldConfig.volumes);
   const nl2soqlState = useSeedNL2SOQL(orgSelection.selectedOrgId);
   const execution = useSeedExecution(
     orgSelection.selectedOrgId,
@@ -172,6 +177,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     fieldConfig.volumes,
     fieldConfig.fieldConfigs,
     t,
+    relations.checked,
   );
 
   /* ------------------------------------------------------------------ */
@@ -275,12 +281,17 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   /* Navigation guards                                                   */
   /* ------------------------------------------------------------------ */
+  // A relation row with a problem would be left out of the run, and its child
+  // seeded with parents picked at random or none: the wizard waits for it.
+  const { relationsReady } = relations;
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
       case 0:
         return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
+      case 1:
+        return relationsReady;
       case 2:
-        return !execution.isRunning;
+        return !execution.isRunning && relationsReady;
       default:
         return true;
     }
@@ -289,6 +300,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     orgSelection.selectedOrgId,
     objectSelection.selectedObjects.length,
     execution.isRunning,
+    relationsReady,
   ]);
 
   const isFinished = currentStep === 3 && !!execution.executionResult;

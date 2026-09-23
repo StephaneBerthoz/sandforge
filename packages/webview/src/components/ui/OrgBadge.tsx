@@ -69,7 +69,9 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
       )}
       data-testid="org-badge"
     >
-      {/* Status dot */}
+      {/* Status dot. A bare span may not carry a label: axe refused it on the
+          Seed page as soon as an org was picked, and a screen reader skipped
+          it. As an image, the dot's label is what is read for its colour. */}
       <span
         className={cn('inline-block w-2 h-2 rounded-full shrink-0', dotClass)}
         data-testid="org-badge-status-dot"

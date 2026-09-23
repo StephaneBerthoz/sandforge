@@ -974,6 +974,140 @@ async function openCsvImport(bridge: MockBridge, page: Page, theme: StateTheme):
   await expect(page.getByTestId('browse-button')).toBeEnabled({ timeout: 10_000 });
 }
 
+/** Describes of the two objects the Seed relation state seeds, as `seed:describe-object` answers. */
+const SEED_DESCRIBES: Record<string, Record<string, unknown>> = {
+  Account: {
+    objectApiName: 'Account',
+    objectLabel: 'Account',
+    fields: [
+      {
+        fieldApiName: 'Name',
+        label: 'Account Name',
+        type: 'string',
+        required: true,
+        picklistValues: [],
+        referenceTo: [],
+        length: 255,
+      },
+      {
+        fieldApiName: 'ParentId',
+        label: 'Parent Account ID',
+        type: 'reference',
+        required: false,
+        picklistValues: [],
+        referenceTo: ['Account'],
+        length: 18,
+      },
+    ],
+  },
+  Contact: {
+    objectApiName: 'Contact',
+    objectLabel: 'Contact',
+    fields: [
+      {
+        fieldApiName: 'LastName',
+        label: 'Last Name',
+        type: 'string',
+        required: true,
+        picklistValues: [],
+        referenceTo: [],
+        length: 80,
+      },
+      {
+        fieldApiName: 'AccountId',
+        label: 'Account ID',
+        type: 'reference',
+        required: false,
+        picklistValues: [],
+        referenceTo: ['Account'],
+        length: 18,
+      },
+    ],
+  },
+};
+
+/**
+ * Answer each `seed:describe-object` not answered yet with the describe of the
+ * object it names. The wizard describes one object per request and asks again
+ * for any object whose answer it dropped, so this runs until each is on screen.
+ */
+async function answerSeedDescribes(page: Page, answered: Set<string>): Promise<void> {
+  const requests = await page.evaluate(() => {
+    const posted = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return posted
+      .map((m) => ((m as Record<string, unknown>).payload ?? m) as Record<string, unknown>)
+      .filter((m) => m.type === 'seed:describe-object')
+      .map((m) => ({
+        id: String(m.id),
+        objectApiName: String((m.payload as Record<string, unknown>).objectApiName),
+      }));
+  });
+  for (const request of requests) {
+    if (answered.has(request.id)) continue;
+    answered.add(request.id);
+    await sendExtensionMessage(page, {
+      type: 'seed:describe-object:response',
+      id: `resp-${request.id}`,
+      correlationId: request.id,
+      payload: SEED_DESCRIBES[request.objectApiName],
+    });
+  }
+}
+
+/**
+ * Open the Seed wizard's relation editor with Account and Contact selected:
+ * one row fills Contact.AccountId from the accounts the run creates, the other
+ * fills Account.ParentId from accounts already in the org, at a ratio that
+ * plans no child — so a planned line, the filter fields and a problem line are
+ * all on screen.
+ */
+async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-ai').click();
+  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [
+      { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
+      { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: [] },
+    ],
+  });
+  await page.getByTestId('obj-Account').click();
+  await page.getByTestId('obj-Contact').click();
+  await page.getByTestId('seed-wizard-next').click();
+  // Two objects skip the configure step; the link on the next one leads back.
+  await page.getByTestId('adaptive-customize-link').click();
+  const answered = new Set<string>();
+  for (const objectApiName of Object.keys(SEED_DESCRIBES)) {
+    await expect
+      .poll(
+        async () => {
+          await answerSeedDescribes(page, answered);
+          return page.getByTestId(`obj-header-${objectApiName}`).count();
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+  }
+  await answerAll(page, 'precheck:pii-scan', 'precheck:pii-scan:response', {
+    success: true,
+    results: [],
+  });
+  await page.getByRole('button', { name: 'Advanced Settings' }).click();
+  await page.getByTestId('add-relation-btn').click();
+  await page.getByTestId('add-relation-btn').click();
+  await page.getByTestId('relation-1-mode').selectOption('ratio');
+  await page.getByTestId('relation-1-ratio').fill('0.05');
+  await expect(page.getByTestId('relation-0-planned')).toHaveText(
+    'Contact: up to 300 records — parents: 100 × Account, created by this run.',
+  );
+  const problem = page.getByTestId('relation-1-problem');
+  await problem.waitFor({ state: 'visible', timeout: 10_000 });
+  await problem.scrollIntoViewIfNeeded();
+}
+
 for (const theme of STATE_THEMES) {
   test.describe(`rendered contrast — ${theme} — states`, () => {
     test.describe.configure({ timeout: 60000 });
@@ -1104,6 +1238,14 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('minimap-toggle-btn').waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
+    });
+
+    test('Seed relations, a row planning its children beside one that plans none', async ({
+      page,
+    }) => {
+      await openSeedRelations(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="seed-relations"]');
     });
 
     test('CSV drop zone while a file is dragged over it', async ({ page }) => {

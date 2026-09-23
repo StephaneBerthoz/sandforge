@@ -56,24 +56,32 @@ describe('SeedConfigureStep', () => {
     expect(screen.getByTestId('batch-Account').getAttribute('aria-label')).toContain('Account');
   });
 
-  it('should not offer an "Add relation" button', () => {
+  it('puts the relation editor where relations were announced as coming soon', () => {
     renderStep();
-    // The button appended an empty row nobody could fill in: the relation
-    // editor is never mounted and handleExecute drops relations anyway.
-    expect(screen.queryByTestId('add-relation-btn')).toBeNull();
+    expect(screen.getByTestId('seed-relations')).toBeDefined();
+    expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
-  it('should say relation configuration is not wired yet', () => {
-    renderStep();
-    expect(screen.getByTestId('seed-relations-soon')).toBeDefined();
-    expect(screen.getByText('Coming soon')).toBeDefined();
-  });
-
-  it('should never render a blank relation row, even for a relation left in the store', () => {
+  it('shows a relation left in the store as a row that can be removed', () => {
     useSeedWizardStore.setState({
-      relations: [{ childObject: '', childField: '', parentObject: '', parentField: 'Id' }],
+      relations: [
+        {
+          key: 'r1',
+          childObject: 'Account',
+          lookupField: 'ParentId',
+          parentObject: 'Account',
+          source: 'existing',
+          where: '',
+          limit: 10,
+          mode: 'perParent',
+          count: 3,
+          min: 1,
+          max: 3,
+          ratio: 0.5,
+        },
+      ],
     });
     renderStep();
-    expect(screen.queryByTestId('remove-relation-0')).toBeNull();
+    expect(screen.getByTestId('remove-relation-0')).toBeDefined();
   });
 });

@@ -146,6 +146,7 @@ export function useSeedFieldRules(
         ruleType: rule.ruleType,
         config: { ...rule.config },
         ...(f.picklistValues.length > 0 ? { picklistValues: [...f.picklistValues] } : {}),
+        ...(f.referenceTo.length > 0 ? { referenceTo: [...f.referenceTo] } : {}),
       };
     });
     // Objects are described one at a time, and the wizard applies a persona

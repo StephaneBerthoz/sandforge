@@ -27,6 +27,12 @@ export interface FieldConfig {
    * a random pick with no values is refused before the first insert.
    */
   picklistValues?: string[];
+  /**
+   * The objects a lookup points at, as the org describes them, kept beside the
+   * rule for the same reason: a relation can fill the lookup whatever rule the
+   * field carries by then.
+   */
+  referenceTo?: string[];
 }
 
 /** Per-object field configuration. */

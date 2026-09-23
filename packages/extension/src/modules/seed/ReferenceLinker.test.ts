@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ReferenceLinker } from './ReferenceLinker';
-import type { SeedObjectConfig } from '@sandforge/shared';
+import type { SeedObjectConfig, SeedRelation } from '@sandforge/shared';
 
 function createObject(
   name: string,
@@ -153,6 +153,40 @@ describe('ReferenceLinker', () => {
 
       const sorted = linker.resolveInsertOrder(objects);
       expect(sorted).toHaveLength(1);
+    });
+
+    /** Contacts spread three per account, the accounts found where the relation says. */
+    function contactsUnder(parents: SeedRelation['parents']): SeedRelation {
+      return {
+        childObject: 'Contact',
+        lookupField: 'AccountId',
+        parentObject: 'Account',
+        parents,
+        distribution: { mode: 'perParent', count: 3 },
+      };
+    }
+
+    it('writes the parents of a relation before its children, though no rule names them', () => {
+      // The children are given the ids the parents got: the relation is the
+      // dependency, whether or not a reference rule says so too.
+      const objects = [createObject('Contact'), createObject('Account')];
+
+      const sorted = linker.resolveInsertOrder(objects, [contactsUnder({ kind: 'generated' })]);
+
+      expect(sorted.map((o) => o.objectApiName)).toEqual(['Account', 'Contact']);
+    });
+
+    it('lets a relation to records already in the org stand in for a self lookup', () => {
+      // New accounts under accounts already in the org: nothing the run
+      // writes has to come first, so the self lookup is no cycle.
+      const objects = [createObject('Account', [{ field: 'ParentId', target: 'Account' }])];
+      const relation: SeedRelation = {
+        ...contactsUnder({ kind: 'existing', limit: 5 }),
+        childObject: 'Account',
+        lookupField: 'ParentId',
+      };
+
+      expect(linker.resolveInsertOrder(objects, [relation])).toEqual(objects);
     });
   });
 });

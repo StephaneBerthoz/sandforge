@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseArgs, prebuiltTemplate, rulesFromDescribe } from './sandforge-seed.js';
+import {
+  describeDistribution,
+  parseArgs,
+  prebuiltTemplate,
+  rulesFromDescribe,
+} from './sandforge-seed.js';
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -71,6 +76,185 @@ describe('parseArgs', () => {
 
   it('refuses an object name that is not one', () => {
     expect(refuse('--target', 'T', '--object', 'Account; DROP:1').code).toBe(2);
+  });
+});
+
+describe('parseArgs — relations', () => {
+  const accountsThenContacts = ['--target', 'T', '--object', 'Account:3', '--object', 'Contact:1'];
+
+  it('fills the lookup from the accounts this run writes, and counts the contacts from them', () => {
+    const args = parseArgs(
+      argv(...accountsThenContacts, '--relation', 'Contact.AccountId=Account', '--per-parent', '3'),
+    );
+
+    expect(args.relations).toEqual([
+      {
+        childObject: 'Contact',
+        lookupField: 'AccountId',
+        parentObject: 'Account',
+        parents: { kind: 'generated' },
+        distribution: { mode: 'perParent', count: 3 },
+      },
+    ]);
+    // The count given with --object is replaced by the one the relation plans.
+    expect(args.objects).toEqual([
+      { objectApiName: 'Account', recordCount: 3 },
+      { objectApiName: 'Contact', recordCount: 9 },
+    ]);
+  });
+
+  it('gives the options after a relation to that relation only', () => {
+    const args = parseArgs(
+      argv(
+        ...accountsThenContacts,
+        '--object',
+        'Opportunity:1',
+        '--relation',
+        'Contact.AccountId=Account',
+        '--between',
+        '1-4',
+        '--relation',
+        'Opportunity.AccountId=Account',
+        '--ratio',
+        '0.5',
+      ),
+    );
+
+    expect(args.relations.map((r) => r.distribution)).toEqual([
+      { mode: 'range', min: 1, max: 4 },
+      { mode: 'ratio', ratio: 0.5 },
+    ]);
+    // The ceiling of a range, and exactly what a ratio spreads.
+    expect(args.objects.map((o) => o.recordCount)).toEqual([3, 12, 1]);
+  });
+
+  it('draws the parents from the org when told where, bounded by --parent-limit', () => {
+    const args = parseArgs(
+      argv(
+        '--target',
+        'T',
+        '--object',
+        'Contact:1',
+        '--relation',
+        'Contact.AccountId=Account',
+        '--where',
+        "Industry = 'Energy'",
+        '--parent-limit',
+        '4',
+        '--per-parent',
+        '2',
+      ),
+    );
+
+    expect(args.relations[0].parents).toEqual({
+      kind: 'existing',
+      where: "Industry = 'Energy'",
+      limit: 4,
+    });
+    expect(args.objects).toEqual([{ objectApiName: 'Contact', recordCount: 8 }]);
+  });
+
+  it('reads a bounded number of any existing parents with --existing alone', () => {
+    const args = parseArgs(
+      argv(
+        '--target',
+        'T',
+        '--object',
+        'Contact:1',
+        '--relation',
+        'Contact.AccountId=Account',
+        '--existing',
+      ),
+    );
+
+    expect(args.relations[0].parents).toEqual({ kind: 'existing', limit: 10 });
+    expect(args.objects[0].recordCount).toBe(10);
+  });
+
+  it('refuses a relation option given before any relation', () => {
+    const { code, message } = refuse(...accountsThenContacts, '--per-parent', '3');
+    expect(code).toBe(2);
+    expect(message).toContain('give --relation before it');
+  });
+
+  it('refuses a relation whose child is not one of the objects to write', () => {
+    const { code, message } = refuse(
+      ...accountsThenContacts,
+      '--relation',
+      'Case.AccountId=Account',
+    );
+    expect(code).toBe(2);
+    expect(message).toContain('give Case with --object');
+  });
+
+  it('refuses parents from this run when the run does not write them', () => {
+    const { code, message } = refuse(
+      '--target',
+      'T',
+      '--object',
+      'Contact:1',
+      '--relation',
+      'Contact.AccountId=Account',
+    );
+    expect(code).toBe(2);
+    expect(message).toContain('--existing');
+  });
+
+  it('refuses parents from this run for records of their own object', () => {
+    const { code } = refuse(...accountsThenContacts, '--relation', 'Account.ParentId=Account');
+    expect(code).toBe(2);
+  });
+
+  it('refuses a ratio that gives no parent a child', () => {
+    const { code, message } = refuse(
+      '--target',
+      'T',
+      '--object',
+      'Account:1',
+      '--object',
+      'Contact:1',
+      '--relation',
+      'Contact.AccountId=Account',
+      '--ratio',
+      '0.5',
+    );
+    expect(code).toBe(2);
+    expect(message).toContain('gives no parent a child');
+  });
+
+  it('refuses a relation it cannot read, and numbers out of their bounds', () => {
+    expect(refuse(...accountsThenContacts, '--relation', 'Contact.AccountId').code).toBe(2);
+    for (const bad of [
+      ['--per-parent', '0'],
+      ['--between', '4-2'],
+      ['--ratio', '0'],
+      ['--parent-limit', '2001'],
+    ]) {
+      expect(
+        refuse(...accountsThenContacts, '--relation', 'Contact.AccountId=Account', ...bad).code,
+      ).toBe(2);
+    }
+  });
+
+  it('refuses a relation with a built-in template, which carries its own links', () => {
+    const { code } = refuse(
+      '--target',
+      'T',
+      '--template',
+      'prebuilt-minimal-demo',
+      '--relation',
+      'Contact.AccountId=Account',
+      '--existing',
+    );
+    expect(code).toBe(2);
+  });
+});
+
+describe('describeDistribution', () => {
+  it('says how each way of spreading gives children to a parent', () => {
+    expect(describeDistribution({ mode: 'perParent', count: 3 })).toBe('3 per parent');
+    expect(describeDistribution({ mode: 'range', min: 1, max: 4 })).toBe('1 to 4 per parent');
+    expect(describeDistribution({ mode: 'ratio', ratio: 0.5 })).toBe('0.5 per parent on average');
   });
 });
 

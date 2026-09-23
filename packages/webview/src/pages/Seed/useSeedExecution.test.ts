@@ -5,6 +5,7 @@ import type { SeedTemplate } from '@sandforge/shared';
 
 import { useSeedExecution } from './useSeedExecution';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
+import type { CheckedRelation } from './seedRelationDrafts';
 
 const bridge = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -242,6 +243,171 @@ describe('useSeedExecution', () => {
     const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
     const line = payload.template.objects.find((o) => o.objectApiName === 'Invoice_Line__c');
     expect(line?.fieldRules.map((r) => r.fieldApiName)).toEqual(['Invoice__c']);
+  });
+
+  it('sends no optional lookup to the object itself, which the insert that writes it cannot fill', () => {
+    // Account.ParentId and Contact.ReportsToId are described as reference
+    // rules to their own object, and the run refused every template carrying
+    // one as a circular dependency: no Account or Contact could be seeded.
+    const selfLookup = (fieldApiName: string, object: string, required: boolean) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type: 'reference',
+      required,
+      ruleType: 'reference' as const,
+      config: { referenceObject: object, referenceField: 'Id' },
+    });
+    const configs: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Account',
+        objectLabel: 'Account',
+        fields: [
+          {
+            fieldApiName: 'Name',
+            label: 'Account Name',
+            type: 'string',
+            required: true,
+            ruleType: 'faker',
+            config: { fakerMethod: 'company.name' },
+          },
+          selfLookup('ParentId', 'Account', false),
+        ],
+      },
+      {
+        objectApiName: 'Contact',
+        objectLabel: 'Contact',
+        fields: [
+          selfLookup('ReportsToId', 'Contact', false),
+          selfLookup('AccountId', 'Account', false),
+        ],
+      },
+      {
+        objectApiName: 'Node__c',
+        objectLabel: 'Node',
+        fields: [selfLookup('Root__c', 'Node__c', true)],
+      },
+    ];
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Account', 'Contact', 'Node__c'],
+        {},
+        configs,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    const rulesOf = (name: string) =>
+      payload.template.objects
+        .find((o) => o.objectApiName === name)
+        ?.fieldRules.map((r) => r.fieldApiName);
+    expect(rulesOf('Account')).toEqual(['Name']);
+    expect(rulesOf('Contact')).toEqual(['AccountId']);
+    // A required one is still sent, so the run refuses it before writing.
+    expect(rulesOf('Node__c')).toEqual(['Root__c']);
+  });
+
+  describe('relations', () => {
+    const CONTACT_CONFIGS: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Contact',
+        objectLabel: 'Contact',
+        fields: [
+          {
+            fieldApiName: 'LastName',
+            label: 'Last Name',
+            type: 'string',
+            required: true,
+            ruleType: 'faker',
+            config: { fakerMethod: 'person.lastName' },
+          },
+          {
+            fieldApiName: 'AccountId',
+            label: 'Account ID',
+            type: 'reference',
+            required: false,
+            ruleType: 'reference',
+            config: { referenceObject: 'Account', referenceField: 'Id' },
+          },
+        ],
+      },
+    ];
+
+    /** Three contacts for each of the five accounts the run creates, as the editor checked it. */
+    const threePerAccount: CheckedRelation = {
+      relation: {
+        childObject: 'Contact',
+        lookupField: 'AccountId',
+        parentObject: 'Account',
+        parents: { kind: 'generated' },
+        distribution: { mode: 'perParent', count: 3 },
+      },
+      parents: 5,
+      children: 15,
+      problem: null,
+    };
+
+    /** The template sent for Account and Contact with the relations given. */
+    function sentWith(relations: CheckedRelation[]): SeedTemplate {
+      const { result } = renderHook(() =>
+        useSeedExecution(
+          'org-1',
+          ['Account', 'Contact'],
+          { Account: { count: 5, batchSize: 200 }, Contact: { count: 100, batchSize: 200 } },
+          CONTACT_CONFIGS,
+          ((key: string) => key) as unknown as TFunction,
+          relations,
+        ),
+      );
+      act(() => {
+        result.current.handleExecute();
+      });
+      return (bridge.mutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+    }
+
+    it('sends the relation, and the child count it plans in place of the one set on the first step', () => {
+      const template = sentWith([threePerAccount]);
+
+      expect(template.relations).toEqual([threePerAccount.relation]);
+      expect(template.objects.find((o) => o.objectApiName === 'Contact')?.recordCount).toBe(15);
+      expect(template.objects.find((o) => o.objectApiName === 'Account')?.recordCount).toBe(5);
+    });
+
+    it('leaves the lookup to the relation, not to a rule that would pick a parent at random', () => {
+      const template = sentWith([threePerAccount]);
+
+      const contact = template.objects.find((o) => o.objectApiName === 'Contact');
+      expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
+    });
+
+    it('sends no relation row that has a problem', () => {
+      const template = sentWith([
+        { relation: null, parents: 5, children: 0, problem: 'noChildren' },
+      ]);
+
+      expect(template).not.toHaveProperty('relations');
+      expect(template.objects.find((o) => o.objectApiName === 'Contact')?.recordCount).toBe(100);
+    });
+
+    it('counts the progress of a child against what its relation plans', () => {
+      const { result } = renderHook(() =>
+        useSeedExecution(
+          'org-1',
+          ['Account', 'Contact'],
+          { Account: { count: 5, batchSize: 200 } },
+          CONTACT_CONFIGS,
+          ((key: string) => key) as unknown as TFunction,
+          [threePerAccount],
+        ),
+      );
+
+      expect(result.current.objectProgress.map((p) => p.total)).toEqual([5, 15]);
+    });
   });
 
   it('keeps the template the run was sent, for Save as template to store', () => {

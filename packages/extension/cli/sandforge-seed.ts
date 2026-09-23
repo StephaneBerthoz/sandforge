@@ -16,16 +16,21 @@
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
  *     --target TGT --template prebuilt-minimal-demo
+ *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
+ *     --target TGT --object Account:3 --object Contact:1 \
+ *     --relation Contact.AccountId=Account --per-parent 3
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
-import type { SeedTemplate } from '@sandforge/shared';
+import type { SeedRelation, SeedTemplate } from '@sandforge/shared';
 import {
   PREBUILT_SEED_TEMPLATES,
+  SEED_RELATION_LIMITS,
   defaultFakerMethod,
   duplicateRuleHeaders,
+  plannedChildCount,
 } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { SeedOrchestrator } from '../src/modules/seed/SeedOrchestrator.js';
@@ -35,6 +40,7 @@ import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
 import { ReferenceLinker } from '../src/modules/seed/ReferenceLinker.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
+import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
 
 const HELP = `sandforge-seed — fill an org from a seed template, without the editor.
 
@@ -57,6 +63,21 @@ Options:
   --json                 emit the run summary as JSON      (default: off)
   --help                 this text
 
+Relations (with --object; the options after a --relation apply to it):
+  --relation <Child>.<Lookup>=<Parent>
+                         fill a lookup of one --object from a parent object's
+                         records. The child gets the records the relation
+                         plans, in place of the count given with --object
+  --per-parent <n>       exactly n children per parent     (default: 1)
+  --between <min>-<max>  a whole number from min to max per parent, at random
+  --ratio <r>            r children per parent on average; 0.5 gives a child
+                         to every other parent
+  --existing             draw the parents from records already in the org
+                         instead of the ones this run writes
+  --where <condition>    only records meeting this SOQL WHERE condition
+                         (implies --existing)
+  --parent-limit <n>     the most records --existing reads (default: 10)
+
 Exit codes: 0 the run finished (read the summary for per-object failures),
 1 the run could not be started, 2 a bad command line.
 `;
@@ -65,7 +86,9 @@ Exit codes: 0 the run finished (read the summary for per-object failures),
 interface CliArgs {
   target: string;
   templateId?: string;
+  /** In insert order; a relation's child carries the count the relation plans. */
   objects: Array<{ objectApiName: string; recordCount: number }>;
+  relations: SeedRelation[];
   batchSize: number;
   dryRun: boolean;
   json: boolean;
@@ -73,6 +96,133 @@ interface CliArgs {
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
 const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/** `Child.Lookup=Parent`, each part an API name. */
+const RELATION_RE =
+  /^([A-Za-z][A-Za-z0-9_]{0,79})\.([A-Za-z][A-Za-z0-9_]{0,79})=([A-Za-z][A-Za-z0-9_]{0,79})$/;
+
+/** How many existing parents a relation reads when --parent-limit does not say. */
+const DEFAULT_PARENT_LIMIT = 10;
+
+/**
+ * The relations on the command line, each with the options that follow it up
+ * to the next --relation.
+ */
+function parseRelations(args: string[], refuse: (line: string) => never): SeedRelation[] {
+  const relations: SeedRelation[] = [];
+  const most = SEED_RELATION_LIMITS.maxPerParent;
+  const wholeIn = (raw: string | undefined, min: number, max: number, flag: string): number => {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < min || value > max) {
+      refuse(`${flag} takes a whole number from ${min} to ${max}, not "${raw ?? ''}".`);
+    }
+    return value;
+  };
+  const existing = (
+    relation: SeedRelation,
+  ): Extract<SeedRelation['parents'], { kind: 'existing' }> => {
+    if (relation.parents.kind !== 'existing') {
+      relation.parents = { kind: 'existing', limit: DEFAULT_PARENT_LIMIT };
+    }
+    return relation.parents;
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const flag = args[i];
+    const value = args[i + 1];
+    if (flag === '--relation') {
+      const match = RELATION_RE.exec(value ?? '');
+      if (!match) refuse(`--relation wants "Child.Lookup=Parent", not "${value ?? ''}".`);
+      const [, childObject, lookupField, parentObject] = match as RegExpExecArray;
+      relations.push({
+        childObject,
+        lookupField,
+        parentObject,
+        parents: { kind: 'generated' },
+        distribution: { mode: 'perParent', count: 1 },
+      });
+      i++;
+      continue;
+    }
+    const isRelationOption = [
+      '--per-parent',
+      '--between',
+      '--ratio',
+      '--existing',
+      '--where',
+      '--parent-limit',
+    ].includes(flag);
+    if (!isRelationOption) continue;
+    const current = relations.at(-1);
+    if (!current) refuse(`${flag} applies to a relation: give --relation before it.`);
+    const relation = current as SeedRelation;
+
+    if (flag === '--existing') {
+      existing(relation);
+      continue;
+    }
+    i++;
+    if (flag === '--per-parent') {
+      relation.distribution = { mode: 'perParent', count: wholeIn(value, 1, most, flag) };
+    } else if (flag === '--between') {
+      const range = /^(\d+)-(\d+)$/.exec(value ?? '');
+      if (!range) refuse(`--between wants "<min>-<max>", not "${value ?? ''}".`);
+      const [, low, high] = range as RegExpExecArray;
+      const min = wholeIn(low, 0, most, flag);
+      const max = wholeIn(high, Math.max(1, min), most, flag);
+      relation.distribution = { mode: 'range', min, max };
+    } else if (flag === '--ratio') {
+      const ratio = Number(value);
+      if (!Number.isFinite(ratio) || ratio < SEED_RELATION_LIMITS.minRatio || ratio > most) {
+        refuse(
+          `--ratio takes a number from ${SEED_RELATION_LIMITS.minRatio} to ${most}, not "${value ?? ''}".`,
+        );
+      }
+      relation.distribution = { mode: 'ratio', ratio };
+    } else if (flag === '--where') {
+      if (!value?.trim()) refuse('--where wants a SOQL condition.');
+      existing(relation).where = value;
+    } else {
+      existing(relation).limit = wholeIn(value, 1, SEED_RELATION_LIMITS.maxExistingParents, flag);
+    }
+  }
+  return relations;
+}
+
+/**
+ * The objects with each relation's child counted the way the panel counts it:
+ * the parents it will find — the parent object's count for records this run
+ * writes, the bound for records read from the org — times what each receives.
+ */
+function countChildren(
+  objects: CliArgs['objects'],
+  relations: SeedRelation[],
+  refuse: (line: string) => never,
+): CliArgs['objects'] {
+  const counted = objects.map((object) => ({ ...object }));
+  for (const relation of relations) {
+    const name = `${relation.childObject}.${relation.lookupField}`;
+    const child = counted.find((object) => object.objectApiName === relation.childObject);
+    if (!child) refuse(`--relation ${name}: give ${relation.childObject} with --object too.`);
+    let parents: number;
+    if (relation.parents.kind === 'existing') {
+      parents = relation.parents.limit;
+    } else {
+      const parent = counted.find((object) => object.objectApiName === relation.parentObject);
+      if (!parent || relation.parentObject === relation.childObject) {
+        refuse(
+          `--relation ${name}: the ${relation.parentObject} records this run writes cannot be the ` +
+            `parents; give ${relation.parentObject} with --object, or add --existing.`,
+        );
+      }
+      parents = (parent as { recordCount: number }).recordCount;
+    }
+    const planned = plannedChildCount(relation.distribution, parents);
+    if (planned < 1) refuse(`--relation ${name} gives no parent a child: raise --ratio.`);
+    (child as { recordCount: number }).recordCount = planned;
+  }
+  return counted;
+}
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -92,6 +242,10 @@ export function parseArgs(argv: string[]): CliArgs {
   const get = (flag: string, fallback?: string): string | undefined => {
     const at = args.indexOf(flag);
     return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
+  };
+  const refuse = (line: string): never => {
+    process.stderr.write(`${line}\n`);
+    process.exit(2);
   };
   const collect = (flag: string): string[] => {
     const out: string[] = [];
@@ -139,10 +293,16 @@ export function parseArgs(argv: string[]): CliArgs {
     process.exit(2);
   }
 
+  const relations = parseRelations(args, refuse);
+  if (relations.length > 0 && templateId) {
+    refuse('--relation goes with --object: a built-in template carries its own links.');
+  }
+
   return {
     target,
     templateId,
-    objects,
+    objects: countChildren(objects, relations, refuse),
+    relations,
     batchSize,
     dryRun: args.includes('--dry-run'),
     json: args.includes('--json'),
@@ -198,6 +358,18 @@ export function rulesFromDescribe(
   return rules;
 }
 
+/** How a relation spreads its children, in words. */
+export function describeDistribution(distribution: SeedRelation['distribution']): string {
+  switch (distribution.mode) {
+    case 'perParent':
+      return `${distribution.count} per parent`;
+    case 'range':
+      return `${distribution.min} to ${distribution.max} per parent`;
+    case 'ratio':
+      return `${distribution.ratio} per parent on average`;
+  }
+}
+
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   const t0 = Date.now();
@@ -211,6 +383,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const now = new Date().toISOString();
   let template = prebuiltTemplate(args.templateId);
+  for (const relation of args.relations) {
+    const parents =
+      relation.parents.kind === 'generated'
+        ? `the ${relation.parentObject} records this run writes`
+        : `at most ${relation.parents.limit} ${relation.parentObject} records already in the org` +
+          (relation.parents.where ? ` where ${relation.parents.where}` : '');
+    const count = args.objects.find((o) => o.objectApiName === relation.childObject)?.recordCount;
+    log(
+      `  relation ${relation.childObject}.${relation.lookupField}: up to ${count} record(s), ` +
+        `${describeDistribution(relation.distribution)}, over ${parents}`,
+    );
+  }
   if (!template) {
     const objects: SeedTemplate['objects'] = [];
     for (const [index, spec] of args.objects.entries()) {
@@ -235,6 +419,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       version: 1,
       strategy: 'faker',
       objects,
+      ...(args.relations.length > 0 ? { relations: args.relations } : {}),
       tags: ['cli'],
       createdAt: now,
       updatedAt: now,
@@ -276,6 +461,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const orchestrator = new SeedOrchestrator({
     validator: new SeedValidator(),
+    // A relation reads its parents from the org when told to, dry run or not:
+    // a read writes nothing.
+    readExistingParentIds: (objectApiName, where, limit) =>
+      readExistingParentIds(conn, objectApiName, where, limit),
     describeCreateableFields: async (objectApiName) => {
       const cached = creatableByObject.get(objectApiName);
       if (cached) return cached;

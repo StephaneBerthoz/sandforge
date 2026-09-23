@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
+import type { z } from 'zod';
 
-import { seedConfigSchema, seedObjectConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
+import type { SeedRelation } from '../types/seed.types.js';
+import {
+  seedConfigSchema,
+  seedObjectConfigSchema,
+  fieldRuleSchema,
+  seedRelationSchema,
+} from './seed-config.schema.js';
 
 describe('seedConfigSchema', () => {
   function createValidSeedConfig(): Record<string, unknown> {
@@ -299,5 +306,91 @@ describe('fieldRuleSchema', () => {
     });
 
     expect(result.config.staticValue).toBe(true);
+  });
+});
+
+describe('seedRelationSchema', () => {
+  /** Three contacts per account this run writes, with the parts given replaced. */
+  function relation(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      childObject: 'Contact',
+      lookupField: 'AccountId',
+      parentObject: 'Account',
+      parents: { kind: 'generated' },
+      distribution: { mode: 'perParent', count: 3 },
+      ...overrides,
+    };
+  }
+
+  it('reads what the declared SeedRelation type describes, and nothing else', () => {
+    // The webview builds a SeedRelation and the bridge parses it with this
+    // schema: the two have to describe the same shape.
+    expectTypeOf<z.infer<typeof seedRelationSchema>>().toEqualTypeOf<SeedRelation>();
+  });
+
+  it('accepts each way of spreading children over parents', () => {
+    for (const distribution of [
+      { mode: 'perParent', count: 3 },
+      { mode: 'range', min: 0, max: 4 },
+      { mode: 'ratio', ratio: 0.5 },
+    ]) {
+      expect(seedRelationSchema.parse(relation({ distribution })).distribution).toEqual(
+        distribution,
+      );
+    }
+  });
+
+  it('accepts parents already in the org, filtered, with the most to read', () => {
+    const parents = { kind: 'existing', where: "Industry = 'Energy'", limit: 10 };
+    expect(seedRelationSchema.parse(relation({ parents })).parents).toEqual(parents);
+  });
+
+  it('refuses parents from the org without a bound on how many are read', () => {
+    expect(() => seedRelationSchema.parse(relation({ parents: { kind: 'existing' } }))).toThrow();
+    expect(() =>
+      seedRelationSchema.parse(relation({ parents: { kind: 'existing', limit: 2001 } })),
+    ).toThrow();
+  });
+
+  it('refuses a range that starts above its end', () => {
+    expect(() =>
+      seedRelationSchema.parse(relation({ distribution: { mode: 'range', min: 5, max: 2 } })),
+    ).toThrow(/cannot start above its end/);
+  });
+
+  it('refuses a parent that receives no child, or a fraction of one', () => {
+    expect(() =>
+      seedRelationSchema.parse(relation({ distribution: { mode: 'perParent', count: 0 } })),
+    ).toThrow();
+    expect(() =>
+      seedRelationSchema.parse(relation({ distribution: { mode: 'perParent', count: 1.5 } })),
+    ).toThrow();
+    expect(() =>
+      seedRelationSchema.parse(relation({ distribution: { mode: 'ratio', ratio: 0 } })),
+    ).toThrow();
+  });
+
+  it('refuses a way of spreading it does not know', () => {
+    expect(() =>
+      seedRelationSchema.parse(relation({ distribution: { mode: 'weighted', weight: 2 } })),
+    ).toThrow();
+  });
+
+  it('is carried by the seed config, and left out when a config has none', () => {
+    const base = {
+      name: 'Accounts and contacts',
+      strategy: 'faker',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          recordCount: 15,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 1,
+        },
+      ],
+    };
+    expect(seedConfigSchema.parse({ ...base, relations: [relation()] }).relations).toHaveLength(1);
+    expect(seedConfigSchema.parse(base).relations).toBeUndefined();
   });
 });

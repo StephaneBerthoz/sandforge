@@ -24,11 +24,62 @@ export interface SeedTemplate {
   version: number;
   strategy: SeedStrategy;
   objects: SeedObjectConfig[];
+  /**
+   * Lookups filled from a parent object's records, at most one per child
+   * object. Without one, a lookup to an object of the run takes a random
+   * record of it through its `reference` rule.
+   */
+  relations?: SeedRelation[];
   aiPersona?: string;
   tags: string[];
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
+
+/**
+ * A lookup of a generated object, filled from a parent object's records.
+ *
+ * The relation also decides how many records the child object gets: each
+ * parent receives what `distribution` gives it. The child's `recordCount` is
+ * the most the run writes for it — the figure the plan and the production
+ * guard counted — so a relation never writes more than was confirmed.
+ */
+export interface SeedRelation {
+  /** The generated object whose lookup is filled. */
+  childObject: ApiName;
+  /** The lookup field of the child, e.g. `AccountId`. */
+  lookupField: string;
+  /** The object the lookup points at. */
+  parentObject: ApiName;
+  /** Where the parent records come from. */
+  parents: SeedRelationParents;
+  /** How many children each parent receives. */
+  distribution: SeedRelationDistribution;
+}
+
+/**
+ * Where a relation's parents come from: the records this run writes for the
+ * parent object, or records the org already holds, picked by a SOQL filter.
+ */
+export type SeedRelationParents =
+  | { kind: 'generated' }
+  | {
+      kind: 'existing';
+      /** A SOQL WHERE condition, without the keyword. Absent, any record will do. */
+      where?: string;
+      /** The most parent records read from the org. */
+      limit: number;
+    };
+
+/**
+ * How many children each parent receives: exactly `count`; a whole number
+ * drawn between `min` and `max`; or `ratio` on average, spread evenly — 0.5
+ * gives a child to every other parent, 1.5 alternates one and two.
+ */
+export type SeedRelationDistribution =
+  | { mode: 'perParent'; count: number }
+  | { mode: 'range'; min: number; max: number }
+  | { mode: 'ratio'; ratio: number };
 
 /** Per-object seed configuration */
 export interface SeedObjectConfig {

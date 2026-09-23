@@ -7,8 +7,8 @@ import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Accordion } from '../../components/ui/Accordion';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
-import { ComingSoon } from '../../components/ui/ComingSoon';
 import { Step3ConfigureFields } from './Step3_ConfigureFields';
+import { SeedRelationsEditor } from './SeedRelationsEditor';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { PIIObjectResult } from './useSeedWizardState';
 
@@ -33,9 +33,8 @@ export interface SeedConfigureStepProps {
 }
 
 /**
- * Step 2 (Configure) of the Seed wizard: per-object field rules, batch
- * sizes and PII toggles in the advanced accordion. Relations are announced
- * as not yet wired -- nothing carries them into the seed payload.
+ * Step 2 (Configure) of the Seed wizard: per-object field rules, then batch
+ * sizes, relations and PII toggles in the advanced accordion.
  * Subscribes to the object slice of `useSeedWizardStore`.
  */
 export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
@@ -111,16 +110,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                   <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                     {t('seed.configureRelations')}
                   </span>
-                  {/* "+ Add relation" appended an empty row rendered as
-                      ". → .Id": no relation editor is mounted, so no field
-                      could be filled in, and useSeedExecution.handleExecute
-                      never puts relations in the seed payload. Saying the
-                      capability is not wired beats a row nobody can
-                      complete. */}
-                  <ComingSoon
-                    data-testid="seed-relations-soon"
-                    description={t('seed.configureRelationsDesc')}
-                  />
+                  <SeedRelationsEditor fieldConfigs={fieldConfigs} volumes={volumes} />
                 </div>
 
                 {/* PII toggles */}

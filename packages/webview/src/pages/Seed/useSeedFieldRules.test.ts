@@ -244,6 +244,22 @@ describe('useSeedFieldRules', () => {
     });
   });
 
+  it('keeps every object a lookup points at, whatever rule the field is given', () => {
+    // A relation fills the lookup from one of these; the rule keeps only the first.
+    bridge.data = {
+      objectApiName: 'Task',
+      objectLabel: 'Task',
+      fields: [{ ...describedField('WhoId', 'reference'), referenceTo: ['Contact', 'Lead'] }],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Task'], 1));
+
+    act(() => {
+      result.current.handleChangeFieldRule('Task', 'WhoId', 'static');
+    });
+
+    expect(result.current.fieldConfigs[0].fields[0].referenceTo).toEqual(['Contact', 'Lead']);
+  });
+
   it('should initialize with empty field configs', () => {
     const { result } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 0));
 

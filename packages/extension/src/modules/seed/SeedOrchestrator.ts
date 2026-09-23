@@ -3,10 +3,13 @@ import type {
   SeedExecutionResult,
   SeedObjectResult,
   SeedDataPlan,
+  SeedRelation,
   GrappeConfig,
   GrappeResult,
   UUID,
 } from '@sandforge/shared';
+import { childrenPerParent, relationFor, seedDependencies } from '@sandforge/shared';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { SeedValidator } from './SeedValidator';
 import type { DataPlanBuilder } from './DataPlanBuilder';
 import type { FieldMapper } from './FieldMapper';
@@ -84,6 +87,19 @@ export interface SeedOrchestratorDependencies {
    * still refused rather than written empty.
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * Ids of records already in the org, for a relation that draws its parents
+   * from there: at most `limit` records of `objectApiName` matching `where`.
+   * Without it such a relation cannot be honoured, and its child object is
+   * skipped rather than written with nothing to point at.
+   */
+  readExistingParentIds?: (
+    objectApiName: string,
+    where: string | undefined,
+    limit: number,
+  ) => Promise<string[]>;
+  /** Draws the children of a `range` relation; `Math.random` unless a caller fixes it. */
+  random?: () => number;
   /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -182,7 +198,8 @@ export class SeedOrchestrator {
     operationId: UUID,
     startTime: number,
   ): Promise<SeedExecutionResult> {
-    const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects);
+    const relations = template.relations ?? [];
+    const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects, relations);
     const existingIds = new Map<string, string[]>();
     const objectResults: SeedObjectResult[] = [];
     const plannedRecords = template.objects.reduce((sum, o) => sum + o.recordCount, 0);
@@ -192,12 +209,15 @@ export class SeedOrchestrator {
     const wroteNothing = new Set<string>();
 
     for (const obj of sortedObjects) {
+      const relation = relationFor(obj.objectApiName, relations);
       // A seed that carries on past a parent it could not write fills the org
       // with records attached to nothing — worse than a run that stops,
       // because it looks like it worked. Run against a real org, one missing
       // field on Account cost all fifty of them and Seed went on to write a
       // hundred contacts and two hundred opportunities, every one an orphan.
-      const missingParents = referencedObjects(obj).filter((name) => wroteNothing.has(name));
+      const missingParents = seedDependencies(obj, relations).filter((name) =>
+        wroteNothing.has(name),
+      );
       if (missingParents.length > 0) {
         objectResults.push({
           objectApiName: obj.objectApiName,
@@ -215,8 +235,9 @@ export class SeedOrchestrator {
 
       this.reportProgress(obj.objectApiName, objectResults, plannedRecords);
 
-      const { config: usable, dropped } = await this.dropRulesTheOrgCannotTake(obj);
-      if (usable.fieldRules.length === 0 && obj.fieldRules.length > 0) {
+      const own = withoutRelationLookup(obj, relation);
+      const { config: usable, dropped } = await this.dropRulesTheOrgCannotTake(own);
+      if (usable.fieldRules.length === 0 && own.fieldRules.length > 0) {
         objectResults.push({
           objectApiName: obj.objectApiName,
           recordsCreated: 0,
@@ -231,10 +252,25 @@ export class SeedOrchestrator {
         continue;
       }
 
+      let placed: PlacedChildren | undefined;
+      if (relation) {
+        const placement = await this.placeChildren(obj, relation, existingIds);
+        if ('skipped' in placement) {
+          objectResults.push(skippedResult(obj.objectApiName, placement.skipped));
+          wroteNothing.add(obj.objectApiName);
+          continue;
+        }
+        placed = placement;
+      }
+
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
-      const records = await this.deps.fieldMapper.mapFields(usable, existingIds, (aiFallback) => {
-        fallback.aiFallback = aiFallback;
-      });
+      const config = placed ? { ...usable, recordCount: placed.parentIds.length } : usable;
+      const records = startsEmpty(config, relation)
+        ? emptyRecords(config.recordCount)
+        : await this.deps.fieldMapper.mapFields(config, existingIds, (aiFallback) => {
+            fallback.aiFallback = aiFallback;
+          });
+      fillLookup(records, relation, placed);
       const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
 
       existingIds.set(obj.objectApiName, insertResult.successIds);
@@ -247,18 +283,101 @@ export class SeedOrchestrator {
         recordsCreated: insertResult.successIds.length,
         recordsFailed: insertResult.errors.length,
         createdIds: insertResult.successIds,
-        errors:
-          dropped.length > 0
+        errors: [
+          ...insertResult.errors,
+          ...(dropped.length > 0
             ? [
-                ...insertResult.errors,
                 `Written without ${dropped.join(', ')}: this org does not have ${dropped.length === 1 ? 'that field' : 'those fields'}.`,
               ]
-            : insertResult.errors,
+            : []),
+          ...(placed?.notes ?? []),
+        ],
         ...fallback,
       });
     }
 
     return buildSuccessResult(template.id, operationId, objectResults, startTime, this.deps.now());
+  }
+
+  /**
+   * The parent id each record of a relation's child gets, in order, or why
+   * none can be written. Parents come from the ids this run's insert of the
+   * parent object returned, or from the org; each receives what the
+   * distribution gives it, and the whole stops at the child's record count —
+   * the most the run was planned and confirmed on.
+   */
+  private async placeChildren(
+    obj: SeedTemplate['objects'][number],
+    relation: SeedRelation,
+    existingIds: ReadonlyMap<string, string[]>,
+  ): Promise<PlacedChildren | { skipped: string }> {
+    const { childObject: child, lookupField: lookup, parentObject: parent } = relation;
+    if (!(await this.orgTakesField(child, lookup))) {
+      return {
+        skipped: `Skipped: this org does not let a seed write ${child}.${lookup}, the lookup the relation fills.`,
+      };
+    }
+
+    let parents: string[];
+    if (relation.parents.kind === 'generated') {
+      parents = existingIds.get(parent) ?? [];
+    } else {
+      const read = this.deps.readExistingParentIds;
+      if (!read) {
+        return {
+          skipped: `Skipped: this run cannot read the ${parent} records already in the org, so ${child} has nothing to point at.`,
+        };
+      }
+      try {
+        parents = await read(parent, relation.parents.where, relation.parents.limit);
+      } catch (err: unknown) {
+        return {
+          skipped: `Skipped: reading the ${parent} records already in the org failed (${extractErrorMessage(err)}), so ${child} has nothing to point at.`,
+        };
+      }
+    }
+    if (parents.length === 0) {
+      const where = relation.parents.kind === 'existing' ? relation.parents.where?.trim() : '';
+      const none =
+        relation.parents.kind === 'generated'
+          ? `${parent} wrote no records`
+          : `no ${parent} record in the org matches ${where ? `"${where}"` : 'the relation'}`;
+      return { skipped: `Skipped: ${none}, so there is nothing for ${child} to point at.` };
+    }
+
+    const perParent = childrenPerParent(relation.distribution, parents.length, this.deps.random);
+    const spread = perParent.reduce((sum, count) => sum + count, 0);
+    const parentIds: string[] = [];
+    for (const [index, count] of perParent.entries()) {
+      for (let k = 0; k < count && parentIds.length < obj.recordCount; k++) {
+        parentIds.push(parents[index]);
+      }
+    }
+    if (parentIds.length === 0) {
+      return {
+        skipped: `Skipped: the relation gives none of the ${parents.length} ${parent} records a ${child}.`,
+      };
+    }
+    return {
+      parentIds,
+      notes:
+        spread > parentIds.length
+          ? [
+              `Stopped at ${parentIds.length} ${child} records, the most the template asks for: ` +
+                `the relation spreads ${spread} over ${parents.length} ${parent} records.`,
+            ]
+          : [],
+    };
+  }
+
+  /** Whether the org lets a seed write `field` on `objectApiName`; yes when nothing can tell. */
+  private async orgTakesField(objectApiName: string, field: string): Promise<boolean> {
+    if (!this.deps.describeCreateableFields) return true;
+    try {
+      return (await this.deps.describeCreateableFields(objectApiName)).has(field);
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -304,7 +423,8 @@ export class SeedOrchestrator {
       payload: { operationId, totalPartitions: partitions.length, totalRecords },
     });
 
-    const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects);
+    const relations = template.relations ?? [];
+    const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects, relations);
     const existingIds = new Map<string, string[]>();
     const objectResults: SeedObjectResult[] = [];
     const grappeResults: GrappeResult[] = [];
@@ -312,10 +432,25 @@ export class SeedOrchestrator {
 
     for (const obj of sortedObjects) {
       this.reportProgress(obj.objectApiName, objectResults, totalRecords);
+      const relation = relationFor(obj.objectApiName, relations);
+      let placed: PlacedChildren | undefined;
+      if (relation) {
+        const placement = await this.placeChildren(obj, relation, existingIds);
+        if ('skipped' in placement) {
+          objectResults.push(skippedResult(obj.objectApiName, placement.skipped));
+          continue;
+        }
+        placed = placement;
+      }
+      const own = withoutRelationLookup(obj, relation);
+      const config = placed ? { ...own, recordCount: placed.parentIds.length } : own;
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
-      const records = await this.deps.fieldMapper.mapFields(obj, existingIds, (aiFallback) => {
-        fallback.aiFallback = aiFallback;
-      });
+      const records = startsEmpty(config, relation)
+        ? emptyRecords(config.recordCount)
+        : await this.deps.fieldMapper.mapFields(config, existingIds, (aiFallback) => {
+            fallback.aiFallback = aiFallback;
+          });
+      fillLookup(records, relation, placed);
       const grappeSize = this.deps.grappeConfig?.grappeSize ?? 2000;
       const chunks = chunkArray(records, grappeSize);
 
@@ -373,7 +508,7 @@ export class SeedOrchestrator {
         recordsCreated: objSuccess,
         recordsFailed: objFailed,
         createdIds: objCreatedIds,
-        errors: objErrors,
+        errors: [...objErrors, ...(placed?.notes ?? [])],
         ...fallback,
       });
     }
@@ -388,6 +523,58 @@ export class SeedOrchestrator {
 
     return buildSuccessResult(template.id, operationId, objectResults, startTime, this.deps.now());
   }
+}
+
+/** Where a relation places the records of its child: one parent id per record. */
+interface PlacedChildren {
+  parentIds: string[];
+  /** What the result says about the placement, e.g. that the record count stopped it. */
+  notes: string[];
+}
+
+/** The object's rules, less the one on the lookup its relation fills. */
+function withoutRelationLookup(
+  obj: SeedTemplate['objects'][number],
+  relation: SeedRelation | undefined,
+): SeedTemplate['objects'][number] {
+  if (!relation) return obj;
+  const fieldRules = obj.fieldRules.filter((rule) => rule.fieldApiName !== relation.lookupField);
+  return fieldRules.length === obj.fieldRules.length ? obj : { ...obj, fieldRules };
+}
+
+/**
+ * Whether an object's records start empty rather than from its rules. A
+ * relation's child may name no field besides the lookup the relation fills —
+ * a junction of two lookups need not — and still has records to write;
+ * `mapFields` answers none for a config without rules.
+ */
+function startsEmpty(
+  config: SeedTemplate['objects'][number],
+  relation: SeedRelation | undefined,
+): boolean {
+  return relation !== undefined && config.fieldRules.length === 0;
+}
+
+/** `count` records with no field set yet. */
+function emptyRecords(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (): Record<string, unknown> => ({}));
+}
+
+/** Give each child record the parent id placed for it. */
+function fillLookup(
+  records: Record<string, unknown>[],
+  relation: SeedRelation | undefined,
+  placed: PlacedChildren | undefined,
+): void {
+  if (!relation || !placed) return;
+  for (const [index, record] of records.entries()) {
+    record[relation.lookupField] = placed.parentIds[index];
+  }
+}
+
+/** The result of an object skipped before anything was written for it. */
+function skippedResult(objectApiName: string, message: string): SeedObjectResult {
+  return { objectApiName, recordsCreated: 0, recordsFailed: 0, createdIds: [], errors: [message] };
 }
 
 /** Split an array into chunks of a given size */
@@ -409,10 +596,16 @@ function buildSuccessResult(
 ): SeedExecutionResult {
   const totalCreated = objectResults.reduce((s, r) => s + r.recordsCreated, 0);
   const totalFailed = objectResults.reduce((s, r) => s + r.recordsFailed, 0);
+  // An object skipped before its insert neither wrote nor failed a record, so
+  // counting failures alone called a run a success whose relation found no
+  // parent in the org and wrote no child.
+  const skipped = objectResults.some(
+    (r) => r.recordsCreated === 0 && r.recordsFailed === 0 && r.errors.length > 0,
+  );
   return {
     templateId,
     operationId,
-    status: determineStatus(totalCreated, totalFailed),
+    status: determineStatus(totalCreated, totalFailed, skipped),
     objectResults,
     totalRecordsCreated: totalCreated,
     totalRecordsFailed: totalFailed,
@@ -421,12 +614,13 @@ function buildSuccessResult(
   };
 }
 
-/** Determine the overall status based on created/failed counts */
+/** Determine the overall status from created/failed counts and skipped objects */
 function determineStatus(
   totalCreated: number,
   totalFailed: number,
+  skipped: boolean,
 ): 'success' | 'partial' | 'failure' {
-  if (totalFailed === 0) {
+  if (totalFailed === 0 && !skipped) {
     return 'success';
   }
   if (totalCreated === 0) {
@@ -460,20 +654,4 @@ function buildFailureResult(
     duration: 0,
     timestamp,
   };
-}
-
-/**
- * The objects this one's reference rules point at.
- *
- * A `reference` rule names the object its value is drawn from; without those
- * ids there is nothing to fill the field with.
- */
-function referencedObjects(obj: SeedTemplate['objects'][number]): string[] {
-  const names = new Set<string>();
-  for (const rule of obj.fieldRules) {
-    if (rule.ruleType !== 'reference') continue;
-    const target = rule.config.referenceObject;
-    if (typeof target === 'string' && target) names.add(target);
-  }
-  return [...names];
 }

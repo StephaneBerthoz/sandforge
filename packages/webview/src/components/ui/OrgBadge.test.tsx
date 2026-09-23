@@ -34,6 +34,14 @@ describe('OrgBadge', () => {
     expect(screen.getByTestId('org-badge-type').textContent).toBe('SCR');
   });
 
+  it('names the status dot as an image, the role that lets its label be read', () => {
+    render(<OrgBadge {...defaultProps} status="connected" />);
+    // The catalogue is not loaded here: the label reads as its key.
+    expect(screen.getByRole('img', { name: 'a11y.orgStatus' })).toBe(
+      screen.getByTestId('org-badge-status-dot'),
+    );
+  });
+
   it('should apply connected status color on dot', () => {
     render(<OrgBadge {...defaultProps} status="connected" />);
     const dot = screen.getByTestId('org-badge-status-dot');

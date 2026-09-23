@@ -3,6 +3,7 @@ import {
   syncObjectConfigSchema,
   seedConfigSchema,
   seedObjectConfigSchema,
+  seedRelationSchema,
   complianceFrameworkTypeSchema,
   anonymizationMethodSchema,
   QuickSyncConfigSchema,
@@ -331,10 +332,36 @@ export const seedObjectPayloadSchema = seedObjectConfigSchema
   })
   .passthrough();
 
+/**
+ * A relation as sent by the webview. Its names become query text when the
+ * parents are read from the org, and so does its filter: both are held to the
+ * rules the sync read applies here, and again where the query is built.
+ */
+export const seedRelationPayloadSchema = seedRelationSchema
+  .extend({
+    childObject: sfApiNameSchema,
+    lookupField: sfApiNameSchema,
+    parentObject: sfApiNameSchema,
+  })
+  .superRefine((relation, ctx) => {
+    if (
+      relation.parents.kind === 'existing' &&
+      relation.parents.where !== undefined &&
+      !isSafeSoqlWhere(relation.parents.where)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['parents', 'where'],
+        message: SOQL_WHERE_RULE,
+      });
+    }
+  });
+
 /** Seed template accepted by `seed:execute`. */
 export const seedTemplatePayloadSchema = seedConfigSchema
   .extend({
     objects: z.array(seedObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    relations: z.array(seedRelationPayloadSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
   .passthrough();
 

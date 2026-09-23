@@ -1,6 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { PersonaMsg } from '@sandforge/shared';
 import { useSeedWizardStore } from './useSeedWizardStore';
+import type { SeedRelationDraft } from './useSeedWizardStore';
+
+/** A relation row filling a lookup of `childObject`, parents from this run. */
+function row(key: string, childObject: string, parentObject = 'Account'): SeedRelationDraft {
+  return {
+    key,
+    childObject,
+    lookupField: 'AccountId',
+    parentObject,
+    source: 'generated',
+    where: '',
+    limit: 10,
+    mode: 'perParent',
+    count: 3,
+    min: 1,
+    max: 3,
+    ratio: 0.5,
+  };
+}
 
 /** Create a mock PersonaMsg with sensible defaults. */
 function makeMockPersona(id: string): PersonaMsg {
@@ -44,41 +63,49 @@ describe('useSeedWizardStore', () => {
     expect(useSeedWizardStore.getState().selectedObjects).toEqual(['Contact']);
   });
 
-  it('should add an empty relation with default parentField Id', () => {
-    useSeedWizardStore.getState().handleAddRelation();
+  it('appends the relation row it is given', () => {
+    useSeedWizardStore.getState().handleAddRelation(row('r1', 'Contact'));
 
-    const state = useSeedWizardStore.getState();
-    expect(state.relations).toHaveLength(1);
-    expect(state.relations[0]).toEqual({
-      childObject: '',
-      childField: '',
-      parentObject: '',
-      parentField: 'Id',
-    });
+    expect(useSeedWizardStore.getState().relations).toEqual([row('r1', 'Contact')]);
   });
 
   it('should remove a relation by index', () => {
-    useSeedWizardStore.getState().handleAddRelation();
-    useSeedWizardStore.getState().handleAddRelation();
-    useSeedWizardStore.getState().handleChangeRelation(0, 'childObject', 'Contact');
-    useSeedWizardStore.getState().handleChangeRelation(1, 'childObject', 'Opportunity');
+    useSeedWizardStore.getState().handleAddRelation(row('r1', 'Contact'));
+    useSeedWizardStore.getState().handleAddRelation(row('r2', 'Opportunity'));
 
     useSeedWizardStore.getState().handleRemoveRelation(0);
 
     const state = useSeedWizardStore.getState();
-    expect(state.relations).toHaveLength(1);
-    expect(state.relations[0].childObject).toBe('Opportunity');
+    expect(state.relations.map((r) => r.key)).toEqual(['r2']);
   });
 
-  it('should update a single field of a relation by index', () => {
-    useSeedWizardStore.getState().handleAddRelation();
-    useSeedWizardStore.getState().handleAddRelation();
+  it('changes the settings of one row and keeps its key', () => {
+    useSeedWizardStore.getState().handleAddRelation(row('r1', 'Contact'));
+    useSeedWizardStore.getState().handleAddRelation(row('r2', 'Opportunity'));
 
-    useSeedWizardStore.getState().handleChangeRelation(1, 'parentField', 'AccountId');
+    useSeedWizardStore.getState().handleChangeRelation(1, { mode: 'range', min: 0, max: 4 });
 
-    const state = useSeedWizardStore.getState();
-    expect(state.relations[0].parentField).toBe('Id');
-    expect(state.relations[1].parentField).toBe('AccountId');
+    const [first, second] = useSeedWizardStore.getState().relations;
+    expect(first).toEqual(row('r1', 'Contact'));
+    expect(second).toEqual({ ...row('r2', 'Opportunity'), mode: 'range', min: 0, max: 4 });
+  });
+
+  it('drops the relations on an object taken out of the selection, and those drawing from its records', () => {
+    // Nothing is left for them to act on: the child is not seeded, or the
+    // parents they were given would never be written.
+    const store = useSeedWizardStore.getState();
+    for (const name of ['Account', 'Contact', 'Opportunity', 'Case'])
+      store.handleToggleObject(name);
+    store.handleAddRelation(row('contacts', 'Contact'));
+    store.handleAddRelation(row('cases', 'Case', 'Contact'));
+    store.handleAddRelation({ ...row('opportunities', 'Opportunity'), source: 'existing' });
+
+    useSeedWizardStore.getState().handleToggleObject('Account');
+    useSeedWizardStore.getState().handleToggleObject('Case');
+
+    // Opportunity reads its accounts from the org: taking Account out of the
+    // run leaves it whole.
+    expect(useSeedWizardStore.getState().relations.map((r) => r.key)).toEqual(['opportunities']);
   });
 
   it('should set and clear the page-level error', () => {
@@ -103,7 +130,7 @@ describe('useSeedWizardStore', () => {
   it('should reset all slices to initial values', () => {
     useSeedWizardStore.getState().handleOrgSelect('org-1');
     useSeedWizardStore.getState().handleToggleObject('Account');
-    useSeedWizardStore.getState().handleAddRelation();
+    useSeedWizardStore.getState().handleAddRelation(row('r1', 'Contact'));
     useSeedWizardStore.getState().setError('boom');
     useSeedWizardStore.getState().setSelectedPersona(makeMockPersona('p-1'));
 
