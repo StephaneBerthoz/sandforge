@@ -2370,6 +2370,7 @@
       "saveFailed": "Le modèle n'a pas été enregistré : {{message}}",
       "deleteFailed": "Le modèle n'a pas été supprimé : {{message}}",
       "loadFailed": "Les modèles enregistrés n'ont pas pu être chargés.",
+      "importNotMerged": "Les modèles importés dans ce workspace n'ont pas pu être écrits dans son fichier de modèles : {{message}}. Ils seront ajoutés au prochain chargement de cette liste.",
       "renameLabel": "Renommer {{name}}",
       "deleteLabel": "Supprimer {{name}}",
       "summaryTarget": "vers {{org}}",

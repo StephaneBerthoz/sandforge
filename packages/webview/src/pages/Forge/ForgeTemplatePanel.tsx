@@ -134,6 +134,15 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
           {t('forge.savedTemplate.loadFailed')}
         </p>
       )}
+      {manager.importNotMerged && (
+        <p
+          data-testid="forge-templates-import-not-merged"
+          role="status"
+          className="text-xs text-text-secondary"
+        >
+          {t('forge.savedTemplate.importNotMerged', { message: manager.importNotMerged })}
+        </p>
+      )}
       {manager.templates.length === 0 ? (
         <p className="text-sm text-text-secondary italic" data-testid="forge-templates-empty">
           {t('forge.noTemplates')}

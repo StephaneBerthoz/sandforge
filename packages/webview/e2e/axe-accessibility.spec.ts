@@ -526,6 +526,23 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Forge Template tab saying why imported templates are not listed yet', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:templates:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:templates:list', 'forge:templates:list:response', {
+        templates: [FORGE_SAVED_TEMPLATE],
+        importNotMerged:
+          "EROFS: read-only file system, open '/projects/qa/.sandforge/forge-templates.json'",
+      });
+      await page.getByTestId('forge-tab-template').click();
+      await page.waitForSelector('[data-testid="forge-templates-import-not-merged"]', {
+        timeout: 10_000,
+      });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Forge results saving the run as a template', async ({ page }) => {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       await page.getByTestId('forge-tab-soql').click();

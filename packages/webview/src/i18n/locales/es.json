@@ -2370,6 +2370,7 @@
       "saveFailed": "La plantilla no se guardó: {{message}}",
       "deleteFailed": "La plantilla no se eliminó: {{message}}",
       "loadFailed": "No se pudieron cargar las plantillas guardadas.",
+      "importNotMerged": "Las plantillas importadas en este espacio de trabajo no se pudieron escribir en su archivo de plantillas: {{message}}. Se añadirán la próxima vez que se cargue esta lista.",
       "renameLabel": "Cambiar el nombre de {{name}}",
       "deleteLabel": "Eliminar {{name}}",
       "summaryTarget": "hacia {{org}}",

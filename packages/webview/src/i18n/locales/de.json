@@ -2370,6 +2370,7 @@
       "saveFailed": "Die Vorlage wurde nicht gespeichert: {{message}}",
       "deleteFailed": "Die Vorlage wurde nicht gelöscht: {{message}}",
       "loadFailed": "Die gespeicherten Vorlagen konnten nicht geladen werden.",
+      "importNotMerged": "Die in diesen Workspace importierten Vorlagen konnten nicht in seine Vorlagendatei geschrieben werden: {{message}}. Sie werden beim nächsten Laden dieser Liste hinzugefügt.",
       "renameLabel": "{{name}} umbenennen",
       "deleteLabel": "{{name}} löschen",
       "summaryTarget": "nach {{org}}",

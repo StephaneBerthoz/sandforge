@@ -7,7 +7,14 @@
  */
 
 import { z } from 'zod';
+import type { ForgeTemplate } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore.js';
+import {
+  importedTemplatesFor,
+  isTemplateEntry,
+  mergeTemplates,
+  recordImportedTemplates,
+} from './importedForgeTemplates.js';
 
 /** Categories of configuration that can be exported/imported. */
 export type ConfigCategory = 'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates';
@@ -106,32 +113,54 @@ const STORE_CATEGORIES: Record<ConfigCategory, string> = {
   anonymizationTemplates: 'anonymizationTemplates',
 };
 
-/** The ConfigStore key of the Forge plans, which the forgePlans category exports. */
+/**
+ * The key the forgePlans category carries its templates under: the one entry
+ * of the category, holding every template, as the ConfigStore's copy does.
+ */
 const FORGE_TEMPLATES_KEY = 'forge:templates';
 
 /**
- * Where a set of Forge plans a profile brought waits for a workspace file.
+ * The workspace a window keeps its Forge templates in.
  *
- * With a folder open, Forge keeps its plans in the workspace's
- * `.sandforge/forge-templates.json`, and read the ConfigStore's
- * `forge:templates` only while that file was empty: an imported set was not
- * listed beside the file's plans. That key cannot simply be merged in either.
- * Every window writes its own list there, so it holds another project's plans
- * as often as imported ones, and a plan deleted from the file would come back
- * from it. The set is left here as well, and the next window that lists its
- * plans merges it into its file once (see `ForgeHandler`).
+ * Forge keeps them in `.sandforge/forge-templates.json` under the window's
+ * first folder, and the ConfigStore's `forge:templates` holds those of the
+ * windows with no folder open. Every window used to write its list there: a
+ * profile exported from it carried whichever window had saved last, another
+ * project's templates as often as this one's.
  */
-export const IMPORTED_FORGE_TEMPLATES_KEY = 'forge:imported-templates';
+export interface ForgeTemplateWorkspace {
+  /** The folder, as VS Code gives its path: an import leaves its templates for it. */
+  readonly folder: string;
+  /** The templates the folder's file holds. */
+  readTemplates(): Promise<readonly ForgeTemplate[]>;
+}
+
+/** How a warning names a template: by its name when it has one. */
+function templateLabel(template: ForgeTemplate): string {
+  return typeof template.name === 'string' && template.name.length > 0
+    ? template.name
+    : template.id;
+}
 
 /**
  * Service for exporting and importing SandForge configuration profiles.
  *
  * Reads from and writes to the ConfigStore, grouping entries by category
- * prefix. Validates imports using Zod before applying.
+ * prefix. Validates imports using Zod before applying. Forge templates are
+ * the exception: they are the window's workspace's (see
+ * {@link ForgeTemplateWorkspace}), the ConfigStore's only with no folder
+ * open, and each template is one entry.
  */
 export class ConfigProfileManager {
-  /** @param configStore - The configuration store to read/write. */
-  constructor(private readonly configStore: ConfigStore) {}
+  /**
+   * @param configStore - The configuration store to read/write.
+   * @param workspace - Where this window keeps its Forge templates; absent in
+   *   a window with no folder open, which keeps them in the ConfigStore.
+   */
+  constructor(
+    private readonly configStore: ConfigStore,
+    private readonly workspace?: ForgeTemplateWorkspace,
+  ) {}
 
   /**
    * Export selected configuration categories to a JSON profile.
@@ -139,12 +168,18 @@ export class ConfigProfileManager {
    * @param exportedBy - Optional identifier of the exporter.
    * @returns Export result with JSON string.
    */
-  exportProfile(categories: ConfigCategory[], exportedBy?: string): ExportResult {
+  async exportProfile(categories: ConfigCategory[], exportedBy?: string): Promise<ExportResult> {
     try {
       const data: Record<string, unknown> = {};
       let entriesExported = 0;
 
       for (const category of categories) {
+        if (category === 'forgePlans') {
+          const templates = await this.heldTemplates();
+          data[category] = templates.length > 0 ? { [FORGE_TEMPLATES_KEY]: templates } : {};
+          entriesExported += templates.length;
+          continue;
+        }
         const prefix = CATEGORY_PREFIXES[category];
         const keys = this.configStore.getKeysByPrefix(prefix);
         const categoryData: Record<string, unknown> = {};
@@ -191,7 +226,7 @@ export class ConfigProfileManager {
    * @param overwrite - Whether to overwrite existing entries (default: true).
    * @returns Import result with statistics and warnings.
    */
-  importProfile(json: string, overwrite: boolean = true): ImportResult {
+  async importProfile(json: string, overwrite: boolean = true): Promise<ImportResult> {
     const warnings: string[] = [];
 
     try {
@@ -219,6 +254,11 @@ export class ConfigProfileManager {
           continue;
         }
 
+        if (category === 'forgePlans') {
+          entriesImported += await this.importTemplates(categoryData, overwrite, warnings);
+          continue;
+        }
+
         const expectedPrefix = CATEGORY_PREFIXES[category];
         for (const [key, value] of Object.entries(categoryData)) {
           if (!key.startsWith(expectedPrefix)) {
@@ -232,9 +272,6 @@ export class ConfigProfileManager {
             continue;
           }
           this.configStore.set(key, value, STORE_CATEGORIES[category]);
-          if (key === FORGE_TEMPLATES_KEY) {
-            this.configStore.set(IMPORTED_FORGE_TEMPLATES_KEY, value, STORE_CATEGORIES[category]);
-          }
           entriesImported++;
         }
       }
@@ -286,17 +323,109 @@ export class ConfigProfileManager {
   }
 
   /**
-   * List all available configuration categories and their entry count.
+   * List all available configuration categories and their entry count: the
+   * entries an export of the category would carry.
    * @returns Map of category name to entry count.
    */
-  listCategories(): Array<{ category: ConfigCategory; entryCount: number }> {
+  async listCategories(): Promise<Array<{ category: ConfigCategory; entryCount: number }>> {
     const result: Array<{ category: ConfigCategory; entryCount: number }> = [];
 
     for (const [category, prefix] of Object.entries(CATEGORY_PREFIXES)) {
-      const keys = this.configStore.getKeysByPrefix(prefix);
-      result.push({ category: category as ConfigCategory, entryCount: keys.length });
+      const entryCount =
+        category === 'forgePlans'
+          ? (await this.heldTemplates()).length
+          : this.configStore.getKeysByPrefix(prefix).length;
+      result.push({ category: category as ConfigCategory, entryCount });
     }
 
     return result;
+  }
+
+  /**
+   * The Forge templates this window holds: its workspace file's, with those
+   * an import left for the workspace merged in as Forge will merge them; or,
+   * with no folder open, the ConfigStore's.
+   */
+  private async heldTemplates(): Promise<ForgeTemplate[]> {
+    if (!this.workspace) {
+      const stored = this.configStore.get<unknown>(FORGE_TEMPLATES_KEY);
+      return Array.isArray(stored) ? stored.filter(isTemplateEntry) : [];
+    }
+    const inFile = await this.workspace.readTemplates();
+    const waiting = importedTemplatesFor(this.configStore, this.workspace.folder);
+    return waiting
+      ? mergeTemplates(inFile, waiting.templates, new Set(waiting.replacing))
+      : [...inFile];
+  }
+
+  /**
+   * Bring a profile's Forge templates into this window's, as the other
+   * categories bring their entries in: a template whose id the window does
+   * not hold is added, and one whose id it holds replaces the window's with
+   * overwrite, and is skipped with a warning without.
+   *
+   * The category carries every template under one key, and was imported as
+   * that one entry. Without overwrite, the key the ConfigStore holds as soon
+   * as any window saved a template was skipped whole, and no template came
+   * in. With it, the list replaced the ConfigStore's, the templates a window
+   * with no folder open lists, and every one the profile did not carry was
+   * gone from it.
+   *
+   * With a folder open, the templates are left for the workspace's Forge to
+   * merge into its file (see `importedForgeTemplates`); with none, they join
+   * the ConfigStore's list.
+   *
+   * @returns How many templates were brought in.
+   */
+  private async importTemplates(
+    categoryData: Record<string, unknown>,
+    overwrite: boolean,
+    warnings: string[],
+  ): Promise<number> {
+    const held = await this.heldTemplates();
+    const heldIds = new Set(held.map((template) => template.id));
+    const seen = new Set<string>();
+    const brought: ForgeTemplate[] = [];
+    const replacing: string[] = [];
+
+    for (const [key, value] of Object.entries(categoryData)) {
+      if (key !== FORGE_TEMPLATES_KEY) {
+        warnings.push(
+          `Key "${key}" does not match expected prefix "${FORGE_TEMPLATES_KEY}" for category "forgePlans", skipped.`,
+        );
+        continue;
+      }
+      if (!Array.isArray(value)) {
+        warnings.push(`Key "${key}" holds no list of templates, skipped.`);
+        continue;
+      }
+      for (const entry of value) {
+        if (!isTemplateEntry(entry)) {
+          warnings.push(`An entry of "${key}" has no id, skipped.`);
+          continue;
+        }
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        if (heldIds.has(entry.id)) {
+          if (!overwrite) {
+            warnings.push(`Forge template "${templateLabel(entry)}" already exists, skipped.`);
+            continue;
+          }
+          replacing.push(entry.id);
+        }
+        brought.push(entry);
+      }
+    }
+
+    if (this.workspace) {
+      recordImportedTemplates(this.configStore, this.workspace.folder, brought, replacing);
+    } else if (brought.length > 0) {
+      this.configStore.set(
+        FORGE_TEMPLATES_KEY,
+        mergeTemplates(held, brought, new Set(replacing)),
+        STORE_CATEGORIES.forgePlans,
+      );
+    }
+    return brought.length;
   }
 }

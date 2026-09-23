@@ -21,6 +21,11 @@ export interface ForgeTemplatesManager {
   templates: ForgeTemplate[];
   /** Why the saved templates could not be listed, or null. */
   loadError: string | null;
+  /**
+   * Why the templates a profile import left for this workspace are not listed
+   * yet — the workspace refused the write — or null. The next list tries again.
+   */
+  importNotMerged: string | null;
 
   /* Inline rename */
   editingTemplateId: string | null;
@@ -66,7 +71,9 @@ export function useForgeTemplates({
   const removeTemplate = useForgeStore((s) => s.removeTemplate);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  const list = useBridgeQuery<{ templates: ForgeTemplate[] }>('forge:templates:list');
+  const list = useBridgeQuery<{ templates: ForgeTemplate[]; importNotMerged?: string }>(
+    'forge:templates:list',
+  );
   useEffect(() => {
     if (list.data) setTemplates(list.data.templates);
   }, [list.data, setTemplates]);
@@ -145,6 +152,7 @@ export function useForgeTemplates({
   return {
     templates,
     loadError: list.error,
+    importNotMerged: list.data?.importNotMerged ?? null,
     editingTemplateId,
     editName,
     setEditName,

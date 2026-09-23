@@ -204,7 +204,7 @@ describe('AutomationHandler triggers', () => {
     await vi.advanceTimersByTimeAsync(61_000);
     expect(history(deps)).toHaveLength(1);
 
-    const exported = new ConfigProfileManager(deps.configStore).exportProfile(['pipelines']);
+    const exported = await new ConfigProfileManager(deps.configStore).exportProfile(['pipelines']);
 
     const profile = JSON.parse(exported.json ?? '{}') as {
       data: { pipelines: Record<string, unknown> };

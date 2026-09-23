@@ -2370,6 +2370,7 @@
       "saveFailed": "O modelo não foi salvo: {{message}}",
       "deleteFailed": "O modelo não foi excluído: {{message}}",
       "loadFailed": "Não foi possível carregar os modelos salvos.",
+      "importNotMerged": "Não foi possível gravar no arquivo de modelos deste workspace os modelos importados para ele: {{message}}. Eles serão adicionados na próxima vez que esta lista for carregada.",
       "renameLabel": "Renomear {{name}}",
       "deleteLabel": "Excluir {{name}}",
       "summaryTarget": "para {{org}}",

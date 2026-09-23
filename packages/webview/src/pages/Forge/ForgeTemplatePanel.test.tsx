@@ -28,6 +28,7 @@ function manager(overrides: Partial<ForgeTemplatesManager> = {}): ForgeTemplates
   return {
     templates: [SAVED],
     loadError: null,
+    importNotMerged: null,
     editingTemplateId: null,
     editName: '',
     setEditName: vi.fn(),
@@ -136,5 +137,15 @@ describe('ForgeTemplatePanel', () => {
     expect(screen.getByTestId('forge-templates-load-error').textContent).toBe(
       i18n.t('forge.savedTemplate.loadFailed'),
     );
+  });
+
+  it('says why the templates imported for the workspace are not listed, beside the ones that are', () => {
+    renderPanel(manager({ importNotMerged: 'EROFS: read-only file system' }));
+
+    expect(screen.getByTestId('forge-templates-import-not-merged').textContent).toBe(
+      i18n.t('forge.savedTemplate.importNotMerged', { message: 'EROFS: read-only file system' }),
+    );
+    expect(screen.getByTestId('forge-template-tpl-1')).toBeTruthy();
+    expect(screen.queryByTestId('forge-templates-load-error')).toBeNull();
   });
 });

@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConfigHandler } from './ConfigHandler';
 import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage } from '@sandforge/shared';
 import type { ConfigStoreBackend, ConfigEntry } from '../../core/storage/ConfigStoreBackend';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import { importedTemplatesFor } from '../../core/config/importedForgeTemplates.js';
 import type { InboundRequest } from './HandlerTypes.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
@@ -203,6 +207,91 @@ describe('ConfigHandler', () => {
       const errMsg = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(errMsg.type).toBe('config:error');
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
+
+  describe('Forge templates, with a folder open', () => {
+    let folder: string;
+
+    beforeEach(async () => {
+      folder = await fs.mkdtemp(path.join(os.tmpdir(), 'sandforge-profile-'));
+      await fs.mkdir(path.join(folder, '.sandforge'));
+      await fs.writeFile(
+        path.join(folder, '.sandforge', 'forge-templates.json'),
+        JSON.stringify([
+          { id: 'tpl-1', name: 'Account 360' },
+          { id: 'tpl-2', name: 'Case Workflow' },
+        ]),
+      );
+      // What a window with no folder open keeps in the store every window shares.
+      store.set('forge:templates', [{ id: 'tpl-elsewhere', name: 'Elsewhere' }], 'forge');
+      deps = {
+        ...createMockDeps(store),
+        services: { getWorkspaceFolders: () => [folder] } as unknown as HandlerDeps['services'],
+      };
+      handler = new ConfigHandler(deps);
+    });
+
+    afterEach(async () => {
+      await fs.rm(folder, { recursive: true, force: true });
+    });
+
+    /** The payload of the one response the handler posted. */
+    function answer<T>(): T {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0].payload as T;
+    }
+
+    it('exports the templates the folder’s file holds', async () => {
+      await handler.handle(
+        inboundRequest({
+          id: '1',
+          type: 'config:export',
+          timestamp: Date.now(),
+          payload: { categories: ['forgePlans'] },
+        }),
+      );
+
+      const { json, entriesExported } = answer<{ json: string; entriesExported: number }>();
+      const profile = JSON.parse(json) as {
+        data: { forgePlans: { 'forge:templates': Array<{ id: string }> } };
+      };
+      expect(profile.data.forgePlans['forge:templates'].map((t) => t.id)).toEqual([
+        'tpl-1',
+        'tpl-2',
+      ]);
+      expect(entriesExported).toBe(2);
+    });
+
+    it('counts the templates the folder’s file holds', async () => {
+      await handler.handle(
+        inboundRequest({ id: '1', type: 'config:categories', timestamp: Date.now() }),
+      );
+
+      const { categories } = answer<{
+        categories: Array<{ category: string; entryCount: number }>;
+      }>();
+      expect(categories.find((c) => c.category === 'forgePlans')?.entryCount).toBe(2);
+    });
+
+    it('leaves an imported template for the folder the window has open', async () => {
+      const profile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['forgePlans'],
+        data: { forgePlans: { 'forge:templates': [{ id: 'tpl-3', name: 'Lead to Opportunity' }] } },
+      };
+
+      await handler.handle(
+        inboundRequest({
+          id: '1',
+          type: 'config:import',
+          timestamp: Date.now(),
+          payload: { json: JSON.stringify(profile), overwrite: false },
+        }),
+      );
+
+      expect(answer<{ entriesImported: number }>().entriesImported).toBe(1);
+      expect(importedTemplatesFor(store, folder)?.templates.map((t) => t.id)).toEqual(['tpl-3']);
     });
   });
 });

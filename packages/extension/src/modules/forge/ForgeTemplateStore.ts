@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import type { ForgeTemplate } from '@sandforge/shared';
+import { isTemplateEntry, mergeTemplates } from '../../core/config/importedForgeTemplates.js';
 
 /** Dependencies for ForgeTemplateStore, injected at construction time. */
 export interface ForgeTemplateStoreDeps {
@@ -11,20 +12,6 @@ export interface ForgeTemplateStoreDeps {
   writeFile: (path: string, content: string) => Promise<void>;
   /** Create directory recursively. */
   mkdir: (path: string) => Promise<void>;
-}
-
-/**
- * Whether an entry of the file is kept as a template: an object with an id,
- * which is what `save` and `delete` match on.
- *
- * The template schema is not applied here, on purpose: an entry another
- * version of SandForge wrote, or one edited by hand, stays in the file, and
- * the handler leaves it out of the list it sends the page.
- */
-function isStoredTemplate(entry: unknown): entry is ForgeTemplate {
-  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return false;
-  const { id } = entry as { id?: unknown };
-  return typeof id === 'string' && id.length > 0;
 }
 
 /**
@@ -61,7 +48,7 @@ export class ForgeTemplateStore {
     } catch {
       return [];
     }
-    return Array.isArray(parsed) ? parsed.filter(isStoredTemplate) : [];
+    return Array.isArray(parsed) ? parsed.filter(isTemplateEntry) : [];
   }
 
   /** Save a template. Updates existing by id, or appends new. */
@@ -76,28 +63,31 @@ export class ForgeTemplateStore {
     await this.write(templates);
   }
 
+  /** The workspace folder the file lives in. */
+  get workspacePath(): string {
+    return this.deps.workspacePath;
+  }
+
   /**
-   * Add to the file the templates of a set whose id it does not hold.
+   * Add to the file the templates of a set whose id it does not hold, and put
+   * those of the ids in `replacing` in place of the file's own.
    *
-   * By id, the file wins: a template it already holds is kept as it is, and
-   * the set's copy of it is dropped. So is anything in the set no template
-   * operation could address, as `list` leaves it out, and a second entry of
-   * one id. The file is written once, and only when something is added.
+   * By id, the file wins on any other: a template it already holds is kept as
+   * it is, and the set's copy of it is dropped. So is anything in the set no
+   * template operation could address, as `list` leaves it out, and a second
+   * entry of one id. The file is written once, and only when it changes.
    *
    * @param templates - The set to merge, as it was read: not trusted.
+   * @param replacing - The ids whose template in the set replaces the file's.
    * @returns The templates the file holds now.
    */
-  async merge(templates: readonly unknown[]): Promise<ForgeTemplate[]> {
+  async merge(
+    templates: readonly unknown[],
+    replacing: ReadonlySet<string> = new Set(),
+  ): Promise<ForgeTemplate[]> {
     const stored = await this.list();
-    const ids = new Set(stored.map((t) => t.id));
-    const added: ForgeTemplate[] = [];
-    for (const entry of templates) {
-      if (!isStoredTemplate(entry) || ids.has(entry.id)) continue;
-      ids.add(entry.id);
-      added.push(entry);
-    }
-    if (added.length === 0) return stored;
-    const merged = [...stored, ...added];
+    const merged = mergeTemplates(stored, templates.filter(isTemplateEntry), replacing);
+    if (JSON.stringify(merged) === JSON.stringify(stored)) return stored;
     await this.write(merged);
     return merged;
   }

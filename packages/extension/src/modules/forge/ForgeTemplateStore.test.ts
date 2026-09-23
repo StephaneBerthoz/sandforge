@@ -172,6 +172,40 @@ describe('ForgeTemplateStore', () => {
       ]);
       expect(mockWriteFile).not.toHaveBeenCalled();
     });
+
+    it('puts a template whose id is replacing in place of the file’s own', async () => {
+      // What an import with "overwrite" brought: the file kept its own copy.
+      const second = { ...sampleTemplate, id: 'tpl-2', name: 'Second' };
+      mockReadFile.mockResolvedValue(JSON.stringify([sampleTemplate, second]));
+      const store = createStore();
+
+      const merged = await store.merge(
+        [
+          { ...sampleTemplate, name: 'imported copy' },
+          { ...second, name: 'not replacing' },
+        ],
+        new Set(['tpl-1']),
+      );
+
+      expect(merged.map((t) => [t.id, t.name])).toEqual([
+        ['tpl-1', 'imported copy'],
+        ['tpl-2', 'Second'],
+      ]);
+      expect(JSON.parse(mockWriteFile.mock.calls[0][1])).toEqual(merged);
+    });
+
+    it('writes nothing when a replacing template is the one the file holds', async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify([sampleTemplate]));
+      const store = createStore();
+
+      await store.merge([{ ...sampleTemplate }], new Set(['tpl-1']));
+
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+  });
+
+  it('names the workspace folder its file lives in', () => {
+    expect(createStore().workspacePath).toBe('/workspace');
   });
 
   it('should use .sandforge/forge-templates.json path', async () => {

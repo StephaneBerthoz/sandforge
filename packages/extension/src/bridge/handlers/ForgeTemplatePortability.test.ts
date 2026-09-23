@@ -5,6 +5,7 @@ import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeTemplate } from '@sandforge/shared';
 import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
+import { importedTemplatesFor } from '../../core/config/importedForgeTemplates.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -23,20 +24,27 @@ const TEMPLATES_FILE = path.join('/ws', '.sandforge', 'forge-templates.json');
  * instead, so it lived on one machine and could not be reviewed or shared.
  */
 
-/** In-memory stand-in for the workspace file, keyed by path. */
-function createFakeFs(): {
+/**
+ * In-memory stand-in for the workspace file, keyed by path; while `writable`
+ * answers false, a write fails as it does on a read-only workspace.
+ */
+function createFakeFs(
+  folder = '/ws',
+  writable: () => boolean = () => true,
+): {
   files: Map<string, string>;
   store: ForgeTemplateStore;
 } {
   const files = new Map<string, string>();
   const store = new ForgeTemplateStore({
-    workspacePath: '/ws',
+    workspacePath: folder,
     readFile: async (p) => {
       const content = files.get(p);
       if (content === undefined) throw new Error('ENOENT');
       return content;
     },
     writeFile: async (p, content) => {
+      if (!writable()) throw new Error(`EROFS: read-only file system, open '${p}'`);
       files.set(p, content);
     },
     mkdir: async () => undefined,
@@ -120,18 +128,24 @@ describe('forge template portability', () => {
     expect(JSON.parse(files.get(written[0]) as string)).toHaveLength(1);
   });
 
-  it('migrates recipes saved before the file store existed', async () => {
-    // Nobody may lose a recipe to the storage change.
-    deps.configStore.set('forge:templates', [template('legacy')], 'forge');
+  it('leaves out of a workspace whose file is empty the templates the ConfigStore keeps', async () => {
+    // A workspace read empty took the ConfigStore's list, for templates kept
+    // there before the file existed. No release saved any there before then:
+    // what it took was another window's templates, which this project was
+    // never saved to.
+    deps.configStore.set('forge:templates', [template('elsewhere')], 'forge');
     const { files, store } = createFakeFs();
     const handler = new ForgeHandler(deps);
     withStore(handler, store);
 
     await handler.handle(msg('forge:templates:list', {}));
 
-    const written = Array.from(files.values());
-    expect(written).toHaveLength(1);
-    expect(JSON.parse(written[0])[0].id).toBe('legacy');
+    const [listed] = vi.mocked(deps.broker.postToWebview).mock.calls[0] as [
+      BaseMessage & { payload: { templates: ForgeTemplate[] } },
+    ];
+    expect(listed.payload.templates).toEqual([]);
+    expect(files.size).toBe(0);
+    expect(deps.configStore.get('forge:templates')).toEqual([template('elsewhere')]);
   });
 
   it('writes the target org and the anonymization a template carries', async () => {
@@ -267,31 +281,92 @@ describe('forge template portability', () => {
 
     expect(deps.configStore.get<unknown[]>('forge:templates')).toHaveLength(1);
   });
+
+  it('answers the template list of a window with no folder open whose ConfigStore holds no list', async () => {
+    // A profile import wrote whatever the profile carried under the key: a
+    // value that is no list threw on the list the page asked for, past the
+    // router, and the page got no answer.
+    deps.configStore.set('forge:templates', { id: 'not-a-list' }, 'forge');
+    const handler = new ForgeHandler(deps);
+    handler.setForgeOrchestrator({ on: vi.fn() } as never, {});
+
+    await handler.handle(msg('forge:templates:list', {}));
+
+    const [listed] = vi.mocked(deps.broker.postToWebview).mock.calls[0] as [
+      BaseMessage & { payload: { templates: ForgeTemplate[] } },
+    ];
+    expect(listed.type).toBe('forge:templates:list:response');
+    expect(listed.payload.templates).toEqual([]);
+  });
 });
 
 describe('forge templates a profile imported', () => {
-  /** A handler over the ConfigStore every window shares, and a workspace file holding `inFile`. */
-  function workspaceWith(inFile: ForgeTemplate[]): {
+  /** One window: its Forge handler, and what its Settings page exports and imports. */
+  /** What the window's Forge answers the page's template list with. */
+  interface ListAnswer {
+    templates: ForgeTemplate[];
+    importNotMerged?: string;
+  }
+
+  interface Window {
     handler: ForgeHandler;
     configStore: ConfigStore;
-    files: Map<string, string>;
+    /** The profiles of this window, as its Settings page builds them. */
+    profiles: ConfigProfileManager;
+    /** The answer to the page's template list; the list must be answered. */
+    answer: () => Promise<ListAnswer>;
+    /** The templates the window's Forge lists, as `id:name`. */
     listed: () => Promise<string[]>;
-  } {
-    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    /** The ids its workspace file holds. */
+    inFile: () => string[];
+  }
+
+  /**
+   * A window whose workspace file, at `folder`, holds `inFile`, over the
+   * ConfigStore every window shares; with no folder, a window whose Forge
+   * keeps its templates in the ConfigStore. While `writable` answers false,
+   * the workspace refuses every write.
+   */
+  function workspaceWith(
+    inFile: ForgeTemplate[],
+    options: {
+      folder?: string | null;
+      configStore?: ConfigStore;
+      writable?: () => boolean;
+    } = {},
+  ): Window {
+    const folder = options.folder === undefined ? '/ws' : options.folder;
+    const configStore = options.configStore ?? new ConfigStore(new InMemoryConfigStoreBackend());
     const handlerDeps = { ...createDeps(), configStore } as HandlerDeps;
-    const { files, store } = createFakeFs();
-    files.set(TEMPLATES_FILE, JSON.stringify(inFile));
     const handler = new ForgeHandler(handlerDeps);
-    withStore(handler, store);
-    const listed = async (): Promise<string[]> => {
+    const { files, store } = createFakeFs(folder ?? '/ws', options.writable);
+    const file = path.join(folder ?? '/ws', '.sandforge', 'forge-templates.json');
+    let profiles: ConfigProfileManager;
+    if (folder === null) {
+      handler.setForgeOrchestrator({ on: vi.fn() } as never, {});
+      profiles = new ConfigProfileManager(configStore);
+    } else {
+      files.set(file, JSON.stringify(inFile));
+      withStore(handler, store);
+      profiles = new ConfigProfileManager(configStore, {
+        folder,
+        readTemplates: () => store.list(),
+      });
+    }
+    const answer = async (): Promise<ListAnswer> => {
       vi.mocked(handlerDeps.broker.postToWebview).mockClear();
       await handler.handle(msg('forge:templates:list', {}));
       const [response] = vi.mocked(handlerDeps.broker.postToWebview).mock.calls[0] as [
-        BaseMessage & { payload: { templates: ForgeTemplate[] } },
+        BaseMessage & { payload: ListAnswer },
       ];
-      return response.payload.templates.map((t) => `${t.id}:${t.name}`);
+      expect(response.type).toBe('forge:templates:list:response');
+      return response.payload;
     };
-    return { handler, configStore, files, listed };
+    const listed = async (): Promise<string[]> =>
+      (await answer()).templates.map((t) => `${t.id}:${t.name}`);
+    const inFileIds = (): string[] =>
+      (JSON.parse(files.get(file) ?? '[]') as ForgeTemplate[]).map((t) => t.id);
+    return { handler, configStore, profiles, answer, listed, inFile: inFileIds };
   }
 
   /** A profile carrying `templates` as its Forge plans, as an export writes it. */
@@ -304,25 +379,44 @@ describe('forge templates a profile imported', () => {
     });
   }
 
-  it('lists them beside the workspace file’s own, the file’s copy winning on an id both hold', async () => {
+  it('without overwrite, lists them beside the workspace file’s own, the file’s copy winning on an id both hold', async () => {
     // The file's templates used to hide an imported set: it was read only in
-    // a workspace whose file was empty.
+    // a workspace whose file was empty. And an import without overwrite
+    // skipped the whole category once the ConfigStore held `forge:templates`,
+    // which it does as soon as a window with no folder open saved a template.
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    const ws = workspaceWith(
+      [{ ...template('shared'), name: 'kept from the file' }, template('a')],
+      { configStore },
+    );
+    const noFolder = workspaceWith([], { folder: null, configStore });
+    await noFolder.handler.handle(msg('forge:templates:save', { template: template('t') }));
+    await ws.profiles.importProfile(
+      profileOf([{ ...template('shared'), name: 'from the profile' }, template('b')]),
+      false,
+    );
+
+    expect(await ws.listed()).toEqual(['shared:kept from the file', 'a:recipe-a', 'b:recipe-b']);
+    expect(ws.inFile()).toEqual(['shared', 'a', 'b']);
+  });
+
+  it('with overwrite, lists an imported template in place of the file’s own of its id', async () => {
     const ws = workspaceWith([
       { ...template('shared'), name: 'kept from the file' },
       template('a'),
     ]);
-    new ConfigProfileManager(ws.configStore).importProfile(
+    await ws.profiles.importProfile(
       profileOf([{ ...template('shared'), name: 'from the profile' }, template('b')]),
+      true,
     );
 
-    expect(await ws.listed()).toEqual(['shared:kept from the file', 'a:recipe-a', 'b:recipe-b']);
-    const inFile = JSON.parse(ws.files.get(TEMPLATES_FILE) as string) as ForgeTemplate[];
-    expect(inFile.map((t) => t.id)).toEqual(['shared', 'a', 'b']);
+    expect(await ws.listed()).toEqual(['shared:from the profile', 'a:recipe-a', 'b:recipe-b']);
+    expect(ws.inFile()).toEqual(['shared', 'a', 'b']);
   });
 
   it('merges an imported set once: a template deleted afterwards stays deleted', async () => {
     const ws = workspaceWith([template('a')]);
-    new ConfigProfileManager(ws.configStore).importProfile(profileOf([template('b')]));
+    await ws.profiles.importProfile(profileOf([template('b')]));
     expect(await ws.listed()).toEqual(['a:recipe-a', 'b:recipe-b']);
 
     await ws.handler.handle(msg('forge:templates:delete', { templateId: 'b' }));
@@ -330,14 +424,89 @@ describe('forge templates a profile imported', () => {
     expect(await ws.listed()).toEqual(['a:recipe-a']);
   });
 
-  it('leaves out the templates another workspace’s saves left in the ConfigStore copy', async () => {
-    // Every window writes its list to `forge:templates`: merging that in would
-    // write another project's templates into this project's file.
+  it('leaves out of the workspace the templates the ConfigStore keeps', async () => {
+    // The ConfigStore's `forge:templates` holds the templates of the windows
+    // with no folder open, and up to 1.36 any window's list: merging it in
+    // would write into this project's file templates it was never saved to.
     const ws = workspaceWith([template('a')]);
     ws.configStore.set('forge:templates', [template('elsewhere')], 'forge');
 
     expect(await ws.listed()).toEqual(['a:recipe-a']);
-    const inFile = JSON.parse(ws.files.get(TEMPLATES_FILE) as string) as ForgeTemplate[];
-    expect(inFile.map((t) => t.id)).toEqual(['a']);
+    expect(ws.inFile()).toEqual(['a']);
+  });
+
+  it('leaves a set imported in one workspace to that workspace’s window, whichever lists first', async () => {
+    // The first window to list its templates merged the set, whatever project
+    // it was on: this project's templates were written into another's file.
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    const here = workspaceWith([template('a')], { folder: '/ws', configStore });
+    const elsewhere = workspaceWith([template('x')], { folder: '/other', configStore });
+    await here.profiles.importProfile(profileOf([template('b')]));
+
+    expect(await elsewhere.listed()).toEqual(['x:recipe-x']);
+    expect(elsewhere.inFile()).toEqual(['x']);
+
+    expect(await here.listed()).toEqual(['a:recipe-a', 'b:recipe-b']);
+    expect(here.inFile()).toEqual(['a', 'b']);
+  });
+
+  it('exports from a workspace the templates its file holds, not those the ConfigStore keeps', async () => {
+    // The export read the ConfigStore's `forge:templates`, which every window
+    // wrote its list to, and which holds the templates of the windows with no
+    // folder open.
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    const here = workspaceWith([template('a')], { folder: '/ws', configStore });
+    const noFolder = workspaceWith([], { folder: null, configStore });
+    await noFolder.handler.handle(msg('forge:templates:save', { template: template('x') }));
+
+    const exported = JSON.parse(
+      (await here.profiles.exportProfile(['forgePlans'])).json as string,
+    ) as { data: { forgePlans: { 'forge:templates': ForgeTemplate[] } } };
+
+    expect(exported.data.forgePlans['forge:templates'].map((t) => t.id)).toEqual(['a']);
+  });
+
+  it('in a window with no folder open, adds them to the templates its Forge lists', async () => {
+    // The import wrote the profile's list over the ConfigStore's, which such
+    // a window lists from: every template the profile did not carry was gone.
+    const ws = workspaceWith([], { folder: null });
+    await ws.handler.handle(msg('forge:templates:save', { template: template('a') }));
+    await ws.profiles.importProfile(profileOf([template('b')]));
+
+    expect(await ws.listed()).toEqual(['a:recipe-a', 'b:recipe-b']);
+  });
+
+  it('answers the list with what the file holds, and why, while the file refuses the imported templates', async () => {
+    // A merge the workspace refused threw past the router: the page waited out
+    // its timeout on every list, for as long as the set waited.
+    let writable = false;
+    const ws = workspaceWith([template('a')], { writable: () => writable });
+    await ws.profiles.importProfile(profileOf([template('b')]));
+
+    const refused = await ws.answer();
+    expect(refused.templates.map((t) => t.id)).toEqual(['a']);
+    expect(refused.importNotMerged).toContain('EROFS');
+    expect(importedTemplatesFor(ws.configStore, '/ws')?.templates.map((t) => t.id)).toEqual(['b']);
+
+    writable = true;
+    const merged = await ws.answer();
+    expect(merged.templates.map((t) => t.id)).toEqual(['a', 'b']);
+    expect(merged.importNotMerged).toBeUndefined();
+    expect(importedTemplatesFor(ws.configStore, '/ws')).toBeUndefined();
+  });
+
+  it('keeps the templates of a window with no folder open when a workspace saves its own', async () => {
+    // A window with a folder open wrote its list over the ConfigStore's, where
+    // a window with no folder open keeps its templates: they were gone at the
+    // next save in any project.
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    const noFolder = workspaceWith([], { folder: null, configStore });
+    const project = workspaceWith([template('p')], { configStore });
+    await noFolder.handler.handle(msg('forge:templates:save', { template: template('t') }));
+
+    await project.handler.handle(msg('forge:templates:save', { template: template('q') }));
+
+    expect(await noFolder.listed()).toEqual(['t:recipe-t']);
+    expect(project.inFile()).toEqual(['p', 'q']);
   });
 });

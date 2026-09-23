@@ -90,6 +90,19 @@ describe('useForgeTemplates', () => {
     expect(result.current.templates.map((t) => t.id)).toEqual(['a', 'b']);
   });
 
+  it('says why the templates imported for the workspace are not listed yet, with the ones that are', () => {
+    const { result } = mount();
+
+    replyTo('forge:templates:list', 'forge:templates:list:response', {
+      templates: [template('a', 'Weekly accounts')],
+      importNotMerged: 'EROFS: read-only file system',
+    });
+
+    expect(result.current.templates.map((t) => t.id)).toEqual(['a']);
+    expect(result.current.importNotMerged).toBe('EROFS: read-only file system');
+    expect(result.current.loadError).toBeNull();
+  });
+
   it('renames through the extension, and on the list only once it answered', () => {
     useForgeStore.getState().setTemplates([template('a', 'Weekly accounts')]);
     const { result } = mount();

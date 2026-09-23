@@ -2370,6 +2370,7 @@
       "saveFailed": "The template was not saved: {{message}}",
       "deleteFailed": "The template was not deleted: {{message}}",
       "loadFailed": "The saved templates could not be loaded.",
+      "importNotMerged": "Templates imported into this workspace could not be written to its template file: {{message}}. They are added the next time this list loads.",
       "renameLabel": "Rename {{name}}",
       "deleteLabel": "Delete {{name}}",
       "summaryTarget": "to {{org}}",

@@ -176,7 +176,15 @@ export interface ForgeExecuteErrorMessage extends BaseMessage {
 /** `forge:templates:list:response`. Extension -> WebView. */
 export interface ForgeTemplatesListResponse extends BaseMessage {
   type: 'forge:templates:list:response';
-  payload: { templates: ForgeTemplate[] };
+  payload: {
+    templates: ForgeTemplate[];
+    /**
+     * Why the templates a profile import left for this workspace were not
+     * written into its file this time: the write failed. They are not in
+     * `templates`, stay waiting, and the next list tries again.
+     */
+    importNotMerged?: string;
+  };
 }
 
 /** `forge:templates:save:response`. Extension -> WebView. */

@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -6,7 +7,11 @@ import {
   configImportPayloadSchema,
   configValidatePayloadSchema,
 } from '../validatePayload.js';
-import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
+import {
+  ConfigProfileManager,
+  type ForgeTemplateWorkspace,
+} from '../../core/config/ConfigProfileManager.js';
+import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 
 /** Message types handled by ConfigHandler. */
 const CONFIG_TYPES = new Set([
@@ -15,6 +20,24 @@ const CONFIG_TYPES = new Set([
   'config:categories',
   'config:validate',
 ]);
+
+/**
+ * The workspace this window keeps its Forge templates in: its first folder,
+ * the one Forge's own template store is built on (see `forgeComposition`).
+ * VS Code restarts the extension host when the first folder changes, so it
+ * holds for the life of the handler. Undefined with no folder open.
+ */
+function forgeTemplateWorkspace(deps: HandlerDeps): ForgeTemplateWorkspace | undefined {
+  const folder = deps.services?.getWorkspaceFolders?.()[0];
+  if (!folder) return undefined;
+  const store = new ForgeTemplateStore({
+    workspacePath: folder,
+    readFile: (file) => fs.readFile(file, 'utf-8'),
+    writeFile: (file, content) => fs.writeFile(file, content, 'utf-8'),
+    mkdir: (dir) => fs.mkdir(dir, { recursive: true }).then(() => undefined),
+  });
+  return { folder, readTemplates: () => store.list() };
+}
 
 /**
  * Domain handler for configuration profile export/import messages.
@@ -27,7 +50,7 @@ export class ConfigHandler implements DomainHandler {
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
-    this.profileManager = new ConfigProfileManager(deps.configStore);
+    this.profileManager = new ConfigProfileManager(deps.configStore, forgeTemplateWorkspace(deps));
   }
 
   /**
@@ -40,13 +63,13 @@ export class ConfigHandler implements DomainHandler {
 
     switch (msg.type) {
       case 'config:export':
-        this.handleExport(msg);
+        await this.handleExport(msg);
         return true;
       case 'config:import':
-        this.handleImport(msg);
+        await this.handleImport(msg);
         return true;
       case 'config:categories':
-        this.handleCategories(msg);
+        await this.handleCategories(msg);
         return true;
       case 'config:validate':
         this.handleValidate(msg);
@@ -56,14 +79,14 @@ export class ConfigHandler implements DomainHandler {
     }
   }
 
-  private handleExport(msg: InboundRequest): void {
+  private async handleExport(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(configExportPayloadSchema, msg, 'config:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
 
     try {
-      const result = this.profileManager.exportProfile(payload.categories);
+      const result = await this.profileManager.exportProfile(payload.categories);
 
       const response = buildResponse(this.deps, msg, 'config:export:response', {
         success: result.success,
@@ -79,14 +102,14 @@ export class ConfigHandler implements DomainHandler {
     }
   }
 
-  private handleImport(msg: InboundRequest): void {
+  private async handleImport(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(configImportPayloadSchema, msg, 'config:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
 
     try {
-      const result = this.profileManager.importProfile(payload.json, payload.overwrite);
+      const result = await this.profileManager.importProfile(payload.json, payload.overwrite);
 
       const response = buildResponse(this.deps, msg, 'config:import:response', {
         success: result.success,
@@ -102,11 +125,11 @@ export class ConfigHandler implements DomainHandler {
     }
   }
 
-  private handleCategories(msg: InboundRequest): void {
+  private async handleCategories(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
 
     try {
-      const categories = this.profileManager.listCategories();
+      const categories = await this.profileManager.listCategories();
 
       const response = buildResponse(this.deps, msg, 'config:categories:response', {
         categories,

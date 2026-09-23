@@ -33,7 +33,11 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
-import { IMPORTED_FORGE_TEMPLATES_KEY } from '../../core/config/ConfigProfileManager.js';
+import {
+  dropImportedTemplates,
+  importedTemplatesFor,
+  isTemplateEntry,
+} from '../../core/config/importedForgeTemplates.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -197,8 +201,15 @@ const METADATA_DIFF_TIMEOUT_MS = 60_000;
 /** Timeout for reading both orgs' record types before a run, in milliseconds. */
 const RECORD_TYPES_TIMEOUT_MS = 30_000;
 
-/** ConfigStore key for persisted forge templates. */
+/** ConfigStore key of the templates of the windows with no folder open. */
 const TEMPLATES_KEY = 'forge:templates';
+
+/** The templates a window holds, as it lists them. */
+interface HeldTemplates {
+  templates: ForgeTemplate[];
+  /** Why the templates an import left for the workspace are not among them: the file refused them. */
+  importNotMerged?: string;
+}
 
 /** ConfigStore key for persisted forge execution history. */
 const HISTORY_KEY = 'forge:history';
@@ -267,7 +278,8 @@ function forgeCarried(
  *
  * Routes forge:* message types to the ForgeOrchestrator and manages
  * templates, execution history, and abort/pause/resume lifecycle.
- * Templates and history are persisted to ConfigStore (survive extension reload).
+ * Templates are kept in the workspace file, or in ConfigStore with no folder
+ * open; history in ConfigStore. Both survive an extension reload.
  */
 export class ForgeHandler implements DomainHandler {
   private discoverAbortController: AbortController | null = null;
@@ -286,8 +298,8 @@ export class ForgeHandler implements DomainHandler {
    * Workspace-file template store, present only when a folder is open.
    *
    * Templates live in `.sandforge/forge-templates.json` so a recipe can be
-   * committed and shared. ConfigStore (VSCode globalState) stays the fallback
-   * for a folderless window, and holds any templates saved before this.
+   * committed and shared. ConfigStore (VSCode globalState) keeps the templates
+   * of a window with no folder open.
    */
   private templateStore?: ForgeTemplateStore;
 
@@ -482,58 +494,82 @@ export class ForgeHandler implements DomainHandler {
     }
   }
 
-  /** Load templates from ConfigStore. */
-  private async loadTemplates(): Promise<ForgeTemplate[]> {
-    const legacy = this.deps.configStore.get<ForgeTemplate[]>(TEMPLATES_KEY) ?? [];
-    if (!this.templateStore) return legacy;
-
-    const fromFile = await this.withImportedTemplates(this.templateStore);
-    if (fromFile.length > 0) return fromFile;
-
-    // One-shot migration: templates saved before recipes became portable live
-    // in globalState. Move them into the workspace file the first time it is
-    // read empty, so nobody loses a recipe to the change.
-    if (legacy.length > 0) {
-      await this.saveTemplates(legacy);
-      logger.info(`Migrated ${legacy.length} forge template(s) into .sandforge/`);
-      return legacy;
+  /**
+   * The templates this window holds: its workspace file's, with the set a
+   * profile import left for the workspace merged in; or, with no folder open,
+   * the ConfigStore's.
+   *
+   * A workspace whose file was empty used to take the ConfigStore's list, as
+   * the one-time move of the templates kept there before the file existed. No
+   * release saved any there before the file existed: nothing sent a template
+   * save before 1.35, and a window with a folder has written to its file since
+   * 1.15. The move took what the ConfigStore held instead: the templates of a
+   * window with no folder open, those a profile brought in, or another
+   * project's, since every window wrote its list there. They landed in the
+   * next project opened with an empty file, which they were never saved to.
+   *
+   * The ConfigStore's list is read as the workspace file is: a value that is
+   * no list reads as no template, where it threw on the list the page asked
+   * for, and the page got no answer.
+   */
+  private async loadTemplates(): Promise<HeldTemplates> {
+    if (!this.templateStore) {
+      const stored = this.deps.configStore.get<unknown>(TEMPLATES_KEY);
+      return { templates: Array.isArray(stored) ? stored.filter(isTemplateEntry) : [] };
     }
-    return [];
+    return this.withImportedTemplates(this.templateStore);
   }
 
   /**
-   * The workspace file's templates, with the set a profile import left
-   * waiting merged in: by id, the file's own entry winning.
+   * The workspace file's templates, with the set a profile import left for
+   * this workspace merged in: by id, the file's own entry winning, except on
+   * the ids an import with "overwrite" brought.
    *
    * An imported set used to be read only in a workspace whose file was empty;
    * anywhere else the file's templates hid it. The set is merged once and then
-   * dropped, so a template deleted afterwards does not come back, and the
-   * ConfigStore copy is brought in line with the file, as a save does. A file
-   * still empty after it is left to the migration below.
+   * dropped, so a template deleted afterwards does not come back. A set
+   * imported in another workspace is left for that workspace's window: merged
+   * here, it wrote one project's templates into another's file.
+   *
+   * A merge the file refuses — a read-only workspace, a full disk — threw past
+   * the router, which answers nothing: the page waited out its timeout, on
+   * every list, for as long as the set waited. The set now stays for the next
+   * list to try again, and this one answers with what the file holds and why
+   * the imported templates are not among them.
    *
    * @param store - This workspace's template file.
    */
-  private async withImportedTemplates(store: ForgeTemplateStore): Promise<ForgeTemplate[]> {
-    const imported = this.deps.configStore.get<unknown>(IMPORTED_FORGE_TEMPLATES_KEY);
-    if (imported === undefined) return store.list();
-    const merged = await store.merge(Array.isArray(imported) ? imported : []);
-    if (merged.length > 0) this.deps.configStore.set(TEMPLATES_KEY, merged, FORGE_CATEGORY);
-    this.deps.configStore.delete(IMPORTED_FORGE_TEMPLATES_KEY);
+  private async withImportedTemplates(store: ForgeTemplateStore): Promise<HeldTemplates> {
+    const imported = importedTemplatesFor(this.deps.configStore, store.workspacePath);
+    if (!imported) return { templates: await store.list() };
+    let merged: ForgeTemplate[];
+    try {
+      merged = await store.merge(imported.templates, new Set(imported.replacing));
+    } catch (err: unknown) {
+      const reason = extractErrorMessage(err);
+      logger.warn(`Imported forge templates not written into .sandforge/: ${reason}`);
+      return { templates: await store.list(), importNotMerged: reason };
+    }
+    dropImportedTemplates(this.deps.configStore, store.workspacePath);
     logger.info('Merged an imported set of forge templates into .sandforge/');
-    return merged;
+    return { templates: merged };
   }
 
   /**
-   * Persist templates.
+   * Persist templates: in the workspace file when a folder is open, so the
+   * recipe can be committed and shared; in the ConfigStore when none is.
    *
-   * Writes to the workspace file when a folder is open so the recipe can be
-   * committed and shared; ConfigStore is the fallback for a folderless window.
-   * The ConfigStore copy is kept in sync either way — it is what a window
-   * without a workspace will read.
+   * A window with a folder open wrote its list to the ConfigStore as well,
+   * over the list kept there: the templates a window with no folder open had
+   * saved, or a profile had brought in, were gone at the next save in any
+   * project. The ConfigStore now holds only the templates of the windows with
+   * no folder open.
    */
   private async saveTemplates(templates: ForgeTemplate[]): Promise<void> {
-    this.deps.configStore.set(TEMPLATES_KEY, templates, FORGE_CATEGORY);
-    if (!this.templateStore) return;
+    if (!this.templateStore) {
+      this.deps.configStore.set(TEMPLATES_KEY, templates, FORGE_CATEGORY);
+      return;
+    }
     const existing = await this.templateStore.list();
     for (const stale of existing.filter((t) => !templates.some((n) => n.id === t.id))) {
       await this.templateStore.delete(stale.id);
@@ -1141,10 +1177,11 @@ export class ForgeHandler implements DomainHandler {
    * in the file — the next save writes it back untouched.
    */
   private async handleTemplatesList(msg: InboundRequest): Promise<void> {
-    const templates = (await this.loadTemplates()).filter(
-      (t) => forgeTemplateSchema.safeParse(t).success,
-    );
-    const response = buildResponse(this.deps, msg, 'forge:templates:list:response', { templates });
+    const { templates, importNotMerged } = await this.loadTemplates();
+    const response = buildResponse(this.deps, msg, 'forge:templates:list:response', {
+      templates: templates.filter((t) => forgeTemplateSchema.safeParse(t).success),
+      ...(importNotMerged === undefined ? {} : { importNotMerged }),
+    });
     this.deps.broker.postToWebview(response);
   }
 
@@ -1163,7 +1200,7 @@ export class ForgeHandler implements DomainHandler {
     try {
       const templates = [
         template,
-        ...(await this.loadTemplates()).filter((t) => t.id !== template.id),
+        ...(await this.loadTemplates()).templates.filter((t) => t.id !== template.id),
       ];
       await this.saveTemplates(templates);
     } catch (err: unknown) {
@@ -1186,7 +1223,7 @@ export class ForgeHandler implements DomainHandler {
     if (!parsed) return;
     const { templateId } = parsed;
     try {
-      const templates = (await this.loadTemplates()).filter((t) => t.id !== templateId);
+      const templates = (await this.loadTemplates()).templates.filter((t) => t.id !== templateId);
       await this.saveTemplates(templates);
     } catch (err: unknown) {
       sendHandlerError(

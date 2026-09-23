@@ -2263,6 +2263,7 @@
       "saveFailed": "テンプレートは保存されませんでした: {{message}}",
       "deleteFailed": "テンプレートは削除されませんでした: {{message}}",
       "loadFailed": "保存済みテンプレートを読み込めませんでした。",
+      "importNotMerged": "このワークスペースにインポートしたテンプレートを、ワークスペースのテンプレートファイルに書き込めませんでした: {{message}}。このリストを次に読み込むときに追加されます。",
       "renameLabel": "{{name}} の名前を変更",
       "deleteLabel": "{{name}} を削除",
       "summaryTarget": "{{org}} へ",
