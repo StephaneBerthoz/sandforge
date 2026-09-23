@@ -1920,6 +1920,12 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeRemoveRun": "Desfazer o que uma execução do Forge criou",
+      "forgeRemoveRunDesc": "Cada execução do histórico do Forge pode remover do destino os registros que criou, e somente eles: os registros aos quais apenas se vinculou, e aqueles dos quais algo adicionado depois ainda depende, são mantidos.",
+      "cancelStops": "Cancelar interrompe o que é cancelado",
+      "cancelStopsDesc": "Cada execução que grava aparece agora em Operações ao vivo, e Cancelar a interrompe ali: um Sync, um Seed, uma clonagem de registros, uma importação CSV, uma carga do Frozen ou uma execução do Forge termina como cancelada com o que gravou, e um upload grande é abortado antes que o Salesforce grave linhas que ninguém contaria.",
+      "fixRound137": "O Forge clona cada filho, e uma série de correções",
+      "fixRound137Desc": "Uma clonagem a partir de um registro traz todos os filhos do que clona, onde um campo de pesquisa de volta ao pai, ou um filho de outro usuário, deixava alguns para trás sem aviso; uma janela não desfaz mais o que outra salva; um perfil de configuração leva os modelos do Forge ao projeto em que foi importado; japonês, francês e espanhol nomeiam uma coisa com uma só palavra.",
       "forgeAnonymizes": "O Forge anonimiza o que clona",
       "forgeAnonymizesDesc": "A opção de anonimizar não fazia nada: um clone levava os dados pessoais da origem. Os campos e métodos escolhidos na Revisão agora são aplicados, e os e-mails continuam sendo endereços válidos.",
       "fixRound136": "Sync, Compare e agendamentos corrigidos",

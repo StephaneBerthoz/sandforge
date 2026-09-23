@@ -1920,6 +1920,12 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "forgeRemoveRun": "Take back what a Forge run created",
+      "forgeRemoveRunDesc": "Each run in the Forge history can remove from its target the records it created, and only those: records it linked to, and records something added since still depends on, are kept.",
+      "cancelStops": "Cancel stops what it cancels",
+      "cancelStopsDesc": "Every write run now shows in Live Operations, and Cancel there stops it: a Sync, Seed, record clone, CSV import, Frozen load or Forge run ends as cancelled with what it wrote, and a large upload is aborted before Salesforce writes rows nobody would count.",
+      "fixRound137": "Forge clones every child, and a round of fixes",
+      "fixRound137Desc": "A clone from a record brings every child of what it clones, where a lookup back to the parent, or a child owned by another user, left some behind without a word; one window no longer undoes another's saves; a configuration profile brings Forge templates to the project it was imported in; Japanese, French and Spanish name one thing with one word.",
       "forgeAnonymizes": "Forge anonymizes what it clones",
       "forgeAnonymizesDesc": "The anonymize toggle did nothing: a clone carried the source's personal data. The fields and methods you pick in Review are now applied, and emails stay valid addresses.",
       "fixRound136": "Sync, Compare and schedules, corrected",
