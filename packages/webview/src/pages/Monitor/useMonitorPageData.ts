@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -380,8 +381,11 @@ export function useMonitorPageData(): MonitorPageData {
   // every render, and the time-ago ticker (10 s) reset the interval before
   // auto-refresh ever fired.
   const monitorRefetch = monitorQuery.refetch;
+  // A hidden panel keeps running, and so did this interval: an org was read
+  // every 30 s from a tab nobody was looking at. It waits for the panel.
+  const panelVisible = useAppStore((s) => s.panelVisible);
   useEffect(() => {
-    if (autoRefresh && selectedOrgId) {
+    if (autoRefresh && selectedOrgId && panelVisible) {
       autoRefreshRef.current = setInterval(() => monitorRefetch(), AUTO_REFRESH_INTERVAL_MS);
     }
     return () => {
@@ -390,7 +394,18 @@ export function useMonitorPageData(): MonitorPageData {
         autoRefreshRef.current = null;
       }
     };
-  }, [autoRefresh, selectedOrgId, monitorRefetch]);
+  }, [autoRefresh, selectedOrgId, panelVisible, monitorRefetch]);
+
+  // Back in view after a refresh was due, the page reads the org at once
+  // rather than a full interval later.
+  const wasVisibleRef = useRef(panelVisible);
+  useEffect(() => {
+    const returned = panelVisible && !wasVisibleRef.current;
+    wasVisibleRef.current = panelVisible;
+    if (!returned || !autoRefresh || !selectedOrgId) return;
+    const age = lastUpdated ? Date.now() - new Date(lastUpdated).getTime() : Infinity;
+    if (!(age < AUTO_REFRESH_INTERVAL_MS)) monitorRefetch();
+  }, [panelVisible, autoRefresh, selectedOrgId, lastUpdated, monitorRefetch]);
 
   const handleRefresh = useCallback(() => monitorQuery.refetch(), [monitorQuery]);
   // ── Setup > Apex Jobs: a link, not an abort ──

@@ -126,6 +126,11 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     },
   );
 
+  // The extension says when VS Code hides or shows this panel.
+  useMessageListener<BaseMessage & { payload: { visible: boolean } }>('panel:visibility', (msg) => {
+    useAppStore.getState().setPanelVisible(msg.payload.visible);
+  });
+
   // Listen for org:selected (from sidebar) → selectOrg
   useMessageListener<BaseMessage & { payload: { orgId: string } }>('org:selected', (msg) => {
     useOrgStore.getState().selectOrg(msg.payload.orgId);

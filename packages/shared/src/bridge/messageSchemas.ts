@@ -434,6 +434,7 @@ const SettingsMessages = [
   msg('bridge:error'),
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
+  msg('panel:visibility'),
   msg('workbench:reload'),
   msg('workbench:open-setting'),
   msg('error:boundary'),

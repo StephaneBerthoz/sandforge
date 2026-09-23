@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useMonitorPageData } from './useMonitorPageData';
 
 /* ------------------------------------------------------------------ */
@@ -68,6 +69,7 @@ describe('useMonitorPageData', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [] });
+    useAppStore.setState({ panelVisible: true });
     mockRefetch.mockClear();
     mockMonitorQueryState = {
       data: null,
@@ -400,6 +402,49 @@ describe('useMonitorPageData', () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(mockRefetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads no org while its panel is hidden, and reads it on return once a refresh is due', () => {
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    act(() => result.current.setAutoRefresh(true));
+    mockRefetch.mockClear();
+
+    act(() => useAppStore.getState().setPanelVisible(false));
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+    });
+    expect(mockRefetch).not.toHaveBeenCalled();
+
+    // The data is two minutes old: the page reads the org as it comes back,
+    // then every 30 s again.
+    act(() => useAppStore.getState().setPanelVisible(true));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(mockRefetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not read the org again on return when the last reading is still fresh', () => {
+    mockMonitorQueryState = {
+      data: { ...standardPayload, lastUpdated: new Date().toISOString() },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    act(() => result.current.setAutoRefresh(true));
+    mockRefetch.mockClear();
+
+    act(() => useAppStore.getState().setPanelVisible(false));
+    act(() => useAppStore.getState().setPanelVisible(true));
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 
   it('should not auto-refresh when autoRefresh is disabled', () => {

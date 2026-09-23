@@ -142,6 +142,31 @@ describe('BridgeProvider', () => {
     expect(useNotificationStore.getState().notifications[0].title).toBe('Test');
   });
 
+  it('follows the visibility VS Code gives the panel', () => {
+    useAppStore.setState({ panelVisible: true });
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-vis-1',
+      type: 'panel:visibility',
+      timestamp: Date.now(),
+      payload: { visible: false },
+    });
+    expect(useAppStore.getState().panelVisible).toBe(false);
+
+    fireMessage({
+      id: 'ext-vis-2',
+      type: 'panel:visibility',
+      timestamp: Date.now(),
+      payload: { visible: true },
+    });
+    expect(useAppStore.getState().panelVisible).toBe(true);
+  });
+
   it('keeps the actions a host notification carries', () => {
     render(
       <BridgeProvider>

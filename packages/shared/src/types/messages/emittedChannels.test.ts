@@ -836,6 +836,12 @@ const UNVERIFIABLE_SUBSCRIPTIONS: ReadonlyArray<{ site: string; why: string }> =
       'cross-file binding this scan does not resolve.',
   },
   {
+    site: 'providers/WebviewPanelManager.ts: panel.onDidChangeViewState',
+    why:
+      'vscode.WebviewPanel: VS Code fires it when it shows or hides the panel, which then ' +
+      'posts panel:visibility to that panel alone; nothing to drive.',
+  },
+  {
     site: 'providers/SidebarViewProvider.ts: webview.onDidReceiveMessage',
     why: 'vscode.Webview: VS Code fires it for every message the sidebar posts; nothing to drive.',
   },

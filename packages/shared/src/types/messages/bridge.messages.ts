@@ -37,6 +37,17 @@ export interface BridgeReloadBannerMessage extends BaseMessage {
 }
 
 /**
+ * Posted to one panel when VS Code shows or hides it. Every panel keeps its
+ * page running while hidden (`retainContextWhenHidden`), timers included: the
+ * Monitor's auto-refresh went on reading the org every 30 s from a tab nobody
+ * was looking at.
+ */
+export interface PanelVisibilityMessage extends BaseMessage {
+  type: 'panel:visibility';
+  payload: { visible: boolean };
+}
+
+/**
  * Sent by the ProtocolMismatchBanner's Reload button; the extension answers by
  * executing `workbench.action.reloadWindow`. No payload.
  */

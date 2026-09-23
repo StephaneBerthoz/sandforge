@@ -49,6 +49,7 @@ import type {
   BridgeErrorMessage,
   BridgeProtocolMismatchMessage,
   BridgeReloadBannerMessage,
+  PanelVisibilityMessage,
   WorkbenchReloadRequest,
   WorkbenchOpenSettingRequest,
   ErrorBoundaryReport,
@@ -621,6 +622,7 @@ export type ExtensionToWebViewMessage =
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage
   | BridgeReloadBannerMessage
+  | PanelVisibilityMessage
   // Seed
   | SeedTemplateSaveResponse
   | SeedTemplateLoadResponse

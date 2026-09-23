@@ -361,33 +361,27 @@ describe('WebviewPanelManager', () => {
     });
   });
 
-  describe('onVisibilityChange callback', () => {
-    it('should fire on visibility transitions', () => {
-      const callback = vi.fn();
-      manager.onVisibilityChange = callback;
-
-      manager.openPanel({ viewType: 'test', title: 'Test' });
-
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+  describe('panel visibility', () => {
+    it('tells the panel VS Code hid or showed, and no other', () => {
+      manager.openPanel({ viewType: 'monitor', title: 'Monitor' });
+      const monitor = lastCreatedPanel;
+      manager.openPanel({ viewType: 'seed', title: 'Seed' });
+      const seed = lastCreatedPanel;
+      const changeCallback = monitor.onDidChangeViewState.mock.calls[0][0] as (e: {
         webviewPanel: { visible: boolean };
       }) => void;
 
       changeCallback({ webviewPanel: { visible: false } });
-      expect(callback).toHaveBeenCalledWith(false);
-
       changeCallback({ webviewPanel: { visible: true } });
-      expect(callback).toHaveBeenCalledWith(true);
 
-      expect(callback).toHaveBeenCalledTimes(2);
-    });
-
-    it('should not throw when no callback is set', () => {
-      manager.openPanel({ viewType: 'test', title: 'Test' });
-
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
-        webviewPanel: { visible: boolean };
-      }) => void;
-      expect(() => changeCallback({ webviewPanel: { visible: false } })).not.toThrow();
+      const sent = monitor.webview.postMessage.mock.calls.map(
+        ([message]) => message as { type: string; payload: { visible: boolean } },
+      );
+      expect(sent.map((m) => [m.type, m.payload.visible])).toEqual([
+        ['panel:visibility', false],
+        ['panel:visibility', true],
+      ]);
+      expect(seed.webview.postMessage).not.toHaveBeenCalled();
     });
   });
 

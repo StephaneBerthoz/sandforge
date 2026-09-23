@@ -70,6 +70,8 @@ export interface AppState {
   showWhatsNew: boolean;
   whatsNewVersion: string;
   aiAvailable: boolean;
+  /** Whether VS Code shows this panel; a hidden one keeps running. */
+  panelVisible: boolean;
   navigate: (route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>) => void;
   /** Called by the page that read the intent, so a later visit opens normally. */
   clearNavigationIntent: () => void;
@@ -80,6 +82,7 @@ export interface AppState {
   setShowWelcome: (show: boolean) => void;
   setShowWhatsNew: (show: boolean, version?: string) => void;
   setAiAvailable: (available: boolean) => void;
+  setPanelVisible: (visible: boolean) => void;
 }
 
 /** Zustand store for application-level state */
@@ -93,6 +96,7 @@ export const useAppStore = create<AppState>((set) => ({
   showWhatsNew: false,
   whatsNewVersion: '',
   aiAvailable: false,
+  panelVisible: true,
 
   navigate(route: ModuleRoute, intent?: Omit<NavigationIntent, 'route'>): void {
     set({ currentRoute: route, navigationIntent: intent ? { route, ...intent } : null });
@@ -128,5 +132,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   setAiAvailable(available: boolean): void {
     set({ aiAvailable: available });
+  },
+
+  setPanelVisible(visible: boolean): void {
+    set({ panelVisible: visible });
   },
 }));

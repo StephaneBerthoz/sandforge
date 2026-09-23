@@ -53,9 +53,6 @@ export class WebviewPanelManager {
    */
   private panelSubscriptions = new Map<string, vscode.Disposable[]>();
 
-  /** Optional callback invoked when any panel's visibility changes. */
-  onVisibilityChange?: (anyVisible: boolean) => void;
-
   /**
    * @param broker - MessageBroker for webview communication
    * @param panelFactory - Factory function to create webview panels
@@ -119,12 +116,20 @@ export class WebviewPanelManager {
 
     this.visiblePanels.add(config.viewType);
     const viewStateSub = panel.onDidChangeViewState((e) => {
-      if (e.webviewPanel.visible) {
+      const visible = e.webviewPanel.visible;
+      if (visible) {
         this.visiblePanels.add(config.viewType);
       } else {
         this.visiblePanels.delete(config.viewType);
       }
-      this.onVisibilityChange?.(this.isAnyPanelVisible());
+      // Hidden, the page keeps running: it is told, so what reads an org on
+      // a timer waits for its return. Only this panel: the others did not move.
+      void panel.webview.postMessage({
+        type: 'panel:visibility',
+        id: `panel-visibility-${Date.now()}`,
+        timestamp: Date.now(),
+        payload: { visible },
+      });
     });
 
     const disposeSub = panel.onDidDispose(() => {
