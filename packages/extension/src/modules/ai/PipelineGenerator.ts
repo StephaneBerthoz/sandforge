@@ -237,11 +237,12 @@ export class PipelineGenerator {
 
   private extractTriggers(description: string): string[] {
     const triggers: string[] = [];
-    // "on refresh" and "after refresh" used to produce a sandbox_refresh
-    // trigger. SandForge notices a refresh, but TriggerEngine refuses that
-    // trigger — what it would start cannot run in a pipeline — so the draft
-    // came back carrying a trigger that can never fire. Dropped until it does.
+    // A sandbox refresh trigger starts the pipeline once the page names the
+    // sandbox. The draft cannot know which one: it arrives naming none, and
+    // the page asks for it, and says the trigger starts nothing until then.
     const triggerKeywords: Record<string, string> = {
+      'on refresh': 'sandbox_refresh',
+      'after refresh': 'sandbox_refresh',
       'on deploy': 'deployment_complete',
       'after deploy': 'deployment_complete',
       'on error': 'error_detected',
@@ -282,9 +283,9 @@ export class PipelineGenerator {
         description: draft.description ?? description,
         steps: draft.steps,
         schedule: draft.schedule,
-        // The model can name a sandbox_refresh trigger too, and it would never
-        // fire for the same reason the keyword path drops it.
-        triggers: draft.triggers?.filter((trigger) => trigger !== 'sandbox_refresh'),
+        // A sandbox_refresh trigger the model names arrives naming no sandbox,
+        // as the keyword path's does, for the page to ask for one.
+        triggers: draft.triggers,
       };
     } catch {
       // A reply that is not a pipeline object leaves a draft with no step,

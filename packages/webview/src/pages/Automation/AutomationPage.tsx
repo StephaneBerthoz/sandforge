@@ -52,6 +52,10 @@ export const AutomationPage: React.FC = () => {
     isRunning,
     pipelinesLoading,
     savedPipelines,
+    triggerStatuses,
+    savedTriggers,
+    sandboxes,
+    pipelineSchedules,
     historyEntries,
     executionData,
     savingPipeline,
@@ -83,7 +87,7 @@ export const AutomationPage: React.FC = () => {
     handleAddTrigger,
     handleRemoveTrigger,
     handleToggleTrigger,
-    handleUpdateCron,
+    handleUpdateTriggerConfig,
     handleGeneratePipeline,
     handleGenSubmit,
   } = useAutomationPageData();
@@ -325,14 +329,18 @@ export const AutomationPage: React.FC = () => {
           {activeTab === 'triggers' && (
             <TriggerConfigPanel
               triggers={pipeline?.triggers}
+              statuses={triggerStatuses}
+              savedTriggers={savedTriggers}
+              sandboxes={sandboxes}
+              pipelineBlocked={runBlockers.length > 0}
               onAddTrigger={handleAddTrigger}
               onRemoveTrigger={handleRemoveTrigger}
               onToggleTrigger={handleToggleTrigger}
-              onUpdateCron={handleUpdateCron}
+              onUpdateTriggerConfig={handleUpdateTriggerConfig}
             />
           )}
 
-          {activeTab === 'scheduler' && <SchedulerCalendar />}
+          {activeTab === 'scheduler' && <SchedulerCalendar pipelineSchedules={pipelineSchedules} />}
 
           {activeTab === 'history' && <PipelineHistoryView entries={historyEntries} />}
 

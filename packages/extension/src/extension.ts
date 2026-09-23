@@ -38,6 +38,7 @@ import {
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { wireSandboxRefreshDetection } from './composition/sandboxRefreshComposition';
+import { wirePipelineTriggers } from './composition/pipelineTriggerComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 import { knownErrorTexts } from './core/common/errorKnowledgeBase.js';
@@ -324,6 +325,22 @@ export function activate(context: vscode.ExtensionContext): void {
   // Pre-load orgs so they're available when sidebar mounts
   orgRegistry.loadAll();
 
+  // 10a. The schedule and sandbox refresh triggers of the saved pipelines.
+  // After the orgs are loaded: whether a pipeline can run depends on the orgs
+  // its steps name, and the first look reports the starts missed while VS Code
+  // was closed only for a pipeline that can run. Before the startup check of
+  // the orgs (step 10b), which is where a refresh made while VS Code was
+  // closed is noticed. Every window runs them; the windows share their claims
+  // in the global storage, so a start is made once however many are open.
+  context.subscriptions.push(
+    wirePipelineTriggers(
+      (wiring) => handlers.startPipelineTriggers(wiring),
+      () => handlers.stopPipelineTriggers(),
+      context.globalStorageUri.fsPath,
+      log,
+    ),
+  );
+
   // Org selection tracked extension-side (sidebar `sidebar:selectOrg` event,
   // same callback that posts `org:selected` to the active panel) so the status
   // bar can show the selected org's alias. `refreshStatusBar` is declared at
@@ -538,6 +555,7 @@ export async function deactivate(): Promise<void> {
   servicesRef = undefined;
   handlersRef?.stopSyncScheduler();
   await handlersRef?.stopRealtime();
+  handlersRef?.stopPipelineTriggers();
   handlersRef = undefined;
   // Infrastructure services with dispose methods are cleaned up via context.subscriptions
 }

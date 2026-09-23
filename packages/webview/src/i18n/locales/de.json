@@ -1262,8 +1262,54 @@
     "triggersCount": "Aktive Auslöser",
     "historyRuns": "Verlaufsausführungen",
     "triggers": "Auslöser",
-    "triggerManualOnlyNote": "Nur ein manueller Lauf startet eine Pipeline. Die anderen Auslösertypen lassen sich hier konfigurieren, aber noch löst nichts sie aus.",
-    "sandboxRefreshTriggerRefused": "SandForge bemerkt die Aktualisierung einer Sandbox und teilt sie Ihnen mit, aber dieser Auslöser startet keine Pipeline: Pipelines starten von Hand. Die Arbeit nach einer Aktualisierung — Anonymisierung, Seed — schreibt in eine Org, und das tut kein Pipeline-Schritt.",
+    "triggerNote": "Ein Lauf startet über die Schaltfläche „Pipeline ausführen“, nach Zeitplan oder bei der Aktualisierung einer Sandbox. Zeitpläne und Aktualisierungen starten die gespeicherte Pipeline, solange VS Code geöffnet ist, immer nur einen Lauf zugleich; ein Start, der fällig wird, während VS Code geschlossen ist, wird im Verlauf als verpasst eingetragen und nie nachgeholt. Ereignis-, Webhook- und Bereitstellungsauslöser starten noch nichts.",
+    "triggerSoon": {
+      "event": "Startet nichts: Noch speist keine Ereignisquelle diesen Auslöser.",
+      "webhook": "Startet nichts: SandForge öffnet keinen Port, also erreicht nichts außerhalb von VS Code einen Webhook.",
+      "deployment_complete": "Startet nichts: SandForge liest die Bereitstellungen einer Org nur, wenn der Monitor danach fragt, also sieht nichts eine enden."
+    },
+    "triggerHint": {
+      "schedule": "Startet die gespeicherte Pipeline zu jeder Zeit, die der Ausdruck nennt, in der gewählten Zeitzone, solange VS Code geöffnet ist.",
+      "sandbox_refresh": "Startet die gespeicherte Pipeline, wenn SandForge eine Aktualisierung dieser Sandbox bemerkt — nur eine Pipeline, deren Schritte alle laufen können."
+    },
+    "triggerTimezone": "Zeitzone",
+    "triggerSandbox": "Sandbox",
+    "triggerChooseSandbox": "Sandbox wählen",
+    "triggerUnknownSandbox": "Eine Sandbox, die SandForge nicht mehr kennt",
+    "triggerNoSandboxes": "Noch ist keine Sandbox verbunden.",
+    "triggerUnsaved": "Noch nicht gespeichert: Ein Auslöser startet die Pipeline so, wie sie gespeichert wurde. Speichern Sie die Pipeline, damit dies wirksam wird.",
+    "triggerIdle": {
+      "disabled": "Ausgeschaltet: Er startet nichts.",
+      "noCron": "Startet nichts, solange kein Cron-Ausdruck gesetzt ist.",
+      "badCron": "Startet nichts: SandForge kann diesen Cron-Ausdruck nicht lesen.",
+      "badTimezone": "Startet nichts: SandForge kennt diese Zeitzone nicht.",
+      "noNextRun": "Startet nichts: Kein Datum passt zu diesem Cron-Ausdruck.",
+      "noSandbox": "Startet nichts, solange er keine Sandbox nennt.",
+      "unknownSandbox": "Startet nichts: SandForge kennt die genannte Sandbox nicht mehr. Wählen Sie sie erneut.",
+      "notSandbox": "Startet nichts: Die genannte Org ist keine Sandbox, und nur eine Sandbox wird aktualisiert.",
+      "cannotRun": "Startet nichts, solange ein Schritt dieser Pipeline nicht laufen kann.",
+      "stopped": "Startet nichts: In diesem Fenster wird kein Auslöser überwacht."
+    },
+    "triggerNextRun": "Nächster Lauf: {{time}} ({{timezone}})",
+    "triggerWatching": "Wartet auf eine Aktualisierung von {{sandbox}}.",
+    "triggerLast": {
+      "started": "Zuletzt gestartet: {{time}}",
+      "missed": "Letzter Start verpasst: {{time}}. Der Verlauf sagt, warum."
+    },
+    "missed": {
+      "closed": "Fällig am {{time}}, während VS Code geschlossen war: nicht gestartet und nicht nachgeholt.",
+      "closedMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während VS Code geschlossen war: keiner wurde nachgeholt.",
+      "asleep": "Fällig am {{time}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: nicht nachgeholt.",
+      "asleepMany": "{{n}} Starts fällig von {{first}} bis {{last}}, als SandForge den Zeitplan nicht prüfen konnte, etwa im Ruhezustand des Computers: keiner wurde nachgeholt.",
+      "busy": "Fällig am {{time}}, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
+      "busyMany": "{{n}} Starts fällig von {{first}} bis {{last}}, während der am {{since}} gestartete Lauf noch andauerte: keiner wurde gemacht. Eine Pipeline läuft nie zweimal gleichzeitig.",
+      "busyRefresh": "Die am {{time}} bemerkte Aktualisierung kam, während der am {{since}} gestartete Lauf noch andauerte: nicht gestartet. Eine Pipeline läuft nie zweimal gleichzeitig.",
+      "cannotRun": "Die am {{time}} bemerkte Aktualisierung hat nichts gestartet: Ein Schritt dieser Pipeline kann nicht laufen."
+    },
+    "pipelineSchedules": {
+      "title": "Pipeline-Zeitpläne",
+      "empty": "Keine gespeicherte Pipeline hat einen Zeitplan. Fügen Sie auf dem Tab „Auslöser“ einen hinzu und speichern Sie dann die Pipeline."
+    },
     "addTrigger": "Auslöser hinzufügen",
     "run": "Pipeline ausführen",
     "running": "Pipeline wird ausgeführt...",
@@ -1312,10 +1358,11 @@
       "failed": "Fehlgeschlagen",
       "cancelled": "Abgebrochen",
       "pending": "Ausstehend",
-      "skipped": "Übersprungen"
+      "skipped": "Übersprungen",
+      "missed": "Verpasst"
     },
     "scheduler": "Planer",
-    "schedulerIntro": "Jeder Sync-Zeitplan, nach dem Tag seiner nächsten Ausführung. Eine Pipeline läuft nicht nach Zeitplan: Sie startet über ihre Schaltfläche „Pipeline ausführen“.",
+    "schedulerIntro": "Die Sync-Zeitpläne, nach dem Tag ihrer nächsten Ausführung, dann die Zeitpläne der gespeicherten Pipelines mit dem nächsten Lauf von jedem.",
     "cronExpression": "Cron-Ausdruck",
     "canvas": "Pipeline-Canvas",
     "dragStep": "Ziehen Sie einen Schritt auf den Canvas",
@@ -1724,7 +1771,7 @@
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell und Delta sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Leerzeichen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Kein Rückgängigmachen: Ein Lauf lässt sich nicht umkehren, erstellen Sie daher zuerst eine DataOps-Sicherung der Ziel-Org (sie umfasst Account und Contact)",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein vollständiger Snapshot von Account und Contact, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie GDPR, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance und Bereinigung: Demnächst, hinter diesen Tabs läuft noch nichts",
-    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Pipelines starten von Hand, über die Schaltfläche Pipeline ausführen; nichts anderes startet bisher eine\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, und was jeder ihrer Schritte getan hat\n- Pipeline-Vorlagen aus dem Marketplace",
+    "automationContent": "Visueller Pipeline-Builder:\n- 15 Schritttypen in 4 Kategorien. Sicherung, Vergleich, Vorabprüfung, Benachrichtigung, Verzögerung und Bedingung laufen; eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt; Ereignis-, Webhook- und Bereitstellungsauslöser: demnächst, sie starten noch nichts\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
     "forgeContent": "Forge klont einen echten Datensatz und die Datensätze um ihn herum von einer Org in eine andere:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Der eingefrorene Datensatz wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor der Datensatz geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",

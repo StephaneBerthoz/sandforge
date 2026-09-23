@@ -53,10 +53,11 @@ const manifest = () => readJson(...EXT, 'package.json');
  * The listing's one paragraph sold "automate pipelines, with streaming
  * execution for large datasets" while no pipeline step touched an org, and
  * Seed and Sync write their batches one after the other. A pipeline now backs
- * up, compares and checks orgs, but it starts by hand, runs no step that
- * writes, and streams nothing. An English denylist would have passed on all
- * five translations, which said the same thing in their own words, so each
- * locale carries its own.
+ * up, compares and checks orgs, and starts by hand, on a schedule or on a
+ * sandbox refresh — while VS Code is open, which is no automation service —
+ * but it runs no step that writes, and streams nothing. An English denylist
+ * would have passed on all five translations, which said the same thing in
+ * their own words, so each locale carries its own.
  */
 const DESCRIPTION_OVERCLAIM = {
   en: /automate pipelines|streaming execution/i,

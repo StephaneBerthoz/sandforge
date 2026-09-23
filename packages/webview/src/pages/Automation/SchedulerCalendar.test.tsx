@@ -149,12 +149,70 @@ describe('SchedulerCalendar', () => {
     expect(screen.queryByText('Coming soon')).toBeNull();
   });
 
-  it('says a pipeline does not run on a schedule', () => {
+  it('says it lists the sync schedules, then the schedules of the saved pipelines', () => {
     render(<SchedulerCalendar />);
     expect(screen.getByTestId('scheduler-intro').textContent).toBe(
-      'Each sync schedule, by the day it next runs. A pipeline does not run on a schedule: ' +
-        'it starts from its Run Pipeline button.',
+      'The sync schedules, by the day each next runs, then the schedules of the saved ' +
+        'pipelines, with the next run of each.',
     );
+  });
+
+  it('lists each saved pipeline schedule with its next run, in the time zone it is read in', () => {
+    render(
+      <SchedulerCalendar
+        pipelineSchedules={[
+          {
+            pipelineId: 'p1',
+            pipelineName: 'Nightly backup',
+            trigger: {
+              id: 't1',
+              type: 'schedule',
+              enabled: true,
+              config: { cron: '0 2 * * *', timezone: 'Asia/Tokyo' },
+            },
+            status: {
+              pipelineId: 'p1',
+              triggerId: 't1',
+              type: 'schedule',
+              armed: true,
+              timezone: 'Asia/Tokyo',
+              nextRunAt: '2026-03-02T17:00:00.000Z',
+            },
+          },
+          {
+            pipelineId: 'p2',
+            pipelineName: 'Weekly compare',
+            trigger: {
+              id: 't2',
+              type: 'schedule',
+              enabled: false,
+              config: { cron: '0 6 * * 1', timezone: 'UTC' },
+            },
+            status: {
+              pipelineId: 'p2',
+              triggerId: 't2',
+              type: 'schedule',
+              armed: false,
+              idle: 'disabled',
+              timezone: 'UTC',
+            },
+          },
+        ]}
+      />,
+    );
+    const nightly = screen.getByTestId('scheduler-pipeline-p1-t1');
+    expect(nightly.textContent).toContain('Nightly backup');
+    expect(nightly.textContent).toContain('0 2 * * *');
+    // 17:00 UTC is 02:00 the next morning in Tokyo, where the schedule is read.
+    expect(nightly.textContent).toMatch(/Next run: .*2:00.*\(Asia\/Tokyo\)/);
+    expect(screen.getByTestId('scheduler-pipeline-p2-t2').textContent).toContain(
+      'Switched off: it starts nothing.',
+    );
+  });
+
+  it('says how to give a pipeline a schedule when none has one', () => {
+    render(<SchedulerCalendar />);
+    expect(screen.getByTestId('scheduler-pipelines-empty').textContent).toMatch(/Triggers tab/);
   });
 
   it('asks the host for the schedules and lays out what it answers by day', () => {

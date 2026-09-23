@@ -425,6 +425,34 @@ describe('PipelineOrchestrator', () => {
       expect(failed).toHaveBeenCalledWith('failed', { runId: run.id, error: run.error });
     });
 
+    it('is said by check before any run, which runs nothing and records nothing', () => {
+      refuseSeedSteps();
+      const failed = vi.fn();
+      orchestrator.on('failed', failed);
+      const pipeline = createPipeline({
+        steps: [
+          { id: 'step-1', name: 'Wait', type: 'delay', config: {}, continueOnError: false },
+          { id: 'step-2', name: 'Load Target', type: 'seed', config: {}, continueOnError: false },
+        ],
+      });
+
+      // What a trigger asks before it arms: the reasons execute would refuse with.
+      expect(orchestrator.check(pipeline)).toEqual([refusal]);
+      expect(deps.stepExecutor.execute).not.toHaveBeenCalled();
+      expect(deps.history.record).not.toHaveBeenCalled();
+      expect(failed).not.toHaveBeenCalled();
+
+      vi.mocked(deps.stepExecutor.check).mockReturnValue(undefined);
+      expect(orchestrator.check(pipeline)).toEqual([]);
+    });
+
+    it('is said by check for a pipeline the builder finds wrong', () => {
+      vi.mocked(deps.builder.validate).mockReturnValue(['Pipeline must have at least one step']);
+      expect(orchestrator.check(createPipeline({ steps: [] }))).toEqual([
+        'Validation failed: Pipeline must have at least one step',
+      ]);
+    });
+
     it('names every refused step, not only the first', async () => {
       vi.mocked(deps.stepExecutor.check).mockImplementation((step: PipelineStep) =>
         step.type === 'delay' ? undefined : `refused ${step.name}.`,

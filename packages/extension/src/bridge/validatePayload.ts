@@ -1146,6 +1146,14 @@ export const pipelineRunPayloadSchema = z.object({
     .passthrough(),
   variables: z.record(z.string().max(2_000)).optional(),
 });
+/**
+ * A pipeline `pipeline:save` stored, read back to be started by a trigger: the
+ * definition a run from the page is read as, and the id it was saved under.
+ * The save keeps whatever the page sent, so what comes back is read again.
+ */
+export const savedPipelineSchema = pipelineRunPayloadSchema.shape.pipeline.extend({
+  id: z.string().min(1).max(200),
+});
 export const pipelineSavePayloadSchema = z.object({
   // Empty id stays legal: the handler falls back to crypto.randomUUID().
   id: z.string().max(200),

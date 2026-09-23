@@ -1,6 +1,6 @@
 # Automation
 
-Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did.
+Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did. A pipeline runs when you click Run; a saved one also runs on a schedule, or when SandForge notices a refresh of a sandbox, while VS Code is open.
 
 > **What a pipeline runs:** Backup, Compare, Pre-Check, Notification, Delay and
 > Condition steps. A Backup step takes a DataOps snapshot into local storage, a
@@ -20,6 +20,7 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 3. Click a step in the Step Palette to add it to the Pipeline Canvas
 4. Select each step and configure it in the Step Config Panel: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay
 5. Click **Run** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, the Run button is disabled and a note under the header names the step and the reason
+6. To start the pipeline without a click, add a **Schedule** or a **Sandbox Refresh** trigger on the **Triggers** tab and save the pipeline: it then starts on its own while VS Code is open, and the tab shows the next run, or the sandbox it waits for
 
 ## Features
 
@@ -60,22 +61,28 @@ Every step is read before the run the way its module's own request is read: a Ba
 
 ### Triggers
 
-> **Coming soon:** only **Manual** triggering is wired to an executor. SandForge has no pipeline scheduler, so pipelines always start by hand. The other trigger types below can be added, but nothing fires them; the panel marks each one coming soon.
+> **Coming soon:** the **Event**, **Webhook** and **Deployment Complete** triggers start nothing. No event source feeds an event trigger, SandForge opens no port a webhook could reach, and it reads an org's deployments only when the Monitor asks for them. The panel marks each of them coming soon, and says why on its card.
 
 The Trigger Config Panel offers these trigger types:
 
-- **Manual** -- Run on demand from the UI
-- **Schedule** _(coming soon)_ -- Takes a cron expression
-- **Event** _(coming soon)_
-- **Webhook** _(coming soon)_
-- **Sandbox Refresh** _(coming soon)_ -- SandForge notices a sandbox refresh and warns you (see Monitor), but this trigger starts no pipeline: the work a refresh calls for, anonymizing and seeding, writes to an org, and no pipeline step does
-- **Deployment Complete** _(coming soon)_
+- **Manual** -- Run on demand from the Run Pipeline button
+- **Schedule** -- Starts the pipeline at each time a five-field cron expression names (minute, hour, day of the month, month, day of the week), in the time zone chosen on the trigger, while VS Code is open
+- **Event** _(coming soon)_ -- no event source feeds it
+- **Webhook** _(coming soon)_ -- nothing outside VS Code can reach one
+- **Sandbox Refresh** -- Starts the pipeline when SandForge notices that the sandbox the trigger names was refreshed (see [Monitor](monitor.md#sandbox-refreshes)), provided every step of the pipeline can run
+- **Deployment Complete** _(coming soon)_ -- nothing watches an org's deployments
 
-The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
+A trigger starts the pipeline as it was last saved: an edit on the Triggers tab takes effect when the pipeline is saved, and the tab says so until then. For each saved trigger the tab shows what it will do -- the next run of a schedule, in its time zone, the sandbox a refresh trigger waits for, and when it last fired -- or why it starts nothing: switched off, a cron expression it cannot read, a sandbox SandForge no longer knows, a step of the pipeline that cannot run.
+
+How a run a trigger starts goes:
+
+- Only while VS Code is open. Every VS Code window runs SandForge, and the windows open on one machine share which of them makes each start, so a pipeline is started once however many windows are open. Each window reads the saved pipelines when it opens: a trigger changed and saved in one window takes effect in the others once they are reloaded. With VS Code closed, nothing runs.
+- On time, or not at all. A schedule is looked at when it falls due, and at least once a minute. A start that falls due while VS Code is closed, or while the computer sleeps and the look comes more than two minutes late, is not made late: it is written to Execution History as missed, VS Code shows a warning, and the schedule goes on from its next time. A start missed while VS Code was closed is found at the next launch.
+- One run of a pipeline at a time. A trigger that fires while a run of the same pipeline is going -- started by hand or by a trigger, in any window -- starts nothing, and History writes the start as missed, naming the run that was in the way. **Run Pipeline** is refused in the same way while a triggered run of that pipeline is going.
+- Only a pipeline whose steps can all run. A trigger on a pipeline that holds a step that cannot run starts nothing, and the tab says so; a sandbox refresh that finds such a pipeline is written to History as missed, with the step and the reason.
+- A run a trigger starts is written to Execution History with what started it. One that fails is also shown in a VS Code notification; one that completes says nothing more.
 
 ### Scheduler
-
-> **Coming soon:** no pipeline runs on a timer yet: a pipeline starts from its Run Pipeline button. The scheduler behind this tab runs saved Sync configurations only.
 
 The tab lists the sync schedules, the ones the Sync page's Schedules tab keeps
 (see [Sync](sync.md#schedules)), by the day each next runs:
@@ -91,11 +98,19 @@ The tab lists the sync schedules, the ones the Sync page's Schedules tab keeps
 - The tab asks for the schedules again once the soonest run is past, so the
   next run and the last result follow the runs while it is open
 
+Below them, it lists the pipeline schedules: the Schedule trigger of each saved
+pipeline, with its cron expression, its time zone and its next run, or why it
+starts nothing. A pipeline schedule is edited on the Triggers tab of its
+pipeline. It runs only while VS Code is open, like a sync schedule, but it is
+never made late: where a sync schedule runs a run it missed at its next check,
+a pipeline schedule writes the start to Execution History as missed.
+
 ### Execution History
 
 Every run that completes, fails or is cancelled is written to extension
 storage when it ends, and the tab, which asks for the history again each time a
-run answers, lists them newest first. A pipeline refused before its first step
+run answers, lists them newest first -- a run a trigger started included, which
+the tab asks for when it ends. A pipeline refused before its first step
 is written as failed, with one error per step that cannot run, and the page
 says why under its header. A run cut off by the pipeline timeout is stopped
 where it is -- a Delay stops waiting, a Backup stops between two objects and
@@ -106,6 +121,11 @@ leaves no entry. The tab shows for each run:
 - Its status, trigger, start time and duration
 - How many steps ran, and how many of them failed
 - Each step, with its status, how long it took, and what it did or why it failed: the records a Backup took, the counts a Compare found, what a Pre-Check read
+
+A start a trigger owed and did not make is written there too, as **Missed**:
+when it fell due, how many fell due when there were several, and why -- VS Code
+was closed, the computer slept, a run of the pipeline was still going, or a step
+of the pipeline cannot run.
 
 Storage also keeps the pipeline definition as it stood when the run started,
 since saving a pipeline overwrites it under its own id. The tab does not show
@@ -140,6 +160,7 @@ Pre-Check steps ask for their orgs before the pipeline can run.
 ## Tips
 
 - Start with a Backup and a Compare between two sandboxes to learn the canvas and the history
+- Give a saved pipeline a Schedule trigger to take a backup every night while VS Code is open; a night VS Code is closed shows in the history as missed
 - Put a Pre-Check first to stop a run when an org's API usage or storage is critical
 - Use the AI Pipeline Generator to sketch a workflow from a natural language description; its steps are marked when they cannot run
 - Browse the Marketplace for templates that match your use case before building from scratch

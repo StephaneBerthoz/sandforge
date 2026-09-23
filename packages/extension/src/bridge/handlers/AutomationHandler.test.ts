@@ -942,7 +942,8 @@ describe('AutomationHandler', () => {
       const build = services?.automationOrchestrator as unknown as ReturnType<typeof vi.fn>;
       expect(build).toHaveBeenCalledTimes(1);
       // A scheduler was built for every run and handed to an orchestrator that
-      // never read it: no pipeline has ever started on a timer.
+      // never read it. The schedules that do start runs are the trigger
+      // scheduler's, which starts them through this same run path.
       expect(build.mock.calls[0][0]).not.toHaveProperty('scheduler');
     });
 

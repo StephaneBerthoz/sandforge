@@ -1,178 +1,182 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { TriggerEngine } from './TriggerEngine';
-import { PipelineMarketplace } from './PipelineMarketplace';
-import { StepExecutor } from './StepExecutor';
-import type { PipelineStep, PipelineTrigger } from '@sandforge/shared';
+import { describe, it, expect } from 'vitest';
+import { TriggerEngine, savedTriggerSchema } from './TriggerEngine';
+import type { PipelineTrigger } from '@sandforge/shared';
 
-function createTrigger(overrides?: Partial<PipelineTrigger>): PipelineTrigger {
+function schedule(cron: string | undefined, timezone?: string, enabled = true): PipelineTrigger {
   return {
     id: 'trigger-1',
-    type: 'manual',
-    enabled: true,
-    config: {},
-    ...overrides,
+    type: 'schedule',
+    enabled,
+    config: { ...(cron !== undefined ? { cron } : {}), ...(timezone ? { timezone } : {}) },
   };
 }
 
+function refresh(orgId?: string, enabled = true): PipelineTrigger {
+  return {
+    id: 'trigger-2',
+    type: 'sandbox_refresh',
+    enabled,
+    config: orgId ? { orgId } : {},
+  };
+}
+
+const at = (iso: string): number => Date.parse(iso);
+
 describe('TriggerEngine', () => {
-  let engine: TriggerEngine;
+  const engine = new TriggerEngine();
 
-  beforeEach(() => {
-    engine = new TriggerEngine();
-  });
-
-  describe('evaluateTrigger', () => {
-    it('should return true for an enabled manual trigger', () => {
-      const trigger = createTrigger({ type: 'manual', enabled: true });
-      expect(engine.evaluateTrigger(trigger)).toBe(true);
+  describe('a schedule', () => {
+    it('starts nothing while it is switched off', () => {
+      expect(engine.idleReason(schedule('0 2 * * *', 'UTC', false))).toEqual({ idle: 'disabled' });
     });
 
-    it('should return false for a disabled trigger', () => {
-      const trigger = createTrigger({ type: 'manual', enabled: false });
-      expect(engine.evaluateTrigger(trigger)).toBe(false);
+    it('starts nothing without an expression', () => {
+      expect(engine.idleReason(schedule(undefined, 'UTC'))).toEqual({ idle: 'noCron' });
+      expect(engine.idleReason(schedule('   ', 'UTC'))).toEqual({ idle: 'noCron' });
     });
 
-    it('should return false for a schedule trigger without cron', () => {
-      const trigger = createTrigger({ type: 'schedule', enabled: true, config: {} });
-      expect(engine.evaluateTrigger(trigger)).toBe(false);
+    it('takes five fields, and refuses the seconds field the parser would read as a start a second', () => {
+      const idle = engine.idleReason(schedule('* * * * * *', 'UTC'));
+      expect(idle?.idle).toBe('badCron');
+      expect(idle?.detail).toMatch(/five fields.*this one has 6/);
+      expect(engine.idleReason(schedule('0 2 * *', 'UTC'))?.idle).toBe('badCron');
     });
 
-    it('should return false for event triggers (require external event)', () => {
-      const trigger = createTrigger({
-        type: 'event',
-        enabled: true,
-        config: { eventType: 'deploy' },
+    it('says what the parser found wrong with a field', () => {
+      const idle = engine.idleReason(schedule('61 * * * *', 'UTC'));
+      expect(idle?.idle).toBe('badCron');
+      expect(idle?.detail).toMatch(/61/);
+    });
+
+    it('refuses a date no month has, rather than planning one', () => {
+      expect(engine.idleReason(schedule('0 0 31 2 *', 'UTC'))?.idle).toBe('badCron');
+    });
+
+    it('refuses a time zone that does not exist, and names it', () => {
+      expect(engine.idleReason(schedule('0 2 * * *', 'Mars/Olympus_Mons'))).toEqual({
+        idle: 'badTimezone',
+        detail: 'Mars/Olympus_Mons',
       });
-      expect(engine.evaluateTrigger(trigger)).toBe(false);
     });
 
-    it('never fires on a sandbox refresh, since no step a refresh calls for can run in a pipeline', () => {
-      expect(engine.evaluateTrigger(createTrigger({ type: 'sandbox_refresh' }))).toBe(false);
-
-      // The reason the refusal gives, checked against the executor: every step
-      // of the built-in refresh template is refused before it runs. Give those
-      // steps a handler and this fails — the refusal is then worth revisiting.
-      const template = new PipelineMarketplace()
-        .getTemplates()
-        .find((candidate) => candidate.id === 'tpl-sandbox-refresh');
-      const executor = new StepExecutor();
-      expect(template?.steps.length).toBeGreaterThan(0);
-      for (const [index, step] of (template?.steps ?? []).entries()) {
-        const refusal = executor.check({
-          id: `step-${index}`,
-          name: step.name,
-          type: step.type as PipelineStep['type'],
-          config: step.config,
-          continueOnError: false,
-        });
-        expect(refusal).toContain('cannot run in a pipeline');
-      }
-    });
-  });
-
-  describe('matchesCron', () => {
-    it('should match a wildcard cron expression', () => {
-      expect(engine.matchesCron('* * * * *', new Date())).toBe(true);
+    it('can fire once it has a valid expression and time zone', () => {
+      expect(engine.idleReason(schedule('0 2 * * *', 'Europe/Paris'))).toBeUndefined();
+      // Extra spaces between fields are not extra fields.
+      expect(engine.idleReason(schedule(' 0  2 * * * ', 'UTC'))).toBeUndefined();
     });
 
-    it('should match a specific minute and hour', () => {
-      const date = new Date(2026, 0, 15, 10, 30, 0);
-      expect(engine.matchesCron('30 10 * * *', date)).toBe(true);
+    it('falls due next at the time its expression names, in its own time zone', () => {
+      const after = at('2026-09-23T10:00:00.000Z');
+      // 02:00 in Paris is midnight UTC in September (summer time).
+      expect(engine.nextRun(schedule('0 2 * * *', 'Europe/Paris'), after)).toBe(
+        at('2026-09-24T00:00:00.000Z'),
+      );
+      expect(engine.nextRun(schedule('0 2 * * *', 'UTC'), after)).toBe(
+        at('2026-09-24T02:00:00.000Z'),
+      );
     });
 
-    it('should not match when minute differs', () => {
-      const date = new Date(2026, 0, 15, 10, 30, 0);
-      expect(engine.matchesCron('45 10 * * *', date)).toBe(false);
+    it('never falls due again at the instant it is asked from', () => {
+      const due = at('2026-09-23T10:00:00.000Z');
+      expect(engine.nextRun(schedule('0 10 * * *', 'UTC'), due)).toBe(
+        at('2026-09-24T10:00:00.000Z'),
+      );
     });
 
-    it('should match day of week (0=Sunday)', () => {
-      const sunday = new Date(2026, 0, 4, 0, 0, 0);
-      expect(engine.matchesCron('0 0 * * 0', sunday)).toBe(true);
+    it('is read in the time zone of the extension host when it names none', () => {
+      expect(engine.timezoneOf(schedule('0 2 * * *'))).toBe(
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
+      expect(engine.timezoneOf(schedule('0 2 * * *', 'Asia/Tokyo'))).toBe('Asia/Tokyo');
     });
 
-    it('should return false for an invalid cron (wrong number of fields)', () => {
-      expect(engine.matchesCron('* *', new Date())).toBe(false);
-    });
-  });
-
-  describe('matchesEvent', () => {
-    it('should return true when event type matches', () => {
-      const trigger = createTrigger({
-        type: 'event',
-        enabled: true,
-        config: { eventType: 'deployment_complete' },
-      });
-      expect(engine.matchesEvent(trigger, 'deployment_complete')).toBe(true);
+    it('says why it has no next start instead of planning one', () => {
+      expect(engine.nextRun(schedule('', 'UTC'), Date.now())).toEqual({ idle: 'noCron' });
     });
 
-    it('should return false when event type does not match', () => {
-      const trigger = createTrigger({
-        type: 'event',
-        enabled: true,
-        config: { eventType: 'deployment_complete' },
-      });
-      expect(engine.matchesEvent(trigger, 'sandbox_refresh')).toBe(false);
+    it('lists the times it fell due in a span, oldest first, the end of the span included', () => {
+      const trigger = schedule('*/15 * * * *', 'UTC');
+      const { times, more } = engine.dueBetween(
+        trigger,
+        at('2026-09-23T10:00:00.000Z'),
+        at('2026-09-23T11:00:00.000Z'),
+        10,
+      );
+      expect(times.map((time) => new Date(time).toISOString())).toEqual([
+        '2026-09-23T10:15:00.000Z',
+        '2026-09-23T10:30:00.000Z',
+        '2026-09-23T10:45:00.000Z',
+        '2026-09-23T11:00:00.000Z',
+      ]);
+      expect(more).toBe(false);
     });
 
-    it('should return false for non-event trigger types', () => {
-      const trigger = createTrigger({ type: 'manual', enabled: true });
-      expect(engine.matchesEvent(trigger, 'deployment_complete')).toBe(false);
+    it('stops listing at its bound and says there were more', () => {
+      const { times, more } = engine.dueBetween(
+        schedule('* * * * *', 'UTC'),
+        at('2026-09-23T00:00:00.000Z'),
+        at('2026-09-23T08:00:00.000Z'),
+        50,
+      );
+      expect(times).toHaveLength(50);
+      expect(more).toBe(true);
     });
 
-    it('should return false for disabled event trigger', () => {
-      const trigger = createTrigger({
-        type: 'event',
-        enabled: false,
-        config: { eventType: 'deployment_complete' },
-      });
-      expect(engine.matchesEvent(trigger, 'deployment_complete')).toBe(false);
+    it('lists nothing for an empty span or a schedule that gives no time', () => {
+      const from = at('2026-09-23T10:00:00.000Z');
+      expect(engine.dueBetween(schedule('* * * * *', 'UTC'), from, from, 10).times).toEqual([]);
+      expect(engine.dueBetween(schedule('nope', 'UTC'), from, from + 3_600_000, 10).times).toEqual(
+        [],
+      );
     });
   });
 
-  describe('getNextFireTime', () => {
-    it('should return undefined for non-schedule triggers', () => {
-      const trigger = createTrigger({ type: 'manual' });
-      expect(engine.getNextFireTime(trigger)).toBeUndefined();
+  describe('a sandbox refresh trigger', () => {
+    it('starts nothing until it names a sandbox', () => {
+      expect(engine.idleReason(refresh())).toEqual({ idle: 'noSandbox' });
     });
 
-    it('should return undefined for disabled schedule triggers', () => {
-      const trigger = createTrigger({
-        type: 'schedule',
-        enabled: false,
-        config: { cron: '* * * * *' },
-      });
-      expect(engine.getNextFireTime(trigger)).toBeUndefined();
+    it('starts nothing on an org SandForge does not know', () => {
+      expect(engine.idleReason(refresh('org-gone'), undefined)).toEqual({ idle: 'unknownSandbox' });
     });
 
-    it('should return a future date for a wildcard cron', () => {
-      const trigger = createTrigger({
-        type: 'schedule',
-        enabled: true,
-        config: { cron: '* * * * *' },
+    it('starts nothing on an org that is not a sandbox: only a sandbox is refreshed', () => {
+      expect(engine.idleReason(refresh('org-prod'), { sandbox: false })).toEqual({
+        idle: 'notSandbox',
       });
-      const nextFire = engine.getNextFireTime(trigger);
+    });
 
-      expect(nextFire).toBeDefined();
-      expect(nextFire!.getTime()).toBeGreaterThan(Date.now());
+    it('can fire on a registered sandbox', () => {
+      expect(engine.idleReason(refresh('org-uat'), { sandbox: true })).toBeUndefined();
+    });
+
+    it('fires on a refresh of the sandbox it names, and of no other', () => {
+      expect(engine.firesOnRefreshOf(refresh('org-uat'), 'org-uat')).toBe(true);
+      expect(engine.firesOnRefreshOf(refresh('org-uat'), 'org-dev')).toBe(false);
+      expect(engine.firesOnRefreshOf(refresh('org-uat', false), 'org-uat')).toBe(false);
+      expect(engine.firesOnRefreshOf(schedule('0 2 * * *', 'UTC'), 'org-uat')).toBe(false);
     });
   });
 
-  describe('getActiveTriggers', () => {
-    it('should filter out disabled triggers', () => {
-      const triggers: PipelineTrigger[] = [
-        createTrigger({ id: 't1', enabled: true }),
-        createTrigger({ id: 't2', enabled: false }),
-        createTrigger({ id: 't3', enabled: true }),
-      ];
-
-      const active = engine.getActiveTriggers(triggers);
-      expect(active).toHaveLength(2);
-      expect(active.map((t) => t.id)).toEqual(['t1', 't3']);
+  describe('a saved trigger', () => {
+    it('is read, and one that is not a trigger is refused', () => {
+      expect(
+        savedTriggerSchema.safeParse({
+          id: 't1',
+          type: 'schedule',
+          enabled: true,
+          config: { cron: '0 2 * * *' },
+        }).success,
+      ).toBe(true);
+      expect(savedTriggerSchema.safeParse({ id: 't1', type: 'cron', enabled: true }).success).toBe(
+        false,
+      );
+      expect(savedTriggerSchema.safeParse({ id: 't1', type: 'schedule' }).success).toBe(false);
     });
 
-    it('should return empty array when no triggers are enabled', () => {
-      const triggers: PipelineTrigger[] = [createTrigger({ id: 't1', enabled: false })];
-      expect(engine.getActiveTriggers(triggers)).toHaveLength(0);
+    it('is read with no config as one with an empty config', () => {
+      const parsed = savedTriggerSchema.parse({ id: 't1', type: 'manual', enabled: true });
+      expect(parsed.config).toEqual({});
     });
   });
 });

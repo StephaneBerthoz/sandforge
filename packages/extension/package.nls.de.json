@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: Schmieden Sie Ihre Salesforce-Sandboxes",
-  "description": "All-in-One-Toolkit für Salesforce-Sandboxes. Daten generieren mit KI-Personas, CSV-Import oder Org-Klonierung — inklusive SFDMU-export.json-Import. Orgs synchronisieren mit Konfliktauflösung. Metadaten vergleichen, Limits überwachen und Pipelines, die Sie von Hand starten, um Orgs zu sichern, zu vergleichen und zu prüfen — kein Pipeline-Schritt schreibt in Ihre Org.",
+  "description": "All-in-One-Toolkit für Salesforce-Sandboxes. Daten generieren mit KI-Personas, CSV-Import oder Org-Klonierung — inklusive SFDMU-export.json-Import. Orgs synchronisieren mit Konfliktauflösung. Metadaten vergleichen, Limits überwachen und Pipelines, die Orgs sichern, vergleichen und prüfen, von Hand, nach Zeitplan oder bei der Aktualisierung einer Sandbox gestartet, solange VS Code geöffnet ist — kein Pipeline-Schritt schreibt in Ihre Org.",
   "capabilities.untrustedWorkspaces.description": "SandForge liest Salesforce-Anmeldedaten und schreibt Datensätze in Ihre Orgs, gesteuert durch die Konfiguration des geöffneten Ordners. Vertrauen Sie dem Ordner, um die Erweiterung zu aktivieren.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

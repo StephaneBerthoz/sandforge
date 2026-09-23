@@ -100,16 +100,15 @@ describe('PipelineGenerator', () => {
     expect(pipeline.triggers).toContain('deployment_complete');
   });
 
-  it.each(['seed data after refresh in devbox', 'seed data on refresh in devbox'])(
-    'draws no trigger from a sandbox refresh, which nothing watches for: %s',
+  it.each(['compare devbox with prod after refresh', 'compare devbox with prod on refresh'])(
+    'draws a sandbox refresh trigger from a refresh, which SandForge notices: %s',
     async (description) => {
       const pipeline = await generator.generatePipeline(description, testOrgs);
-      // No keyword matched, so the draft carries no trigger list at all.
-      expect(pipeline.triggers ?? []).not.toContain('sandbox_refresh');
+      expect(pipeline.triggers).toContain('sandbox_refresh');
     },
   );
 
-  it('drops a sandbox refresh trigger the model puts in its draft', async () => {
+  it('keeps a sandbox refresh trigger the model puts in its draft', async () => {
     mockProvider.mockResolvedValue(
       JSON.stringify({
         name: 'x',
@@ -119,7 +118,7 @@ describe('PipelineGenerator', () => {
     );
     const pipeline = await generator.generatePipeline('prepare the box', testOrgs);
     expect(mockProvider).toHaveBeenCalled();
-    expect(pipeline.triggers).toEqual(['manual']);
+    expect(pipeline.triggers).toEqual(['sandbox_refresh', 'manual']);
   });
 
   // --- Pipeline name ---

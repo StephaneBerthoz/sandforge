@@ -2,13 +2,19 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ConditionOperator,
+  OperationCompleted,
+  OperationFailed,
   PipelineCondition,
   PipelineDefinition,
   PipelineStepType,
   PipelineStepUpdate,
+  PipelineTrigger,
+  PipelineTriggerStatus,
+  TriggerConfig,
   TriggerType,
   PipelineHistoryEntry,
 } from '@sandforge/shared';
+import { isTriggeredRun } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -20,6 +26,9 @@ import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
 import type { BlockedStep } from './stepRunnability';
+import type { TriggerSandbox } from './TriggerConfigPanel';
+import type { PipelineScheduleRow } from './SchedulerCalendar';
+import { getLocalTimezone } from '../Sync/CronScheduleBuilder';
 
 /**
  * The `PipelineStepType` union as data, for narrowing untyped host payloads.
@@ -64,6 +73,45 @@ const PIPELINE_BUDGET_MAX_MS = 3_600_000;
 
 /** How long past that budget the page waits for the host's answer to cross the bridge. */
 const ANSWER_MARGIN_MS = 60_000;
+
+/**
+ * How long after a planned start the page asks again: the extension looks
+ * at a schedule when it falls due, and the run it starts, or the start it
+ * reports missed, is written a moment later.
+ */
+const AFTER_START_MS = 5_000;
+
+/** The longest one timer waits: setTimeout fires at once past 2^31 - 1 ms. */
+const MAX_REFRESH_WAIT_MS = 6 * 60 * 60_000;
+
+/**
+ * The longest the extension goes without looking at its schedules: a start
+ * already past when the page asks has been looked at within it.
+ */
+const HOST_LOOK_MS = 60_000;
+
+/**
+ * How long until the saved pipelines, their trigger statuses and the history
+ * are worth asking for again: a moment after the soonest planned start, when
+ * the run it started, or the start it missed, is in the history and the next
+ * start is planned. Undefined when no trigger plans a start.
+ */
+export function nextTriggerRefreshDelay(
+  statuses: readonly PipelineTriggerStatus[],
+  now: number,
+): number | undefined {
+  let soonest = Number.POSITIVE_INFINITY;
+  for (const status of statuses) {
+    if (!status.armed || !status.nextRunAt) continue;
+    const at = Date.parse(status.nextRunAt);
+    if (Number.isFinite(at)) soonest = Math.min(soonest, at);
+  }
+  if (soonest === Number.POSITIVE_INFINITY) return undefined;
+  // A start already past has not been looked at yet: asked again at once, the
+  // answer would be the same.
+  const wait = soonest > now ? soonest - now : HOST_LOOK_MS;
+  return Math.min(wait + AFTER_START_MS, MAX_REFRESH_WAIT_MS);
+}
 
 /** Narrows an unknown value to a plain object without widening to `any`. */
 function asRecord(value: unknown): Record<string, unknown> {
@@ -110,11 +158,13 @@ function toPipelineDefinition(
 
   const triggers: PipelineDefinition['triggers'] = [];
   if (typeof raw.schedule === 'string' && raw.schedule.length > 0) {
+    // Read in the time zone of the person who asked for it, as a schedule
+    // added by hand is.
     triggers.push({
       id: crypto.randomUUID(),
       type: 'schedule',
       enabled: true,
-      config: { cron: raw.schedule },
+      config: { cron: raw.schedule, timezone: getLocalTimezone() },
     });
   }
   if (Array.isArray(raw.triggers)) {
@@ -200,10 +250,25 @@ export interface AutomationPageData {
   clearError: () => void;
   /** Whether a pipeline is currently executing. */
   isRunning: boolean;
-  /** Whether the pipelines list query is loading. */
+  /**
+   * Whether the pipelines list is loading with nothing yet to show. The list is
+   * asked for again after a save and after a run a trigger started: the page
+   * keeps showing what it has meanwhile, rather than a skeleton.
+   */
   pipelinesLoading: boolean;
   /** Saved pipelines from the bridge query. */
   savedPipelines: PipelineDefinition[];
+  /**
+   * What the extension says each schedule and sandbox refresh trigger of the
+   * current pipeline, as saved, will do.
+   */
+  triggerStatuses: PipelineTriggerStatus[];
+  /** The triggers of the current pipeline as it was last saved; absent for one never saved. */
+  savedTriggers: PipelineTrigger[] | undefined;
+  /** The registered sandboxes a sandbox refresh trigger can name. */
+  sandboxes: TriggerSandbox[];
+  /** The schedule triggers of every saved pipeline, with what the extension says of each. */
+  pipelineSchedules: PipelineScheduleRow[];
   /** Pipeline execution history entries. */
   historyEntries: PipelineHistoryEntry[];
   /** Execution data for the running pipeline view. */
@@ -277,8 +342,8 @@ export interface AutomationPageData {
   handleRemoveTrigger: (triggerId: string) => void;
   /** Toggle a trigger's enabled state. */
   handleToggleTrigger: (triggerId: string, enabled: boolean) => void;
-  /** Update the cron expression for a trigger. */
-  handleUpdateCron: (triggerId: string, cron: string) => void;
+  /** Change a trigger's cron expression, time zone or sandbox. */
+  handleUpdateTriggerConfig: (triggerId: string, config: Partial<TriggerConfig>) => void;
   /** Open the AI generate pipeline prompt dialog. */
   handleGeneratePipeline: () => void;
   /** Submit the AI generation description. */
@@ -328,8 +393,11 @@ export function useAutomationPageData(): AutomationPageData {
   const [pipeline, setPipeline] = useState<PipelineDefinition | undefined>();
   const [error, setError] = useState<string | null>(null);
 
-  // Bridge query: load saved pipelines
-  const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>('pipeline:list');
+  // Bridge query: load saved pipelines, and what their triggers will do.
+  const pipelinesQuery = useBridgeQuery<{
+    pipelines: PipelineDefinition[];
+    triggers?: PipelineTriggerStatus[];
+  }>('pipeline:list');
 
   // Bridge mutation: execute a pipeline.
   // The UI deadline must not undercut the host budget. AutomationHandler bounds
@@ -406,13 +474,50 @@ export function useAutomationPageData(): AutomationPageData {
   const historyEntries = historyQuery.data?.history ?? [];
 
   // Derive saved pipelines from bridge query
-  const savedPipelines = pipelinesQuery.data?.pipelines ?? [];
+  const savedPipelines = useMemo(() => pipelinesQuery.data?.pipelines ?? [], [pipelinesQuery.data]);
+  const allTriggerStatuses = useMemo(
+    () => pipelinesQuery.data?.triggers ?? [],
+    [pipelinesQuery.data],
+  );
+
+  // A run a trigger started answers no request of this page: when one ends,
+  // the history and the trigger statuses are asked for again.
+  const refetchPipelines = pipelinesQuery.refetch;
+  const refetchHistory = historyQuery.refetch;
+  const settleTriggeredRun = useCallback(
+    (message: OperationCompleted | OperationFailed) => {
+      if (!isTriggeredRun(message.payload?.operationId ?? '')) return;
+      refetchHistory();
+      refetchPipelines();
+    },
+    [refetchHistory, refetchPipelines],
+  );
+  useMessageListener<OperationCompleted>('operation:completed', settleTriggeredRun);
+  useMessageListener<OperationFailed>('operation:failed', settleTriggeredRun);
+
+  // And once the soonest planned start is past: see nextTriggerRefreshDelay.
+  useEffect(() => {
+    const delay = nextTriggerRefreshDelay(allTriggerStatuses, Date.now());
+    if (delay === undefined) return undefined;
+    const timer = setTimeout(() => {
+      refetchHistory();
+      refetchPipelines();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [allTriggerStatuses, refetchHistory, refetchPipelines]);
 
   // What keeps the current pipeline from running. The extension refuses such
   // a pipeline before its first step; the page says so before Run is pressed.
   // An org a step names has to be one connected here.
   const orgs = useOrgStore((s) => s.orgs);
   const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
+  const sandboxes = useMemo<TriggerSandbox[]>(
+    () =>
+      orgs
+        .filter((org) => org.orgType === 'Sandbox')
+        .map((org) => ({ id: org.id, alias: org.alias || org.username })),
+    [orgs],
+  );
   const runBlockers = useMemo(
     () => (pipeline ? blockedSteps(pipeline.steps, orgIds) : []),
     [pipeline, orgIds],
@@ -499,7 +604,10 @@ export function useAutomationPageData(): AutomationPageData {
   useEffect(() => {
     if (!saveMutation.data?.success) return;
     announceSaved.current();
-  }, [saveMutation.data, announceSaved]);
+    // The saved list, and what the triggers of the pipeline now do: a
+    // schedule is planned by the save.
+    refetchPipelines();
+  }, [saveMutation.data, announceSaved, refetchPipelines]);
 
   // The host writes a run to its history when the run ends, but answers
   // `pipeline:history` only on request, and the query fires once on mount:
@@ -659,11 +767,13 @@ export function useAutomationPageData(): AutomationPageData {
 
   const handleAddTrigger = (type: TriggerType) => {
     if (!pipeline) return;
-    const newTrigger = {
+    // A schedule is read in the time zone of the person who writes it: the
+    // extension host may run elsewhere, on a remote machine.
+    const newTrigger: PipelineTrigger = {
       id: crypto.randomUUID(),
       type,
       enabled: true,
-      config: {},
+      config: type === 'schedule' ? { timezone: getLocalTimezone() } : {},
     };
     setPipeline({
       ...pipeline,
@@ -699,12 +809,12 @@ export function useAutomationPageData(): AutomationPageData {
     });
   };
 
-  const handleUpdateCron = (triggerId: string, cron: string) => {
+  const handleUpdateTriggerConfig = (triggerId: string, config: Partial<TriggerConfig>) => {
     if (!pipeline) return;
     setPipeline({
       ...pipeline,
       triggers: pipeline.triggers.map((tr) =>
-        tr.id === triggerId ? { ...tr, config: { ...tr.config, cron } } : tr,
+        tr.id === triggerId ? { ...tr, config: { ...tr.config, ...config } } : tr,
       ),
       updatedAt: new Date().toISOString(),
     });
@@ -725,6 +835,31 @@ export function useAutomationPageData(): AutomationPageData {
     setShowGenPrompt(false);
   };
 
+  const triggerStatuses = useMemo(
+    () =>
+      pipeline ? allTriggerStatuses.filter((status) => status.pipelineId === pipeline.id) : [],
+    [allTriggerStatuses, pipeline],
+  );
+  const savedTriggers = pipeline
+    ? savedPipelines.find((saved) => saved.id === pipeline.id)?.triggers
+    : undefined;
+  const pipelineSchedules = useMemo<PipelineScheduleRow[]>(
+    () =>
+      savedPipelines.flatMap((saved) =>
+        (Array.isArray(saved.triggers) ? saved.triggers : [])
+          .filter((trigger) => trigger.type === 'schedule')
+          .map((trigger) => ({
+            pipelineId: saved.id,
+            pipelineName: saved.name,
+            trigger,
+            status: allTriggerStatuses.find(
+              (status) => status.pipelineId === saved.id && status.triggerId === trigger.id,
+            ),
+          })),
+      ),
+    [savedPipelines, allTriggerStatuses],
+  );
+
   const stepCount = pipeline?.steps.length ?? 0;
   const triggerCount = pipeline?.triggers.length ?? 0;
   const historyCount = historyEntries.length;
@@ -734,8 +869,12 @@ export function useAutomationPageData(): AutomationPageData {
     error,
     clearError: () => setError(null),
     isRunning,
-    pipelinesLoading: pipelinesQuery.loading,
+    pipelinesLoading: pipelinesQuery.loading && pipelinesQuery.data === null,
     savedPipelines,
+    triggerStatuses,
+    savedTriggers,
+    sandboxes,
+    pipelineSchedules,
     historyEntries,
     executionData,
     savingPipeline: saveMutation.loading,
@@ -767,7 +906,7 @@ export function useAutomationPageData(): AutomationPageData {
     handleAddTrigger,
     handleRemoveTrigger,
     handleToggleTrigger,
-    handleUpdateCron,
+    handleUpdateTriggerConfig,
     handleGeneratePipeline,
     handleGenSubmit,
   };

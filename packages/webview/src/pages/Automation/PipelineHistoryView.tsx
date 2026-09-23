@@ -1,14 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type {
   PipelineHistoryEntry,
-  PipelineRunStatus,
+  PipelineHistoryStatus,
   PipelineStepResult,
 } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { formatDuration } from '../../utils/formatters';
+import { formatTriggerTime } from './TriggerConfigPanel';
 
 /** PipelineHistoryView component props. */
 export interface PipelineHistoryViewProps {
@@ -17,7 +19,7 @@ export interface PipelineHistoryViewProps {
 }
 
 const STATUS_VARIANT: Record<
-  PipelineRunStatus,
+  PipelineHistoryStatus,
   'default' | 'success' | 'warning' | 'error' | 'info'
 > = {
   idle: 'default',
@@ -27,7 +29,41 @@ const STATUS_VARIANT: Record<
   completed_with_warnings: 'warning',
   failed: 'error',
   cancelled: 'default',
+  missed: 'warning',
 };
+
+/**
+ * Why a trigger's start was not made, in the reader's language: when it fell
+ * due, how many fell due, and what was in the way.
+ */
+function missedLine(entry: PipelineHistoryEntry, t: TFunction): string {
+  const missed = entry.missed;
+  if (!missed) return '';
+  const time = formatTriggerTime(entry.startTime);
+  const n = missed.atLeast ? `${missed.count}+` : String(missed.count);
+  const last = missed.lastDueAt ? formatTriggerTime(missed.lastDueAt) : time;
+  const since = missed.busySince ? formatTriggerTime(missed.busySince) : '';
+  const many = missed.count > 1;
+  switch (missed.reason) {
+    case 'closed':
+      return many
+        ? t('automation.missed.closedMany', { n, first: time, last })
+        : t('automation.missed.closed', { time });
+    case 'asleep':
+      return many
+        ? t('automation.missed.asleepMany', { n, first: time, last })
+        : t('automation.missed.asleep', { time });
+    case 'busy':
+      if (entry.triggeredBy === 'sandbox_refresh') {
+        return t('automation.missed.busyRefresh', { time, since });
+      }
+      return many
+        ? t('automation.missed.busyMany', { n, first: time, last, since })
+        : t('automation.missed.busy', { time, since });
+    case 'cannotRun':
+      return t('automation.missed.cannotRun', { time });
+  }
+}
 
 const STEP_STATUS_VARIANT: Record<
   PipelineStepResult['status'],
@@ -86,18 +122,34 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
                 <span>
                   {t('automation.triggeredBy')}: {t(`automation.triggerTypes.${entry.triggeredBy}`)}
                 </span>
-                <span>
-                  {t('automation.duration')}: {formatDuration(entry.duration)}
-                </span>
-                <span>
-                  {entry.stepCount} {t('automation.steps')}
-                </span>
+                {/* A missed start ran nothing: no duration, no step to count. */}
+                {!entry.missed && (
+                  <>
+                    <span>
+                      {t('automation.duration')}: {formatDuration(entry.duration)}
+                    </span>
+                    <span>
+                      {entry.stepCount} {t('automation.steps')}
+                    </span>
+                  </>
+                )}
                 {entry.errorCount > 0 && (
                   <span className="text-status-error">
                     {entry.errorCount} {t('automation.errors')}
                   </span>
                 )}
               </div>
+              {entry.missed && (
+                <p
+                  className="mt-2 text-xs text-[var(--sf-text-secondary)]"
+                  data-testid={`history-missed-${entry.runId}`}
+                >
+                  {missedLine(entry, t)}
+                  {entry.missed.detail && (
+                    <span className="block font-mono">{entry.missed.detail}</span>
+                  )}
+                </p>
+              )}
               {entry.steps && entry.steps.length > 0 && (
                 <ol
                   className="mt-2 flex flex-col gap-1"

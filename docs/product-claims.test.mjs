@@ -85,7 +85,9 @@
  * started by schedules and webhooks, DSR handling, quality scans and mass
  * deletes that were coming-soon tabs, and two Ctrl shortcuts no listener
  * answered. Those rules are vocabularies scoped by key, each tied to the code
- * that makes it false.
+ * that makes it false. Schedules have been built since, for pipelines: the rule
+ * that refused them now refuses what is still false, a webhook starting one and
+ * a restore on a schedule.
  *
  * The AI Assistant row in both READMEs sold "failed-job diagnosis over 10
  * read-only tools". No screen could start a diagnosis, the tools were wired to
@@ -1719,41 +1721,70 @@ function assertCompareDeploysOnlyAValidation() {
   );
 }
 
-const SCHEMAS_FILE = 'packages/shared/src/bridge/messageSchemas.ts';
+const TRIGGER_SCHEDULER_FILE =
+  'packages/extension/src/modules/automation/PipelineTriggerScheduler.ts';
 
-/** The channel literals a file hands to every `name(…)` call, as a list or on their own. */
-function channelsPassedTo(relativePath, name) {
-  return callsWithin(parseFile(relativePath))
-    .filter((call) => call.name === name && call.args.length > 0)
-    .flatMap(({ args }) => {
-      const first = unwrap(args[0]);
-      const channels = ts.isArrayLiteralExpression(first) ? first.elements : [first];
-      return channels.filter(ts.isStringLiteralLike).map((channel) => channel.text);
-    });
+/**
+ * The trigger types the extension fires on its own: the ones the trigger
+ * scheduler reads out of a saved pipeline, in `triggersOf`.
+ */
+function firedTriggerTypes() {
+  const source = read(TRIGGER_SCHEDULER_FILE);
+  const method = /private triggersOf\([\s\S]*?\n {2}\}/.exec(source);
+  assert.ok(method, `no triggersOf in ${TRIGGER_SCHEDULER_FILE} — re-point this anchor`);
+  return [...method[0].matchAll(/trigger\.type === '([a-z_]+)'/g)].map((m) => m[1]);
 }
 
 /**
- * Pipelines start by hand: no `scheduler:*` channel is routed or declared. The
- * four that once were reached only the no-op handler, and no screen sent them.
+ * Nothing starts a pipeline from a webhook: the trigger scheduler fires the
+ * Schedule and Sandbox Refresh triggers only, and nothing in the extension
+ * listens for a request from outside VS Code.
  */
-function assertNoPipelineScheduler() {
-  for (const [file, channels] of [
-    [HANDLERS_FILE, channelsPassedTo(HANDLERS_FILE, 'route')],
-    [SCHEMAS_FILE, channelsPassedTo(SCHEMAS_FILE, 'msg')],
-  ]) {
-    // Positive control: the walk reads the Sync schedules, which are there.
-    assert.ok(
-      channels.includes('sync:schedule:upsert'),
-      `the walk does not see sync:schedule:upsert in ${file}, where it is — it is not reading ` +
-        'channels, so the absence below proves nothing',
-    );
-    assert.deepEqual(
-      channels.filter((channel) => channel.startsWith('scheduler:')),
-      [],
-      `${file} carries a scheduler:* channel again — pipelines may start on a timer. Re-read ` +
-        'help.automationContent and help.dataopsContent before relaxing this.',
-    );
-  }
+function assertNoWebhookStartsAPipeline() {
+  const fired = firedTriggerTypes();
+  // Positive control: the walk sees the schedules, which do fire.
+  assert.ok(
+    fired.includes('schedule'),
+    `the walk read ${fired.join(', ') || 'nothing'} from triggersOf — not the trigger types that ` +
+      'fire, so the absence below proves nothing',
+  );
+  assert.deepEqual(
+    fired.filter((type) => type === 'webhook'),
+    [],
+    'the trigger scheduler fires webhook triggers now — re-read help.automationContent in six ' +
+      'locales before relaxing this.',
+  );
+  const literals = stringLiteralsUnder('packages/extension/src');
+  assert.equal(
+    [...literals].some((literal) => /^(?:node:)?https?$/.test(literal)),
+    false,
+    'the extension imports an HTTP server module — something may listen for a webhook now',
+  );
+}
+
+/**
+ * No pipeline step restores a backup, so no schedule restores one: a
+ * scheduled pipeline runs the steps any pipeline runs.
+ */
+function assertNoPipelineStepRestores() {
+  const executor = read('packages/extension/src/modules/automation/StepExecutor.ts');
+  const defaults = /private registerDefaults\(\): void \{([\s\S]*?)\n {2}\}/.exec(executor);
+  assert.ok(defaults, 'registerDefaults moved — re-point this anchor');
+  const steps = read('packages/extension/src/bridge/handlers/pipelineSteps.ts');
+  const registration = /export function registerPipelineSteps\([\s\S]*?\n\}/.exec(steps);
+  assert.ok(registration, 'registerPipelineSteps moved — re-point this anchor');
+  const handled = [
+    ...[...defaults[1].matchAll(/this\.handlers\.set\('([a-z_]+)'/g)].map((m) => m[1]),
+    ...[...registration[0].matchAll(/registerHandler\(\s*'([a-z_]+)'/g)].map((m) => m[1]),
+  ];
+  // Positive control: the walk sees the Backup step, which runs.
+  assert.ok(handled.includes('backup'), 'the walk does not see the steps that run');
+  assert.equal(
+    handled.includes('restore'),
+    false,
+    'a Restore step runs in a pipeline now, so a schedule can restore — re-read ' +
+      'help.dataopsContent and help.automationContent in six locales before relaxing this.',
+  );
 }
 
 /** Compliance and Cleanup are the two DataOps tabs mounted as coming soon. */
@@ -1830,7 +1861,8 @@ function assertNothingRunsOnCtrlEnter() {
  *  - A vocabulary, not a meaning: "a sync can be reversed" passes the rollback rule, and any paraphrase that avoids a rule's words passes it.
  *  - A line carrying its bundle's "Coming soon" passes a disclaimable rule whatever else it says.
  *  - Ctrl+1..9/0 has no code anchor: VS Code decides whether the keystroke reaches the webview, and nothing in this repository can read that. The rule stands on the note in `PanelApp.tsx`.
- *  - The pipeline-start rule's anchor reads channel names only: no `scheduler:*` channel is routed or declared. A scheduler wired under another name, or one that fires a pipeline's triggers from the host with no channel, is not seen. Webhook and event triggers have no executor either, and nothing here reads that absence.
+ *  - The webhook rule's anchor reads the trigger types the trigger scheduler fires and the modules the extension imports. An HTTP listener built on another module, or a webhook fired through a type the scheduler reads under another name, is not seen. Event triggers have no executor either, and no rule here refuses them.
+ *  - The scheduled-restore rule's anchor reads the step types a pipeline runs. A restore scheduled some other way than a pipeline step is not seen.
  *  - The DataOps anchor reads `<ComingSoon>` mounts by test id. A tab that renders a real panel under the same id is not seen.
  *  - The Compare anchor reads the deployment channels and the keys of the `compare:deploy` schema. A deployment that reaches the target some other way, or a validation that is not check-only, is not seen here: `docs/modules/compare.docs.test.ts` and the handler's tests hold those.
  *  - The quality-scan anchor reads the checks `DataQualityCheckError` names. A check that reports its failures some other way is not seen.
@@ -1922,27 +1954,43 @@ const HELP_CLAIM_RULES = [
     ],
   },
   {
-    name: 'pipelines or backups started by a schedule, a webhook or a trigger',
+    name: 'pipelines started by a webhook',
     keys: HELP_KEYS,
-    pattern:
-      /schedul|webhook|\bcron\b|planifi|zeitpl(?:a|ä|ae)n|programaci[óo]n|agendament|スケジュール|trigger|d[ée]clencheur|ausl(?:ö|oe)ser|disparador|gatilho|トリガー/iu,
+    pattern: /webhook/iu,
     disclaimable: true,
-    anchor: assertNoPipelineScheduler,
+    anchor: assertNoWebhookStartsAPipeline,
     shipped: [
-      '- Backup & Restore with scheduling',
       '- 6 trigger types including schedules and webhooks',
-      '- Sauvegarde & Restauration avec planification',
       '- 6 types de déclencheurs dont planification et webhooks',
-      '- Sicherung & Wiederherstellung mit Zeitplanung',
       '- 6 Ausloesertypen einschliesslich Zeitplaene und Webhooks',
-      '- Respaldo y restauracion con programacion',
       '- 6 tipos de disparadores incluyendo programacion y webhooks',
-      '- Backup e restauracao com agendamento',
       '- 6 tipos de gatilhos incluindo agendamento e webhooks',
-      '- スケジュール付きバックアップとリストア',
       '- スケジュールとWebhookを含む6つのトリガータイプ',
     ],
-    honest: ['- Pipelines start by hand, from the Run button; nothing else starts one yet'],
+    honest: [
+      '- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose; event, webhook and deployment triggers: coming soon, they start nothing yet',
+      '- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed',
+    ],
+  },
+  {
+    name: 'a restore on a schedule',
+    keys: HELP_KEYS,
+    pattern:
+      /(?:restor|restaur|wiederherstell|リストア)[^\n]*(?:schedul|planifi|zeitpl|programaci|agendament|スケジュール)|(?:schedul|planifi|zeitpl|programaci|agendament|スケジュール)[^\n]*(?:restor|restaur|wiederherstell|リストア)/iu,
+    disclaimable: false,
+    anchor: assertNoPipelineStepRestores,
+    shipped: [
+      '- Backup & Restore with scheduling',
+      '- Sauvegarde & Restauration avec planification',
+      '- Sicherung & Wiederherstellung mit Zeitplanung',
+      '- Respaldo y restauracion con programacion',
+      '- Backup e restauracao com agendamento',
+      '- スケジュール付きバックアップとリストア',
+    ],
+    honest: [
+      '- Restore: puts a backup back, whole, into the org it was taken from',
+      '- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose; event, webhook and deployment triggers: coming soon, they start nothing yet',
+    ],
   },
   {
     name: 'DataOps tabs that are not built: DSR, cleanup, mass delete',

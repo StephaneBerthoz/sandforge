@@ -1262,8 +1262,54 @@
     "triggersCount": "Active Triggers",
     "historyRuns": "History Runs",
     "triggers": "Triggers",
-    "triggerManualOnlyNote": "Only a manual run starts a pipeline. The other trigger types can be configured here, but nothing fires them yet.",
-    "sandboxRefreshTriggerRefused": "SandForge notices a sandbox refresh and tells you, but this trigger starts no pipeline: pipelines start by hand. The work a refresh calls for — anonymizing, seeding — writes to an org, and no pipeline step does.",
+    "triggerNote": "A run starts from the Run Pipeline button, on a schedule, or on a sandbox refresh. Schedules and sandbox refreshes start the saved pipeline while VS Code is open, one run at a time; a start that falls due while VS Code is closed is written to History as missed, never made late. Event, webhook and deployment triggers start nothing yet.",
+    "triggerSoon": {
+      "event": "Starts nothing: no event source feeds this trigger yet.",
+      "webhook": "Starts nothing: SandForge opens no port, so nothing outside VS Code can reach a webhook.",
+      "deployment_complete": "Starts nothing: SandForge reads an org's deployments only when the Monitor asks, so nothing sees one end."
+    },
+    "triggerHint": {
+      "schedule": "Starts the saved pipeline at each time the expression names, in the time zone chosen, while VS Code is open.",
+      "sandbox_refresh": "Starts the saved pipeline when SandForge notices a refresh of this sandbox — only a pipeline whose steps can all run."
+    },
+    "triggerTimezone": "Time zone",
+    "triggerSandbox": "Sandbox",
+    "triggerChooseSandbox": "Choose a sandbox",
+    "triggerUnknownSandbox": "A sandbox SandForge no longer knows",
+    "triggerNoSandboxes": "No sandbox is connected yet.",
+    "triggerUnsaved": "Not saved yet: a trigger starts the pipeline as it was saved. Save the pipeline for this to take effect.",
+    "triggerIdle": {
+      "disabled": "Switched off: it starts nothing.",
+      "noCron": "Starts nothing until it has a cron expression.",
+      "badCron": "Starts nothing: SandForge cannot read this cron expression.",
+      "badTimezone": "Starts nothing: SandForge does not know this time zone.",
+      "noNextRun": "Starts nothing: no date matches this cron expression.",
+      "noSandbox": "Starts nothing until it names a sandbox.",
+      "unknownSandbox": "Starts nothing: SandForge no longer knows the sandbox it names. Choose it again.",
+      "notSandbox": "Starts nothing: the org it names is not a sandbox, and only a sandbox is refreshed.",
+      "cannotRun": "Starts nothing while a step of this pipeline cannot run.",
+      "stopped": "Starts nothing: no trigger is watched in this window."
+    },
+    "triggerNextRun": "Next run: {{time}} ({{timezone}})",
+    "triggerWatching": "Watching for a refresh of {{sandbox}}.",
+    "triggerLast": {
+      "started": "Last started: {{time}}",
+      "missed": "Last start missed: {{time}}. History says why."
+    },
+    "missed": {
+      "closed": "Due at {{time}}, while VS Code was closed: not started, and not made late.",
+      "closedMany": "{{n}} starts due from {{first}} to {{last}}, while VS Code was closed: none was made late.",
+      "asleep": "Due at {{time}}, when SandForge could not look at the schedule, as when the computer sleeps: not made late.",
+      "asleepMany": "{{n}} starts due from {{first}} to {{last}}, when SandForge could not look at the schedule, as when the computer sleeps: none was made late.",
+      "busy": "Due at {{time}}, while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
+      "busyMany": "{{n}} starts due from {{first}} to {{last}}, while the run started at {{since}} was still going: none was made. A pipeline never runs twice at once.",
+      "busyRefresh": "The refresh noticed at {{time}} came while the run started at {{since}} was still going: not started. A pipeline never runs twice at once.",
+      "cannotRun": "The refresh noticed at {{time}} started nothing: a step of this pipeline cannot run."
+    },
+    "pipelineSchedules": {
+      "title": "Pipeline schedules",
+      "empty": "No saved pipeline has a schedule. Add one on the Triggers tab, then save the pipeline."
+    },
     "addTrigger": "Add Trigger",
     "run": "Run Pipeline",
     "running": "Running pipeline...",
@@ -1312,10 +1358,11 @@
       "failed": "Failed",
       "cancelled": "Cancelled",
       "pending": "Pending",
-      "skipped": "Skipped"
+      "skipped": "Skipped",
+      "missed": "Missed"
     },
     "scheduler": "Scheduler",
-    "schedulerIntro": "Each sync schedule, by the day it next runs. A pipeline does not run on a schedule: it starts from its Run Pipeline button.",
+    "schedulerIntro": "The sync schedules, by the day each next runs, then the schedules of the saved pipelines, with the next run of each.",
     "cronExpression": "Cron Expression",
     "canvas": "Pipeline Canvas",
     "dragStep": "Drag a step to the canvas",
@@ -1724,7 +1771,7 @@
     "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental and delta are not implemented)\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- Real-Time tab: follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, matched on an external id, the record Id or a saved sync's mapping; deletions only when asked. To follow another object, select it in Setup → Change Data Capture on the source org. A change whose target record was edited after it is decided by the strategy, or held on the Conflicts tab\n- No undo: a run cannot be reversed, so take a DataOps backup of the target org first (it covers Account and Contact)",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a full snapshot of Account and Contact, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance and Cleanup: coming soon, nothing runs behind these tabs yet",
-    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Backup, Compare, Pre-Check, Notification, Delay and Condition run; a pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- Pipelines start by hand, from the Run Pipeline button; nothing else starts one yet\n- Execution history: status, total duration and errors of each run, and what each of its steps did\n- Pipeline templates from the Marketplace",
+    "automationContent": "Visual pipeline builder:\n- 15 step types in 4 categories. Backup, Compare, Pre-Check, Notification, Delay and Condition run; a pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose; event, webhook and deployment triggers: coming soon, they start nothing yet\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
     "forgeContent": "Forge clones a real record, and the records around it, from one org into another:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",

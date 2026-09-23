@@ -251,6 +251,21 @@ const UNION_BACKED = [
     member: (value) => `triggered${value[0].toUpperCase()}${value.slice(1)}`,
   },
   {
+    prefix: 'automation.triggerIdle.',
+    from: {
+      file: 'packages/shared/src/types/automation.types.ts',
+      union: 'PipelineTriggerIdleReason',
+    },
+  },
+  {
+    prefix: 'automation.triggerLast.',
+    from: {
+      file: 'packages/shared/src/types/automation.types.ts',
+      field: 'lastOutcome',
+      in: 'PipelineTriggerStatus',
+    },
+  },
+  {
     prefix: 'home.smartAction.action.',
     from: { file: 'packages/shared/src/types/smart-action.types.ts', union: 'SmartActionType' },
     guarded: {

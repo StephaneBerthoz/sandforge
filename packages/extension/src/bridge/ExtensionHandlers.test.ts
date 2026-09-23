@@ -2143,4 +2143,48 @@ describe('ExtensionHandlers', () => {
       ).rejects.toThrow('Unsupported queued operation type: dataops');
     });
   });
+
+  describe('a sandbox refresh SandForge notices', () => {
+    it('starts the saved pipeline whose trigger names that sandbox, and no other', async () => {
+      const services = {
+        automationOrchestrator: (d: ConstructorParameters<typeof PipelineOrchestrator>[0]) =>
+          new PipelineOrchestrator(d),
+        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+      } as unknown as Services;
+      const built = new ExtensionHandlers({ ...deps, services });
+      const sandbox = createTestImportResult().org;
+      orgManager.addOrg({ ...sandbox, id: 'org-uat', alias: 'uat', orgId: '00DXX0000000001AAA' });
+      orgManager.addOrg({ ...sandbox, id: 'org-dev', alias: 'dev', orgId: '00DXX0000000003CCC' });
+      const onRefreshOf = (id: string, orgId: string): Record<string, unknown> => ({
+        id,
+        name: `After the refresh of ${orgId}`,
+        steps: [
+          { id: 's1', name: 'Wait', type: 'delay', config: { seconds: 0 }, continueOnError: false },
+        ],
+        triggers: [{ id: 't1', type: 'sandbox_refresh', enabled: true, config: { orgId } }],
+        variables: [],
+      });
+      configStore.set('pipeline:saved:p1', onRefreshOf('p1', 'org-uat'), 'pipelines');
+      configStore.set('pipeline:saved:p2', onRefreshOf('p2', 'org-dev'), 'pipelines');
+      built.startPipelineTriggers({ report: vi.fn() });
+
+      // The sandbox answers as another org than the one it was registered as.
+      built.sandboxRefreshes.observe(
+        'org-uat',
+        { organizationId: '00DXX0000000002BBB' },
+        'connection',
+      );
+
+      await vi.waitFor(() =>
+        expect(Object.values(configStore.getByCategory('pipeline-history'))).toEqual([
+          expect.objectContaining({
+            pipelineId: 'p1',
+            status: 'completed',
+            triggeredBy: 'sandbox_refresh',
+          }),
+        ]),
+      );
+      built.stopPipelineTriggers();
+    });
+  });
 });

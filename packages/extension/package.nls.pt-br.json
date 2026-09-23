@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: Forje suas sandboxes do Salesforce",
-  "description": "Kit de ferramentas tudo em um para sandboxes do Salesforce. Gere dados com personas de IA, importação de CSV ou clonagem entre orgs — com importação de export.json do SFDMU. Sincronize orgs com resolução de conflitos. Compare metadados, monitore limites e execute manualmente pipelines que fazem backup, comparam e verificam orgs — nenhum passo de pipeline grava na sua org.",
+  "description": "Kit de ferramentas tudo em um para sandboxes do Salesforce. Gere dados com personas de IA, importação de CSV ou clonagem entre orgs — com importação de export.json do SFDMU. Sincronize orgs com resolução de conflitos. Compare metadados, monitore limites e execute pipelines que fazem backup, comparam e verificam orgs, manualmente, por agendamento ou quando um sandbox é atualizado, enquanto o VS Code está aberto — nenhum passo de pipeline grava na sua org.",
   "capabilities.untrustedWorkspaces.description": "O SandForge lê credenciais do Salesforce e grava registros nas suas orgs, a partir da configuração da pasta aberta. Confie na pasta para ativá-lo.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

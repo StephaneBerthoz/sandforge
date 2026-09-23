@@ -123,4 +123,109 @@ describe('PipelineHistoryView', () => {
     render(<PipelineHistoryView entries={entries} />);
     expect(screen.queryByTestId('history-steps-run-1')).toBeNull();
   });
+
+  describe('a start a trigger missed', () => {
+    /** An entry for a start that was not made. */
+    function missedEntry(
+      missed: NonNullable<PipelineHistoryEntry['missed']>,
+      triggeredBy: PipelineHistoryEntry['triggeredBy'] = 'schedule',
+    ): PipelineHistoryEntry {
+      return {
+        runId: 'missed-1',
+        pipelineId: 'pipe-1',
+        pipelineName: 'Nightly backup',
+        status: 'missed',
+        triggeredBy,
+        startTime: '2026-09-23T02:00:00.000Z',
+        duration: 0,
+        stepCount: 0,
+        errorCount: 0,
+        missed,
+      };
+    }
+
+    it('reads as missed, says VS Code was closed, and that nothing was made late', () => {
+      render(<PipelineHistoryView entries={[missedEntry({ reason: 'closed', count: 1 })]} />);
+      const card = screen.getByTestId('history-missed-1');
+      expect(card.textContent).toContain('Missed');
+      expect(card.textContent).toContain('Triggered By: Schedule');
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toMatch(
+        /^Due at .+, while VS Code was closed: not started, and not made late\.$/,
+      );
+      // It ran nothing: no duration, no step count.
+      expect(card.textContent).not.toContain('Duration');
+      expect(card.textContent).not.toMatch(/\d+ Steps/);
+    });
+
+    it('counts the starts missed during a long absence, and says when there were more', () => {
+      render(
+        <PipelineHistoryView
+          entries={[
+            missedEntry({
+              reason: 'closed',
+              count: 51,
+              atLeast: true,
+              lastDueAt: '2026-09-23T02:50:00.000Z',
+            }),
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toMatch(
+        /^51\+ starts due from .+ to .+, while VS Code was closed: none was made late\.$/,
+      );
+    });
+
+    it('tells a start the computer slept through from one VS Code was closed for', () => {
+      render(<PipelineHistoryView entries={[missedEntry({ reason: 'asleep', count: 1 })]} />);
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toContain(
+        'as when the computer sleeps',
+      );
+    });
+
+    it('names the run that was still going', () => {
+      render(
+        <PipelineHistoryView
+          entries={[
+            missedEntry({ reason: 'busy', count: 1, busySince: '2026-09-23T01:55:00.000Z' }),
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toMatch(
+        /^Due at .+, while the run started at .+ was still going: not started\. A pipeline never runs twice at once\.$/,
+      );
+    });
+
+    it('speaks of the refresh, not of a due time, for a sandbox refresh trigger', () => {
+      render(
+        <PipelineHistoryView
+          entries={[
+            missedEntry(
+              { reason: 'busy', count: 1, busySince: '2026-09-23T01:55:00.000Z' },
+              'sandbox_refresh',
+            ),
+            {
+              ...missedEntry(
+                {
+                  reason: 'cannotRun',
+                  count: 1,
+                  detail:
+                    'Step "Mask" is a anonymize step, and this step type cannot run in a pipeline yet.',
+                },
+                'sandbox_refresh',
+              ),
+              runId: 'missed-2',
+            },
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toMatch(
+        /^The refresh noticed at .+ came while the run started at .+ was still going/,
+      );
+      const refused = screen.getByTestId('history-missed-missed-2').textContent ?? '';
+      expect(refused).toMatch(
+        /^The refresh noticed at .+ started nothing: a step of this pipeline cannot run\./,
+      );
+      expect(refused).toContain('this step type cannot run in a pipeline yet.');
+    });
+  });
 });

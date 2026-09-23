@@ -44,6 +44,7 @@ import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
 import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
+import type { PipelineTriggerWiring } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
 import type { AIModules, RuleModules } from './handlers/AIHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
@@ -234,6 +235,20 @@ export class ExtensionHandlers {
       notify: deps.services?.showNotification,
     });
     this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
+    // After the org is forgotten, so a pipeline a refresh starts reaches the
+    // new org; and outside the identity check that noticed the refresh. The
+    // key is the org the sandbox was before: every window that notices this
+    // refresh, however it notices it, names the same one, and one of them
+    // starts the pipeline.
+    this.refreshDetector.onRefreshDetected((refresh) => {
+      const key =
+        refresh.previousOrganizationId ??
+        this.refreshDetector.organizationIdOf(refresh.orgId) ??
+        refresh.detectedAt;
+      void Promise.resolve().then(() =>
+        this.automationHandler.noticeSandboxRefresh({ orgId: refresh.orgId, key }),
+      );
+    });
   }
 
   /**
@@ -395,6 +410,21 @@ export class ExtensionHandlers {
    */
   async stopRealtime(): Promise<void> {
     await this.realtimeHandler.dispose();
+  }
+
+  /**
+   * Start the schedule and sandbox refresh triggers of the saved pipelines.
+   * Call once from extension.ts, once the orgs are loaded and before their
+   * startup check, which is where a refresh made while VS Code was closed is
+   * noticed. Pair with {@link stopPipelineTriggers}.
+   */
+  startPipelineTriggers(wiring: PipelineTriggerWiring): void {
+    this.automationHandler.startTriggers(wiring);
+  }
+
+  /** Stop the pipeline triggers. Call from extension deactivate(). */
+  stopPipelineTriggers(): void {
+    this.automationHandler.stopTriggers();
   }
 
   /** Inject the model-backed modules, or `undefined` to take them away. */

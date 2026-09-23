@@ -187,7 +187,8 @@ about the old org: the pooled connection, object describes, Forge discovery
 graphs, and the Monitor's org info, limits and trend history. A Frozen Dataset
 verification refuses to run against a target refreshed since its last load. A
 refresh a production org's history shows completing is recorded the same way on
-the registered sandbox it names.
+the registered sandbox it names. A saved pipeline whose Sandbox Refresh trigger
+names that sandbox is started then (see [Automation](automation.md#triggers)).
 
 ### Org Health Check
 

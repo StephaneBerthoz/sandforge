@@ -393,6 +393,33 @@ test('a finished run is written where the History tab reads it', () => {
   );
 });
 
+test('a trigger starts a pipeline only through the run that refuses a step that writes', () => {
+  // A run a schedule or a sandbox refresh starts is the run the page starts:
+  // the same runPipeline, which hands the pipeline to orchestrator.execute,
+  // where a pipeline holding a step that cannot run is refused before its
+  // first step. A trigger with a path of its own could run what the page
+  // refuses, with nobody there to answer.
+  const start = automationHandler.match(/private startTriggeredRun\([\s\S]*?\n {2}\}/);
+  assert.ok(start, 'no startTriggeredRun in AutomationHandler.ts — has it moved?');
+  assert.match(
+    start[0],
+    /this\.runPipeline\(/,
+    'a run a trigger starts no longer goes through the run the page starts',
+  );
+  const run = automationHandler.match(/private async runPipeline\([\s\S]*?\n {2}\}/);
+  assert.ok(run, 'no runPipeline in AutomationHandler.ts — has it moved?');
+  assert.match(
+    run[0],
+    /await orchestrator\.execute\(/,
+    'runPipeline no longer runs the orchestrator',
+  );
+  // And a trigger on such a pipeline is not armed at all: the scheduler asks
+  // the orchestrator's check, and says why it starts nothing.
+  const scheduler = read(extensionSrc, 'modules', 'automation', 'PipelineTriggerScheduler.ts');
+  assert.match(scheduler, /idle: 'cannotRun'/);
+  assert.match(automationHandler, /return orchestrator\.check\(pipeline\)/);
+});
+
 test('no step that writes to an org runs in a pipeline', () => {
   const handled = handledStepTypes();
   // Positive control: the walk sees the steps registered through a module.

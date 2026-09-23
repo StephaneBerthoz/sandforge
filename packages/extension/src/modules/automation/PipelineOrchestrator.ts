@@ -98,6 +98,11 @@ function handedOn(result: PipelineStepResult): Record<string, string> {
   );
 }
 
+/** The error a pipeline the builder finds wrong ends on. */
+function validationError(errors: readonly string[]): string {
+  return `Validation failed: ${errors.join(', ')}`;
+}
+
 /**
  * What is wrong with where `step` routes, or undefined when nothing is. A run
  * takes each step once, in order, and a route only skips ahead: the steps it
@@ -185,7 +190,7 @@ export class PipelineOrchestrator {
     if (errors.length > 0) {
       const failedRun = this.createRun(pipeline, variables, triggeredBy);
       failedRun.status = 'failed';
-      failedRun.error = `Validation failed: ${errors.join(', ')}`;
+      failedRun.error = validationError(errors);
       failedRun.endTime = new Date().toISOString();
       this.emit('failed', { runId: failedRun.id, error: failedRun.error });
       return failedRun;
@@ -414,13 +419,7 @@ export class PipelineOrchestrator {
     variables: Record<string, string>,
     triggeredBy: TriggerType,
   ): PipelineRun | undefined {
-    const refusals = pipeline.steps.flatMap((step, index) => {
-      const reason =
-        this.deps.stepExecutor.check(step) ??
-        this.conditionProblem(step) ??
-        routeProblem(step, index, pipeline.steps);
-      return reason === undefined ? [] : [{ step, reason }];
-    });
+    const refusals = this.refusals(pipeline);
     if (refusals.length === 0) {
       return undefined;
     }
@@ -441,6 +440,32 @@ export class PipelineOrchestrator {
     this.deps.history.record(run);
     this.emit('failed', { runId: run.id, error: run.error });
     return run;
+  }
+
+  /**
+   * Why `pipeline` would not start, one sentence per problem, or nothing when
+   * it would: what {@link execute} refuses before its first step. Nothing is
+   * run or recorded. A trigger asks before it arms: one that would start a
+   * refused run at each firing starts nothing, and says why.
+   * @param pipeline - The pipeline definition to check
+   */
+  check(pipeline: PipelineDefinition): string[] {
+    const errors = this.deps.builder.validate(pipeline);
+    if (errors.length > 0) {
+      return [validationError(errors)];
+    }
+    return this.refusals(pipeline).map(({ reason }) => reason);
+  }
+
+  /** Each step that cannot run, with the reason. */
+  private refusals(pipeline: PipelineDefinition): Array<{ step: PipelineStep; reason: string }> {
+    return pipeline.steps.flatMap((step, index) => {
+      const reason =
+        this.deps.stepExecutor.check(step) ??
+        this.conditionProblem(step) ??
+        routeProblem(step, index, pipeline.steps);
+      return reason === undefined ? [] : [{ step, reason }];
+    });
   }
 
   /**

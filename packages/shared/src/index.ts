@@ -77,6 +77,7 @@ export * from './constants/faker-field-defaults.js';
 export * from './constants/sync-templates.js';
 export * from './constants/data-quality.js';
 export * from './constants/metadata-deploy.js';
+export { TRIGGERED_RUN_PREFIX, isTriggeredRun } from './constants/pipeline-triggers.js';
 export {
   ALLOW_DUPLICATE_RULE_HEADER,
   duplicateRuleHeaders,

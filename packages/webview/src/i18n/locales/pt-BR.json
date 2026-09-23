@@ -1262,8 +1262,54 @@
     "triggersCount": "Gatilhos ativos",
     "historyRuns": "Execuções no histórico",
     "triggers": "Gatilhos",
-    "triggerManualOnlyNote": "Só uma execução manual inicia um pipeline. Os outros tipos de gatilho podem ser configurados aqui, mas nada os dispara ainda.",
-    "sandboxRefreshTriggerRefused": "O SandForge detecta a atualização de um sandbox e avisa você, mas este gatilho não inicia nenhum pipeline: os pipelines começam manualmente. O trabalho que uma atualização pede — anonimização, seed — grava em uma org, e nenhuma etapa de pipeline faz isso.",
+    "triggerNote": "Uma execução começa pelo botão Executar pipeline, por um agendamento ou pela atualização de um sandbox. Agendamentos e atualizações iniciam o pipeline salvo enquanto o VS Code está aberto, uma execução por vez; um início previsto enquanto o VS Code está fechado fica no histórico como perdido, e nunca é feito com atraso. Os gatilhos de evento, webhook e implantação ainda não iniciam nada.",
+    "triggerSoon": {
+      "event": "Não inicia nada: nenhuma fonte de eventos alimenta este gatilho ainda.",
+      "webhook": "Não inicia nada: o SandForge não abre nenhuma porta, então nada fora do VS Code consegue alcançar um webhook.",
+      "deployment_complete": "Não inicia nada: o SandForge só lê as implantações de uma org quando o Monitor pede, então nada vê uma terminar."
+    },
+    "triggerHint": {
+      "schedule": "Inicia o pipeline salvo em cada horário que a expressão indica, no fuso horário escolhido, enquanto o VS Code está aberto.",
+      "sandbox_refresh": "Inicia o pipeline salvo quando o SandForge detecta uma atualização deste sandbox — apenas um pipeline cujas etapas podem todas ser executadas."
+    },
+    "triggerTimezone": "Fuso horário",
+    "triggerSandbox": "Sandbox",
+    "triggerChooseSandbox": "Escolher um sandbox",
+    "triggerUnknownSandbox": "Um sandbox que o SandForge não conhece mais",
+    "triggerNoSandboxes": "Nenhum sandbox está conectado ainda.",
+    "triggerUnsaved": "Ainda não salvo: um gatilho inicia o pipeline como ele foi salvo. Salve o pipeline para que isto tenha efeito.",
+    "triggerIdle": {
+      "disabled": "Desativado: não inicia nada.",
+      "noCron": "Não inicia nada enquanto não tiver uma expressão cron.",
+      "badCron": "Não inicia nada: o SandForge não consegue ler esta expressão cron.",
+      "badTimezone": "Não inicia nada: o SandForge não conhece este fuso horário.",
+      "noNextRun": "Não inicia nada: nenhuma data corresponde a esta expressão cron.",
+      "noSandbox": "Não inicia nada enquanto não indicar um sandbox.",
+      "unknownSandbox": "Não inicia nada: o SandForge não conhece mais o sandbox indicado. Escolha-o de novo.",
+      "notSandbox": "Não inicia nada: a org indicada não é um sandbox, e apenas um sandbox é atualizado.",
+      "cannotRun": "Não inicia nada enquanto uma etapa deste pipeline não puder ser executada.",
+      "stopped": "Não inicia nada: nenhum gatilho é observado nesta janela."
+    },
+    "triggerNextRun": "Próxima execução: {{time}} ({{timezone}})",
+    "triggerWatching": "Aguardando uma atualização de {{sandbox}}.",
+    "triggerLast": {
+      "started": "Último início: {{time}}",
+      "missed": "Último início perdido: {{time}}. O histórico diz por quê."
+    },
+    "missed": {
+      "closed": "Previsto para {{time}}, enquanto o VS Code estava fechado: não foi iniciado, nem feito com atraso.",
+      "closedMany": "{{n}} inícios previstos de {{first}} a {{last}}, enquanto o VS Code estava fechado: nenhum foi feito com atraso.",
+      "asleep": "Previsto para {{time}}, quando o SandForge não podia verificar o agendamento, como quando o computador está em suspensão: não foi feito com atraso.",
+      "asleepMany": "{{n}} inícios previstos de {{first}} a {{last}}, quando o SandForge não podia verificar o agendamento, como quando o computador está em suspensão: nenhum foi feito com atraso.",
+      "busy": "Previsto para {{time}}, enquanto a execução iniciada em {{since}} ainda estava em andamento: não foi iniciado. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
+      "busyMany": "{{n}} inícios previstos de {{first}} a {{last}}, enquanto a execução iniciada em {{since}} ainda estava em andamento: nenhum foi feito. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
+      "busyRefresh": "A atualização detectada em {{time}} chegou enquanto a execução iniciada em {{since}} ainda estava em andamento: não foi iniciado. Um pipeline nunca é executado duas vezes ao mesmo tempo.",
+      "cannotRun": "A atualização detectada em {{time}} não iniciou nada: uma etapa deste pipeline não pode ser executada."
+    },
+    "pipelineSchedules": {
+      "title": "Agendamentos de pipelines",
+      "empty": "Nenhum pipeline salvo tem um agendamento. Adicione um na aba Gatilhos e depois salve o pipeline."
+    },
     "addTrigger": "Adicionar gatilho",
     "run": "Executar pipeline",
     "running": "Executando pipeline...",
@@ -1312,10 +1358,11 @@
       "failed": "Falhou",
       "cancelled": "Cancelado",
       "pending": "Pendente",
-      "skipped": "Ignorada"
+      "skipped": "Ignorada",
+      "missed": "Perdido"
     },
     "scheduler": "Agendador",
-    "schedulerIntro": "Cada agendamento de sincronização, pelo dia da sua próxima execução. Um pipeline não é executado por agendamento: ele começa pelo botão Executar pipeline.",
+    "schedulerIntro": "Os agendamentos de sincronização, pelo dia da próxima execução de cada um, e depois os agendamentos dos pipelines salvos, com a próxima execução de cada um.",
     "cronExpression": "Expressão Cron",
     "canvas": "Canvas do pipeline",
     "dragStep": "Arraste uma etapa para o canvas",
@@ -1724,7 +1771,7 @@
     "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental e delta não estão implementados)\n- Mapeamento automático de campos com pontuações de confiança\n- As regras de transformação se aplicam a todos os campos de todos os registros da execução, exceto Id e o identificador externo pelo qual a execução faz a correspondência, que ficam como estão: assim um prefixo ou um truncamento não pode enviar a escrita para um registro que não existe. Os ajustes que cada uma aceita: maiúsculas e minúsculas e espaços não aceitam nenhum; o truncamento aceita um comprimento; prefixo, sufixo, substituição, regex, valor padrão, formatos de data e número e fórmulas aceitam seu texto; o mapeamento de valores aceita uma tabela de substituições que a página ainda não sabe digitar, então uma regra desse tipo deixa os valores como estão\n- Resolução de conflitos em execuções bidirecionais: origem prevalece, destino prevalece, mais recente prevalece ou mesclagem campo a campo\n- Aba Tempo real: acompanha os eventos de alteração (Change Data Capture) que a org de origem publica e grava cada alteração no destino assim que chega, localizada por um ID externo, o ID do registro ou o mapeamento de uma sync salva; exclusões só quando pedido. Para acompanhar outro objeto, selecione-o em Configuração → Change Data Capture na org de origem. Uma alteração cujo registro de destino foi editado depois dela é decidida pela estratégia, ou retida na aba Conflitos\n- Sem desfazer: uma execução não pode ser revertida, então faça antes um backup DataOps da org de destino (ele cobre Account e Contact)",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferenças agrupado por categoria e nível de risco\n- Permissões: quais perfis e conjuntos de permissões existem em cada lado\n- Snapshots: os objetos das duas orgs, capturados ao vivo quando você abre a aba\n- Drift: cinco configurações de Organization lado a lado (nome, idioma, localidade, fuso horário, início do ano fiscal)\n- Implantação: escolha o que difere, valide primeiro no destino e depois implante a validação em um sandbox",
     "dataopsContent": "Operações de dados na org selecionada:\n- Backup: um snapshot completo de Account e Contact, guardado no armazenamento da extensão\n- Restauração: devolve um backup, inteiro, à org de onde ele foi tirado\n- Anonimização: mascara os campos no lugar com um modelo integrado como GDPR, CCPA ou HIPAA; é irreversível, então faça um backup antes\n- Qualidade: para os objetos que você escolher, conta com que frequência cada campo é preenchido, quais valores de uma chave como Name ou Email vários registros compartilham e quantos registros ninguém modificou em um número de dias; a org faz a contagem, e nada é lido registro a registro nem gravado\n- Conformidade e Limpeza: em breve, nada roda por trás dessas abas ainda",
-    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas; um pipeline que contenha uma etapa que grava em uma org, ou uma etapa Script, Aprovação, Loop ou Paralelo, é recusado antes de começar\n- Os pipelines começam manualmente, pelo botão Executar pipeline; nada mais inicia um ainda\n- Histórico de execução: status, duração total e erros de cada execução, e o que cada uma de suas etapas fez\n- Modelos de pipeline do Marketplace",
+    "automationContent": "Construtor visual de pipelines:\n- 15 tipos de etapas em 4 categorias. Backup, Comparação, Pré-verificação, Notificação, Atraso e Condição são executadas; um pipeline que contenha uma etapa que grava em uma org, ou uma etapa Script, Aprovação, Loop ou Paralelo, é recusado antes de começar\n- Um pipeline começa pelo botão Executar pipeline, nos horários que uma expressão cron indica enquanto o VS Code está aberto, ou quando o SandForge detecta a atualização de um sandbox escolhido; gatilhos de evento, webhook e implantação: em breve, ainda não iniciam nada\n- Histórico de execução: status, duração total e erros de cada execução, o que cada uma de suas etapas fez, e os inícios que um gatilho perdeu\n- Modelos de pipeline do Marketplace",
     "forgeContent": "O Forge clona um registro real, e os registros ao redor dele, de uma org para outra:\n1. Cole um ID de registro ou uma URL do Salesforce e escolha as orgs de origem e destino\n2. Descobrir grafo percorre os relacionamentos a partir desse registro\n3. Ajuste a profundidade, os registros por objeto e a anonimização de PII\n4. Revise o plano e execute-o: os IDs são remapeados na escrita; um tipo de registro sem um tipo de registro ativo com o mesmo nome de API no destino mantém o Id de origem, e o log do SandForge informa isso\n\nDica: um clone limitado a um registro copia o que esse registro precisa, não tabelas inteiras.",
     "frozenContent": "O Dataset congelado extrai um conjunto de dados de uma sandbox de origem uma única vez e o reproduz idêntico após cada atualização:\n- Extração: registros raiz escolhidos por matriz de cobertura, dentro de um orçamento de volume\n- Pseudonimização determinística, com um sal guardado fora do repositório\n- Uma verificação de quatro pontos precisa passar antes de o dataset ser gravado\n- Carga: somente sandboxes como destino, com um Piloto opcional sobre uma única pasta raiz antes da carga completa, e uma verificação depois da carga",
     "grappeContent": "O Grappe divide uma operação grande em partições e informa o progresso ao concluir cada uma:\n- Ative-o com a configuração sandforge.grappe.enabled\n- Uma execução de Seed acima do limite de registros informa cada partição, um Sync acima desse limite informa uma partição por objeto e um plano do Autopilot informa apenas seu início e seu fim\n- As partições são processadas uma após a outra: o Grappe não deixa uma execução mais rápida",

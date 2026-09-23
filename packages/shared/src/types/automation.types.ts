@@ -160,13 +160,52 @@ export interface PipelineHistoryStep {
   error?: string;
 }
 
+/**
+ * The status of a history entry: how a run ended, or `missed` for a start a
+ * trigger owed and did not make (see {@link PipelineMissedStart}). No run is
+ * ever missed; only the history records one.
+ */
+export type PipelineHistoryStatus = PipelineRunStatus | 'missed';
+
+/**
+ * Why a trigger fired and no run started:
+ *
+ * - `closed`: the schedule fell due while VS Code was closed.
+ * - `asleep`: it fell due while VS Code could not check it — the computer
+ *   asleep, the extension host held up — and the check came too late.
+ * - `busy`: a run of the same pipeline was still going.
+ * - `cannotRun`: a sandbox was refreshed, and a step of the pipeline cannot run.
+ *
+ * None of them is started late: a missed start is reported, never replayed.
+ */
+export type PipelineMissedReason = 'closed' | 'asleep' | 'busy' | 'cannotRun';
+
+/** A start a trigger owed and did not make, as the history keeps it. */
+export interface PipelineMissedStart {
+  reason: PipelineMissedReason;
+  /**
+   * How many starts were missed for this reason. The entry's `startTime` is
+   * when the first of them fell due.
+   */
+  count: number;
+  /** Whether more fell due than `count` says: a long absence is counted up to a bound. */
+  atLeast?: boolean;
+  /** When the last of them fell due, when there was more than one. */
+  lastDueAt?: ISODateString;
+  /** For `busy`: when the run that was still going had started. */
+  busySince?: ISODateString;
+  /** For `cannotRun`: why the pipeline cannot run, in the host's words (English). */
+  detail?: string;
+}
+
 /** Pipeline history entry */
 export interface PipelineHistoryEntry {
   runId: UUID;
   pipelineId: UUID;
   pipelineName: string;
-  status: PipelineRunStatus;
+  status: PipelineHistoryStatus;
   triggeredBy: TriggerType;
+  /** When the run started — for a `missed` entry, when the start fell due. */
   startTime: ISODateString;
   duration: number;
   stepCount: number;
@@ -176,4 +215,58 @@ export interface PipelineHistoryEntry {
    * written before steps that read an org could run.
    */
   steps?: PipelineHistoryStep[];
+  /** Why no run started, on a `missed` entry. */
+  missed?: PipelineMissedStart;
+}
+
+/**
+ * Why a schedule or sandbox refresh trigger starts nothing:
+ *
+ * - `disabled`: it is switched off.
+ * - `noCron`, `badCron`, `badTimezone`, `noNextRun`: its schedule gives no
+ *   time — no expression, one that does not parse, a time zone that does not
+ *   exist, or an expression no date ever matches.
+ * - `noSandbox`, `unknownSandbox`, `notSandbox`: it names no sandbox, one
+ *   SandForge does not know, or an org that is not a sandbox.
+ * - `cannotRun`: a step of the pipeline cannot run in a pipeline.
+ * - `stopped`: nothing watches triggers in this host (the extension's
+ *   trigger scheduler was not started).
+ */
+export type PipelineTriggerIdleReason =
+  | 'disabled'
+  | 'noCron'
+  | 'badCron'
+  | 'badTimezone'
+  | 'noNextRun'
+  | 'noSandbox'
+  | 'unknownSandbox'
+  | 'notSandbox'
+  | 'cannotRun'
+  | 'stopped';
+
+/**
+ * What a saved schedule or sandbox refresh trigger will do, as the extension
+ * sees it. The page reads it for the saved pipeline: an edit on the canvas
+ * changes nothing until it is saved.
+ */
+export interface PipelineTriggerStatus {
+  pipelineId: UUID;
+  triggerId: UUID;
+  type: 'schedule' | 'sandbox_refresh';
+  /** Whether the trigger starts runs. */
+  armed: boolean;
+  /** Why it starts nothing, when it is not armed. */
+  idle?: PipelineTriggerIdleReason;
+  /**
+   * What lies behind `idle`, in the host's words (English): the cron parser's
+   * message, or why a step cannot run.
+   */
+  detail?: string;
+  /** When its schedule next starts the pipeline (an armed schedule trigger). */
+  nextRunAt?: ISODateString;
+  /** The time zone its schedule is read in: its own, or the extension host's. */
+  timezone?: string;
+  /** When it last fired, and whether a run started then. */
+  lastFiredAt?: ISODateString;
+  lastOutcome?: 'started' | 'missed';
 }

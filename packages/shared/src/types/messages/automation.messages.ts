@@ -1,4 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
+import type { PipelineTriggerStatus } from '../automation.types.js';
 
 /**
  * Response for `pipeline:execute` — the pipeline execution
@@ -71,10 +72,15 @@ export interface PipelineListRequest extends BaseMessage {
   type: 'pipeline:list';
 }
 
-/** Response containing the saved pipelines (`pipelines` category in ConfigStore). */
+/**
+ * Response containing the saved pipelines (`pipelines` category in
+ * ConfigStore), and what each of their schedule and sandbox refresh triggers
+ * will do. Beside the pipelines rather than inside them: a pipeline loaded
+ * from this list is saved back as it is, and the status is not its own.
+ */
 export interface PipelineListResponse extends BaseMessage {
   type: 'pipeline:list:response';
-  payload: { pipelines: Array<Record<string, unknown>> };
+  payload: { pipelines: Array<Record<string, unknown>>; triggers?: PipelineTriggerStatus[] };
 }
 
 /** Request to list pipeline execution history from ConfigStore. */

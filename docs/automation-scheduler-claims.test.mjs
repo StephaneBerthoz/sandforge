@@ -1,23 +1,24 @@
 /**
- * Keeps the Automation prose honest about the scheduler.
+ * Keeps the Automation prose honest about what starts a pipeline.
  *
- * SandForge has no pipeline scheduler. The `scheduler:*` channels it once
- * declared were sent by no screen and answered by `NoOpHandler`, and they are
- * gone: `ExtensionHandlers` routes none and the bridge's Zod union declares
- * none, so no pipeline has ever started on a timer. `docs/modules/automation.md`
- * says so in two banners — but the same file's own intro, quick start and tips
- * used to promise scheduling anyway, and the FAQ told readers pipelines run "on
- * a schedule". Banners lose to body copy: a reader who skims takes the promise.
+ * For most of SandForge's life a pipeline started by hand only: every other
+ * trigger was stored and never fired, and this gate held the docs silent about
+ * scheduling while the FAQ still told readers pipelines ran "on a schedule".
+ * Two trigger types start runs now. `PipelineTriggerScheduler` fires the
+ * Schedule and the Sandbox Refresh triggers of the saved pipelines, and the
+ * composition root starts it when the extension activates. Event, Webhook and
+ * Deployment Complete still start nothing.
  *
- * This gate asserts the three unbannered regions stay silent about scheduling
- * for as long as that absence holds. It fails in both directions: wire a
- * scheduler on those channels and the first check trips, telling whoever did it
- * that the docs are now understating the product and may be rewritten. It reads
- * channel names only: a scheduler wired under another name, or one that fires a
- * pipeline's triggers from the host with no channel at all, is not seen.
+ * What a reader has to be told about the two that do is where the promise can
+ * outrun the code: a schedule runs only while VS Code is open — it is no
+ * server — and a start that falls due while VS Code is closed is reported
+ * missed, never made late. A page that sells a schedule without saying so
+ * promises a cron job.
  *
- * Lives here rather than under `packages/*` because its subject is this
- * directory; run it the way `scripts/check-i18n-parity.test.mjs` is run:
+ * So the gate reads the code for which trigger types fire, and holds the
+ * module page, the FAQ, the getting-started list and both READMEs to it: the
+ * trigger list marks coming soon exactly the types that start nothing, and
+ * every region that sells a schedule says it runs while VS Code is open.
  *
  *   node --test docs/automation-scheduler-claims.test.mjs
  */
@@ -29,12 +30,17 @@ import { fileURLToPath } from 'node:url';
 
 const docsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(docsDir, '..');
+const read = (...parts) => readFileSync(join(repoRoot, ...parts), 'utf8');
 
-const faq = readFileSync(join(docsDir, 'faq.md'), 'utf8');
-const automation = readFileSync(join(docsDir, 'modules', 'automation.md'), 'utf8');
+const faq = read('docs', 'faq.md');
+const automation = read('docs', 'modules', 'automation.md');
+const en = JSON.parse(read('packages', 'webview', 'src', 'i18n', 'locales', 'en.json'));
 
 /** Anything that reads as a promise of unattended, time-based execution. */
 const SCHEDULING = /schedul|cron|nightly|recurring|on a timer/i;
+
+/** The caveat every such promise has to carry. */
+const WHILE_OPEN = /while VS Code is open/;
 
 /**
  * Body of the section opened by `heading`, up to the next heading of the same
@@ -49,157 +55,196 @@ function section(markdown, heading) {
   return next === -1 ? body : body.slice(0, next);
 }
 
-/** Every channel `ExtensionHandlers.ts` hands to `route(`, as a list or on its own. */
-function routedChannels() {
-  const src = readFileSync(
-    join(repoRoot, 'packages', 'extension', 'src', 'bridge', 'ExtensionHandlers.ts'),
-    'utf8',
-  );
-  return [...src.matchAll(/\broute\(\s*(\[[^\]]*\]|'[^']*')/g)].flatMap(([, channels]) =>
-    [...channels.matchAll(/'([^']+)'/g)].map(([, channel]) => channel),
-  );
+/** Every member of the `TriggerType` union, in its order. */
+function triggerTypes() {
+  const types = read('packages', 'shared', 'src', 'types', 'automation.types.ts');
+  const union = types.match(/export type TriggerType =([^;]+);/);
+  assert.ok(union, 'TriggerType union not found in automation.types.ts');
+  return [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-/** Every channel the bridge's Zod union declares, one `msg('…')` member each. */
-function declaredChannels() {
-  const src = readFileSync(
-    join(repoRoot, 'packages', 'shared', 'src', 'bridge', 'messageSchemas.ts'),
-    'utf8',
+/**
+ * The trigger types that start a run: Manual, from the Run button, and the
+ * ones the trigger scheduler reads out of a saved pipeline — provided the
+ * extension starts the scheduler.
+ */
+function startingTriggerTypes() {
+  const scheduler = read(
+    'packages',
+    'extension',
+    'src',
+    'modules',
+    'automation',
+    'PipelineTriggerScheduler.ts',
   );
-  return [...src.matchAll(/msg\('([^']+)'\)/g)].map(([, channel]) => channel);
+  const method = scheduler.match(/private triggersOf\([\s\S]*?\n {2}\}/);
+  assert.ok(method, 'no triggersOf in PipelineTriggerScheduler.ts — has the scheduler moved?');
+  const fired = [...method[0].matchAll(/trigger\.type === '([a-z_]+)'/g)].map((m) => m[1]);
+  assert.ok(fired.length > 0, 'triggersOf was read as firing no trigger type');
+
+  assert.match(
+    read('packages', 'extension', 'src', 'extension.ts'),
+    /wirePipelineTriggers\(/,
+    'the extension no longer starts the pipeline triggers at activation — none of them fires',
+  );
+  assert.match(
+    read('packages', 'extension', 'src', 'bridge', 'ExtensionHandlers.ts'),
+    /this\.automationHandler\.startTriggers\(/,
+    'ExtensionHandlers no longer hands the triggers to the handler that starts them',
+  );
+  return ['manual', ...fired];
 }
 
-test('no scheduler:* channel is routed or declared', () => {
-  for (const [where, channels] of [
-    ['routed in ExtensionHandlers.ts', routedChannels()],
-    ['declared in messageSchemas.ts', declaredChannels()],
-  ]) {
-    // Positive control: the scan reads the Sync schedules, which are there, so
-    // an empty list below is not an empty read.
-    assert.ok(
-      channels.includes('sync:schedule:upsert'),
-      `sync:schedule:upsert is not seen ${where} — the scan is reading nothing`,
-    );
-    assert.deepEqual(
-      channels.filter((channel) => channel.startsWith('scheduler:')),
-      [],
-      `a scheduler:* channel is ${where} again — a pipeline may now start on a timer. Re-read ` +
-        'the Automation docs and the FAQ before relaxing this test',
-    );
+/** The label the panel shows for a trigger type. */
+const label = (type) => en.automation.triggerTypes[type];
+
+test('anchor: the extension fires the schedule and sandbox refresh triggers, and no other', () => {
+  const starting = startingTriggerTypes();
+  // Positive control: the walk sees the schedule, which fires.
+  assert.ok(starting.includes('schedule'), 'the walk does not see the schedules fire');
+  assert.deepEqual(
+    starting.filter((type) => ['event', 'webhook', 'deployment_complete'].includes(type)),
+    [],
+    'an event, webhook or deployment trigger fires now — the docs below call it coming soon. ' +
+      'Re-read the Triggers section, the FAQ and both READMEs before relaxing this.',
+  );
+});
+
+test('the Triggers section lists exactly the trigger types the panel offers', () => {
+  const ids = triggerTypes();
+  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
+  assert.deepEqual(
+    listed.map((m) => m[1]),
+    ids.map(label),
+  );
+});
+
+test('the Triggers section marks coming soon exactly the types that start nothing', () => {
+  const starting = startingTriggerTypes();
+  const byLabel = new Map(triggerTypes().map((type) => [label(type), type]));
+  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
+  for (const [, name, rest] of listed) {
+    const marked = /_\(coming soon\)_/.test(rest);
+    if (starting.includes(byLabel.get(name))) {
+      assert.equal(marked, false, `${name} starts runs, and is listed as coming soon`);
+    } else {
+      assert.equal(marked, true, `${name} starts nothing, and is listed without its marker`);
+    }
   }
 });
 
-test('the FAQ does not answer "recurring operations" with a schedule', () => {
+test('the Triggers banner names every type that starts nothing, and no release', () => {
+  const starting = startingTriggerTypes();
+  const banner = section(automation, '### Triggers')
+    .split('\n')
+    .filter((line) => line.startsWith('>'))
+    .join('\n');
+  assert.match(banner, /> \*\*Coming soon:\*\*/, 'the Triggers section lost its banner');
+  for (const type of triggerTypes().filter((type) => !starting.includes(type))) {
+    assert.match(banner, new RegExp(label(type)), `the banner does not name ${label(type)}`);
+  }
+  // "as of v1.3.0" sat in a banner of a v1.22 product: one that names a
+  // version goes stale.
+  assert.doesNotMatch(banner, /\bv\d+\.\d+/, 'the Triggers banner pins a version');
+  assert.doesNotMatch(automation, /\bas of v\d/i);
+});
+
+test('the Triggers section says a start is never made late, and a pipeline runs once at a time', () => {
+  const scheduler = read(
+    'packages',
+    'extension',
+    'src',
+    'modules',
+    'automation',
+    'PipelineTriggerScheduler.ts',
+  );
+  // The code the sentences below describe: a bound past which a start is
+  // reported rather than made, and a start refused while a run is going.
+  assert.match(scheduler, /export const LATE_AFTER_MS = /);
+  assert.match(scheduler, /reason: 'busy'/);
+
+  const triggers = section(automation, '### Triggers');
+  assert.match(triggers, /is not made late/);
+  assert.match(triggers, /written to Execution History as missed/);
+  assert.match(triggers, /One run of a pipeline at a time/);
+  assert.match(triggers, /steps can all run/);
+});
+
+test('every region that sells a schedule says it runs only while VS Code is open', () => {
+  const regions = [
+    ['the Automation lead', section(automation, '# Automation').split('## Quick Start')[0]],
+    ['the Automation quick start', section(automation, '## Quick Start')],
+    ['the Triggers section', section(automation, '### Triggers')],
+    ['the Scheduler section', section(automation, '### Scheduler')],
+    ['the Automation tips', section(automation, '## Tips')],
+    ['the FAQ answer', section(faq, '### Can I automate recurring operations?')],
+    [
+      'the README Automation row',
+      read('README.md')
+        .split('\n')
+        .find((line) => line.startsWith('| **Automation**')),
+    ],
+    [
+      'the Marketplace README Automation row',
+      read('packages', 'extension', 'README.md')
+        .split('\n')
+        .find((line) => line.startsWith('| **Automation**')),
+    ],
+  ];
+  // Positive control: the lead sells schedules, so the rule below bites.
+  assert.match(regions[0][1], SCHEDULING, 'the lead no longer mentions a schedule');
+  for (const [where, text] of regions) {
+    assert.ok(text, `${where} not found`);
+    if (SCHEDULING.test(text)) {
+      assert.match(
+        text,
+        WHILE_OPEN,
+        `${where} sells a schedule without saying VS Code must be open`,
+      );
+    }
+  }
+});
+
+test('the FAQ answers "recurring operations" with what starts a pipeline, and names the gap', () => {
   const answer = section(faq, '### Can I automate recurring operations?');
-  assert.doesNotMatch(
-    answer,
-    /run them (?:manually )?or on a schedule/i,
-    'the FAQ promises scheduled runs that no executor performs',
-  );
+  assert.match(answer, /on a cron schedule/);
+  assert.match(answer, /never made late/);
   assert.match(
     answer,
-    /not wired yet/i,
-    'the FAQ must name the gap, not merely stop short of claiming it',
+    /Event, webhook and deployment triggers are not wired yet/,
+    'the FAQ must name the triggers that start nothing, not merely stop short of claiming them',
   );
 });
 
-test('the Automation intro and quick start stay silent about scheduling', () => {
-  const lead = section(automation, '# Automation');
-  const quickStart = section(automation, '## Quick Start');
-
-  // The lead is everything before `## Quick Start`; slice it off so the two
-  // regions are asserted separately and a failure names the right one.
-  assert.doesNotMatch(lead.slice(0, lead.indexOf('## Quick Start')), SCHEDULING);
-  assert.doesNotMatch(quickStart, SCHEDULING);
-});
-
-test('the Tips section does not sell triggers as automation', () => {
-  const tips = section(automation, '## Tips');
-  assert.doesNotMatch(tips, SCHEDULING);
-  assert.doesNotMatch(tips, /use triggers/i);
-});
-
-test('the Triggers and Scheduler sections keep their coming-soon banners', () => {
-  // Triggers describes the planned design in the present tense, and the
-  // Scheduler tab, which lists the sync schedules, sits on a page about
-  // pipelines: the banners are what keep either from reading as a pipeline
-  // started on a timer.
-  for (const heading of ['### Triggers', '### Scheduler']) {
-    assert.match(
-      section(automation, heading),
-      /> \*\*Coming soon:\*\*/,
-      `${heading} describes unbuilt behaviour with no coming-soon banner`,
-    );
-  }
-  assert.match(
-    section(automation, '### Scheduler'),
-    /no pipeline runs on a timer/,
-    'the Scheduler banner must state that no pipeline runs on a timer, not merely hedge',
-  );
-  assert.match(
-    section(automation, '### Scheduler'),
-    /runs saved Sync configurations only/,
-    'the Scheduler banner must say what the scheduler behind the tab does run',
-  );
-});
-
-test('the Scheduler section describes the tab the page renders: the sync schedules', () => {
-  // The tab was a "Coming soon" badge over an empty calendar of pipelines;
-  // it now lays out the `sync:schedule:*` schedules by day.
-  const calendar = readFileSync(
-    join(repoRoot, 'packages', 'webview', 'src', 'pages', 'Automation', 'SchedulerCalendar.tsx'),
-    'utf8',
+test('the Scheduler section describes the tab the page renders: the sync and the pipeline schedules', () => {
+  const calendar = read(
+    'packages',
+    'webview',
+    'src',
+    'pages',
+    'Automation',
+    'SchedulerCalendar.tsx',
   );
   assert.match(calendar, /<SyncSchedulePanel layout=\{ScheduleAgenda\} \/>/);
+  assert.match(calendar, /<PipelineSchedules rows=\{pipelineSchedules\} \/>/);
   assert.doesNotMatch(calendar, /comingSoon/);
 
   const scheduler = section(automation, '### Scheduler');
   assert.match(scheduler, /sync schedules/);
+  assert.match(scheduler, /pipeline schedules/);
+  assert.match(
+    scheduler,
+    /never made late/,
+    'the Scheduler section must say how a pipeline schedule differs from a sync one',
+  );
+  assert.doesNotMatch(
+    scheduler,
+    /no pipeline runs on a timer/,
+    'the Scheduler section still says no pipeline runs on a timer',
+  );
   assert.doesNotMatch(
     scheduler,
     /exclusion dates|holidays|maintenance windows/i,
     'the Scheduler section promises calendar features the tab does not have',
   );
-});
-
-test('the Triggers section lists exactly the trigger types the panel offers', () => {
-  // The section used to list File Watch, Record Change and Pipeline Completion,
-  // which no TriggerType names, and to omit three that the panel does offer.
-  const types = readFileSync(
-    join(repoRoot, 'packages', 'shared', 'src', 'types', 'automation.types.ts'),
-    'utf8',
-  );
-  const union = types.match(/export type TriggerType =([^;]+);/);
-  assert.ok(union, 'TriggerType union not found in automation.types.ts');
-  const ids = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-  const en = JSON.parse(
-    readFileSync(
-      join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'locales', 'en.json'),
-      'utf8',
-    ),
-  );
-  const labels = ids.map((id) => en.automation.triggerTypes[id]);
-
-  const listed = [...section(automation, '### Triggers').matchAll(/^- \*\*([^*]+)\*\*(.*)$/gm)];
-  assert.deepEqual(
-    listed.map((m) => m[1]),
-    labels,
-  );
-  for (const [, label, rest] of listed) {
-    if (label === en.automation.triggerTypes.manual) continue;
-    assert.match(rest, /_\(coming soon\)_/, `${label} is listed without its coming-soon marker`);
-  }
-});
-
-test('the Automation banners name no release', () => {
-  // "as of v1.3.0" sat in both banners of a v1.22 product. A banner that states
-  // the present needs no version, and one that names a version goes stale.
-  assert.doesNotMatch(automation, /\bas of v\d/i);
-  for (const heading of ['### Triggers', '### Scheduler']) {
-    const banner = section(automation, heading)
-      .split('\n')
-      .filter((line) => line.startsWith('>'))
-      .join('\n');
-    assert.doesNotMatch(banner, /\bv\d+\.\d+/, `${heading} banner pins a version`);
-  }
 });

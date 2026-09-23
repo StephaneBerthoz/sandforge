@@ -235,12 +235,15 @@ async function answerMountQueries(
   page: Page,
   options: {
     pipelines?: unknown[];
+    /** What the extension says each saved schedule and sandbox refresh trigger will do. */
+    triggers?: unknown[];
     history?: unknown[];
     templates?: unknown[];
   } = {},
 ): Promise<void> {
   await respondToAll(page, 'pipeline:list', 'pipeline:list:response', {
     pipelines: options.pipelines ?? [],
+    triggers: options.triggers ?? [],
   });
   await respondToAll(page, 'pipeline:history', 'pipeline:history:response', {
     history: options.history ?? [],
@@ -639,6 +642,101 @@ test.describe('Automation page — canvas editing', () => {
     await removeTrigger.click();
     await expect(kpiValues(page).nth(1)).toHaveText('0');
     await expect(page.locator('[data-testid^="cron-input-"]')).toHaveCount(0);
+  });
+});
+
+test.describe('Automation page — triggers', () => {
+  /** A saved pipeline every step of which can run, started by a schedule and by a refresh. */
+  const TRIGGERED_PIPELINE = {
+    id: 'pipe-3',
+    name: 'Nightly compare',
+    description: '',
+    version: 1,
+    steps: [
+      { id: 'step-w', name: 'Wait', type: 'delay', config: { seconds: 0 }, continueOnError: false },
+    ],
+    triggers: [
+      {
+        id: 'trig-s',
+        type: 'schedule',
+        enabled: true,
+        config: { cron: '0 2 * * *', timezone: 'UTC' },
+      },
+      { id: 'trig-r', type: 'sandbox_refresh', enabled: true, config: { orgId: 'org-src-1' } },
+    ],
+    variables: [],
+    tags: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+  };
+
+  /** What the extension says of those two triggers. */
+  const STATUSES = [
+    {
+      pipelineId: 'pipe-3',
+      triggerId: 'trig-s',
+      type: 'schedule',
+      armed: true,
+      timezone: 'UTC',
+      nextRunAt: '2026-09-24T02:00:00.000Z',
+      lastFiredAt: '2026-09-23T02:00:00.000Z',
+      lastOutcome: 'started',
+    },
+    { pipelineId: 'pipe-3', triggerId: 'trig-r', type: 'sandbox_refresh', armed: true },
+  ];
+
+  test('shows the next run of a saved schedule, and the sandbox a refresh trigger waits for', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: [TRIGGERED_PIPELINE], triggers: STATUSES });
+    await page.getByTestId('saved-pipeline-pipe-3').click();
+    await page.getByTestId('page-tab-triggers').click();
+
+    await expect(page.getByTestId('trigger-next-run-trig-s')).toContainText('(UTC)');
+    await expect(page.getByTestId('trigger-last-trig-s')).toContainText('Last started');
+    await expect(page.getByTestId('trigger-armed-trig-r')).toHaveText(
+      'Watching for a refresh of DevSandbox.',
+    );
+    // Neither of them is coming soon: both start runs.
+    await expect(page.locator('[data-testid^="trigger-coming-soon-"]')).toHaveCount(0);
+
+    // An edit waits for the save: the next run shown is the saved one's, so it goes.
+    await page.getByTestId('cron-input-trig-s').fill('30 3 * * *');
+    await expect(page.getByTestId('trigger-unsaved-trig-s')).toBeVisible();
+    await expect(page.getByTestId('trigger-next-run-trig-s')).toHaveCount(0);
+  });
+
+  test('lists the pipeline schedules on the Scheduler tab, with their next run', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page, { pipelines: [TRIGGERED_PIPELINE], triggers: STATUSES });
+    await page.getByTestId('page-tab-scheduler').click();
+    await respondToAll(page, 'sync:schedule:list', 'sync:schedule:list:response', {
+      schedules: [],
+    });
+
+    const row = page.getByTestId('scheduler-pipeline-pipe-3-trig-s');
+    await expect(row).toContainText('Nightly compare');
+    await expect(row).toContainText('0 2 * * *');
+    await expect(row).toContainText('Next run:');
+  });
+
+  test('asks for the history again when a run a trigger started ends', async ({ page }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    const before = (await outgoing(page, 'pipeline:history')).length;
+
+    await sendExtensionMessage(page, {
+      type: 'operation:completed',
+      id: 'ext-op-1',
+      payload: { operationId: 'pipeline:trigger:6f1c', result: { status: 'completed' } },
+    });
+
+    await expect
+      .poll(async () => (await outgoing(page, 'pipeline:history')).length)
+      .toBeGreaterThan(before);
   });
 });
 

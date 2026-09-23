@@ -859,24 +859,36 @@ for (const theme of SCANNED_THEMES) {
       expect(measured, 'axe did not measure the noticed refresh').toBe(true);
     });
 
-    test('Automation sandbox refresh trigger saying why it starts nothing', async ({ page }) => {
+    test('Automation schedule, sandbox refresh and webhook triggers saying what they will do', async ({
+      page,
+    }) => {
       await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
       await page.getByTestId('create-pipeline-btn').click();
       await page.getByRole('tab', { name: 'Triggers' }).click();
-      await page.getByTestId('trigger-type-select').selectOption('sandbox_refresh');
-      await page.getByTestId('add-trigger-btn').click();
+      for (const type of ['schedule', 'sandbox_refresh', 'webhook']) {
+        await page.getByTestId('trigger-type-select').selectOption(type);
+        await page.getByTestId('add-trigger-btn').click();
+      }
       await page
-        .locator('[data-testid^="trigger-refused-"]')
+        .locator('[data-testid^="trigger-soon-reason-"]')
         .first()
         .waitFor({ state: 'visible', timeout: 5000 });
+      // The time zone and sandbox pickers are named, the notes are measured.
+      await expect(page.getByLabel('Time zone')).toBeVisible();
+      await expect(page.getByLabel('Sandbox')).toBeVisible();
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       const measured = results.passes
         .filter((rule) => rule.id === 'color-contrast')
         .flatMap((rule) => rule.nodes)
-        .some((node) => node.html.includes('trigger-refused-'));
-      expect(measured, 'axe did not measure the refusal').toBe(true);
+        .map((node) => node.html);
+      for (const note of ['trigger-unsaved-', 'trigger-soon-reason-']) {
+        expect(
+          measured.some((html) => html.includes(note)),
+          `axe did not measure ${note}`,
+        ).toBe(true);
+      }
     });
 
     test('Grappe page while a partitioned run is in progress', async ({ page }) => {

@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderHook, act } from '@testing-library/react';
 import i18n from '../../i18n';
 import type { NotificationInput } from '../../stores/useNotificationStore';
-import { useAutomationPageData } from './useAutomationPageData';
+import type { PipelineDefinition, PipelineTriggerStatus, SalesforceOrg } from '@sandforge/shared';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { useAutomationPageData, nextTriggerRefreshDelay } from './useAutomationPageData';
 
 /** Options captured from every useBridgeMutation call, keyed by request type. */
 const mutationOptions = new Map<string, Record<string, unknown> | undefined>();
@@ -81,9 +83,12 @@ function refetchFor(type: string): ReturnType<typeof vi.fn> {
   return created;
 }
 
+/** What each query answered, by request type; nothing until a test sets it. */
+const queryData = new Map<string, unknown>();
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => ({
-    data: null,
+    data: queryData.get(type) ?? null,
     loading: false,
     error: null,
     refetch: refetchFor(type),
@@ -144,6 +149,7 @@ beforeEach(() => {
   mutationOptions.clear();
   mutationDoubles.clear();
   queryRefetches.clear();
+  queryData.clear();
   notifications.length = 0;
   posted.mockClear();
 });
@@ -259,7 +265,8 @@ describe('useAutomationPageData — the AI-generated pipeline reaches the canvas
     expect(result.current.pipeline?.triggers[0]).toMatchObject({
       type: 'schedule',
       enabled: true,
-      config: { cron: '0 2 * * *' },
+      // In the reader's time zone, as a schedule added by hand.
+      config: { cron: '0 2 * * *', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     });
     expect(result.current.activeTab).toBe('canvas');
   });
@@ -612,5 +619,173 @@ describe('useAutomationPageData — a run in progress', () => {
     const { result } = renderHook(() => useAutomationPageData());
     act(() => result.current.handleCancelRun());
     expect(posted).not.toHaveBeenCalled();
+  });
+});
+
+describe('useAutomationPageData — triggers', () => {
+  /** A saved pipeline with one schedule trigger. */
+  function saved(id: string, cron = '0 2 * * *'): PipelineDefinition {
+    return {
+      id,
+      name: `Pipeline ${id}`,
+      description: '',
+      version: 1,
+      steps: [],
+      triggers: [
+        { id: `${id}-t`, type: 'schedule', enabled: true, config: { cron, timezone: 'UTC' } },
+      ],
+      variables: [],
+      tags: [],
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    };
+  }
+
+  /** What the extension says of the schedule of the saved pipeline `id`. */
+  function statusOf(id: string, nextRunAt: string): PipelineTriggerStatus {
+    return {
+      pipelineId: id,
+      triggerId: `${id}-t`,
+      type: 'schedule',
+      armed: true,
+      timezone: 'UTC',
+      nextRunAt,
+    };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useOrgStore.setState({ orgs: [] });
+  });
+
+  it('gives the trigger panel what the extension says of the pipeline on the canvas, and of no other', () => {
+    const p1 = saved('p1');
+    const p2 = saved('p2');
+    queryData.set('pipeline:list', {
+      pipelines: [p1, p2],
+      triggers: [
+        statusOf('p1', '2099-01-01T02:00:00.000Z'),
+        statusOf('p2', '2099-01-01T02:00:00.000Z'),
+      ],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(p1));
+
+    expect(result.current.triggerStatuses.map((status) => status.pipelineId)).toEqual(['p1']);
+    expect(result.current.savedTriggers).toEqual(p1.triggers);
+    // The Scheduler tab lists the schedule of every saved pipeline.
+    expect(
+      result.current.pipelineSchedules.map((row) => [row.pipelineName, row.status?.pipelineId]),
+    ).toEqual([
+      ['Pipeline p1', 'p1'],
+      ['Pipeline p2', 'p2'],
+    ]);
+  });
+
+  it('asks for the saved pipelines again once a save is acknowledged, so what a trigger does follows the save', () => {
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleSavePipeline());
+    expect(refetchFor('pipeline:list')).not.toHaveBeenCalled();
+
+    mutationFor('pipeline:save').data = { success: true, id: 'p1' };
+    rerender();
+    expect(refetchFor('pipeline:list')).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for the history again when a run a trigger started ends, and for no other operation', () => {
+    renderHook(() => useAutomationPageData());
+    receive('operation:completed', { operationId: 'pipeline:trigger:6f1c', result: {} });
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(1);
+    expect(refetchFor('pipeline:list')).toHaveBeenCalledTimes(1);
+
+    receive('operation:failed', {
+      operationId: 'pipeline:trigger:7a2d',
+      error: 'x',
+      retryable: false,
+    });
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(2);
+
+    // A sync, or a run from a page, is not a run a trigger started.
+    receive('operation:completed', { operationId: 'sync:schedule:1', result: {} });
+    receive('operation:failed', { operationId: 'wv-1', error: 'x', retryable: false });
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again a moment after the soonest planned start, when its run is in the history', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-23T01:59:00.000Z'));
+    queryData.set('pipeline:list', {
+      pipelines: [saved('p1'), saved('p2', '0 3 * * *')],
+      triggers: [
+        statusOf('p1', '2026-09-23T02:00:00.000Z'),
+        statusOf('p2', '2026-09-23T03:00:00.000Z'),
+      ],
+    });
+    renderHook(() => useAutomationPageData());
+
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(refetchFor('pipeline:history')).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(refetchFor('pipeline:history')).toHaveBeenCalledTimes(1);
+    expect(refetchFor('pipeline:list')).toHaveBeenCalledTimes(1);
+  });
+
+  it('works out when to ask again from the armed schedules only', () => {
+    const now = Date.parse('2026-09-23T01:59:00.000Z');
+    expect(nextTriggerRefreshDelay([], now)).toBeUndefined();
+    expect(
+      nextTriggerRefreshDelay(
+        [{ ...statusOf('p1', '2026-09-23T02:00:00.000Z'), armed: false, idle: 'disabled' }],
+        now,
+      ),
+    ).toBeUndefined();
+    expect(nextTriggerRefreshDelay([statusOf('p1', '2026-09-23T02:00:00.000Z')], now)).toBe(65_000);
+    // A start already past is asked about once the extension has looked at it,
+    // within a minute; a far one no later than six hours.
+    expect(nextTriggerRefreshDelay([statusOf('p1', '2026-09-23T01:00:00.000Z')], now)).toBe(65_000);
+    expect(nextTriggerRefreshDelay([statusOf('p1', '2026-12-25T00:00:00.000Z')], now)).toBe(
+      6 * 60 * 60_000,
+    );
+  });
+
+  it('adds a schedule read in the time zone of the person who writes it', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddTrigger('schedule'));
+    act(() => result.current.handleAddTrigger('sandbox_refresh'));
+    const [schedule, refresh] = result.current.pipeline?.triggers ?? [];
+    expect(schedule.config).toEqual({
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    expect(refresh.config).toEqual({});
+  });
+
+  it('changes the expression and the time zone of a trigger, one field at a time', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddTrigger('schedule'));
+    const id = result.current.pipeline?.triggers[0].id ?? '';
+    act(() => result.current.handleUpdateTriggerConfig(id, { cron: '0 2 * * *' }));
+    act(() => result.current.handleUpdateTriggerConfig(id, { timezone: 'Asia/Tokyo' }));
+    expect(result.current.pipeline?.triggers[0].config).toEqual({
+      cron: '0 2 * * *',
+      timezone: 'Asia/Tokyo',
+    });
+  });
+
+  it('offers the registered sandboxes to a sandbox refresh trigger, and no other org', () => {
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-uat', alias: 'uat', username: 'u1', orgType: 'Sandbox' },
+        { id: 'org-prod', alias: 'prod', username: 'u2', orgType: 'Production' },
+        { id: 'org-dev', alias: '', username: 'admin@example.test.dev', orgType: 'Sandbox' },
+      ] as unknown as SalesforceOrg[],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    expect(result.current.sandboxes).toEqual([
+      { id: 'org-uat', alias: 'uat' },
+      { id: 'org-dev', alias: 'admin@example.test.dev' },
+    ]);
   });
 });

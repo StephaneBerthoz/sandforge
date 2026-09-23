@@ -1262,8 +1262,54 @@
     "triggersCount": "Déclencheurs actifs",
     "historyRuns": "Historique des exécutions",
     "triggers": "Déclencheurs",
-    "triggerManualOnlyNote": "Seule une exécution manuelle démarre un pipeline. Les autres types de déclencheur se configurent ici, mais rien ne les déclenche encore.",
-    "sandboxRefreshTriggerRefused": "SandForge remarque le rafraîchissement d'une sandbox et vous le signale, mais ce déclencheur ne démarre aucun pipeline : les pipelines se lancent à la main. Le travail qu'appelle un rafraîchissement — anonymisation, seed — écrit dans une org, et aucune étape de pipeline ne le fait.",
+    "triggerNote": "Une exécution part du bouton Exécuter le pipeline, d'une planification ou du rafraîchissement d'une sandbox. Planifications et rafraîchissements lancent le pipeline enregistré tant que VS Code est ouvert, une exécution à la fois ; un démarrage prévu pendant que VS Code est fermé est inscrit à l'historique comme manqué, jamais rattrapé. Les déclencheurs d'événement, de webhook et de déploiement ne lancent encore rien.",
+    "triggerSoon": {
+      "event": "Ne lance rien : aucune source d'événements n'alimente encore ce déclencheur.",
+      "webhook": "Ne lance rien : SandForge n'ouvre aucun port, donc rien hors de VS Code ne peut joindre un webhook.",
+      "deployment_complete": "Ne lance rien : SandForge ne lit les déploiements d'une org que lorsque le Monitor les demande, donc rien n'en voit un se terminer."
+    },
+    "triggerHint": {
+      "schedule": "Lance le pipeline enregistré à chaque heure que l'expression désigne, dans le fuseau horaire choisi, tant que VS Code est ouvert.",
+      "sandbox_refresh": "Lance le pipeline enregistré quand SandForge remarque le rafraîchissement de cette sandbox — seulement un pipeline dont toutes les étapes peuvent s'exécuter."
+    },
+    "triggerTimezone": "Fuseau horaire",
+    "triggerSandbox": "Sandbox",
+    "triggerChooseSandbox": "Choisir une sandbox",
+    "triggerUnknownSandbox": "Une sandbox que SandForge ne connaît plus",
+    "triggerNoSandboxes": "Aucune sandbox n'est encore connectée.",
+    "triggerUnsaved": "Pas encore enregistré : un déclencheur lance le pipeline tel qu'il a été enregistré. Enregistrez le pipeline pour que ceci prenne effet.",
+    "triggerIdle": {
+      "disabled": "Désactivé : il ne lance rien.",
+      "noCron": "Ne lance rien tant qu'il n'a pas d'expression cron.",
+      "badCron": "Ne lance rien : SandForge ne sait pas lire cette expression cron.",
+      "badTimezone": "Ne lance rien : SandForge ne connaît pas ce fuseau horaire.",
+      "noNextRun": "Ne lance rien : aucune date ne correspond à cette expression cron.",
+      "noSandbox": "Ne lance rien tant qu'il ne désigne pas de sandbox.",
+      "unknownSandbox": "Ne lance rien : SandForge ne connaît plus la sandbox désignée. Choisissez-la de nouveau.",
+      "notSandbox": "Ne lance rien : l'org désignée n'est pas une sandbox, et seule une sandbox est rafraîchie.",
+      "cannotRun": "Ne lance rien tant qu'une étape de ce pipeline ne peut pas s'exécuter.",
+      "stopped": "Ne lance rien : aucun déclencheur n'est surveillé dans cette fenêtre."
+    },
+    "triggerNextRun": "Prochaine exécution : {{time}} ({{timezone}})",
+    "triggerWatching": "Surveille le rafraîchissement de {{sandbox}}.",
+    "triggerLast": {
+      "started": "Dernier démarrage : {{time}}",
+      "missed": "Dernier démarrage manqué : {{time}}. L'historique dit pourquoi."
+    },
+    "missed": {
+      "closed": "Prévu le {{time}}, pendant que VS Code était fermé : pas démarré, et pas rattrapé.",
+      "closedMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que VS Code était fermé : aucun n'a été rattrapé.",
+      "asleep": "Prévu le {{time}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : pas rattrapé.",
+      "asleepMany": "{{n}} démarrages prévus du {{first}} au {{last}}, quand SandForge ne pouvait pas consulter la planification, comme lorsque l'ordinateur est en veille : aucun n'a été rattrapé.",
+      "busy": "Prévu le {{time}}, pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
+      "busyMany": "{{n}} démarrages prévus du {{first}} au {{last}}, pendant que l'exécution démarrée le {{since}} était encore en cours : aucun n'a été fait. Un pipeline ne s'exécute jamais deux fois en même temps.",
+      "busyRefresh": "Le rafraîchissement remarqué le {{time}} est arrivé pendant que l'exécution démarrée le {{since}} était encore en cours : pas démarré. Un pipeline ne s'exécute jamais deux fois en même temps.",
+      "cannotRun": "Le rafraîchissement remarqué le {{time}} n'a rien lancé : une étape de ce pipeline ne peut pas s'exécuter."
+    },
+    "pipelineSchedules": {
+      "title": "Planifications des pipelines",
+      "empty": "Aucun pipeline enregistré n'a de planification. Ajoutez-en une dans l'onglet Déclencheurs, puis enregistrez le pipeline."
+    },
     "addTrigger": "Ajouter un déclencheur",
     "run": "Exécuter le pipeline",
     "running": "Exécution du pipeline...",
@@ -1312,10 +1358,11 @@
       "failed": "Échoué",
       "cancelled": "Annulé",
       "pending": "En attente",
-      "skipped": "Ignoré"
+      "skipped": "Ignoré",
+      "missed": "Manqué"
     },
     "scheduler": "Planificateur",
-    "schedulerIntro": "Chaque planification de synchronisation, par jour de sa prochaine exécution. Un pipeline ne s'exécute pas selon une planification : il démarre depuis son bouton Exécuter le pipeline.",
+    "schedulerIntro": "Les planifications de synchronisation, par jour de leur prochaine exécution, puis les planifications des pipelines enregistrés, avec la prochaine exécution de chacune.",
     "cronExpression": "Expression Cron",
     "canvas": "Canvas du pipeline",
     "dragStep": "Glissez une étape sur le canvas",
@@ -1724,7 +1771,7 @@
     "syncContent": "Synchronisez les données entre deux orgs Salesforce :\n- Sync complet uniquement : chaque exécution rejoue tout le jeu d'objets (l'incrémental et le delta ne sont pas implémentés)\n- Mapping automatique des champs avec scores de confiance\n- Les règles de transformation s'appliquent à chaque champ de chaque enregistrement de l'exécution, sauf Id et l'identifiant externe sur lequel l'exécution fait sa correspondance, laissés tels quels : un préfixe ou une troncature ne peut donc pas envoyer l'écriture vers un enregistrement qui n'existe pas. Les réglages que chacune accepte : casse et espaces n'en prennent aucun ; la troncature prend une longueur ; préfixe, suffixe, remplacement, regex, valeur par défaut, formats de date et de nombre et formules prennent leur texte ; la table de correspondance prend un tableau de remplacements que la page ne sait pas encore saisir, une règle de ce type laisse donc les valeurs telles quelles\n- Résolution des conflits sur les exécutions bidirectionnelles : source prioritaire, cible prioritaire, plus récent prioritaire ou fusion champ par champ\n- Onglet Temps réel : suit les événements de modification (Change Data Capture) que l'org source publie et écrit chaque modification dans la cible dès qu'elle arrive, retrouvée par un ID externe, l'ID d'enregistrement ou le mappage d'une sync enregistrée ; les suppressions seulement sur demande. Pour suivre un autre objet, sélectionnez-le dans Configuration → Change Data Capture sur l'org source. Une modification dont l'enregistrement cible a été modifié après elle est tranchée par la stratégie, ou mise en attente dans l'onglet Conflits\n- Aucune annulation : une exécution ne peut pas être défaite, faites donc d'abord une sauvegarde DataOps de l'org cible (elle couvre Account et Contact)",
     "compareContent": "Comparez les métadonnées entre deux orgs :\n- Visionneuse de diff groupée par catégorie et niveau de risque\n- Permissions : les profils et ensembles d'autorisations présents de chaque côté\n- Instantanés : les objets des deux orgs, capturés en direct à l'ouverture de l'onglet\n- Drift : cinq paramètres Organization côte à côte (nom, langue, paramètres régionaux, fuseau horaire, début de l'exercice fiscal)\n- Déploiement : choisissez ce qui diffère, validez-le d'abord dans la cible, puis déployez la validation vers une sandbox",
     "dataopsContent": "Opérations sur les données de l'org sélectionnée :\n- Sauvegarde : un instantané complet d'Account et de Contact, conservé dans le stockage de l'extension\n- Restauration : remet une sauvegarde, en entier, dans l'org d'où elle provient\n- Anonymisation : masque les champs sur place avec un modèle intégré comme GDPR, CCPA ou HIPAA ; c'est irréversible, alors sauvegardez d'abord\n- Qualité : pour les objets que vous choisissez, compte à quelle fréquence chaque champ est rempli, quelles valeurs d'une clé comme Name ou Email plusieurs enregistrements partagent, et combien d'enregistrements personne n'a modifiés depuis un nombre de jours donné ; c'est l'org qui compte, et rien n'est lu enregistrement par enregistrement ni écrit\n- Conformité et Nettoyage : bientôt disponible, rien ne tourne encore derrière ces onglets",
-    "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Les pipelines se lancent à la main, avec le bouton Exécuter le pipeline ; rien d'autre n'en démarre un pour l'instant\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, et ce qu'a fait chacune de ses étapes\n- Modèles de pipeline depuis la Marketplace",
+    "automationContent": "Constructeur visuel de pipelines :\n- 15 types d'étapes en 4 catégories. Sauvegarde, Comparaison, Pre-vérification, Notification, Délai et Condition s'exécutent ; un pipeline qui contient une étape écrivant dans une org, ou une étape Script, Approbation, Boucle ou Parallèle, est refusé avant de démarrer\n- Un pipeline démarre depuis le bouton Exécuter le pipeline, aux heures qu'une expression cron désigne tant que VS Code est ouvert, ou quand SandForge remarque le rafraîchissement d'une sandbox choisie ; déclencheurs d'événement, de webhook et de déploiement : bientôt disponible, ils ne lancent encore rien\n- Historique d'exécution : statut, durée totale et erreurs de chaque exécution, ce qu'a fait chacune de ses étapes, et les démarrages qu'un déclencheur a manqués\n- Modèles de pipeline depuis la Marketplace",
     "forgeContent": "Forge clone un enregistrement réel, et les enregistrements qui l'entourent, d'une org vers une autre :\n1. Collez un ID d'enregistrement ou une URL Salesforce, puis choisissez les orgs source et cible\n2. Découvrir le graphe parcourt les relations depuis cet enregistrement\n3. Réglez la profondeur, le nombre d'enregistrements par objet et l'anonymisation des PII\n4. Vérifiez le plan, puis lancez-le : les ID sont remappés à l'écriture ; un type d'enregistrement sans type d'enregistrement actif de même nom d'API sur la cible conserve son Id source, et le journal SandForge le signale\n\nAstuce : un clonage limité à un enregistrement copie ce dont il a besoin, pas des tables entières.",
     "frozenContent": "Le jeu figé extrait une seule fois un jeu de données d'une sandbox source et le rejoue après chaque rafraîchissement :\n- Extraction : enregistrements racines choisis par matrice de couverture, dans un budget de volume\n- Pseudonymisation déterministe, avec un sel conservé hors du dépôt\n- Un contrôle en quatre points doit réussir avant que le jeu soit écrit\n- Chargement : cibles sandbox uniquement, avec un Pilote facultatif sur un seul dossier racine avant le chargement complet, et une vérification après le chargement",
     "grappeContent": "Grappe découpe une grosse opération en partitions et signale la progression à la fin de chacune :\n- Activez-le avec le paramètre sandforge.grappe.enabled\n- Un Seed au-delà du seuil d'enregistrements signale chaque partition, une Sync au-delà de ce seuil signale une partition par objet, et un plan Autopilot ne signale que son début et sa fin\n- Les partitions s'exécutent l'une après l'autre : Grappe ne rend pas une exécution plus rapide",
