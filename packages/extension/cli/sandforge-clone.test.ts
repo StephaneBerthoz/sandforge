@@ -232,6 +232,7 @@ describe('sandforge-clone summary', () => {
     existingRecords: [],
     existingSourceIds: [],
     remapByObject: [],
+    createdByObject: [],
     ...overrides,
   });
 

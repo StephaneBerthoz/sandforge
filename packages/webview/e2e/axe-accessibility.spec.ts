@@ -276,6 +276,99 @@ const FORGE_RUN_GRAPH = {
   estimatedDurationSeconds: 1,
 };
 
+/** A fake record id: the object's prefix, then a counter. */
+const fakeId = (prefix: string, n: number, tail = 'AAA'): string =>
+  `${prefix}${String(n).padStart(12, '0')}${tail}`;
+
+/**
+ * A past run, as `forge:history:list` answers it, that wrote an account, a case
+ * and two contacts to the QA sandbox and linked an account it already held.
+ */
+const FORGE_REMOVABLE_RUN = {
+  forgeId: 'forge-run-removable',
+  status: 'partial',
+  graph: FORGE_RUN_GRAPH,
+  duration: 60_000,
+  timestamp: '2026-09-22T09:00:00.000Z',
+  idRemapCount: 5,
+  createdCount: 4,
+  linkedExistingCount: 1,
+  idRemapTable: {
+    [fakeId('001', 1, 'SRC')]: fakeId('001', 1),
+    [fakeId('001', 2, 'SRC')]: fakeId('001', 9),
+    [fakeId('500', 1, 'SRC')]: fakeId('500', 1),
+    [fakeId('003', 1, 'SRC')]: fakeId('003', 1),
+    [fakeId('003', 2, 'SRC')]: fakeId('003', 2),
+  },
+  idRemapExisting: [fakeId('001', 2, 'SRC')],
+  idRemapCreated: [
+    { objectApiName: 'Account', sourceIds: [fakeId('001', 1, 'SRC')] },
+    { objectApiName: 'Case', sourceIds: [fakeId('500', 1, 'SRC')] },
+    { objectApiName: 'Contact', sourceIds: [fakeId('003', 1, 'SRC'), fakeId('003', 2, 'SRC')] },
+  ],
+  targetOrgId: QA_SANDBOX.id,
+  config: {
+    inputMode: 'soql',
+    soqlQuery: FORGE_AI_DRAFT,
+    depth: 'direct',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto',
+  },
+};
+
+/**
+ * What removing that run's records did, one object of each outcome: a contact
+ * deleted, one already gone and one changed since the run, a case the org
+ * refused, and the account the kept contact still hangs from.
+ */
+const FORGE_REMOVAL_RESULT = {
+  forgeId: FORGE_REMOVABLE_RUN.forgeId,
+  status: 'partial',
+  includeChanged: false,
+  finishedAt: '2026-09-23T10:00:00.000Z',
+  objects: [
+    {
+      objectApiName: 'Contact',
+      planned: 2,
+      deleted: 1,
+      alreadyGone: 0,
+      keptChanged: 1,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: ['ActionableListMember'],
+      reasons: [],
+    },
+    {
+      objectApiName: 'Case',
+      planned: 1,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 1,
+      heldBy: [],
+      unchecked: [],
+      reasons: [
+        'DELETE_FAILED: Your attempt to delete this case could not be completed because it is associated with an entitlement.',
+      ],
+    },
+    {
+      objectApiName: 'Account',
+      planned: 1,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 1,
+      refused: 0,
+      heldBy: ['Contact'],
+      unchecked: ['ActionableListMember'],
+      reasons: [],
+    },
+  ],
+};
+
 /**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
  * guard asked about, and a restore the guard refused.
@@ -440,6 +533,22 @@ async function answerAll(
       payload,
     });
   }
+}
+
+/** The Forge page with its recent runs listed: one run whose records can be removed. */
+async function openForgeHistory(
+  bridge: MockBridge,
+  page: Page,
+  theme: ScannedTheme,
+): Promise<void> {
+  await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+  await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+  await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+    history: [FORGE_REMOVABLE_RUN],
+  });
+  await page
+    .getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`)
+    .waitFor({ timeout: 10_000 });
 }
 
 for (const theme of SCANNED_THEMES) {
@@ -1322,6 +1431,38 @@ for (const theme of SCANNED_THEMES) {
 
       const dialog = page.getByRole('dialog', { name: 'Deploy to QASandbox' });
       await dialog.waitFor({ state: 'visible', timeout: 5000 });
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Forge run removal confirmation open over the history', async ({ page }) => {
+      await openForgeHistory(bridge, page, theme);
+      await page.getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`).click();
+
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this run's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('forge-removal-plan')).toBeVisible();
+      await expect(dialog.getByTestId('forge-removal-linked')).toBeVisible();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+    });
+
+    test('Forge run removal result, per object, with what the org refused', async ({ page }) => {
+      await openForgeHistory(bridge, page, theme);
+      await page.getByTestId(`forge-history-remove-${FORGE_REMOVABLE_RUN.forgeId}`).click();
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('forge:undo', { timeout: 10_000 });
+      await answerAll(page, 'forge:undo', 'forge:undo:response', {
+        result: FORGE_REMOVAL_RESULT,
+        operationId: 'forge-undo-1',
+      });
+      await page.getByTestId('forge-removal-result').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-removal-unchecked')).toBeVisible();
 
       const results = await checkAccessibility(page);
       expectNoViolations(results);

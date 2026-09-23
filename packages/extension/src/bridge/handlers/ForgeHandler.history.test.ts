@@ -186,6 +186,20 @@ describe('forge history entries are replayable', () => {
     expect(stored).not.toHaveProperty('targetOrgId');
   });
 
+  it('keeps the org the run wrote to beside the config, for removing what it created', async () => {
+    await handler.handle(
+      buildMsg('forge:execute', {
+        graph: createGraph(),
+        config: createConfig(),
+      }),
+    );
+
+    const history = data.get('forge:history') as ForgeExecutionResult[];
+    expect(history[0].targetOrgId).toBe('tgt-org');
+    // A re-run still re-picks both orgs: the config it refills stays free of them.
+    expect(history[0].config).not.toHaveProperty('targetOrgId');
+  });
+
   it('serves stored entries back on forge:history:list', async () => {
     await handler.handle(
       buildMsg('forge:execute', {

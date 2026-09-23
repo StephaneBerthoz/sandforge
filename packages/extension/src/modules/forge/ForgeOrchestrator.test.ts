@@ -61,6 +61,7 @@ function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSumm
     existingRecords: [],
     existingSourceIds: [],
     remapByObject: [],
+    createdByObject: [],
     ...overrides,
   };
 }
@@ -296,6 +297,26 @@ describe('ForgeOrchestrator', () => {
         { objectApiName: 'Account', linked: 2, unidentified: 1 },
       ]);
       expect(result.idRemapExisting).toEqual(['001SRC000000002']);
+    });
+
+    it('says which rows of the table the run created, per object', async () => {
+      // The table also maps the standard price book and reference data matched
+      // by name, which the run found and never wrote.
+      vi.mocked(deps.executor.execute).mockResolvedValue(
+        createMockSummary({
+          remapTable: {
+            '001SRC000000001': '001TGT000000001',
+            '01sSRC000000001': '01sTGT000000001',
+          },
+          createdByObject: [{ objectApiName: 'Account', sourceIds: ['001SRC000000001'] }],
+        }),
+      );
+
+      const result = await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      expect(result.idRemapCreated).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001SRC000000001'] },
+      ]);
     });
 
     it('should include idRemapCount from executor summary', async () => {

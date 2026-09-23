@@ -1,8 +1,30 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import type { ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import type {
+  BaseMessage,
+  ForgeExecutionResult,
+  ForgeGraph,
+  ForgeUndoResult,
+  SalesforceOrg,
+} from '@sandforge/shared';
 import '../../i18n';
+
+const mockPostMessage = vi.fn();
+
+/** Stable identity so useSendMessage's useCallback does not re-fire. */
+const stableApi = {
+  postMessage: (...args: unknown[]) => mockPostMessage(...args),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => stableApi,
+  getVscodeApi: () => stableApi,
+}));
+
 import { ForgeHistoryPanel } from './ForgeHistoryPanel';
+import { useOrgStore } from '../../stores/useOrgStore';
 
 /**
  * The re-use affordance over the runs the extension persisted.
@@ -232,5 +254,295 @@ describe('ForgeHistoryPanel', () => {
     expect(screen.getByTestId('forge-history-entry-forge-record').textContent).toContain('Partial');
     expect(screen.getByTestId('forge-history-entry-forge-soql').textContent).toContain('Success');
     expect(screen.getByTestId('forge-history-entry-forge-legacy').textContent).toContain('Failed');
+  });
+});
+
+/** A fake record id: the object's prefix, then a counter. */
+const rid = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+const sid = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}SRC`;
+
+/** The sandbox the removable run wrote to, as the org store knows it. */
+const DEV = { id: 'org-dev', alias: 'DEV-SANDBOX', username: 'dev@example.com' } as SalesforceOrg;
+
+/** A run that created an account and two contacts, and linked an account the org held. */
+const REMOVABLE_RUN: ForgeExecutionResult = {
+  ...SOQL_RUN,
+  forgeId: 'forge-removable',
+  createdCount: 3,
+  linkedExistingCount: 1,
+  idRemapTable: {
+    [sid('001', 1)]: rid('001', 1),
+    [sid('001', 2)]: rid('001', 9),
+    [sid('003', 1)]: rid('003', 1),
+    [sid('003', 2)]: rid('003', 2),
+  },
+  idRemapExisting: [sid('001', 2)],
+  idRemapCreated: [
+    { objectApiName: 'Account', sourceIds: [sid('001', 1)] },
+    { objectApiName: 'Contact', sourceIds: [sid('003', 1), sid('003', 2)] },
+  ],
+  targetOrgId: DEV.id,
+};
+
+/** What the extension answers once a contact was removed and the rest kept. */
+const PARTIAL_ANSWER: ForgeUndoResult = {
+  forgeId: 'forge-removable',
+  status: 'partial',
+  includeChanged: false,
+  finishedAt: '2026-09-23T10:00:00.000Z',
+  objects: [
+    {
+      objectApiName: 'Contact',
+      planned: 2,
+      deleted: 1,
+      alreadyGone: 0,
+      keptChanged: 1,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    },
+    {
+      objectApiName: 'Account',
+      planned: 1,
+      deleted: 0,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 1,
+      refused: 0,
+      heldBy: ['Contact'],
+      unchecked: [],
+      reasons: [],
+    },
+  ],
+};
+
+/** The last message of `type` the panel sent through the bridge. */
+function sent(type: string): (BaseMessage & { payload: Record<string, unknown> }) | undefined {
+  return mockPostMessage.mock.calls
+    .map(
+      (call) =>
+        (call[0] as { payload: BaseMessage & { payload: Record<string, unknown> } }).payload,
+    )
+    .filter((message) => message.type === type)
+    .pop();
+}
+
+/** Answer the panel's `forge:undo`, correlated to it as the handler does. */
+function answerRemoval(type: string, payload: unknown): void {
+  const request = sent('forge:undo');
+  if (!request) throw new Error("no 'forge:undo' was sent");
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: `resp-${type}`,
+          type,
+          timestamp: Date.now(),
+          correlationId: request.id,
+          payload,
+        },
+      }),
+    );
+  });
+}
+
+/** Open the confirmation of the removable run and type the org's name into it. */
+function confirmRemoval(options: { includeChanged?: boolean } = {}): void {
+  fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+  if (options.includeChanged) {
+    fireEvent.click(screen.getByTestId('forge-removal-include-changed'));
+  }
+  fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+  fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+}
+
+describe('ForgeHistoryPanel — removing the records a run created', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV] });
+  });
+
+  it('offers the removal for a run that created records', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.getByTestId('forge-history-remove-forge-removable').textContent).toBe(
+      'Remove the records this run created',
+    );
+  });
+
+  it('names the org and the records per object, children first, and keeps the linked ones', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('forge-history-remove-forge-removable'));
+
+    const dialog = screen.getByRole('dialog');
+    expect(screen.getByTestId('danger-title').textContent).toBe(
+      "Remove this run's records from DEV-SANDBOX",
+    );
+    expect(dialog.textContent).toContain(
+      'Records the run linked to, which DEV-SANDBOX already held, are kept, and so is a record that records staying in DEV-SANDBOX depend on.',
+    );
+    expect(dialog.textContent).toContain(
+      'A record changed since the run ended, or one that records added since depend on, is kept unless you include it below.',
+    );
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 2 records', 'Account: 1 record']);
+    expect(screen.getByTestId('forge-removal-linked').textContent).toBe('1 linked record is kept.');
+    // Nothing leaves before the org's name is typed.
+    expect(sent('forge:undo')).toBeUndefined();
+  });
+
+  it('sends the run, never its records, once the org name is typed', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    confirmRemoval();
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: false,
+    });
+  });
+
+  it('asks for the records changed since the run too when the box is ticked', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    confirmRemoval({ includeChanged: true });
+
+    expect(sent('forge:undo')?.payload).toEqual({
+      forgeId: 'forge-removable',
+      includeChanged: true,
+    });
+  });
+
+  it('shows what the removal did per object, and reads the history again', () => {
+    const onHistoryChanged = vi.fn();
+    render(
+      <ForgeHistoryPanel
+        entries={[REMOVABLE_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+        onHistoryChanged={onHistoryChanged}
+      />,
+    );
+    confirmRemoval();
+
+    answerRemoval('forge:undo:response', { result: PARTIAL_ANSWER, operationId: 'forge-undo-7' });
+
+    const result = screen.getByTestId('forge-removal-result');
+    expect(within(result).getByRole('heading').textContent).toBe(
+      'Records this run created were removed from DEV-SANDBOX; the others stay, as listed.',
+    );
+    expect(screen.getByTestId('forge-removal-result-Contact').textContent).toBe(
+      'Contact: 1 deleted · 1 kept, changed since the run',
+    );
+    expect(screen.getByTestId('forge-removal-result-Account').textContent).toBe(
+      'Account: 1 kept, records of Contact that stay depend on it',
+    );
+    expect(onHistoryChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists the org's reasons under the object it refused", () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    confirmRemoval();
+
+    answerRemoval('forge:undo:response', {
+      operationId: 'forge-undo-7',
+      result: {
+        ...PARTIAL_ANSWER,
+        status: 'failure',
+        objects: [
+          {
+            ...PARTIAL_ANSWER.objects[0],
+            deleted: 0,
+            keptChanged: 0,
+            refused: 2,
+            reasons: ['DELETE_FAILED: Your attempt to delete this record could not be completed.'],
+          },
+        ],
+      },
+    });
+
+    const contact = screen.getByTestId('forge-removal-result-Contact');
+    expect(contact.textContent).toContain('2 refused');
+    expect(within(contact).getByRole('listitem').textContent).toBe(
+      'DELETE_FAILED: Your attempt to delete this record could not be completed.',
+    );
+  });
+
+  it('shows a refusal of the whole removal under the run', () => {
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+    confirmRemoval();
+
+    answerRemoval('forge:undo:error', {
+      message: 'Operation blocked by Production Guard: delete is not allowed on production org',
+      code: 'GUARD_BLOCKED',
+      retryable: false,
+    });
+
+    expect(screen.getByTestId('forge-history-remove-error').textContent).toContain(
+      'Operation blocked by Production Guard',
+    );
+  });
+
+  it('does not offer it twice: a run whose records were removed says when', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[
+          {
+            ...REMOVABLE_RUN,
+            undo: {
+              removedAt: '2026-09-23T10:00:00.000Z',
+              deleted: 2,
+              alreadyGone: 0,
+              kept: 1,
+              refused: 0,
+            },
+          },
+        ]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
+    expect(screen.getByTestId('forge-removal-mark').textContent).toMatch(
+      /^Records removed on \d{4}-\d{2}-\d{2} \d{2}:\d{2}: 2 deleted · 1 kept$/,
+    );
+  });
+
+  it('says why a run recorded before runs kept what they created offers none', () => {
+    render(<ForgeHistoryPanel entries={[RECORD_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-history-remove-forge-record')).toBeNull();
+    expect(screen.getByTestId('forge-history-remove-unrecorded-forge-record').textContent).toBe(
+      'Recorded before runs kept what they created: its records cannot be removed from here.',
+    );
+  });
+
+  it('says why a run whose org is no longer registered offers none', () => {
+    useOrgStore.setState({ orgs: [] });
+    render(<ForgeHistoryPanel entries={[REMOVABLE_RUN]} error={null} onReuseConfig={vi.fn()} />);
+
+    expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
+    expect(screen.getByTestId('forge-history-remove-org-gone-forge-removable')).toBeDefined();
+  });
+
+  it('offers nothing, and says nothing, for a run that created no record', () => {
+    render(
+      <ForgeHistoryPanel
+        entries={[{ ...REMOVABLE_RUN, idRemapCreated: [], createdCount: 0 }]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+
+    const entry = screen.getByTestId('forge-history-entry-forge-removable');
+    expect(within(entry).queryByRole('button', { name: /Remove/ })).toBeNull();
+    expect(screen.queryByTestId('forge-history-remove-unrecorded-forge-removable')).toBeNull();
   });
 });

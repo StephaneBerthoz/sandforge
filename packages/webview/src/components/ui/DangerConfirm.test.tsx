@@ -29,6 +29,24 @@ describe('DangerConfirm', () => {
     expect(screen.getByText('DELETE')).toBeDefined();
   });
 
+  it('shows what a sentence cannot say under the description, and still asks for the word', () => {
+    render(
+      <DangerConfirm {...baseProps}>
+        <ul>
+          <li>Contact: 2 records</li>
+        </ul>
+      </DangerConfirm>,
+    );
+
+    expect(screen.getByTestId('danger-details').textContent).toBe('Contact: 2 records');
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('adds no details block when there is nothing to add', () => {
+    render(<DangerConfirm {...baseProps} />);
+    expect(screen.queryByTestId('danger-details')).toBeNull();
+  });
+
   it('should disable confirm button until text matches', () => {
     render(<DangerConfirm {...baseProps} />);
     const confirmBtn = screen.getByTestId('danger-confirm-btn') as HTMLButtonElement;

@@ -41,6 +41,12 @@ export interface DangerConfirmProps {
   className?: string;
   /** Visual variant: danger (red), warning (yellow), or info (blue). Defaults to danger. */
   variant?: ConfirmVariant;
+  /**
+   * What the description cannot say in a sentence — the records per object a
+   * delete takes, an option that changes what it does — shown under it,
+   * above the typed confirmation.
+   */
+  children?: React.ReactNode;
 }
 
 /** Danger confirmation dialog requiring typed text to proceed. */
@@ -53,6 +59,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   confirmText,
   className,
   variant = 'danger',
+  children,
 }) => {
   const { t } = useTranslation();
   const [typed, setTyped] = useState('');
@@ -149,6 +156,14 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     <Dialog.Description className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-2">
                       {description}
                     </Dialog.Description>
+                    {children && (
+                      <div
+                        className="mt-3 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+                        data-testid="danger-details"
+                      >
+                        {children}
+                      </div>
+                    )}
                     {/* One translated sentence rather than three glued
                         fragments: languages that put the literal first or last
                         need the <code> to move with it. */}

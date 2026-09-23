@@ -293,6 +293,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         linkedExistingCount: summary.linkedCount,
         existingRecords: summary.existingRecords,
         idRemapByObject: summary.remapByObject,
+        // The table alone cannot say which of its rows the run created: it
+        // maps the standard price book and reference data matched by name too.
+        idRemapCreated: summary.createdByObject,
         errors: summary.errors,
         // A read cut short by a bound is not an error and not a success: the
         // clone is short by an unknown number of rows, and only the summary

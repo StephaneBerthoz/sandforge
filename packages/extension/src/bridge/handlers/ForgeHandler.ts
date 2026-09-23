@@ -1,16 +1,23 @@
 import type {
   AuditObjectCounts,
+  AuditOutcome,
   BaseMessage,
   ForgeConfig,
   ForgeExecutionResult,
   ForgeGraph,
   ForgeTemplate,
+  ForgeUndoMark,
+  ForgeUndoObjectResult,
+  ForgeUndoResult,
+  ForgeUndoStatus,
+  ForgeRunObjectRecords,
   ComplianceFrameworkType,
 } from '@sandforge/shared';
 import {
   forgeAnonymizationRulesSchema,
   forgeConfigSchema,
   forgeGraphSchema,
+  forgeRunCreatedRecords,
   forgeTemplateSchema,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
@@ -20,6 +27,7 @@ import {
   buildResponse,
   sendHandlerError,
   sendOperationStarted,
+  sendOperationProgress,
   sendOperationCompleted,
   PRODUCTION_GUARD_MISSING,
 } from './HandlerTypes.js';
@@ -54,6 +62,9 @@ import {
 } from '../../modules/sync/RecordTypeMapper.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { removeRunRecords } from '../../modules/forge/ForgeRunRemoval.js';
+import { orgSession } from '../../modules/dataops/RecordRemoval.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Strict Salesforce record/org ID format. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
@@ -74,6 +85,12 @@ const executePayloadSchema = z.object({
   anonymizationRules: forgeAnonymizationRulesSchema.optional(),
 });
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
+// The entry is named, never its records: what is removed is what this
+// extension's own history says the run created.
+const undoPayloadSchema = z.object({
+  forgeId: z.string().min(1).max(200),
+  includeChanged: z.boolean().optional(),
+});
 const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
 const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
 const complianceRequestPayloadSchema = z.object({
@@ -184,6 +201,7 @@ const FORGE_TYPES = new Set([
   'forge:templates:save',
   'forge:templates:delete',
   'forge:history:list',
+  'forge:undo',
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
@@ -273,6 +291,53 @@ function forgeCarried(
   );
 }
 
+/** Records of a removal's objects left in the org: kept, or refused. */
+function leftInOrg(object: ForgeUndoObjectResult): number {
+  return object.keptChanged + object.keptDependents + object.refused;
+}
+
+/**
+ * How a removal of a run's records ended. Nothing left in the org is a
+ * success, whether the removal deleted the records or found them gone.
+ */
+function undoStatus(
+  objects: readonly ForgeUndoObjectResult[],
+  cancelled: boolean,
+): ForgeUndoStatus {
+  if (cancelled) return 'cancelled';
+  if (objects.every((o) => leftInOrg(o) === 0)) return 'success';
+  return objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
+}
+
+/**
+ * A removal in the audit trail's words. A removal stopped part way is partial
+ * when it deleted something, and failed when it deleted nothing.
+ */
+function undoAuditOutcome(result: ForgeUndoResult): AuditOutcome {
+  if (result.status !== 'cancelled') return result.status;
+  return result.objects.some((o) => o.deleted > 0) ? 'partial' : 'failure';
+}
+
+/** What a removal deleted and what the org refused, per object, for the audit trail. */
+function undoAuditObjects(objects: readonly ForgeUndoObjectResult[]): AuditObjectCounts[] {
+  return objects
+    .filter((o) => o.deleted + o.refused > 0)
+    .map((o) => ({ ...emptyCounts(o.objectApiName), deleted: o.deleted, failed: o.refused }));
+}
+
+/** The removal as its history entry keeps it: when, and how many records went each way. */
+function undoMark(result: ForgeUndoResult): ForgeUndoMark {
+  const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
+    result.objects.reduce((total, o) => total + count(o), 0);
+  return {
+    removedAt: result.finishedAt,
+    deleted: sum((o) => o.deleted),
+    alreadyGone: sum((o) => o.alreadyGone),
+    kept: sum((o) => o.keptChanged + o.keptDependents),
+    refused: sum((o) => o.refused),
+  };
+}
+
 /**
  * Domain handler for forge-related webview-to-extension messages.
  *
@@ -326,6 +391,15 @@ export class ForgeHandler implements DomainHandler {
 
   /** Tracks DML operations to prevent duplicate forge executions. */
   private readonly dmlTracker = new DmlOperationTracker();
+
+  /** The runs whose records are being removed, by `forgeId`: one removal at a time each. */
+  private readonly removing = new Set<string>();
+
+  /**
+   * The tracker the Monitor's Live Operations panel lists, where a removal
+   * shows with a Cancel that reaches it through the background registry.
+   */
+  private liveTracker?: LiveOperationTracker;
 
   /**
    * Cooldown after a run that actually wrote records, keyed by the
@@ -384,6 +458,11 @@ export class ForgeHandler implements DomainHandler {
       // `.sandforge/forge-templates.json` and could not be committed or shared.
       this.templateStore = services.templateStore;
     }
+  }
+
+  /** Inject the tracker the Monitor's Live Operations panel lists. */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -479,6 +558,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:history:list':
         this.handleHistoryList(msg);
+        return true;
+      case 'forge:undo':
+        await this.handleUndo(msg);
         return true;
       case 'forge:plan:request':
         await this.handlePlanRequest(msg);
@@ -1025,7 +1107,14 @@ export class ForgeHandler implements DomainHandler {
       // — there is nothing to rebuild a `forge:execute` from. Org ids are
       // stripped (same shape as ForgeTemplate.config): a re-run re-picks
       // source and target instead of replaying yesterday's org pair.
-      const entry: ForgeExecutionResult = { ...result, config: stripOrgIds(config) };
+      // The target is kept beside the config, never in it: removing what the
+      // run created has to reach the org it wrote to, and a re-run still
+      // re-picks both orgs.
+      const entry: ForgeExecutionResult = {
+        ...result,
+        config: stripOrgIds(config),
+        targetOrgId: config.targetOrgId,
+      };
       const history = [entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
       this.saveHistory(history);
 
@@ -1245,6 +1334,239 @@ export class ForgeHandler implements DomainHandler {
     const history = this.loadHistory();
     const response = buildResponse(this.deps, msg, 'forge:history:list:response', { history });
     this.deps.broker.postToWebview(response);
+  }
+
+  /**
+   * Remove from its target org the records a past run created, as its history
+   * entry names them — never what the request names: the request says which
+   * run, the history says what it created.
+   *
+   * Refused before anything is read when the entry is gone, was recorded
+   * before runs kept what they created, created nothing, had its records
+   * removed already, or is being removed now. Then Production Guard judges the
+   * delete — a production org is refused, a missing guard refuses too — and
+   * the removal runs on the background registry, listed in Live Operations,
+   * where Cancel stops it before its next call to the org. The audit trail
+   * records it whatever the outcome, and the entry is marked once records
+   * went, so the removal is not offered twice.
+   */
+  private async handleUndo(msg: InboundRequest): Promise<void> {
+    const parsed = parsePayload(undoPayloadSchema, msg, 'forge:undo:error', this.deps);
+    if (!parsed) return;
+    const { forgeId } = parsed;
+    const includeChanged = parsed.includeChanged === true;
+    const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
+
+    const entry = this.loadHistory().find((e) => e.forgeId === forgeId);
+    if (!entry) {
+      refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
+      return;
+    }
+    const runEnded = Date.parse(entry.timestamp);
+    if (!entry.idRemapCreated || !entry.targetOrgId || Number.isNaN(runEnded)) {
+      refuse(
+        'This run was recorded before Forge kept what a run created: its records cannot be removed from the history.',
+        'NOT_RECORDED',
+      );
+      return;
+    }
+    if (entry.undo) {
+      refuse(
+        `The records this run created were already removed, on ${entry.undo.removedAt}.`,
+        'ALREADY_REMOVED',
+      );
+      return;
+    }
+    const plan = forgeRunCreatedRecords(entry);
+    const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
+    if (total === 0) {
+      refuse('This run created no record to remove.', 'NOTHING_TO_REMOVE');
+      return;
+    }
+    if (this.removing.has(forgeId)) {
+      refuse('The records of this run are being removed already.', 'DUPLICATE');
+      return;
+    }
+    // Claimed before Production Guard is consulted: its confirmation waits on
+    // a person, and a second click meanwhile would ask, and remove, twice.
+    this.removing.add(forgeId);
+    try {
+      await this.removeRun(msg, { ...entry, targetOrgId: entry.targetOrgId }, plan, includeChanged);
+    } finally {
+      this.removing.delete(forgeId);
+    }
+  }
+
+  /** Answer a `forge:undo` that removes nothing, on its error channel. */
+  private refuseUndo(msg: InboundRequest, message: string, code: string): void {
+    sendHandlerError(this.deps, 'forge:undo', 'forge:undo:error', msg, new Error(message), {
+      code,
+    });
+  }
+
+  /**
+   * The removal of {@link handleUndo} once the request is known to name a
+   * run whose records can be removed: Production Guard, then the run itself.
+   */
+  private async removeRun(
+    msg: InboundRequest,
+    entry: ForgeExecutionResult & { targetOrgId: string },
+    plan: ForgeRunObjectRecords[],
+    includeChanged: boolean,
+  ): Promise<void> {
+    const { forgeId, targetOrgId } = entry;
+    const runEnded = Date.parse(entry.timestamp);
+    const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
+    const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
+
+    // Production Guard judges the delete before anything is read, as on every
+    // write path; without it nothing is deleted.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: targetOrgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
+      refuse(PRODUCTION_GUARD_MISSING.message, PRODUCTION_GUARD_MISSING.code);
+      return;
+    }
+    const targetOrg = this.deps.orgManager.getOrg(targetOrgId);
+    const { check, decision } = await consultProductionGuard(guard, {
+      orgId: targetOrgId,
+      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      operation: 'delete',
+      objectName: plan.map((o) => o.objectApiName).join(', '),
+      recordCount: total,
+      module: 'forge',
+    });
+    if (decision === 'refused' || decision === 'declined') {
+      // No removal started, so no operation id was minted: the request's stands in.
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'forge',
+        operationId: msg.id,
+        orgId: targetOrgId,
+        outcome: 'stopped',
+        guard: decision,
+      });
+      if (decision === 'refused') {
+        refuse(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          'GUARD_BLOCKED',
+        );
+      } else {
+        sendHandlerError(
+          this.deps,
+          'forge:undo',
+          'forge:undo:error',
+          msg,
+          new Error('Operation cancelled by user (production confirmation declined).'),
+          { code: 'GUARD_DECLINED', retryable: true },
+        );
+      }
+      return;
+    }
+
+    const operationId = `forge-undo-${this.deps.nextId()}`;
+    const description = `Removing ${total} record(s) a Forge run created`;
+    const stop = new AbortController();
+    sendOperationStarted(this.deps, operationId, 'forge', description);
+    const releaseRun = this.trackRun(operationId, description, stop);
+    this.liveTracker?.register(operationId, 'forge', description, total);
+    /** What the removal failed on, so the registry lists it as failed. */
+    let runError: unknown;
+
+    try {
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const outcome = await removeRunRecords(orgSession(conn, 'forge:undo'), plan, {
+        runStartedAt: new Date(runEnded - entry.duration),
+        runEndedAt: new Date(runEnded),
+        includeChanged,
+        signal: stop.signal,
+        onProgress: (settled, of, objectApiName) => {
+          const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));
+          sendOperationProgress(this.deps, operationId, percent, settled, of, objectApiName);
+          // A removal cancelled from Live Operations finishes its call to the
+          // org; the registry has recorded the stop and hears no more of it.
+          if (!stop.signal.aborted) {
+            this.deps.infraServices?.backgroundRegistry?.updateProgress(operationId, percent);
+          }
+          this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
+        },
+      });
+      const result: ForgeUndoResult = {
+        forgeId,
+        status: undoStatus(outcome.objects, outcome.cancelled),
+        includeChanged,
+        objects: outcome.objects,
+        finishedAt: new Date().toISOString(),
+      };
+
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'forge',
+        operationId,
+        orgId: targetOrgId,
+        outcome: undoAuditOutcome(result),
+        guard: decision,
+        objects: undoAuditObjects(result.objects),
+      });
+
+      // Marked once records went, or none was left to go. A removal stopped
+      // part way, or one that deleted nothing, is offered again.
+      if (result.status === 'success' || result.status === 'partial') {
+        const mark = undoMark(result);
+        this.saveHistory(
+          this.loadHistory().map((e) => (e.forgeId === forgeId ? { ...e, undo: mark } : e)),
+        );
+      }
+
+      const response = buildResponse(this.deps, msg, 'forge:undo:response', {
+        result,
+        operationId,
+      });
+      this.deps.broker.postToWebview(response);
+      if (result.status === 'cancelled') {
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        this.liveTracker?.cancel(operationId);
+      } else {
+        sendOperationCompleted(this.deps, operationId, { status: result.status });
+        if (result.status === 'failure') {
+          runError = new Error('No record this run created could be removed.');
+          this.liveTracker?.fail(operationId, 'No record this run created could be removed.');
+        } else {
+          this.liveTracker?.complete(operationId);
+        }
+      }
+    } catch (error: unknown) {
+      runError = error;
+      recordWriteRun(this.deps, {
+        action: 'cleanup_delete',
+        module: 'forge',
+        operationId,
+        orgId: targetOrgId,
+        outcome: 'failure',
+        guard: decision,
+      });
+      // Single error channel (see handleDiscover); the completion ends the
+      // operation the panels listed as running.
+      sendHandlerError(this.deps, 'forge:undo', 'forge:undo:error', msg, error, {
+        code: 'UNDO_ERROR',
+        retryable: true,
+      });
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+      this.liveTracker?.fail(operationId, extractErrorMessage(error));
+    } finally {
+      releaseRun(runError);
+    }
   }
 
   /** Generate a forge execution plan from a graph. */

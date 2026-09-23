@@ -310,6 +310,8 @@ const AutomationMessages = [
   msg('forge:templates:save'),
   msg('forge:templates:delete'),
   msg('forge:history:list'),
+  // Removes from its target org the records a past run created.
+  msg('forge:undo'),
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
@@ -328,6 +330,8 @@ const AutomationMessages = [
   msg('forge:templates:delete:response'),
   msg('forge:templates:delete:error'),
   msg('forge:history:list:response'),
+  msg('forge:undo:response'),
+  msg('forge:undo:error'),
   msg('forge:plan:response'),
   msg('forge:plan:error'),
   msg('forge:compliance:response'),

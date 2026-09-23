@@ -244,6 +244,18 @@ describe('useForgeForm run history', () => {
     expect(sentTypes()).toContain('forge:history:list');
   });
 
+  it('asks for the runs again when told the history changed', () => {
+    const { result } = renderHook(() => useForgeForm());
+    mockPostMessage.mockClear();
+
+    act(() => {
+      result.current.refreshHistory();
+    });
+
+    // A removal marks its run's entry: the list is read again to show it.
+    expect(sentTypes()).toEqual(['forge:history:list']);
+  });
+
   it('exposes the entries the reply carried, newest first', () => {
     const { result } = renderHook(() => useForgeForm());
 

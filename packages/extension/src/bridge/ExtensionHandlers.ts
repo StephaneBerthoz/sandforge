@@ -300,9 +300,11 @@ export class ExtensionHandlers {
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.monitorHandler.setLiveOperationTracker(tracker);
     // Producers: seed/sync executions register progress + completion so the
-    // Monitor "live operations" panel is actually fed.
+    // Monitor "live operations" panel is actually fed, and so does the
+    // removal of the records a Forge run created.
     this.seedHandler.setLiveOperationTracker(tracker);
     this.syncHandler.setLiveOperationTracker(tracker);
+    this.forgeHandler.setLiveOperationTracker(tracker);
   }
 
   /** Inject the file-backed store that holds backup record payloads. */
@@ -740,6 +742,7 @@ export class ExtensionHandlers {
         'forge:templates:save',
         'forge:templates:delete',
         'forge:history:list',
+        'forge:undo',
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',

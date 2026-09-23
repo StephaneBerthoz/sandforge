@@ -76,6 +76,8 @@ The Forge page provides a richer workflow with three input modes, and a fourth s
 
 After input, the Discovery phase renders an interactive dependency graph in a split view. Click any node to inspect fields, toggle inclusion, and configure anonymization per field.
 
+**Recent runs**, under the input form, lists the last runs: each refills the form, and a finished run that created records can remove them from the org it wrote to, children before their parents, keeping the records it linked to and, unless you ask, the ones changed or added to since the run — see [Forge: remove what a run created](../forge-quickstart.md#remove-what-a-run-created).
+
 ### AI and NL2SOQL
 
 - NL2SOQL translates natural language into SOQL. It describes up to five objects your request names, gives the model their field API names, and rejects a draft that selects a plain field they do not have -- a relationship path such as `Account.Name`, and any item carrying a bracket such as `COUNT(Id)`, are left to the org to judge. A draft where no plain field was compared comes back with a line saying so, naming the case: no object the org recognises was named, or the draft selects nothing but related-record paths and totals

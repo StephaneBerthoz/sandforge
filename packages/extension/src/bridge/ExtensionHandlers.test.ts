@@ -2045,6 +2045,58 @@ describe('ExtensionHandlers', () => {
       expect(ops[0].status).toBe('failed');
       tracker.dispose();
     });
+
+    it('feeds the tracker from the removal of the records a Forge run created', async () => {
+      const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
+      const tracker = new LiveOperationTracker();
+      handlers.setLiveOperationTracker(tracker);
+      // A sandbox: Production Guard refuses a delete on any org it cannot
+      // tell is not production.
+      orgManager.addOrg({
+        id: 'tgt-org',
+        alias: 'test',
+        username: 'u',
+        instanceUrl: 'https://x.sf.com',
+        orgId: '00D1',
+        orgType: 'Sandbox',
+        authMethod: 'oauth_web',
+        safetyTier: OrgSafetyTier.LOW,
+        appearance: { color: '#000', icon: 'cloud', position: 0 },
+        metadata: { apiVersion: '59.0', edition: 'Dev', features: [] },
+        status: 'connected',
+        lastConnected: new Date().toISOString(),
+        tags: [],
+      });
+      configStore.set(
+        'forge:history',
+        [
+          {
+            forgeId: 'forge-1',
+            status: 'success',
+            graph: { nodes: [], edges: [], totalRecords: 1, estimatedSizeMB: 0 },
+            duration: 1000,
+            timestamp: '2026-09-20T10:05:00.000Z',
+            idRemapCount: 1,
+            idRemapTable: { '001000000000001SRC': '001000000000001AAA' },
+            idRemapExisting: [],
+            idRemapCreated: [{ objectApiName: 'Account', sourceIds: ['001000000000001SRC'] }],
+            targetOrgId: 'tgt-org',
+          },
+        ],
+        'forge',
+      );
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('connection failed'),
+      );
+
+      broker['dispatch'](msg('forge:undo', { forgeId: 'forge-1' }));
+      await vi.waitFor(() => expect(posted.some((p) => p.type === 'forge:undo:error')).toBe(true));
+
+      expect(tracker.getAll()).toEqual([
+        expect.objectContaining({ module: 'forge', status: 'failed', totalRecords: 1 }),
+      ]);
+      tracker.dispose();
+    });
   });
 
   describe('offline replay (replayQueuedOperation)', () => {

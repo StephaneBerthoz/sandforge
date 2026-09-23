@@ -62,6 +62,24 @@ export class IdRemapper {
     return [...counts.values()];
   }
 
+  /**
+   * Per object, the source ids of the records this run created, objects in the
+   * order the run first created one of them and ids in the order it created
+   * them: what removing the run's records reads backwards. A row linked to a
+   * record the target already held, and a mapping registered without its
+   * object, are left out — the run created neither.
+   */
+  createdByObject(): Array<{ objectApiName: string; sourceIds: string[] }> {
+    const byObject = new Map<string, string[]>();
+    for (const [oldId, objectApiName] of this.objectOf) {
+      if (this.existing.has(oldId)) continue;
+      const sourceIds = byObject.get(objectApiName) ?? [];
+      sourceIds.push(oldId);
+      byObject.set(objectApiName, sourceIds);
+    }
+    return [...byObject].map(([objectApiName, sourceIds]) => ({ objectApiName, sourceIds }));
+  }
+
   /** Remember the object of a mapping, or forget it when the new one names none. */
   private label(oldId: string, objectApiName: string | undefined): void {
     if (objectApiName) this.objectOf.set(oldId, objectApiName);

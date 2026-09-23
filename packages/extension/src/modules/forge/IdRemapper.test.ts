@@ -103,6 +103,40 @@ describe('IdRemapper', () => {
     });
   });
 
+  describe('created by object', () => {
+    it('lists, per object, the rows the run created, in the order it wrote them', () => {
+      remapper.add('001A', '001CREATED1', 'Account');
+      remapper.add('003A', '003CREATED1', 'Contact');
+      remapper.add('001B', '001CREATED2', 'Account');
+      remapper.add('003B', '003CREATED2', 'Contact');
+
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001A', '001B'] },
+        { objectApiName: 'Contact', sourceIds: ['003A', '003B'] },
+      ]);
+    });
+
+    it('leaves out the rows it linked and the mappings it only found', () => {
+      remapper.add('01sSTANDARD', '01sTARGET');
+      remapper.addExisting('001A', '001EXISTING', 'Account');
+      remapper.add('001B', '001CREATED', 'Account');
+      remapper.addExisting('003A', '003EXISTING', 'Contact');
+
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001B'] },
+      ]);
+    });
+
+    it('counts a linked row the run wrote after all as created', () => {
+      remapper.addExisting('001A', '001EXISTING', 'Account');
+      remapper.add('001A', '001CREATED', 'Account');
+
+      expect(remapper.createdByObject()).toEqual([
+        { objectApiName: 'Account', sourceIds: ['001A'] },
+      ]);
+    });
+  });
+
   describe('remapRecord', () => {
     it('should remap lookup fields that exist in the map', () => {
       remapper.add('001PARENT', '001NEWPARENT');

@@ -15,6 +15,9 @@ const TWO_ACCOUNTS: ExecutionSummary = {
   existingRecords: [],
   existingSourceIds: [],
   remapByObject: [{ objectApiName: 'Account', created: 2, linked: 0 }],
+  createdByObject: [
+    { objectApiName: 'Account', sourceIds: ['001000000000001', '001000000000002'] },
+  ],
 };
 
 describe('interruptedRun', () => {

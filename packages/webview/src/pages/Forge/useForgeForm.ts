@@ -172,6 +172,8 @@ export interface ForgeFormState {
   historyError: string | null;
   /** Refill every form field from a past run's stored configuration. */
   applyHistoryConfig: (config: ForgeRunConfig) => void;
+  /** Ask for the history again: a removal marks the entry of the run it removed. */
+  refreshHistory: () => void;
 }
 
 /**
@@ -776,5 +778,6 @@ export function useForgeForm(): ForgeFormState {
     runHistory,
     historyError: historyQuery.error,
     applyHistoryConfig,
+    refreshHistory: historyQuery.refetch,
   };
 }

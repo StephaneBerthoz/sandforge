@@ -1526,6 +1526,7 @@ describe('ForgeHandler', () => {
           { objectApiName: 'Account', created: 2, linked: 0 },
           { objectApiName: 'Contact', created: 3, linked: 0 },
         ],
+        createdByObject: [],
       });
       vi.mocked(orchestrator.execute).mockRejectedValue(stopped);
 

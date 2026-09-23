@@ -2306,6 +2306,11 @@ describe('ForgeExecutor', () => {
         { objectApiName: 'Account', created: 0, linked: 1 },
         { objectApiName: 'Contact', created: 1, linked: 0 },
       ]);
+      // What removing the run's records may take: the contact, never the
+      // account the target already held.
+      expect(summary.createdByObject).toEqual([
+        { objectApiName: 'Contact', sourceIds: [CONTACT_SRC] },
+      ]);
     });
 
     it('keeps the lookup of a record-scoped child instead of blanking it', async () => {

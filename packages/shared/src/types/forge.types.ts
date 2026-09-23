@@ -240,6 +240,96 @@ export interface ForgeRemapObjectCounts {
 }
 
 /**
+ * The rows of one object a Forge run created, by their source ids — the keys
+ * `idRemapTable` maps to the records written in the target.
+ */
+export interface ForgeCreatedRecords {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Source ids of the rows created, in the order the run wrote them. */
+  sourceIds: string[];
+}
+
+/** How a removal of a run's records ended. */
+export type ForgeUndoStatus = 'success' | 'partial' | 'failure' | 'cancelled';
+
+/**
+ * What removing the records a Forge run created did to one object.
+ *
+ * Every record the run created of the object is in exactly one of the counts
+ * past `planned`, unless the removal was stopped before it was done with the
+ * object.
+ */
+export interface ForgeUndoObjectResult {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Records of this object the run created: what the removal set out to delete. */
+  planned: number;
+  /** Records deleted — sent to the org's recycle bin. */
+  deleted: number;
+  /** Records no longer in the org when the removal reached them. */
+  alreadyGone: number;
+  /** Records kept because they were modified after the run ended. */
+  keptChanged: number;
+  /**
+   * Records kept because records that stay in the org would be deleted along
+   * with them: one from before the run, one of the run's own the removal keeps
+   * or the org refused to delete, and — unless the request included what
+   * changed since the run — one added or changed since.
+   */
+  keptDependents: number;
+  /** Records the org refused to delete. */
+  refused: number;
+  /**
+   * The objects whose records, staying in the org, hold the ones counted in
+   * `keptDependents`, by API name.
+   */
+  heldBy: string[];
+  /**
+   * The objects the org deletes along with this one's records that cannot be
+   * read by the record they depend on, by API name: whether a record of theirs
+   * stays was not checked, and it goes with its parent.
+   */
+  unchecked: string[];
+  /**
+   * Why records were refused, or could not be checked, in the org's words,
+   * each reason once and a few at most.
+   */
+  reasons: string[];
+}
+
+/** What removing the records a Forge run created did, object by object. */
+export interface ForgeUndoResult {
+  /** The run whose records were removed. */
+  forgeId: string;
+  /** How the removal ended. */
+  status: ForgeUndoStatus;
+  /** Whether records modified since the run, and what was added to them since, went too. */
+  includeChanged: boolean;
+  /** Per object, in the order they were removed: children before their parents. */
+  objects: ForgeUndoObjectResult[];
+  /** ISO 8601 timestamp of when the removal ended. */
+  finishedAt: string;
+}
+
+/**
+ * What a history entry remembers once the records its run created were
+ * removed, so the removal is not offered again.
+ */
+export interface ForgeUndoMark {
+  /** ISO 8601 timestamp of when the removal ended. */
+  removedAt: string;
+  /** Records deleted. */
+  deleted: number;
+  /** Records no longer in the org when the removal reached them. */
+  alreadyGone: number;
+  /** Records kept: modified since the run, or holding records that stay. */
+  kept: number;
+  /** Records the org refused to delete. */
+  refused: number;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -300,6 +390,28 @@ export interface ForgeExecutionResult {
    * left out. Optional for runs recorded before it.
    */
   idRemapByObject?: ForgeRemapObjectCounts[];
+  /**
+   * Per object, the rows this run created, objects in the order the run first
+   * wrote one of them.
+   *
+   * `idRemapTable` minus `idRemapExisting` is not what a run created: the
+   * table also maps rows the run only found — the standard price book,
+   * reference data matched by name — and removing the run's records by it
+   * would delete those. Optional for runs recorded before it; such a run
+   * cannot have its records removed from the history.
+   */
+  idRemapCreated?: ForgeCreatedRecords[];
+  /**
+   * The org the run wrote to, by its id in this machine's org registry.
+   *
+   * Kept beside `config`, which stays free of orgs so a re-run never replays
+   * against yesterday's pair: removing what a run created has to go to the
+   * org it wrote to, and to no other. Set on history entries only; optional
+   * for runs recorded before it.
+   */
+  targetOrgId?: string;
+  /** Set once the records this run created were removed from its target. */
+  undo?: ForgeUndoMark;
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];

@@ -12,7 +12,8 @@ import { uiLocale } from '../../utils/formatters';
  * Props for the LiveOperationsPanel component.
  *
  * There is no pause or resume: the operations tracked here are Seed and Sync
- * runs, which can be cancelled but not paused. The buttons this panel used to
+ * runs and the removal of the records a Forge run created, which can be
+ * cancelled but not paused. The buttons this panel used to
  * offer reached a handler that only knows pipeline runs, and every click
  * answered "No active operation found to pause."
  */

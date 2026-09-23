@@ -6,6 +6,7 @@ import type {
   ForgeGraph,
   ForgePlan,
   ForgeTemplate,
+  ForgeUndoResult,
 } from '../forge.types.js';
 import type { AnonymizationMethod } from '../common.types.js';
 import type { ComplianceReport } from '../compliance.types.js';
@@ -73,6 +74,26 @@ export interface ForgeTemplatesDeleteRequest extends BaseMessage {
 /** `forge:history:list`. WebView -> Extension. List forge execution history (no payload). */
 export interface ForgeHistoryListRequest extends BaseMessage {
   type: 'forge:history:list';
+}
+
+/**
+ * `forge:undo`. WebView -> Extension. Remove from its target org the records a
+ * past run created, the run named by its history entry.
+ *
+ * The request names the entry, never records: the extension removes only
+ * what its own history says the run created.
+ */
+export interface ForgeUndoRequest extends BaseMessage {
+  type: 'forge:undo';
+  payload: {
+    /** `forgeId` of the history entry. */
+    forgeId: string;
+    /**
+     * Remove the records modified since the run too, and what was added to
+     * them since; they are kept otherwise.
+     */
+    includeChanged?: boolean;
+  };
 }
 
 /** `forge:plan:request`. WebView -> Extension. Generate a wave-based execution plan. */
@@ -215,6 +236,21 @@ export interface ForgeTemplatesDeleteErrorMessage extends BaseMessage {
 export interface ForgeHistoryListResponse extends BaseMessage {
   type: 'forge:history:list:response';
   payload: { history: ForgeExecutionResult[] };
+}
+
+/**
+ * `forge:undo:response`. Extension -> WebView. What removing a run's records
+ * did, object by object — also when the removal was cancelled part way.
+ */
+export interface ForgeUndoResponse extends BaseMessage {
+  type: 'forge:undo:response';
+  payload: { result: ForgeUndoResult; operationId: string };
+}
+
+/** `forge:undo:error`. Extension -> WebView (emitted via sendHandlerError). */
+export interface ForgeUndoErrorMessage extends BaseMessage {
+  type: 'forge:undo:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** `forge:plan:response`. Extension -> WebView. Wave-based execution plan. */

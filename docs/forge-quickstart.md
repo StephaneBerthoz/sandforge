@@ -54,6 +54,16 @@ Salesforce-code → human-friendly explanation + action hint.
 > Case Workflow, Lead → Opportunity) and the "Quick start" button skips
 > discovery entirely — record counts are then queried during execution.
 
+## Remove what a run created
+
+The Forge page lists your recent runs under **Recent runs**. A finished run that created records offers **Remove the records this run created**: it deletes from the org the run wrote to the records that run created, and nothing else.
+
+- **What it takes.** The records the run created, as its history entry kept them, child objects before their parents, 200 per call. A record the run linked to because the target already held it is never taken, and neither is the standard price book or reference data the run matched by name.
+- **What it keeps.** A record is kept while records that stay in the org depend on it, since deleting it would take them along: a record from before the run moved under it, or one of the run's records the removal keeps or the org refuses. A record modified after the run ended is kept too, and so is one that records added or changed since the run depend on — a task logged on it, a tracked change in its feed — unless you tick **Also remove the records changed since the run, and what was added to them since**. What was created while the run went and not touched since, such as the contact of a person account, goes with its parent. A few objects cannot be read by the record they depend on (a member of a sales engagement list is one): the result names them as not checked, and they go with their parent.
+- **Before it runs.** The confirmation names the target org and the records per object, and you type the org's name to go on. Production Guard judges the delete as it judges every write, and refuses a production org. The removal is listed in Live Operations on the Monitor page, where **Cancel** stops it before its next call to the org, and it is recorded in the audit trail (Reports → Audit Trail) as a cleanup delete, with its counts per object.
+- **Afterwards.** The result says, per object, how many records were deleted, were already gone, were kept and why, and were refused, with the org's reason; a refusal does not stop the rest. Deleted records go to the org's recycle bin. Once records went, the run says when, and the removal is not offered again; a removal that deleted nothing, or was cancelled, is offered again.
+- **Older runs.** A run recorded before runs kept what they created says so and offers no removal. `sandforge-cleanup` (below) remains for those.
+
 ## Headless quickstart (CLI)
 
 When you're scripting (CI, batch sandbox refresh), skip the wizard.
@@ -104,7 +114,7 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
   --objects Case,Contact,Account
 ```
 
-The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`.
+The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)).
 
 The clone's exit code is `1` when the run produced **only** failures and `0` otherwise; wire it as a CI gate. Both scripts exit `2` on a missing or invalid flag before any org is contacted. For the clone that is a malformed record ID, an unknown `--depth`, or a name that is not an API name. For the cleanup it is an alias or object name that is not valid, a `--since` outside the accepted forms, or a `--max` that is not a whole number above 0.
 

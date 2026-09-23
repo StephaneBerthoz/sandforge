@@ -1,4 +1,5 @@
 import type {
+  ForgeCreatedRecords,
   ForgeGraph,
   ForgeGraphNode,
   ForgeNodeStatus,
@@ -484,6 +485,11 @@ export interface ExecutionSummary {
    * linked to a record the target already held — the table counted by object.
    */
   remapByObject: ForgeRemapObjectCounts[];
+  /**
+   * Per object, the source ids of the rows this run created, in the order it
+   * wrote them: what removing the run's records reads backwards.
+   */
+  createdByObject: ForgeCreatedRecords[];
 }
 
 /**
@@ -1085,6 +1091,7 @@ export class ForgeExecutor {
       existingRecords: [...state.existingRecords],
       existingSourceIds: state.remapper.existingSourceIds(),
       remapByObject: state.remapper.countsByObject(),
+      createdByObject: state.remapper.createdByObject(),
     };
   }
 

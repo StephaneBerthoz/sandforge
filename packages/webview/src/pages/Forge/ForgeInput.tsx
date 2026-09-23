@@ -602,6 +602,7 @@ export const ForgeInput: React.FC = () => {
             entries={form.runHistory}
             error={form.historyError}
             onReuseConfig={form.applyHistoryConfig}
+            onHistoryChanged={form.refreshHistory}
           />
         </div>
 
