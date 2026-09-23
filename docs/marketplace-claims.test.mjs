@@ -763,7 +763,7 @@ test('anchor: Compare reads permission names and five Organization fields, nothi
     /ObjectPermissions|FieldPermissions/,
     'Compare reads object or field permissions now — the READMEs may describe a matrix again',
   );
-  const drift = /private async handleDrift\([\s\S]*?(?=\n  (?:private|public) |\n\}\n)/.exec(
+  const drift = /private async handleDrift\([\s\S]*?(?=\n {2}(?:private|public) |\n\}\n)/.exec(
     handler,
   );
   assert.ok(drift, 'handleDrift is gone — re-point this anchor');
