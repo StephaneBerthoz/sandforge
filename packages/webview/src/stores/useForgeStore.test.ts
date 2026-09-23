@@ -6,6 +6,7 @@ import type {
   ForgeGraphNode,
   ForgeExecutionResult,
   ForgePlan,
+  ForgeTemplate,
 } from './useForgeStore';
 
 // ---------------------------------------------------------------------------
@@ -417,62 +418,74 @@ describe('useForgeStore', () => {
     expect(state.anonymizationRules.email).toBe('fake');
   });
 
-  describe('addTemplate', () => {
-    it('should add a new template', () => {
-      const { addTemplate } = getState();
-      const template = {
-        id: 'tpl-001',
-        name: 'Test Template',
-        description: 'A test',
+  describe('saved templates', () => {
+    function template(id: string, name: string): ForgeTemplate {
+      return {
+        id,
+        name,
+        description: '',
         config: {
-          inputMode: 'record' as const,
-          depth: 'direct' as const,
+          inputMode: 'record',
+          recordId: '001000000000001AAA',
+          depth: 'direct',
           anonymizePII: false,
           skipEmpty: false,
-          batchSize: 'auto' as const,
-        },
-        objectCount: 5,
-        recordCount: 100,
-        createdAt: new Date().toISOString(),
-        lastUsedAt: new Date().toISOString(),
-      };
-      addTemplate(template);
-      expect(getState().templates).toHaveLength(1);
-      expect(getState().templates[0].name).toBe('Test Template');
-    });
-  });
-
-  describe('updateTemplate', () => {
-    it('should update template name and description', () => {
-      const { addTemplate, updateTemplate } = getState();
-      addTemplate({
-        id: 'tpl-002',
-        name: 'Old Name',
-        description: 'Old desc',
-        config: {
-          inputMode: 'record' as const,
-          depth: 'direct' as const,
-          anonymizePII: false,
-          skipEmpty: false,
-          batchSize: 'auto' as const,
+          batchSize: 'auto',
         },
         objectCount: 3,
         recordCount: 50,
-        createdAt: new Date().toISOString(),
-        lastUsedAt: new Date().toISOString(),
-      });
-      updateTemplate('tpl-002', { name: 'New Name', description: 'New desc' });
-      const tpl = getState().templates.find((t) => t.id === 'tpl-002');
-      expect(tpl?.name).toBe('New Name');
-      expect(tpl?.description).toBe('New desc');
+        createdAt: '2026-01-01T00:00:00.000Z',
+        lastUsedAt: '2026-01-01T00:00:00.000Z',
+      };
+    }
+
+    it('takes the list the extension keeps as a whole', () => {
+      getState().upsertTemplate(template('local', 'Stale'));
+      getState().setTemplates([template('a', 'Accounts'), template('b', 'Cases')]);
+
+      expect(getState().templates.map((t) => t.id)).toEqual(['a', 'b']);
     });
 
-    it('should not modify other templates', () => {
-      const templates = getState().templates;
-      const otherTemplates = templates.filter((t) => t.id !== 'tpl-002');
-      otherTemplates.forEach((t) => {
-        expect(t.name).not.toBe('New Name');
+    it('adds a template it does not hold, and replaces the one with the same id', () => {
+      getState().setTemplates([template('a', 'Accounts')]);
+
+      getState().upsertTemplate(template('b', 'Cases'));
+      getState().upsertTemplate({ ...template('a', 'Accounts renamed'), description: 'weekly' });
+
+      expect(getState().templates.map((t) => [t.id, t.name, t.description])).toEqual([
+        ['a', 'Accounts renamed', 'weekly'],
+        ['b', 'Cases', ''],
+      ]);
+    });
+
+    it('removes one template by id, not every template that shares its name', () => {
+      getState().setTemplates([template('a', 'Weekly'), template('b', 'Weekly')]);
+
+      getState().removeTemplate('a');
+
+      expect(getState().templates.map((t) => t.id)).toEqual(['b']);
+    });
+  });
+
+  describe('anonymization a template brings back', () => {
+    it('sets the categories a template names and leaves the others alone', () => {
+      getState().setAnonymizationRules({ email: 'hash', phone: 'redact' });
+
+      expect(getState().anonymizationRules).toMatchObject({
+        email: 'hash',
+        phone: 'redact',
+        name: 'fake',
+        other: 'nullify',
       });
+    });
+
+    it('keeps the preset picked in Review across a new run, and clears it on reset', () => {
+      getState().setAnonymizationPresetId('preset:gdpr-default');
+      getState().forgeAgain();
+      expect(getState().anonymizationPresetId).toBe('preset:gdpr-default');
+
+      getState().reset();
+      expect(getState().anonymizationPresetId).toBe('');
     });
   });
 

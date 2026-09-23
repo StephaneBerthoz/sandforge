@@ -1,11 +1,79 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import i18n from '../../i18n';
-import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
+import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 
 /* ---- Mocks ---- */
+
+const mockPostMessage = vi.fn();
+const stableApi = {
+  postMessage: (...args: unknown[]) => mockPostMessage(...args),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => stableApi,
+  getVscodeApi: () => stableApi,
+}));
+
+/** The payloads of every message of `type` the screen posted. */
+function sent<T>(type: string): T[] {
+  return mockPostMessage.mock.calls
+    .map((call) => call[0] as { payload: BaseMessage & { payload: T } })
+    .filter((envelope) => envelope.payload.type === type)
+    .map((envelope) => envelope.payload.payload);
+}
+
+/** Answer the last `requestType` message on `responseType`, correlated as a handler does. */
+function replyTo(requestType: string, responseType: string, payload: unknown): void {
+  const request = mockPostMessage.mock.calls
+    .map((call) => call[0] as { payload: BaseMessage })
+    .filter((envelope) => envelope.payload.type === requestType)
+    .pop();
+  if (!request) throw new Error(`no '${requestType}' message was sent`);
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: `resp-${responseType}`,
+          type: responseType,
+          timestamp: Date.now(),
+          correlationId: request.payload.id,
+          payload,
+        },
+      }),
+    );
+  });
+}
+
+const mockUpsertTemplate = vi.fn();
+
+/** The configuration the run on screen was started with. */
+const RUN_CONFIG: ForgeConfig = {
+  inputMode: 'soql',
+  soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Energy'",
+  objectSoqlFilters: { Account: "Industry = 'Energy'" },
+  depth: 'full',
+  maxNodes: 200,
+  sourceOrgId: 'org-source',
+  targetOrgId: 'org-target',
+  anonymizePII: true,
+  skipEmpty: false,
+  batchSize: 'auto',
+  maxRecordsPerObject: 200,
+};
+
+const RUN_RULES = {
+  email: 'hash',
+  phone: 'mask',
+  name: 'fake',
+  address: 'fake',
+  ssn_id: 'redact',
+  financial: 'hash',
+  other: 'nullify',
+} as const;
 
 /**
  * Mock @tanstack/react-virtual: jsdom has no layout, so the real virtualizer
@@ -165,6 +233,10 @@ vi.mock('../../stores/useForgeStore', () => {
         setPhase: (...args: unknown[]) => mockSetPhase(...args),
         setGraph: (...args: unknown[]) => mockSetGraph(...args),
         logs: mockLogs,
+        config: RUN_CONFIG,
+        anonymizationRules: RUN_RULES,
+        anonymizationPresetId: 'preset:gdpr-default',
+        upsertTemplate: (...args: unknown[]) => mockUpsertTemplate(...args),
       }),
     {
       getState: () => ({
@@ -272,17 +344,126 @@ describe('ForgeResults', () => {
     expect(btn).toBeDefined();
   });
 
-  it('shows Save as template as not built yet instead of answering a click in English', () => {
-    // The button used to be live and answer every click with a toast whose
-    // body was the literal English "Coming soon", in all six languages.
-    useNotificationStore.setState({ notifications: [] });
-    render(<ForgeResults />);
-    const btn = screen.getByTestId('forge-save-template') as HTMLButtonElement;
+  describe('save as template', () => {
+    function openForm(): void {
+      render(<ForgeResults />);
+      fireEvent.click(screen.getByTestId('forge-save-template'));
+    }
 
-    expect(btn.disabled).toBe(true);
-    expect(btn.textContent).toContain(i18n.t('common.comingSoon'));
-    fireEvent.click(btn);
-    expect(useNotificationStore.getState().notifications).toEqual([]);
+    function fill(name: string, description = ''): void {
+      fireEvent.change(screen.getByTestId('forge-save-template-name'), {
+        target: { value: name },
+      });
+      fireEvent.change(screen.getByTestId('forge-save-template-desc'), {
+        target: { value: description },
+      });
+    }
+
+    beforeEach(() => {
+      mockPostMessage.mockClear();
+    });
+
+    it('opens a form on its name field, labelled and tied to the button that opened it', () => {
+      openForm();
+
+      const button = screen.getByTestId('forge-save-template');
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+      expect(button.getAttribute('aria-controls')).toBe('forge-save-template-form');
+      expect(screen.getByLabelText(i18n.t('forge.templateName'))).toBe(document.activeElement);
+      expect(screen.getByLabelText(i18n.t('forge.templateDescription'))).toBeDefined();
+    });
+
+    it("sends the run's input, scope, anonymization and target org, and not its source", () => {
+      openForm();
+      fill('  Energy accounts  ', 'Weekly refresh');
+
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+      const [{ template }] = sent<{ template: Record<string, unknown> }>('forge:templates:save');
+      expect(template).toMatchObject({
+        name: 'Energy accounts',
+        description: 'Weekly refresh',
+        targetOrgId: 'org-target',
+        anonymization: { presetId: 'preset:gdpr-default', rules: RUN_RULES },
+        // Account and Contact were included; Case was left out of the run.
+        objectCount: 2,
+        recordCount: 35,
+      });
+      expect(template.config).toEqual({
+        inputMode: 'soql',
+        soqlQuery: "SELECT Id FROM Account WHERE Industry = 'Energy'",
+        objectSoqlFilters: { Account: "Industry = 'Energy'" },
+        depth: 'full',
+        maxNodes: 200,
+        anonymizePII: true,
+        skipEmpty: false,
+        batchSize: 'auto',
+        maxRecordsPerObject: 200,
+      });
+      expect(JSON.stringify(template)).not.toContain('org-source');
+    });
+
+    it('lists the template only once the extension answered that it kept it', () => {
+      openForm();
+      fill('Energy accounts');
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+      expect(mockUpsertTemplate).not.toHaveBeenCalled();
+
+      replyTo('forge:templates:save', 'forge:templates:save:response', { success: true });
+
+      expect(mockUpsertTemplate).toHaveBeenCalledTimes(1);
+      expect(mockUpsertTemplate.mock.calls[0][0].name).toBe('Energy accounts');
+      expect(screen.queryByTestId('forge-save-template-form')).toBeNull();
+      expect(screen.getByTestId('forge-save-template-saved').textContent).toBe(
+        i18n.t('forge.savedTemplate.saved', { name: 'Energy accounts' }),
+      );
+      // The form and the field that had focus are gone; focus goes back to the button.
+      expect(screen.getByTestId('forge-save-template')).toBe(document.activeElement);
+    });
+
+    it('sends one save while one is waiting for its answer, however the form is submitted', () => {
+      openForm();
+      fill('Energy accounts');
+
+      fireEvent.submit(screen.getByTestId('forge-save-template-form'));
+      fireEvent.submit(screen.getByTestId('forge-save-template-form'));
+
+      expect(sent('forge:templates:save')).toHaveLength(1);
+    });
+
+    it('asks for a name before saving, and sends nothing without one', () => {
+      openForm();
+      fill('   ');
+
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+      expect(sent('forge:templates:save')).toEqual([]);
+      const name = screen.getByTestId('forge-save-template-name');
+      expect(name.getAttribute('aria-invalid')).toBe('true');
+      expect(name.getAttribute('aria-describedby')).toBe('forge-save-template-name-error');
+      expect(screen.getByRole('alert').textContent).toBe(
+        i18n.t('forge.savedTemplate.nameRequired'),
+      );
+    });
+
+    it('says why the extension did not keep it, and keeps the form open', () => {
+      useNotificationStore.setState({ notifications: [] });
+      openForm();
+      fill('Energy accounts');
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+      replyTo('forge:templates:save', 'forge:templates:save:error', {
+        message: 'EROFS: read-only file system',
+        code: 'UNKNOWN',
+        retryable: false,
+      });
+
+      expect(screen.getByTestId('forge-save-template-error').textContent).toBe(
+        i18n.t('forge.savedTemplate.saveFailed', { message: 'EROFS: read-only file system' }),
+      );
+      expect(screen.getByTestId('forge-save-template-form')).toBeDefined();
+      expect(mockUpsertTemplate).not.toHaveBeenCalled();
+    });
   });
 
   it('should render export JSON button', () => {

@@ -127,6 +127,96 @@ describe('forge template portability', () => {
     expect(JSON.parse(written[0])[0].id).toBe('legacy');
   });
 
+  it('writes the target org and the anonymization a template carries', async () => {
+    const { files, store } = createFakeFs();
+    const handler = new ForgeHandler(deps);
+    withStore(handler, store);
+    const saved = {
+      ...template('t3'),
+      targetOrgId: 'org-target',
+      anonymization: { presetId: 'preset:gdpr-default', rules: { email: 'hash' } },
+    };
+
+    await handler.handle(msg('forge:templates:save', { template: saved }));
+
+    const [written] = JSON.parse(Array.from(files.values())[0]) as ForgeTemplate[];
+    expect(written.targetOrgId).toBe('org-target');
+    expect(written.anonymization).toEqual({
+      presetId: 'preset:gdpr-default',
+      rules: { email: 'hash' },
+    });
+  });
+
+  it('lists only the entries that read as templates, and keeps the others in the file', async () => {
+    // The file is committed and edited by hand; an entry another version wrote
+    // must not reach a form that would run it, nor be lost on the next save.
+    const { files, store } = createFakeFs();
+    const handEdited = { id: 'broken', name: 'no config at all' };
+    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify([template('ok'), handEdited]));
+    const handler = new ForgeHandler(deps);
+    withStore(handler, store);
+
+    await handler.handle(msg('forge:templates:list', {}));
+    const listed = vi.mocked(deps.broker.postToWebview).mock.calls[0][0] as BaseMessage & {
+      payload: { templates: ForgeTemplate[] };
+    };
+    expect(listed.payload.templates.map((t) => t.id)).toEqual(['ok']);
+
+    await handler.handle(msg('forge:templates:save', { template: template('new') }));
+    const ids = (
+      JSON.parse(files.get('/ws/.sandforge/forge-templates.json') as string) as Array<{
+        id: string;
+      }>
+    ).map((t) => t.id);
+    expect(ids).toContain('broken');
+    expect(ids).toContain('new');
+  });
+
+  it('answers a save the workspace refuses on the save error channel', async () => {
+    const handler = new ForgeHandler(deps);
+    handler.setForgeOrchestrator({ on: vi.fn() } as never, {
+      templateStore: new ForgeTemplateStore({
+        workspacePath: '/ws',
+        readFile: async () => '[]',
+        writeFile: async () => {
+          throw new Error('EROFS: read-only file system');
+        },
+        mkdir: async () => undefined,
+      }),
+    });
+
+    await handler.handle(msg('forge:templates:save', { template: template('t4') }));
+
+    const posted = vi
+      .mocked(deps.broker.postToWebview)
+      .mock.calls.map((c) => c[0] as BaseMessage & { payload: { message: string } });
+    expect(posted).toHaveLength(1);
+    expect(posted[0].type).toBe('forge:templates:save:error');
+    expect(posted[0].correlationId).toBe('req-1');
+    expect(posted[0].payload.message).toContain('read-only');
+  });
+
+  it('answers a delete the workspace refuses on the delete error channel', async () => {
+    const handler = new ForgeHandler(deps);
+    handler.setForgeOrchestrator({ on: vi.fn() } as never, {
+      templateStore: new ForgeTemplateStore({
+        workspacePath: '/ws',
+        readFile: async () => JSON.stringify([template('t5')]),
+        writeFile: async () => {
+          throw new Error('EACCES: permission denied');
+        },
+        mkdir: async () => undefined,
+      }),
+    });
+
+    await handler.handle(msg('forge:templates:delete', { templateId: 't5' }));
+
+    const posted = vi.mocked(deps.broker.postToWebview).mock.calls.map((c) => c[0] as BaseMessage);
+    expect(posted.map((p) => [p.type, p.correlationId])).toEqual([
+      ['forge:templates:delete:error', 'req-1'],
+    ]);
+  });
+
   it('falls back to ConfigStore when no folder is open', async () => {
     // A folderless window has no `.sandforge/` to write into; composition does
     // not build the store at all, and saving must still work.

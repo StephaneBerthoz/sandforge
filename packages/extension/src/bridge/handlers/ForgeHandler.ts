@@ -1060,8 +1060,19 @@ export class ForgeHandler implements DomainHandler {
     return new RecordTypeMapper().buildMapping(sourceTypes, targetTypes);
   }
 
+  /**
+   * List the saved templates the Template tab can apply.
+   *
+   * Each entry is read back through the template schema first. The workspace
+   * file is meant to be committed and edited by hand, and another version of
+   * SandForge may have written it: an entry that no longer reads as a template
+   * is left out of the list, not handed to a form that would run it. It stays
+   * in the file — the next save writes it back untouched.
+   */
   private async handleTemplatesList(msg: InboundRequest): Promise<void> {
-    const templates = await this.loadTemplates();
+    const templates = (await this.loadTemplates()).filter(
+      (t) => forgeTemplateSchema.safeParse(t).success,
+    );
     const response = buildResponse(this.deps, msg, 'forge:templates:list:response', { templates });
     this.deps.broker.postToWebview(response);
   }
@@ -1075,11 +1086,19 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { template } = parsed;
-    const templates = [
-      template,
-      ...(await this.loadTemplates()).filter((t) => t.id !== template.id),
-    ];
-    await this.saveTemplates(templates);
+    // A write that fails — a read-only workspace, a full disk — used to throw
+    // past the router, which logs it and answers nothing: the panel waited out
+    // its timeout for a template that was never saved.
+    try {
+      const templates = [
+        template,
+        ...(await this.loadTemplates()).filter((t) => t.id !== template.id),
+      ];
+      await this.saveTemplates(templates);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'forge:templates:save', 'forge:templates:save:error', msg, err);
+      return;
+    }
     const response = buildResponse(this.deps, msg, 'forge:templates:save:response', {
       success: true,
     });
@@ -1095,8 +1114,19 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { templateId } = parsed;
-    const templates = (await this.loadTemplates()).filter((t) => t.id !== templateId);
-    await this.saveTemplates(templates);
+    try {
+      const templates = (await this.loadTemplates()).filter((t) => t.id !== templateId);
+      await this.saveTemplates(templates);
+    } catch (err: unknown) {
+      sendHandlerError(
+        this.deps,
+        'forge:templates:delete',
+        'forge:templates:delete:error',
+        msg,
+        err,
+      );
+      return;
+    }
     const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', {
       success: true,
     });

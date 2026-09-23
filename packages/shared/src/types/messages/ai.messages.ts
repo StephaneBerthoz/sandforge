@@ -171,6 +171,65 @@ export interface AINL2SOQLResponse extends BaseMessage {
   };
 }
 
+/**
+ * Forge: turn a description into the root query discovery starts from, or
+ * check again a query the user edited.
+ *
+ * Exactly one of `prompt` and `soql` is sent. A prompt goes to the model
+ * through NL2SOQL and its draft is checked; a query is only checked, and
+ * reaches no model. Either way the answer is a draft for the user to confirm:
+ * nothing is discovered or written from here.
+ */
+export interface AIForgePlanRequest extends BaseMessage {
+  type: 'ai:forge-plan';
+  payload: { orgId: string; prompt?: string; soql?: string };
+}
+
+/**
+ * One reason a Forge root query does not hold up against the org it is to be
+ * run on, as the check found it.
+ *
+ * - `no-from`: no object is named after a top-level FROM.
+ * - `object-missing`: the object is not one the org lets this user query.
+ * - `describe-failed`: the org would not describe the object; `detail` is its message.
+ * - `field-missing`: the object has no field of that name.
+ * - `relationship-missing`: a path starts with a relationship the object does not have.
+ * - `org-refused`: the org's own parser refused the query; `detail` is its message.
+ */
+export type ForgePlanProblem =
+  | { kind: 'no-from' }
+  | { kind: 'object-missing'; object: string }
+  | { kind: 'describe-failed'; object: string; detail: string }
+  | { kind: 'field-missing'; object: string; field: string }
+  | { kind: 'relationship-missing'; object: string; relationship: string }
+  | { kind: 'org-refused'; detail: string };
+
+/**
+ * The draft (or the edited query) and what the check found.
+ *
+ * `success` is true only when the query was checked and nothing was found
+ * wrong: the object exists and can be queried, every field and relationship
+ * the query names at its top level exists on it, and the org's parser accepts
+ * it. `code` is `AI_NOT_CONFIGURED` when a prompt came in and no provider is
+ * set up; `error` carries any failure that stopped the check before it could
+ * say anything about the query.
+ */
+export interface AIForgePlanResponse extends BaseMessage {
+  type: 'ai:forge-plan:response';
+  payload: {
+    success: boolean;
+    code?: 'AI_NOT_CONFIGURED';
+    soql?: string;
+    explanation?: string;
+    rootObject?: string;
+    rootLabel?: string;
+    /** How many distinct fields and relationships were compared against the describe. */
+    fieldsChecked?: number;
+    problems?: ForgePlanProblem[];
+    error?: string;
+  };
+}
+
 /** AI anomaly detection */
 export interface AIAnomalyScanRequest extends BaseMessage {
   type: 'ai:anomaly-scan';

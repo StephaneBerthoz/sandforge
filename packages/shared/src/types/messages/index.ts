@@ -299,6 +299,8 @@ import type {
   AISaveKeyResponse,
   AINL2SOQLRequest,
   AINL2SOQLResponse,
+  AIForgePlanRequest,
+  AIForgePlanResponse,
   AIAnomalyScanRequest,
   AIAnomalyScanResponse,
   AIGeneratePipelineRequest,
@@ -529,6 +531,7 @@ export type WebViewToExtensionMessage =
   | AIStatusRequest
   | AISaveKeyRequest
   | AINL2SOQLRequest
+  | AIForgePlanRequest
   | AIAnomalyScanRequest
   | AIGeneratePipelineRequest
   | AISchemaAdviceRequest
@@ -721,6 +724,7 @@ export type ExtensionToWebViewMessage =
   | AIStatusResponse
   | AISaveKeyResponse
   | AINL2SOQLResponse
+  | AIForgePlanResponse
   | AIAnomalyScanResponse
   | AIGeneratePipelineResponse
   | AISchemaAdviceResponse

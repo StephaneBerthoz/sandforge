@@ -356,6 +356,8 @@ const AIMessages = [
   msg('ai:error'),
   msg('ai:nl2soql'),
   msg('ai:nl2soql:response'),
+  msg('ai:forge-plan'),
+  msg('ai:forge-plan:response'),
   msg('ai:anomaly-scan'),
   msg('ai:anomaly-scan:response'),
   msg('ai:generate-pipeline'),

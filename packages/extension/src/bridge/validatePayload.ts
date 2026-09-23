@@ -902,6 +902,20 @@ export const aiNl2SoqlPayloadSchema = z.object({
   query: z.string().min(1).max(2_000),
   orgId: orgIdSchema,
 });
+/**
+ * Forge's AI tab: a description to draft from, or a query the user edited to
+ * check again — one or the other. The query bound is the one Forge's own
+ * config puts on `soqlQuery`.
+ */
+export const aiForgePlanPayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    prompt: z.string().trim().min(1).max(2_000).optional(),
+    soql: z.string().trim().min(1).max(20_000).optional(),
+  })
+  .refine((p) => (p.prompt === undefined) !== (p.soql === undefined), {
+    message: 'Send a prompt to draft from or a query to check, not both and not neither',
+  });
 export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,
   orgIds: z.array(orgIdSchema).max(50).optional(),

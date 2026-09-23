@@ -26,6 +26,7 @@ import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeGraphNode, ForgeGraph, ForgeConfig } from '../../stores/useForgeStore';
 import type { BaseMessage } from '@sandforge/shared';
+import { findForgeAnonymizationPreset } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { slideUp, staggerContainer } from '../../motion/presets';
@@ -71,6 +72,14 @@ export const ForgeDiscovery: React.FC = () => {
         // that graph would drop the user back into a phase they walked out of.
         if (useForgeStore.getState().phase !== 'discovery') return;
         setGraph(msg.payload.graph);
+        // A preset picked in Review — or brought back by a template — applies
+        // to the graph it is shown beside. A new graph comes back with every
+        // PII field it found selected, and the Review tab would show the
+        // preset over fields it never chose.
+        const { anonymizationPresetId, config, applyAnonymizationPreset } =
+          useForgeStore.getState();
+        const preset = findForgeAnonymizationPreset(anonymizationPresetId);
+        if (preset && config?.anonymizePII) applyAnonymizationPreset(preset.rules);
         setLoading(false);
         setError(null);
         setDiscoveryProgress(null);

@@ -92,6 +92,9 @@ async function pickOrg(page: Page, testId: string, orgId: string): Promise<void>
 /** A valid 18-character record id — what `extractRecordId` accepts verbatim. */
 const RECORD_ID = '001000000000001AAA';
 
+/** The query the AI tab's draft answers with. */
+const AI_DRAFT = "SELECT Id, Name, Industry FROM Account WHERE Industry = 'Energy'";
+
 /** Account preview as `forge:preview:response` carries one. */
 const ACCOUNT_PREVIEW = {
   objectApiName: 'Account',
@@ -167,15 +170,65 @@ test.describe('Forge — input form', () => {
     await expect(page.getByTestId('forge-input-record')).toHaveCount(0);
   });
 
-  test('shows the AI tab as coming soon, and it does not open', async ({ page }) => {
+  test('opens the AI tab, and says how to set up a provider when none is', async ({ page }) => {
     const aiTab = page.getByTestId('forge-tab-ai');
-    await expect(aiTab).toBeDisabled();
-    await expect(aiTab).toContainText('Coming soon');
+    await expect(aiTab).toBeEnabled();
 
-    await aiTab.click({ force: true });
+    await aiTab.click();
 
-    await expect(page.getByTestId('forge-tab-record')).toHaveAttribute('data-state', 'active');
+    await expect(aiTab).toHaveAttribute('data-state', 'active');
+    await expect(page.getByTestId('forge-ai-not-configured')).toBeVisible();
+    await expect(page.getByTestId('forge-ai-open-settings')).toBeVisible();
     await expect(page.getByTestId('forge-input-ai')).toHaveCount(0);
+  });
+
+  test('drafts a query from a prompt, and discovers from it only on the click', async ({
+    page,
+  }) => {
+    // AI on and a key stored: the extension pushes its status to every panel.
+    await sendExtensionMessage(page, {
+      type: 'ai:status:response',
+      id: 'ai-status-push',
+      payload: { enabled: true, provider: 'anthropic', model: 'model' },
+    });
+    await pickOrg(page, 'forge-target-org', 'org-tgt-1');
+    await page.getByTestId('forge-tab-ai').click();
+
+    await page.getByTestId('forge-input-ai').fill('Accounts in the energy industry');
+    await page.getByTestId('forge-ai-draft-btn').click();
+    const request = await bridge.waitForMessage('ai:forge-plan', { timeout: 10_000 });
+    expect(request.payload).toEqual({
+      orgId: 'org-src-1',
+      prompt: 'Accounts in the energy industry',
+    });
+    await respondToAll(page, 'ai:forge-plan', 'ai:forge-plan:response', {
+      success: true,
+      soql: AI_DRAFT,
+      explanation: 'Accounts whose industry is Energy',
+      rootObject: 'Account',
+      rootLabel: 'Account',
+      fieldsChecked: 3,
+      problems: [],
+    });
+
+    await expect(page.getByTestId('forge-ai-query')).toHaveValue(AI_DRAFT);
+    await expect(page.getByTestId('forge-ai-checked')).toBeVisible();
+    // The WHERE clause narrows the root only, as on the SOQL tab.
+    await expect(page.getByTestId('forge-soql-where-warning')).toBeVisible();
+    expect(await outgoing(page, 'forge:discover')).toHaveLength(0);
+
+    await page.getByTestId('forge-discover-btn').click();
+
+    const discover = await bridge.waitForMessage('forge:discover', { timeout: 10_000 });
+    expect(discover.payload).toMatchObject({
+      config: {
+        inputMode: 'soql',
+        soqlQuery: AI_DRAFT,
+        objectSoqlFilters: { Account: "Industry = 'Energy'" },
+        sourceOrgId: 'org-src-1',
+        targetOrgId: 'org-tgt-1',
+      },
+    });
   });
 
   test('displays the three depth chips, direct selected', async ({ page }) => {
@@ -544,5 +597,144 @@ test.describe('Seed — a wizard run of three objects, which skips the configure
     const contact = template.objects.find((o) => o.objectApiName === 'Contact');
     expect(contact?.recordCount).toBe(300);
     expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
+  });
+});
+
+/** The graph a discovery of one Account and its Contacts answers with. */
+const DISCOVERED_GRAPH = {
+  nodes: [
+    {
+      objectApiName: 'Account',
+      recordCount: 1,
+      fieldCount: 50,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 0,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 40,
+      estimatedSizeMB: 0.01,
+      estimatedApiCalls: 1,
+      batchStrategy: 'auto',
+    },
+    {
+      objectApiName: 'Contact',
+      recordCount: 3,
+      fieldCount: 60,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: ['Email'],
+      anonymizeFields: [],
+      level: 1,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 45,
+      estimatedSizeMB: 0.02,
+      estimatedApiCalls: 1,
+      batchStrategy: 'auto',
+    },
+  ],
+  edges: [
+    {
+      sourceObject: 'Account',
+      targetObject: 'Contact',
+      relationshipName: 'Contacts',
+      type: 'lookup',
+    },
+  ],
+  totalRecords: 4,
+  estimatedSizeMB: 0.03,
+  estimatedDurationSeconds: 2,
+};
+
+test.describe('Forge — a run saved as a template', () => {
+  let bridge: MockBridge;
+
+  test.beforeEach(async ({ page }) => {
+    bridge = await openForge(page);
+    await page.waitForSelector('[data-testid="forge-page"]', { timeout: 10_000 });
+  });
+
+  /** Take one record through discovery, review and execution to the results. */
+  async function runToResults(page: Page): Promise<void> {
+    await pickOrg(page, 'forge-target-org', 'org-tgt-1');
+    await enterRecordIdAndSettlePreview(page, bridge, RECORD_ID, ACCOUNT_PREVIEW);
+    await page.getByTestId('forge-depth-full').click();
+    await page.getByTestId('forge-discover-btn').click();
+    await bridge.waitForMessage('forge:discover', { timeout: 10_000 });
+    // Each phase mounts once the last one has animated out, and only then
+    // listens: an answer sent sooner reaches no one.
+    await expect(page.getByTestId('forge-discovery-loading')).toBeVisible({ timeout: 10_000 });
+    await respondToAll(page, 'forge:discover', 'forge:discover:response', {
+      graph: DISCOVERED_GRAPH,
+    });
+    await page.getByTestId('forge-execute-btn').click();
+    await page.getByTestId('execute-button').click();
+    await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+    await expect(page.getByTestId('forge-execution')).toBeVisible({ timeout: 10_000 });
+    await respondToAll(page, 'forge:execute', 'forge:execute:response', {
+      result: {
+        forgeId: 'forge-run-1',
+        status: 'success',
+        graph: DISCOVERED_GRAPH,
+        duration: 2_000,
+        timestamp: '2026-09-01T08:00:00.000Z',
+        idRemapCount: 4,
+        createdCount: 4,
+      },
+    });
+    await expect(page.getByTestId('forge-results')).toBeVisible({ timeout: 10_000 });
+  }
+
+  test('saves the run, and the Template tab applies it to a new run', async ({ page }) => {
+    await runToResults(page);
+
+    await page.getByTestId('forge-save-template').click();
+    await expect(page.getByTestId('forge-save-template-name')).toBeFocused();
+    await page.getByTestId('forge-save-template-name').fill('Account 360, full depth');
+    await page.getByTestId('forge-save-template-submit').click();
+
+    const save = await bridge.waitForMessage('forge:templates:save', { timeout: 10_000 });
+    const { template } = save.payload as { template: Record<string, unknown> };
+    expect(template).toMatchObject({
+      name: 'Account 360, full depth',
+      targetOrgId: 'org-tgt-1',
+      config: { inputMode: 'record', recordId: RECORD_ID, depth: 'full' },
+    });
+    expect(JSON.stringify(template)).not.toContain('org-src-1');
+    await respondToAll(page, 'forge:templates:save', 'forge:templates:save:response', {
+      success: true,
+    });
+    await expect(page.getByTestId('forge-save-template-saved')).toContainText(
+      'Account 360, full depth',
+    );
+
+    // A new run: the form starts over, and the Template tab lists what the
+    // extension keeps.
+    await page.getByTestId('forge-again').click();
+    // The first form asked once already; the new one asks again on mount.
+    await expect
+      .poll(async () => (await outgoing(page, 'forge:templates:list')).length)
+      .toBeGreaterThanOrEqual(2);
+    await respondToAll(page, 'forge:templates:list', 'forge:templates:list:response', {
+      templates: [template],
+    });
+    await page.getByTestId('forge-depth-direct').click();
+    await page.getByTestId('forge-tab-template').click();
+    const apply = page.getByTestId(`forge-template-apply-${String(template.id)}`);
+    await expect(apply).toContainText('Account 360, full depth');
+
+    await apply.click();
+
+    await expect(apply).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('forge-template-applied')).toBeVisible();
+    await expect(page.getByTestId('forge-depth-full')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('forge-discover-btn')).toBeEnabled();
   });
 });

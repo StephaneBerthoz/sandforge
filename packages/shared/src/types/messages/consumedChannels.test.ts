@@ -100,9 +100,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     channel: 'sync:config:delete',
     reason: 'Nothing deletes a saved sync configuration yet.',
   },
-  { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
-  { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
-  { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
 ];
 
 function repoPath(...parts: string[]): string {

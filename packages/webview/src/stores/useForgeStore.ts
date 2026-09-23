@@ -88,6 +88,7 @@ const INITIAL_STATE = {
   complianceReport: null as ComplianceReport | null,
   metadataDiffs: [] as MetadataDiffEntry[],
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
+  anonymizationPresetId: '',
   logs: [] as ForgeLogEntry[],
   executionRequestId: null as string | null,
 };
@@ -114,6 +115,13 @@ export interface ForgeState {
   metadataDiffs: MetadataDiffEntry[];
   /** Anonymization rules per category. */
   anonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod>;
+  /**
+   * Id of the anonymization preset picked in Review, or '' for none.
+   *
+   * Held here rather than in the Review tab, so a run's results can save it
+   * with the run as a template, and a template can bring it back.
+   */
+  anonymizationPresetId: string;
   /**
    * Id of the forge:execute request that started the run on screen, or null.
    * The extension correlates the run's progress, result and error to it.
@@ -152,12 +160,12 @@ export interface ForgeState {
   ) => void;
   /** Set the execution result and append to history. */
   setResult: (result: ForgeExecutionResult) => void;
-  /** Remove a template by name. */
-  removeTemplate: (name: string) => void;
-  /** Add a new template to the list. */
-  addTemplate: (template: ForgeTemplate) => void;
-  /** Update an existing template's name and/or description. */
-  updateTemplate: (id: string, updates: { name?: string; description?: string }) => void;
+  /** Replace the template list with the one the extension keeps. */
+  setTemplates: (templates: ForgeTemplate[]) => void;
+  /** Add a saved template, or replace the one with the same id. */
+  upsertTemplate: (template: ForgeTemplate) => void;
+  /** Remove a template by id. */
+  removeTemplate: (id: string) => void;
   /** Set the execution plan. */
   setPlan: (plan: ForgePlan) => void;
   /** Set the compliance report. */
@@ -166,6 +174,12 @@ export interface ForgeState {
   setMetadataDiffs: (diffs: MetadataDiffEntry[]) => void;
   /** Set an anonymization rule for a category. */
   setAnonymizationRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
+  /** Set the method of every category a template names, leaving the others as they are. */
+  setAnonymizationRules: (
+    rules: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>,
+  ) => void;
+  /** Record the preset picked in Review ('' for none). */
+  setAnonymizationPresetId: (presetId: string) => void;
   /** Update a node's batch strategy. */
   updateNodeBatchStrategy: (objectApiName: string, strategy: ForgeBatchStrategy) => void;
   /** Execution log entries (persisted across phase transitions). */
@@ -342,23 +356,25 @@ export const useForgeStore = create<ForgeState>((set) => ({
     }));
   },
 
-  removeTemplate(name: string): void {
+  setTemplates(templates: ForgeTemplate[]): void {
+    set({ templates });
+  },
+
+  upsertTemplate(template: ForgeTemplate): void {
     set((state) => ({
-      templates: state.templates.filter((t: ForgeTemplate) => t.name !== name),
+      templates: state.templates.some((t: ForgeTemplate) => t.id === template.id)
+        ? state.templates.map((t: ForgeTemplate) => (t.id === template.id ? template : t))
+        : [...state.templates, template],
     }));
   },
 
-  addTemplate(template: ForgeTemplate): void {
+  /*
+   * By id: templates were removed by name, so deleting one of two templates
+   * that shared a name took both off the list.
+   */
+  removeTemplate(id: string): void {
     set((state) => ({
-      templates: [...state.templates, template],
-    }));
-  },
-
-  updateTemplate(id: string, updates: { name?: string; description?: string }): void {
-    set((state) => ({
-      templates: state.templates.map((t: ForgeTemplate) =>
-        t.id === id ? { ...t, ...updates } : t,
-      ),
+      templates: state.templates.filter((t: ForgeTemplate) => t.id !== id),
     }));
   },
 
@@ -381,6 +397,16 @@ export const useForgeStore = create<ForgeState>((set) => ({
         [category]: method,
       },
     }));
+  },
+
+  setAnonymizationRules(
+    rules: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>,
+  ): void {
+    set((state) => ({ anonymizationRules: { ...state.anonymizationRules, ...rules } }));
+  },
+
+  setAnonymizationPresetId(anonymizationPresetId: string): void {
+    set({ anonymizationPresetId });
   },
 
   updateNodeBatchStrategy(objectApiName: string, strategy: ForgeBatchStrategy): void {
@@ -424,7 +450,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
       complianceReport: null,
       metadataDiffs: [],
       logs: [],
-      // Preserve: config, templates, history, anonymizationRules
+      // Preserve: config, templates, history, anonymizationRules, anonymizationPresetId
     });
   },
 

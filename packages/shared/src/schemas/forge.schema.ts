@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { anonymizationMethodSchema } from './autopilot.schema.js';
 
 // ─── Enum Schemas ────────────────────────────────────────────────────────────
 
@@ -263,12 +264,20 @@ export const forgeExecutionResultSchema = z.object({
 
 // ─── Template Schema ────────────────────────────────────────────────────────
 
+/** Zod schema for ForgeTemplateAnonymization */
+export const forgeTemplateAnonymizationSchema = z.object({
+  presetId: z.string().min(1).max(100).optional(),
+  rules: z.record(forgeAnonymizationCategorySchema, anonymizationMethodSchema),
+});
+
 /** Zod schema for ForgeTemplate */
 export const forgeTemplateSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
   config: forgeConfigSchema.omit({ sourceOrgId: true, targetOrgId: true }),
+  targetOrgId: z.string().min(1).max(128).optional(),
+  anonymization: forgeTemplateAnonymizationSchema.optional(),
   objectCount: z.number().int().nonnegative(),
   recordCount: z.number().int().nonnegative(),
   createdAt: z.string().min(1),

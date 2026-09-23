@@ -3,10 +3,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
+import { findForgeAnonymizationPreset } from '@sandforge/shared';
 
 /* ---- Mocks ---- */
 
 const mockSetAnonymizationRule = vi.fn();
+const mockSetPresetId = vi.fn();
+const mockApplyPreset = vi.fn();
+/** The preset the store holds; a template may have brought it back. */
+const mockPreset = vi.hoisted(() => ({ id: '' }));
 
 const defaultRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
@@ -70,6 +75,9 @@ vi.mock('../../stores/useForgeStore', () => {
         anonymizationRules: defaultRules,
         setAnonymizationRule: mockSetAnonymizationRule,
         graph: mockGraph,
+        anonymizationPresetId: mockPreset.id,
+        setAnonymizationPresetId: mockSetPresetId,
+        applyAnonymizationPreset: mockApplyPreset,
       }),
     {
       getState: () => ({
@@ -85,6 +93,31 @@ vi.mock('../../stores/useForgeStore', () => {
 /* ---- Tests ---- */
 
 describe('ReviewAnonymizationTab', () => {
+  it('shows the preset the store holds, which a template may have brought back', () => {
+    mockPreset.id = 'preset:gdpr-default';
+    render(<ReviewAnonymizationTab />);
+
+    const select = screen.getByTestId('anonymization-preset-select') as HTMLSelectElement;
+    expect(select.value).toBe('preset:gdpr-default');
+    expect(screen.getByTestId('anonymization-preset-description').textContent).toBe(
+      findForgeAnonymizationPreset('preset:gdpr-default')?.description,
+    );
+    mockPreset.id = '';
+  });
+
+  it("keeps the preset picked in the store, so the run's results can save it", () => {
+    render(<ReviewAnonymizationTab />);
+
+    fireEvent.change(screen.getByTestId('anonymization-preset-select'), {
+      target: { value: 'preset:gdpr-default' },
+    });
+
+    expect(mockSetPresetId).toHaveBeenCalledWith('preset:gdpr-default');
+    expect(mockApplyPreset).toHaveBeenCalledWith(
+      findForgeAnonymizationPreset('preset:gdpr-default')?.rules,
+    );
+  });
+
   it('should render with data-testid', () => {
     render(<ReviewAnonymizationTab />);
     expect(screen.getByTestId('review-anonymization-tab')).toBeDefined();

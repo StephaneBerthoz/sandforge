@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
@@ -54,7 +54,10 @@ export const ReviewAnonymizationTab: React.FC = () => {
   const applyPreset = useForgeStore((s) => s.applyAnonymizationPreset);
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
 
-  const [presetId, setPresetId] = useState<string>('');
+  // In the store, not in this tab: a run's results save it with the run as a
+  // template, and applying the template brings it back.
+  const presetId = useForgeStore((s) => s.anonymizationPresetId);
+  const setPresetId = useForgeStore((s) => s.setAnonymizationPresetId);
   const handlePresetChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const id = e.target.value;
@@ -62,7 +65,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
       const preset = findForgeAnonymizationPreset(id);
       if (preset) applyPreset(preset.rules);
     },
-    [applyPreset],
+    [applyPreset, setPresetId],
   );
 
   return (

@@ -3,6 +3,7 @@ import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
   aiNl2SoqlPayloadSchema,
+  aiForgePlanPayloadSchema,
   aiGeneratePipelinePayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
@@ -13,11 +14,15 @@ import {
   resolveMentionedObjects,
   type SObjectCatalogEntry,
 } from '../../../modules/ai/mentionedObjects.js';
-import type { SchemaContext } from '../../../modules/ai/NL2SOQL.js';
+import type { NL2SOQL, NL2SOQLResult, SchemaContext } from '../../../modules/ai/NL2SOQL.js';
 import type { OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
+import { checkForgeRootQuery } from '../../../modules/ai/forgeRootQuery.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:generate-pipeline']);
+const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:forge-plan', 'ai:generate-pipeline']);
+
+/** What an AI feature answers when a prompt comes in and no provider is set up. */
+const AI_NOT_CONFIGURED = 'AI not configured. Set your API key in Settings > AI.';
 
 /**
  * The type the pipeline model is told an org has. The registry stores an
@@ -52,17 +57,20 @@ interface SchemaConnection {
   describe(name: string): Promise<{
     name: string;
     label?: string;
-    fields: Array<{ name: string; label?: string; type: string }>;
+    fields: Array<{ name: string; label?: string; type: string; relationshipName?: string | null }>;
   }>;
+  /** A REST call relative to the API version root, as jsforce resolves `/query/…`. */
+  request(url: string): Promise<unknown>;
 }
 
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles NL2SOQL translation and pipeline generation. Error resolution is not
- * one of them and has no channel in either direction: a failure is resolved
- * once by `sendOperationFailed`, on the side that raises it, and the
- * suggestion is shown there as a VS Code notification.
+ * Handles NL2SOQL translation, Forge's root query drafts and pipeline
+ * generation. Error resolution is not one of them and has no channel in
+ * either direction: a failure is resolved once by `sendOperationFailed`, on
+ * the side that raises it, and the suggestion is shown there as a VS Code
+ * notification.
  */
 export class AIToolsHandler implements DomainHandler {
   private aiModules?: AIModules;
@@ -132,6 +140,9 @@ export class AIToolsHandler implements DomainHandler {
       case 'ai:nl2soql':
         await this.handleNL2SOQL(msg);
         return true;
+      case 'ai:forge-plan':
+        await this.handleForgePlan(msg);
+        return true;
       case 'ai:generate-pipeline':
         await this.handleGeneratePipeline(msg);
         return true;
@@ -146,32 +157,17 @@ export class AIToolsHandler implements DomainHandler {
     if (!parsed) return;
     const { query, orgId } = parsed;
     try {
-      if (!this.aiModules?.nl2soql) {
-        throw new Error('AI not configured. Set your API key in Settings > AI.');
+      const nl2soql = this.aiModules?.nl2soql;
+      if (!nl2soql) {
+        throw new Error(AI_NOT_CONFIGURED);
       }
-      const conn = (await getJsforceConnection(
-        orgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      )) as unknown as SchemaConnection;
+      const conn = await this.connect(orgId);
       const catalog = await this.loadCatalog(orgId, conn);
-      const mentioned = resolveMentionedObjects(query, catalog);
-      const described = await this.describeObjects(orgId, conn, mentioned);
+      const { result, described } = await this.draft(nl2soql, query, orgId, conn, catalog);
 
-      // What the model sees and what the validator checks are deliberately
-      // different. The prompt carries the described objects when the request
-      // named any: the full catalog is ~21 500 tokens of names the model
-      // cannot build a SELECT from, so it is a last resort, sent only when
-      // nothing was recognised and the alternative is a prompt with no schema
-      // at all. The validator additionally holds every catalog entry as a bare
-      // name, so a FROM on an object nobody described is reported as
+      // The validator holds every catalog entry the prompt did not describe as
+      // a bare name, so a FROM on an object nobody described is reported as
       // unverified instead of as a non-existent object.
-      const promptContext: SchemaContext = {
-        objects:
-          described.length > 0
-            ? described
-            : catalog.map((s) => ({ apiName: s.name, label: s.label, fields: [] })),
-      };
       const describedNames = new Set(described.map((o) => o.apiName));
       const validationContext: SchemaContext = {
         objects: [
@@ -182,8 +178,7 @@ export class AIToolsHandler implements DomainHandler {
         ],
       };
 
-      const result = await this.aiModules.nl2soql.generateSOQL(query, promptContext);
-      const validation = this.aiModules.nl2soql.validateSOQL(result.soql, validationContext);
+      const validation = nl2soql.validateSOQL(result.soql, validationContext);
 
       // A rejected query is still shown: the draft is the useful part, the
       // error says which piece of it the org does not have. Swallowing it
@@ -212,6 +207,122 @@ export class AIToolsHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(errResp);
     }
+  }
+
+  /**
+   * Draft the query Forge's discovery starts from, or check again one the user
+   * edited, against the source org.
+   *
+   * The draft is NL2SOQL's, from the same prompt context, so the model is sent
+   * nothing more than the Seed helper sends it. The check is Forge's own: the
+   * object after FROM, then every field and relationship the query names at
+   * its top level, then the org's parser (see `checkForgeRootQuery`). An
+   * edited query reaches no model and is sent with no provider set up.
+   *
+   * A draft that fails the check is still returned with what was found, so the
+   * user can correct it rather than start over. Nothing here discovers or
+   * writes anything: the user runs the query from the Forge form.
+   */
+  private async handleForgePlan(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(aiForgePlanPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { orgId, prompt } = parsed;
+    try {
+      const nl2soql = this.aiModules?.nl2soql;
+      if (prompt !== undefined && !nl2soql) {
+        this.deps.broker.postToWebview(
+          buildResponse(this.deps, msg, 'ai:forge-plan:response', {
+            success: false,
+            code: 'AI_NOT_CONFIGURED',
+            error: AI_NOT_CONFIGURED,
+          }),
+        );
+        return;
+      }
+      const conn = await this.connect(orgId);
+      const catalog = await this.loadCatalog(orgId, conn);
+      let soql = parsed.soql ?? '';
+      let explanation: string | undefined;
+      if (prompt !== undefined && nl2soql) {
+        const { result } = await this.draft(nl2soql, prompt, orgId, conn, catalog);
+        soql = result.soql;
+        explanation = result.explanation;
+      }
+
+      const check = await checkForgeRootQuery(soql, {
+        catalog,
+        describe: async (name) => {
+          const object = await this.describeObject(orgId, conn, name);
+          return {
+            name: object.apiName,
+            label: object.label,
+            fields: object.fields.map((f) => ({
+              name: f.apiName,
+              relationshipName: f.relationshipName,
+            })),
+          };
+        },
+        explain: (query) => conn.request(`/query/?explain=${encodeURIComponent(query)}`),
+      });
+
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'ai:forge-plan:response', {
+          success: check.problems.length === 0,
+          soql,
+          ...(explanation ? { explanation } : {}),
+          ...(check.rootObject ? { rootObject: check.rootObject } : {}),
+          ...(check.rootLabel ? { rootLabel: check.rootLabel } : {}),
+          fieldsChecked: check.fieldsChecked,
+          problems: check.problems,
+        }),
+      );
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] ai:forge-plan: ${extractErrorMessage(err)}`);
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'ai:forge-plan:response', {
+          success: false,
+          error: extractErrorMessage(err),
+        }),
+      );
+    }
+  }
+
+  /** The org's connection, reduced to what this handler calls on it. */
+  private async connect(orgId: string): Promise<SchemaConnection> {
+    return (await getJsforceConnection(
+      orgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    )) as unknown as SchemaConnection;
+  }
+
+  /**
+   * Ask the model for a query, with the schema of the objects the request
+   * names.
+   *
+   * The prompt carries the described objects when the request named any: the
+   * full catalog is ~21 500 tokens of names the model cannot build a SELECT
+   * from, so it is a last resort, sent only when nothing was recognised and
+   * the alternative is a prompt with no schema at all.
+   */
+  private async draft(
+    nl2soql: NL2SOQL,
+    request: string,
+    orgId: string,
+    conn: SchemaConnection,
+    catalog: SObjectCatalogEntry[],
+  ): Promise<{ result: NL2SOQLResult; described: DescribedObject[] }> {
+    const mentioned = resolveMentionedObjects(request, catalog);
+    const described = await this.describeObjects(orgId, conn, mentioned);
+    const promptContext: SchemaContext = {
+      objects:
+        described.length > 0
+          ? described
+          : catalog.map((s) => ({ apiName: s.name, label: s.label, fields: [] })),
+    };
+    const result = await nl2soql.generateSOQL(request, promptContext);
+    return { result, described };
   }
 
   /**
@@ -250,30 +361,40 @@ export class AIToolsHandler implements DomainHandler {
   ): Promise<DescribedObject[]> {
     const out: DescribedObject[] = [];
     for (const name of names) {
-      const cacheKey = `${orgId}::${name}`;
-      const cached = this.describeCache.get(cacheKey);
-      if (cached) {
-        out.push(cached);
-        continue;
-      }
       try {
-        const meta = await conn.describe(name);
-        const object: DescribedObject = {
-          apiName: meta.name,
-          label: meta.label ?? meta.name,
-          fields: meta.fields.map((f) => ({
-            apiName: f.name,
-            label: f.label ?? f.name,
-            type: f.type,
-          })),
-        };
-        this.describeCache.set(cacheKey, object);
-        out.push(object);
+        out.push(await this.describeObject(orgId, conn, name));
       } catch (err: unknown) {
         this.deps.log(`[WARN] ai:nl2soql describe ${name}: ${extractErrorMessage(err)}`);
       }
     }
     return out;
+  }
+
+  /**
+   * Describe one object, serving a repeat from cache; throws what the org
+   * answered when it cannot.
+   */
+  private async describeObject(
+    orgId: string,
+    conn: SchemaConnection,
+    name: string,
+  ): Promise<DescribedObject> {
+    const cacheKey = `${orgId}::${name}`;
+    const cached = this.describeCache.get(cacheKey);
+    if (cached) return cached;
+    const meta = await conn.describe(name);
+    const object: DescribedObject = {
+      apiName: meta.name,
+      label: meta.label ?? meta.name,
+      fields: meta.fields.map((f) => ({
+        apiName: f.name,
+        label: f.label ?? f.name,
+        type: f.type,
+        ...(f.relationshipName ? { relationshipName: f.relationshipName } : {}),
+      })),
+    };
+    this.describeCache.set(cacheKey, object);
+    return object;
   }
 
   private async handleGeneratePipeline(msg: InboundRequest): Promise<void> {

@@ -528,6 +528,37 @@ describe('forgeTemplateSchema', () => {
     });
     expect(result.description).toBe('');
   });
+
+  it('keeps the target org and the anonymization a run was saved with', () => {
+    const result = forgeTemplateSchema.parse({
+      ...createValidForgeTemplate(),
+      targetOrgId: 'org-target',
+      anonymization: {
+        presetId: 'preset:gdpr-default',
+        rules: { email: 'hash', phone: 'mask' },
+      },
+    });
+    expect(result.targetOrgId).toBe('org-target');
+    expect(result.anonymization).toEqual({
+      presetId: 'preset:gdpr-default',
+      rules: { email: 'hash', phone: 'mask' },
+    });
+  });
+
+  it('refuses a method no anonymizer knows, or a category the panel has no row for', () => {
+    const withRules = (rules: Record<string, string>) => ({
+      ...createValidForgeTemplate(),
+      anonymization: { rules },
+    });
+    expect(forgeTemplateSchema.safeParse(withRules({ email: 'scramble' })).success).toBe(false);
+    expect(forgeTemplateSchema.safeParse(withRules({ biometric: 'hash' })).success).toBe(false);
+  });
+
+  it('still reads a template saved before the target org and anonymization were kept', () => {
+    const result = forgeTemplateSchema.parse(createValidForgeTemplate());
+    expect(result.targetOrgId).toBeUndefined();
+    expect(result.anonymization).toBeUndefined();
+  });
 });
 
 // ─── Forge v2 Enum Schema Tests ─────────────────────────────────────────────

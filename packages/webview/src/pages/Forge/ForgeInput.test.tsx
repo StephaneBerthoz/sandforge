@@ -1,15 +1,63 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import type { BaseMessage } from '@sandforge/shared';
 import i18n from '../../i18n';
+import { useAppStore } from '../../stores/useAppStore';
 import { ForgeInput } from './ForgeInput';
+import { SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
+
+/* ---- Bridge double: what the form posts, and a way to answer it ---- */
+
+const mockPostMessage = vi.fn();
+const stableApi = {
+  postMessage: (...args: unknown[]) => mockPostMessage(...args),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => stableApi,
+  getVscodeApi: () => stableApi,
+}));
+
+/** The payloads of every message of `type` the form posted. */
+function sent<T>(type: string): T[] {
+  return mockPostMessage.mock.calls
+    .map((call) => call[0] as { payload: BaseMessage & { payload: T } })
+    .filter((envelope) => envelope.payload.type === type)
+    .map((envelope) => envelope.payload.payload);
+}
+
+/** Answer the last `requestType` message the form posted, the way the handler does. */
+function replyTo(requestType: string, payload: unknown): void {
+  const request = mockPostMessage.mock.calls
+    .map((call) => call[0] as { payload: BaseMessage })
+    .filter((envelope) => envelope.payload.type === requestType)
+    .pop();
+  if (!request) throw new Error(`no '${requestType}' message was sent`);
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: `resp-${requestType}`,
+          type: `${requestType}:response`,
+          timestamp: Date.now(),
+          correlationId: request.payload.id,
+          payload,
+        },
+      }),
+    );
+  });
+}
 
 /* ---- Store mocks ---- */
 
 const mockSetConfig = vi.fn();
 const mockSetPhase = vi.fn();
-const mockAddTemplate = vi.fn();
-const mockUpdateTemplate = vi.fn();
+const mockSetTemplates = vi.fn();
+const mockUpsertTemplate = vi.fn();
 const mockRemoveTemplate = vi.fn();
+const mockSetAnonymizationRules = vi.fn();
+const mockSetAnonymizationPresetId = vi.fn();
 
 /* Mutable user-template list — tests push into it before rendering. */
 const mockTemplates = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }));
@@ -24,9 +72,11 @@ vi.mock('../../stores/useForgeStore', () => {
     history: [],
     setConfig: (...args: unknown[]) => mockSetConfig(...args),
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
-    addTemplate: (...args: unknown[]) => mockAddTemplate(...args),
-    updateTemplate: (...args: unknown[]) => mockUpdateTemplate(...args),
+    setTemplates: (...args: unknown[]) => mockSetTemplates(...args),
+    upsertTemplate: (...args: unknown[]) => mockUpsertTemplate(...args),
     removeTemplate: (...args: unknown[]) => mockRemoveTemplate(...args),
+    setAnonymizationRules: (...args: unknown[]) => mockSetAnonymizationRules(...args),
+    setAnonymizationPresetId: (...args: unknown[]) => mockSetAnonymizationPresetId(...args),
     setGraph: vi.fn(),
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: vi.fn(),
@@ -109,10 +159,17 @@ describe('ForgeInput', () => {
   beforeEach(() => {
     mockSetConfig.mockClear();
     mockSetPhase.mockClear();
-    mockAddTemplate.mockClear();
-    mockUpdateTemplate.mockClear();
+    mockSetTemplates.mockClear();
+    mockUpsertTemplate.mockClear();
     mockRemoveTemplate.mockClear();
+    mockSetAnonymizationRules.mockClear();
+    mockSetAnonymizationPresetId.mockClear();
+    mockPostMessage.mockClear();
     mockTemplates.list.length = 0;
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ aiAvailable: false });
   });
 
   it('should render 4 tabs', () => {
@@ -123,20 +180,138 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-tab-ai')).toBeDefined();
   });
 
-  it('shows the AI tab as coming soon and never opens it', () => {
-    render(<ForgeInput />);
-    const aiTab = screen.getByTestId('forge-tab-ai') as HTMLButtonElement;
+  describe('the AI tab', () => {
+    const DRAFT = "SELECT Id, Name FROM Account WHERE Industry = 'Energy'";
 
-    // Nothing turns a prompt into a seed plan: discovery refuses the mode, so
-    // the tab must not collect one.
-    expect(aiTab.disabled).toBe(true);
-    expect(aiTab.textContent).toContain('Coming soon');
-    fireEvent.mouseDown(aiTab);
-    fireEvent.click(aiTab);
+    /** Open the AI tab with a provider set up and a target picked. */
+    function openAiTab(): void {
+      useAppStore.setState({ aiAvailable: true });
+      render(<ForgeInput />);
+      selectOrg('forge-target-org', 'org-tgt');
+      fireEvent.mouseDown(screen.getByTestId('forge-tab-ai'));
+    }
 
-    expect(aiTab.getAttribute('data-state')).toBe('inactive');
-    expect(screen.getByTestId('forge-tab-record').getAttribute('data-state')).toBe('active');
-    expect(screen.queryByTestId('forge-input-ai')).toBeNull();
+    /** Draft from a prompt, and answer with a verdict. */
+    function draftAndAnswer(payload: Record<string, unknown>): void {
+      fireEvent.change(screen.getByTestId('forge-input-ai'), {
+        target: { value: 'energy accounts' },
+      });
+      fireEvent.click(screen.getByTestId('forge-ai-draft-btn'));
+      replyTo('ai:forge-plan', payload);
+    }
+
+    const CHECKED = {
+      success: true,
+      soql: DRAFT,
+      explanation: 'Accounts in the energy industry',
+      rootObject: 'Account',
+      rootLabel: 'Account',
+      fieldsChecked: 3,
+      problems: [],
+    };
+
+    it('opens, and says how to set up a provider when none is', () => {
+      const navigate = vi.fn();
+      useAppStore.setState({ navigate });
+      render(<ForgeInput />);
+      const aiTab = screen.getByTestId('forge-tab-ai') as HTMLButtonElement;
+
+      expect(aiTab.disabled).toBe(false);
+      expect(aiTab.textContent).not.toContain(i18n.t('common.comingSoon'));
+      fireEvent.mouseDown(aiTab);
+
+      expect(screen.getByTestId('forge-ai-not-configured').textContent).toContain(
+        i18n.t('forge.ai.notConfiguredTitle'),
+      );
+      expect(screen.queryByTestId('forge-input-ai')).toBeNull();
+      fireEvent.click(screen.getByTestId('forge-ai-open-settings'));
+      expect(navigate).toHaveBeenCalledWith('settings');
+    });
+
+    it('sends the prompt to be drafted against the source org, and runs nothing', () => {
+      openAiTab();
+
+      draftAndAnswer(CHECKED);
+
+      expect(sent<Record<string, unknown>>('ai:forge-plan')).toEqual([
+        { orgId: 'org-src', prompt: 'energy accounts' },
+      ]);
+      expect((screen.getByTestId('forge-ai-query') as HTMLTextAreaElement).value).toBe(DRAFT);
+      expect(screen.getByTestId('forge-ai-root').textContent).toBe(
+        i18n.t('forge.ai.rootObject', { label: 'Account', object: 'Account' }),
+      );
+      expect(screen.getByTestId('forge-ai-checked').textContent).toBe(
+        i18n.t('forge.ai.checked', { object: 'Account', count: 3 }),
+      );
+      // Checked is not run: discovery waits for the user's click.
+      expect(mockSetConfig).not.toHaveBeenCalled();
+      expect(sent('forge:discover')).toEqual([]);
+    });
+
+    it('discovers from the checked draft as the SOQL run it is, on the click', () => {
+      openAiTab();
+      draftAndAnswer(CHECKED);
+      fireEvent.change(screen.getByTestId('forge-record-limit'), { target: { value: 'all' } });
+
+      fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+      expect(mockSetConfig).toHaveBeenCalledTimes(1);
+      const config = mockSetConfig.mock.calls[0][0];
+      expect(config.inputMode).toBe('soql');
+      expect(config.soqlQuery).toBe(DRAFT);
+      expect(config.objectSoqlFilters).toEqual({ Account: "Industry = 'Energy'" });
+      // The WHERE clause narrows the root only, so "All" stays capped as in the SOQL tab.
+      expect(config.maxRecordsPerObject).toBe(SOQL_UNSCOPED_RECORD_CAP);
+      expect(sent<{ config: { inputMode: string } }>('forge:discover')[0].config.inputMode).toBe(
+        'soql',
+      );
+      expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+    });
+
+    it('holds discovery back once the checked query is edited, until it is checked again', () => {
+      openAiTab();
+      draftAndAnswer(CHECKED);
+      const edited = "SELECT Id, Name FROM Account WHERE Industry = 'Energy' AND Rating = 'Hot'";
+
+      fireEvent.change(screen.getByTestId('forge-ai-query'), { target: { value: edited } });
+
+      expect(screen.getByTestId('forge-ai-stale')).toBeDefined();
+      expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+        i18n.t('forge.hintAiUnchecked'),
+      );
+
+      fireEvent.click(screen.getByTestId('forge-ai-recheck'));
+      // A check of an edited query goes without the prompt: the model is not asked again.
+      expect(sent<Record<string, unknown>>('ai:forge-plan')[1]).toEqual({
+        orgId: 'org-src',
+        soql: edited,
+      });
+      replyTo('ai:forge-plan', { ...CHECKED, soql: edited, fieldsChecked: 4 });
+
+      expect(screen.queryByTestId('forge-ai-stale')).toBeNull();
+      expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('says what the check found wrong, and keeps Discover off', () => {
+      openAiTab();
+
+      draftAndAnswer({
+        success: false,
+        soql: 'SELECT Id, Tier__c FROM Account',
+        rootObject: 'Account',
+        rootLabel: 'Account',
+        fieldsChecked: 2,
+        problems: [{ kind: 'field-missing', object: 'Account', field: 'Tier__c' }],
+      });
+
+      const problems = screen.getByTestId('forge-ai-problems');
+      expect(problems.getAttribute('role')).toBe('alert');
+      expect(problems.textContent).toContain(
+        i18n.t('forge.ai.problem.fieldMissing', { object: 'Account', field: 'Tier__c' }),
+      );
+      expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 
   it('asks for a record id, a query or a template, not a prompt', () => {
@@ -693,28 +868,136 @@ describe('ForgeInput', () => {
     expect(previewBtn.getAttribute('aria-label')).toContain('efresh');
   });
 
-  /* ---- Template management ---- */
-  it('should show create template button in template tab', () => {
-    render(<ForgeInput />);
-    fireEvent.click(screen.getByTestId('forge-tab-template'));
-    expect(screen.getByTestId('forge-template-create')).toBeDefined();
-  });
+  /* ---- Saved templates ---- */
+  describe('saved templates', () => {
+    const WEEKLY = {
+      id: 'tpl-weekly',
+      name: 'Weekly accounts',
+      description: 'Account 360 for the dev sandbox',
+      config: {
+        inputMode: 'record',
+        recordId: '001XXXXXXXXXXXXXXX',
+        depth: 'full',
+        maxNodes: 200,
+        anonymizePII: true,
+        skipEmpty: true,
+        expandOrphanParents: true,
+        batchSize: 'auto',
+        maxRecordsPerObject: 500,
+      },
+      targetOrgId: 'org-tgt',
+      anonymization: { presetId: 'preset:gdpr-default', rules: { email: 'hash' } },
+      objectCount: 6,
+      recordCount: 312,
+      createdAt: '2026-09-01T08:00:00.000Z',
+      lastUsedAt: '2026-09-01T08:00:00.000Z',
+    };
 
-  it('should open create template form when create button is clicked', () => {
-    render(<ForgeInput />);
-    fireEvent.click(screen.getByTestId('forge-tab-template'));
-    fireEvent.click(screen.getByTestId('forge-template-create'));
-    expect(screen.getByTestId('forge-template-name-input')).toBeDefined();
-    expect(screen.getByTestId('forge-template-desc-input')).toBeDefined();
-  });
+    function openTemplateTab(): void {
+      render(<ForgeInput />);
+      fireEvent.mouseDown(screen.getByTestId('forge-tab-template'));
+    }
 
-  it('should cancel create template form', () => {
-    render(<ForgeInput />);
-    fireEvent.click(screen.getByTestId('forge-tab-template'));
-    fireEvent.click(screen.getByTestId('forge-template-create'));
-    fireEvent.click(screen.getByTestId('forge-template-cancel'));
-    // Should go back to the create button
-    expect(screen.getByTestId('forge-template-create')).toBeDefined();
+    it('asks the extension for the templates it keeps', () => {
+      render(<ForgeInput />);
+
+      expect(sent('forge:templates:list')).toHaveLength(1);
+    });
+
+    it('offers no form that would save a template without an input, and says where one comes from', () => {
+      openTemplateTab();
+
+      expect(screen.queryByTestId('forge-template-create')).toBeNull();
+      expect(screen.getByTestId('forge-templates-empty').textContent).toBe(
+        i18n.t('forge.noTemplates'),
+      );
+    });
+
+    it('lists each saved template with what it clones and where it writes', () => {
+      mockTemplates.list.push(WEEKLY);
+      openTemplateTab();
+
+      expect(screen.getByTestId('forge-template-summary-tpl-weekly').textContent).toBe(
+        [
+          i18n.t('forge.recordTab'),
+          '001XXXXXXXXXXXXXXX',
+          i18n.t('forge.depthFull'),
+          i18n.t('forge.savedTemplate.summaryTarget', { org: 'TargetOrg' }),
+        ].join(' · '),
+      );
+      expect(
+        screen.getByTestId('forge-template-apply-tpl-weekly').getAttribute('aria-pressed'),
+      ).toBe('false');
+    });
+
+    it('applies a template: its scope, toggles, anonymization and target org go in the form', () => {
+      mockTemplates.list.push(WEEKLY);
+      openTemplateTab();
+
+      fireEvent.click(screen.getByTestId('forge-template-apply-tpl-weekly'));
+
+      expect(
+        screen.getByTestId('forge-template-apply-tpl-weekly').getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(screen.getByTestId('forge-depth-full').getAttribute('aria-checked')).toBe('true');
+      expect((screen.getByTestId('forge-record-limit') as HTMLSelectElement).value).toBe('500');
+      expect((screen.getByTestId('forge-max-nodes') as HTMLSelectElement).value).toBe('200');
+      expect(mockSetAnonymizationRules).toHaveBeenCalledWith({ email: 'hash' });
+      expect(mockSetAnonymizationPresetId).toHaveBeenCalledWith('preset:gdpr-default');
+      expect(screen.getByTestId('forge-template-applied').textContent).toBe(
+        `${i18n.t('forge.savedTemplate.applied', { name: 'Weekly accounts' })} ${i18n.t(
+          'forge.savedTemplate.targetSet',
+          { org: 'TargetOrg' },
+        )}`,
+      );
+
+      // Nothing was picked by hand: the run goes where the template wrote.
+      fireEvent.click(screen.getByTestId('forge-discover-btn'));
+      const config = mockSetConfig.mock.calls[0][0];
+      expect(config).toMatchObject({
+        inputMode: 'record',
+        recordId: '001XXXXXXXXXXXXXXX',
+        depth: 'full',
+        maxNodes: 200,
+        anonymizePII: true,
+        skipEmpty: true,
+        expandOrphanParents: true,
+        maxRecordsPerObject: 500,
+        sourceOrgId: 'org-src',
+        targetOrgId: 'org-tgt',
+      });
+    });
+
+    it('leaves the target to pick when the org a template wrote to is not connected here', () => {
+      mockTemplates.list.push({ ...WEEKLY, targetOrgId: 'org-on-another-machine' });
+      openTemplateTab();
+
+      expect(screen.getByTestId('forge-template-summary-tpl-weekly').textContent).toContain(
+        i18n.t('forge.savedTemplate.summaryTarget', {
+          org: i18n.t('forge.savedTemplate.targetNotConnected'),
+        }),
+      );
+      fireEvent.click(screen.getByTestId('forge-template-apply-tpl-weekly'));
+
+      expect(screen.getByTestId('forge-template-applied').textContent).toContain(
+        i18n.t('forge.savedTemplate.targetMissing'),
+      );
+      expect(screen.getByTestId('forge-discover-hint').textContent).toBe(
+        i18n.t('forge.hintNoTarget'),
+      );
+    });
+
+    it('names the template each rename and delete button acts on', () => {
+      mockTemplates.list.push(WEEKLY);
+      openTemplateTab();
+
+      expect(screen.getByTestId('forge-template-edit-tpl-weekly').getAttribute('aria-label')).toBe(
+        i18n.t('forge.savedTemplate.renameLabel', { name: 'Weekly accounts' }),
+      );
+      expect(
+        screen.getByTestId('forge-template-delete-tpl-weekly').getAttribute('aria-label'),
+      ).toBe(i18n.t('forge.savedTemplate.deleteLabel', { name: 'Weekly accounts' }));
+    });
   });
 
   /* ---- Depth chips radiogroup ---- */

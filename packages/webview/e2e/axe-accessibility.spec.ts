@@ -223,6 +223,59 @@ const MOCK_PLAN = {
   cycleResolutions: [],
 };
 
+/** The query Forge's AI tab is answered with, and the SOQL run the results flow starts from. */
+const FORGE_AI_DRAFT = "SELECT Id, Name, Industry FROM Account WHERE Industry = 'Energy'";
+
+/** A template saved from a run, as `forge:templates:list` answers it. */
+const FORGE_SAVED_TEMPLATE = {
+  id: 'tpl-energy',
+  name: 'Energy accounts',
+  description: 'Every energy account, for the QA sandbox',
+  config: {
+    inputMode: 'soql',
+    soqlQuery: FORGE_AI_DRAFT,
+    depth: 'full',
+    anonymizePII: true,
+    skipEmpty: false,
+    batchSize: 'auto',
+    maxRecordsPerObject: 200,
+  },
+  targetOrgId: QA_SANDBOX.id,
+  anonymization: { presetId: 'preset:gdpr-default', rules: { email: 'hash' } },
+  objectCount: 2,
+  recordCount: 40,
+  createdAt: '2026-09-01T08:00:00.000Z',
+  lastUsedAt: '2026-09-01T08:00:00.000Z',
+};
+
+/** A one-object graph a Forge discovery answers with, run and done. */
+const FORGE_RUN_GRAPH = {
+  nodes: [
+    {
+      objectApiName: 'Account',
+      recordCount: 1,
+      fieldCount: 50,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 0,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 40,
+      estimatedSizeMB: 0.01,
+      estimatedApiCalls: 1,
+      batchStrategy: 'auto',
+    },
+  ],
+  edges: [],
+  totalRecords: 1,
+  estimatedSizeMB: 0.01,
+  estimatedDurationSeconds: 1,
+};
+
 /**
  * A page of the audit trail as `reports:audit` answers it: a partial clone the
  * guard asked about, and a restore the guard refused.
@@ -381,6 +434,106 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Forge AI tab with no provider set up', async ({ page }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-ai').click();
+      await page.waitForSelector('[data-testid="forge-ai-not-configured"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge AI tab with a checked draft, an edited one, and a refused one', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true, ai: true });
+      await page.getByTestId('forge-tab-ai').click();
+      await page.getByTestId('forge-input-ai').fill('Accounts in the energy industry');
+      await page.getByTestId('forge-ai-draft-btn').click();
+      await bridge.waitForMessage('ai:forge-plan', { timeout: 10_000 });
+      await answerAll(page, 'ai:forge-plan', 'ai:forge-plan:response', {
+        success: true,
+        soql: FORGE_AI_DRAFT,
+        explanation: 'Accounts whose industry is Energy',
+        rootObject: 'Account',
+        rootLabel: 'Account',
+        fieldsChecked: 3,
+        problems: [],
+      });
+      await page.waitForSelector('[data-testid="forge-ai-checked"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-ai-query').fill(`${FORGE_AI_DRAFT} AND Tier__c = 1`);
+      await page.waitForSelector('[data-testid="forge-ai-stale"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-ai-recheck').click();
+      await answerAll(page, 'ai:forge-plan', 'ai:forge-plan:response', {
+        success: false,
+        soql: `${FORGE_AI_DRAFT} AND Tier__c = 1`,
+        rootObject: 'Account',
+        rootLabel: 'Account',
+        fieldsChecked: 4,
+        problems: [{ kind: 'field-missing', object: 'Account', field: 'Tier__c' }],
+      });
+      await page.waitForSelector('[data-testid="forge-ai-problems"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge Template tab with a saved template applied', async ({ page }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await bridge.waitForMessage('forge:templates:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:templates:list', 'forge:templates:list:response', {
+        templates: [FORGE_SAVED_TEMPLATE],
+      });
+      await page.getByTestId('forge-tab-template').click();
+      await page.getByTestId(`forge-template-apply-${FORGE_SAVED_TEMPLATE.id}`).click();
+      await page.waitForSelector('[data-testid="forge-template-applied"]', { timeout: 10_000 });
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge results saving the run as a template', async ({ page }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-soql').click();
+      await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-discover-btn').click();
+      await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:discover', 'forge:discover:response', {
+        graph: FORGE_RUN_GRAPH,
+      });
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('execute-button').click();
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      await answerAll(page, 'forge:execute', 'forge:execute:response', {
+        result: {
+          forgeId: 'forge-run-1',
+          status: 'success',
+          graph: FORGE_RUN_GRAPH,
+          duration: 2_000,
+          timestamp: '2026-09-01T08:00:00.000Z',
+          idRemapCount: 1,
+          createdCount: 1,
+        },
+      });
+      await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
+
+      await page.getByTestId('forge-save-template').click();
+      await page.getByTestId('forge-save-template-submit').click();
+      await page.waitForSelector('[data-testid="forge-save-template-name-error"]', {
+        timeout: 10_000,
+      });
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('forge-save-template-name').fill('Energy accounts');
+      await page.getByTestId('forge-save-template-submit').click();
+      await bridge.waitForMessage('forge:templates:save', { timeout: 10_000 });
+      await answerAll(page, 'forge:templates:save', 'forge:templates:save:response', {
+        success: true,
+      });
+      await expect(page.getByTestId('forge-save-template-saved')).toContainText('Energy accounts');
+      expectNoViolations(await checkAccessibility(page));
     });
 
     test('Grappe page', async ({ page }) => {

@@ -15,20 +15,18 @@ import {
 import { cn } from '../../theme';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import type { ForgeInputMode } from '../../stores/useForgeStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useForgeForm } from './useForgeForm';
 import { useForgeTemplates } from './useForgeTemplates';
 import { ForgeTemplatePanel } from './ForgeTemplatePanel';
+import { ForgeAIPanel } from './ForgeAIPanel';
+import { ForgeSoqlNotices } from './ForgeSoqlNotices';
 import { ForgeHistoryPanel } from './ForgeHistoryPanel';
 import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import {
-  extractRecordId,
-  soqlFilterRefused,
-  soqlRootFilter,
-  SOQL_UNSCOPED_RECORD_CAP,
-} from './forgeUtils';
+import { extractRecordId, soqlRootFilter } from './forgeUtils';
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
@@ -40,8 +38,6 @@ interface TabConfig {
   icon: React.ReactNode;
   /** data-testid for the tab trigger. */
   testId: string;
-  /** Shown as coming soon and cannot be opened. */
-  comingSoon?: boolean;
 }
 
 /** Static tab configuration. */
@@ -59,15 +55,9 @@ const TABS: TabConfig[] = [
     icon: <Layers size={14} />,
     testId: 'forge-tab-template',
   },
-  /* Nothing turns a prompt into a seed plan yet: discovery resolves a root
-     object from a record id or a query only, and refuses this mode. */
-  {
-    id: 'ai',
-    labelKey: 'forge.aiTab',
-    icon: <Sparkles size={14} />,
-    testId: 'forge-tab-ai',
-    comingSoon: true,
-  },
+  /* The model drafts the query discovery starts from; the user checks and
+     confirms it, and the run is sent as the SOQL run it is. */
+  { id: 'ai', labelKey: 'forge.aiTab', icon: <Sparkles size={14} />, testId: 'forge-tab-ai' },
 ];
 
 /**
@@ -81,6 +71,8 @@ const TABS: TabConfig[] = [
 export const ForgeInput: React.FC = () => {
   const { t } = useTranslation();
   const form = useForgeForm();
+  const aiAvailable = useAppStore((s) => s.aiAvailable);
+  const navigate = useAppStore((s) => s.navigate);
   const templates = useForgeTemplates({
     selectedTemplate: form.selectedTemplate,
     setSelectedTemplate: form.setSelectedTemplate,
@@ -106,24 +98,23 @@ export const ForgeInput: React.FC = () => {
     extractRecordId(form.recordId) === null;
   /** The CTA gate: everything `canDiscover` asks, plus a record id that parses. */
   const canDiscoverNow = form.canDiscover && !recordIdInvalid;
-  /** The object the SOQL query reads and the WHERE clause that will filter it. */
-  const soqlRoot = soqlRootFilter(form.soqlQuery);
-  /** The WHERE clause breaks the filter rules the extension checks before a run. */
-  const soqlWhereRefused = soqlFilterRefused(form.soqlQuery);
-  /** The same two checks over the query a selected SOQL template saved. */
-  const templateRoot = form.templateSoqlQuery ? soqlRootFilter(form.templateSoqlQuery) : null;
-  const templateWhereRefused =
-    form.templateSoqlQuery !== null && soqlFilterRefused(form.templateSoqlQuery);
+  /**
+   * The query the run would send in this mode: typed, drafted by the AI, or
+   * saved in the selected template.
+   */
+  const runQuery =
+    form.inputMode === 'soql'
+      ? form.soqlQuery
+      : form.inputMode === 'ai'
+        ? form.ai.draft
+        : (form.templateSoqlQuery ?? '');
   /**
    * The refusal is about the FROM clause, not the WHERE one: an alias there
    * stands for a relationship that starts from no declared alias, so nothing
    * can rewrite the paths headed by it. Saying "shorten the WHERE clause"
    * would name a clause that may be faultless, and point at the wrong fix.
    */
-  const aliasRefused =
-    form.inputMode === 'soql'
-      ? Boolean(soqlRoot?.unresolvedAlias)
-      : Boolean(templateRoot?.unresolvedAlias);
+  const aliasRefused = Boolean(soqlRootFilter(runQuery)?.unresolvedAlias);
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -187,22 +178,15 @@ export const ForgeInput: React.FC = () => {
                     key={tab.id}
                     value={tab.id}
                     data-testid={tab.testId}
-                    disabled={tab.comingSoon}
                     className={cn(
                       'flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm transition-colors',
                       'text-text-secondary hover:text-text-primary',
                       'data-[state=active]:text-hue-forge data-[state=active]:border-b-2 data-[state=active]:border-forge',
                       'data-[state=active]:bg-surface-2',
-                      'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:text-text-muted',
                     )}
                   >
                     {tab.icon}
                     {t(tab.labelKey)}
-                    {tab.comingSoon && (
-                      <span className="rounded-full border border-subtle px-1.5 text-[10px] leading-4">
-                        {t('common.comingSoon')}
-                      </span>
-                    )}
                   </Tabs.Trigger>
                 ))}
               </Tabs.List>
@@ -314,47 +298,10 @@ export const ForgeInput: React.FC = () => {
                       'focus:outline-none focus:border-forge/50',
                     )}
                   />
-                  {/* The WHERE clause filters the object after FROM, and nothing
-                      else: related objects are read from their whole tables. A
-                      user who wrote a filter would otherwise expect the whole
-                      graph to follow it. */}
-                  {soqlWhereRefused && (
-                    <div
-                      data-testid="forge-soql-filter-refused"
-                      role="alert"
-                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      {t(
-                        soqlRoot?.unresolvedAlias
-                          ? 'forge.soqlAliasRefused'
-                          : 'forge.soqlFilterRefused',
-                      )}
-                    </div>
-                  )}
-                  {/* The clause travels under the object's own name, which has
-                      its own rule: a name the schema refuses made the extension
-                      refuse Discover with nothing said here. */}
-                  {form.objectNameRefused && soqlRoot && (
-                    <div
-                      data-testid="forge-soql-object-invalid"
-                      role="alert"
-                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      {t('forge.soqlObjectNameInvalid', { object: soqlRoot.objectApiName })}
-                    </div>
-                  )}
-                  {soqlRoot?.where && !soqlWhereRefused && !form.objectNameRefused && (
-                    <div
-                      data-testid="forge-soql-where-warning"
-                      role="status"
-                      className="mt-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      <strong className="font-semibold">
-                        {t('forge.soqlUnscopedWarnTitle', { object: soqlRoot.objectApiName })}
-                      </strong>{' '}
-                      {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
-                    </div>
-                  )}
+                  <ForgeSoqlNotices
+                    query={form.soqlQuery}
+                    objectNameRefused={form.objectNameRefused}
+                  />
                 </Tabs.Content>
 
                 {/* Template tab — forceMount keeps state alive for CRUD management */}
@@ -367,7 +314,8 @@ export const ForgeInput: React.FC = () => {
                     manager={templates}
                     selectedTemplate={form.selectedTemplate}
                     onSelectTemplate={form.setSelectedTemplate}
-                    buildTemplateConfig={form.buildTemplateConfig}
+                    onApplyTemplate={form.applyTemplate}
+                    orgs={form.orgs}
                   />
                   {/* The root record a built-in template clones from. A saved
                       template carries its own input, so it asks for nothing. */}
@@ -414,42 +362,30 @@ export const ForgeInput: React.FC = () => {
                     </div>
                   )}
                   {/* A template that saved a SOQL query runs it exactly as the
-                      SOQL tab would, so it carries the same two verdicts —
-                      which the picker used to show neither of. */}
-                  {templateWhereRefused && (
-                    <div
-                      data-testid="forge-soql-filter-refused"
-                      role="alert"
-                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      {t(
-                        templateRoot?.unresolvedAlias
-                          ? 'forge.soqlAliasRefused'
-                          : 'forge.soqlFilterRefused',
-                      )}
-                    </div>
+                      SOQL tab would, so it carries the same verdicts — which
+                      the picker used to show none of. */}
+                  {form.templateSoqlQuery !== null && (
+                    <ForgeSoqlNotices
+                      query={form.templateSoqlQuery}
+                      objectNameRefused={form.objectNameRefused}
+                    />
                   )}
-                  {form.objectNameRefused && templateRoot && (
-                    <div
-                      data-testid="forge-soql-object-invalid"
-                      role="alert"
-                      className="mt-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      {t('forge.soqlObjectNameInvalid', { object: templateRoot.objectApiName })}
-                    </div>
-                  )}
-                  {templateRoot?.where && !templateWhereRefused && !form.objectNameRefused && (
-                    <div
-                      data-testid="forge-soql-where-warning"
-                      role="status"
-                      className="mt-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
-                    >
-                      <strong className="font-semibold">
-                        {t('forge.soqlUnscopedWarnTitle', { object: templateRoot.objectApiName })}
-                      </strong>{' '}
-                      {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
-                    </div>
-                  )}
+                </Tabs.Content>
+
+                {/* AI tab */}
+                <Tabs.Content value="ai">
+                  <ForgeAIPanel
+                    ai={form.ai}
+                    aiAvailable={aiAvailable}
+                    sourceOrgId={form.sourceOrgId}
+                    onOpenSettings={() => navigate('settings')}
+                  />
+                  {/* The draft is run as a SOQL query, so it carries the SOQL
+                      tab's verdicts too. */}
+                  <ForgeSoqlNotices
+                    query={form.ai.draft}
+                    objectNameRefused={form.objectNameRefused}
+                  />
                 </Tabs.Content>
               </div>
             </Tabs.Root>
@@ -604,7 +540,9 @@ export const ForgeInput: React.FC = () => {
                         )
                       : form.objectNameRefused
                         ? t('forge.hintSoqlObjectNameInvalid')
-                        : t('forge.hintNoInput')}
+                        : form.inputMode === 'ai'
+                          ? t('forge.hintAiUnchecked')
+                          : t('forge.hintNoInput')}
             </p>
           )}
 

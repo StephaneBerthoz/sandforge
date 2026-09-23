@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { BaseMessage, ForgeExecutionResult, ForgeGraph } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeExecutionResult,
+  ForgeGraph,
+  ForgeTemplate,
+  SalesforceOrg,
+} from '@sandforge/shared';
 
 /**
  * Re-running a past Forge run from its stored configuration.
@@ -307,13 +313,14 @@ describe('useForgeForm run history', () => {
       });
     });
 
-    // The AI tab cannot be opened, so the form must not land on it.
+    // A stored AI run carries a prompt, not the query it ran: reopening it on
+    // the AI tab would mean sending the prompt to the model again.
     expect(result.current.inputMode).toBe('record');
     expect(result.current.soqlQuery).toBe('');
     expect(result.current.canDiscover).toBe(false);
   });
 
-  it('never lets the AI mode discover, whatever else is filled in', () => {
+  it("does not let the AI mode discover from the SOQL tab's query", () => {
     const { result } = renderHook(() => useForgeForm());
 
     act(() => {
@@ -377,6 +384,20 @@ describe('useForgeForm run history', () => {
     expect(recordLimitOptionFor(1000)).toBe('1000');
     expect(recordLimitOptionFor(200)).toBe('500');
     expect(recordLimitOptionFor(5000)).toBe('all');
+  });
+
+  it('restores the object cap a stored run reached, and the default for one that set none', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.applyHistoryConfig({ ...RECORD_RUN.config!, maxNodes: 350 });
+    });
+    expect(result.current.maxNodes).toBe(350);
+
+    act(() => {
+      result.current.applyHistoryConfig(SOQL_RUN.config!);
+    });
+    expect(result.current.maxNodes).toBeUndefined();
   });
 
   it('re-caps a SOQL replay at the unscoped cap it ran under', () => {
@@ -498,6 +519,40 @@ describe('useForgeForm reusing the last graph', () => {
     });
   });
 
+  it('reuses it for an AI draft only once the draft passed its check', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+      result.current.setTargetOrgId('org-tgt');
+      result.current.setInputMode('ai');
+      result.current.ai.setDraft(filteredQuery);
+    });
+    // Skipping discovery does not skip the check: the draft's WHERE clause is
+    // the run's filter.
+    expect(result.current.canReuseLastGraph).toBe(false);
+
+    act(() => result.current.ai.recheck());
+    act(() => {
+      replyTo('ai:forge-plan', 'ai:forge-plan:response', {
+        success: true,
+        soql: filteredQuery,
+        rootObject: 'Account',
+        rootLabel: 'Account',
+        fieldsChecked: 2,
+        problems: [],
+      });
+    });
+
+    expect(result.current.canReuseLastGraph).toBe(true);
+    act(() => result.current.handleReuseLastGraph());
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:plan:request');
+    expect(config).toMatchObject({
+      inputMode: 'soql',
+      soqlQuery: filteredQuery,
+      objectSoqlFilters: { Account: "Industry = 'X'" },
+    });
+  });
+
   it("sends a saved template's query and its filter, capped like a SOQL run", () => {
     useForgeStore.setState({ templates: [soqlTemplate(filteredQuery)] });
     const { result } = renderHook(() => useForgeForm());
@@ -582,5 +637,130 @@ describe('a built-in template clones from a record', () => {
     expect(discover, 'no forge:discover was sent').toBeDefined();
     expect(discover?.payload.config.inputMode).toBe('record');
     expect(discover?.payload.config.recordId).toBe('001AB00000ABCDEFGH');
+  });
+});
+
+describe('applying a saved template', () => {
+  const TEMPLATE: ForgeTemplate = {
+    id: 'tpl-weekly',
+    name: 'Weekly accounts',
+    description: '',
+    config: {
+      inputMode: 'record',
+      recordId: '0011t00000AbCdEAAV',
+      depth: 'custom',
+      customDepth: 4,
+      maxNodes: 350,
+      anonymizePII: true,
+      skipEmpty: true,
+      expandOrphanParents: true,
+      maxRecordsPerObject: 500,
+      batchSize: 'auto',
+    },
+    targetOrgId: 'org-tgt',
+    anonymization: { presetId: 'preset:gdpr-default', rules: { email: 'hash', phone: 'redact' } },
+    objectCount: 3,
+    recordCount: 474,
+    createdAt: '2026-03-01T09:24:00.000Z',
+    lastUsedAt: '2026-03-01T09:24:00.000Z',
+  };
+
+  const TARGET = { id: 'org-tgt', alias: 'dev', username: 'dev@example.com' } as SalesforceOrg;
+
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useForgeStore.getState().reset();
+    useForgeStore.getState().setTemplates([TEMPLATE]);
+    useOrgStore.setState({ selectedOrgId: null, orgs: [TARGET] });
+  });
+
+  it('selects it and puts its depth, caps and toggles in the form', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.applyTemplate({ ...TEMPLATE, targetOrgId: undefined });
+    });
+
+    expect(result.current.inputMode).toBe('template');
+    expect(result.current.selectedTemplate).toBe('tpl-weekly');
+    expect(result.current.depth).toBe('custom');
+    expect(result.current.customDepth).toBe(4);
+    expect(result.current.maxNodes).toBe(350);
+    expect(result.current.anonymize).toBe(true);
+    expect(result.current.skipEmpty).toBe(true);
+    expect(result.current.expandOrphanParents).toBe(true);
+    expect(result.current.recordLimit).toBe('500');
+  });
+
+  it('sets the target org it wrote to when that org is connected here', () => {
+    const { result } = renderHook(() => useForgeForm());
+    let outcome = '';
+
+    act(() => {
+      outcome = result.current.applyTemplate(TEMPLATE);
+    });
+
+    expect(outcome).toBe('set');
+    expect(result.current.targetOrgId).toBe('org-tgt');
+  });
+
+  it('leaves the target as it is when that org is not connected here', () => {
+    useOrgStore.setState({ orgs: [] });
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setTargetOrgId('org-picked');
+    });
+    let outcome = '';
+
+    act(() => {
+      outcome = result.current.applyTemplate(TEMPLATE);
+    });
+
+    expect(outcome).toBe('missing');
+    expect(result.current.targetOrgId).toBe('org-picked');
+  });
+
+  it('brings back the anonymization it was saved with', () => {
+    const { result } = renderHook(() => useForgeForm());
+
+    act(() => {
+      result.current.applyTemplate(TEMPLATE);
+    });
+
+    const state = useForgeStore.getState();
+    expect(state.anonymizationPresetId).toBe('preset:gdpr-default');
+    expect(state.anonymizationRules).toMatchObject({
+      email: 'hash',
+      phone: 'redact',
+      name: 'fake',
+    });
+  });
+
+  it('discovers its input with its options, from the source picked now', () => {
+    const { result } = renderHook(() => useForgeForm());
+    act(() => {
+      result.current.setSourceOrgId('org-src');
+    });
+    act(() => {
+      result.current.applyTemplate(TEMPLATE);
+    });
+    act(() => {
+      result.current.handleDiscover();
+    });
+
+    const { config } = lastPayload<{ config: Record<string, unknown> }>('forge:discover');
+    expect(config).toMatchObject({
+      inputMode: 'record',
+      recordId: '0011t00000AbCdEAAV',
+      depth: 'custom',
+      customDepth: 4,
+      maxNodes: 350,
+      anonymizePII: true,
+      skipEmpty: true,
+      expandOrphanParents: true,
+      maxRecordsPerObject: 500,
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+    });
   });
 });

@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { RotateCcw } from 'lucide-react';
 import { cn } from '../../theme';
-import type { ForgeExecutionResult, ForgeInputMode } from '../../stores/useForgeStore';
+import type { ForgeExecutionResult } from '../../stores/useForgeStore';
 import { DEPTH_KEYS } from './useForgeForm';
 import type { ForgeRunConfig } from './useForgeForm';
+import { INPUT_MODE_KEYS, configSubject } from './forgeRunConfig';
 
 /** Map a run's outcome to its i18n key. */
 const STATUS_KEYS: Record<ForgeExecutionResult['status'], string> = {
@@ -20,28 +21,6 @@ const STATUS_CLASSES: Record<ForgeExecutionResult['status'], string> = {
   partial: 'text-status-warning',
   failure: 'text-status-error',
 };
-
-/** Map the stored input mode to the tab label it was run from. */
-const MODE_KEYS: Record<ForgeInputMode, string> = {
-  record: 'forge.recordTab',
-  soql: 'forge.soqlTab',
-  template: 'forge.templateTab',
-  ai: 'forge.aiTab',
-};
-
-/** The part of a stored config that identifies what was cloned. */
-function configSubject(config: ForgeRunConfig): string | undefined {
-  switch (config.inputMode) {
-    case 'record':
-      return config.recordId;
-    case 'soql':
-      return config.soqlQuery;
-    case 'template':
-      return config.templateId;
-    case 'ai':
-      return config.aiPrompt;
-  }
-}
 
 /** Props for the ForgeHistoryPanel component. */
 export interface ForgeHistoryPanelProps {
@@ -113,7 +92,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
               </div>
               {config && (
                 <span className="block text-[11px] text-text-secondary truncate">
-                  {[t(MODE_KEYS[config.inputMode]), subject, t(DEPTH_KEYS[config.depth])]
+                  {[t(INPUT_MODE_KEYS[config.inputMode]), subject, t(DEPTH_KEYS[config.depth])]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>

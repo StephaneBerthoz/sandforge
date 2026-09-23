@@ -21,6 +21,8 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
+import { useForgeAIPlan } from './useForgeAIPlan';
+import type { ForgeAIPlanState } from './useForgeAIPlan';
 import {
   extractRecordId,
   extractSalesforceDomain,
@@ -53,6 +55,12 @@ export const DEPTH_TOOLTIP_KEYS: Record<ForgeDepth, string> = {
  * every history entry, minus the org pair it deliberately strips.
  */
 export type ForgeRunConfig = NonNullable<ForgeExecutionResult['config']>;
+
+/**
+ * What applying a template did about its target org: set it, found it not
+ * connected here, or had none to set.
+ */
+export type TemplateTargetOutcome = 'set' | 'missing' | 'none';
 
 /**
  * Numeric caps offered by the records-per-object dropdown, ascending.
@@ -146,8 +154,16 @@ export interface ForgeFormState {
   handleQuickStartTemplate: () => void;
   canReuseLastGraph: boolean;
   handleReuseLastGraph: () => void;
-  /** Build a ForgeTemplate config snapshot from the current form state. */
-  buildTemplateConfig: () => ForgeTemplate['config'];
+
+  /* AI tab (composed hook) */
+  ai: ForgeAIPlanState;
+
+  /* Saved templates */
+  /**
+   * Select a saved template and put its depth, caps, toggles, anonymization
+   * and target org in the form. Returns what became of the target org.
+   */
+  applyTemplate: (template: ForgeTemplate) => TemplateTargetOutcome;
 
   /* Run history (persisted by the extension, newest first) */
   /** Past runs the extension kept, newest first. Empty until the reply lands. */
@@ -169,6 +185,8 @@ export function useForgeForm(): ForgeFormState {
   const setGraph = useForgeStore((s) => s.setGraph);
   const history = useForgeStore((s) => s.history);
   const templates = useForgeStore((s) => s.templates);
+  const setAnonymizationRules = useForgeStore((s) => s.setAnonymizationRules);
+  const setAnonymizationPresetId = useForgeStore((s) => s.setAnonymizationPresetId);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const sendMessage = useSendMessage();
@@ -237,6 +255,9 @@ export function useForgeForm(): ForgeFormState {
   const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =
     useRecordPreview(recordId, sourceOrgId);
 
+  /* ---- AI tab (composed hook): a checked draft is checked against the source org ---- */
+  const ai = useForgeAIPlan(sourceOrgId);
+
   /**
    * Past runs, from the extension's own store rather than this session's.
    *
@@ -267,8 +288,9 @@ export function useForgeForm(): ForgeFormState {
       : undefined;
   }, [inputMode, templates, selectedTemplate]);
 
-  /** Whether the run reads its root from a SOQL query, typed or saved in a template. */
-  const runsSoql = inputMode === 'soql' || templateInput?.inputMode === 'soql';
+  /** Whether the run reads its root from a SOQL query: typed, drafted, or saved in a template. */
+  const runsSoql =
+    inputMode === 'soql' || inputMode === 'ai' || templateInput?.inputMode === 'soql';
 
   /**
    * Numeric limit applied to executor (undefined = no cap). When the
@@ -318,10 +340,11 @@ export function useForgeForm(): ForgeFormState {
         if (templateInput) return true;
         return extractRecordId(recordId) !== null;
       case 'ai':
-        // Nothing turns a prompt into a seed plan: discovery refuses the mode.
-        return false;
+        // A draft is only run once it passed the check against the source org,
+        // and only as it reads now: an edit waits for the next check.
+        return ai.checked;
     }
-  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput]);
+  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput, ai.checked]);
 
   /*
    * The WHERE clause travels as an object filter, which the extension checks
@@ -331,8 +354,9 @@ export function useForgeForm(): ForgeFormState {
    */
   const whereClauseRefused = useMemo((): boolean => {
     if (inputMode === 'soql') return soqlFilterRefused(soqlQuery);
+    if (inputMode === 'ai') return soqlFilterRefused(ai.draft);
     return templateInput?.inputMode === 'soql' && soqlFilterRefused(templateInput.soqlQuery ?? '');
-  }, [inputMode, soqlQuery, templateInput]);
+  }, [inputMode, soqlQuery, ai.draft, templateInput]);
 
   /*
    * The clause travels under the name of the object after FROM, and that name
@@ -342,10 +366,11 @@ export function useForgeForm(): ForgeFormState {
    */
   const objectNameRefused = useMemo((): boolean => {
     if (inputMode === 'soql') return soqlObjectNameRefused(soqlQuery);
+    if (inputMode === 'ai') return soqlObjectNameRefused(ai.draft);
     return (
       templateInput?.inputMode === 'soql' && soqlObjectNameRefused(templateInput.soqlQuery ?? '')
     );
-  }, [inputMode, soqlQuery, templateInput]);
+  }, [inputMode, soqlQuery, ai.draft, templateInput]);
 
   /** The template's own query, which the SOQL warnings below the picker read. */
   const templateSoqlQuery =
@@ -365,21 +390,27 @@ export function useForgeForm(): ForgeFormState {
     const runSoql =
       inputMode === 'soql'
         ? soqlQuery.trim()
-        : templateInput?.inputMode === 'soql'
-          ? templateInput.soqlQuery
-          : undefined;
+        : inputMode === 'ai'
+          ? ai.draft.trim() || undefined
+          : templateInput?.inputMode === 'soql'
+            ? templateInput.soqlQuery
+            : undefined;
     // A built-in template IS the record mode — that is what its config
     // declares and what its description promises — so discovery runs it as
     // one. Sent as `template`, nothing downstream resolved it: the extension
     // reads `templateId` only as part of a cache key.
     const builtinTemplateRoot =
       inputMode === 'template' && !templateInput ? extractRecordId(recordId) : null;
+    // An AI draft is a SOQL query the user confirmed, and discovery reads it
+    // as one: it resolves its root from a record id or a query, nothing else.
     return {
       inputMode: templateInput
         ? templateInput.inputMode
         : builtinTemplateRoot
           ? 'record'
-          : inputMode,
+          : inputMode === 'ai'
+            ? 'soql'
+            : inputMode,
       recordId:
         inputMode === 'record'
           ? (extractRecordId(recordId) ?? undefined)
@@ -391,7 +422,7 @@ export function useForgeForm(): ForgeFormState {
       objectSoqlFilters: runSoql ? soqlObjectFilters(runSoql) : undefined,
       templateId: inputMode === 'template' && !templateInput ? selectedTemplate : undefined,
     };
-  }, [inputMode, recordId, soqlQuery, selectedTemplate, templateInput]);
+  }, [inputMode, recordId, soqlQuery, ai.draft, selectedTemplate, templateInput]);
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
   const canDiscover =
@@ -546,9 +577,20 @@ export function useForgeForm(): ForgeFormState {
     sendMessage,
   ]);
 
-  /** Reuse the most recent execution's graph to skip discovery. */
+  /**
+   * Reuse the most recent execution's graph to skip discovery.
+   *
+   * On the AI tab the run's filter is the draft's WHERE clause, so the draft
+   * has to have passed its check here too: this path skips discovery, not
+   * the check.
+   */
   const lastGraph = history[0]?.graph;
-  const canReuseLastGraph = !!lastGraph && !!sourceOrgId && !!targetOrgId && !whereClauseRefused;
+  const canReuseLastGraph =
+    !!lastGraph &&
+    !!sourceOrgId &&
+    !!targetOrgId &&
+    !whereClauseRefused &&
+    (inputMode !== 'ai' || ai.checked);
   const handleReuseLastGraph = useCallback(() => {
     if (!canReuseLastGraph || !lastGraph) return;
     const config: ForgeConfig = {
@@ -596,6 +638,25 @@ export function useForgeForm(): ForgeFormState {
   ]);
 
   /**
+   * Put a stored run's depth, caps and toggles back in the form.
+   *
+   * The object cap is restored too: it was added after History's re-run, and
+   * a re-run of a run discovered with room for 350 objects went out on the
+   * default cap of fifty, free to stop where the original run had not.
+   */
+  const applyRunOptions = useCallback((config: ForgeRunConfig): void => {
+    setDepth(config.depth);
+    if (config.depth === 'custom' && config.customDepth != null) {
+      setCustomDepth(config.customDepth);
+    }
+    setMaxNodes(config.maxNodes);
+    setAnonymize(config.anonymizePII);
+    setSkipEmpty(config.skipEmpty);
+    setExpandOrphanParents(config.expandOrphanParents ?? false);
+    setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
+  }, []);
+
+  /**
    * Refill the form from a past run's stored configuration.
    *
    * Forge runs in three steps (discover -> plan -> execute), so a re-run puts
@@ -610,8 +671,9 @@ export function useForgeForm(): ForgeFormState {
    * Fields belonging to the other input modes are cleared, so the form shows
    * the run it claims to show rather than a mix of it and what was typed.
    *
-   * A stored AI run opens on the record tab: the AI tab cannot be opened, and a
-   * form left on it could neither show the prompt nor discover.
+   * A stored AI run opens on the record tab: runs from the AI tab are stored
+   * as the SOQL runs they are, so one stored as `ai` predates it, and carries
+   * a prompt the form would have to send to the model again.
    *
    * `fieldExclusions`, `ownerMappings`, `objectSoqlFilters` and `fieldMappings`
    * are not restored: the form has no control for them. A SOQL run's filter is
@@ -624,50 +686,39 @@ export function useForgeForm(): ForgeFormState {
       setRecordId(mode === 'record' ? (config.recordId ?? '') : '');
       setSoqlQuery(mode === 'soql' ? (config.soqlQuery ?? '') : '');
       setSelectedTemplate(mode === 'template' ? (config.templateId ?? '') : '');
-      setDepth(config.depth);
-      if (config.depth === 'custom' && config.customDepth != null) {
-        setCustomDepth(config.customDepth);
-      }
-      setAnonymize(config.anonymizePII);
-      setSkipEmpty(config.skipEmpty);
-      setExpandOrphanParents(config.expandOrphanParents ?? false);
-      setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
+      applyRunOptions(config);
       // The preview describes the record id that was in the field a moment
       // ago; keeping it would caption the new one with the old one's counts.
       resetPreview();
     },
-    [resetPreview],
+    [applyRunOptions, resetPreview],
   );
 
-  /** Snapshot the current form state as a ForgeTemplate config. */
-  const buildTemplateConfig = useCallback((): ForgeTemplate['config'] => {
-    return {
-      inputMode,
-      depth,
-      customDepth: depth === 'custom' ? customDepth : undefined,
-      maxNodes,
-      anonymizePII: anonymize,
-      skipEmpty,
-      expandOrphanParents,
-      batchSize: 'auto',
-      maxRecordsPerObject: recordLimitValue,
-      ...(inputMode === 'record' && recordId
-        ? { recordId: extractRecordId(recordId) ?? undefined }
-        : {}),
-      ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
-    };
-  }, [
-    inputMode,
-    depth,
-    customDepth,
-    maxNodes,
-    anonymize,
-    skipEmpty,
-    expandOrphanParents,
-    recordLimitValue,
-    recordId,
-    soqlQuery,
-  ]);
+  /**
+   * Select a saved template and put what it holds in the form.
+   *
+   * The template stays the run's input — its record id or query is expanded
+   * when discovery starts, as for any saved template — while its depth, caps,
+   * toggles and anonymization are set where the user can see and change them
+   * before Discover. Its target org is set only when it is connected here: an
+   * id from another machine's registry names nothing in this one.
+   */
+  const applyTemplate = useCallback(
+    (template: ForgeTemplate): TemplateTargetOutcome => {
+      setInputMode('template');
+      setSelectedTemplate(template.id);
+      applyRunOptions(template.config);
+      if (template.anonymization) {
+        setAnonymizationRules(template.anonymization.rules);
+        setAnonymizationPresetId(template.anonymization.presetId ?? '');
+      }
+      if (!template.targetOrgId) return 'none';
+      if (!orgs.some((o) => o.id === template.targetOrgId)) return 'missing';
+      setTargetOrgId(template.targetOrgId);
+      return 'set';
+    },
+    [applyRunOptions, setAnonymizationRules, setAnonymizationPresetId, orgs],
+  );
 
   return {
     inputMode,
@@ -720,7 +771,8 @@ export function useForgeForm(): ForgeFormState {
     handleQuickStartTemplate,
     canReuseLastGraph,
     handleReuseLastGraph,
-    buildTemplateConfig,
+    ai,
+    applyTemplate,
     runHistory,
     historyError: historyQuery.error,
     applyHistoryConfig,

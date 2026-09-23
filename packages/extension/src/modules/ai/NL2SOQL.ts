@@ -23,7 +23,13 @@ export interface SchemaContext {
   objects: Array<{
     apiName: string;
     label: string;
-    fields: Array<{ apiName: string; label: string; type: string }>;
+    fields: Array<{
+      apiName: string;
+      label: string;
+      type: string;
+      /** The name a lookup is followed by in a path (`Account` for `AccountId`). Not sent to the model. */
+      relationshipName?: string;
+    }>;
   }>;
 }
 

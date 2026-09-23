@@ -1,3 +1,5 @@
+import type { AnonymizationMethod } from './common.types.js';
+
 /** Mode used to specify the input for a Forge operation */
 export type ForgeInputMode = 'record' | 'soql' | 'template' | 'ai';
 
@@ -325,6 +327,18 @@ export interface ForgeExecutionResult {
 }
 
 /**
+ * The anonymization a run was reviewed with, as a template keeps it: the
+ * method chosen for each PII category and the preset picked in Review, when
+ * one was.
+ */
+export interface ForgeTemplateAnonymization {
+  /** Id of the preset picked in Review (`FORGE_ANONYMIZATION_PRESETS`), when one was. */
+  presetId?: string;
+  /** Method per PII category. A category left out keeps the method the panel holds. */
+  rules: Partial<Record<ForgeAnonymizationCategory, AnonymizationMethod>>;
+}
+
+/**
  * Reusable template that stores a Forge configuration along with
  * metadata such as object/record counts and usage timestamps.
  */
@@ -337,6 +351,18 @@ export interface ForgeTemplate {
   description: string;
   /** Forge configuration without org-specific fields */
   config: Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
+  /**
+   * The org the run wrote to, by its id in this machine's org registry.
+   *
+   * Kept apart from `config`, which stays free of orgs so a history entry
+   * never replays against yesterday's pair. A template is a recipe someone
+   * picks on purpose, and its target is part of the recipe. The id means
+   * nothing on another machine: applying the template there leaves the target
+   * to be picked.
+   */
+  targetOrgId?: string;
+  /** The anonymization the run was reviewed with. Absent on templates saved before it was kept. */
+  anonymization?: ForgeTemplateAnonymization;
   /** Number of objects covered by this template */
   objectCount: number;
   /** Total number of records the template was last used with */
