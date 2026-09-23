@@ -65,6 +65,12 @@ export interface SeedWizardState {
 
   /* Fields */
   fieldConfigs: ObjectFieldConfig[];
+  /** Whether every selected object has been described; the run waits for it. */
+  fieldsReady: boolean;
+  /** Why the last describe failed, while an object still waits for one; null otherwise. */
+  fieldsError: string | null;
+  /** Ask again for the objects not described yet. */
+  retryFieldDescribes: () => void;
   handleChangeFieldRule: (
     objectApiName: string,
     fieldApiName: string,
@@ -284,14 +290,21 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   // A relation row with a problem would be left out of the run, and its child
   // seeded with parents picked at random or none: the wizard waits for it.
   const { relationsReady } = relations;
+  // The rules of an object come from its describe. Sent before it arrived,
+  // the object carried none and the run refused it: below five objects the
+  // configure step is skipped, and every such run was sent that way.
+  const { fieldsReady } = fieldConfig;
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
       case 0:
         return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
       case 1:
         return relationsReady;
+      // The last step sends the run, and its button stayed live while the run
+      // was in flight: a second press sent the whole template again.
       case 2:
-        return !execution.isRunning && relationsReady;
+      case 3:
+        return !execution.isRunning && relationsReady && fieldsReady;
       default:
         return true;
     }
@@ -301,6 +314,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     objectSelection.selectedObjects.length,
     execution.isRunning,
     relationsReady,
+    fieldsReady,
   ]);
 
   const isFinished = currentStep === 3 && !!execution.executionResult;

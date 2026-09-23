@@ -409,6 +409,11 @@ export const SeedPage: React.FC = () => {
                     elapsedMs={state.elapsedMs}
                     configSkipped={configSkipped}
                     onCustomize={handleCustomize}
+                    fieldsReady={state.fieldsReady}
+                    fieldsError={state.fieldsError}
+                    onRetryFields={state.retryFieldDescribes}
+                    fieldConfigs={state.fieldConfigs}
+                    volumes={state.volumes}
                   />
                 )}
 

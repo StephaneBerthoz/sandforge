@@ -116,6 +116,22 @@ function capResultForBridge(result: SeedExecutionResult): SeedExecutionResult {
   };
 }
 
+/**
+ * The digits a number field holds before its decimal point, 0 for any other
+ * type. The describe gives an integer field's as `digits`, and a double's,
+ * currency's or percent's as its `precision` less its `scale`. The wizard
+ * draws a field's default number within them.
+ */
+function integerDigitsOf(field: {
+  type: string;
+  precision?: number;
+  scale?: number;
+  digits?: number;
+}): number {
+  if (field.type === 'int') return field.digits ?? 0;
+  return Math.max(0, (field.precision ?? 0) - (field.scale ?? 0));
+}
+
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
   'seed:execute',
@@ -491,6 +507,9 @@ export class SeedOpsHandler implements DomainHandler {
           referenceTo?: string[];
           length: number;
           createable: boolean;
+          precision?: number;
+          scale?: number;
+          digits?: number;
         }[]
       )
         .filter((f) => f.createable)
@@ -502,6 +521,7 @@ export class SeedOpsHandler implements DomainHandler {
           picklistValues: f.picklistValues?.map((pv) => pv.value) ?? [],
           referenceTo: f.referenceTo ?? [],
           length: f.length,
+          integerDigits: integerDigitsOf(f),
         }));
 
       const response = buildResponse(this.deps, msg, 'seed:describe-object:response', {

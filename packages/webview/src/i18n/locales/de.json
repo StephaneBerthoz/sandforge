@@ -596,7 +596,10 @@
       "backToFork": "Zurück zum KI-Modus"
     },
     "adaptive": {
-      "usingDefaults": "Standard-Feldregeln der Persona werden verwendet.",
+      "usingDefaults": "Standard-Feldregeln werden verwendet.",
+      "usingPersona": "Standard-Feldregeln werden verwendet, mit den Mustern der Persona {{persona}}.",
+      "readingFields": "Die Felder der ausgewählten Objekte werden gelesen...",
+      "fieldsFailed": "Die Felder der ausgewählten Objekte konnten nicht gelesen werden: {{error}}",
       "customizeLink": "Anpassen",
       "searchObjects": "Objekte suchen...",
       "groupStandard": "Standardobjekte",

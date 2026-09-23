@@ -38,6 +38,25 @@ function createMockDeps(): SeedOrchestratorDependencies {
   };
 }
 
+/**
+ * The deps given, with the partitioned path switched on for any run: a seed
+ * large enough for `sandforge.grappe.autoActivateThreshold` takes it.
+ */
+function partitionedDeps(
+  deps: SeedOrchestratorDependencies,
+  grappeSize = 2000,
+): SeedOrchestratorDependencies {
+  return {
+    ...deps,
+    grappeAdapter: new SeedGrappeAdapter(() => 'gid', grappeSize),
+    grappeConfig: {
+      enabled: true,
+      autoActivateThreshold: 1,
+      grappeSize,
+    } as SeedOrchestratorDependencies['grappeConfig'],
+  };
+}
+
 function createTemplate(overrides?: Partial<SeedTemplate>): SeedTemplate {
   return {
     id: 'tpl-1',
@@ -492,6 +511,37 @@ describe('SeedOrchestrator — a parent that wrote nothing', () => {
     expect(insert).toHaveBeenCalledTimes(2);
     expect(result.objectResults.every((r) => r.recordsCreated === 2)).toBe(true);
   });
+
+  it('does not write children of an object that wrote none on the partitioned path either', async () => {
+    // A seed past the grappe threshold took a loop of its own, which wrote
+    // the contacts of accounts that had all been refused.
+    const insert = vi.fn(async (_orgId: string, objectApiName: string) =>
+      objectApiName === 'Account'
+        ? { successIds: [], errors: ['No such column', 'No such column'] }
+        : { successIds: ['003A', '003B'], errors: [] },
+    );
+    const orchestrator = new SeedOrchestrator(partitionedDeps({ ...createMockDeps(), insert }));
+
+    const result = await orchestrator.execute(accountThenContact() as never, 'org');
+
+    expect(insert.mock.calls.map((call) => call[1])).toEqual(['Account']);
+    const contact = result.objectResults.find((r) => r.objectApiName === 'Contact');
+    expect(contact?.recordsCreated).toBe(0);
+    expect(contact?.errors).toEqual([
+      'Skipped: Account wrote no records, so there is nothing for Contact to point at.',
+    ]);
+    expect(result.status).toBe('failure');
+  });
+
+  it('writes the children when the parent wrote something on the partitioned path', async () => {
+    const insert = vi.fn<InsertFn>(async () => ({ successIds: ['001A', '001B'], errors: [] }));
+    const orchestrator = new SeedOrchestrator(partitionedDeps({ ...createMockDeps(), insert }));
+
+    const result = await orchestrator.execute(accountThenContact() as never, 'org');
+
+    expect(insert.mock.calls.map((call) => call[1])).toEqual(['Account', 'Contact']);
+    expect(result.objectResults.every((r) => r.recordsCreated === 2)).toBe(true);
+  });
 });
 
 describe('SeedOrchestrator — a field the org does not have', () => {
@@ -573,6 +623,48 @@ describe('SeedOrchestrator — a field the org does not have', () => {
 
     const result = await orchestrator.execute(oneObject([nameRule]) as never, 'org');
     expect(result.objectResults[0].recordsCreated).toBe(2);
+  });
+
+  it('writes the records without the field on the partitioned path too, and says which one it dropped', async () => {
+    // The partitioned path sent the field, and the org refused every record
+    // of the object with "No such column".
+    const mapFields = vi.fn().mockResolvedValue([{ Name: 'Acme' }, { Name: 'Globex' }]);
+    const orchestrator = new SeedOrchestrator(
+      partitionedDeps({
+        ...createMockDeps(),
+        fieldMapper: { mapFields } as never,
+        describeCreateableFields: async () => new Set(['Name']),
+      }),
+    );
+
+    const result = await orchestrator.execute(oneObject([nameRule, missingRule]) as never, 'org');
+
+    expect(
+      mapFields.mock.calls[0][0].fieldRules.map((r: { fieldApiName: string }) => r.fieldApiName),
+    ).toEqual(['Name']);
+    expect(result.objectResults[0].recordsCreated).toBe(2);
+    expect(result.objectResults[0].errors).toEqual([
+      'Written without AnnualRevenue: this org does not have that field.',
+    ]);
+  });
+
+  it('skips an object on the partitioned path too when the org has none of the fields it names', async () => {
+    const insert = vi.fn();
+    const orchestrator = new SeedOrchestrator(
+      partitionedDeps({
+        ...createMockDeps(),
+        insert: insert as never,
+        describeCreateableFields: async () => new Set(['SomethingElse']),
+      }),
+    );
+
+    const result = await orchestrator.execute(oneObject([missingRule]) as never, 'org');
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(result.objectResults[0].recordsCreated).toBe(0);
+    expect(result.objectResults[0].errors).toEqual([
+      'Skipped: this org has none of the fields the template names (AnnualRevenue).',
+    ]);
   });
 });
 

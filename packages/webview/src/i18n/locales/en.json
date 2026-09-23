@@ -596,7 +596,10 @@
       "backToFork": "Back to AI mode"
     },
     "adaptive": {
-      "usingDefaults": "Using default field rules from persona.",
+      "usingDefaults": "Using default field rules.",
+      "usingPersona": "Using default field rules, with the patterns of the {{persona}} persona.",
+      "readingFields": "Reading the fields of the selected objects...",
+      "fieldsFailed": "The fields of the selected objects could not be read: {{error}}",
       "customizeLink": "Customize",
       "searchObjects": "Search objects...",
       "groupStandard": "Standard Objects",

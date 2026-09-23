@@ -64,6 +64,8 @@ const bridge = vi.hoisted(() => ({
   mutate: vi.fn(),
   /* describe-object response replayed by the hook's mapping effect */
   data: null as unknown,
+  /* why the last describe failed, as the mutation reports it */
+  error: null as string | null,
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
@@ -71,16 +73,89 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     mutate: bridge.mutate,
     data: bridge.data,
     loading: false,
-    error: null,
+    error: bridge.error,
     reset: vi.fn(),
   }),
 }));
+
+/** The objects the hook asked the extension to describe, in order. */
+function describedAsked(): string[] {
+  return bridge.mutate.mock.calls.map(
+    (call) => (call[0] as { objectApiName: string }).objectApiName,
+  );
+}
 
 describe('useSeedFieldRules', () => {
   beforeEach(() => {
     bridge.mutate.mockClear();
     bridge.data = null;
+    bridge.error = null;
     useSeedWizardStore.getState().resetSeedWizard();
+  });
+
+  it('describes the selected objects on the execute step too, which a small run reaches directly', () => {
+    // Below five objects the wizard goes from the selection to the execute
+    // step, and a describe asked for on the configure step alone never came.
+    renderHook(() => useSeedFieldRules('org-1', ['Account', 'Contact'], 2));
+
+    expect(describedAsked()).toEqual(['Account', 'Contact']);
+  });
+
+  it('asks for no describe while the objects are still being picked', () => {
+    renderHook(() => useSeedFieldRules('org-1', ['Account'], 0));
+
+    expect(bridge.mutate).not.toHaveBeenCalled();
+  });
+
+  it('is ready once every selected object is described, and not before', () => {
+    bridge.data = CONTRACT_DESCRIBE;
+    const { result, rerender } = renderHook(() =>
+      useSeedFieldRules('org-1', ['Contract__c', 'Contact'], 2),
+    );
+    expect(result.current.fieldsReady).toBe(false);
+
+    bridge.data = {
+      objectApiName: 'Contact',
+      objectLabel: 'Contact',
+      fields: [describedField('LastName', 'string')],
+    };
+    rerender();
+
+    expect(result.current.fieldsReady).toBe(true);
+  });
+
+  it('draws a number within what the org says the field holds, and leaves a coordinate blank', () => {
+    // A wizard run with the default rules had every account of a real sandbox
+    // refused, on a two-digit score at 518 and on a billing latitude at 966.
+    bridge.data = {
+      objectApiName: 'Account',
+      objectLabel: 'Account',
+      fields: [
+        { ...describedField('Score__c', 'double'), integerDigits: 2 },
+        { ...describedField('BillingLatitude', 'double'), integerDigits: 3 },
+      ],
+    };
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 2));
+
+    const [score, latitude] = result.current.fieldConfigs[0].fields;
+    expect(score).toMatchObject({
+      ruleType: 'faker',
+      config: { fakerMethod: 'integer', maxValue: 99 },
+    });
+    expect(latitude).toMatchObject({ ruleType: 'static', config: {} });
+  });
+
+  it('gives the reason a describe failed while an object waits, and asks again on retry', () => {
+    bridge.error = 'INVALID_SESSION_ID';
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 2));
+    expect(result.current.fieldsError).toBe('INVALID_SESSION_ID');
+    bridge.mutate.mockClear();
+
+    act(() => {
+      result.current.retryFieldDescribes();
+    });
+
+    expect(describedAsked()).toEqual(['Account']);
   });
 
   it('counts the fields a persona configures even when another update is still pending', () => {

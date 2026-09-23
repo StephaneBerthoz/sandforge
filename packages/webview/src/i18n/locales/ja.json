@@ -576,7 +576,10 @@
       "backToFork": "AIモードに戻る"
     },
     "adaptive": {
-      "usingDefaults": "ペルソナのデフォルトフィールドルールを使用しています。",
+      "usingDefaults": "デフォルトのフィールドルールを使用しています。",
+      "usingPersona": "デフォルトのフィールドルールを、ペルソナ「{{persona}}」のパターンとともに使用しています。",
+      "readingFields": "選択したオブジェクトのフィールドを読み込んでいます...",
+      "fieldsFailed": "選択したオブジェクトのフィールドを読み込めませんでした: {{error}}",
       "customizeLink": "カスタマイズ",
       "searchObjects": "オブジェクトを検索...",
       "groupStandard": "標準オブジェクト",

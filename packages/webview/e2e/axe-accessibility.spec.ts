@@ -1239,6 +1239,45 @@ async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateThe
   await problem.scrollIntoViewIfNeeded();
 }
 
+/**
+ * Open the Seed wizard's execute step as a run of Account and Contact reaches
+ * it: the configure step skipped, both objects described, the banner saying
+ * the run uses the default rules, and a relation added on the step itself.
+ */
+async function openSeedExecuteSkipped(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+): Promise<void> {
+  await openPanel(bridge, page, 'seed', theme);
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-ai').click();
+  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('org-selector').selectOption(DEV_SANDBOX.id);
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await answerAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: [
+      { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
+      { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: [] },
+    ],
+  });
+  await page.getByTestId('obj-Account').click();
+  await page.getByTestId('obj-Contact').click();
+  await page.getByTestId('seed-wizard-next').click();
+  const answered = new Set<string>();
+  await expect
+    .poll(
+      async () => {
+        await answerSeedDescribes(page, answered);
+        return page.getByTestId('seed-fields-status').textContent();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe('Using default field rules.');
+  await page.getByTestId('add-relation-btn').click();
+  await page.getByTestId('relation-0-planned').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
 for (const theme of STATE_THEMES) {
   test.describe(`rendered contrast — ${theme} — states`, () => {
     test.describe.configure({ timeout: 60000 });
@@ -1618,6 +1657,14 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('node-status-refusals').waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);
+    });
+
+    test('Seed execute step of a run that skipped configure, with its rules and a relation', async ({
+      page,
+    }) => {
+      await openSeedExecuteSkipped(bridge, page, theme);
+
+      await expectReadable(page, theme, '[data-testid="seed-step-execute-content"]');
     });
 
     test('CSV drop zone while a file is dragged over it', async ({ page }) => {

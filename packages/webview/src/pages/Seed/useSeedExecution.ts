@@ -8,6 +8,8 @@ import { useElapsedSince } from '../../hooks/useElapsedSince';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { ObjectProgress } from './Step7_Execute';
 import type { CheckedRelation } from './seedRelationDrafts';
+import { lookupsClosingACycle } from './seedLookupCycles';
+import type { RunLookup } from './seedLookupCycles';
 
 /** Return type for the useSeedExecution hook. */
 export interface SeedExecutionState {
@@ -109,6 +111,27 @@ export function useSeedExecution(
   const handleExecute = useCallback(() => {
     if (!selectedOrgId) return;
 
+    // The lookups between the run's objects, but the ones the relations fill.
+    const runLookups = selectedObjects.flatMap((apiName): RunLookup[] => {
+      const related = sent.find((s) => s.relation.childObject === apiName);
+      const fields = fieldConfigs.find((c) => c.objectApiName === apiName)?.fields ?? [];
+      return fields.flatMap((f) => {
+        const target = f.config['referenceObject'];
+        return f.ruleType === 'reference' &&
+          f.fieldApiName !== related?.relation.lookupField &&
+          typeof target === 'string' &&
+          target !== apiName &&
+          selectedObjects.includes(target)
+          ? [{ objectApiName: apiName, fieldApiName: f.fieldApiName, target, required: f.required }]
+          : [];
+      });
+    });
+    const leftOut = lookupsClosingACycle(
+      selectedObjects,
+      runLookups,
+      sent.map((s) => s.relation),
+    );
+
     const template: SeedTemplate = {
       id: crypto.randomUUID(),
       name: 'seed-from-ui',
@@ -149,6 +172,10 @@ export function useSeedExecution(
                 (f.config['referenceObject'] !== apiName &&
                   selectedObjects.includes(f.config['referenceObject'])),
             )
+            // Two of the run's objects looking each other up would each wait
+            // for the other, and the run refused the template as a circular
+            // dependency; one of the two optional lookups is left to the org.
+            .filter((f) => !leftOut.has(`${apiName}.${f.fieldApiName}`))
             .map((f) => ({
               fieldApiName: f.fieldApiName,
               fieldType: f.type,

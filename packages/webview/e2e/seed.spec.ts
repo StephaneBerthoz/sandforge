@@ -4,14 +4,15 @@ import { MOCK_ORGS } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * Forge input form E2E — the record-scoped clone module.
+ * Forge input form E2E — the record-scoped clone module — and, at the end, one
+ * run of the Seed wizard.
  *
- * The file name says "seed" and its subject does not: the describe block has
- * read `Forge / Seed page` since it was written, and every assertion in it
- * targets `forge-*` testids. Seed (`src/pages/Seed`) is a different module with
- * its own page, wizard and testids, and nothing in here has ever touched it.
- * The name is left alone on purpose — renaming the file is a separate, central
- * move — but read this as the Forge spec it is.
+ * The file name says "seed" and most of its subject does not: the first
+ * describe block has read `Forge / Seed page` since it was written, and every
+ * assertion in it targets `forge-*` testids. Seed (`src/pages/Seed`) is a
+ * different module with its own page, wizard and testids; only the last block
+ * drives it. The name is left alone on purpose — renaming the file is a
+ * separate, central move — but read the Forge blocks as the Forge spec they are.
  *
  * What changed to make it run again:
  *
@@ -369,5 +370,179 @@ test.describe('Forge — no org connected', () => {
     await expect(page.getByTestId('empty-illustration-forge')).toBeVisible();
     await expect(page.getByTestId('empty-action-button')).toBeVisible();
     await expect(page.getByTestId('forge-input')).toHaveCount(0);
+  });
+});
+
+/** A createable field as `seed:describe-object` reports it. */
+function seedField(
+  fieldApiName: string,
+  type: string,
+  extra: {
+    required?: boolean;
+    length?: number;
+    referenceTo?: string[];
+    picklistValues?: string[];
+  } = {},
+): Record<string, unknown> {
+  return {
+    fieldApiName,
+    label: fieldApiName,
+    type,
+    required: false,
+    picklistValues: [],
+    referenceTo: [],
+    length: 0,
+    ...extra,
+  };
+}
+
+/** The three objects of the wizard run, as a sandbox describes their required fields. */
+const SEED_DESCRIBES: Record<string, Record<string, unknown>[]> = {
+  Account: [seedField('Name', 'string', { required: true, length: 255 })],
+  Contact: [
+    seedField('LastName', 'string', { required: true, length: 80 }),
+    seedField('AccountId', 'reference', { referenceTo: ['Account'], length: 18 }),
+  ],
+  Opportunity: [
+    seedField('Name', 'string', { required: true, length: 120 }),
+    seedField('CloseDate', 'date', { required: true }),
+    seedField('StageName', 'picklist', { required: true, picklistValues: ['Prospecting'] }),
+  ],
+};
+
+/**
+ * Answer each `seed:describe-object` not answered yet with the describe of the
+ * object it names. The wizard describes one object per request and asks again
+ * for an object whose answer it dropped, so this is polled until it is done.
+ */
+async function answerSeedDescribes(page: Page, answered: Set<string>): Promise<void> {
+  for (const request of await outgoing(page, 'seed:describe-object')) {
+    const id = String(request.id);
+    if (answered.has(id)) continue;
+    answered.add(id);
+    const objectApiName = String((request.payload as Record<string, unknown>).objectApiName);
+    await sendExtensionMessage(page, {
+      type: 'seed:describe-object:response',
+      id: `resp-${id}`,
+      correlationId: id,
+      payload: { objectApiName, objectLabel: objectApiName, fields: SEED_DESCRIBES[objectApiName] },
+    });
+  }
+}
+
+/**
+ * Open the Seed wizard on DevSandbox, pick Account, Contact and Opportunity
+ * and leave the select step: three objects, so the configure step is skipped.
+ */
+async function pickThreeObjectsAndMoveOn(page: Page): Promise<MockBridge> {
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await page.addInitScript(() => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'seed';
+  });
+  await page.goto('/');
+  await bridge.seedOrgs(MOCK_ORGS);
+  await page.getByTestId('mode-card-ai').click();
+  await page.getByTestId('fork-card-scratch').click();
+  await page.getByTestId('org-selector').selectOption('org-src-1');
+  await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+  await respondToAll(page, 'seed:describe-global', 'seed:describe-global:response', {
+    objects: Object.keys(SEED_DESCRIBES).map((apiName) => ({
+      apiName,
+      label: apiName,
+      recordCount: 0,
+      dependencies: [],
+    })),
+  });
+  for (const apiName of Object.keys(SEED_DESCRIBES)) {
+    await page.getByTestId(`obj-${apiName}`).click();
+  }
+  await page.getByTestId('seed-wizard-next').click();
+  await expect(page.getByTestId('seed-step-execute-content')).toBeVisible();
+  return bridge;
+}
+
+/** Answer the describes until the step says which rules the run uses. */
+async function settleDescribes(page: Page): Promise<void> {
+  const answered = new Set<string>();
+  await expect
+    .poll(
+      async () => {
+        await answerSeedDescribes(page, answered);
+        return page.getByTestId('seed-fields-status').textContent();
+      },
+      { timeout: 10_000 },
+    )
+    .toBe('Using default field rules.');
+}
+
+/** The part of the template a `seed:execute` carries that these tests read. */
+interface SentTemplate {
+  objects: Array<{
+    objectApiName: string;
+    recordCount: number;
+    fieldRules: Array<{ fieldApiName: string }>;
+  }>;
+  relations?: unknown[];
+}
+
+/** The template of the one `seed:execute` the wizard sent. */
+async function sentTemplate(bridge: MockBridge): Promise<SentTemplate> {
+  const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+  return (request.payload as { template: SentTemplate }).template;
+}
+
+test.describe('Seed — a wizard run of three objects, which skips the configure step', () => {
+  test('reaches seed:execute with the rules the describes gave each object', async ({ page }) => {
+    // The describes happened on the configure step alone, so this run went out
+    // with `fieldRules: []` for every object and the extension refused it.
+    const bridge = await pickThreeObjectsAndMoveOn(page);
+
+    await expect(page.getByTestId('seed-fields-status')).toHaveText(
+      'Reading the fields of the selected objects...',
+    );
+    await expect(page.getByTestId('seed-wizard-next')).toBeDisabled();
+
+    await settleDescribes(page);
+    await page.getByTestId('seed-wizard-next').click();
+    await page.getByTestId('seed-wizard-finish').click();
+
+    const template = await sentTemplate(bridge);
+    expect(
+      Object.fromEntries(
+        template.objects.map((o) => [o.objectApiName, o.fieldRules.map((r) => r.fieldApiName)]),
+      ),
+    ).toEqual({
+      Account: ['Name'],
+      Contact: ['LastName', 'AccountId'],
+      Opportunity: ['Name', 'CloseDate', 'StageName'],
+    });
+    expect((await bridge.getMessages('seed:execute')).length).toBe(1);
+  });
+
+  test('sets a relation on the execute step and sends it with the run', async ({ page }) => {
+    const bridge = await pickThreeObjectsAndMoveOn(page);
+    await settleDescribes(page);
+
+    await page.getByTestId('add-relation-btn').click();
+    await expect(page.getByTestId('relation-0-planned')).toHaveText(
+      'Contact: up to 300 records — parents: 100 × Account, created by this run.',
+    );
+    await page.getByTestId('seed-wizard-next').click();
+    await page.getByTestId('seed-wizard-finish').click();
+
+    const template = await sentTemplate(bridge);
+    expect(template.relations).toEqual([
+      {
+        childObject: 'Contact',
+        lookupField: 'AccountId',
+        parentObject: 'Account',
+        parents: { kind: 'generated' },
+        distribution: { mode: 'perParent', count: 3 },
+      },
+    ]);
+    const contact = template.objects.find((o) => o.objectApiName === 'Contact');
+    expect(contact?.recordCount).toBe(300);
+    expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
   });
 });

@@ -12,6 +12,15 @@ import { useSeedWizardState } from './useSeedWizardState';
 /* ------------------------------------------------------------------ */
 const mockMutate = vi.fn();
 
+/** The describe and execute mutations, which the tests below drive. */
+const seedBridge = vi.hoisted(() => ({
+  describe: vi.fn(),
+  /* seed:describe-object answer replayed by the field rules' mapping effect */
+  described: null as unknown,
+  execute: vi.fn(),
+  running: false,
+}));
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => ({
     data: null,
@@ -22,14 +31,55 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: mockMutate,
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
-  }),
+  useBridgeMutation: (type: string) => {
+    if (type === 'seed:describe-object') {
+      return {
+        mutate: seedBridge.describe,
+        data: seedBridge.described,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
+    if (type === 'seed:execute') {
+      return {
+        mutate: seedBridge.execute,
+        data: null,
+        loading: seedBridge.running,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
+    return {
+      mutate: mockMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  },
 }));
+
+/** The describe of an object whose only field is its name. */
+function describeOf(objectApiName: string): Record<string, unknown> {
+  return {
+    objectApiName,
+    objectLabel: objectApiName,
+    fields: [
+      {
+        fieldApiName: 'Name',
+        label: 'Name',
+        type: 'string',
+        required: true,
+        picklistValues: [],
+        referenceTo: [],
+        length: 80,
+      },
+    ],
+  };
+}
 
 vi.mock('../../hooks/useAIFeatures', () => ({
   useNL2SOQL: () => ({
@@ -68,6 +118,74 @@ describe('useSeedWizardState', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: null });
     mockMutate.mockClear();
+    seedBridge.describe.mockClear();
+    seedBridge.described = null;
+    seedBridge.execute.mockClear();
+    seedBridge.running = false;
+  });
+
+  describe('a run below five objects, which skips the configure step', () => {
+    const THREE = ['Account', 'Contact', 'Case'];
+
+    /** The wizard on org-1 with `THREE` picked, moved on to the execute step. */
+    function onExecuteStep() {
+      const view = renderHook(() => useSeedWizardState(mockT));
+      act(() => {
+        view.result.current.handleOrgSelect('org-1');
+        for (const name of THREE) view.result.current.handleToggleObject(name);
+      });
+      act(() => {
+        view.result.current.setCurrentStep(2);
+      });
+      return view;
+    }
+
+    it('asks for the fields of every selected object on the execute step', () => {
+      onExecuteStep();
+
+      const asked = seedBridge.describe.mock.calls.map(
+        (call) => (call[0] as { objectApiName: string }).objectApiName,
+      );
+      expect([...new Set(asked)]).toEqual(THREE);
+    });
+
+    it('holds the run until every selected object is described', () => {
+      const { result, rerender } = onExecuteStep();
+      expect(result.current.canGoNext).toBe(false);
+
+      for (const name of THREE.slice(0, 2)) {
+        seedBridge.described = describeOf(name);
+        rerender();
+      }
+      expect(result.current.canGoNext).toBe(false);
+
+      seedBridge.described = describeOf('Case');
+      rerender();
+      expect(result.current.fieldsReady).toBe(true);
+      expect(result.current.canGoNext).toBe(true);
+
+      act(() => {
+        result.current.setCurrentStep(3);
+      });
+      expect(result.current.canGoNext).toBe(true);
+    });
+
+    it('holds the button of the last step while the run it sent is in flight', () => {
+      // It stayed live: a second press sent the whole template again.
+      const { result, rerender } = onExecuteStep();
+      for (const name of THREE) {
+        seedBridge.described = describeOf(name);
+        rerender();
+      }
+      act(() => {
+        result.current.setCurrentStep(3);
+      });
+
+      seedBridge.running = true;
+      rerender();
+
+      expect(result.current.canGoNext).toBe(false);
+    });
   });
 
   it('should initialize with step 0 and empty selections', () => {

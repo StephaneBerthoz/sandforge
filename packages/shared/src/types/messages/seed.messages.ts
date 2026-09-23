@@ -79,6 +79,8 @@ export interface SeedDescribeObjectResponse extends BaseMessage {
       picklistValues: string[];
       referenceTo: string[];
       length: number;
+      /** Digits a number field holds before its decimal point; 0 for other types. */
+      integerDigits: number;
     }>;
   };
 }

@@ -256,6 +256,87 @@ vi.mock('../../components/ui/InfoTooltip', () => ({
   ),
 }));
 
+/** A createable field as `seed:describe-object` reports it. */
+function describedField(
+  fieldApiName: string,
+  type: string,
+  extra: {
+    required?: boolean;
+    length?: number;
+    referenceTo?: string[];
+    picklistValues?: string[];
+  } = {},
+): Record<string, unknown> {
+  return {
+    fieldApiName,
+    label: fieldApiName,
+    type,
+    required: false,
+    picklistValues: [],
+    referenceTo: [],
+    length: 0,
+    ...extra,
+  };
+}
+
+/** Answer the describe of one object, as the extension does, and let the page take it. */
+function answerDescribe(
+  rerender: (ui: React.ReactElement) => void,
+  objectApiName: string,
+  fields: Record<string, unknown>[],
+): void {
+  mockDescribeFieldsState = {
+    ...mockDescribeFieldsState,
+    data: { objectApiName, objectLabel: objectApiName, fields },
+  };
+  rerender(<SeedPage />);
+}
+
+/** The objects `seed:describe-global` lists for the wizard runs below. */
+function listObjects(names: string[]): void {
+  mockDescribeGlobalState = {
+    data: {
+      objects: names.map((apiName) => ({
+        apiName,
+        label: apiName,
+        recordCount: 0,
+        dependencies: [],
+      })),
+    },
+    loading: false,
+    error: null,
+    refetch: mockDescribeGlobalRefetch,
+  };
+}
+
+/** Open the wizard on org-1, pick `names` and leave the select step. */
+function pickAndMoveOn(names: string[]): ReturnType<typeof render> {
+  const view = render(<SeedPage />);
+  fireEvent.click(screen.getByTestId('mode-card-ai'));
+  fireEvent.click(screen.getByTestId('fork-card-scratch'));
+  fireEvent.change(screen.getByTestId('org-selector'), { target: { value: 'org-1' } });
+  for (const name of names) fireEvent.click(screen.getByTestId(`obj-${name}`));
+  fireEvent.click(screen.getByTestId('seed-wizard-next'));
+  return view;
+}
+
+/** Account, Contact and Opportunity as a sandbox describes their required fields. */
+const THREE_OBJECT_DESCRIBES: Record<string, Record<string, unknown>[]> = {
+  Account: [describedField('Name', 'string', { required: true, length: 255 })],
+  Contact: [
+    describedField('LastName', 'string', { required: true, length: 80 }),
+    describedField('AccountId', 'reference', { referenceTo: ['Account'], length: 18 }),
+  ],
+  Opportunity: [
+    describedField('Name', 'string', { required: true, length: 120 }),
+    describedField('CloseDate', 'date', { required: true }),
+    describedField('StageName', 'picklist', {
+      required: true,
+      picklistValues: ['Prospecting', 'Closed Won'],
+    }),
+  ],
+};
+
 describe('SeedPage', () => {
   beforeEach(() => {
     quickSeed.forceIdle = false;
@@ -497,6 +578,7 @@ describe('SeedPage', () => {
     fireEvent.change(screen.getByTestId('org-selector'), { target: { value: 'org-1' } });
     fireEvent.click(screen.getByTestId('obj-Account'));
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
+    answerDescribe(rerender, 'Account', [describedField('Name', 'string', { length: 255 })]);
     fireEvent.click(screen.getByTestId('seed-wizard-next'));
     fireEvent.click(screen.getByTestId('seed-wizard-finish'));
 
@@ -527,5 +609,110 @@ describe('SeedPage', () => {
     expect(saved.id).toBeUndefined();
     expect(saved.objects).toEqual(sent.objects);
     expect(saved.objects.map((o) => o.objectApiName)).toEqual(['Account']);
+  });
+
+  describe('a run that skips the configure step', () => {
+    const THREE = ['Account', 'Contact', 'Opportunity'];
+
+    beforeEach(() => {
+      quickSeed.forceIdle = true;
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      listObjects(THREE);
+    });
+
+    it('sends three objects with the rules their describes gave, where it sent none', () => {
+      // Below five objects the configure step is skipped, and the describes
+      // only happened there: every such run went out with `fieldRules: []`
+      // and the extension refused it.
+      const { rerender } = pickAndMoveOn(THREE);
+
+      expect(screen.getByTestId('seed-step-execute-content')).toBeDefined();
+      const asked = mockDescribeFieldsMutate.mock.calls.map(
+        (call) => (call[0] as { objectApiName: string }).objectApiName,
+      );
+      expect([...new Set(asked)].sort()).toEqual([...THREE].sort());
+
+      for (const name of THREE) answerDescribe(rerender, name, THREE_OBJECT_DESCRIBES[name]);
+      fireEvent.click(screen.getByTestId('seed-wizard-next'));
+      fireEvent.click(screen.getByTestId('seed-wizard-finish'));
+
+      expect(mockExecuteSeedMutate).toHaveBeenCalledOnce();
+      const sent = (mockExecuteSeedMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+      expect(
+        Object.fromEntries(
+          sent.objects.map((o) => [o.objectApiName, o.fieldRules.map((r) => r.ruleType)]),
+        ),
+      ).toEqual({
+        Account: ['faker'],
+        Contact: ['faker', 'reference'],
+        Opportunity: ['faker', 'faker', 'picklist_random'],
+      });
+    });
+
+    it('waits for every describe before it lets the run go, and says so', () => {
+      const { rerender } = pickAndMoveOn(THREE);
+      const next = (): HTMLButtonElement =>
+        screen.getByTestId('seed-wizard-next') as HTMLButtonElement;
+
+      expect(screen.getByTestId('seed-fields-status').textContent).toBe(
+        'Reading the fields of the selected objects...',
+      );
+      expect(next().disabled).toBe(true);
+
+      answerDescribe(rerender, 'Account', THREE_OBJECT_DESCRIBES.Account);
+      answerDescribe(rerender, 'Contact', THREE_OBJECT_DESCRIBES.Contact);
+      expect(next().disabled).toBe(true);
+
+      answerDescribe(rerender, 'Opportunity', THREE_OBJECT_DESCRIBES.Opportunity);
+      expect(screen.getByTestId('seed-fields-status').textContent).toBe(
+        'Using default field rules.',
+      );
+      expect(next().disabled).toBe(false);
+    });
+
+    it('offers the relations on the execute step, and sends the one added there', () => {
+      const { rerender } = pickAndMoveOn(THREE);
+      for (const name of THREE) answerDescribe(rerender, name, THREE_OBJECT_DESCRIBES[name]);
+
+      fireEvent.click(screen.getByTestId('add-relation-btn'));
+      expect(screen.getByTestId('relation-0-planned').textContent).toBe(
+        'Contact: up to 300 records — parents: 100 × Account, created by this run.',
+      );
+      fireEvent.click(screen.getByTestId('seed-wizard-next'));
+      fireEvent.click(screen.getByTestId('seed-wizard-finish'));
+
+      const sent = (mockExecuteSeedMutate.mock.calls[0][0] as { template: SeedTemplate }).template;
+      expect(sent.relations).toEqual([
+        {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          parents: { kind: 'generated' },
+          distribution: { mode: 'perParent', count: 3 },
+        },
+      ]);
+      const contact = sent.objects.find((o) => o.objectApiName === 'Contact');
+      expect(contact?.recordCount).toBe(300);
+      expect(contact?.fieldRules.map((r) => r.fieldApiName)).toEqual(['LastName']);
+    });
+
+    it('says why the fields could not be read, and asks again on Retry', () => {
+      const { rerender } = pickAndMoveOn(THREE);
+      mockDescribeFieldsState = { ...mockDescribeFieldsState, error: 'INVALID_SESSION_ID' };
+      rerender(<SeedPage />);
+
+      expect(screen.getByTestId('seed-fields-status').textContent).toBe(
+        'The fields of the selected objects could not be read: INVALID_SESSION_ID',
+      );
+      expect((screen.getByTestId('seed-wizard-next') as HTMLButtonElement).disabled).toBe(true);
+
+      mockDescribeFieldsMutate.mockClear();
+      fireEvent.click(screen.getByTestId('seed-fields-retry'));
+
+      expect(mockDescribeFieldsMutate).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        objectApiName: 'Opportunity',
+      });
+    });
   });
 });

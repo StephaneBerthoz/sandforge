@@ -596,7 +596,10 @@
       "backToFork": "Voltar ao modo IA"
     },
     "adaptive": {
-      "usingDefaults": "Usando as regras de campo padrão da persona.",
+      "usingDefaults": "Usando as regras de campo padrão.",
+      "usingPersona": "Usando as regras de campo padrão, com os padrões da persona {{persona}}.",
+      "readingFields": "Lendo os campos dos objetos selecionados...",
+      "fieldsFailed": "Não foi possível ler os campos dos objetos selecionados: {{error}}",
       "customizeLink": "Personalizar",
       "searchObjects": "Buscar objetos...",
       "groupStandard": "Objetos padrão",

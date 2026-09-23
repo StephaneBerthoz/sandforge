@@ -70,7 +70,18 @@ export interface DescribedSeedField {
   referenceTo: string[];
   /** Maximum length of a text value, 0 for types that have none. */
   length: number;
+  /** Digits a number field holds before its decimal point; 0 or absent when unknown. */
+  integerDigits?: number;
 }
+
+/** The most a generated whole number reaches when no rule says otherwise. */
+const DEFAULT_MOST = 1000;
+
+/**
+ * A coordinate: the latitude or longitude of a standard address
+ * (`BillingLatitude`) or of a geolocation field (`Site__Latitude__s`).
+ */
+const COORDINATE_FIELD = /(latitude|longitude)(__s)?$/i;
 
 /**
  * The rule a described field starts with. A faker rule carries the field's
@@ -92,7 +103,27 @@ export function describedFieldRule(field: DescribedSeedField): {
       ? { ruleType: 'picklist_random', config: { picklistValues: [...field.picklistValues] } }
       : { ruleType: 'static', config: {} };
   }
+  // A coordinate drawn like any other number lands past 90 or 180, and the
+  // org refuses the record: in a real sandbox every account a wizard run wrote
+  // with its default rules was refused on its billing latitude. One drawn in
+  // bounds would point nowhere near the address generated beside it, so a
+  // coordinate is left for the author to set, like a type no generator fits.
+  if (field.type === 'double' && COORDINATE_FIELD.test(field.fieldApiName)) {
+    return { ruleType: 'static', config: {} };
+  }
   const fakerMethod = defaultFakerMethod(field.type, field.fieldApiName);
+  // A whole number is drawn up to 1000, which a field of fewer digits refuses:
+  // a two-digit score on a real sandbox's accounts turned every one of them
+  // down. It is drawn within what the field holds, and a percentage within
+  // 100, past which the org refused every opportunity's probability.
+  const digits = field.integerDigits ?? 0;
+  const most = Math.min(
+    digits > 0 ? 10 ** digits - 1 : DEFAULT_MOST,
+    field.type === 'percent' ? 100 : DEFAULT_MOST,
+  );
+  if (fakerMethod === 'integer' && most < DEFAULT_MOST) {
+    return { ruleType: 'faker', config: { fakerMethod, maxValue: most } };
+  }
   if (fakerMethod) {
     return {
       ruleType: 'faker',

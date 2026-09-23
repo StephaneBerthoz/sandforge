@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
-import type { BaseMessage, SeedExecutionResult } from '@sandforge/shared';
-import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
+import type { BaseMessage, DescribedSeedField, SeedExecutionResult } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG, describedFieldRule } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import { SeedOrchestrator } from '../../modules/seed/SeedOrchestrator.js';
+import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -217,6 +219,48 @@ describe('SeedOpsHandler', () => {
     };
     expect(response.type).toBe('seed:describe-object:response');
     expect(response.correlationId).toBe('req-200');
+  });
+
+  it('tells the wizard how many digits each number field holds before its decimal point', async () => {
+    // The wizard drew every default number up to 1000, and a real sandbox
+    // refused every account on a two-digit score.
+    const number = (name: string, type: string, extra: Record<string, number>) => ({
+      name,
+      label: name,
+      type,
+      nillable: true,
+      defaultedOnCreate: false,
+      length: 0,
+      createable: true,
+      ...extra,
+    });
+    mockGetConn.mockResolvedValue({
+      describe: vi.fn().mockResolvedValue({
+        label: 'Account',
+        fields: [
+          number('Score__c', 'double', { precision: 2, scale: 0, digits: 0 }),
+          number('NumberOfEmployees', 'int', { precision: 0, scale: 0, digits: 8 }),
+          number('AnnualRevenue', 'currency', { precision: 18, scale: 2, digits: 0 }),
+          { ...number('Name', 'string', { precision: 0, scale: 0, digits: 0 }), length: 255 },
+        ],
+      }),
+    } as never);
+
+    await handler.handle(
+      inboundRequest({
+        id: 'req-digits',
+        type: 'seed:describe-object',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', objectApiName: 'Account' },
+      }),
+    );
+
+    const response = vi.mocked(deps.broker.postToWebview).mock.calls[0][0] as BaseMessage & {
+      payload: { fields: Array<{ fieldApiName: string; integerDigits: number }> };
+    };
+    expect(
+      Object.fromEntries(response.payload.fields.map((f) => [f.fieldApiName, f.integerDigits])),
+    ).toEqual({ Score__c: 2, NumberOfEmployees: 8, AnnualRevenue: 16, Name: 0 });
   });
 
   it('error path sends error response via sendHandlerError', async () => {
@@ -1833,6 +1877,207 @@ describe('SeedOpsHandler', () => {
 
       expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
         expect.objectContaining({ outcome: 'stopped', guard: 'declined' }),
+      ]);
+    });
+  });
+
+  describe('a run the wizard sends, through the orchestrator the extension builds', () => {
+    /** The createable fields of the org, by object: what its describe answers. */
+    const ORG_FIELDS: Record<string, string[]> = {
+      Account: ['Name', 'Phone'],
+      Contact: ['LastName', 'Email', 'AccountId'],
+      Opportunity: ['Name', 'CloseDate', 'StageName', 'AccountId'],
+    };
+
+    /** A field as `seed:describe-object` reports it to the wizard. */
+    function field(
+      fieldApiName: string,
+      type: string,
+      extra: Partial<DescribedSeedField> = {},
+    ): DescribedSeedField {
+      return { fieldApiName, type, picklistValues: [], referenceTo: [], length: 0, ...extra };
+    }
+
+    /** An object as the wizard sends it when nobody changed a rule. */
+    function wizardObject(
+      objectApiName: string,
+      fields: DescribedSeedField[],
+      insertOrder: number,
+    ): Record<string, unknown> {
+      return {
+        objectApiName,
+        recordCount: 2,
+        batchSize: 200,
+        insertOrder,
+        excludedFields: [],
+        fieldRules: fields.map((f) => ({
+          fieldApiName: f.fieldApiName,
+          fieldType: f.type,
+          ...describedFieldRule(f),
+        })),
+      };
+    }
+
+    /** Account, Contact and Opportunity with the rules their describes give. */
+    function threeObjectTemplate(): Record<string, unknown> {
+      return {
+        ...validSeedTemplate(),
+        objects: [
+          wizardObject(
+            'Account',
+            [field('Name', 'string', { length: 255 }), field('Phone', 'phone', { length: 40 })],
+            0,
+          ),
+          wizardObject(
+            'Contact',
+            [
+              field('LastName', 'string', { length: 80 }),
+              field('Email', 'email', { length: 80 }),
+              field('AccountId', 'reference', { referenceTo: ['Account'], length: 18 }),
+            ],
+            1,
+          ),
+          wizardObject(
+            'Opportunity',
+            [
+              field('Name', 'string', { length: 120 }),
+              field('CloseDate', 'date'),
+              field('StageName', 'picklist', { picklistValues: ['Prospecting'], length: 255 }),
+            ],
+            2,
+          ),
+        ],
+      };
+    }
+
+    /**
+     * An org that describes the fields above, answers each insert, refusing
+     * every record of the objects `refused` names, and keeps what it was sent.
+     */
+    function fakeOrg(refused: readonly string[] = []) {
+      const sent: Array<{ objectApiName: string; records: Record<string, unknown>[] }> = [];
+      let ids = 0;
+      const conn = {
+        describe: vi.fn(async (objectApiName: string) => ({
+          fields: (ORG_FIELDS[objectApiName] ?? []).map((name) => ({ name, createable: true })),
+        })),
+        sobject: vi.fn((objectApiName: string) => ({
+          create: vi.fn(async (records: Record<string, unknown>[]) => {
+            sent.push({ objectApiName, records });
+            return records.map(() =>
+              refused.includes(objectApiName)
+                ? { success: false, errors: [{ message: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY' }] }
+                : {
+                    success: true,
+                    id: `${objectApiName.slice(0, 3)}${String(++ids).padStart(12, '0')}`,
+                  },
+            );
+          }),
+        })),
+      };
+      return { conn, sent };
+    }
+
+    /**
+     * Send `template` as the wizard does and return what the run answered. With
+     * `partitioned`, the settings switch the partitioned path on for any size.
+     */
+    async function run(
+      template: Record<string, unknown>,
+      conn: unknown,
+      partitioned = false,
+    ): Promise<SeedExecutionResult | undefined> {
+      const settings: Record<string, unknown> = partitioned
+        ? { 'grappe.enabled': true, 'grappe.autoActivateThreshold': 1 }
+        : {};
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn((key: string, fallback: unknown) =>
+          key in settings ? settings[key] : fallback,
+        ),
+        seedOrchestrator: (seedDeps: SeedOrchestratorDependencies) =>
+          new SeedOrchestrator(seedDeps),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue(conn as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'wizard-run',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template },
+        }),
+      );
+
+      const response = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map((c) => c[0] as BaseMessage & { payload?: unknown })
+        .find((m) => m.type === 'seed:execute:response');
+      return response?.payload as SeedExecutionResult | undefined;
+    }
+
+    it('writes each of three objects nobody configured with the rules its describe gave', async () => {
+      const org = fakeOrg();
+
+      const result = await run(threeObjectTemplate(), org.conn);
+
+      expect(result?.status).toBe('success');
+      expect(org.sent.map((call) => call.objectApiName)).toEqual([
+        'Account',
+        'Contact',
+        'Opportunity',
+      ]);
+      const [accounts, contacts, opportunities] = org.sent.map((call) => call.records);
+      expect(accounts.every((r) => typeof r['Name'] === 'string' && r['Name'] !== '')).toBe(true);
+      const accountIds = result?.objectResults[0].createdIds ?? [];
+      expect(contacts.every((r) => accountIds.includes(String(r['AccountId'])))).toBe(true);
+      expect(opportunities.every((r) => r['StageName'] === 'Prospecting')).toBe(true);
+    });
+
+    it('refuses the same run sent with no rule, as the wizard sent it when it skipped Configure', async () => {
+      // The control of the test above: what the wizard used to send.
+      const template = threeObjectTemplate();
+      for (const object of template.objects as Array<Record<string, unknown>>) {
+        object.fieldRules = [];
+      }
+      const org = fakeOrg();
+
+      const result = await run(template, org.conn);
+
+      expect(org.sent).toEqual([]);
+      expect(result?.status).toBe('failure');
+      expect(result?.objectResults[0].errors[0]).toContain('names no field to fill');
+    });
+
+    it('writes no child of an object the org refused, on the partitioned path the settings switch on', async () => {
+      const org = fakeOrg(['Account']);
+
+      const result = await run(threeObjectTemplate(), org.conn, true);
+
+      expect(org.sent.map((call) => call.objectApiName)).toEqual(['Account', 'Opportunity']);
+      const contact = result?.objectResults.find((r) => r.objectApiName === 'Contact');
+      expect(contact?.errors).toEqual([
+        'Skipped: Account wrote no records, so there is nothing for Contact to point at.',
+      ]);
+    });
+
+    it('leaves out a field the org does not have, on the partitioned path too', async () => {
+      const template = threeObjectTemplate();
+      const [account] = template.objects as Array<{ fieldRules: unknown[] }>;
+      account.fieldRules.push({
+        fieldApiName: 'AnnualRevenue',
+        fieldType: 'currency',
+        ...describedFieldRule(field('AnnualRevenue', 'currency')),
+      });
+      const org = fakeOrg();
+
+      const result = await run(template, org.conn, true);
+
+      const accounts = org.sent.find((call) => call.objectApiName === 'Account')?.records ?? [];
+      expect(accounts).toHaveLength(2);
+      expect(accounts.some((r) => 'AnnualRevenue' in r)).toBe(false);
+      expect(result?.objectResults[0].errors).toEqual([
+        'Written without AnnualRevenue: this org does not have that field.',
       ]);
     });
   });

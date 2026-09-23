@@ -312,6 +312,62 @@ describe('useSeedExecution', () => {
     expect(rulesOf('Node__c')).toEqual(['Root__c']);
   });
 
+  it('leaves out the optional lookup that would make two objects of the run wait on each other', () => {
+    // A sandbox whose accounts carry a custom lookup to a contact refused every
+    // run holding Account and Contact: "Circular dependency detected".
+    const lookup = (fieldApiName: string, object: string) => ({
+      fieldApiName,
+      label: fieldApiName,
+      type: 'reference',
+      required: false,
+      ruleType: 'reference' as const,
+      config: { referenceObject: object, referenceField: 'Id' },
+    });
+    const configs: ObjectFieldConfig[] = [
+      {
+        objectApiName: 'Account',
+        objectLabel: 'Account',
+        fields: [
+          {
+            fieldApiName: 'Name',
+            label: 'Account Name',
+            type: 'string',
+            required: true,
+            ruleType: 'faker',
+            config: { fakerMethod: 'name' },
+          },
+          lookup('Key_Contact__c', 'Contact'),
+        ],
+      },
+      {
+        objectApiName: 'Contact',
+        objectLabel: 'Contact',
+        fields: [lookup('AccountId', 'Account')],
+      },
+    ];
+    const { result } = renderHook(() =>
+      useSeedExecution(
+        'org-1',
+        ['Account', 'Contact'],
+        {},
+        configs,
+        ((key: string) => key) as unknown as TFunction,
+      ),
+    );
+
+    act(() => {
+      result.current.handleExecute();
+    });
+
+    const payload = bridge.mutate.mock.calls[0][0] as { template: SeedTemplate };
+    const rulesOf = (name: string) =>
+      payload.template.objects
+        .find((o) => o.objectApiName === name)
+        ?.fieldRules.map((r) => r.fieldApiName);
+    expect(rulesOf('Account')).toEqual(['Name']);
+    expect(rulesOf('Contact')).toEqual(['AccountId']);
+  });
+
   describe('relations', () => {
     const CONTACT_CONFIGS: ObjectFieldConfig[] = [
       {

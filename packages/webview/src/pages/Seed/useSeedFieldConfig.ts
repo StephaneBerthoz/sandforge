@@ -28,6 +28,12 @@ export interface SeedFieldConfigState {
   ) => void;
   /** Apply a persona's data patterns to field configs. Returns matched field count. */
   applyPersona: (persona: PersonaMsg) => number;
+  /** Whether every selected object has been described; the run waits for it. */
+  fieldsReady: boolean;
+  /** Why the last describe failed, while an object still waits for one; null otherwise. */
+  fieldsError: string | null;
+  /** Ask again for the objects not described yet. */
+  retryFieldDescribes: () => void;
   /** PII scan results per object. */
   piiResults: PIIObjectResult[];
   /** Whether any object has PII warnings. */
@@ -69,6 +75,9 @@ export function useSeedFieldConfig(
       handleChangeFieldRule: fieldRules.handleChangeFieldRule,
       handleChangeFieldConfig: fieldRules.handleChangeFieldConfig,
       applyPersona: fieldRules.applyPersona,
+      fieldsReady: fieldRules.fieldsReady,
+      fieldsError: fieldRules.fieldsError,
+      retryFieldDescribes: fieldRules.retryFieldDescribes,
       piiResults: piiScan.piiResults,
       hasPiiWarnings: piiScan.hasPiiWarnings,
       piiLoading: piiScan.piiLoading,
@@ -82,6 +91,9 @@ export function useSeedFieldConfig(
       fieldRules.handleChangeFieldRule,
       fieldRules.handleChangeFieldConfig,
       fieldRules.applyPersona,
+      fieldRules.fieldsReady,
+      fieldRules.fieldsError,
+      fieldRules.retryFieldDescribes,
       piiScan.piiResults,
       piiScan.hasPiiWarnings,
       piiScan.piiLoading,

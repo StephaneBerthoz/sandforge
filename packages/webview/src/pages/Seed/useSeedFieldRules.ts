@@ -75,6 +75,8 @@ interface DescribedField {
   picklistValues: string[];
   referenceTo: string[];
   length: number;
+  /** Digits a number field holds before its decimal point; the default number stays within them. */
+  integerDigits?: number;
 }
 
 /** Return type for the useSeedFieldRules hook. */
@@ -103,6 +105,16 @@ export interface SeedFieldRulesState {
    * @returns The number of fields that were matched and configured
    */
   applyPersona: (persona: PersonaMsg) => number;
+  /**
+   * Whether every selected object has been described, so that each one goes
+   * to the run with its rules. The run waits for it: an object sent before its
+   * describe arrived carries no rule, and the run refuses it.
+   */
+  fieldsReady: boolean;
+  /** Why the last describe failed, while an object still waits for one; null otherwise. */
+  fieldsError: string | null;
+  /** Ask again for the objects not described yet, after a describe failed. */
+  retryFieldDescribes: () => void;
 }
 
 /**
@@ -171,10 +183,14 @@ export function useSeedFieldRules(
   }, [describeFieldsMutation.data]);
 
   const describeFieldsMutate = describeFieldsMutation.mutate;
+  /** Bumped by a retry, so the describes below are asked for again. */
+  const [describeAttempt, setDescribeAttempt] = useState(0);
 
-  /* Fetch field details when entering configure step */
+  /* Fetch field details on any step past the selection. Below five objects
+     the wizard skips the configure step, and describing only there sent those
+     runs with no rule at all: the run refused every one of them. */
   useEffect(() => {
-    if (currentStep === 1 && selectedOrgId && selectedObjects.length > 0) {
+    if (currentStep >= 1 && selectedOrgId && selectedObjects.length > 0) {
       const missing = selectedObjects.filter(
         (o) => !fieldConfigs.some((c) => c.objectApiName === o),
       );
@@ -184,7 +200,17 @@ export function useSeedFieldRules(
         }
       }
     }
-  }, [currentStep, selectedOrgId, selectedObjects, fieldConfigs, describeFieldsMutate]);
+  }, [
+    currentStep,
+    selectedOrgId,
+    selectedObjects,
+    fieldConfigs,
+    describeFieldsMutate,
+    describeAttempt,
+  ]);
+
+  const retryFieldDescribes = useCallback(() => setDescribeAttempt((n) => n + 1), []);
+  const fieldsReady = selectedObjects.every((o) => fieldConfigs.some((c) => c.objectApiName === o));
 
   const handleChangeFieldRule = useCallback(
     (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => {
@@ -246,5 +272,8 @@ export function useSeedFieldRules(
     handleChangeFieldRule,
     handleChangeFieldConfig,
     applyPersona,
+    fieldsReady,
+    fieldsError: fieldsReady ? null : describeFieldsMutation.error,
+    retryFieldDescribes,
   };
 }
