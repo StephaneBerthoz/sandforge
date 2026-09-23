@@ -418,109 +418,115 @@ describe('org:connect with the device flow', () => {
   });
 });
 
-describe('org:connect with the device flow, through the real SfdxBridge', () => {
-  /** Every `sf` start through execFile: its argv and what was written to its stdin. */
-  let sfRuns: Array<{ argv: string[]; stdin: string }>;
+// These read the argv sf receives from a POSIX spawn. On Windows the command
+// goes through cmd.exe instead, quoted, and a path holding a quote is refused
+// there: the Windows suite checks that path with the platform stubbed.
+describe.skipIf(process.platform === 'win32')(
+  'org:connect with the device flow, through the real SfdxBridge',
+  () => {
+    /** Every `sf` start through execFile: its argv and what was written to its stdin. */
+    let sfRuns: Array<{ argv: string[]; stdin: string }>;
 
-  beforeEach(() => {
-    sfRuns = [];
-    // isCliAvailable and `sf org list` go through promisify(exec).
-    vi.mocked(exec).mockImplementation(((
-      command: string,
-      _options: unknown,
-      callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
-    ) => {
-      const stdout =
-        command === 'sf org list --json'
-          ? JSON.stringify({
+    beforeEach(() => {
+      sfRuns = [];
+      // isCliAvailable and `sf org list` go through promisify(exec).
+      vi.mocked(exec).mockImplementation(((
+        command: string,
+        _options: unknown,
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        const stdout =
+          command === 'sf org list --json'
+            ? JSON.stringify({
+                status: 0,
+                result: {
+                  nonScratchOrgs: [
+                    {
+                      orgId: '00D000000000001AAA',
+                      username: 'jane@example.com',
+                      alias: 'uat',
+                      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+                      connectedStatus: 'Connected',
+                      isSandbox: true,
+                    },
+                  ],
+                },
+              })
+            : '@salesforce/cli/2.150.6';
+        callback(null, { stdout, stderr: '' });
+        return {};
+      }) as never);
+      // The hand-off goes through execFile, its URL on stdin.
+      vi.mocked(execFile).mockImplementation(((
+        file: string,
+        args: string[],
+        _options: unknown,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        const run = { argv: [file, ...args], stdin: '' };
+        sfRuns.push(run);
+        setImmediate(() =>
+          callback(
+            null,
+            JSON.stringify({
               status: 0,
               result: {
-                nonScratchOrgs: [
-                  {
-                    orgId: '00D000000000001AAA',
-                    username: 'jane@example.com',
-                    alias: 'uat',
-                    instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
-                    connectedStatus: 'Connected',
-                    isSandbox: true,
-                  },
-                ],
+                username: 'jane@example.com',
+                orgId: '00D000000000001AAA',
+                instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
               },
-            })
-          : '@salesforce/cli/2.150.6';
-      callback(null, { stdout, stderr: '' });
-      return {};
-    }) as never);
-    // The hand-off goes through execFile, its URL on stdin.
-    vi.mocked(execFile).mockImplementation(((
-      file: string,
-      args: string[],
-      _options: unknown,
-      callback: (error: Error | null, stdout: string, stderr: string) => void,
-    ) => {
-      const run = { argv: [file, ...args], stdin: '' };
-      sfRuns.push(run);
-      setImmediate(() =>
-        callback(
-          null,
-          JSON.stringify({
-            status: 0,
-            result: {
-              username: 'jane@example.com',
-              orgId: '00D000000000001AAA',
-              instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+            }),
+            '',
+          ),
+        );
+        return {
+          pid: 1,
+          stdin: {
+            once: vi.fn(),
+            end: (data?: string) => {
+              run.stdin += data ?? '';
             },
-          }),
-          '',
-        ),
-      );
-      return {
-        pid: 1,
-        stdin: {
-          once: vi.fn(),
-          end: (data?: string) => {
-            run.stdin += data ?? '';
           },
-        },
-      };
-    }) as never);
-  });
-
-  it('gives the refresh token to sf on its stdin and to nothing else, then saves the org', async () => {
-    const deps = { ...createDeps(), sfdxBridge: new SfdxBridge() };
-    const endpoint = tokenEndpoint([{ status: 200, body: CODE_ANSWER }, APPROVED]);
-    const handler = new OrgHandler(deps, {
-      browser: browserThat(true).browser,
-      deviceLogin: endpoint.login,
+        };
+      }) as never);
     });
 
-    const signIn = handler.handle(deviceConnect());
-    await endpoint.asleep;
-    endpoint.wake();
-    await signIn;
+    it('gives the refresh token to sf on its stdin and to nothing else, then saves the org', async () => {
+      const deps = { ...createDeps(), sfdxBridge: new SfdxBridge() };
+      const endpoint = tokenEndpoint([{ status: 200, body: CODE_ANSWER }, APPROVED]);
+      const handler = new OrgHandler(deps, {
+        browser: browserThat(true).browser,
+        deviceLogin: endpoint.login,
+      });
 
-    expect(sfRuns).toEqual([
-      {
-        argv: ['sf', 'org', 'login', 'sfdx-url', '--alias', 'uat', '--json', '--sfdx-url-stdin'],
-        stdin: `force://${CLIENT_ID}::${REFRESH_SENTINEL}@acme--uat.sandbox.my.salesforce.com\n`,
-      },
-    ]);
-    const elsewhere = JSON.stringify([
-      sfRuns.map((run) => run.argv),
-      vi.mocked(exec).mock.calls.map((call) => call[0]),
-      (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls,
-      (deps.log as ReturnType<typeof vi.fn>).mock.calls,
-      (deps.orgRegistry.saveOrg as ReturnType<typeof vi.fn>).mock.calls,
-    ]);
-    expect(elsewhere).not.toContain(REFRESH_SENTINEL);
-    expect(elsewhere).not.toContain(ACCESS_SENTINEL);
+      const signIn = handler.handle(deviceConnect());
+      await endpoint.asleep;
+      endpoint.wake();
+      await signIn;
 
-    expect(deps.orgRegistry.saveOrg).toHaveBeenCalledWith(
-      expect.objectContaining({ id: '00D000000000001AAA', username: 'jane@example.com' }),
-      expect.any(Object),
-    );
-    expect(posted(deps).find((m) => m.type === 'org:statusChanged')?.correlationId).toBe(
-      'req-device',
-    );
-  });
-});
+      expect(sfRuns).toEqual([
+        {
+          argv: ['sf', 'org', 'login', 'sfdx-url', '--alias', 'uat', '--json', '--sfdx-url-stdin'],
+          stdin: `force://${CLIENT_ID}::${REFRESH_SENTINEL}@acme--uat.sandbox.my.salesforce.com\n`,
+        },
+      ]);
+      const elsewhere = JSON.stringify([
+        sfRuns.map((run) => run.argv),
+        vi.mocked(exec).mock.calls.map((call) => call[0]),
+        (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls,
+        (deps.log as ReturnType<typeof vi.fn>).mock.calls,
+        (deps.orgRegistry.saveOrg as ReturnType<typeof vi.fn>).mock.calls,
+      ]);
+      expect(elsewhere).not.toContain(REFRESH_SENTINEL);
+      expect(elsewhere).not.toContain(ACCESS_SENTINEL);
+
+      expect(deps.orgRegistry.saveOrg).toHaveBeenCalledWith(
+        expect.objectContaining({ id: '00D000000000001AAA', username: 'jane@example.com' }),
+        expect.any(Object),
+      );
+      expect(posted(deps).find((m) => m.type === 'org:statusChanged')?.correlationId).toBe(
+        'req-device',
+      );
+    });
+  },
+);

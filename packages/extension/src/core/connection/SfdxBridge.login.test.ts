@@ -93,7 +93,10 @@ const SIGNED_IN = {
   instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
 };
 
-describe('SfdxBridge.loginJwt', () => {
+// These read the argv sf receives from a POSIX spawn. On Windows the command
+// goes through cmd.exe instead, quoted, and a path holding a quote is refused
+// there: the Windows suite checks that path with the platform stubbed.
+describe.skipIf(process.platform === 'win32')('SfdxBridge.loginJwt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -276,7 +279,10 @@ describe('SfdxBridge.loginJwt on Windows', () => {
   });
 });
 
-describe('SfdxBridge.loginWithRefreshToken', () => {
+// These read the argv sf receives from a POSIX spawn. On Windows the command
+// goes through cmd.exe instead, quoted, and a path holding a quote is refused
+// there: the Windows suite checks that path with the platform stubbed.
+describe.skipIf(process.platform === 'win32')('SfdxBridge.loginWithRefreshToken', () => {
   const REFRESH_TOKEN = '5Aep861.FAKE_refresh-token-sentinel';
 
   beforeEach(() => {

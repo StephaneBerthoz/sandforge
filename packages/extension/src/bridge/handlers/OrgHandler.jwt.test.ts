@@ -197,7 +197,10 @@ function watchFileOpens(): { paths: () => string[]; stop: () => void } {
   };
 }
 
-describe('org:connect with JWT', () => {
+// These read the argv sf receives from a POSIX spawn. On Windows the command
+// goes through cmd.exe instead, quoted, and a path holding a quote is refused
+// there: the Windows suite checks that path with the platform stubbed.
+describe.skipIf(process.platform === 'win32')('org:connect with JWT', () => {
   let deps: HandlerDeps;
   let keyDir: string;
   let keyFile: string;

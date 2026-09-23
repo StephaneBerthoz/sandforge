@@ -1,9 +1,13 @@
+import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeTemplate } from '@sandforge/shared';
 import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+
+/** Where the store keeps its file, built as it builds it: a Windows path on Windows. */
+const TEMPLATES_FILE = path.join('/ws', '.sandforge', 'forge-templates.json');
 
 /**
  * Forge recipes must be portable.
@@ -152,7 +156,7 @@ describe('forge template portability', () => {
     // must not reach a form that would run it, nor be lost on the next save.
     const { files, store } = createFakeFs();
     const handEdited = { id: 'broken', name: 'no config at all' };
-    files.set('/ws/.sandforge/forge-templates.json', JSON.stringify([template('ok'), handEdited]));
+    files.set(TEMPLATES_FILE, JSON.stringify([template('ok'), handEdited]));
     const handler = new ForgeHandler(deps);
     withStore(handler, store);
 
@@ -164,7 +168,7 @@ describe('forge template portability', () => {
 
     await handler.handle(msg('forge:templates:save', { template: template('new') }));
     const ids = (
-      JSON.parse(files.get('/ws/.sandforge/forge-templates.json') as string) as Array<{
+      JSON.parse(files.get(TEMPLATES_FILE) as string) as Array<{
         id: string;
       }>
     ).map((t) => t.id);
