@@ -399,7 +399,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   log(`sandforge-seed  -> ${args.target}`);
-  const conn = makeConn(loadOrg(args.target));
+  const conn = makeConn(await loadOrg(args.target));
 
   const now = new Date().toISOString();
   let template = prebuiltTemplate(args.templateId);

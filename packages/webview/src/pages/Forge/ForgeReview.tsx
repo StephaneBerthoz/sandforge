@@ -45,21 +45,25 @@ export const ForgeReview: React.FC = () => {
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   const anonymizePII = config?.anonymizePII ?? false;
   const setPlan = useForgeStore((s) => s.setPlan);
+  const fillPersonalFields = useForgeStore((s) => s.fillPersonalFields);
   const [planError, setPlanError] = useState<string | null>(null);
 
   // useForgeForm sends forge:plan:request and ForgeHandler answers it, but
   // nothing consumed the reply: `plan` stayed null and the Plan tab showed
   // "Generating execution plan…" for the rest of the session. Its own comment
   // claimed "the wizard's Review tab listens for forge:plan:response" — this is
-  // that listener.
+  // that listener. A starter template's graph comes back with the personal
+  // fields its objects hold: built without discovery, it named none, and the
+  // Anonymization tab counted zero with the toggle on.
   useMessageListener<ForgePlanResponse>(
     'forge:plan:response',
     useCallback(
       (msg) => {
         setPlan(msg.payload.plan);
+        if (msg.payload.graph) fillPersonalFields(msg.payload.graph);
         setPlanError(null);
       },
-      [setPlan],
+      [setPlan, fillPersonalFields],
     ),
   );
 

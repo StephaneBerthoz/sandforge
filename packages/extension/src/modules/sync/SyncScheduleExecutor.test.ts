@@ -650,4 +650,58 @@ describe('SyncScheduleExecutor', () => {
       expect(deps.scheduleStore.loadAll).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('a schedule saved before the search for its next run was bounded', () => {
+    /** `0 0 31 2,4 *` as 1.35 saved it: the unbounded search answered 2054. */
+    const saved = (): SyncScheduleEntry =>
+      createScheduleEntry({ cron: '0 0 31 2,4 *', nextRunAt: '2054-02-07T00:00:00.000Z' });
+
+    /** A window opening on the schedules the store holds. */
+    function open(stored: SyncScheduleEntry[]): SyncScheduleExecutor {
+      deps = createMockDeps();
+      vi.mocked(deps.scheduleStore.loadAll).mockReturnValue(stored);
+      const opened = new SyncScheduleExecutor(deps);
+      opened.start();
+      opened.stop();
+      return opened;
+    }
+
+    it('has its next run computed again when it is loaded, and saved', () => {
+      const opened = open([saved()]);
+
+      expect(opened.getSchedule('sched-1')?.nextRunAt).toBe('');
+      expect(deps.scheduleStore.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'sched-1', nextRunAt: '' }),
+      );
+    });
+
+    it('is corrected once: the next window loads the corrected schedule as it is', () => {
+      const [corrected] = open([saved()]).getSchedules();
+
+      open([corrected]);
+
+      expect(deps.scheduleStore.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps a next run in the past, a start missed while no window was open', () => {
+      const missed = createScheduleEntry({ nextRunAt: '2026-03-23T09:00:00.000Z' });
+
+      const opened = open([missed]);
+
+      expect(opened.getSchedule('sched-1')?.nextRunAt).toBe('2026-03-23T09:00:00.000Z');
+      expect(deps.scheduleStore.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps a yearly schedule’s next run, however far into the year', () => {
+      const yearly = createScheduleEntry({
+        cron: '0 0 1 3 *',
+        nextRunAt: '2027-03-01T00:00:00.000Z',
+      });
+
+      const opened = open([yearly]);
+
+      expect(opened.getSchedule('sched-1')?.nextRunAt).toBe('2027-03-01T00:00:00.000Z');
+      expect(deps.scheduleStore.save).not.toHaveBeenCalled();
+    });
+  });
 });

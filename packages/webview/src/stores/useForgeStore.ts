@@ -156,6 +156,12 @@ export interface ForgeState {
     objectName: string,
     counts: { recordCount?: number; fieldCount?: number; createableFieldCount?: number },
   ) => void;
+  /**
+   * Take the personal fields the extension read for the nodes that named
+   * none — a starter template's — and their selection, leaving every other
+   * node, and everything else set on these, as it is.
+   */
+  fillPersonalFields: (described: ForgeGraph) => void;
   /** Toggle whether a node is included in execution. */
   toggleNodeIncluded: (objectName: string) => void;
   /**
@@ -288,6 +294,27 @@ export const useForgeStore = create<ForgeState>((set) => ({
           nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
             n.objectApiName === objectName ? { ...n, ...given } : n,
           ),
+        },
+      };
+    });
+  },
+
+  fillPersonalFields(described: ForgeGraph): void {
+    set((state) => {
+      if (!state.graph) return state;
+      const read = new Map(described.nodes.map((n: ForgeGraphNode) => [n.objectApiName, n]));
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) => {
+            const found = read.get(n.objectApiName);
+            if (!found || n.piiFields.length > 0 || found.piiFields.length === 0) return n;
+            return {
+              ...n,
+              piiFields: [...found.piiFields],
+              anonymizeFields: [...found.anonymizeFields],
+            };
+          }),
         },
       };
     });

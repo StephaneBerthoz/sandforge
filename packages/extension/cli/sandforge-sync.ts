@@ -248,8 +248,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`sandforge-sync  ${args.source} -> ${args.target}`);
   log(`objects: ${args.objects.map((o) => o.objectApiName).join(', ')}`);
 
-  const sourceConn = makeConn(loadOrg(args.source));
-  const targetConn = makeConn(loadOrg(args.target));
+  const sourceConn = makeConn(await loadOrg(args.source));
+  const targetConn = makeConn(await loadOrg(args.target));
   const config = buildConfig(args);
 
   // One describe of the target per object, kept for the run.

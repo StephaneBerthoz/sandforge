@@ -556,6 +556,8 @@ interface ExecutionState {
   readonly existingRecords: ExistingRecordReport[];
   /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
+  /** Per object no node knows the fields of, the personal fields the detector named. */
+  readonly detectedPersonalFields: Map<string, string[]>;
   successCount: number;
   linkedCount: number;
   failedCount: number;
@@ -634,9 +636,10 @@ export class ForgeExecutor {
 
   /**
    * Anonymize rows of `objectApiName` as the run asks: the fields selected on
-   * the object's node, each with the method of its category. Rows of an
-   * object with nothing selected, or of a run that anonymizes nothing, are
-   * returned as they are.
+   * the object's node, each with the method of its category — or, for an
+   * object no node knows the fields of, the fields the run's detector names
+   * in `fieldInfos`. Rows of an object with nothing selected, or of a run
+   * that anonymizes nothing, are returned as they are.
    *
    * @param sourceIds - The source id of each row, index-aligned with `rows`.
    * @param fieldInfos - The object's source fields, for their types.
@@ -652,8 +655,11 @@ export class ForgeExecutor {
     rename: Record<string, string>,
   ): Record<string, unknown>[] {
     const anonymization = state.config.anonymization;
-    const selected = anonymization?.fields[objectApiName] ?? [];
-    if (!state.anonymize || !anonymization || selected.length === 0) return rows;
+    if (!state.anonymize || !anonymization) return rows;
+    const selected =
+      anonymization.fields[objectApiName] ??
+      this.detectedPersonalFields(state, anonymization, objectApiName, fieldInfos);
+    if (selected.length === 0) return rows;
     const typeOf = new Map(fieldInfos.map((f) => [f.name, f.type ?? '']));
     return state.anonymize({
       objectApiName,
@@ -665,6 +671,27 @@ export class ForgeExecutor {
       })),
       methods: anonymization.methods,
     });
+  }
+
+  /**
+   * The personal fields the run's detector names on an object no node knows
+   * the fields of, named once per object and run: an orphan parent's fields
+   * are asked for each parent fetched.
+   */
+  private detectedPersonalFields(
+    state: ExecutionState,
+    anonymization: ForgeRunAnonymization,
+    objectApiName: string,
+    fieldInfos: FieldInfo[],
+  ): string[] {
+    const known = state.detectedPersonalFields.get(objectApiName);
+    if (known) return known;
+    const named =
+      anonymization.personalFieldsOf?.(
+        fieldInfos.map((f) => ({ name: f.name, type: f.type ?? '' })),
+      ) ?? [];
+    state.detectedPersonalFields.set(objectApiName, named);
+    return named;
   }
 
   /**
@@ -724,6 +751,7 @@ export class ForgeExecutor {
       standardPricebookId: null,
       existingRecords: [],
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
+      detectedPersonalFields: new Map<string, string[]>(),
       successCount: 0,
       linkedCount: 0,
       failedCount: 0,

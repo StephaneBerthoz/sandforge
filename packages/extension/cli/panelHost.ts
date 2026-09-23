@@ -286,7 +286,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
     posted,
 
     async connect(alias: string): Promise<SalesforceOrg> {
-      const session = loadOrg(alias);
+      const session = await loadOrg(alias);
       // The query OrgHandler types a connection from.
       const identity = await authProvider.validateConnection(
         session.accessToken,

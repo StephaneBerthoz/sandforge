@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GraphDiscoveryService } from './GraphDiscoveryService.js';
 import type { GraphDiscoveryDeps, ObjectDescribe } from './GraphDiscoveryService.js';
 import type { ForgeConfig } from '@sandforge/shared';
+import { buildSyntheticForgeGraph } from '@sandforge/shared';
 
 function createMockDeps(): GraphDiscoveryDeps {
   return {
@@ -421,6 +422,81 @@ describe('GraphDiscoveryService', () => {
       const graph = await service.discover(config);
 
       expect(graph.nodes[0].anonymizeFields).toEqual([]);
+    });
+  });
+
+  describe('readPersonalFields', () => {
+    /** The graph a starter template builds: no node was ever described. */
+    const starterGraph = buildSyntheticForgeGraph(['Account', 'Contact']);
+
+    beforeEach(() => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectApiName) =>
+        objectApiName === 'Contact' ? makeContactDescribe() : makeAccountDescribe(),
+      );
+      vi.mocked(deps.detectPII).mockImplementation((fields) =>
+        fields.filter((f) => f.type === 'email').map((f) => f.name),
+      );
+    });
+
+    it('names the personal fields of a starter template’s nodes and selects them to anonymize', async () => {
+      const graph = await service.readPersonalFields(
+        starterGraph,
+        createConfig({ anonymizePII: true }),
+      );
+
+      const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
+      expect(contact?.piiFields).toEqual(['Email']);
+      expect(contact?.anonymizeFields).toEqual(['Email']);
+      // Not measured: the card keeps saying so rather than "0 records".
+      expect(contact?.fieldCount).toBe(0);
+      expect(contact?.recordCount).toBe(0);
+      expect(deps.describeObject).toHaveBeenCalledWith('src-org', 'Contact', undefined);
+      expect(deps.queryCount).not.toHaveBeenCalled();
+    });
+
+    it('selects nothing to anonymize when the run does not anonymize', async () => {
+      const graph = await service.readPersonalFields(
+        starterGraph,
+        createConfig({ anonymizePII: false }),
+      );
+
+      const contact = graph.nodes.find((n) => n.objectApiName === 'Contact');
+      expect(contact?.piiFields).toEqual(['Email']);
+      expect(contact?.anonymizeFields).toEqual([]);
+    });
+
+    it('reads nothing for a graph discovery built, and hands it back as it came', async () => {
+      vi.mocked(deps.detectPII).mockReturnValue(['Email']);
+      const discovered = await service.discover(createConfig({ anonymizePII: true }));
+      vi.mocked(deps.describeObject).mockClear();
+
+      const graph = await service.readPersonalFields(discovered, createConfig());
+
+      expect(graph).toBe(discovered);
+      expect(deps.describeObject).not.toHaveBeenCalled();
+    });
+
+    it('keeps a node whose describe fails as it was, and reads the others', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectApiName) => {
+        if (objectApiName === 'Account') throw new Error('INVALID_SESSION_ID');
+        return makeContactDescribe();
+      });
+
+      const graph = await service.readPersonalFields(
+        starterGraph,
+        createConfig({ anonymizePII: true }),
+      );
+
+      expect(graph.nodes.find((n) => n.objectApiName === 'Account')).toEqual(starterGraph.nodes[0]);
+      expect(graph.nodes.find((n) => n.objectApiName === 'Contact')?.piiFields).toEqual(['Email']);
+    });
+
+    it('hands the graph back as it came when no object holds a personal field', async () => {
+      vi.mocked(deps.detectPII).mockReturnValue([]);
+
+      const graph = await service.readPersonalFields(starterGraph, createConfig());
+
+      expect(graph).toBe(starterGraph);
     });
   });
 

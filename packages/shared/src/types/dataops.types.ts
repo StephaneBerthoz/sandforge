@@ -78,6 +78,12 @@ export interface AnonymizationRuleConfig {
   maskChar?: string;
   maskStart?: number;
   maskEnd?: number;
+  /**
+   * How many characters at the end of the value a `mask` rule leaves, where
+   * no `maskEnd` says where the mask stops: a phone number's last four. A
+   * value no longer than that is masked whole.
+   */
+  maskKeepLast?: number;
   hashAlgorithm?: 'sha256' | 'md5';
   hashSalt?: string;
   fakerMethod?: string;

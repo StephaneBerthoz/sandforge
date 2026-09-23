@@ -69,6 +69,7 @@ function createMockDeps(): ForgeOrchestratorDeps {
   return {
     discoveryService: {
       discover: vi.fn().mockResolvedValue(createMockGraph()),
+      personalFields: vi.fn().mockReturnValue([]),
     } as unknown as ForgeOrchestratorDeps['discoveryService'],
     executor: {
       execute: vi.fn().mockResolvedValue(createMockSummary()),
@@ -186,11 +187,26 @@ describe('ForgeOrchestrator', () => {
       });
 
       const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
-      const expected = { fields: { Account: ['Phone'] }, methods: { phone: 'redact' } };
+      const expected = {
+        fields: { Account: ['Phone'] },
+        methods: { phone: 'redact' },
+        personalFieldsOf: expect.any(Function),
+      };
       expect(optionsPassed[0]?.anonymization).toEqual(expected);
       expect(optionsPassed[1]?.anonymization).toEqual(expected);
       // The toggle off: nothing, whatever the node selects.
       expect(optionsPassed[2]?.anonymization).toBeUndefined();
+    });
+
+    it('names the personal fields of an object with no node as discovery would', async () => {
+      vi.mocked(deps.discoveryService.personalFields).mockReturnValue(['Phone']);
+
+      await orchestrator.execute(createMockGraph(), createMockConfig({ anonymizePII: true }));
+
+      const anonymization = vi.mocked(deps.executor.execute).mock.calls[0][4]?.anonymization;
+      const fields = [{ name: 'Phone', type: 'phone' }];
+      expect(anonymization?.personalFieldsOf?.(fields)).toEqual(['Phone']);
+      expect(deps.discoveryService.personalFields).toHaveBeenCalledWith(fields);
     });
 
     it('should carry the source -> target Id map into the result', async () => {

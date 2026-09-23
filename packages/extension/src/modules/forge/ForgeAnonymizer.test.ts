@@ -30,6 +30,12 @@ describe('ForgeAnonymizer', () => {
       expect(anonymizer.categorizeField('Name', 'string')).toBe('name');
     });
 
+    it('puts every field the detector calls a name in the name category', () => {
+      expect(anonymizer.categorizeField('MiddleName', 'string')).toBe('name');
+      expect(anonymizer.categorizeField('Last_Name__c', 'string')).toBe('name');
+      expect(anonymizer.categorizeField('SuppliedName', 'string')).toBe('name');
+    });
+
     it('should categorize address fields', () => {
       expect(anonymizer.categorizeField('MailingStreet', 'string')).toBe('address');
       expect(anonymizer.categorizeField('BillingCity', 'string')).toBe('address');
@@ -322,14 +328,30 @@ describe('ForgeAnonymizer', () => {
 
     it('takes the fields selected on each node, copied or not, and the methods sent', () => {
       // A node left out of the copy can still have a required parent fetched.
+      // A node with nothing selected says so: the user deselected its fields.
       expect(runAnonymization(true, graph, { email: 'hash' })).toEqual({
-        fields: { Contact: ['Email'], Lead: ['Email'] },
+        fields: { Contact: ['Email'], Lead: ['Email'], Account: [] },
         methods: { email: 'hash' },
       });
     });
 
     it('anonymizes nothing with the toggle off, whatever the nodes select', () => {
       expect(runAnonymization(false, graph, { email: 'hash' })).toBeUndefined();
+    });
+
+    it('leaves a node never described to what the detector names at the write', () => {
+      // A starter template's graph: no field of any object is known yet.
+      const personalFieldsOf = (fields: Array<{ name: string; type: string }>): string[] =>
+        fields.filter((f) => f.type === 'email').map((f) => f.name);
+      const starter: ForgeGraph = {
+        ...graph,
+        nodes: [node('Contact', { fieldCount: 0 }), node('Account', {})],
+      };
+
+      const run = runAnonymization(true, starter, {}, personalFieldsOf);
+
+      expect(run?.fields).toEqual({ Account: [] });
+      expect(run?.personalFieldsOf).toBe(personalFieldsOf);
     });
   });
 });

@@ -158,8 +158,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   log(`sandforge-autopilot  ${args.source} -> ${args.target}`);
   log(`objects: ${args.objects.join(', ')}`);
 
-  const sourceConn = makeConn(loadOrg(args.source));
-  const targetConn = makeConn(loadOrg(args.target));
+  const sourceConn = makeConn(await loadOrg(args.source));
+  const targetConn = makeConn(await loadOrg(args.target));
   /** Ids of the records this run created, per object. */
   const created = new Map<string, string[]>();
 

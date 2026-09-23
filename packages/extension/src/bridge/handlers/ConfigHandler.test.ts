@@ -54,7 +54,7 @@ describe('ConfigHandler', () => {
   });
 
   it('handles config:export', async () => {
-    store.set('sync:mapping-1', { source: 'Account' }, 'syncMappings');
+    store.set('sync:config:map-1', { source: 'Account' }, 'syncConfigs');
 
     const msg: InboundRequest & { payload: { categories: string[] } } = inboundRequest({
       id: '1',
@@ -80,7 +80,7 @@ describe('ConfigHandler', () => {
       exportedAt: new Date().toISOString(),
       categories: ['syncMappings'],
       data: {
-        syncMappings: { 'sync:mapping-1': { source: 'Account' } },
+        syncMappings: { 'sync:config:map-1': { source: 'Account' } },
       },
     };
 

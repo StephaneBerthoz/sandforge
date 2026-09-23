@@ -117,13 +117,18 @@ function fileNameOf(key: string): string {
  * window's memory, logged: the window still keeps its own runs apart, and
  * triggers keep firing.
  *
- * @param dir - The directory the claims live in; created when missing.
+ * @param dir - The directory the claims live in, named after its caller,
+ *   which the log lines name; created when missing.
  */
 export function fileTriggerClaims(dir: string, deps: FileTriggerClaimsDeps = {}): TriggerClaims {
   const pid = deps.pid ?? process.pid;
   const isAlive = deps.isAlive ?? processIsAlive;
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? (() => undefined);
+  // Named after the directory, which each caller names after itself: the
+  // pipeline triggers and the sync schedules keep their claims apart. Every
+  // line used to say `[pipeline-triggers]`, the sync schedules' included.
+  const tag = `[${path.basename(dir)}]`;
   const claimsDir = path.join(dir, 'claims');
   const runningDir = path.join(dir, 'running');
   const fallback = memoryTriggerClaims();
@@ -173,7 +178,7 @@ export function fileTriggerClaims(dir: string, deps: FileTriggerClaimsDeps = {})
         return true;
       } catch (err: unknown) {
         if (alreadyThere(err)) return false;
-        log(`[pipeline-triggers] claims kept in memory: ${(err as Error).message}`);
+        log(`${tag} claims kept in memory: ${(err as Error).message}`);
         return fallback.claim(key);
       }
     },
@@ -202,7 +207,7 @@ export function fileTriggerClaims(dir: string, deps: FileTriggerClaimsDeps = {})
           };
         } catch (err: unknown) {
           if (!alreadyThere(err)) {
-            log(`[pipeline-triggers] run markers kept in memory: ${(err as Error).message}`);
+            log(`${tag} run markers kept in memory: ${(err as Error).message}`);
             const kept = fallback.hold(pipelineId, holder);
             if ('busy' in kept) return kept;
             held.set(pipelineId, holder);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PIIDetector } from './PIIDetector';
+import { PIIDetector, isPersonNameField } from './PIIDetector';
 import type { FieldDescribe } from './PIIDetector';
 
 function field(
@@ -113,6 +113,98 @@ describe('PIIDetector', () => {
 
       expect(result.piiFields).toHaveLength(2);
       expect(result.piiFields.every((f) => f.classification === 'PHI')).toBe(true);
+    });
+  });
+
+  describe('detectPII — a person’s name', () => {
+    it('flags the first, middle and last names of a contact as personal data', () => {
+      const detector = new PIIDetector();
+      const result = detector.detectPII('Contact', [
+        field('FirstName', 'First Name'),
+        field('MiddleName', 'Middle Name'),
+        field('LastName', 'Last Name'),
+      ]);
+
+      expect(result.piiFields.map((f) => f.fieldApiName)).toEqual([
+        'FirstName',
+        'MiddleName',
+        'LastName',
+      ]);
+      expect(
+        result.piiFields.every(
+          (f) =>
+            f.classification === 'PII' &&
+            f.detectionMethod === 'name_pattern' &&
+            f.pattern === 'person_name',
+        ),
+      ).toBe(true);
+    });
+
+    it('flags names from the API name alone, as Forge passes it for the label', () => {
+      const detector = new PIIDetector();
+      const result = detector.detectPII('Lead', [
+        field('FirstName', 'FirstName'),
+        field('LastName', 'LastName'),
+        field('FirstNameLocal', 'FirstNameLocal'),
+        field('SuppliedName', 'SuppliedName'),
+      ]);
+
+      expect(result.piiFields.map((f) => f.fieldApiName)).toEqual([
+        'FirstName',
+        'LastName',
+        'FirstNameLocal',
+        'SuppliedName',
+      ]);
+    });
+
+    it('flags custom name fields, by API name or by label', () => {
+      const detector = new PIIDetector();
+      const result = detector.detectPII('Applicant__c', [
+        field('Last_Name__c', 'Nom'),
+        field('Contact_First_Name__c', 'Prénom'),
+        field('Field7__c', 'Surname'),
+        field('Field8__c', 'Maiden Name', 'textarea'),
+      ]);
+
+      expect(result.piiFields.map((f) => f.fieldApiName)).toEqual([
+        'Last_Name__c',
+        'Contact_First_Name__c',
+        'Field7__c',
+        'Field8__c',
+      ]);
+    });
+
+    it('leaves the record’s own name, a lookup and the composed full name alone', () => {
+      const detector = new PIIDetector();
+      const result = detector.detectPII('Contact', [
+        field('Name', 'Full Name'),
+        field('AccountId', 'Account Name', 'reference'),
+        field('ReportsToId', 'Reports To', 'reference'),
+        field('Product_Family_Name__c', 'Product Family Name'),
+        field('ClassName__c', 'Class Name'),
+      ]);
+
+      expect(result.piiFields).toEqual([]);
+    });
+
+    it('leaves a field named like a name whose type cannot hold one', () => {
+      const detector = new PIIDetector();
+      const result = detector.detectPII('Contact', [
+        field('Last_Name_Changed__c', 'Last Name Changed', 'boolean'),
+        field('First_Name_Source__c', 'First Name Source', 'picklist'),
+      ]);
+
+      expect(result.piiFields).toEqual([]);
+    });
+  });
+
+  describe('isPersonNameField', () => {
+    it('reads an API name as the detector does', () => {
+      expect(isPersonNameField('FirstName')).toBe(true);
+      expect(isPersonNameField('Last_Name__c')).toBe(true);
+      expect(isPersonNameField('SuppliedName')).toBe(true);
+      expect(isPersonNameField('Name')).toBe(false);
+      expect(isPersonNameField('AccountName__c')).toBe(false);
     });
   });
 

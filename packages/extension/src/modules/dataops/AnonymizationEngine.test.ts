@@ -31,6 +31,22 @@ describe('AnonymizationEngine', () => {
       expect(result[0]['Name']).toBe('Alice');
     });
 
+    it('leaves the last characters a mask rule keeps, and masks a value no longer than those whole', () => {
+      const keepLastFour: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Phone',
+        method: 'mask',
+        config: { maskKeepLast: 4 },
+      };
+
+      const result = engine.anonymize(
+        [{ Phone: '(555) 010-4477' }, { Phone: '4477' }, { Phone: '12' }],
+        [keepLastFour],
+      );
+
+      expect(result.map((r) => r['Phone'])).toEqual(['**********4477', '****', '**']);
+    });
+
     it('should not mutate original records', () => {
       const records = [{ Email: 'test@example.com' }];
       const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];

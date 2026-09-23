@@ -36,6 +36,8 @@ export const ANONYMIZATION_TEMPLATES = [
         fieldPattern: 'Contact.Phone',
         ruleType: 'mask',
         description: 'Mask phone number (keep last 4 digits).',
+        // Without it the mask ran to the end of the value, and no digit was kept.
+        config: { maskKeepLast: 4 },
       },
       {
         fieldPattern: 'Contact.MailingStreet',

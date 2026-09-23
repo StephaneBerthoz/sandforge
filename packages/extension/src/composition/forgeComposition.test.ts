@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Connection } from 'jsforce';
 import type { ForgeConfig } from '@sandforge/shared';
+import { buildSyntheticForgeGraph } from '@sandforge/shared';
 
 vi.mock('vscode', () => ({ workspace: { workspaceFolders: undefined } }));
 vi.mock('../logger.js', () => ({
@@ -13,6 +14,7 @@ import { initForgeComposition } from './forgeComposition.js';
 import type { ForgeCompositionDeps } from './forgeComposition.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
 import type { ForgeServices } from '../bridge/handlers/ForgeHandler.js';
+import { PIIDetector } from '../core/precheck/PIIDetector.js';
 
 /** A field as jsforce's describe returns it, reduced to what Forge reads. */
 function field(name: string, type: string, referenceTo: string[] = []) {
@@ -106,7 +108,7 @@ function fakeConnection(orgId: string) {
 /** The PII scan discovery runs, reduced to the part the composition reads. */
 type DetectPII = (
   objectName: string,
-  fields: Array<{ apiName: string; type: string }>,
+  fields: Array<{ apiName: string; label: string; type: string }>,
 ) => { piiFields: Array<{ fieldApiName: string }> };
 
 /** Wire the composition and hand back what it injects into the handlers. */
@@ -425,6 +427,70 @@ describe('initForgeComposition', () => {
         'person2@source.test',
       ]);
       expect(contacts.map((c) => c['Phone'])).not.toContain('01020300');
+    });
+
+    describe('with the detector the extension runs', () => {
+      const detector = new PIIDetector();
+      const detectPII: DetectPII = (objectName, fields) => detector.detectPII(objectName, fields);
+      const config: ForgeConfig = { ...SOQL_CONFIG, anonymizePII: true };
+
+      /** The contacts the run wrote: both of those the source holds. */
+      function writtenContacts(
+        created: Map<string, Array<Record<string, unknown>>>,
+      ): Array<Record<string, unknown>> {
+        const contacts = created.get('Contact') ?? [];
+        expect(contacts).toHaveLength(2);
+        return contacts;
+      }
+
+      it('writes a contact’s name anonymized, not as the source holds it', async () => {
+        const created = new Map<string, Array<Record<string, unknown>>>();
+        contactsWithPersonalData(created);
+        const { orchestrator } = await compose(detectPII);
+
+        const graph = await orchestrator.discover(config);
+        expect(graph.nodes.find((n) => n.objectApiName === 'Contact')?.anonymizeFields).toEqual([
+          'LastName',
+          'Email',
+          'Phone',
+        ]);
+        await orchestrator.execute(graph, config);
+
+        for (const contact of writtenContacts(created)) {
+          expect(contact['LastName']).toEqual(expect.any(String));
+          expect(contact['LastName']).not.toMatch(/^Contact \d$/);
+        }
+      });
+
+      it('names the personal fields of a starter template’s graph for Review', async () => {
+        contactsWithPersonalData(new Map());
+        const { orchestrator } = await compose(detectPII);
+
+        const graph = await orchestrator.readPersonalFields(
+          buildSyntheticForgeGraph(['Account', 'Contact']),
+          config,
+        );
+
+        expect(graph.nodes.find((n) => n.objectApiName === 'Contact')?.anonymizeFields).toEqual([
+          'LastName',
+          'Email',
+          'Phone',
+        ]);
+      });
+
+      it('anonymizes a starter template’s contacts though its graph names no personal field', async () => {
+        const created = new Map<string, Array<Record<string, unknown>>>();
+        contactsWithPersonalData(created);
+        const { orchestrator } = await compose(detectPII);
+
+        await orchestrator.execute(buildSyntheticForgeGraph(['Account', 'Contact']), config);
+
+        for (const contact of writtenContacts(created)) {
+          expect(String(contact['Email'])).toMatch(/@example\.com$/);
+          expect(contact['LastName']).not.toMatch(/^Contact \d$/);
+          expect(contact['Phone']).not.toMatch(/^0102030\d$/);
+        }
+      });
     });
 
     it('writes every field as the source holds it with the toggle off', async () => {

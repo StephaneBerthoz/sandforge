@@ -32,6 +32,7 @@ const HOLDS: Array<[RegExp, string]> = [
   [/credit_card|iban|bank_account/, 'dataops.inventory.holds.financial'],
   [/passport|driver/, 'dataops.inventory.holds.document'],
   [/medical|diagnos|health|patient/, 'dataops.inventory.holds.health'],
+  [/person_name/, 'dataops.inventory.holds.name'],
 ];
 
 /** What a field holds, as the detector's pattern says. */

@@ -22,7 +22,6 @@ import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryServic
 import type {
   GraphDiscoveryDeps,
   ObjectDescribe,
-  FieldDescribe as GraphFieldDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
@@ -132,7 +131,7 @@ function buildDeps(
       const result = await conn.query(soql);
       return result.totalSize;
     },
-    detectPII: (fields: GraphFieldDescribe[]) => {
+    detectPII: (fields) => {
       const adaptedFields = fields.map((f) => ({
         apiName: f.name,
         label: f.name,

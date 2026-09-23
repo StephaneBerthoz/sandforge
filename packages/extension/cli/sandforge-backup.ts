@@ -160,7 +160,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   mkdirSync(args.storeDir, { recursive: true });
-  const org = loadOrg(args.org);
+  const org = await loadOrg(args.org);
   const configStore = fileConfigStore(join(args.storeDir, 'snapshots.json'));
 
   if (args.list) {

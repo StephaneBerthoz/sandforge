@@ -130,4 +130,18 @@ describe('the claims the windows of a machine share', () => {
     expect(claims.hold('p1', BY_SCHEDULE)).toEqual({ busy: BY_HAND });
     expect(logged.some((line) => line.includes('kept in memory'))).toBe(true);
   });
+
+  it('name the caller whose claims fell back to memory', () => {
+    // The sync schedules keep theirs in a directory of their own.
+    const blocked = join(dir, 'sync-schedules');
+    writeFileSync(blocked, '');
+    const logged: string[] = [];
+    const claims = fileTriggerClaims(blocked, { pid: 101, log: (line) => logged.push(line) });
+
+    claims.claim('sync-schedule:s1:1000');
+    claims.hold('s1', BY_SCHEDULE);
+
+    expect(logged).toHaveLength(2);
+    expect(logged.every((line) => line.startsWith('[sync-schedules] '))).toBe(true);
+  });
 });

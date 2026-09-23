@@ -212,7 +212,15 @@ export interface ForgeHistoryListResponse extends BaseMessage {
 /** `forge:plan:response`. Extension -> WebView. Wave-based execution plan. */
 export interface ForgePlanResponse extends BaseMessage {
   type: 'forge:plan:response';
-  payload: { plan: ForgePlan };
+  payload: {
+    plan: ForgePlan;
+    /**
+     * The graph with the personal fields of the nodes that named none read
+     * from the source org — a starter template's, built without discovery.
+     * Absent when there was nothing to read or nothing was found.
+     */
+    graph?: ForgeGraph;
+  };
 }
 
 /** `forge:plan:error`. Extension -> WebView (emitted via sendHandlerError). */

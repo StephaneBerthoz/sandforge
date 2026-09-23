@@ -398,6 +398,14 @@ describe('DataOps masking with the templates that ship', () => {
     expect(elsewhere.size).toBe(4);
   });
 
+  it('masks all of a contact’s phone but its last four digits, as the GDPR template says', async () => {
+    await apply('tpl-gdpr-standard');
+
+    expect(org.records.Contact.map((c) => c.Phone)).toEqual(['**********4477', null]);
+    // The rules that say nothing of the kind mask the whole number.
+    expect(org.records.Lead[0].Phone).toBe('**************');
+  });
+
   it('keeps the first three characters of a postal code, as the HIPAA template says', async () => {
     await apply('tpl-hipaa-health');
 

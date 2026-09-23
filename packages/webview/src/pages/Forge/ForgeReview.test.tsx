@@ -13,6 +13,7 @@ const mockToggleNodeIncluded = vi.fn();
 const mockSendBridgeMessage = vi.fn();
 const mockSetExecutionRequestId = vi.fn();
 const mockSetPlan = vi.fn();
+const mockFillPersonalFields = vi.fn();
 const mockSetMetadataDiffs = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
@@ -99,6 +100,7 @@ vi.mock('../../stores/useForgeStore', () => {
     resetNodeStatuses: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
+    fillPersonalFields: (...args: unknown[]) => mockFillPersonalFields(...args),
     setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
     setAnonymizationRule: vi.fn(),
     updateNodeBatchStrategy: vi.fn(),
@@ -129,6 +131,7 @@ describe('ForgeReview', () => {
     mockToggleNodeIncluded.mockClear();
     mockSendBridgeMessage.mockClear();
     mockSetPlan.mockClear();
+    mockFillPersonalFields.mockClear();
     mockSetMetadataDiffs.mockClear();
     mockGraph = defaultGraph;
     mockConfig = { ...defaultConfig };
@@ -231,6 +234,20 @@ describe('ForgeReview', () => {
       sendFromExtension('forge:plan:response', { plan });
 
       expect(mockSetPlan).toHaveBeenCalledWith(plan);
+      expect(mockFillPersonalFields).not.toHaveBeenCalled();
+    });
+
+    it('takes the personal fields a starter template’s graph comes back with', () => {
+      render(<ForgeReview />);
+      const plan = { waves: [], cycleResolutions: [] };
+      const graph = {
+        ...defaultGraph,
+        nodes: [makeNode({ objectApiName: 'Contact', piiFields: ['LastName'] })],
+      };
+      sendFromExtension('forge:plan:response', { plan, graph });
+
+      expect(mockSetPlan).toHaveBeenCalledWith(plan);
+      expect(mockFillPersonalFields).toHaveBeenCalledWith(graph);
     });
 
     it('should surface forge:plan:error instead of loading forever', () => {

@@ -32,11 +32,10 @@ import { GraphDiscoveryService } from '../src/modules/forge/GraphDiscoveryServic
 import type {
   GraphDiscoveryDeps,
   ObjectDescribe,
-  FieldDescribe as GraphFieldDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
-import { runAnonymization } from '../src/modules/forge/ForgeAnonymizer.js';
+import { runAnonymization, type PIIFieldInfo } from '../src/modules/forge/ForgeAnonymizer.js';
 import type {
   ExecuteOptions,
   ExecutionSummary,
@@ -442,11 +441,16 @@ export function summaryLines(summary: ExecutionSummary): string[] {
 /**
  * What the executor is asked to do, from the command line and the graph
  * discovery built. Exported so it can be tested.
+ *
+ * @param personalFieldsOf - The personal fields of an object, as discovery
+ *   names them: what `--anonymize` covers on an orphan parent from outside
+ *   the graph.
  */
 export function executeOptions(
   args: CliArgs,
   graph: ForgeGraph,
   recordTypeMappings: RecordTypeMapping[],
+  personalFieldsOf?: (fields: PIIFieldInfo[]) => string[],
 ): ExecuteOptions {
   return {
     rootRecordId: args.record,
@@ -470,7 +474,7 @@ export function executeOptions(
     // `--anonymize` had discovery select each object's PII fields, and every
     // record was then written as the source held it. The selected fields go,
     // each with its category's default method.
-    anonymization: runAnonymization(args.anonymize, graph),
+    anonymization: runAnonymization(args.anonymize, graph, {}, personalFieldsOf),
   };
 }
 
@@ -480,8 +484,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const args = parseArgs(argv);
   console.log(`sandforge-clone  ${args.source} -> ${args.target}  record=${args.record}`);
 
-  const sourceOrg = loadOrg(args.source);
-  const targetOrg = loadOrg(args.target);
+  const sourceOrg = await loadOrg(args.source);
+  const targetOrg = await loadOrg(args.target);
   const conns = new Map<string, Connection>();
   conns.set(args.source, makeConn(sourceOrg));
   conns.set(args.target, makeConn(targetOrg));
@@ -515,7 +519,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       const r = await c.query(soql);
       return r.totalSize;
     },
-    detectPII: (fields: GraphFieldDescribe[]) => {
+    detectPII: (fields) => {
       const adapted = fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type }));
       return piiDetector.detectPII('graph-node', adapted).piiFields.map((p) => p.fieldApiName);
     },
@@ -528,7 +532,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   console.log('discovery…');
-  const graph = await new GraphDiscoveryService(discoveryDeps).discover(
+  const discovery = new GraphDiscoveryService(discoveryDeps);
+  const graph = await discovery.discover(
     config,
     args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
   );
@@ -684,7 +689,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     args.source,
     args.target,
     () => undefined,
-    executeOptions(args, graph, recordTypeMappings),
+    executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),
   );
 
   const elapsed = Date.now() - t0;

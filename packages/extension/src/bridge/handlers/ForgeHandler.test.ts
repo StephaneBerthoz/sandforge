@@ -139,6 +139,8 @@ function createMockOrchestrator(): ForgeOrchestrator {
     pause: vi.fn(),
     resume: vi.fn(),
     clearDiscoveryCache: vi.fn(),
+    // A discovered graph knows its fields: nothing to read, handed back as is.
+    readPersonalFields: vi.fn(async (graph: ForgeGraph) => graph),
   } as unknown as ForgeOrchestrator;
 }
 
@@ -1879,6 +1881,88 @@ describe('ForgeHandler', () => {
       ).payload;
       expect(startedPayload.operationId).toMatch(/^forge-plan-/);
       expect(startedPayload.description).toBe('Generating execution plan');
+    });
+
+    describe('a graph whose nodes know none of their fields', () => {
+      const plan: ForgePlan = {
+        waves: [],
+        totalRecords: 0,
+        totalApiCalls: 0,
+        estimatedDurationSeconds: 0,
+        cycleResolutions: [],
+      };
+      /** A starter template's graph: built without discovery, no field known. */
+      const starter = (): ForgeGraph => ({
+        ...createMockGraph(),
+        nodes: createMockGraph().nodes.map((n) => ({ ...n, fieldCount: 0 })),
+      });
+
+      /** The plan response the handler posted. */
+      function planResponse(): { plan: ForgePlan; graph?: ForgeGraph } {
+        const call = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.find((c) => (c[0] as BaseMessage).type === 'forge:plan:response');
+        return (call?.[0] as BaseMessage & { payload: { plan: ForgePlan; graph?: ForgeGraph } })
+          .payload;
+      }
+
+      beforeEach(() => {
+        const planGenerator = { generate: vi.fn().mockReturnValue(plan) };
+        handler.setForgeOrchestrator(orchestrator, {
+          planGenerator: planGenerator as unknown as ForgePlanGenerator,
+        });
+      });
+
+      it('sends back the graph with the personal fields read from the source org', async () => {
+        const graph = starter();
+        const described: ForgeGraph = {
+          ...graph,
+          nodes: graph.nodes.map((n) => ({
+            ...n,
+            piiFields: ['Email'],
+            anonymizeFields: ['Email'],
+          })),
+        };
+        vi.mocked(orchestrator.readPersonalFields).mockResolvedValue(described);
+
+        await handler.handle(
+          buildMsg('forge:plan:request', {
+            graph,
+            config: createMockConfig({ anonymizePII: true }),
+          }),
+        );
+
+        expect(orchestrator.readPersonalFields).toHaveBeenCalledWith(
+          graph,
+          expect.objectContaining({ sourceOrgId: 'src-org', anonymizePII: true }),
+          expect.any(AbortSignal),
+        );
+        expect(planResponse()).toEqual({ plan, graph: described });
+      });
+
+      it('sends no graph back when the read found nothing to add', async () => {
+        await handler.handle(
+          buildMsg('forge:plan:request', { graph: starter(), config: createMockConfig() }),
+        );
+
+        expect(planResponse()).toEqual({ plan });
+      });
+
+      it('plans all the same when the read fails, and sends no graph back', async () => {
+        vi.mocked(orchestrator.readPersonalFields).mockRejectedValue(
+          new Error('INVALID_SESSION_ID'),
+        );
+
+        await handler.handle(
+          buildMsg('forge:plan:request', { graph: starter(), config: createMockConfig() }),
+        );
+
+        expect(planResponse()).toEqual({ plan });
+        const errors = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter((c) => (c[0] as BaseMessage).type === 'forge:plan:error');
+        expect(errors).toHaveLength(0);
+      });
     });
 
     it('emits forge:plan:error only (no duplicate operation:failed) when planGenerator throws', async () => {

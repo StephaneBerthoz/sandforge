@@ -27,10 +27,8 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
  *     --target TARGET-DEV --since today --dry-run
  */
-import { execFileSync } from 'node:child_process';
-import jsforce from 'jsforce';
-import type { Connection } from 'jsforce';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
+import { loadOrg, makeConn } from './sfSession.js';
 
 /** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
 const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
@@ -166,49 +164,6 @@ function parseArgs(argv: string[]): CliArgs {
   };
 }
 
-interface SfOrg {
-  alias: string;
-  username: string;
-  userId: string;
-  instanceUrl: string;
-  accessToken: string;
-}
-
-function loadOrg(alias: string): SfOrg {
-  // Defense-in-depth: re-validate alias here even though main() also checks.
-  // shell:true on Windows lets cmd.exe interpret metacharacters — alias must
-  // be alphanumeric+underscore+dash+dot only.
-  if (!SF_ALIAS_RE.test(alias)) {
-    throw new Error(`Invalid SF org alias: "${alias}"`);
-  }
-  const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
-    encoding: 'utf8',
-    maxBuffer: 50 * 1024 * 1024,
-    shell: process.platform === 'win32',
-  });
-  const parsed = JSON.parse(json) as {
-    result?: { accessToken?: string; instanceUrl?: string; username?: string; userId?: string };
-  };
-  if (!parsed.result?.accessToken || !parsed.result?.instanceUrl) {
-    throw new Error(`sf org display did not return a usable session for '${alias}'.`);
-  }
-  return {
-    alias,
-    username: parsed.result.username ?? '',
-    userId: parsed.result.userId ?? '',
-    instanceUrl: parsed.result.instanceUrl,
-    accessToken: parsed.result.accessToken,
-  };
-}
-
-function makeConn(org: SfOrg): Connection {
-  return new jsforce.Connection({
-    instanceUrl: org.instanceUrl,
-    accessToken: org.accessToken,
-    version: '66.0',
-  });
-}
-
 /** Translate `--since` into a strictly-validated SOQL date literal. */
 function sinceClause(since: string): string {
   const lc = since.toLowerCase();
@@ -237,17 +192,17 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     `sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`,
   );
 
-  const org = loadOrg(args.target);
+  // The session every headless tool shares. This script used to read its own
+  // from `sf org display`, whose token CLI 2.150 prints as "[REDACTED] …":
+  // every run sent that sentence as the token.
+  const org = await loadOrg(args.target);
   const conn = makeConn(org);
   // sf CLI doesn't surface User.Id directly — query it via SOQL using the
   // authenticated username.
-  let userId = org.userId;
-  if (!userId) {
-    const userQuery = await conn.query<{ Id: string }>(
-      `SELECT Id FROM User WHERE Username = '${sanitizeSoqlValue(org.username)}' LIMIT 1`,
-    );
-    userId = userQuery.records[0]?.Id ?? '';
-  }
+  const userQuery = await conn.query<{ Id: string }>(
+    `SELECT Id FROM User WHERE Username = '${sanitizeSoqlValue(org.username)}' LIMIT 1`,
+  );
+  const userId = userQuery.records[0]?.Id ?? '';
   if (!userId) {
     console.error(`Could not resolve userId for ${org.username} on ${org.alias}.`);
     process.exit(1);

@@ -281,6 +281,80 @@ describe('useForgeStore', () => {
     expect(contactNode?.anonymizeFields).toEqual([]);
   });
 
+  describe('fillPersonalFields', () => {
+    /** A starter template's graph: no node knows its fields. */
+    const starter = (): ForgeGraph =>
+      createMockGraph([
+        createMockNode({ objectApiName: 'Account', fieldCount: 0 }),
+        createMockNode({ objectApiName: 'Contact', fieldCount: 0, level: 1 }),
+      ]);
+
+    it('takes the personal fields read for the nodes that named none, with their selection', () => {
+      getState().setGraph(starter());
+
+      getState().fillPersonalFields(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Account', fieldCount: 0 }),
+          createMockNode({
+            objectApiName: 'Contact',
+            fieldCount: 0,
+            piiFields: ['LastName', 'Email'],
+            anonymizeFields: ['LastName', 'Email'],
+          }),
+        ]),
+      );
+
+      const contact = getState().graph?.nodes.find((n) => n.objectApiName === 'Contact');
+      expect(contact?.piiFields).toEqual(['LastName', 'Email']);
+      expect(contact?.anonymizeFields).toEqual(['LastName', 'Email']);
+      expect(getState().graph?.nodes.find((n) => n.objectApiName === 'Account')?.piiFields).toEqual(
+        [],
+      );
+    });
+
+    it('keeps what the user changed on a node while the fields were read', () => {
+      getState().setGraph(starter());
+      getState().toggleNodeIncluded('Contact');
+
+      getState().fillPersonalFields(
+        createMockGraph([
+          createMockNode({
+            objectApiName: 'Contact',
+            fieldCount: 0,
+            piiFields: ['Email'],
+            anonymizeFields: ['Email'],
+          }),
+        ]),
+      );
+
+      const contact = getState().graph?.nodes.find((n) => n.objectApiName === 'Contact');
+      expect(contact?.included).toBe(false);
+      expect(contact?.piiFields).toEqual(['Email']);
+    });
+
+    it('leaves a node that already names its personal fields as it is', () => {
+      getState().setGraph(
+        createMockGraph([
+          createMockNode({ objectApiName: 'Contact', piiFields: ['Email'], anonymizeFields: [] }),
+        ]),
+      );
+
+      getState().fillPersonalFields(
+        createMockGraph([
+          createMockNode({
+            objectApiName: 'Contact',
+            piiFields: ['Email', 'Phone'],
+            anonymizeFields: ['Email', 'Phone'],
+          }),
+        ]),
+      );
+
+      const contact = getState().graph?.nodes.find((n) => n.objectApiName === 'Contact');
+      expect(contact?.piiFields).toEqual(['Email']);
+      expect(contact?.anonymizeFields).toEqual([]);
+    });
+  });
+
   it('should not modify state when toggleAnonymizeField is called with null graph', () => {
     getState().toggleAnonymizeField('Account', 'Email');
     expect(getState().graph).toBeNull();

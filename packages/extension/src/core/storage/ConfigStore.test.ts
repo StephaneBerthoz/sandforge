@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ConfigStore } from './ConfigStore';
+import type { ConfigEntry, ConfigStoreBackend } from './ConfigStoreBackend';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend';
 
 describe('ConfigStore', () => {
@@ -336,7 +337,8 @@ describe('ConfigStore', () => {
 
       store.delete('key');
 
-      expect(backend.getData()).toEqual({});
+      expect(backend.getData()['key']).toBeUndefined();
+      expect(new ConfigStore(backend).getAllKeys()).toEqual([]);
     });
 
     it('should not persist when set is called with an unchanged primitive', () => {
@@ -403,6 +405,155 @@ describe('ConfigStore', () => {
 
       expect(store2.get<string>('theme')).toBe('dark');
       expect(store2.get<string>('lang')).toBe('fr');
+    });
+
+    it('changes the object a backend hands out only through its write', () => {
+      // globalState hands out the object it keeps, not a copy.
+      const held: Record<string, ConfigEntry> = { kept: { value: '1', category: 'general' } };
+      const setData = vi.fn();
+      const store = new ConfigStore({ getData: () => held, setData });
+      store.initialize();
+
+      store.set('added', 2);
+      store.delete('kept');
+
+      expect(held).toEqual({ kept: { value: '1', category: 'general' } });
+      const [written] = setData.mock.lastCall as [Record<string, ConfigEntry>];
+      expect(written).not.toHaveProperty('kept');
+      expect(written).not.toBe(held);
+    });
+  });
+
+  describe('the echo of its own earlier write', () => {
+    /**
+     * globalState as a window's extension host sees it: VS Code sends each
+     * write back to the window that made it, and the memento takes what it is
+     * sent — the echo of one write can arrive after the next one was made.
+     */
+    class EchoingBackend implements ConfigStoreBackend {
+      private data: Record<string, ConfigEntry> = {};
+      readonly writes: Array<Record<string, ConfigEntry>> = [];
+      getData(): Record<string, ConfigEntry> {
+        return this.data;
+      }
+      setData(data: Record<string, ConfigEntry>): void {
+        this.data = JSON.parse(JSON.stringify(data)) as Record<string, ConfigEntry>;
+        this.writes.push(this.data);
+      }
+      /** The echo of write `index` arriving now. */
+      echo(index: number): void {
+        this.data = JSON.parse(JSON.stringify(this.writes[index])) as Record<string, ConfigEntry>;
+      }
+    }
+
+    it('is read as the store last wrote it, and a write built on it keeps the one in between', () => {
+      const backend = new EchoingBackend();
+      const store = new ConfigStore(backend);
+      store.initialize();
+      store.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+      store.set('schedule:sync:b', { id: 'b' }, 'syncSchedules');
+
+      backend.echo(0);
+
+      expect(store.get('schedule:sync:b')).toEqual({ id: 'b' });
+      store.set('pipeline:saved:c', { id: 'c' }, 'pipelines');
+      expect(new ConfigStore(backend).getAllKeys().sort()).toEqual([
+        'pipeline:saved:c',
+        'schedule:sync:b',
+        'seed-template:a',
+      ]);
+    });
+
+    it('does not stand for another window’s later write', () => {
+      const backend = new EchoingBackend();
+      const first = new ConfigStore(backend);
+      const second = new ConfigStore(backend);
+      first.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+      first.set('seed-template:a', { id: 'a', name: 'renamed' }, 'seedTemplates');
+
+      second.delete('seed-template:a');
+
+      expect(first.get('seed-template:a')).toBeUndefined();
+    });
+  });
+
+  describe('two windows over one globalState', () => {
+    /** Two windows open on the same globalState, each with its own store. */
+    function twoWindows(): {
+      backend: InMemoryConfigStoreBackend;
+      first: ConfigStore;
+      second: ConfigStore;
+    } {
+      const backend = new InMemoryConfigStoreBackend();
+      backend.setData({
+        'schedule:sync:old': { value: '{"id":"old"}', category: 'syncSchedules' },
+      });
+      const first = new ConfigStore(backend);
+      first.initialize();
+      const second = new ConfigStore(backend);
+      second.initialize();
+      return { backend, first, second };
+    }
+
+    it('reads a save made in the other window without a reload', () => {
+      const { first, second } = twoWindows();
+
+      first.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+
+      expect(second.get('seed-template:a')).toEqual({ id: 'a' });
+      expect(second.has('seed-template:a')).toBe(true);
+      expect(second.getByCategory('seedTemplates')).toEqual({ 'seed-template:a': { id: 'a' } });
+      expect(second.getKeysByPrefix('seed-template:')).toEqual(['seed-template:a']);
+    });
+
+    it('keeps the other window’s save when it writes one of its own', () => {
+      const { backend, first, second } = twoWindows();
+
+      first.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+      second.set('pipeline:b', { id: 'b' }, 'pipelines');
+
+      // What a window opened afterwards finds.
+      expect(new ConfigStore(backend).getAllKeys().sort()).toEqual([
+        'pipeline:b',
+        'schedule:sync:old',
+        'seed-template:a',
+      ]);
+      expect(first.get('pipeline:b')).toEqual({ id: 'b' });
+    });
+
+    it('keeps the other window’s save when it deletes or clears something else', () => {
+      const { backend, first, second } = twoWindows();
+
+      first.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+      expect(second.delete('schedule:sync:old')).toBe(true);
+      second.set('pipeline:b', { id: 'b' }, 'pipelines');
+      expect(second.clearCategory('pipelines')).toBe(1);
+
+      const later = new ConfigStore(backend);
+      expect(later.getAllKeys()).toEqual(['seed-template:a']);
+      expect(later.get('seed-template:a')).toEqual({ id: 'a' });
+    });
+
+    it('deletes an entry the other window saved after it opened', () => {
+      const { backend, first, second } = twoWindows();
+
+      first.set('seed-template:a', { id: 'a' }, 'seedTemplates');
+
+      expect(second.delete('seed-template:a')).toBe(true);
+      expect(backend.getData()['seed-template:a']).toBeUndefined();
+    });
+
+    it('keeps both windows’ lines of a list stored under one key', () => {
+      const { first, second } = twoWindows();
+      const append = (store: ConfigStore, line: string): void => {
+        store.set('audit:trail', [...(store.get<string[]>('audit:trail') ?? []), line], 'audit');
+      };
+
+      append(first, 'seed run');
+      append(second, 'sync run');
+      append(first, 'forge run');
+
+      expect(second.get('audit:trail')).toEqual(['seed run', 'sync run', 'forge run']);
     });
   });
 });

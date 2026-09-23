@@ -2332,4 +2332,95 @@ describe('DataOpsHandler — a snapshot taken for a pipeline', () => {
     ).rejects.toBeInstanceOf(StepCancelledError);
     expect(deps.configStore.set).not.toHaveBeenCalled();
   });
+
+  describe('a cancelled snapshot', () => {
+    /** The lifecycle messages the handler posted, in order. */
+    function lifecycle(
+      deps: HandlerDeps,
+    ): Array<{ type: string; payload: Record<string, unknown> }> {
+      return vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(
+          ([message]) => message as BaseMessage & { payload: Record<string, unknown> },
+        )
+        .filter((message) => message.type.startsWith('operation:'));
+    }
+
+    it('ends as aborted, not failed, when Live Operations cancels one the page took', async () => {
+      const { deps, registry } = depsWithRegistry();
+      const query = vi.fn(async () => {
+        registry.abort('page-snap');
+        return { records: [{ Id: '001' }], done: true };
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+      const handler = new DataOpsHandler(deps);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'page-snap',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account', 'Contact'] },
+        } as BaseMessage),
+      );
+
+      const ended = lifecycle(deps).filter((m) => m.type !== 'operation:started');
+      expect(ended.map((m) => m.type)).not.toContain('operation:failed');
+      expect(ended.at(-1)).toMatchObject({
+        type: 'operation:completed',
+        payload: { operationId: 'page-snap', result: { aborted: true } },
+      });
+      // The page still hears why no snapshot came back.
+      const answer = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([message]) => message as BaseMessage & { payload: { message?: string } })
+        .find((message) => message.type === 'dataops:error');
+      expect(answer?.payload.message).toContain('Backup was cancelled before it finished');
+      expect(registry.get('page-snap')?.status).toBe('aborted');
+    });
+
+    it('ends as aborted when a pipeline run stops it, in the lifecycle and in Live Operations', async () => {
+      const { deps, registry } = depsWithRegistry();
+      const stop = new AbortController();
+      const query = vi.fn(async () => {
+        stop.abort();
+        return { records: [{ Id: '001' }], done: true };
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+      const handler = new DataOpsHandler(deps);
+
+      await expect(
+        handler.backupForPipeline(
+          { operationId: 'snap-6', orgId: 'org-1', objects: ['Account', 'Contact'] },
+          stop.signal,
+        ),
+      ).rejects.toBeInstanceOf(StepCancelledError);
+
+      expect(lifecycle(deps).map((m) => m.type)).toEqual([
+        'operation:started',
+        'operation:progress',
+        'operation:completed',
+      ]);
+      expect(registry.get('snap-6')?.status).toBe('aborted');
+    });
+
+    it('is told apart from a snapshot that fails, which still ends as failed', async () => {
+      const { deps, registry } = depsWithRegistry();
+      const query = vi.fn(async () => {
+        throw new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.');
+      });
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(readOnlyConnection(query) as never);
+      const handler = new DataOpsHandler(deps);
+
+      await expect(
+        handler.backupForPipeline({ operationId: 'snap-7', orgId: 'org-1', objects: ['Account'] }),
+      ).rejects.toThrow('REQUEST_LIMIT_EXCEEDED');
+
+      expect(lifecycle(deps).at(-1)?.type).toBe('operation:failed');
+      await vi.waitFor(() => expect(registry.get('snap-7')?.status).toBe('failed'));
+    });
+  });
 });

@@ -66,7 +66,7 @@ export interface GraphDiscoveryDeps {
   /** Count records matching a SOQL query. */
   queryCount: (orgId: string, soql: string, signal?: AbortSignal) => Promise<number>;
   /** Detect PII fields from a list of field describes. */
-  detectPII: (fields: FieldDescribe[]) => string[];
+  detectPII: (fields: ReadonlyArray<Pick<FieldDescribe, 'name' | 'type'>>) => string[];
   /** Describe all objects in the org (used for record ID prefix resolution). */
   describeGlobal: (
     orgId: string,
@@ -174,6 +174,16 @@ function untilCancelled<T>(call: () => Promise<T>, signal: AbortSignal | undefin
       },
     );
   });
+}
+
+/**
+ * Whether a node says anything about its object's fields. A described object
+ * always reports fields, so a node with none and no personal field named has
+ * never been described: a node of the graph a starter template builds, which
+ * skips discovery, or one whose describe failed.
+ */
+export function knowsItsFields(node: ForgeGraphNode): boolean {
+  return node.fieldCount > 0 || node.piiFields.length > 0;
 }
 
 /** The graph a discovery cancelled before its root was resolved hands back. */
@@ -524,6 +534,72 @@ export class GraphDiscoveryService {
       estimatedSizeMB: totalRecords * MB_PER_RECORD,
       estimatedDurationSeconds: totalRecords * SECONDS_PER_RECORD,
       truncated: skippedDueToCap > 0,
+    };
+  }
+
+  /**
+   * The personal fields of an object, as discovery names them on its node.
+   *
+   * @param fields - The object's fields, by name and type.
+   */
+  personalFields(fields: ReadonlyArray<Pick<FieldDescribe, 'name' | 'type'>>): string[] {
+    return this.deps.detectPII(fields);
+  }
+
+  /**
+   * The graph with the personal fields of every node that knows none of its
+   * fields read from the object's describe, and selected for anonymization
+   * when the run anonymizes — as discovery does.
+   *
+   * A starter template builds its graph without discovery, so none of its
+   * nodes named a personal field: its "Anonymize PII" toggle, on by default,
+   * had nothing to act on, and Review said so with a count of zero. Only the
+   * describes are read, not the counts: the card keeps saying the object has
+   * not been measured. A node whose describe fails keeps what it had.
+   *
+   * @param graph - The graph Review is about to show.
+   * @param config - The source org, and whether the run anonymizes.
+   * @param signal - Stops the reads still to start.
+   * @returns The graph itself when there was nothing to read or nothing found.
+   */
+  async readPersonalFields(
+    graph: ForgeGraph,
+    config: Pick<ForgeConfig, 'sourceOrgId' | 'anonymizePII'>,
+    signal?: AbortSignal,
+  ): Promise<ForgeGraph> {
+    const unread = graph.nodes.filter((node) => !knowsItsFields(node) && node.status !== 'error');
+    const found = new Map<string, string[]>();
+    for (let i = 0; i < unread.length && !signal?.aborted; i += CONCURRENT_DESCRIBE_LIMIT) {
+      await Promise.all(
+        unread.slice(i, i + CONCURRENT_DESCRIBE_LIMIT).map(async ({ objectApiName }) => {
+          try {
+            const describe = await this.deps.describeObject(
+              config.sourceOrgId,
+              objectApiName,
+              signal,
+            );
+            const piiFields = this.deps.detectPII(describe.fields);
+            if (piiFields.length > 0) found.set(objectApiName, piiFields);
+          } catch (err: unknown) {
+            logger.warn(
+              `[forge] personal fields of ${objectApiName} not read: ${extractErrorMessage(err)}`,
+            );
+          }
+        }),
+      );
+    }
+    if (found.size === 0) return graph;
+    return {
+      ...graph,
+      nodes: graph.nodes.map((node) => {
+        const piiFields = found.get(node.objectApiName);
+        if (!piiFields) return node;
+        return {
+          ...node,
+          piiFields,
+          anonymizeFields: config.anonymizePII ? [...piiFields] : [],
+        };
+      }),
     };
   }
 

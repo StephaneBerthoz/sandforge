@@ -1352,7 +1352,8 @@
         "nationalId": "eine Ausweisnummer",
         "financial": "eine Karten- oder Kontonummer",
         "document": "ein Ausweisdokument",
-        "health": "Gesundheitsdaten"
+        "health": "Gesundheitsdaten",
+        "name": "den Namen einer Person"
       },
       "searchedFor": {
         "email": "eine E-Mail-Adresse",

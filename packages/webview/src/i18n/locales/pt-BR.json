@@ -1352,7 +1352,8 @@
         "nationalId": "um número de identidade",
         "financial": "um número de cartão ou de conta bancária",
         "document": "um documento de identidade",
-        "health": "dados de saúde"
+        "health": "dados de saúde",
+        "name": "o nome de uma pessoa"
       },
       "searchedFor": {
         "email": "um endereço de e-mail",

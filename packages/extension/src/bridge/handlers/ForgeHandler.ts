@@ -3,6 +3,7 @@ import type {
   BaseMessage,
   ForgeConfig,
   ForgeExecutionResult,
+  ForgeGraph,
   ForgeTemplate,
   ComplianceFrameworkType,
 } from '@sandforge/shared';
@@ -1195,15 +1196,23 @@ export class ForgeHandler implements DomainHandler {
     }
     const parsed = parsePayload(planRequestPayloadSchema, msg, 'forge:plan:error', this.deps);
     if (!parsed) return;
-    const { graph } = parsed;
+    const { graph, config } = parsed;
     const operationId = `forge-plan-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Generating execution plan');
     try {
       logger.info('Forge plan generation started');
+      const described = await this.readPersonalFields(graph, config);
       const plan = await new TimeoutManager(PLAN_TIMEOUT_MS).withTimeout('forge:plan', () =>
-        Promise.resolve(this.planGenerator!.generate(graph)),
+        Promise.resolve(this.planGenerator!.generate(described)),
       );
-      const response = buildResponse(this.deps, msg, 'forge:plan:response', { plan });
+      // The graph goes back only when the read named a personal field the
+      // page did not have; otherwise the page keeps the graph it holds.
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'forge:plan:response',
+        described === graph ? { plan } : { plan, graph: described },
+      );
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { waveCount: plan.waves?.length ?? 0 });
     } catch (error: unknown) {
@@ -1213,6 +1222,30 @@ export class ForgeHandler implements DomainHandler {
         code: isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
         retryable: isTimeout,
       });
+    }
+  }
+
+  /**
+   * The graph Review is to show, with the personal fields of the nodes that
+   * know none of their fields read from the source org.
+   *
+   * A starter template's graph comes without discovery, so none of its nodes
+   * named a personal field, and its "Anonymize PII" toggle had nothing to act
+   * on. A read that fails or does not answer in time leaves the graph as it
+   * came: the plan does not depend on it, and the run reads those fields
+   * again when it writes.
+   */
+  private async readPersonalFields(graph: ForgeGraph, config: ForgeConfig): Promise<ForgeGraph> {
+    const orchestrator = this.orchestrator;
+    if (!orchestrator) return graph;
+    try {
+      return await new TimeoutManager(PLAN_TIMEOUT_MS).withTimeout(
+        'forge:plan:personal-fields',
+        (signal) => orchestrator.readPersonalFields(graph, config, signal),
+      );
+    } catch (error: unknown) {
+      logger.warn(`Forge personal fields not read: ${extractErrorMessage(error)}`);
+      return graph;
     }
   }
 

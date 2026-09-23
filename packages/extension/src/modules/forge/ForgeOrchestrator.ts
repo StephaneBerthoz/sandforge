@@ -155,6 +155,19 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   }
 
   /**
+   * The graph with the personal fields of the nodes that know none of their
+   * fields read from the source org — see
+   * {@link GraphDiscoveryService.readPersonalFields}.
+   */
+  readPersonalFields(
+    graph: ForgeGraph,
+    config: Pick<ForgeConfig, 'sourceOrgId' | 'anonymizePII'>,
+    signal?: AbortSignal,
+  ): Promise<ForgeGraph> {
+    return this.deps.discoveryService.readPersonalFields(graph, config, signal);
+  }
+
+  /**
    * Generate an execution plan from a ForgeGraph.
    *
    * @param graph - The dependency graph to plan.
@@ -221,6 +234,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         config.anonymizePII,
         graph,
         runOptions?.anonymizationRules,
+        (fields) => this.deps.discoveryService.personalFields(fields),
       );
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'

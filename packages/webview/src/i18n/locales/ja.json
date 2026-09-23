@@ -1280,7 +1280,8 @@
         "nationalId": "身分番号",
         "financial": "カード番号または銀行口座番号",
         "document": "身分証明書",
-        "health": "健康に関するデータ"
+        "health": "健康に関するデータ",
+        "name": "個人の氏名"
       },
       "searchedFor": {
         "email": "メールアドレス",

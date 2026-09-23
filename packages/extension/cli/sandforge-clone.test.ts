@@ -346,9 +346,18 @@ describe('sandforge-clone anonymization', () => {
     const options = executeOptions(parseArgs(argv('--anonymize')), graph, []);
 
     expect(options.anonymization).toEqual({
-      fields: { Contact: ['Email', 'Phone'] },
+      fields: { Contact: ['Email', 'Phone'], Account: [] },
       methods: {},
     });
+  });
+
+  it('hands the run what discovery names, for the orphan parents it fetches from outside the graph', () => {
+    const personalFieldsOf = (fields: Array<{ name: string; type: string }>): string[] =>
+      fields.filter((f) => f.type === 'email').map((f) => f.name);
+
+    const options = executeOptions(parseArgs(argv('--anonymize')), graph, [], personalFieldsOf);
+
+    expect(options.anonymization?.personalFieldsOf).toBe(personalFieldsOf);
   });
 
   it('asks for no anonymization without --anonymize', () => {

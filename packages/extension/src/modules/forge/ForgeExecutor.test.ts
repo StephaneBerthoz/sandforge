@@ -1460,6 +1460,129 @@ describe('ForgeExecutor', () => {
       expect(accountInsert?.[2]).toEqual([{ Name: 'Parent', Phone: '[REDACTED]' }]);
     });
 
+    describe('an expanded parent of an object the graph has no node for', () => {
+      /** Asset with a required Account the graph does not reach. */
+      function assetWithOrphanAccount(): void {
+        vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+          if (name === 'Asset') {
+            return [
+              { name: 'Id', queryable: true, createable: false, isReference: false },
+              {
+                name: 'AccountId',
+                queryable: true,
+                createable: true,
+                isReference: true,
+                referenceTo: ['Account'],
+                nillable: false,
+              },
+            ];
+          }
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Name', queryable: true, createable: true, isReference: false, type: 'string' },
+            { name: 'Phone', queryable: true, createable: true, isReference: false, type: 'phone' },
+          ];
+        });
+        vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+          if (soql.includes('FROM Asset'))
+            return [
+              { Id: '02iOLD1', AccountId: '001AP00ORPHAN12' },
+              { Id: '02iOLD2', AccountId: '001AP00ORPHAN13' },
+            ];
+          if (soql.includes("'001AP00ORPHAN12'"))
+            return [{ Id: '001AP00ORPHAN12', Name: 'Parent', Phone: '0102030405' }];
+          if (soql.includes("'001AP00ORPHAN13'"))
+            return [{ Id: '001AP00ORPHAN13', Name: 'Other', Phone: '0607080910' }];
+          return [];
+        });
+        vi.mocked(deps.insertRecords).mockImplementation(async (_o, name, records) =>
+          records.map((_, i) => ({
+            id: name === 'Account' ? `001NEW_EXPANDED${i}` : `02iNEW${i}`,
+            success: true,
+            errors: [],
+          })),
+        );
+      }
+
+      /** What the run's detector names: the phone fields. */
+      const phones = vi.fn((fields: Array<{ name: string; type: string }>) =>
+        fields.filter((f) => f.type === 'phone').map((f) => f.name),
+      );
+
+      beforeEach(() => {
+        phones.mockClear();
+      });
+
+      it('anonymizes the fields the run’s detector names on it', async () => {
+        assetWithOrphanAccount();
+
+        await executor.execute(makeGraph([makeNode('Asset')]), 'src', 'tgt', onProgress, {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Asset',
+          expandOrphanParents: true,
+          // Asset's node was described and selects nothing; Account has none.
+          anonymization: {
+            fields: { Asset: [] },
+            methods: { phone: 'redact' },
+            personalFieldsOf: phones,
+          },
+        });
+
+        const accountInserts = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.filter((c) => c[1] === 'Account')
+          .flatMap((c) => c[2]);
+        expect(accountInserts).toEqual([
+          { Name: 'Parent', Phone: '[REDACTED]' },
+          { Name: 'Other', Phone: '[REDACTED]' },
+        ]);
+        // Named once for the object, not once per parent fetched.
+        expect(phones).toHaveBeenCalledTimes(1);
+      });
+
+      it('writes it as the source holds it when the run does not anonymize', async () => {
+        assetWithOrphanAccount();
+
+        await executor.execute(makeGraph([makeNode('Asset')]), 'src', 'tgt', onProgress, {
+          rootRecordId: ROOT_ID,
+          rootObjectApiName: 'Asset',
+          expandOrphanParents: true,
+        });
+
+        const accountInsert = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.find((c) => c[1] === 'Account');
+        expect(accountInsert?.[2]).toEqual([{ Name: 'Parent', Phone: '0102030405' }]);
+      });
+
+      it('keeps what a node says of its object over the detector, down to an empty selection', async () => {
+        assetWithOrphanAccount();
+
+        await executor.execute(
+          makeGraph([makeNode('Asset'), makeNode('Account', { included: false })]),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            rootRecordId: ROOT_ID,
+            rootObjectApiName: 'Asset',
+            expandOrphanParents: true,
+            anonymization: {
+              fields: { Asset: [], Account: [] },
+              methods: { phone: 'redact' },
+              personalFieldsOf: phones,
+            },
+          },
+        );
+
+        const accountInsert = vi
+          .mocked(deps.insertRecords)
+          .mock.calls.find((c) => c[1] === 'Account');
+        expect(accountInsert?.[2]).toEqual([{ Name: 'Parent', Phone: '0102030405' }]);
+        expect(phones).not.toHaveBeenCalled();
+      });
+    });
+
     it('respects maxOrphanParentExpansions cap', async () => {
       const graph = makeGraph([makeNode('Asset', { recordCount: 3 })]);
       vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {

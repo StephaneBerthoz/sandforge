@@ -66,14 +66,31 @@ export interface ExportResult {
  * under `pipeline:history:<runId>` (see `AutomationHandler`). The pipelines
  * category used to take every `pipeline:` key, so a profile carried the run
  * history too, and an import wrote each run back into the category the
- * saved pipelines are listed from.
+ * saved pipelines are listed from. Sync mappings and Forge plans did the
+ * same: `sync:` took the sync run history (`sync:history:all`) with the
+ * saved mappings (`sync:config:<id>`), and `forge:` the Forge run history
+ * (`forge:history`) with the saved plans (`forge:templates`).
  */
 const CATEGORY_PREFIXES: Record<ConfigCategory, string> = {
-  syncMappings: 'sync:',
-  forgePlans: 'forge:',
+  syncMappings: 'sync:config:',
+  forgePlans: 'forge:templates',
   pipelines: 'pipeline:saved:',
   anonymizationTemplates: 'anonymization:',
   settings: 'settings:',
+};
+
+/**
+ * The ConfigStore category each kind of entry is kept under, which is where
+ * the module that owns it lists it from. An import wrote every entry under
+ * the profile's name for it: a sync mapping filed under `syncMappings` was
+ * there, and missing from Sync's list, which reads `syncConfigs`.
+ */
+const STORE_CATEGORIES: Record<ConfigCategory, string> = {
+  syncMappings: 'syncConfigs',
+  forgePlans: 'forge',
+  pipelines: 'pipelines',
+  anonymizationTemplates: 'anonymizationTemplates',
+  settings: 'settings',
 };
 
 /**
@@ -183,7 +200,7 @@ export class ConfigProfileManager {
             warnings.push(`Key "${key}" already exists, skipped.`);
             continue;
           }
-          this.configStore.set(key, value, category);
+          this.configStore.set(key, value, STORE_CATEGORIES[category]);
           entriesImported++;
         }
       }

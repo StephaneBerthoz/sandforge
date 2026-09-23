@@ -399,13 +399,7 @@ export class DataOpsHandler implements DomainHandler {
       // the in-flight mutation with the real message. The webview surfaces the
       // error from dataops:error only, so the user sees it exactly once.
       sendHandlerError(this.deps, 'backup:execute', 'dataops:error', msg, outcome.error);
-      sendOperationFailed(
-        this.deps,
-        operationId,
-        extractErrorMessage(outcome.error),
-        outcome.retryable,
-        { context: outcome.context },
-      );
+      this.endBackupNotTaken(operationId, outcome);
       return;
     }
 
@@ -452,13 +446,35 @@ export class DataOpsHandler implements DomainHandler {
     );
     if ('error' in outcome) {
       const message = extractErrorMessage(outcome.error);
-      sendOperationFailed(this.deps, request.operationId, message, outcome.retryable, {
-        context: outcome.context,
-      });
+      this.endBackupNotTaken(request.operationId, outcome);
       if (outcome.cancelled) throw new StepCancelledError(message);
       throw outcome.error instanceof Error ? outcome.error : new Error(message);
     }
     return outcome;
+  }
+
+  /**
+   * End the lifecycle of a snapshot that was not taken: as failed, or, when a
+   * cancel stopped it, as a completion that says it was aborted — the way a
+   * cancelled Forge discovery ends. A cancel used to post `operation:failed`:
+   * the activity feed listed the snapshot the user had stopped as failed, and
+   * the cancel was sent off to be explained like an org's error.
+   *
+   * @param operationId - The snapshot's id.
+   * @param outcome - Why it was not taken.
+   */
+  private endBackupNotTaken(operationId: string, outcome: BackupNotTaken): void {
+    if (outcome.cancelled) {
+      sendOperationCompleted(this.deps, operationId, { aborted: true });
+      return;
+    }
+    sendOperationFailed(
+      this.deps,
+      operationId,
+      extractErrorMessage(outcome.error),
+      outcome.retryable,
+      { context: outcome.context },
+    );
   }
 
   /**
@@ -677,7 +693,12 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       backupError = err;
       this.dmlTracker.markFailed(operationId);
-      return { error: err, retryable: true, context: failure, cancelled: stop.signal.aborted };
+      const cancelled = stop.signal.aborted;
+      // Stopped through the run's signal rather than from Live Operations, the
+      // snapshot is still listed as running there, and the error it settles
+      // with below would list it as failed.
+      if (cancelled) this.deps.infraServices?.backgroundRegistry?.abort(operationId);
+      return { error: err, retryable: true, context: failure, cancelled };
     } finally {
       signal?.removeEventListener('abort', onAbort);
       settleBackup(backupError);

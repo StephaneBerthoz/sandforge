@@ -1,5 +1,5 @@
 import type { SyncScheduleEntry, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
-import { nextCronRun } from '../../core/common/cronSchedule.js';
+import { nextCronRun, SCHEDULE_HORIZON_MS } from '../../core/common/cronSchedule.js';
 import type { SyncScheduleStore } from './SyncScheduleStore.js';
 import { memoryTriggerClaims, type TriggerClaims } from '../automation/TriggerClaims.js';
 
@@ -73,8 +73,9 @@ export class SyncScheduleExecutor {
     if (this.checkInterval) return;
 
     const all = this.deps.scheduleStore.loadAll();
+    const loadedAt = this.now();
     for (const entry of all) {
-      this.schedules.set(entry.id, entry);
+      this.schedules.set(entry.id, this.withPlausibleNextRun(entry, loadedAt));
     }
 
     this.lastTickTime = this.now();
@@ -83,6 +84,35 @@ export class SyncScheduleExecutor {
     }, TICK_INTERVAL_MS);
 
     this.deps.log('[SyncScheduleExecutor] started');
+  }
+
+  /**
+   * A schedule as it was loaded, with its next run computed again when none
+   * computed now could be that far: more than a year ahead.
+   *
+   * Before 1.36.0 the search for the next run was unbounded, and an
+   * expression naming a day its months do not have (`0 0 31 2,4 *`) was
+   * given a date in 2054 it does not even match. Saved with the schedule,
+   * that date stayed its next run. Computed again, the answer is within a
+   * year or no run at all, and saved, so it is corrected once. A next run in
+   * the past is kept: it is a start missed while no window was open, and the
+   * first tick makes it.
+   *
+   * @param entry - The schedule as stored.
+   * @param now - When the schedules were loaded.
+   */
+  private withPlausibleNextRun(entry: SyncScheduleEntry, now: number): SyncScheduleEntry {
+    const stored = entry.nextRunAt ? new Date(entry.nextRunAt).getTime() : Number.NaN;
+    if (!(stored > now + SCHEDULE_HORIZON_MS)) return entry;
+    const corrected: SyncScheduleEntry = {
+      ...entry,
+      nextRunAt: this.computeNextRunAt(entry.cron, entry.timezone),
+    };
+    this.deps.scheduleStore.save(corrected);
+    this.deps.log(
+      `[SyncScheduleExecutor] ${entry.id}: next run ${entry.nextRunAt} replaced by ${corrected.nextRunAt || 'none'}`,
+    );
+    return corrected;
   }
 
   /** Stop the tick loop. */

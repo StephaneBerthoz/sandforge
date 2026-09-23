@@ -151,7 +151,7 @@ interface KnownOrg {
  * guessed it would be testing its guess.
  */
 async function registerOrg(alias: string, orgs: Map<string, KnownOrg>): Promise<string> {
-  const session = loadOrg(alias);
+  const session = await loadOrg(alias);
   const conn = makeConn(session);
   const result = await conn.query<{ Id: string; IsSandbox: boolean }>(
     'SELECT Id, IsSandbox FROM Organization LIMIT 1',

@@ -933,12 +933,14 @@ describe('AutomationHandler', () => {
       ]);
       expect(flows.notify).not.toHaveBeenCalled();
       expect(onlyHistoryEntry(deps)['status']).toBe('cancelled');
-      // The snapshot says it was stopped; the run is not reported as failing.
+      // The snapshot says it was stopped, not that it failed; nor is the run
+      // reported as failing.
+      expect(posted(deps, 'operation:failed')).toEqual([]);
       expect(
-        posted(deps, 'operation:failed').map(
-          (message) => (message.payload as { operationId: string }).operationId,
-        ),
-      ).toEqual(['snap-1']);
+        posted(deps, 'operation:completed')
+          .map((message) => message.payload as { operationId: string; result: unknown })
+          .filter((payload) => payload.operationId === 'snap-1'),
+      ).toEqual([{ operationId: 'snap-1', result: { aborted: true } }]);
     });
 
     it('runs a pipeline that carries no variables and no triggers', async () => {

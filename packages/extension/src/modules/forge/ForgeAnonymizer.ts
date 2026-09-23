@@ -7,6 +7,8 @@
 import type { ForgeAnonymizationCategory, ForgeGraph } from '@sandforge/shared';
 import type { AnonymizationMethod, AutopilotAnonymizationRule } from '@sandforge/shared';
 import { SmartAnonymizer, PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
+import { isPersonNameField } from '../../core/precheck/PIIDetector.js';
+import { knowsItsFields } from './GraphDiscoveryService.js';
 
 /** PII field info for anonymization. */
 export interface PIIFieldInfo {
@@ -23,10 +25,20 @@ export type ForgeAnonymizationMethods = Partial<
 
 /** What a run anonymizes before it writes. */
 export interface ForgeRunAnonymization {
-  /** Per object, the source fields selected for anonymization on its node. */
+  /**
+   * Per object whose node knows its fields, the source fields selected for
+   * anonymization on it — none when the user deselected them all.
+   */
   fields: Record<string, string[]>;
   /** The method Review holds for each PII category. */
   methods: ForgeAnonymizationMethods;
+  /**
+   * The personal fields of an object `fields` says nothing about, as
+   * discovery would have named them on its node: an orphan parent fetched
+   * from outside the graph, or an object whose node was never described.
+   * Absent, such an object is written as the source holds it.
+   */
+  personalFieldsOf?: (fields: PIIFieldInfo[]) => string[];
 }
 
 /** One object's rows to anonymize before they are written. */
@@ -58,23 +70,30 @@ export interface ForgeAnonymizeRequest {
  *
  * A node left out of the copy keeps its selection: a required parent of
  * that object can still be fetched and written, and what of it is personal
- * is what its node says.
+ * is what its node says. An object no node knows the fields of — an orphan
+ * parent from outside the graph, a node of a starter template's graph whose
+ * fields were never read — takes what `personalFieldsOf` names in its fields
+ * at the write: such parents used to be written as the source held them,
+ * names and emails included, whatever the toggle said.
  *
  * @param anonymizePII - The run's anonymize toggle.
  * @param graph - The graph the run executes, with each node's selection.
  * @param methods - The method per category Review holds, when it sent any.
+ * @param personalFieldsOf - The personal fields of an object, as discovery
+ *   names them on a node.
  */
 export function runAnonymization(
   anonymizePII: boolean,
   graph: ForgeGraph,
   methods: ForgeAnonymizationMethods = {},
+  personalFieldsOf?: (fields: PIIFieldInfo[]) => string[],
 ): ForgeRunAnonymization | undefined {
   if (!anonymizePII) return undefined;
   const fields: Record<string, string[]> = {};
   for (const node of graph.nodes) {
-    if (node.anonymizeFields.length > 0) fields[node.objectApiName] = [...node.anonymizeFields];
+    if (knowsItsFields(node)) fields[node.objectApiName] = [...node.anonymizeFields];
   }
-  return { fields, methods: { ...methods } };
+  return { fields, methods: { ...methods }, ...(personalFieldsOf ? { personalFieldsOf } : {}) };
 }
 
 /** What Salesforce takes as an address in an email field. */
@@ -120,7 +139,15 @@ export class ForgeAnonymizer {
     if (lowerName.includes('email')) return 'email';
     if (lowerName.includes('phone') || lowerName.includes('fax') || lowerName.includes('mobile'))
       return 'phone';
-    if (lowerName.includes('firstname') || lowerName.includes('lastname') || lowerName === 'name')
+    // Every field the detector calls a name, not only the two standard ones:
+    // `Last_Name__c` or `MiddleName` fell to `other`, whose default empties the
+    // field, and a required custom name then cost its row.
+    if (
+      lowerName.includes('firstname') ||
+      lowerName.includes('lastname') ||
+      lowerName === 'name' ||
+      isPersonNameField(fieldName)
+    )
       return 'name';
     if (
       lowerName.includes('street') ||

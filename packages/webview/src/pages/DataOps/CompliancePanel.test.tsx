@@ -173,6 +173,7 @@ describe('CompliancePanel', () => {
     const t = i18n.getFixedT('en');
     expect(holdsLabel(t, 'mobile_phone')).toBe('a phone number');
     expect(holdsLabel(t, 'iban_content')).toBe('a card or bank account number');
+    expect(holdsLabel(t, 'person_name')).toBe("a person's name");
     expect(holdsLabel(t, 'something_new')).toBe('something_new');
   });
 

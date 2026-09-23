@@ -29,6 +29,37 @@ interface NamePattern {
   classification: PIIField['classification'];
   confidence: number;
   label: string;
+  /** The field types the pattern holds for; every type when absent. */
+  types?: ReadonlySet<string>;
+}
+
+/**
+ * A person's name or a part of it, in a lowercased API name or label: first,
+ * last and middle names (`FirstName`, `Last_Name__c`, "Middle Name", the
+ * `FirstNameLocal` some locales add), a surname, and the name a web form
+ * supplied on a case. Not the record's own name — "Account Name", "Contact
+ * Name" on a lookup — nor the full name a contact composes from its parts,
+ * which nobody writes and which follows the parts.
+ */
+const PERSON_NAME =
+  /(?<![a-z])(?:(?:first|last|middle|maiden)[\s_]?name(?:local)?|surname|suppliedname)(?![a-z])/;
+
+/**
+ * The types a person's name is written in. A picklist or a checkbox whose name
+ * starts like one (`Last_Name_Changed__c`) holds no name, and a made-up name
+ * written into it would cost the row.
+ */
+const NAME_TYPES: ReadonlySet<string> = new Set(['string', 'textarea', 'encryptedstring']);
+
+/**
+ * Whether a field's API name says it holds a person's name, as the detector
+ * reads it. Exported for the anonymizers, which pick a method by what a field
+ * holds and must not take a name for something else.
+ *
+ * @param apiName - The field's API name, custom suffix included or not.
+ */
+export function isPersonNameField(apiName: string): boolean {
+  return PERSON_NAME.test(apiName.toLowerCase().replace(/__c$/i, ''));
 }
 
 interface ContentPattern {
@@ -96,8 +127,10 @@ export class PIIDetector {
   private detectByName(field: FieldDescribe, detected: Map<string, PIIField>): void {
     const nameToCheck = field.apiName.toLowerCase().replace(/__c$/i, '');
     const labelToCheck = field.label.toLowerCase();
+    const typeToCheck = field.type.toLowerCase();
 
     for (const pattern of this.namePatterns) {
+      if (pattern.types && !pattern.types.has(typeToCheck)) continue;
       if (pattern.regex.test(nameToCheck) || pattern.regex.test(labelToCheck)) {
         this.addDetection(detected, field, {
           classification: pattern.classification,
@@ -265,6 +298,15 @@ function buildNamePatterns(): NamePattern[] {
     { regex: /\bpassport\b/i, classification: 'PII', confidence: 0.95, label: 'passport' },
     { regex: /\bdriver.?licen/i, classification: 'PII', confidence: 0.95, label: 'driver_license' },
     { regex: /\baddress\b/i, classification: 'PII', confidence: 0.8, label: 'address' },
+    // Names were never flagged: with "Anonymize PII" on, Forge wrote every
+    // contact's first and last name as the source held them.
+    {
+      regex: PERSON_NAME,
+      classification: 'PII',
+      confidence: 0.85,
+      label: 'person_name',
+      types: NAME_TYPES,
+    },
   ];
 }
 

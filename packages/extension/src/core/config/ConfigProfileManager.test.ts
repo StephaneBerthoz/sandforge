@@ -3,6 +3,8 @@ import { ConfigProfileManager } from './ConfigProfileManager';
 import type { ConfigProfile } from './ConfigProfileManager';
 import { ConfigStore } from '../storage/ConfigStore.js';
 import type { ConfigStoreBackend, ConfigEntry } from '../storage/ConfigStoreBackend';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import type { SyncConfig } from '@sandforge/shared';
 
 /** In-memory backend for testing. */
 class InMemoryBackend implements ConfigStoreBackend {
@@ -13,6 +15,24 @@ class InMemoryBackend implements ConfigStoreBackend {
   setData(data: Record<string, ConfigEntry>): void {
     this.data = { ...data };
   }
+}
+
+/** A sync mapping as Sync saves it. */
+function syncConfig(id: string): SyncConfig {
+  return {
+    id,
+    name: `Mapping ${id}`,
+    description: '',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    direction: 'source_to_target',
+    mode: 'full',
+    objects: [],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
+  };
 }
 
 describe('ConfigProfileManager', () => {
@@ -27,8 +47,8 @@ describe('ConfigProfileManager', () => {
 
   describe('exportProfile', () => {
     it('exports selected categories', () => {
-      store.set('sync:mapping-1', { source: 'Account', target: 'Account' }, 'syncMappings');
-      store.set('sync:mapping-2', { source: 'Contact', target: 'Contact' }, 'syncMappings');
+      store.set('sync:config:map-1', { source: 'Account', target: 'Account' }, 'syncConfigs');
+      store.set('sync:config:map-2', { source: 'Contact', target: 'Contact' }, 'syncConfigs');
       store.set('pipeline:saved:pipe-1', { name: 'Nightly Backup' }, 'pipelines');
 
       const result = manager.exportProfile(['syncMappings', 'pipelines']);
@@ -60,6 +80,32 @@ describe('ConfigProfileManager', () => {
       });
     });
 
+    it('exports the saved sync mappings, and not the history of the syncs run', () => {
+      // Where SyncConfigStore and SyncHistoryStore keep each.
+      new SyncConfigStore(store).save(syncConfig('map-1'));
+      store.set('sync:history:all', [{ id: 'run-1', status: 'success' }], 'syncHistory');
+
+      const result = manager.exportProfile(['syncMappings']);
+
+      expect(result.entriesExported).toBe(1);
+      const parsed = JSON.parse(result.json!) as ConfigProfile;
+      expect(Object.keys(parsed.data.syncMappings as object)).toEqual(['sync:config:map-1']);
+    });
+
+    it('exports the saved Forge plans, and not the history of the clones run', () => {
+      // Where ForgeHandler keeps each.
+      store.set('forge:templates', [{ id: 'tpl-1', name: 'Account 360' }], 'forge');
+      store.set('forge:history', [{ forgeId: 'forge-1', status: 'success' }], 'forge');
+
+      const result = manager.exportProfile(['forgePlans']);
+
+      expect(result.entriesExported).toBe(1);
+      const parsed = JSON.parse(result.json!) as ConfigProfile;
+      expect(parsed.data.forgePlans).toEqual({
+        'forge:templates': [{ id: 'tpl-1', name: 'Account 360' }],
+      });
+    });
+
     it('exports empty categories without error', () => {
       const result = manager.exportProfile(['settings']);
       expect(result.success).toBe(true);
@@ -81,7 +127,7 @@ describe('ConfigProfileManager', () => {
         categories: ['syncMappings'],
         data: {
           syncMappings: {
-            'sync:mapping-1': { source: 'Account', target: 'Account' },
+            'sync:config:map-1': { source: 'Account', target: 'Account' },
           },
         },
       };
@@ -91,7 +137,7 @@ describe('ConfigProfileManager', () => {
       expect(result.categoriesImported).toBe(1);
       expect(result.entriesImported).toBe(1);
 
-      const value = store.get<{ source: string }>('sync:mapping-1');
+      const value = store.get<{ source: string }>('sync:config:map-1');
       expect(value?.source).toBe('Account');
     });
 
@@ -108,7 +154,7 @@ describe('ConfigProfileManager', () => {
     });
 
     it('skips existing keys when overwrite is false', () => {
-      store.set('sync:mapping-1', { source: 'Original' }, 'syncMappings');
+      store.set('sync:config:map-1', { source: 'Original' }, 'syncConfigs');
 
       const profile: ConfigProfile = {
         version: '1.0.0',
@@ -116,7 +162,7 @@ describe('ConfigProfileManager', () => {
         categories: ['syncMappings'],
         data: {
           syncMappings: {
-            'sync:mapping-1': { source: 'Imported' },
+            'sync:config:map-1': { source: 'Imported' },
           },
         },
       };
@@ -126,12 +172,12 @@ describe('ConfigProfileManager', () => {
       expect(result.entriesImported).toBe(0);
       expect(result.warnings).toHaveLength(1);
 
-      const value = store.get<{ source: string }>('sync:mapping-1');
+      const value = store.get<{ source: string }>('sync:config:map-1');
       expect(value?.source).toBe('Original');
     });
 
     it('overwrites existing keys when overwrite is true', () => {
-      store.set('sync:mapping-1', { source: 'Original' }, 'syncMappings');
+      store.set('sync:config:map-1', { source: 'Original' }, 'syncConfigs');
 
       const profile: ConfigProfile = {
         version: '1.0.0',
@@ -139,7 +185,7 @@ describe('ConfigProfileManager', () => {
         categories: ['syncMappings'],
         data: {
           syncMappings: {
-            'sync:mapping-1': { source: 'Imported' },
+            'sync:config:map-1': { source: 'Imported' },
           },
         },
       };
@@ -148,8 +194,29 @@ describe('ConfigProfileManager', () => {
       expect(result.success).toBe(true);
       expect(result.entriesImported).toBe(1);
 
-      const value = store.get<{ source: string }>('sync:mapping-1');
+      const value = store.get<{ source: string }>('sync:config:map-1');
       expect(value?.source).toBe('Imported');
+    });
+
+    it('imports a sync mapping where Sync lists it, and not the sync history an older profile carried', () => {
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['syncMappings'],
+        data: {
+          syncMappings: {
+            'sync:config:map-1': syncConfig('map-1'),
+            'sync:history:all': [{ id: 'run-1', status: 'success' }],
+          },
+        },
+      };
+
+      const result = manager.importProfile(JSON.stringify(profile));
+
+      expect(result.entriesImported).toBe(1);
+      expect(new SyncConfigStore(store).list().map((c) => c.id)).toEqual(['map-1']);
+      expect(store.has('sync:history:all')).toBe(false);
+      expect(result.warnings).toEqual([expect.stringContaining('"sync:history:all"')]);
     });
 
     it('imports the saved pipelines a profile carries, and not the run history an older one also carried', () => {
@@ -218,8 +285,8 @@ describe('ConfigProfileManager', () => {
 
   describe('listCategories', () => {
     it('returns all categories with counts', () => {
-      store.set('sync:mapping-1', { a: 1 }, 'syncMappings');
-      store.set('sync:mapping-2', { b: 2 }, 'syncMappings');
+      store.set('sync:config:map-1', { a: 1 }, 'syncConfigs');
+      store.set('sync:config:map-2', { b: 2 }, 'syncConfigs');
       store.set('pipeline:saved:pipe-1', { c: 3 }, 'pipelines');
       store.set('pipeline:history:run-1', { d: 4 }, 'pipeline-history');
 
@@ -236,8 +303,8 @@ describe('ConfigProfileManager', () => {
 
   describe('round-trip', () => {
     it('exports and imports correctly', () => {
-      store.set('sync:mapping-1', { source: 'Account' }, 'syncMappings');
-      store.set('forge:plan-1', { name: 'Clone Accounts' }, 'forgePlans');
+      store.set('sync:config:map-1', { source: 'Account' }, 'syncConfigs');
+      store.set('forge:templates', [{ id: 'tpl-1', name: 'Clone Accounts' }], 'forge');
 
       const exportResult = manager.exportProfile(['syncMappings', 'forgePlans']);
       expect(exportResult.success).toBe(true);
@@ -251,8 +318,8 @@ describe('ConfigProfileManager', () => {
       expect(importResult.success).toBe(true);
       expect(importResult.entriesImported).toBe(2);
 
-      expect(store.get('sync:mapping-1')).toEqual({ source: 'Account' });
-      expect(store.get('forge:plan-1')).toEqual({ name: 'Clone Accounts' });
+      expect(store.get('sync:config:map-1')).toEqual({ source: 'Account' });
+      expect(store.get('forge:templates')).toEqual([{ id: 'tpl-1', name: 'Clone Accounts' }]);
     });
   });
 });

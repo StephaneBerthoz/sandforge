@@ -17,6 +17,19 @@ function truncateLengthOf(config: DataOpsAnonymizationRule['config']): number {
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
 }
 
+/**
+ * Number of characters a `mask` rule leaves at the end of a value of
+ * `length`, from `config.maskKeepLast`. A value no longer than that is masked
+ * whole: kept, it would be the value itself. Anything that is not a positive
+ * number keeps nothing.
+ */
+function keptAtEnd(config: DataOpsAnonymizationRule['config'], length: number): number {
+  const raw: unknown = config.maskKeepLast;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return 0;
+  const keep = Math.floor(raw);
+  return length > keep ? keep : 0;
+}
+
 /** A value an Email field would hold: something, an @, something, and no space. */
 const EMAIL_ADDRESS = /^[^\s@]+@[^\s@]+$/;
 
@@ -213,7 +226,7 @@ export class AnonymizationEngine {
     const str = String(value ?? '');
     const maskChar = rule.config.maskChar ?? '*';
     const start = rule.config.maskStart ?? 0;
-    const end = rule.config.maskEnd ?? str.length;
+    const end = rule.config.maskEnd ?? str.length - keptAtEnd(rule.config, str.length);
 
     const chars = str.split('');
     for (let i = start; i < Math.min(end, chars.length); i++) {
