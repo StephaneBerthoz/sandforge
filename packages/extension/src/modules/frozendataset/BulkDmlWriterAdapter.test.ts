@@ -53,6 +53,21 @@ describe('createBulkDmlWriter', () => {
     await expect(dml.delete('00D-any', 'Contact', ['003x'])).resolves.toEqual([]);
   });
 
+  it('answers a write stopped between two batches with what the batches before wrote', async () => {
+    // The loader maps each written record to its new id: answered with
+    // nothing, those records stayed in the org with no mapping to find them.
+    const written = [{ id: '003Fk00000AbCdEIAV', success: true, errors: [] }];
+    const dml = createBulkDmlWriter(
+      writerAnswering(async () => {
+        throw new WriteCancelledError('Contact', written);
+      }),
+    );
+
+    await expect(
+      dml.insert('00D-any', 'Contact', [{ LastName: 'Doe' }, { LastName: 'Roe' }]),
+    ).resolves.toBe(written);
+  });
+
   it('lets any other error through: a failure stays a failure', async () => {
     const dml = createBulkDmlWriter(
       writerAnswering(async () => {

@@ -103,6 +103,19 @@ describe('DeploymentTimeline', () => {
     errorCount: 0,
   };
 
+  it('lists a deployment whose start is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and no deployment showed.
+    mockDeploymentData = {
+      success: true,
+      deployments: [{ ...deployment, startDate: 'not a date' }],
+    };
+    render(<DeploymentTimeline />);
+
+    const list = screen.getByTestId('deployment-timeline-list');
+    expect(list.textContent).toContain('Admin User');
+    expect(list.textContent).toContain('unknown');
+  });
+
   it('says the timeline stops where the read did when older deployments were left unread', () => {
     // Run against a real sandbox, the read came back full at twenty and the
     // page showed a badge of 20 as though that were every deployment.

@@ -69,6 +69,25 @@ describe('ErrorLogsPanel', () => {
     expect(screen.getByText('VALIDATION')).toBeDefined();
   });
 
+  it('lists an error whose time is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and no error showed.
+    mockData = {
+      success: true,
+      errors: [
+        {
+          id: 'err-1',
+          errorType: 'APEX_ERROR',
+          message: 'Null pointer exception',
+          timestamp: 'not a date',
+        },
+      ],
+      errorsByType: [{ type: 'APEX_ERROR', count: 1 }],
+      totalCount: 1,
+    };
+    render(<ErrorLogsPanel />);
+    expect(screen.getByTestId('error-log-row-err-1').textContent).toContain('unknown');
+  });
+
   it('shows total count badge', () => {
     mockData = {
       success: true,

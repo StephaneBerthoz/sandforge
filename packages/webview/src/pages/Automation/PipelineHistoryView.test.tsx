@@ -175,6 +175,23 @@ describe('PipelineHistoryView', () => {
       );
     });
 
+    it('says a time the extension sent that is not a date is unknown, rather than failing', () => {
+      // Formatting it threw "Invalid time value", and the history did not render.
+      render(
+        <PipelineHistoryView
+          entries={[
+            {
+              ...missedEntry({ reason: 'closed', count: 2, lastDueAt: 'neither' }),
+              startTime: 'not a date',
+            },
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('history-missed-missed-1').textContent).toBe(
+        '2 starts due from unknown to unknown, while VS Code was closed: none was made late.',
+      );
+    });
+
     it('tells a start the computer slept through from one VS Code was closed for', () => {
       render(<PipelineHistoryView entries={[missedEntry({ reason: 'asleep', count: 1 })]} />);
       expect(screen.getByTestId('history-missed-missed-1').textContent).toContain(

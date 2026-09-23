@@ -317,4 +317,13 @@ describe('JobsTable — job times', () => {
 
     expect(screen.getByTestId('job-created-j1').textContent).toBe('il y a 5min');
   });
+
+  it('says a creation date that is not a date is unknown, in the interface language', () => {
+    // Formatting it threw "Invalid time value", and the jobs table did not render.
+    renderIn('fr', 'not a date');
+
+    const cell = screen.getByTestId('job-created-j1');
+    expect(cell.textContent).toBe('inconnue');
+    expect(cell.getAttribute('title')).toBe('inconnue');
+  });
 });

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Server } from 'lucide-react';
 import type { OrgInfo } from '@sandforge/shared';
 import { Badge } from '../../components/ui/Badge';
-import { dateTimeFormat, formatNumber } from '../../utils/formatters';
+import { dateTimeFormat, formatNumber, formatStoredDate } from '../../utils/formatters';
 
 /** Props for the MonitorOrgInfoBar section. */
 export interface MonitorOrgInfoBarProps {
@@ -109,7 +109,8 @@ export const MonitorOrgInfoBar: React.FC<MonitorOrgInfoBarProps> = React.memo(({
           {createdDate && (
             <span>
               {t('monitor.orgCreated', 'Created')}:{' '}
-              {dateTimeFormat({ dateStyle: 'medium' }).format(new Date(createdDate))}
+              {formatStoredDate(createdDate, dateTimeFormat({ dateStyle: 'medium' }).format) ??
+                t('common.dateUnknown')}
             </span>
           )}
           {orgInfo.podName && (

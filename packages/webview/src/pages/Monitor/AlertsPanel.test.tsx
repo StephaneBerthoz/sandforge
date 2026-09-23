@@ -107,6 +107,12 @@ describe('AlertsPanel', () => {
     expect(screen.getByTestId('alert-a2')).toBeDefined();
   });
 
+  it('lists an alert whose stored time is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and no alert showed.
+    render(<AlertsPanel alerts={[{ ...mockAlerts[0], triggeredAt: 'not a date' }]} />);
+    expect(screen.getByTestId('alert-a1').textContent).toContain('unknown');
+  });
+
   it('should not render resolved alerts', () => {
     render(<AlertsPanel alerts={mockAlerts} />);
     expect(screen.queryByTestId('alert-a3')).toBeNull();

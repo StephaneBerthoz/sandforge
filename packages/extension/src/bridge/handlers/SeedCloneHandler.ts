@@ -476,7 +476,8 @@ export class SeedCloneHandler implements DomainHandler {
       const globalIdMap = new Map<string, string>();
       let objectLevelFailures = 0;
       /**
-       * Whether the cancel stopped the clone before one of its objects. Only
+       * Whether the cancel stopped the clone before one of its objects, or
+       * during its write. Only
        * an upload of more than ten thousand records looked at it: every other
        * object went on being read and written after the run was cancelled.
        */
@@ -581,11 +582,14 @@ export class SeedCloneHandler implements DomainHandler {
                 )
               : await writer.insert(objectApiName, writeRecords, defaultBatchSize);
         } catch (writeErr: unknown) {
-          // The cancel aborted the object's upload before any of it was
-          // written; any other error is the clone's failure.
+          // The cancel stopped the object's write: an aborted upload wrote
+          // none of it, a REST write stopped between two batches wrote the
+          // records before, which stay in the org and are counted. Any other
+          // error is the clone's failure.
           if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
           cancelled = true;
-          break;
+          if (writeErr.written.length === 0) break;
+          outcomes = writeErr.written;
         }
 
         const objectResult: CloneObjectResult = {
@@ -624,6 +628,7 @@ export class SeedCloneHandler implements DomainHandler {
         });
         objectResults.push(objectResult);
         written.records += sourceRecords.length;
+        if (cancelled) break;
       }
 
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);

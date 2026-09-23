@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Payload returned by monitor:alerts:result. */
 interface AlertsPayload {
@@ -148,11 +148,11 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
                   <div className="flex items-center gap-2">
                     <Badge variant={severityVariant[alert.severity]}>{alert.severity}</Badge>
                     <span className="text-xs text-text-secondary">
-                      {dateTimeFormat({
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                      }).format(new Date(alert.triggeredAt))}
+                      {formatStoredDate(
+                        alert.triggeredAt,
+                        dateTimeFormat({ hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                          .format,
+                      ) ?? t('common.dateUnknown')}
                     </span>
                   </div>
                   <p className="text-xs text-text-primary mt-1">{alert.message}</p>

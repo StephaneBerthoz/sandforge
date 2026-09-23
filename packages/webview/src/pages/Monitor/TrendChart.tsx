@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { cn } from '../../theme';
-import { dateTimeFormat, uiLocale } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** Single data point for the trend chart. */
 export interface TrendDataPoint {
@@ -32,7 +32,7 @@ export interface TrendChartProps {
  * Available period options. Nothing longer than a week: trend history is kept
  * for seven days, so a 30-day view could only show that same week again.
  */
-type Period = '24h' | '7d';
+export type Period = '24h' | '7d';
 
 /** Period label i18n keys. */
 const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string; hours: number }> =
@@ -41,32 +41,32 @@ const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string;
     { key: '7d', i18nKey: 'monitor.period7d', defaultLabel: '7d', hours: 168 },
   ];
 
-/** Formats a timestamp for the x-axis using locale-aware formatting. */
-function formatXAxis(ts: number, period: Period): string {
-  const date = new Date(ts);
-  if (period === '24h') {
-    return dateTimeFormat({
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(date);
-  }
-  return dateTimeFormat({ month: '2-digit', day: '2-digit' }).format(date);
+/**
+ * Formats a timestamp for the x-axis using locale-aware formatting; null for a
+ * point whose time is not a date, which threw "Invalid time value" and left
+ * the chart blank.
+ */
+export function formatXAxis(ts: number, period: Period): string | null {
+  return formatStoredDate(
+    ts,
+    period === '24h'
+      ? dateTimeFormat({ hour: '2-digit', minute: '2-digit', hour12: false }).format
+      : dateTimeFormat({ month: '2-digit', day: '2-digit' }).format,
+  );
 }
 
 /** Custom tooltip component for the area chart. */
-const ChartTooltip: React.FC<{
+export const ChartTooltip: React.FC<{
   active?: boolean;
   payload?: Array<{ value: number }>;
   label?: number;
 }> = ({ active, payload, label }) => {
+  const { t } = useTranslation();
   if (!active || !payload || payload.length === 0 || label === undefined) return null;
 
-  const date = new Date(label);
-  const timeStr = dateTimeFormat({
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
+  const timeStr =
+    formatStoredDate(label, dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format) ??
+    t('common.dateUnknown');
 
   return (
     <div
@@ -133,7 +133,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border, #3c3c3c)" opacity={0.3} />
             <XAxis
               dataKey="timestamp"
-              tickFormatter={(ts: number) => formatXAxis(ts, period)}
+              tickFormatter={(ts: number) => formatXAxis(ts, period) ?? t('common.dateUnknown')}
               stroke="var(--sf-text-secondary)"
               fontSize={10}
               tickLine={false}

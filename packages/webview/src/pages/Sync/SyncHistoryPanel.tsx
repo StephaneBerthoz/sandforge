@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { format } from 'date-fns';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { DataTable } from '../../components/ui/DataTable';
 import type { DataTableColumn } from '../../components/ui/DataTable';
@@ -11,7 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/Icon';
 import { usePagination } from '../../hooks/usePagination';
-import { formatDuration, formatRelativeTime } from '../../utils/formatters';
+import { formatDuration, formatRelativeTime, formatStoredDate } from '../../utils/formatters';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 
@@ -62,12 +61,17 @@ export const SyncHistoryPanel: React.FC = () => {
         header: t('sync.history.dateTime'),
         width: '180px',
         // The relative phrase is written in the interface language; the tooltip
-        // keeps the exact ISO time, which reads the same in all six.
-        render: (row: HistoryRow) => (
-          <span title={format(new Date(row.startTime), 'yyyy-MM-dd HH:mm:ss')}>
-            {formatRelativeTime(new Date(row.startTime))}
-          </span>
-        ),
+        // keeps the exact ISO time, which reads the same in all six. A stored
+        // time that is not a date reads as unknown: formatting it threw, and
+        // the history listed nothing at all.
+        render: (row: HistoryRow) => {
+          const unknown = t('common.dateUnknown');
+          return (
+            <span title={formatStoredDate(row.startTime, 'yyyy-MM-dd HH:mm:ss') ?? unknown}>
+              {formatStoredDate(row.startTime, formatRelativeTime) ?? unknown}
+            </span>
+          );
+        },
       },
       {
         key: 'objects',

@@ -39,10 +39,13 @@ const STATUS_VARIANT: Record<
 function missedLine(entry: PipelineHistoryEntry, t: TFunction): string {
   const missed = entry.missed;
   if (!missed) return '';
-  const time = formatTriggerTime(entry.startTime);
+  // A time the extension sent that is not a date is said to be unknown:
+  // formatting it threw, and the history did not render.
+  const unknown = t('common.dateUnknown');
+  const time = formatTriggerTime(entry.startTime) ?? unknown;
   const n = missed.atLeast ? `${missed.count}+` : String(missed.count);
-  const last = missed.lastDueAt ? formatTriggerTime(missed.lastDueAt) : time;
-  const since = missed.busySince ? formatTriggerTime(missed.busySince) : '';
+  const last = missed.lastDueAt ? (formatTriggerTime(missed.lastDueAt) ?? unknown) : time;
+  const since = missed.busySince ? (formatTriggerTime(missed.busySince) ?? unknown) : '';
   const many = missed.count > 1;
   switch (missed.reason) {
     case 'closed':

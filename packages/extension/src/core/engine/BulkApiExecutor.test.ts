@@ -473,4 +473,91 @@ describe('BulkApiExecutor', () => {
       expect(result.outcomes.map((o) => o.created)).toEqual([true, false]);
     });
   });
+
+  describe('a cancel', () => {
+    const records = [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }];
+
+    it('aborts the job while it is still open, so Salesforce writes none of it', async () => {
+      // The job used to be closed whatever the run said: a cancel during the
+      // upload had every record of it written.
+      const stop = new AbortController();
+      const job = createMockJob();
+      job.uploadData = vi.fn(async () => stop.abort());
+      const manager = new BulkApiManager(1);
+      const deps = { ...createDeps(createMockConnection(job), manager), signal: stop.signal };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(job.abort).toHaveBeenCalledTimes(1);
+      expect(job.close).not.toHaveBeenCalled();
+      expect(job.check).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        aborted: true,
+        totalRecords: 3,
+        successCount: 0,
+        failureCount: 0,
+        successIds: [],
+        outcomes: [],
+      });
+      expect(manager.getJob('test-job-123')?.state).toBe('Aborted');
+      expect(manager.canStartNewJob()).toBe(true);
+    });
+
+    it('uploads nothing to a job the cancel came before', async () => {
+      const stop = new AbortController();
+      stop.abort();
+      const job = createMockJob();
+      const deps = { ...createDeps(createMockConnection(job)), signal: stop.signal };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(job.uploadData).not.toHaveBeenCalled();
+      expect(job.abort).toHaveBeenCalledTimes(1);
+      expect(job.close).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ aborted: true, totalRecords: 0 });
+    });
+
+    it('still writes nothing when the abort itself is refused: a job never closed is never processed', async () => {
+      const stop = new AbortController();
+      const job = createMockJob();
+      job.uploadData = vi.fn(async () => stop.abort());
+      job.abort = vi.fn().mockRejectedValue(new Error('INVALIDJOBSTATE'));
+      const manager = new BulkApiManager(1);
+      const deps = { ...createDeps(createMockConnection(job), manager), signal: stop.signal };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(job.close).not.toHaveBeenCalled();
+      expect(result.aborted).toBe(true);
+      expect(manager.canStartNewJob()).toBe(true);
+    });
+
+    it('waits for a job already closed and counts what it wrote', async () => {
+      // Closed, the job is written in full whatever happens next: it is read
+      // back like any other rather than left written and uncounted.
+      const stop = new AbortController();
+      const job = createMockJob({
+        checkResults: [
+          { state: 'InProgress', numberRecordsProcessed: 1 },
+          { state: 'JobComplete', numberRecordsProcessed: 3 },
+        ],
+      });
+      job.close = vi.fn(async () => stop.abort());
+      const deps = { ...createDeps(createMockConnection(job)), signal: stop.signal };
+
+      const promise = new BulkApiExecutor().executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(job.abort).not.toHaveBeenCalled();
+      expect(result.aborted).toBeUndefined();
+      expect(result.successCount).toBe(3);
+    });
+  });
 });

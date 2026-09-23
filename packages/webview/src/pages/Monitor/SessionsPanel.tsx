@@ -7,7 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { ListCapNote } from './ListCapNote';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Response shape from monitor:sessions. */
 interface SessionsData {
@@ -131,7 +131,8 @@ export const SessionsPanel: React.FC = () => {
               <Badge variant={sessionTypeVariant(session.sessionType)}>{session.sessionType}</Badge>
             </span>
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
-              {dateFormatter().format(new Date(session.loginTime))}
+              {formatStoredDate(session.loginTime, dateFormatter().format) ??
+                t('common.dateUnknown')}
             </span>
             <span className="text-[11px] font-mono text-text-secondary w-28 text-right">
               {session.sourceIp}

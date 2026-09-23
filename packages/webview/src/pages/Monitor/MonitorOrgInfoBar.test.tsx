@@ -70,6 +70,13 @@ describe('MonitorOrgInfoBar', () => {
     expect(panel.textContent).toContain('Created: ');
   });
 
+  it('says the creation date is unknown when the org sent one that is not a date', () => {
+    // Formatting it threw "Invalid time value", and the org bar did not render.
+    const panel = renderIn('en', { ...ORG_INFO, type: 'Production', createdDate: 'not a date' });
+
+    expect(panel.textContent).toContain('Created: unknown');
+  });
+
   it('draws no footer on a sandbox whose creation date was all it had to show', () => {
     renderIn('en', { ...ORG_INFO, namespacePrefix: undefined });
 

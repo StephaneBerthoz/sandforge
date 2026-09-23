@@ -67,6 +67,26 @@ describe('SessionsPanel', () => {
     expect(screen.getByText('2 active users')).toBeDefined();
   });
 
+  it('lists a session whose login time is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and no session showed.
+    mockData = {
+      success: true,
+      sessions: [
+        {
+          sessionId: 'session-1',
+          userId: 'user-1',
+          username: 'admin@dev.sandbox',
+          sessionType: 'UI',
+          loginTime: 'not a date',
+          sourceIp: '192.168.1.1',
+        },
+      ],
+      activeUserCount: 1,
+    };
+    render(<SessionsPanel />);
+    expect(screen.getByTestId('session-row-session-1').textContent).toContain('unknown');
+  });
+
   it('displays session type as badge', () => {
     mockData = {
       success: true,

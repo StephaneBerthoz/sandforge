@@ -285,6 +285,62 @@ describe('BulkDataWriter', () => {
       expect(outcomes.every((o) => o.errors[0] === 'UNABLE_TO_LOCK_ROW')).toBe(true);
     });
 
+    it('stops between two batches on a cancel, and says what the batches before it wrote', async () => {
+      // A large object used to be written to its last batch after the run
+      // was cancelled.
+      const h = createHarness();
+      h.sobject.create.mockImplementation(async (batch: unknown[]) => {
+        h.abort.abort();
+        return okResults(batch.length);
+      });
+
+      const writing = h.writer.insert('Account', makeRecords(5), 2);
+
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      const stopped = (await writing.catch((err: unknown) => err)) as WriteCancelledError;
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+      expect(stopped.objectApiName).toBe('Account');
+      expect(stopped.written.map((o) => o.id)).toEqual(['001000', '001001']);
+    });
+
+    it('sends the first batch of a write the cancel came before: a caller looks before it writes', async () => {
+      // A one-record write, a placeholder, is never cut down to nothing.
+      const h = createHarness();
+      h.abort.abort();
+      h.sobject.create.mockResolvedValue(okResults(1));
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+      expect(outcomes).toHaveLength(1);
+    });
+
+    it('writes every batch of a write given no cancel, as a real-time batch has to be', async () => {
+      const h = createHarness();
+      const writer = new BulkDataWriter({ ...h.deps, signal: undefined });
+      h.sobject.create.mockImplementation(async (batch: unknown[]) => okResults(batch.length));
+
+      const outcomes = await writer.insert('Account', makeRecords(5), 2);
+
+      expect(h.sobject.create).toHaveBeenCalledTimes(3);
+      expect(outcomes).toHaveLength(5);
+    });
+
+    it('stops a delete between two batches as well', async () => {
+      const h = createHarness();
+      h.sobject.destroy.mockImplementation(async (ids: string[]) => {
+        h.abort.abort();
+        return ids.map((id) => ({ success: true, id }));
+      });
+
+      const deleting = h.writer.delete('Account', ['001A', '001B', '001C'], 2);
+
+      const stopped = (await deleting.catch((err: unknown) => err)) as WriteCancelledError;
+      expect(stopped).toBeInstanceOf(WriteCancelledError);
+      expect(stopped.written.map((o) => o.id)).toEqual(['001A', '001B']);
+      expect(h.sobject.destroy).toHaveBeenCalledTimes(1);
+    });
+
     it('routes update through sobject.update and delete through sobject.destroy', async () => {
       const h = createHarness();
       h.sobject.update.mockResolvedValue(okResults(1));
@@ -445,6 +501,35 @@ describe('BulkDataWriter', () => {
       const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
 
       expect(outcomes[0].errors).toEqual(['Bulk error']);
+    });
+
+    it("hands the job the run's cancel", async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({ outcomes: [] });
+
+      await h.writer.update('Account', makeRecords(2), 200);
+
+      expect(h.executeBulk.mock.calls[0][0]).toMatchObject({ signal: h.abort.signal });
+    });
+
+    it('throws, rather than answering nothing, when the cancel aborted the job before it was closed', async () => {
+      // An empty answer read as an object that had nothing to write: a run
+      // cancelled on its last object ended as a success.
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        totalRecords: 2,
+        successCount: 0,
+        failureCount: 0,
+        failures: [],
+        successIds: [],
+        outcomes: [],
+        aborted: true,
+      });
+
+      const writing = h.writer.upsert('Contact', 'External_Id__c', makeRecords(2), 200);
+
+      await expect(writing).rejects.toBeInstanceOf(WriteCancelledError);
+      await expect(writing).rejects.toMatchObject({ objectApiName: 'Contact', written: [] });
     });
   });
 

@@ -9,7 +9,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Spinner } from '../../components/ui/Spinner';
 import { ListCapNote } from './ListCapNote';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** How SandForge came to notice a refresh of the org itself. */
 type RefreshEvidence = 'connection' | 'monitor' | 'production';
@@ -107,7 +107,8 @@ const DetectedRefreshes: React.FC<{ refreshes: DetectedRefresh[] }> = ({ refresh
             <span className="flex items-center gap-2">
               <Badge variant="warning">{t('monitor.sandboxRefresh.detected.badge')}</Badge>
               <span className="text-[11px] tabular-nums text-text-secondary">
-                {dateFormatter().format(new Date(refresh.detectedAt))}
+                {formatStoredDate(refresh.detectedAt, dateFormatter().format) ??
+                  t('common.dateUnknown')}
               </span>
             </span>
             <span className="text-[11px] text-text-secondary">
@@ -251,7 +252,8 @@ export const RefreshPanel: React.FC = () => {
               <Badge variant={statusVariant(refresh.status)}>{refresh.status}</Badge>
             </span>
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
-              {dateFormatter().format(new Date(refresh.refreshDate))}
+              {formatStoredDate(refresh.refreshDate, dateFormatter().format) ??
+                t('common.dateUnknown')}
             </span>
             {refresh.sourceOrg && (
               <span className="text-[11px] text-text-secondary truncate max-w-24">

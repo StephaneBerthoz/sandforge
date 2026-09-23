@@ -42,6 +42,15 @@ describe('BackupPanel', () => {
     expect(screen.getByTestId('backup-op-2')).toBeDefined();
   });
 
+  it('names a backup whose stored time is not a date as taken at an unknown time', () => {
+    // It read "Invalid Date" as the backup's title.
+    render(<BackupPanel backups={[{ ...backups[0], timestamp: 'not a date' }]} />);
+
+    const card = screen.getByTestId('backup-op-1');
+    expect(card.textContent).toContain('unknown');
+    expect(card.textContent).not.toContain('Invalid Date');
+  });
+
   it('should show backup status badges', () => {
     render(<BackupPanel backups={backups} />);
     expect(screen.getByText('completed')).toBeDefined();

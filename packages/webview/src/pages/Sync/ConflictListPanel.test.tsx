@@ -61,6 +61,16 @@ describe('ConflictListPanel', () => {
     expect(screen.getByTestId('data-table')).toBeDefined();
   });
 
+  it('says a conflict time that is not a date is unknown, rather than "Invalid Date"', () => {
+    useConflictStore.setState({ conflicts: [makeMockConflict(1, { timestamp: 'not a date' })] });
+
+    render(<ConflictListPanel />);
+
+    const table = screen.getByTestId('data-table');
+    expect(table.textContent).toContain('unknown');
+    expect(table.textContent).not.toContain('Invalid Date');
+  });
+
   it('should filter by object when dropdown changes', () => {
     const conflicts = [
       makeMockConflict(1, { objectApiName: 'Account' }),

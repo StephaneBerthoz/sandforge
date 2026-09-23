@@ -125,6 +125,26 @@ describe('TriggerConfigPanel', () => {
       );
     });
 
+    it('says a time the extension sent that is not a date is unknown, whatever its zone', () => {
+      // The zone's fallback formatted the value again and threw "Invalid time
+      // value" a second time: the trigger panel did not render.
+      render(
+        <TriggerConfigPanel
+          triggers={[nightly]}
+          savedTriggers={[nightly]}
+          statuses={[
+            scheduleStatus({
+              nextRunAt: 'not a date',
+              lastFiredAt: 'neither',
+              lastOutcome: 'started',
+            }),
+          ]}
+        />,
+      );
+      expect(screen.getByTestId('trigger-next-run-t1').textContent).toBe('Next run: unknown (UTC)');
+      expect(screen.getByTestId('trigger-last-t1').textContent).toBe('Last started: unknown');
+    });
+
     it('says when it last started the pipeline, and when a start was missed', () => {
       const { rerender } = render(
         <TriggerConfigPanel

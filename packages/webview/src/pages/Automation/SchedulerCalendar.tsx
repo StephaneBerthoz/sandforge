@@ -2,9 +2,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { addDays, format } from 'date-fns';
 import type { PipelineTrigger, PipelineTriggerStatus, SyncScheduleEntry } from '@sandforge/shared';
-import { SyncSchedulePanel, LastResultBadge, formatStoredDate } from '../Sync/SyncSchedulePanel';
+import { SyncSchedulePanel, LastResultBadge } from '../Sync/SyncSchedulePanel';
 import type { ScheduleLayoutProps } from '../Sync/SyncSchedulePanel';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 import { formatTriggerTime } from './TriggerConfigPanel';
 
 /** A schedule trigger of a saved pipeline, with what the extension says of it. */
@@ -122,7 +122,7 @@ const AgendaEntry: React.FC<{
               <span>
                 {t('sync.schedules.lastRun')}:{' '}
                 {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
-                  t('sync.schedules.dateUnknown')}
+                  t('common.dateUnknown')}
               </span>
             )}
           </div>
@@ -226,7 +226,9 @@ const PipelineSchedules: React.FC<{ rows: readonly PipelineScheduleRow[] }> = ({
                 {status?.armed && status.nextRunAt ? (
                   <span>
                     {t('automation.triggerNextRun', {
-                      time: formatTriggerTime(status.nextRunAt, status.timezone),
+                      time:
+                        formatTriggerTime(status.nextRunAt, status.timezone) ??
+                        t('common.dateUnknown'),
                       timezone: status.timezone ?? '',
                     })}
                   </span>

@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
-import { dateTimeFormat, uiLocale } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** Payload returned by monitor:alerts:result (includes history). */
 interface AlertsWithHistoryPayload {
@@ -75,13 +75,21 @@ function StatusIcon({ status }: { status: AlertStatus }): React.ReactElement {
 /** Time formatter for timestamps, in the interface language. */
 const timeFmt = (): Intl.DateTimeFormat => dateTimeFormat({ hour: '2-digit', minute: '2-digit' });
 
-/** Group alerts by their date, written in `locale` (medium date). */
-function groupByDate(alerts: AlertInstance[], locale: string): Map<string, AlertInstance[]> {
+/**
+ * Group alerts by their date, written in `locale` (medium date); an alert whose
+ * stored time is not a date goes under `unknown`. Formatting that time threw
+ * "Invalid time value", and the history did not render.
+ */
+function groupByDate(
+  alerts: AlertInstance[],
+  locale: string,
+  unknown: string,
+): Map<string, AlertInstance[]> {
   const groups = new Map<string, AlertInstance[]>();
   for (const alert of alerts) {
-    const dateKey = dateTimeFormat({ dateStyle: 'medium' }, locale).format(
-      new Date(alert.triggeredAt),
-    );
+    const dateKey =
+      formatStoredDate(alert.triggeredAt, dateTimeFormat({ dateStyle: 'medium' }, locale).format) ??
+      unknown;
     const group = groups.get(dateKey);
     if (group) {
       group.push(alert);
@@ -132,7 +140,11 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
 
   const locale = uiLocale();
   /** Grouped by date for the timeline display. */
-  const dateGroups = useMemo(() => groupByDate(visibleEntries, locale), [visibleEntries, locale]);
+  const unknownDate = t('common.dateUnknown');
+  const dateGroups = useMemo(
+    () => groupByDate(visibleEntries, locale, unknownDate),
+    [visibleEntries, locale, unknownDate],
+  );
 
   const hasMore = sortedHistory.length > displayLimit;
 
@@ -218,7 +230,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                         className="text-[10px] text-text-secondary"
                         data-testid={`triggered-time-${alert.id}`}
                       >
-                        {timeFmt().format(new Date(alert.triggeredAt))}
+                        {formatStoredDate(alert.triggeredAt, timeFmt().format) ?? unknownDate}
                       </span>
                       {alert.acknowledgedAt && (
                         <span
@@ -226,7 +238,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                           data-testid={`acknowledged-time-${alert.id}`}
                         >
                           {t('monitor.ack', 'Ack')}:{' '}
-                          {timeFmt().format(new Date(alert.acknowledgedAt))}
+                          {formatStoredDate(alert.acknowledgedAt, timeFmt().format) ?? unknownDate}
                         </span>
                       )}
                       {alert.resolvedAt && (
@@ -235,7 +247,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({
                           data-testid={`resolved-time-${alert.id}`}
                         >
                           {t('monitor.resolved', 'Resolved')}:{' '}
-                          {timeFmt().format(new Date(alert.resolvedAt))}
+                          {formatStoredDate(alert.resolvedAt, timeFmt().format) ?? unknownDate}
                         </span>
                       )}
                     </div>

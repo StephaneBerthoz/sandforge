@@ -8,9 +8,34 @@ import {
   formatFileSize,
   formatRelativeTime,
   formatRelativeTimeI18n,
+  formatStoredDate,
   dateTimeFormat,
   uiLocale,
 } from './formatters';
+
+describe('formatStoredDate', () => {
+  it('writes a stored date with a date-fns pattern', () => {
+    expect(formatStoredDate('2026-03-01T09:30:00', 'yyyy-MM-dd HH:mm')).toBe('2026-03-01 09:30');
+  });
+
+  it('writes a stored date with an Intl format, handed its bound format', () => {
+    const fmt = dateTimeFormat({ year: 'numeric', month: '2-digit', day: '2-digit' }, 'en-US');
+
+    expect(formatStoredDate(Date.UTC(2026, 2, 1, 12), fmt.format)).toBe('03/01/2026');
+  });
+
+  it('answers null for a value that is not a date, rather than throwing', () => {
+    // Formatting one threw "Invalid time value" and the screen did not render.
+    expect(formatStoredDate('not a date', 'yyyy-MM-dd')).toBeNull();
+    expect(formatStoredDate(Number.NaN, dateTimeFormat({ dateStyle: 'medium' }).format)).toBeNull();
+    expect(formatStoredDate('', (date) => date.toLocaleString())).toBeNull();
+  });
+
+  it('answers null for no value at all, where a Date would have read 1970', () => {
+    expect(formatStoredDate(null, 'yyyy')).toBeNull();
+    expect(formatStoredDate(undefined, 'yyyy')).toBeNull();
+  });
+});
 
 describe('formatNumber', () => {
   it('should format integers with locale grouping', () => {

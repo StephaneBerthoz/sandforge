@@ -53,11 +53,14 @@ export interface BulkDataWriterDeps {
   /** Retry configuration for REST batch calls. */
   retryConfig: Partial<RetryConfig>;
   /**
-   * The run's cancel. It aborts an upload of more than ten thousand records
-   * while its job is still open, and the write then throws
-   * {@link WriteCancelledError}; a job already closed is awaited and counted.
+   * The run's cancel. It aborts a Bulk API upload while its job is still open,
+   * and stops a write sent in REST batches between two of them; the write then
+   * throws {@link WriteCancelledError}, with what it wrote. A job already
+   * closed is awaited and counted. Left out only by a write that has to finish
+   * whatever happens: a real-time session finishes the batch it is writing
+   * when it stops.
    */
-  signal: AbortSignal;
+  signal?: AbortSignal;
   /** Progress sink invoked by the streaming and bulk paths. */
   onProgress: (processed: number, total: number, label: string) => void;
   /** Log sink for non-fatal validation warnings. */
@@ -292,6 +295,7 @@ export class BulkDataWriter {
       onProgress: (processed, total) => {
         this.deps.onProgress(processed, total, `Bulk ${operation} ${objectName}`);
       },
+      signal: this.deps.signal,
     };
     const bulkResult = await this.deps.bulkExecutor.executeBulk(
       bulkDeps,
@@ -300,6 +304,9 @@ export class BulkDataWriter {
       records,
       externalIdField,
     );
+    // The cancel aborted the job before it was closed: none of its records
+    // was written, as on the streaming path.
+    if (bulkResult.aborted) throw new WriteCancelledError(objectName);
     // Real per-record outcomes: input-aligned, real Salesforce IDs (the old
     // code fabricated `bulk-${i}` IDs and assumed the first successCount
     // records had succeeded).
@@ -338,6 +345,12 @@ export class BulkDataWriter {
   ): Promise<OperationOutcome[]> {
     const outcomes: OperationOutcome[] = [];
     for (let i = 0; i < items.length; i += batchSize) {
+      // A cancel stops the write between two batches, with what the batches
+      // before it wrote: a large object used to be written to its last batch
+      // after the run was cancelled. Not before the first batch — a caller
+      // looks at the cancel before it writes, and a write of a single batch,
+      // one record, is never cut down to nothing.
+      if (i > 0 && this.deps.signal?.aborted) throw new WriteCancelledError(objectName, outcomes);
       const batch = items.slice(i, i + batchSize);
       const retryResult = await this.retryOp.execute(() => call(batch));
       if (retryResult.success && retryResult.result) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DataSync } from './DataSync';
 import { targetWriteFieldsOf } from './targetWriteFields';
 import type { DataSyncDeps, OperationOutcome } from './DataSync';
+import { WriteCancelledError } from './WriteCancelledError';
 import type { SyncObjectConfig } from '@sandforge/shared';
 
 function createConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
@@ -411,6 +412,37 @@ describe('DataSync — a lookup the target does not have', () => {
 
     // Nothing to strip means nothing to try again.
     expect(insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the run every record the write sent when the cancel stops the second try', async () => {
+    // What the stopped retry names is the rows it tried again: passed on as
+    // it was, the run counted those alone, not the record the first write
+    // had already written.
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef, { id: '001KEPT', success: true, errors: [] }, crossRef])
+      .mockRejectedValueOnce(
+        new WriteCancelledError('Account', [{ id: '001AGAIN', success: true, errors: [] }]),
+      );
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const stopped = await sync
+      .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+        { Name: 'Acme', Key_Contact__c: '003000000000042AAA' },
+        { Name: 'Globex' },
+        { Name: 'Initech', Key_Contact__c: '003000000000043AAA' },
+      ])
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(stopped).toBeInstanceOf(WriteCancelledError);
+    expect((stopped as WriteCancelledError).written).toEqual([
+      { id: '001AGAIN', success: true, errors: [] },
+      { id: '001KEPT', success: true, errors: [] },
+      crossRef,
+    ]);
   });
 });
 

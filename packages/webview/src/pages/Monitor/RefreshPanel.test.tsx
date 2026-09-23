@@ -76,6 +76,24 @@ describe('RefreshPanel', () => {
     expect(screen.getByText('Completed')).toBeDefined();
   });
 
+  it('lists a refresh whose date is not a date, and says it is unknown', () => {
+    // Formatting it threw "Invalid time value", and no refresh showed.
+    mockData = {
+      success: true,
+      refreshes: [
+        {
+          orgId: 'org-1',
+          sandboxName: 'DevSandbox',
+          refreshDate: 'not a date',
+          status: 'Completed',
+        },
+      ],
+      inProgress: false,
+    };
+    render(<RefreshPanel />);
+    expect(screen.getByTestId('refresh-row-DevSandbox').textContent).toContain('unknown');
+  });
+
   it('styles every status of a copy still under way as one, and a stopped copy as failed', () => {
     // The rows knew Pending and Processing only: a copy being sampled or
     // activated, or waiting for an admin, looked like a finished one. Their
@@ -151,6 +169,18 @@ describe('RefreshPanel', () => {
       expect(row).toContain('Noticed when SandForge connected to it');
       expect(row).toContain('Was org 00DXX00000AbCdE, now org 00Dxx00000FgHiJ');
       expect(row).toContain('Moved from instance EU42S to EU44S');
+    });
+
+    it('shows a refresh noticed at a time that is not a date, and says it is unknown', () => {
+      mockData = {
+        success: true,
+        supported: false,
+        refreshes: [],
+        inProgress: false,
+        detected: [{ ...noticed, detectedAt: 'not a date' }],
+      };
+      render(<RefreshPanel />);
+      expect(screen.getByTestId('refresh-detected-row').textContent).toContain('unknown');
     });
 
     it('names the production org whose history reported the refresh', () => {

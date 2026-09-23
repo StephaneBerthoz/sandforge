@@ -152,6 +152,28 @@ describe('AlertHistoryPanel', () => {
     expect(dateGroups.length).toBe(2);
   });
 
+  it('lists an alert whose stored times are not dates, and says they are unknown', () => {
+    // Formatting one threw "Invalid time value", and the history did not render.
+    mockData = {
+      alerts: [],
+      history: [
+        makeAlert({
+          id: 'bad',
+          status: 'resolved',
+          triggeredAt: 'not a date',
+          acknowledgedAt: 'neither',
+          resolvedAt: 'nor this',
+        }),
+      ],
+    };
+    render(<AlertHistoryPanel />);
+
+    expect(screen.getByTestId('triggered-time-bad').textContent).toBe('common.dateUnknown');
+    expect(screen.getByTestId('acknowledged-time-bad').textContent).toContain('common.dateUnknown');
+    expect(screen.getByTestId('resolved-time-bad').textContent).toContain('common.dateUnknown');
+    expect(screen.getAllByTestId(/^date-group-/)[0].textContent).toContain('common.dateUnknown');
+  });
+
   it('shows acknowledged timestamp when present', () => {
     mockData = { alerts: [], history: [historyAlerts[1]] };
     render(<AlertHistoryPanel />);

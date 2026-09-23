@@ -30,6 +30,14 @@ describe('DeviceCodePanel', () => {
     expect(screen.getByText(`The code expires at ${time}.`)).toBeDefined();
   });
 
+  it('still shows the code when the expiry time it came with is not a time', () => {
+    // Formatting it threw "Invalid time value", and the code to enter never showed.
+    render(<DeviceCodePanel code={{ ...CODE, expiresAt: Number.NaN }} onCancel={vi.fn()} />);
+
+    expect(screen.getByTestId('org-device-user-code').textContent).toBe('AB12CD34');
+    expect(screen.getByText('The code expires at unknown.')).toBeDefined();
+  });
+
   it('moves focus onto the code, since the button that asked for it is gone', () => {
     render(<DeviceCodePanel code={CODE} onCancel={vi.fn()} />);
 

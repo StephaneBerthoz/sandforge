@@ -23,6 +23,11 @@ export interface BulkExecutionResult {
    * never fabricated.
    */
   outcomes: BulkRecordOutcome[];
+  /**
+   * Set when the run's cancel aborted the job before it was closed:
+   * Salesforce processed none of its records, and `outcomes` is empty.
+   */
+  aborted?: boolean;
 }
 
 /** A single record failure from a bulk job */
@@ -285,6 +290,24 @@ export interface BulkApiExecutorDeps {
   bulkManager: BulkApiManager;
   /** Optional progress callback (processed, total) */
   onProgress?: (processed: number, total: number) => void;
+  /**
+   * The run's cancel. It aborts the job while the job is still open; once the
+   * job is closed, Salesforce writes all of it, and it is awaited and counted.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Abort a job that was never closed. A failed abort leaves it open, and an
+ * open job is never processed either: nothing of it is written, so the
+ * failure is not the run's.
+ */
+export async function abortOpenJob(job: BulkJobHandle): Promise<void> {
+  try {
+    await job.abort();
+  } catch {
+    // Left open, the job is never processed.
+  }
 }
 
 /**
@@ -354,7 +377,35 @@ export class BulkApiExecutor {
     deps.bulkManager.registerJob(jobInfo);
     try {
       await job.open();
-      await job.uploadData(records);
+
+      /*
+       * A cancel before the job is closed aborts it, as the streaming upload
+       * does. Salesforce processes a job's data only once the job is closed,
+       * and never an aborted one's. The job used to be closed whatever the run
+       * said: a cancel that came during the upload of up to ten thousand
+       * records had every one of them written. Once closed, the job is awaited
+       * and counted like any other.
+       */
+      let uploaded = 0;
+      if (!deps.signal?.aborted) {
+        await job.uploadData(records);
+        uploaded = records.length;
+      }
+      if (deps.signal?.aborted) {
+        await abortOpenJob(job);
+        deps.bulkManager.updateJobState(jobId, 'Aborted');
+        return {
+          totalRecords: uploaded,
+          successCount: 0,
+          failureCount: 0,
+          failures: [],
+          jobId,
+          usedBulkApi: true,
+          successIds: [],
+          outcomes: [],
+          aborted: true,
+        };
+      }
       await job.close();
 
       let status = await job.check();

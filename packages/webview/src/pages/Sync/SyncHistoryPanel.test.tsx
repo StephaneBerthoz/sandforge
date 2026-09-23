@@ -159,6 +159,16 @@ describe('SyncHistoryPanel', () => {
     expect(panel.textContent).not.toContain('Partial');
   });
 
+  it('lists a run whose stored start time is not a date, as unknown, with the rest', () => {
+    // Formatting it threw "Invalid time value", and the history listed nothing.
+    const unreadable = { ...makeMockEntry('h-1'), startTime: 'not a date' };
+    useSyncHistoryStore.setState({ entries: [unreadable, makeMockEntry('h-2')], loading: false });
+    render(<SyncHistoryPanel />);
+
+    expect(screen.getByTitle('unknown').textContent).toBe('unknown');
+    expect(screen.getAllByText('Account')).toHaveLength(2);
+  });
+
   it('should render DataTable with entries when data exists', () => {
     const entries = [makeMockEntry('h-1'), makeMockEntry('h-2', 'failure')];
     useSyncHistoryStore.setState({ entries, loading: false });

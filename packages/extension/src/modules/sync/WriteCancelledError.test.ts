@@ -8,8 +8,23 @@ describe('WriteCancelledError', () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe('WriteCancelledError');
     expect(error.objectApiName).toBe('Contact');
+    expect(error.written).toEqual([]);
     expect(error.message).toBe(
       'The write of Contact was cancelled before any of its records was written.',
+    );
+  });
+
+  it('carries what a write stopped between two batches wrote, and says how many were sent', () => {
+    const written = [
+      { id: '003000000000001AAA', success: true, errors: [] },
+      { success: false, errors: ['REQUIRED_FIELD_MISSING: LastName'] },
+    ];
+
+    const error = new WriteCancelledError('Contact', written);
+
+    expect(error.written).toBe(written);
+    expect(error.message).toBe(
+      'The write of Contact was cancelled after 2 of its records were sent.',
     );
   });
 

@@ -932,6 +932,73 @@ describe('SeedOpsHandler', () => {
 
       expect(result).toEqual({ successIds: [], errors: [], stopped: true });
     });
+
+    it("hands a Bulk API job the run's cancel, and says the insert stopped when it aborted the job", async () => {
+      // The job used to be closed whatever the run said: a cancel during its
+      // upload had every record of it created, and the run went on.
+      const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk').mockResolvedValue({
+        totalRecords: 300,
+        successCount: 0,
+        failureCount: 0,
+        failures: [],
+        jobId: 'job-1',
+        usedBulkApi: true,
+        successIds: [],
+        outcomes: [],
+        aborted: true,
+      });
+
+      const insert = await captureInsert();
+      const result = await insert('org-1', 'Account', makeRecords(300), 200);
+
+      expect(oneJob.mock.calls[0][0].signal).toBeInstanceOf(AbortSignal);
+      expect(result).toEqual({ successIds: [], errors: [], stopped: true });
+    });
+
+    it('stops a REST insert between two batches on the cancel, with what the batches before it created', async () => {
+      // The rest of a large object used to be inserted after the seed was
+      // cancelled.
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+      let captured: InsertFn | undefined;
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn((seedDeps: { insert: InsertFn; signal: AbortSignal }) => {
+          captured = seedDeps.insert;
+          return {
+            // Running until the cancel, as a seed does while it inserts.
+            execute: vi.fn(
+              () =>
+                new Promise<SeedExecutionResult>((resolve) =>
+                  seedDeps.signal.addEventListener('abort', () => resolve(seedResult(2))),
+                ),
+            ),
+          };
+        }),
+      } as unknown as HandlerDeps['services'];
+      const create = vi.fn(async (batch: unknown[]) => {
+        registry.abort('seed-rest-cancel');
+        return batch.map((_, i) => ({ success: true, id: `001REST${i}` }));
+      });
+      mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
+
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-rest-cancel',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+        }),
+      );
+      await vi.waitFor(() => expect(captured).toBeDefined());
+      if (!captured) throw new Error('the orchestrator was never given an insert function');
+      const result = await captured('org-1', 'Account', makeRecords(5), 2);
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ successIds: ['001REST0', '001REST1'], errors: [], stopped: true });
+      registry.dispose();
+    });
   });
 
   describe('seed:template CRUD handlers', () => {

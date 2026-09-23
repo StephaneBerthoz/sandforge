@@ -268,9 +268,10 @@ export class SeedCsvHandler implements DomainHandler {
       );
 
       /*
-       * Whether the cancel stopped the import before its rows were written:
-       * before the write, or by aborting an upload of more than ten thousand
-       * rows while its job was still open. Only that upload looked at it, and
+       * Whether the cancel stopped the import before all its rows were
+       * written: before the write, by aborting a Bulk API upload while its job
+       * was still open, or between two REST batches, after the rows those
+       * wrote. Only an upload of more than ten thousand rows looked at it, and
        * reported a stopped import as one that wrote nothing and refused nothing.
        */
       let cancelled = abortController.signal.aborted;
@@ -286,9 +287,11 @@ export class SeedCsvHandler implements DomainHandler {
               )
             : await writer.insert(parsed.objectApiName, writeRecords, defaultBatchSize);
         } catch (writeErr: unknown) {
-          // Any other error is the import's failure.
+          // The rows written before the cancel stay in the org, and are
+          // counted. Any other error is the import's failure.
           if (!(writeErr instanceof WriteCancelledError)) throw writeErr;
           cancelled = true;
+          outcomes = writeErr.written;
         }
       }
 

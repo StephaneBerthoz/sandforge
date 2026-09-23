@@ -54,7 +54,7 @@ import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/B
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import type { SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
+import type { InsertResult, SeedProgressEvent } from '../../modules/seed/SeedOrchestrator.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { isUncopyableObject } from '@sandforge/shared';
@@ -790,7 +790,7 @@ export class SeedOpsHandler implements DomainHandler {
         objectApiName: string,
         records: Record<string, unknown>[],
         batchSize: number,
-      ): Promise<{ successIds: string[]; errors: string[] }> => {
+      ): Promise<InsertResult> => {
         // Streaming path for large record sets
         if (records.length > STREAMING_THRESHOLD) {
           const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
@@ -825,6 +825,7 @@ export class SeedOpsHandler implements DomainHandler {
             onProgress: (processed, total) => {
               reportInsertProgress(processed, total, `Bulk insert ${objectApiName}`);
             },
+            signal: abortController.signal,
           };
           const bulkResult = await bulkExecutor.executeBulk(
             bulkDeps,
@@ -835,6 +836,9 @@ export class SeedOpsHandler implements DomainHandler {
           return {
             successIds: bulkResult.successIds,
             errors: bulkResult.failures.map((f) => f.error),
+            // The cancel aborted the job before it was closed, as it does a
+            // streamed upload: none of its records was written.
+            ...(bulkResult.aborted ? { stopped: true } : {}),
           };
         }
 
@@ -843,6 +847,12 @@ export class SeedOpsHandler implements DomainHandler {
         const errors: string[] = [];
 
         for (let i = 0; i < records.length; i += batchSize) {
+          // A cancel stops the insert between two batches, with what the
+          // batches before it created: the rest of a large object used to be
+          // inserted after the seed was cancelled.
+          if (i > 0 && abortController.signal.aborted) {
+            return { successIds, errors, stopped: true };
+          }
           const batch = records.slice(i, i + batchSize);
           const retryResult = await retryOp.execute(async () => {
             // Seeded rows are invented and land in an org that may already

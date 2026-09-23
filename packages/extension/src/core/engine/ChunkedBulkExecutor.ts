@@ -1,11 +1,6 @@
 import type { StreamingExecutionResult } from '@sandforge/shared';
-import { normalizeBulkJobResults } from './BulkApiExecutor.js';
-import type {
-  BulkApiExecutorDeps,
-  BulkOperation,
-  BulkJobHandle,
-  BulkRecordOutcome,
-} from './BulkApiExecutor.js';
+import { abortOpenJob, normalizeBulkJobResults } from './BulkApiExecutor.js';
+import type { BulkApiExecutorDeps, BulkOperation, BulkRecordOutcome } from './BulkApiExecutor.js';
 import type { BulkJobInfo, BulkJobStatus } from './BulkApiManager.js';
 
 /**
@@ -132,7 +127,7 @@ export class ChunkedBulkExecutor {
        * cancel that came during it closed the job too.
        */
       if (this.signal?.aborted) {
-        await this.abortOpenJob(job);
+        await abortOpenJob(job);
         deps.bulkManager.updateJobState(jobId, 'Aborted');
         return this.buildAbortedResult(uploadedRecords);
       }
@@ -240,19 +235,6 @@ export class ChunkedBulkExecutor {
     const size = chunkSize ?? this.chunkSize;
     for (let i = 0; i < records.length; i += size) {
       yield records.slice(i, i + size);
-    }
-  }
-
-  /**
-   * Abort a job that was never closed. A failed abort leaves it open, and an
-   * open job is never processed either: nothing of it is written, so the
-   * failure is not the run's.
-   */
-  private async abortOpenJob(job: BulkJobHandle): Promise<void> {
-    try {
-      await job.abort();
-    } catch {
-      // Left open, the job is never processed.
     }
   }
 

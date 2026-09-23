@@ -10,6 +10,7 @@
  * webview-only (Intl + i18n shaped for the UI).
  */
 import { formatNumber as formatNumberIn } from '@sandforge/shared';
+import { format } from 'date-fns';
 // The i18next singleton, not `../i18n`: that module initialises it for React
 // and the panel imports it once at boot. Reading the instance is all this
 // needs, and a test that mocks react-i18next can still import a formatter.
@@ -74,6 +75,24 @@ export function dateTimeFormat(
     dateTimeFormats.set(key, format);
   }
   return format;
+}
+
+/**
+ * A date read from storage or from the extension, written with a date-fns
+ * pattern or by a function — an `Intl.DateTimeFormat`'s `format` among them —
+ * or null when it is not a date. Formatting one that is not throws "Invalid
+ * time value", in date-fns and Intl alike, and the screen that tried rendered
+ * nothing at all; `toLocaleString` wrote "Invalid Date". The caller shows
+ * null as `common.dateUnknown`.
+ */
+export function formatStoredDate(
+  value: string | number | null | undefined,
+  as: string | ((date: Date) => string),
+): string | null {
+  if (value === null || value === undefined) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return typeof as === 'string' ? format(date, as) : as(date);
 }
 
 /** Date display format options. */

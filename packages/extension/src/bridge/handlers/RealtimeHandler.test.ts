@@ -619,6 +619,18 @@ describe('RealtimeHandler', () => {
     expect(ofType('realtime:status:response')[0].payload.status).toBe('disconnected');
   });
 
+  it('hands its writes no cancel: the batch a stopped session is writing is finished', async () => {
+    // The writer stops a write between two batches on the cancel it is given,
+    // and the session stores its resume point past the whole batch: handed
+    // the session's cancel, a stop in the middle of a batch left changes that
+    // were never written and would never be replayed.
+    const { handler, access } = setup();
+
+    await handler.handle(start());
+
+    expect(access.writer).toHaveBeenCalledWith('org-target');
+  });
+
   it('forgets where an org’s channels were read to', async () => {
     const { handler, configStore } = setup();
     configStore.set('realtime:replay:org-source', { '/data/LeadChangeEvent': 5 }, 'realtime');

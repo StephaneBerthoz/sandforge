@@ -1,20 +1,32 @@
+import type { OperationOutcome } from './DataSync.js';
+
 /**
- * A write the run's cancel stopped before Salesforce processed any of its
- * records: an upload of more than ten thousand records whose job was aborted
- * while it was still open. None of them was written.
+ * A write the run's cancel stopped before it was done. Either a Bulk API
+ * upload whose job was aborted while it was still open, none of whose records
+ * was written, or a write sent in REST batches, stopped between two of them.
+ * `written` holds the outcomes of the records sent before the cancel, in input
+ * order: they are the first `written.length` records, and the ones after them
+ * were never sent.
  *
- * Thrown rather than answered with an empty list of outcomes: an empty list
- * read as an object that had nothing to write, and a run cancelled on its last
- * object ended as a success. The run that catches it ends cancelled; one that
- * does not fails, which is never a success either.
+ * Thrown rather than answered with those outcomes: an empty list read as an
+ * object that had nothing to write, and a run cancelled on its last object
+ * ended as a success. The run that catches it ends cancelled, and counts what
+ * was written; one that does not fails, which is never a success either.
  *
- * It lives in a module of its own, importing nothing, for the reason
- * `SyncRunFailure` does: the writer that throws it and the orchestrators and
- * handlers that catch it import each other's neighbours.
+ * It lives in a module of its own, importing nothing at run time, for the
+ * reason `SyncRunFailure` does: the writer that throws it and the
+ * orchestrators and handlers that catch it import each other's neighbours.
  */
 export class WriteCancelledError extends Error {
-  constructor(readonly objectApiName: string) {
-    super(`The write of ${objectApiName} was cancelled before any of its records was written.`);
+  constructor(
+    readonly objectApiName: string,
+    readonly written: OperationOutcome[] = [],
+  ) {
+    super(
+      written.length === 0
+        ? `The write of ${objectApiName} was cancelled before any of its records was written.`
+        : `The write of ${objectApiName} was cancelled after ${written.length} of its records were sent.`,
+    );
     this.name = 'WriteCancelledError';
   }
 }

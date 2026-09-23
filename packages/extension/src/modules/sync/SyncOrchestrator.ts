@@ -5,7 +5,7 @@ import type {
   SyncObjectResult,
   GrappeConfig,
 } from '@sandforge/shared';
-import type { DataSync } from './DataSync';
+import { buildObjectResult, type DataSync } from './DataSync.js';
 import type { MetadataSync } from './MetadataSync';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
@@ -56,11 +56,11 @@ export interface SyncOrchestratorDeps {
   /**
    * The run's cancel: Live Operations' Cancel, through the registry the run
    * is listed in. Honoured before each object and between an object's reads
-   * and its write, and by the writer, which aborts an upload of more than ten
-   * thousand records while its job is still open. A write already sent is not
-   * taken back, and a closed Bulk API job runs to its end; the objects after
-   * it are not synced, and the run answers with the ones it reached,
-   * `cancelled` set.
+   * and its write, and by the writer, which aborts a Bulk API upload while its
+   * job is still open and stops a REST write between two of its batches. A
+   * write already sent is not taken back, and a closed Bulk API job runs to
+   * its end; the objects after it are not synced, and the run answers with
+   * the ones it reached and what the stopped one wrote, `cancelled` set.
    */
   signal?: AbortSignal;
   /**
@@ -149,9 +149,18 @@ export class SyncOrchestrator {
       try {
         result = await this.syncObject(config, objectConfig);
       } catch (err: unknown) {
-        // The cancel aborted the object's upload before any of it was
-        // written: the object is not synced, like the ones after it.
-        if (err instanceof WriteCancelledError) return stopHere(sortedObjects.slice(index));
+        // The cancel stopped the object's write: an aborted upload wrote none
+        // of it, and a REST write stopped between two batches wrote the
+        // records before. What it wrote stays in the org, so it is counted;
+        // the object is not synced in full, like the ones after it.
+        if (err instanceof WriteCancelledError) {
+          if (err.written.length > 0) {
+            objectResults.push(
+              buildObjectResult(objectConfig.objectApiName, objectConfig.operation, err.written),
+            );
+          }
+          return stopHere(sortedObjects.slice(index));
+        }
         /*
          * The run stops here, but what the objects before this one wrote is
          * still reported. Letting the error travel bare discarded the lot: the

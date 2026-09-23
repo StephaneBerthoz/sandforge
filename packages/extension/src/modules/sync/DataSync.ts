@@ -15,6 +15,7 @@ import {
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Function to upsert records using an external ID field */
 export type UpsertFn = (
@@ -124,7 +125,7 @@ export class DataSync {
     sourceRecords: Record<string, unknown>[],
   ): Promise<SyncObjectResult> {
     const { outcomes, notes } = await this.write(config, sourceRecords);
-    return buildResult(config.objectApiName, config.operation, outcomes, notes);
+    return buildObjectResult(config.objectApiName, config.operation, outcomes, notes);
   }
 
   /**
@@ -281,13 +282,24 @@ export class DataSync {
     }
     if (dropped.size === 0) return { outcomes, notes: [] };
 
-    const second = await this.executeOperation(
-      config.objectApiName,
-      config.operation,
-      withoutLookups,
-      config.batchSize,
-      config.externalIdField,
-    );
+    let second: OperationOutcome[];
+    let cancelledAt: WriteCancelledError | undefined;
+    try {
+      second = await this.executeOperation(
+        config.objectApiName,
+        config.operation,
+        withoutLookups,
+        config.batchSize,
+        config.externalIdField,
+      );
+    } catch (err: unknown) {
+      if (!(err instanceof WriteCancelledError)) throw err;
+      // The cancel stopped the second write between two batches. It names
+      // only the rows tried again: passed on as it was, the run would have
+      // counted those alone, and none of the records the first write wrote.
+      second = err.written;
+      cancelledAt = err;
+    }
 
     const merged = [...outcomes];
     let recovered = 0;
@@ -298,6 +310,10 @@ export class DataSync {
         recovered++;
       }
     });
+    // Every record has been sent once, and keeps its refusal unless it was
+    // tried again before the cancel: the run is told all of it, and that it
+    // was cancelled.
+    if (cancelledAt) throw new WriteCancelledError(config.objectApiName, merged);
     // Carried beside the outcomes, because a successful write has no error
     // list anybody reads: the note has to reach the result on its own or the
     // dropped field is never mentioned anywhere.
@@ -422,9 +438,11 @@ function applyMappingsAndAddOns(
 }
 
 /**
- * Build a SyncObjectResult from operation outcomes.
+ * Build a SyncObjectResult from operation outcomes. The run builds one from
+ * the outcomes of a write its cancel stopped, too: the records never sent have
+ * no outcome, and are not counted.
  */
-function buildResult(
+export function buildObjectResult(
   objectApiName: string,
   operation: SyncOperation,
   outcomes: OperationOutcome[],

@@ -41,6 +41,15 @@ describe('RestorePanel', () => {
     expect(screen.getByTestId('restore-backup-op-1')).toBeDefined();
   });
 
+  it('offers a backup whose stored time is not a date as taken at an unknown time', () => {
+    // It read "Invalid Date" as the backup's title.
+    render(<RestorePanel backups={[{ ...backups[0], timestamp: 'not a date' }]} />);
+
+    const card = screen.getByTestId('restore-backup-op-1');
+    expect(card.textContent).toContain('unknown');
+    expect(card.textContent).not.toContain('Invalid Date');
+  });
+
   it('should call onSelectBackup when clicked', () => {
     const onSelect = vi.fn();
     render(<RestorePanel backups={backups} onSelectBackup={onSelect} />);

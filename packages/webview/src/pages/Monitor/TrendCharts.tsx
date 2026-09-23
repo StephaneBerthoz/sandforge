@@ -4,7 +4,7 @@ import { cn } from '../../theme';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Tabs } from '../../components/ui/Tabs';
 import { Sparkline } from '../../components/ui/Sparkline';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Data point for trend charts. */
 export interface TrendDataPoint {
@@ -52,24 +52,22 @@ const MS_24H = 24 * 60 * 60 * 1000;
  * Shows date + time for multi-day ranges, time-only for intra-day.
  * @param ts - ISO timestamp string to format.
  * @param multiDay - Whether the chart spans more than 24 hours.
- * @returns Formatted time or date+time string.
+ * @returns Formatted time or date+time string, or null for a timestamp that is
+ *   not a date: formatting it threw "Invalid time value", and no trend showed.
  */
-export function formatTime(ts: string, multiDay = false): string {
-  const date = new Date(ts);
-  if (multiDay) {
-    return dateTimeFormat({
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(date);
-  }
-  return dateTimeFormat({
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+export function formatTime(ts: string, multiDay = false): string | null {
+  return formatStoredDate(
+    ts,
+    multiDay
+      ? dateTimeFormat({
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format
+      : dateTimeFormat({ hour: '2-digit', minute: '2-digit', hour12: false }).format,
+  );
 }
 
 /**
@@ -140,6 +138,7 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
   const threshold75Y = PADDING_TOP + usableHeight - (75 / 100) * usableHeight;
   const threshold90Y = PADDING_TOP + usableHeight - (90 / 100) * usableHeight;
 
+  const unknownDate = t('common.dateUnknown');
   /** Build x-axis labels from active series timestamps with time-proportional positioning. */
   const xLabels = React.useMemo(() => {
     if (!activeSeries || activeSeries.data.length === 0) return [];
@@ -158,10 +157,13 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className }) =
         timeRange > 0
           ? PADDING_LEFT + ((timestamps[i] - minT) / timeRange) * usableWidth
           : PADDING_LEFT + (i / (activeSeries.data.length - 1)) * usableWidth;
-      labels.push({ x, text: formatTime(activeSeries.data[i].timestamp, multiDay) });
+      labels.push({
+        x,
+        text: formatTime(activeSeries.data[i].timestamp, multiDay) ?? unknownDate,
+      });
     }
     return labels;
-  }, [activeSeries]);
+  }, [activeSeries, unknownDate]);
 
   return (
     <Card className={cn('border-0 bg-transparent shadow-none', className)}>

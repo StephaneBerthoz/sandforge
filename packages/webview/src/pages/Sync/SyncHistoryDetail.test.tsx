@@ -111,6 +111,18 @@ describe('SyncHistoryDetail', () => {
     expect(detail.textContent).toContain('Cancelled before Opportunity was synced.');
   });
 
+  it('opens a run whose stored times are not dates, and says they are unknown', () => {
+    // Formatting one threw "Invalid time value": the detail did not open.
+    const entry = { ...makeMockEntry(), startTime: 'not a date', endTime: 'neither' };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(<SyncHistoryDetail />);
+
+    const detail = screen.getByTestId('sync-history-detail');
+    expect(detail.textContent).toContain('unknown');
+    expect(detail.textContent).toContain('Ended at: unknown');
+    expect(screen.getByText('150')).toBeDefined();
+  });
+
   it('should render per-object result rows', () => {
     useSyncHistoryStore.setState({ selectedEntry: makeMockEntry() });
     render(<SyncHistoryDetail />);

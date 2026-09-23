@@ -6,7 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { uiLocale } from '../../utils/formatters';
+import { formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** RestorePanel component props. */
 export interface RestorePanelProps {
@@ -60,7 +60,10 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
           <div key={backup.operationId} data-testid={`restore-backup-${backup.operationId}`}>
             <Card hoverable onClick={() => onSelectBackup?.(backup.operationId)}>
               <CardHeader
-                title={new Date(backup.timestamp).toLocaleString(uiLocale())}
+                title={
+                  formatStoredDate(backup.timestamp, (date) => date.toLocaleString(uiLocale())) ??
+                  t('common.dateUnknown')
+                }
                 subtitle={t('common.recordCount', { count: backup.totalRecords })}
                 action={
                   <div className="flex items-center gap-2">

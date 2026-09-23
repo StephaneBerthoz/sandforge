@@ -499,6 +499,44 @@ describe('a cancel stops the run before what it has not reached', () => {
     expect(result.objectResults.map((r) => r.objectApiName)).toEqual(['Account', 'Contact']);
   });
 
+  it('counts what an object wrote before the cancel stopped its write between two batches', async () => {
+    // Those records stay in the org: a run that left them out said less was
+    // written than was.
+    const deps = createMockDeps();
+    deps.dataSync = {
+      sync: vi.fn(async (objectConfig: SyncObjectConfig) => {
+        if (objectConfig.objectApiName === 'Contact') {
+          throw new WriteCancelledError('Contact', [
+            { id: '003000000000001AAA', success: true, errors: [], created: true },
+            { id: '003000000000002AAA', success: true, errors: [], created: false },
+            { success: false, errors: ['REQUIRED_FIELD_MISSING: LastName'] },
+          ]);
+        }
+        return createSuccessResult(objectConfig.objectApiName);
+      }),
+    } as unknown as SyncOrchestratorDeps['dataSync'];
+
+    const result = await new SyncOrchestrator(deps).execute(threeObjects());
+
+    expect(result).toMatchObject({
+      cancelled: true,
+      status: 'partial',
+      totalProcessed: 4,
+      totalSuccess: 3,
+      totalFailed: 1,
+      error: 'Cancelled before Contact, Opportunity were synced.',
+    });
+    expect(result.objectResults[1]).toMatchObject({
+      objectApiName: 'Contact',
+      operation: 'upsert',
+      processed: 3,
+      success: 2,
+      failed: 1,
+      errors: ['REQUIRED_FIELD_MISSING: LastName'],
+      upsertSplit: { created: 1, updated: 1 },
+    });
+  });
+
   it('still fails, and says why, when an object fails while a cancel is pending', async () => {
     const stop = new AbortController();
     const deps = createMockDeps();

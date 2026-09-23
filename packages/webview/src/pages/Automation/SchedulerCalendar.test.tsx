@@ -210,6 +210,36 @@ describe('SchedulerCalendar', () => {
     );
   });
 
+  it('says a pipeline next run the extension sent that is not a date is unknown', () => {
+    render(
+      <SchedulerCalendar
+        pipelineSchedules={[
+          {
+            pipelineId: 'p1',
+            pipelineName: 'Nightly backup',
+            trigger: {
+              id: 't1',
+              type: 'schedule',
+              enabled: true,
+              config: { cron: '0 2 * * *', timezone: 'UTC' },
+            },
+            status: {
+              pipelineId: 'p1',
+              triggerId: 't1',
+              type: 'schedule',
+              armed: true,
+              timezone: 'UTC',
+              nextRunAt: 'not a date',
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('scheduler-pipeline-p1-t1').textContent).toContain(
+      'Next run: unknown (UTC)',
+    );
+  });
+
   it('says how to give a pipeline a schedule when none has one', () => {
     render(<SchedulerCalendar />);
     expect(screen.getByTestId('scheduler-pipelines-empty').textContent).toMatch(/Triggers tab/);

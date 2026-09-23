@@ -411,6 +411,52 @@ describe('SeedCloneHandler', () => {
         });
       });
 
+      it('counts what an object wrote before the cancel stopped its write between two batches', async () => {
+        // Those records stay in the target: a clone that left them out said
+        // less was written than was, and lost their ids.
+        fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+          name === 'Account'
+            ? [{ Id: '001SRC', Name: 'Acme' }]
+            : [
+                { Id: '003SRC1', LastName: 'Doe' },
+                { Id: '003SRC2', LastName: 'Roe' },
+                { Id: '003SRC3', LastName: 'Poe' },
+              ],
+        );
+        writer.insert.mockImplementation(async (name: string) => {
+          if (name === 'Contact') {
+            registry.abort(OPERATION_ID);
+            throw new WriteCancelledError('Contact', [
+              { id: '003TGT1', success: true, errors: [] },
+              { success: false, errors: ['REQUIRED_FIELD_MISSING: LastName'] },
+            ]);
+          }
+          return [{ id: '001TGT', success: true, errors: [] }];
+        });
+
+        await handler.handle(buildMsg('seed:clone:execute', accountsAndContacts()));
+
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+          operationId: OPERATION_ID,
+          result: { aborted: true, totalInserted: 2, totalFailed: 1 },
+        });
+        const response = posted(deps, 'seed:clone:execute:response')[0].payload as unknown;
+        expect(response).toMatchObject({
+          cancelled: true,
+          status: 'partial',
+          totalInserted: 2,
+          totalFailed: 1,
+        });
+        expect((response as { objectResults: unknown[] }).objectResults[1]).toMatchObject({
+          objectApiName: 'Contact',
+          sourceCount: 3,
+          insertedCount: 1,
+          failedCount: 1,
+          idMappings: [{ sourceId: '003SRC1', targetId: '003TGT1' }],
+          errors: [{ sourceId: '003SRC2', message: 'REQUIRED_FIELD_MISSING: LastName' }],
+        });
+      });
+
       it('still fails when a write fails while the cancel is pending', async () => {
         writer.insert.mockImplementation(async () => {
           registry.abort(OPERATION_ID);

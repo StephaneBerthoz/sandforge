@@ -31,6 +31,14 @@ describe('HealthCheckPanel', () => {
     expect(screen.getByText('Healthy')).toBeDefined();
   });
 
+  it('says when it last checked is unknown when that time is not a date', () => {
+    // Formatting it threw "Invalid time value", and the panel did not render.
+    render(
+      <HealthCheckPanel orgHealthStatus={createHealthStatus({ lastChecked: 'not a date' })} />,
+    );
+    expect(screen.getByTestId('health-check-panel').textContent).toContain('Last checked: unknown');
+  });
+
   it('renders degraded status with warning badge', () => {
     render(<HealthCheckPanel orgHealthStatus={createHealthStatus({ overall: 'degraded' })} />);
     expect(screen.getByTestId('health-check-panel')).toBeDefined();

@@ -82,6 +82,21 @@ describe('TrendCharts', () => {
     expect(screen.getByTestId('threshold-90')).toBeDefined();
   });
 
+  it('charts a series one of whose times is not a date, and labels that time unknown', () => {
+    const unreadable: TrendSeries[] = [
+      {
+        ...baseSeries[0],
+        data: [
+          { timestamp: 'not a date', value: 45 },
+          { timestamp: '2024-01-01T10:05:00Z', value: 52 },
+        ],
+      },
+    ];
+    render(<TrendCharts series={unreadable} />);
+
+    expect(screen.getByTestId('trend-chart').textContent).toContain('unknown');
+  });
+
   it('should render Y-axis labels', () => {
     render(<TrendCharts series={baseSeries} />);
     expect(screen.getByTestId('y-label-0')).toBeDefined();
@@ -140,7 +155,13 @@ describe('formatTime', () => {
     expect(result).toMatch(/\d{2}:\d{2}/);
     // The result should be longer than time-only since it includes date components
     const timeOnly = formatTime('2024-03-19T14:30:00Z', false);
-    expect(result.length).toBeGreaterThan(timeOnly.length);
+    expect((result ?? '').length).toBeGreaterThan((timeOnly ?? '').length);
+  });
+
+  it('answers null for a timestamp that is not a date, rather than throwing', () => {
+    // Formatting it threw "Invalid time value", and no trend showed.
+    expect(formatTime('not a date')).toBeNull();
+    expect(formatTime('not a date', true)).toBeNull();
   });
 
   it('should default to time-only when multiDay is not provided', () => {

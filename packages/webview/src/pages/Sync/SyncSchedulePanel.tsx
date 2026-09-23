@@ -15,6 +15,7 @@ import { Card, CardBody } from '../../components/ui/Card';
 import { CronScheduleBuilder, cronToHuman } from './CronScheduleBuilder';
 import type { CronScheduleFormData } from './CronScheduleBuilder';
 import type { SyncConfigListResponse, SyncScheduleEntry } from '@sandforge/shared';
+import { formatStoredDate } from '../../utils/formatters';
 
 /**
  * How a schedule's last result reads: its badge colour and its word. A run
@@ -41,17 +42,6 @@ export const LastResultBadge: React.FC<{
   if (!badge) return null;
   return <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge>;
 };
-
-/**
- * A stored date as the schedules show it, or null when it cannot be read.
- * Formatting one that cannot be read threw ("Invalid time value") and the
- * schedules did not render at all: a date the host stored is shown as it is
- * read, and one it cannot read as unknown.
- */
-export function formatStoredDate(value: string, pattern: string): string | null {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : format(date, pattern);
-}
 
 /**
  * The picker label of a saved configuration. A changed configuration is saved
@@ -137,14 +127,14 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                     <span>
                       {t('sync.schedules.nextRun')}:{' '}
                       {formatStoredDate(schedule.nextRunAt, 'yyyy-MM-dd HH:mm') ??
-                        t('sync.schedules.dateUnknown')}
+                        t('common.dateUnknown')}
                     </span>
                   )}
                   {schedule.lastRunAt && (
                     <span>
                       {t('sync.schedules.lastRun')}:{' '}
                       {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
-                        t('sync.schedules.dateUnknown')}
+                        t('common.dateUnknown')}
                     </span>
                   )}
                 </div>

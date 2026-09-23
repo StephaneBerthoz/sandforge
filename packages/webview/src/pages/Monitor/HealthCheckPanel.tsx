@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Shield } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Org health status payload from the monitor:data response. */
 export interface OrgHealthStatus {
@@ -164,7 +164,8 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(
         {/* Last checked */}
         <p className="text-[10px] text-text-secondary">
           {t('monitor.healthCheck.lastChecked', 'Last checked')}:{' '}
-          {dateFormatter().format(new Date(orgHealthStatus.lastChecked))}
+          {formatStoredDate(orgHealthStatus.lastChecked, dateFormatter().format) ??
+            t('common.dateUnknown')}
         </p>
       </div>
     );

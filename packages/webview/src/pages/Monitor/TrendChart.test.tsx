@@ -1,8 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import { TrendChart } from './TrendChart';
+import { ChartTooltip, TrendChart, formatXAxis } from './TrendChart';
 import type { TrendDataPoint } from './TrendChart';
+
+describe('a point whose time is not a date', () => {
+  // Formatting it threw "Invalid time value", and the chart was left blank.
+  it('gets no axis time of its own, for the chart to write as unknown', () => {
+    expect(formatXAxis(Number.NaN, '24h')).toBeNull();
+    expect(formatXAxis(Number.NaN, '7d')).toBeNull();
+    expect(formatXAxis(Date.UTC(2026, 0, 1, 10), '7d')).toMatch(/\d{2}.\d{2}/);
+  });
+
+  it('shows its value in the tooltip, and its time as unknown', () => {
+    render(<ChartTooltip active payload={[{ value: 42 }]} label={Number.NaN} />);
+
+    const tooltip = screen.getByTestId('trend-tooltip');
+    expect(tooltip.textContent).toContain('unknown');
+    expect(tooltip.textContent).toContain('42');
+  });
+});
 
 /* Mock recharts ResponsiveContainer to avoid layout issues in jsdom. */
 vi.mock('recharts', async () => {

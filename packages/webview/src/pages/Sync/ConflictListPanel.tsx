@@ -11,7 +11,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { Badge } from '../../components/ui/Badge';
 import { usePagination } from '../../hooks/usePagination';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { uiLocale } from '../../utils/formatters';
+import { formatStoredDate, uiLocale } from '../../utils/formatters';
 
 /** Conflict type display map keyed by ConflictType. */
 const conflictTypeI18nMap: Record<ConflictType, string> = {
@@ -101,8 +101,12 @@ export const ConflictListPanel: React.FC = () => {
         key: 'timestamp',
         header: 'Timestamp',
         sortable: true,
+        // A time the extension sent that is not a date read "Invalid Date".
         render: (row: UIConflict) => (
-          <span className="text-[10px]">{new Date(row.timestamp).toLocaleString(uiLocale())}</span>
+          <span className="text-[10px]">
+            {formatStoredDate(row.timestamp, (date) => date.toLocaleString(uiLocale())) ??
+              t('common.dateUnknown')}
+          </span>
         ),
       },
     ],

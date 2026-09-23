@@ -6,7 +6,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import { ListCapNote } from './ListCapNote';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Response shape from monitor:error-logs. */
 interface ErrorLogsData {
@@ -127,7 +127,7 @@ export const ErrorLogsPanel: React.FC = () => {
             data-testid={`error-log-row-${error.id}`}
           >
             <span className="text-[11px] tabular-nums text-text-secondary w-28 shrink-0">
-              {dateFormatter().format(new Date(error.timestamp))}
+              {formatStoredDate(error.timestamp, dateFormatter().format) ?? t('common.dateUnknown')}
             </span>
             <span className="w-24 shrink-0">
               <Badge variant="error">{error.errorType}</Badge>

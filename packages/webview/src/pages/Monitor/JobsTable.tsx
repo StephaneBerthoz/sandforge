@@ -7,7 +7,12 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import type { JobDisplayInfo } from './MonitorPage';
-import { dateTimeFormat, formatNumber, formatRelativeTimeI18n } from '../../utils/formatters';
+import {
+  dateTimeFormat,
+  formatNumber,
+  formatRelativeTimeI18n,
+  formatStoredDate,
+} from '../../utils/formatters';
 
 /** Filter for job status */
 export type JobFilter = 'all' | 'running' | 'failed' | 'completed';
@@ -451,10 +456,13 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                       </div>
                       {group.jobs.map((job) => {
                         const created = new Date(job.createdDate);
-                        const exactCreated = dateTimeFormat({
-                          dateStyle: 'short',
-                          timeStyle: 'short',
-                        }).format(created);
+                        // A creation date that is not a date threw "Invalid
+                        // time value", and the jobs table did not render.
+                        const exactCreated =
+                          formatStoredDate(
+                            job.createdDate,
+                            dateTimeFormat({ dateStyle: 'short', timeStyle: 'short' }).format,
+                          ) ?? t('common.dateUnknown');
                         const isRecent = Date.now() - created.getTime() < DAY_MS;
                         return (
                           <div

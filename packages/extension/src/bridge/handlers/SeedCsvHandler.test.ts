@@ -426,6 +426,31 @@ describe('SeedCsvHandler', () => {
         });
       });
 
+      it('counts the rows written before the cancel stopped the write between two batches', async () => {
+        // Those rows stay in the org: an import that left them out said it
+        // wrote nothing.
+        writer.insert.mockImplementation(async () => {
+          registry.abort(OPERATION_ID);
+          throw new WriteCancelledError('Account', [
+            { id: '001TGT1', success: true, errors: [] },
+            { success: false, errors: ['REQUIRED_FIELD_MISSING: Name'] },
+          ]);
+        });
+
+        await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
+
+        expect(posted(deps, 'operation:completed')[0].payload as unknown).toEqual({
+          operationId: OPERATION_ID,
+          result: { aborted: true, insertedCount: 1, failedCount: 1 },
+        });
+        expect(posted(deps, 'seed:csv:execute:response')[0].payload as unknown).toEqual({
+          insertedCount: 1,
+          failedCount: 1,
+          errors: ['REQUIRED_FIELD_MISSING: Name'],
+          cancelled: true,
+        });
+      });
+
       it('still fails when the write fails while the cancel is pending', async () => {
         writer.insert.mockImplementation(async () => {
           registry.abort(OPERATION_ID);

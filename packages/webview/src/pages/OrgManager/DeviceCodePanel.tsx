@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import type { OrgDeviceCode } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Props of {@link DeviceCodePanel}. */
 export interface DeviceCodePanelProps {
@@ -33,9 +33,13 @@ export const DeviceCodePanel: React.FC<DeviceCodePanelProps> = ({ code, onCancel
   // The host only sends an https page on a Salesforce host; anything else is
   // shown as text and never made clickable.
   const link = code.verificationUri.startsWith('https://') ? code.verificationUri : null;
-  const expiresAt = dateTimeFormat({ hour: '2-digit', minute: '2-digit' }).format(
-    new Date(code.expiresAt),
-  );
+  // A time the extension sent that is not a date threw "Invalid time value",
+  // and the code to enter never showed.
+  const expiresAt =
+    formatStoredDate(
+      code.expiresAt,
+      dateTimeFormat({ hour: '2-digit', minute: '2-digit' }).format,
+    ) ?? t('common.dateUnknown');
 
   return (
     <div className="grid gap-2 max-w-lg" data-testid="org-device-code">

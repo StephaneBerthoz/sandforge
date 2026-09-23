@@ -9,7 +9,7 @@ import { Timeline } from '../../components/ui/Timeline';
 import type { TimelineItem, TimelineStatus } from '../../components/ui/Timeline';
 import type { DeploymentEntry } from '@sandforge/shared';
 import { ListCapNote } from './ListCapNote';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 
 /** Response shape from monitor:deployments. */
 interface DeploymentData {
@@ -38,14 +38,17 @@ function statusToTimelineStatus(status: DeploymentEntry['status']): TimelineStat
   }
 }
 
-/** Formats an ISO date to a readable local string. */
-function formatDate(iso: string): string {
-  return dateTimeFormat({
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso));
+/** Formats an ISO date to a readable local string; null when the org sent no date. */
+function formatDate(iso: string): string | null {
+  return formatStoredDate(
+    iso,
+    dateTimeFormat({
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format,
+  );
 }
 
 /**
@@ -74,7 +77,8 @@ export const DeploymentTimeline: React.FC = () => {
           d.errorCount > 0
             ? `${d.status} (${t('monitor.deployments.errorCount', { count: d.errorCount })})`
             : d.status,
-        timestamp: formatDate(d.startDate),
+        // One that is not a date threw "Invalid time value": no deployment showed.
+        timestamp: formatDate(d.startDate) ?? t('common.dateUnknown'),
         status: statusToTimelineStatus(d.status),
       })),
     [deployments, t],

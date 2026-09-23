@@ -1,11 +1,11 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { format } from 'date-fns';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
+import { formatStoredDate } from '../../utils/formatters';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -58,16 +58,19 @@ export const SyncHistoryDetail: React.FC = () => {
         </button>
       </div>
 
-      {/* Meta info */}
+      {/* Meta info. The times are read from storage: one that is not a date
+          reads as unknown, where formatting it threw and the detail did not
+          open. */}
       <div className="flex gap-[var(--sf-space-3)] text-xs text-text-secondary">
-        <span>{format(new Date(startTime), 'yyyy-MM-dd HH:mm:ss')}</span>
+        <span>{formatStoredDate(startTime, 'yyyy-MM-dd HH:mm:ss') ?? t('common.dateUnknown')}</span>
         <span>
           {t('sync.history.triggeredBy')}:{' '}
           {t(`sync.history.triggered${triggeredBy.charAt(0).toUpperCase()}${triggeredBy.slice(1)}`)}
         </span>
         {endTime && (
           <span>
-            {t('sync.history.endTime')}: {format(new Date(endTime), 'HH:mm:ss')}
+            {t('sync.history.endTime')}:{' '}
+            {formatStoredDate(endTime, 'HH:mm:ss') ?? t('common.dateUnknown')}
           </span>
         )}
       </div>

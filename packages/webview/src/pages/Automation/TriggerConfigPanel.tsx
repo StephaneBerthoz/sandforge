@@ -12,7 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { dateTimeFormat } from '../../utils/formatters';
+import { dateTimeFormat, formatStoredDate } from '../../utils/formatters';
 import { getLocalTimezone, getTimezones } from '../Sync/CronScheduleBuilder';
 
 /** A registered sandbox a sandbox refresh trigger can name. */
@@ -83,14 +83,20 @@ function sameAsSaved(trigger: PipelineTrigger, saved: PipelineTrigger | undefine
   );
 }
 
-/** A date and time in SandForge's language, in `timeZone` when it is one this browser knows. */
-export function formatTriggerTime(iso: string, timeZone?: string): string {
-  const date = new Date(iso);
-  try {
-    return dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date);
-  } catch {
-    return dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(date);
-  }
+/**
+ * A date and time in SandForge's language, in `timeZone` when it is one this
+ * browser knows; null when the extension sent something that is not a date.
+ * The zone's fallback formatted that value again, threw "Invalid time value"
+ * a second time, and the trigger panel did not render.
+ */
+export function formatTriggerTime(iso: string, timeZone?: string): string | null {
+  return formatStoredDate(iso, (date) => {
+    try {
+      return dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date);
+    } catch {
+      return dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(date);
+    }
+  });
 }
 
 /** What a schedule or sandbox refresh trigger will do, as the page can tell it. */
@@ -125,7 +131,7 @@ const TriggerState: React.FC<{
   const last = status.lastFiredAt ? (
     <p className={line} data-testid={`trigger-last-${trigger.id}`}>
       {t(`automation.triggerLast.${status.lastOutcome ?? 'started'}`, {
-        time: formatTriggerTime(status.lastFiredAt),
+        time: formatTriggerTime(status.lastFiredAt) ?? t('common.dateUnknown'),
       })}
     </p>
   ) : null;
@@ -146,7 +152,7 @@ const TriggerState: React.FC<{
       {status.type === 'schedule' && status.nextRunAt ? (
         <p className={line} data-testid={`trigger-next-run-${trigger.id}`}>
           {t('automation.triggerNextRun', {
-            time: formatTriggerTime(status.nextRunAt, status.timezone),
+            time: formatTriggerTime(status.nextRunAt, status.timezone) ?? t('common.dateUnknown'),
             timezone: status.timezone ?? '',
           })}
         </p>

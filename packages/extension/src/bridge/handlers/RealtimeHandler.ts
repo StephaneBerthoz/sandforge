@@ -77,9 +77,12 @@ export interface RealtimeOrgAccess {
   reader(orgId: string): OrgReader;
   /**
    * Sync's write path into an org, each write announced as SandForge's
-   * real-time client, cancelled with the session.
+   * real-time client. A write is never stopped halfway: a session that stops
+   * finishes the batch it is writing and stores its resume point past it (see
+   * `RealtimeSession.stop`), so a write cut short between two of its batches
+   * would leave changes that are never written and never replayed.
    */
-  writer(orgId: string, signal: AbortSignal): TargetWrite;
+  writer(orgId: string): TargetWrite;
   /** A Tooling API query on an org, every record of it. */
   tooling(orgId: string, soql: string): Promise<Record<string, unknown>[]>;
 }
@@ -126,7 +129,7 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
         },
       };
     },
-    writer(orgId, signal) {
+    writer(orgId) {
       return async (config, records) => {
         const pooled = await connect(orgId);
         // The same session, announcing itself: the org writes the client id
@@ -138,7 +141,10 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
           bulkExecutor: new BulkApiExecutor(robustness.bulk.threshold),
           bulkManager: bulkManagerOf(deps),
           retryConfig: robustness.retry,
-          signal,
+          // No `signal`: the writer stops a REST write between two batches,
+          // and aborts a Bulk API job, on the cancel it is given, and a
+          // session's batch has to be finished even when the session is
+          // stopped. The session's cancel stops it between batches.
           onProgress: () => {},
           log: (message) => deps.log(message),
         });
@@ -440,7 +446,7 @@ export class RealtimeHandler implements DomainHandler {
       const ownWrites = new OwnWriteLedger();
       const source = this.access.reader(parsed.sourceOrgId);
       const target = this.access.reader(parsed.targetOrgId);
-      const write = this.access.writer(parsed.targetOrgId, abort.signal);
+      const write = this.access.writer(parsed.targetOrgId);
       const appliers = new Map(
         plans.map((plan) => [
           plan.objectApiName,
