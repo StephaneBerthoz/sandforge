@@ -1431,6 +1431,118 @@ describe('ForgeExecutor', () => {
       expect(inserted['AccountContactRelation'].some((r) => r['Name'] === 'Elsewhere')).toBe(false);
     });
 
+    describe('an order past Draft', () => {
+      const ORDER = '801000000000001AAA';
+
+      /**
+       * An account with one activated order and its item, and a target that
+       * refuses what the platform refuses: an order born past Draft — "for a
+       * new or cloned order, choose Draft" — and an item under an order that
+       * is not a draft.
+       */
+      function activatedOrder() {
+        const orgs = fakeOrgs(
+          {
+            Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+            Order: [{ Id: ORDER, Name: 'First', AccountId: ACCOUNT, Status: 'Live' }],
+            OrderItem: [{ Id: '802000000000001AAA', Name: 'Item', OrderId: ORDER }],
+          },
+          {
+            Account: [idField, text('Name')],
+            Order: [idField, text('Name'), lookup('AccountId', 'Account', true), text('Status')],
+            OrderItem: [idField, text('Name'), lookup('OrderId', 'Order', true)],
+          },
+        );
+        const { orgDeps } = orgs;
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) =>
+          soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+            ? [
+                { ApiName: 'Open', StatusCode: 'Draft' },
+                { ApiName: 'Live', StatusCode: 'Activated' },
+              ]
+            : query(org, soql, onTruncated);
+        const statusOf = new Map<unknown, unknown>();
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, rows) => {
+          if (object === 'Order' && rows.some((r) => r['Status'] !== 'Open')) {
+            return rows.map(() => ({
+              id: '',
+              success: false,
+              errors: ['FAILED_ACTIVATION: for a new or cloned order, choose Draft'],
+            }));
+          }
+          if (object === 'OrderItem' && rows.some((r) => statusOf.get(r['OrderId']) !== 'Open')) {
+            return rows.map(() => ({
+              id: '',
+              success: false,
+              errors: ['FIELD_INTEGRITY_EXCEPTION: unable to modify activated order'],
+            }));
+          }
+          const results = await insert(org, object, rows);
+          if (object === 'Order') rows.forEach((r, i) => statusOf.set(results[i].id, r['Status']));
+          return results;
+        };
+        const graph = makeGraph(
+          [makeNode('Account'), makeNode('Order'), makeNode('OrderItem')],
+          [
+            { ...edge('Account', 'Order'), required: true },
+            { ...edge('Order', 'OrderItem'), required: true },
+          ],
+        );
+        return { ...orgs, graph };
+      }
+
+      it('writes an activated order as a draft, its item under it, then activates it again', async () => {
+        const { orgDeps, inserted, updated, graph } = activatedOrder();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['Order']).toEqual([
+          { Name: 'First', AccountId: 'Account:Acme', Status: 'Open' },
+        ]);
+        expect(inserted['OrderItem']).toEqual([{ Name: 'Item', OrderId: 'Order:First' }]);
+        expect(updated).toEqual([
+          { object: 'Order', rows: [{ Id: 'Order:First', Status: 'Live' }] },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('says which order the target would not take back past Draft, and leaves it a draft', async () => {
+        const { orgDeps, inserted, graph } = activatedOrder();
+        orgDeps.updateRecords = async (_org, _object, rows) =>
+          rows.map((row) => ({
+            id: String(row['Id']),
+            success: false,
+            errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: an order needs a billing address'],
+          }));
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['OrderItem']).toHaveLength(1);
+        expect(summary.errors).toEqual([
+          {
+            objectApiName: 'Order',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 1,
+            samples: [
+              {
+                recordSummary: 'Order Order:First Status=Live',
+                messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: an order needs a billing address'],
+              },
+            ],
+          },
+        ]);
+      });
+    });
+
     it('writes a root opportunity after its account, instead of patching the account in afterwards', async () => {
       // A line of the opportunity has a required lookup, so the order is
       // settled on required edges — and the opportunity, met first, was

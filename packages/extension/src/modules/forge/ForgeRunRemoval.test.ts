@@ -74,10 +74,39 @@ class FakeOrg implements RemovalOrg {
     };
   }
 
+  readonly updates: Array<{ object: string; records: Array<Record<string, unknown>> }> = [];
+
+  async update(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown> {
+    this.updates.push({ object: objectApiName, records: records.map((r) => ({ ...r })) });
+    return records.map((record) => {
+      const row = (this.rows.get(objectApiName) ?? []).find((r) => r.Id === record.Id);
+      if (row) Object.assign(row, record, { LastModifiedDate: new Date().toISOString() });
+      return { id: record.Id, success: row !== undefined, errors: [] };
+    });
+  }
+
   async query(soql: string): Promise<{ totalSize: number; records: unknown[] }> {
     this.queries.push(soql);
     if (this.failingQueries.some((pattern) => pattern.test(soql))) {
       throw new Error('INVALID_FIELD: No such column on entity');
+    }
+    // The statuses of a lifecycle object, each with its category.
+    const statuses = /^SELECT ApiName, StatusCode FROM (\w+)$/.exec(soql);
+    if (statuses) {
+      const records = this.rows.get(statuses[1]) ?? [];
+      return { totalSize: records.length, records };
+    }
+    // The standard prices among some price book entries.
+    const standard =
+      /^SELECT Id FROM PricebookEntry WHERE Id IN \((.*)\) AND Pricebook2\.IsStandard = true$/.exec(
+        soql,
+      );
+    if (standard) {
+      const wanted = new Set(standard[1].split(', ').map((quoted) => quoted.slice(1, -1)));
+      const records = (this.rows.get('PricebookEntry') ?? [])
+        .filter((row) => wanted.has(row.Id) && row.IsStandardPrice === true)
+        .map((row) => ({ Id: row.Id }));
+      return { totalSize: records.length, records };
     }
     const match = /^SELECT (.+) FROM (\w+) WHERE (\w+) IN \((.*)\)(?: LIMIT \d+)?$/.exec(soql);
     if (!match) throw new Error(`unexpected query: ${soql}`);
@@ -474,7 +503,7 @@ describe('removeRunRecords', () => {
 
   it('refuses a whole object it cannot read, and goes on with the next', async () => {
     const { org, plan } = accountWithContacts();
-    org.failingQueries.push(/^SELECT Id, LastModifiedDate FROM Contact /);
+    org.failingQueries.push(/^SELECT Id, (LastModifiedDate|SystemModstamp) FROM Contact /);
     org.add('Opportunity', runRow(id('006', 1)));
 
     const outcome = await removeRunRecords(
@@ -650,6 +679,209 @@ describe('removeRunRecords', () => {
         reasons: ['DELETE_FAILED: some opportunities of this account were closed won'],
       });
       expect(org.deletes.filter((d) => d.object === 'Account')).toHaveLength(2);
+    });
+  });
+
+  describe('what a clone with its orders and prices leaves', () => {
+    it('reads an object that keeps no modified date by its system stamp', async () => {
+      // An email message's relations keep a CreatedDate and a SystemModstamp,
+      // and no LastModifiedDate: read by it, the object was refused whole.
+      const org = new FakeOrg();
+      org.columns.set('EmailMessageRelation', ['Id', 'SystemModstamp', 'CreatedDate']);
+      org.add('EmailMessageRelation', {
+        Id: id('0ER', 1),
+        CreatedDate: DURING_RUN,
+        SystemModstamp: DURING_RUN,
+      });
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'EmailMessageRelation', ids: [id('0ER', 1)] }],
+        options(),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({ deleted: 1, refused: 0, reasons: [] });
+    });
+
+    it('lets go of what the org records about the removal while it runs', async () => {
+      // Deleting an opportunity's line items changes its amount, and feed
+      // tracking records the change on the opportunity: a feed item created
+      // after the run, which held the opportunity as something added since.
+      const org = new FakeOrg();
+      const opportunity = id('006', 1);
+      org.relationships.set('Opportunity', [
+        { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+        { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+      ]);
+      org.add('Opportunity', runRow(opportunity));
+      org.add('OpportunityLineItem', runRow(id('00k', 1), { OpportunityId: opportunity }));
+      org.onDelete = (object) => {
+        if (object !== 'OpportunityLineItem') return;
+        const now = new Date().toISOString();
+        org.add('FeedItem', {
+          Id: id('0D5', 1),
+          ParentId: opportunity,
+          CreatedDate: now,
+          LastModifiedDate: now,
+        });
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'OpportunityLineItem', ids: [id('00k', 1)] },
+          { objectApiName: 'Opportunity', ids: [opportunity] },
+        ],
+        options(),
+      );
+
+      expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.keptDependents])).toEqual([
+        ['OpportunityLineItem', 1, 0],
+        ['Opportunity', 1, 0],
+      ]);
+      expect(org.has('Opportunity', opportunity)).toBe(false);
+    });
+
+    it('deletes the custom prices of a run before its standard ones, in calls of their own', async () => {
+      // Asked for both in one call, the org refuses a standard price while a
+      // custom price of its product is still there — UNKNOWN_EXCEPTION.
+      const org = new FakeOrg();
+      const standard = [1, 2].map((n) => id('01u', n));
+      const custom = [3, 4].map((n) => id('01u', n));
+      org.add(
+        'PricebookEntry',
+        ...standard.map((price, n) =>
+          runRow(price, { Product2Id: `product${n}`, IsStandardPrice: true }),
+        ),
+        ...custom.map((price, n) =>
+          runRow(price, { Product2Id: `product${n}`, IsStandardPrice: false }),
+        ),
+      );
+      const call: string[] = [];
+      org.refuse = (object, row) => {
+        if (object !== 'PricebookEntry' || row.IsStandardPrice !== true) return undefined;
+        const customLeft = (org.rows.get('PricebookEntry') ?? []).some(
+          (price) =>
+            price.IsStandardPrice === false &&
+            price.Product2Id === row.Product2Id &&
+            !call.includes(price.Id),
+        );
+        return customLeft
+          ? { statusCode: 'UNKNOWN_EXCEPTION', message: 'An unexpected error occurred.' }
+          : undefined;
+      };
+      const destroy = org.destroy.bind(org);
+      org.destroy = async (object, ids) => {
+        call.length = 0;
+        return destroy(object, ids);
+      };
+
+      // Written standard first, so the plan names the custom ones first.
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'PricebookEntry', ids: [...custom, ...standard] }],
+        options(),
+      );
+
+      expect(outcome.objects[0]).toMatchObject({ deleted: 4, refused: 0 });
+      expect(org.deletes.map((d) => d.ids)).toEqual([custom, standard]);
+    });
+
+    it('returns an activated order to a draft before deleting its items and itself', async () => {
+      // An activated order keeps its products and itself from being deleted.
+      const org = new FakeOrg();
+      const order = id('801', 1);
+      org.add('OrderStatus', { Id: 'status-open', ApiName: 'Open', StatusCode: 'Draft' });
+      org.add('OrderStatus', { Id: 'status-live', ApiName: 'Live', StatusCode: 'Activated' });
+      org.add('Order', runRow(order, { Status: 'Live' }));
+      org.add('OrderItem', runRow(id('802', 1), { OrderId: order }));
+      org.relationships.set('Order', [
+        { childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true },
+      ]);
+      org.refuse = (object, row) => {
+        const orderOf =
+          object === 'Order'
+            ? row
+            : (org.rows.get('Order') ?? []).find((o) => o.Id === row.OrderId);
+        return orderOf?.Status === 'Live'
+          ? { statusCode: 'FIELD_INTEGRITY_EXCEPTION', message: 'unable to modify activated order' }
+          : undefined;
+      };
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'OrderItem', ids: [id('802', 1)] },
+          { objectApiName: 'Order', ids: [order] },
+        ],
+        options(),
+      );
+
+      expect(org.updates).toEqual([{ object: 'Order', records: [{ Id: order, Status: 'Open' }] }]);
+      expect(outcome.objects.map((o) => [o.objectApiName, o.deleted, o.refused])).toEqual([
+        ['OrderItem', 1, 0],
+        ['Order', 1, 0],
+      ]);
+    });
+
+    it('counts as gone, not refused, the relations an email message took along', async () => {
+      // The org deletes an email message's relations only with their message.
+      const org = new FakeOrg();
+      const message = id('02s', 1);
+      const relations = [1, 2, 3].map((n) => id('0ER', n));
+      org.relationships.set('EmailMessage', [
+        { childSObject: 'EmailMessageRelation', field: 'EmailMessageId', cascadeDelete: true },
+      ]);
+      org.notWorked.add('EmailMessageRelation');
+      org.add('EmailMessage', runRow(message));
+      org.add(
+        'EmailMessageRelation',
+        ...relations.map((relation) => runRow(relation, { EmailMessageId: message })),
+      );
+      org.refuse = (object) =>
+        object === 'EmailMessageRelation'
+          ? {
+              statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY',
+              message: 'can be updated only in a draft state',
+            }
+          : undefined;
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'EmailMessageRelation', ids: relations },
+          { objectApiName: 'EmailMessage', ids: [message] },
+        ],
+        options(),
+      );
+
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({
+          objectApiName: 'EmailMessageRelation',
+          deleted: 0,
+          alreadyGone: 3,
+          refused: 0,
+          reasons: [],
+        }),
+        expect.objectContaining({ objectApiName: 'EmailMessage', deleted: 1 }),
+      ]);
+    });
+
+    it('leaves an activated order it keeps as it was', async () => {
+      const org = new FakeOrg();
+      const order = id('801', 1);
+      org.add('OrderStatus', { Id: 'status-open', ApiName: 'Open', StatusCode: 'Draft' });
+      org.add('OrderStatus', { Id: 'status-live', ApiName: 'Live', StatusCode: 'Activated' });
+      org.add('Order', { ...runRow(order, { Status: 'Live' }), LastModifiedDate: AFTER_RUN });
+
+      const outcome = await removeRunRecords(
+        org,
+        [{ objectApiName: 'Order', ids: [order] }],
+        options(),
+      );
+
+      expect(org.updates).toEqual([]);
+      expect(outcome.objects[0]).toMatchObject({ keptChanged: 1, deleted: 0 });
     });
   });
 

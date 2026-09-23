@@ -158,6 +158,11 @@ class TargetOrg implements RemovalOrg {
     return { totalSize: records.length, records };
   }
 
+  /** No record of a file-copying run is put back to Draft: nothing to change. */
+  async update(): Promise<unknown> {
+    return [];
+  }
+
   async destroy(objectApiName: string, ids: string[]): Promise<unknown> {
     return ids.map((recordId) => {
       if (objectApiName === 'ContentVersion') {
@@ -322,17 +327,30 @@ describe('removing the records a run created, when the run copied files', () => 
   });
 
   it('keeps a file someone linked since the run to a record the run did not create', async () => {
-    const target = new TargetOrg();
-    const run = await cloneInto(target);
-    const [document] = target.all('ContentDocument');
-    target.share(document.Id, id('001', 777));
+    // Someone shares the file a minute after the run, and the removal comes a
+    // minute after that: a link made during the removal would be its own doing.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const target = new TargetOrg();
+      const run = await cloneInto(target);
+      const [document] = target.all('ContentDocument');
+      vi.setSystemTime(Date.now() + 60_000);
+      target.share(document.Id, id('001', 777));
+      vi.setSystemTime(Date.now() + 60_000);
 
-    const outcome = await removeRun(target, run);
+      const outcome = await removeRun(target, run);
 
-    const files = outcome.objects.find((o) => o.objectApiName === 'ContentDocument');
-    expect(files).toMatchObject({ deleted: 0, keptDependents: 1, heldBy: ['ContentDocumentLink'] });
-    expect(target.all('ContentDocument')).toHaveLength(1);
-    // The case goes all the same: its link to the run's own file came with the run.
-    expect(target.all('Case')).toEqual([]);
+      const files = outcome.objects.find((o) => o.objectApiName === 'ContentDocument');
+      expect(files).toMatchObject({
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['ContentDocumentLink'],
+      });
+      expect(target.all('ContentDocument')).toHaveLength(1);
+      // The case goes all the same: its link to the run's own file came with the run.
+      expect(target.all('Case')).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

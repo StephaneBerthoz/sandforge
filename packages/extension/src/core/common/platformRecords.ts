@@ -97,6 +97,36 @@ export async function directAccountContactRelations(
   return found;
 }
 
+/**
+ * Of the price book entries `ids`, the ones in the standard price book.
+ *
+ * A standard price goes only once the custom prices of its product have:
+ * asked for both in one delete call, the target refuses the standard one with
+ * an `UNKNOWN_EXCEPTION` — the insert's rule, run backwards. Learnt by the
+ * Frozen purge first, and again by Forge's run removal, which left 33
+ * standard prices behind, and the products and options they held, the first
+ * time a clone's prices went in one call.
+ */
+export async function standardPriceIds(
+  query: SoqlQuery,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  const standard = new Set<string>();
+  for (let i = 0; i < ids.length; i += DIRECT_RELATION_CHUNK) {
+    const inList = ids
+      .slice(i, i + DIRECT_RELATION_CHUNK)
+      .map((id) => `'${sanitizeSoqlValue(id)}'`)
+      .join(', ');
+    const rows = await query(
+      `SELECT Id FROM PricebookEntry WHERE Id IN (${inList}) AND Pricebook2.IsStandard = true`,
+    );
+    for (const row of rows) {
+      if (typeof row['Id'] === 'string') standard.add(row['Id']);
+    }
+  }
+  return standard;
+}
+
 /** Products per `IN` list when the selling model options are looked up. */
 const OPTION_CHUNK = 200;
 

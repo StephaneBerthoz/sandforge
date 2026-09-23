@@ -1,8 +1,15 @@
 import { z } from 'zod';
 import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/shared';
+import { isPricebookEntry } from '@sandforge/shared';
 
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  STATUS_LIFECYCLES,
+  standardPriceIds,
+  statusCategories,
+  type SoqlQuery,
+} from '../../core/common/platformRecords.js';
 import { describedObjectSchema } from '../dataops/DataQualityScanner.js';
 import type { OrgSession } from '../dataops/RecordRemoval.js';
 import {
@@ -72,8 +79,18 @@ function fileLinkCameWithRun(
   );
 }
 
+/**
+ * The dates a snapshot of the run's records reads them by, tried in turn: an
+ * object that keeps no `LastModifiedDate` — a relation of an email message —
+ * still keeps its system stamp.
+ */
+const SNAPSHOT_DATE_COLUMNS: readonly string[] = ['LastModifiedDate', 'SystemModstamp'];
+
 /** What the removal of a run's records needs from the org it wrote to. */
-export type RemovalOrg = Pick<OrgSession, 'query' | 'destroy' | 'describe' | 'describeGlobal'>;
+export type RemovalOrg = Pick<
+  OrgSession,
+  'query' | 'destroy' | 'describe' | 'describeGlobal' | 'update'
+>;
 
 /** How a removal of a run's records goes. */
 export interface RunRemovalOptions {
@@ -260,6 +277,7 @@ export async function removeRunRecords(
   plan: readonly ForgeRunObjectRecords[],
   options: RunRemovalOptions,
 ): Promise<RunRemovalOutcome> {
+  const removalStart = Date.now();
   const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const runEnd = options.runEndedAt.getTime();
   const runStart = options.runStartedAt.getTime();
@@ -286,6 +304,7 @@ export async function removeRunRecords(
   const session: RemovalOrg = {
     query: (soql) => org.query(soql),
     destroy: (objectApiName, ids) => org.destroy(objectApiName, ids),
+    update: (objectApiName, records) => org.update(objectApiName, records),
     describeGlobal: () => org.describeGlobal(),
     describe: (objectApiName) => {
       let described = describes.get(objectApiName);
@@ -306,7 +325,19 @@ export async function removeRunRecords(
     stays: (key) => changed.has(key) && !options.includeChanged,
     runStart,
     runEnd,
+    removalStart,
     includeChanged: options.includeChanged,
+  });
+
+  if (stopped()) return { objects: [], cancelled: true };
+  await backToDraft(session, dependents, order, (objectApiName, id) => {
+    const key = recordKey(id);
+    const snapshot = snapshots.get(objectApiName);
+    return (
+      snapshot?.error === undefined &&
+      snapshot?.lastModified.has(key) === true &&
+      !(changed.has(key) && !options.includeChanged)
+    );
   });
 
   const removals: ObjectRemoval[] = [];
@@ -371,7 +402,39 @@ export async function removeRunRecords(
       if (removal.result.deleted > deletedBefore) progress = true;
     }
   }
+
+  for (const removal of removals) {
+    if (stopped()) return outcome(true);
+    await settleTakenAlong(session, removal);
+  }
   return outcome(false);
+}
+
+/**
+ * Count as gone the refused records the org no longer holds: a parent the
+ * removal deleted took them along.
+ *
+ * The org deletes an email message's relations only with their message —
+ * "can be updated only in a draft state", on each of them — and the removal
+ * reaches the relations first, children before their parents. Their message
+ * took them a call later, and the removal still said the org had refused
+ * them, and that it ended partial.
+ */
+async function settleTakenAlong(org: RemovalOrg, removal: ObjectRemoval): Promise<void> {
+  const refused = [...removal.refused.keys()];
+  if (refused.length === 0) return;
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = await readRecordsById(org, removal.result.objectApiName, [], refused);
+  } catch {
+    return;
+  }
+  const still = new Set(rows.map((row) => recordKey(String(row.Id))));
+  for (const id of refused) {
+    if (still.has(recordKey(id))) continue;
+    removal.refused.delete(id);
+    removal.result.alreadyGone++;
+  }
 }
 
 /**
@@ -421,6 +484,104 @@ async function removalOrder(
   return ordered;
 }
 
+/** A SOQL query of the org, answering its rows. */
+function queryOf(org: RemovalOrg): SoqlQuery {
+  return async (soql) => {
+    const answer = await org.query(soql);
+    return answer.records.filter(
+      (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
+    );
+  };
+}
+
+/**
+ * Return to a Draft status, before anything is deleted, the run's records of
+ * an object with a status lifecycle — an order, a contract — that are past
+ * Draft and set to go.
+ *
+ * An activated order keeps its products and itself from being deleted —
+ * "unable to modify activated order" — and a clone now writes orders back as
+ * the source held them, activated ones included. The Frozen purge learnt it
+ * first. Only a record the removal means to delete is touched: one it keeps,
+ * changed since the run or held for a record that stays, is left as it is. A
+ * refusal here shows again, with its reason, as the delete that follows.
+ *
+ * @param goes - Whether the record is still in the org and not kept as changed.
+ */
+async function backToDraft(
+  org: RemovalOrg,
+  dependents: DependentsCheck,
+  order: readonly ForgeRunObjectRecords[],
+  goes: (objectApiName: string, id: string) => boolean,
+): Promise<void> {
+  const query = queryOf(org);
+  for (const { objectApiName, ids } of order) {
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    if (!lifecycle) continue;
+    const candidates = ids.filter((id) => goes(objectApiName, id));
+    if (candidates.length === 0) continue;
+    const categories = await statusCategories(query, lifecycle);
+    if (!categories?.draft) continue;
+    const draft = categories.draft;
+    const { held } = await dependents.heldAmong(objectApiName, candidates);
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await readRecordsById(org, objectApiName, ['Status'], candidates);
+    } catch {
+      continue;
+    }
+    const pastDraft = rows
+      .filter((row) => typeof row.Id === 'string' && !held.has(recordKey(row.Id)))
+      .filter((row) => {
+        const category = categories.categoryOf.get(String(row.Status));
+        return category !== undefined && category !== 'Draft';
+      })
+      .map((row) => String(row.Id));
+    for (let at = 0; at < pastDraft.length; at += RECORDS_PER_CALL) {
+      const batch = pastDraft.slice(at, at + RECORDS_PER_CALL);
+      try {
+        await org.update(
+          objectApiName,
+          batch.map((id) => ({ Id: id, Status: draft })),
+        );
+      } catch {
+        // Shown again by the delete.
+      }
+    }
+  }
+}
+
+/**
+ * The batches `ids` of one object are deleted in: every custom price before
+ * any standard one, which the org refuses while a custom price of its product
+ * is left — `UNKNOWN_EXCEPTION` when both went in one call.
+ */
+async function deleteRounds(
+  org: RemovalOrg,
+  objectApiName: string,
+  ids: string[],
+): Promise<string[][]> {
+  const rounds: string[][] = [];
+  const cut = (list: string[]): void => {
+    for (let at = 0; at < list.length; at += RECORDS_PER_CALL) {
+      rounds.push(list.slice(at, at + RECORDS_PER_CALL));
+    }
+  };
+  if (!isPricebookEntry(objectApiName) || ids.length === 0) {
+    cut(ids);
+    return rounds;
+  }
+  let standard = new Set<string>();
+  try {
+    standard = new Set([...(await standardPriceIds(queryOf(org), ids))].map(recordKey));
+  } catch {
+    // Unread, the prices go as they come: the retry takes what is refused.
+  }
+  cut(ids.filter((id) => !standard.has(recordKey(id))));
+  cut(ids.filter((id) => standard.has(recordKey(id))));
+  return rounds;
+}
+
 /** How {@link removeCandidates} reports as it goes. */
 interface CandidateHooks {
   stopped: () => boolean;
@@ -459,9 +620,8 @@ async function removeCandidates(
   hooks.onHeld?.(removal.held.length);
 
   const toDelete = candidates.filter((id) => !verdict.held.has(recordKey(id)));
-  for (let at = 0; at < toDelete.length; at += RECORDS_PER_CALL) {
+  for (const batch of await deleteRounds(org, objectApiName, toDelete)) {
     if (hooks.stopped()) return true;
-    const batch = toDelete.slice(at, at + RECORDS_PER_CALL);
     const outcomes = await deleteBatch(org, objectApiName, batch);
     batch.forEach((id, index) => {
       const result = outcomes[index];
@@ -478,24 +638,31 @@ async function removeCandidates(
   return false;
 }
 
-/** Which records of one object are still in the org, and when each was last modified. */
+/**
+ * Which records of one object are still in the org, and when each was last
+ * modified — by its system stamp when the object keeps no modified date. An
+ * email message's relation keeps none: read by it alone, the object was
+ * refused whole, and the removal said so of records its message took along.
+ */
 async function snapshotOf(
   org: RemovalOrg,
   objectApiName: string,
   ids: readonly string[],
 ): Promise<ObjectSnapshot> {
-  try {
-    const rows = await readRecordsById(org, objectApiName, ['LastModifiedDate'], ids);
-    const lastModified = new Map<string, number>();
-    for (const row of rows) {
-      if (typeof row.Id === 'string') {
-        lastModified.set(recordKey(row.Id), epochOf(row.LastModifiedDate));
+  let error: string | undefined;
+  for (const column of SNAPSHOT_DATE_COLUMNS) {
+    try {
+      const rows = await readRecordsById(org, objectApiName, [column], ids);
+      const lastModified = new Map<string, number>();
+      for (const row of rows) {
+        if (typeof row.Id === 'string') lastModified.set(recordKey(row.Id), epochOf(row[column]));
       }
+      return { lastModified };
+    } catch (err: unknown) {
+      error ??= extractErrorMessage(err);
     }
-    return { lastModified };
-  } catch (err: unknown) {
-    return { lastModified: new Map(), error: extractErrorMessage(err) };
   }
+  return { lastModified: new Map(), error };
 }
 
 /** What a delete did to one record. */
@@ -545,6 +712,8 @@ interface DependentsContext {
   stays: (key: string) => boolean;
   runStart: number;
   runEnd: number;
+  /** When this removal started: what was created after it is its own doing. */
+  removalStart: number;
   /** Whether what changed since the run, and what was added since, goes too. */
   includeChanged: boolean;
 }
@@ -684,7 +853,7 @@ class DependentsCheck {
    */
   private stays(row: Record<string, unknown>): boolean {
     const key = recordKey(row.Id as string);
-    const { runRecords, reached, runStart, runEnd, includeChanged } = this.context;
+    const { runRecords, reached, runStart, runEnd, removalStart, includeChanged } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
     if (fileLinkCameWithRun(row, runRecords)) return false;
     const dated =
@@ -694,6 +863,12 @@ class DependentsCheck {
     const modified = epochOf(dated === 'CreatedDate' ? row.LastModifiedDate : row.SystemModstamp);
     // A date that cannot be read cannot show the record came with the run.
     if (!(created >= runStart)) return true;
+    // Created once this removal was under way: the org answering what the
+    // removal did. Deleting an opportunity's line items changes its amount,
+    // and feed tracking records the change on the opportunity — which, read
+    // as added since the run, kept the opportunity, and its account and price
+    // book behind it.
+    if (created >= removalStart) return false;
     if (modified <= runEnd) return false;
     return !includeChanged;
   }

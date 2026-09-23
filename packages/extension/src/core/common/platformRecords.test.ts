@@ -4,9 +4,35 @@ import {
   draftStartOf,
   existingSellingModelOptions,
   recordsByNaturalKey,
+  standardPriceIds,
   statusCategories,
   type SoqlQuery,
 } from './platformRecords.js';
+
+describe('standardPriceIds', () => {
+  it('names the entries of the standard price book among those asked about', async () => {
+    const query = vi.fn<SoqlQuery>(async () => [{ Id: '01uSTD' }]);
+
+    const found = await standardPriceIds(query, ['01uSTD', '01uCUSTOM']);
+
+    expect(query).toHaveBeenCalledWith(
+      "SELECT Id FROM PricebookEntry WHERE Id IN ('01uSTD', '01uCUSTOM') AND Pricebook2.IsStandard = true",
+    );
+    expect([...found]).toEqual(['01uSTD']);
+  });
+
+  it('asks about two hundred entries at a time, and nothing for none', async () => {
+    const query = vi.fn<SoqlQuery>(async () => []);
+
+    await standardPriceIds(query, []);
+    expect(query).not.toHaveBeenCalled();
+    await standardPriceIds(
+      query,
+      Array.from({ length: 201 }, (_, i) => `01u${String(i).padStart(3, '0')}`),
+    );
+    expect(query).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('directAccountContactRelations', () => {
   it('finds the relation the platform made for each account and contact pair', async () => {

@@ -178,6 +178,24 @@ describe('patchCycleFkUpdates', () => {
     expect(progress[0].status).toBe('error');
   });
 
+  it('counts every lookup it could not fill in, past the three it names', async () => {
+    // A real clone left twelve lookups empty — nine orders whose quote was
+    // held back, two whose opportunity was not cloned, the opportunity's
+    // synced quote — and the pass reported "0/3 resolved": the count stopped
+    // where the samples did.
+    const pending = Array.from({ length: 12 }, (_, i) =>
+      makePending({ newId: `801NEW${i}`, sourceId: `801OLD${i}`, fieldName: 'QuoteId' }),
+    );
+    const input = makeInput({ pendingFkUpdates: pending });
+
+    const error = await patchCycleFkUpdates(input);
+
+    expect(error).toMatchObject({ failedCount: 12, attemptedCount: 12 });
+    expect(error?.samples).toHaveLength(3);
+    const progress = vi.mocked(input.onProgress).mock.calls.map((c) => c[0]);
+    expect(progress[0].message).toBe('Pass 2 (cycle FK update): 0/12 resolved');
+  });
+
   it('surfaces conflicting targets for the same record+field', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');

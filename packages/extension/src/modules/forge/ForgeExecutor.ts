@@ -40,7 +40,13 @@ import {
   intersect,
   type TargetFieldSets,
 } from './stages/RecordCleaner.js';
-import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
+import { BatchWriter, WRITE_API_MAX_BATCH, type PendingFkUpdate } from './stages/BatchWriter.js';
+import {
+  STATUS_LIFECYCLES,
+  draftStartOf,
+  statusCategories,
+  type StatusCategories,
+} from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import {
@@ -661,6 +667,10 @@ interface ExecutionState {
   standardPricebookId: string | null;
   /** Rows the target already held, per object, in the order they were written. */
   readonly existingRecords: ExistingRecordReport[];
+  /** Per lifecycle object, the target's statuses and their categories, read once. */
+  readonly lifecycles: Map<string, Promise<StatusCategories | undefined>>;
+  /** Records written as drafts, and the status to give them back at the end of the run. */
+  readonly deferredStatuses: Array<{ objectApiName: string; id: string; status: string }>;
   /** Anonymizes a node's rows before insert; `null` when the run anonymizes nothing. */
   readonly anonymize: ((request: ForgeAnonymizeRequest) => Record<string, unknown>[]) | null;
   /** Per object no node knows the fields of, the personal fields the detector named. */
@@ -938,6 +948,8 @@ export class ForgeExecutor {
       ),
       standardPricebookId: null,
       existingRecords: [],
+      lifecycles: new Map(),
+      deferredStatuses: [],
       anonymize: config.anonymization ? this.anonymizerForRun() : null,
       detectedPersonalFields: new Map<string, string[]>(),
       fileScope: new Map<string, string[]>(),
@@ -1296,12 +1308,118 @@ export class ForgeExecutor {
       await this.writeFiles(state, filesToCopy);
     }
 
+    // Statuses come back last, once everything the records carry is written.
+    await this.restoreStatuses(state);
+
     const orphanExpansionError = state.orphanExpander.buildErrorReport();
     if (orphanExpansionError) {
       state.errors.push(orphanExpansionError);
     }
 
     return this.summaryOf(state);
+  }
+
+  /**
+   * Put records of an object with a status lifecycle — an order, a contract —
+   * whose status is past Draft in at the target's Draft status, and keep the
+   * status each had, by payload index.
+   *
+   * Run between two sandboxes, an activated order was refused — "for a new or
+   * cloned order, choose Draft" — and its items, its actions and its item
+   * group after it, for want of the order. An order takes its products only
+   * as a draft, so the status goes back once every node is written. Frozen
+   * and Autopilot learnt the rule first; the target's own categories say
+   * which statuses are drafts. A run that cannot read them, or cannot write
+   * the status back, or writes nothing, leaves the records as they are.
+   */
+  private async startAsDrafts(
+    state: ExecutionState,
+    objectApiName: string,
+    records: Record<string, unknown>[],
+  ): Promise<Map<number, string>> {
+    const drafts = new Map<number, string>();
+    const lifecycle = STATUS_LIFECYCLES[objectApiName];
+    if (!lifecycle || state.config.dryRun || !this.deps.updateRecords) return drafts;
+    let categories = state.lifecycles.get(objectApiName);
+    if (!categories) {
+      categories = statusCategories(
+        (soql) => this.deps.queryRecords(state.targetOrgId, soql),
+        lifecycle,
+      );
+      state.lifecycles.set(objectApiName, categories);
+    }
+    const known = await categories;
+    if (!known) return drafts;
+    records.forEach((record, index) => {
+      const draft = draftStartOf(record['Status'], known);
+      if (!draft) return;
+      drafts.set(index, String(record['Status']));
+      record['Status'] = draft;
+    });
+    return drafts;
+  }
+
+  /**
+   * Give the records born a draft the status they had in the source, now that
+   * every node — and so every item they take — is written. One the target
+   * will not take back is reported with its reason, and stays a draft.
+   */
+  private async restoreStatuses(state: ExecutionState): Promise<void> {
+    const update = this.deps.updateRecords;
+    if (!update || state.deferredStatuses.length === 0) return;
+    const byObject = new Map<string, Array<{ id: string; status: string }>>();
+    for (const { objectApiName, id, status } of state.deferredStatuses) {
+      byObject.set(objectApiName, [...(byObject.get(objectApiName) ?? []), { id, status }]);
+    }
+    for (const [objectApiName, entries] of byObject) {
+      let failed = 0;
+      const samples: ExecutionErrorSample[] = [];
+      for (let at = 0; at < entries.length; at += WRITE_API_MAX_BATCH.rest) {
+        const batch = entries.slice(at, at + WRITE_API_MAX_BATCH.rest);
+        let results: UpdateResult[];
+        try {
+          results = await update(
+            state.targetOrgId,
+            objectApiName,
+            batch.map(({ id, status }) => ({ Id: id, Status: status })),
+          );
+        } catch (err) {
+          results = batch.map(({ id }) => ({
+            id,
+            success: false,
+            errors: [extractErrorMessage(err)],
+          }));
+        }
+        batch.forEach(({ id, status }, index) => {
+          const result = results[index];
+          if (result?.success) return;
+          failed++;
+          if (samples.length < 3) {
+            samples.push({
+              recordSummary: `${objectApiName} ${id} Status=${status}`,
+              messages: result?.errors ?? ['No result returned for the status update'],
+            });
+          }
+        });
+      }
+      state.onProgress({
+        objectName: objectApiName,
+        status: failed > 0 ? 'error' : 'done',
+        progress: 100,
+        message:
+          `Restored the status of ${entries.length - failed}/${entries.length} ` +
+          `${objectApiName} records written as drafts`,
+      });
+      if (failed > 0) {
+        state.errors.push({
+          objectApiName,
+          stage: 'insert',
+          failedCount: failed,
+          attemptedCount: entries.length,
+          samples,
+        });
+      }
+    }
   }
 
   /**
@@ -2100,6 +2218,10 @@ export class ForgeExecutor {
         config.fieldMappings[node.objectApiName] ?? {},
       );
 
+      // An order past Draft goes in as a draft, and gets its status back once
+      // every node is written: see `restoreStatuses`.
+      const startedAsDrafts = await this.startAsDrafts(state, node.objectApiName, recordsToInsert);
+
       // Step 3: Running — batch and insert into target.
       //
       // Price book entries go in two rounds, standard book first: Salesforce
@@ -2168,6 +2290,17 @@ export class ForgeExecutor {
           if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
         }
       }
+      // Only a record this run created gets its status back: one it linked to,
+      // or wrote over through its external id, was the target's already.
+      const updatedSources = new Set(remapper.updatedSourceIds());
+      for (const [index, status] of startedAsDrafts) {
+        const sourceId = cleanedRecords[index]?.source['Id'];
+        if (typeof sourceId !== 'string') continue;
+        const targetId = remapper.get(sourceId);
+        if (!targetId || remapper.isExisting(sourceId) || updatedSources.has(sourceId)) continue;
+        state.deferredStatuses.push({ objectApiName: node.objectApiName, id: targetId, status });
+      }
+
       const nodeSuccess = writeResult.successCount;
       const nodeUpdated = writeResult.updatedCount;
       const nodeLinked = writeResult.linkedExistingCount;

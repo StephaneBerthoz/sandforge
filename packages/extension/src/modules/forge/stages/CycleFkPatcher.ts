@@ -76,6 +76,9 @@ export async function patchCycleFkUpdates(
 
   const owed = new LookupPatchSet();
   let resolvedCount = 0;
+  // Counted apart from the samples, which are a few: counted by them, a run
+  // that left twelve lookups empty reported three.
+  let unresolvedCount = 0;
   const unresolved: ExecutionErrorSample[] = [];
   for (const upd of pendingFkUpdates) {
     const newRefId = remapper.get(upd.sourceRefId);
@@ -84,6 +87,7 @@ export async function patchCycleFkUpdates(
         input.stillPending?.push(upd);
         continue;
       }
+      unresolvedCount++;
       if (unresolved.length < 3) {
         unresolved.push({
           recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
@@ -104,6 +108,7 @@ export async function patchCycleFkUpdates(
       value: newRefId,
     });
     if (!patched.taken) {
+      unresolvedCount++;
       if (unresolved.length < 3) {
         unresolved.push({
           recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
@@ -149,22 +154,22 @@ export async function patchCycleFkUpdates(
       }
     }
   }
-  const totalAttempted = resolvedCount + unresolved.length;
+  const totalAttempted = resolvedCount + unresolvedCount;
   if (input.deferUnresolved && resolvedCount === 0 && pass2Failed === 0) {
     // Nothing was owed yet; saying so on every node would be noise.
     return null;
   }
   onProgress({
     objectName: '__pass2__',
-    status: pass2Failed + unresolved.length > 0 ? 'error' : 'done',
+    status: pass2Failed + unresolvedCount > 0 ? 'error' : 'done',
     progress: 100,
     message: `Pass 2 (cycle FK update): ${resolvedCount - pass2Failed}/${totalAttempted} resolved`,
   });
-  if (pass2Failed > 0 || unresolved.length > 0) {
+  if (pass2Failed > 0 || unresolvedCount > 0) {
     return {
       objectApiName: '__pass2__',
       stage: 'insert',
-      failedCount: pass2Failed + unresolved.length,
+      failedCount: pass2Failed + unresolvedCount,
       attemptedCount: totalAttempted,
       samples: [...pass2Samples, ...unresolved].slice(0, 3),
     };
