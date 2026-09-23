@@ -1918,6 +1918,10 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeAnonymizes": "Forge anonimiza lo que clona",
+      "forgeAnonymizesDesc": "La opción de anonimizar no hacía nada: un clon llevaba los datos personales del origen. Ahora se aplican los campos y métodos que elija en Revisión, y los correos siguen siendo direcciones válidas.",
+      "fixRound136": "Sync, Compare y programaciones, corregidos",
+      "fixRound136Desc": "Sync conserva los campos renombrados, constantes y de fórmula; una programación de sync se ejecuta una vez, haya las ventanas que haya abiertas; Compare lee eliminado y añadido en el sentido correcto; los errores permanecen en pantalla hasta que los lea.",
       "compareDeploy": "Compare despliega lo que difiere",
       "compareDeployDesc": "Elija los componentes nuevos o modificados en el origen y despliéguelos en el destino, validados primero: el estado de cada componente, las pruebas fallidas con sus líneas y un despliegue real solo de una validación superada.",
       "realtimeSync": "Sincronización en tiempo real",

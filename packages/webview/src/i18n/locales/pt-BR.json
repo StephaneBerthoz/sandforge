@@ -1918,6 +1918,10 @@
     "tryItNow": "Experimentar agora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "forgeAnonymizes": "O Forge anonimiza o que clona",
+      "forgeAnonymizesDesc": "A opção de anonimizar não fazia nada: um clone levava os dados pessoais da origem. Os campos e métodos escolhidos na Revisão agora são aplicados, e os e-mails continuam sendo endereços válidos.",
+      "fixRound136": "Sync, Compare e agendamentos corrigidos",
+      "fixRound136Desc": "O Sync mantém campos renomeados, constantes e de fórmula; um agendamento de sync roda uma vez, não importa quantas janelas estejam abertas; o Compare lê removido e adicionado no sentido certo; os erros ficam na tela até você lê-los.",
       "compareDeploy": "O Compare implanta o que difere",
       "compareDeployDesc": "Escolha os componentes novos ou alterados na origem e implante-os no destino, validados primeiro: o status de cada componente, os testes com falha e suas linhas, e uma implantação real apenas de uma validação aprovada.",
       "realtimeSync": "Sincronização em tempo real",

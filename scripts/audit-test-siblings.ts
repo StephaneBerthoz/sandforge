@@ -45,12 +45,7 @@ const LINE_THRESHOLD = 200;
  * file, or one that has since gained a test, fails the gate so the list
  * cannot rot.
  */
-const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
-  {
-    path: 'packages/extension/src/bridge/templates/anonymizationTemplates.ts',
-    reason: 'constant table — one exported array literal, no branches to assert',
-  },
-];
+const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [];
 
 /** True for a test file — never a subject of this gate. */
 function isTestFile(path: string): boolean {

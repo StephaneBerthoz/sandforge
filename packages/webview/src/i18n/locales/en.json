@@ -1918,6 +1918,10 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "forgeAnonymizes": "Forge anonymizes what it clones",
+      "forgeAnonymizesDesc": "The anonymize toggle did nothing: a clone carried the source's personal data. The fields and methods you pick in Review are now applied, and emails stay valid addresses.",
+      "fixRound136": "Sync, Compare and schedules, corrected",
+      "fixRound136Desc": "Sync keeps renamed, constant and formula fields; a sync schedule runs once however many windows are open; Compare reads removed and added the right way; errors stay on screen until you read them.",
       "compareDeploy": "Compare deploys what differs",
       "compareDeployDesc": "Pick the components new or changed in the source and deploy them to the target, validated first: each component's status, failed tests with their lines, and a real deployment only of a validation that passed.",
       "realtimeSync": "Real-time sync",

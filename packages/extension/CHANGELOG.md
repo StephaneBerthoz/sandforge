@@ -5,6 +5,61 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.36.0] - 2026-09-23
+
+Forge's anonymization did nothing: a clone carried the source's personal data
+whatever the toggle said. Run against a real org, the email a clone carries
+is now another address and the phone another number. Around it, a round of
+defects the last two releases turned up: Sync lost renamed, constant and
+formula fields; a due sync schedule ran once per open window; Compare read
+"removed" and "added" the wrong way round; and 74 places wrote "1 records".
+
+### Fixed
+
+- **Forge anonymizes what it clones.** The anonymizer ran with an empty
+  field list, and the methods picked in Review never reached the extension.
+  Both now do; emails stay valid addresses, parents fetched outside the graph
+  are anonymized too, and `sandforge-clone --anonymize` works.
+- **Sync keeps renamed, constant and formula fields.** Each record was
+  mapped twice, the second time by its source field names.
+- **A sync schedule runs once however many windows are open**, as pipeline
+  triggers do; a schedule whose run is still going is skipped, not failed.
+- **Compare reads "removed" and "added" the right way.** Removed is what only
+  the source holds, added what only the target holds; the risk score, the
+  severities and the reasons read them the other way. The reasons are
+  translated.
+- **The shipped CCPA, HIPAA and Sandbox Scrub templates run in DataOps** —
+  the hash has its salt, the constant its value, the truncation its length —
+  and an anonymization writes only the fields it masks, where the org refused
+  every record.
+- **A seed that wrote nothing, or was refused, says failed** in the Monitor,
+  the notification and Home, and a partial one says partial; every error of a
+  refused record is kept; the wizard describes each object once instead of
+  N(N+1)/2 times.
+- **Cancel stops what it cancels.** A Compare step stops reading, and a
+  backup cancelled from Live Operations is not retried.
+- **The audit trail is complete.** It keeps the counts of a Forge run that
+  throws, splits upserts into created and updated, and records every refusal
+  — a missing guard, a restore into a replaced org — with its code. The
+  session log of guard checks, which nothing read, is gone.
+- **Imported orgs no longer store a redacted token.** The Salesforce CLI now
+  hides tokens in `sf org list`; SandForge reads them through the CLI, and the
+  web sign-in confirms the org just logged in to.
+- **Counts agree with their number everywhere.** A gate found 74 places that
+  wrote "1 records" or joined an English word to a number.
+- **Errors stay until read**, and the bridge's errors are translated; the
+  Production Guard dialog names the tier it asks about; an aborted Forge run
+  is announced to screen readers; the confirmation field takes focus;
+  schedules read in the panel's language; the Grappe page opens its setting;
+  a cron with no run within a year is refused.
+
+### Changed
+
+- **The activation bundle is gated by its packages, not by its size.** VS
+  Code sets no size limit, and the byte budget of the release check mixed the
+  extension's own growth with a dependency leak. The npm packages in the
+  bundle are now compared with a list, each with its reason.
+
 ## [1.35.0] - 2026-09-23
 
 The last screens that said "coming soon" now do what they say. Compare

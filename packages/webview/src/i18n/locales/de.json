@@ -1918,6 +1918,10 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "forgeAnonymizes": "Forge anonymisiert, was es klont",
+      "forgeAnonymizesDesc": "Der Anonymisierungsschalter bewirkte nichts: Ein Klon trug die personenbezogenen Daten der Quelle mit. Die in der Prüfung gewählten Felder und Methoden werden jetzt angewendet, und E-Mails bleiben gültige Adressen.",
+      "fixRound136": "Sync, Compare und Zeitpläne korrigiert",
+      "fixRound136Desc": "Sync behält umbenannte, konstante und berechnete Felder; ein Sync-Zeitplan läuft einmal, egal wie viele Fenster offen sind; Compare liest entfernt und hinzugefügt richtig herum; Fehler bleiben sichtbar, bis Sie sie gelesen haben.",
       "compareDeploy": "Compare stellt bereit, was sich unterscheidet",
       "compareDeployDesc": "Wählen Sie die in der Quelle neuen oder geänderten Komponenten und stellen Sie sie im Ziel bereit, zuerst validiert: der Status jeder Komponente, fehlgeschlagene Tests mit ihren Zeilen und eine echte Bereitstellung nur einer bestandenen Validierung.",
       "realtimeSync": "Echtzeit-Synchronisierung",
