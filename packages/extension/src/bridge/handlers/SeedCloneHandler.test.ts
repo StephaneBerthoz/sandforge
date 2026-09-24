@@ -258,6 +258,59 @@ describe('SeedCloneHandler', () => {
       });
     });
 
+    it('lists as a dependency only a lookup the clone writes', async () => {
+      // A feed item names its best comment through a lookup the platform sets
+      // itself: the clone never writes it, and it is not what orders the feed.
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn(async (name: string) => ({
+          fields:
+            name === 'FeedComment'
+              ? [
+                  {
+                    name: 'FeedItemId',
+                    type: 'reference',
+                    referenceTo: ['FeedItem'],
+                    nillable: false,
+                    createable: true,
+                  },
+                ]
+              : [
+                  {
+                    name: 'BestCommentId',
+                    type: 'reference',
+                    referenceTo: ['FeedComment'],
+                    nillable: true,
+                    createable: false,
+                  },
+                ],
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+      fetcher.countRecords.mockResolvedValue(3);
+      fetcher.fetchSample.mockResolvedValue([]);
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:preview',
+          clonePayload({
+            objects: [{ objectApiName: 'FeedItem' }, { objectApiName: 'FeedComment' }],
+          }),
+        ),
+      );
+
+      const [response] = posted(deps, 'seed:clone:preview:response');
+      expect(response.payload as unknown).toMatchObject({
+        objects: [
+          { objectApiName: 'FeedItem', relationships: [] },
+          {
+            objectApiName: 'FeedComment',
+            relationships: [{ field: 'FeedItemId', referenceTo: 'FeedItem' }],
+          },
+        ],
+      });
+    });
+
     it('counts once an object the clone leaves nothing of, and says nothing left out', async () => {
       fetcher.countRecords.mockResolvedValue(12);
       fetcher.fetchSample.mockResolvedValue([]);
@@ -520,6 +573,110 @@ describe('SeedCloneHandler', () => {
           ],
         });
       });
+    });
+
+    it('sends no field the target says no record is created with', async () => {
+      // The fetcher reads every lookup. A real target sets a feed item's
+      // inserting user and best comment itself, and a comment's parent, and
+      // refuses a record that carries any of them.
+      const POST = '0D5Fk00000PoStAIAV';
+      const NEW_POST = '0D5Fk00000NeWpOIAV';
+      const USER = '005Fk00000UsErAIAV';
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn(async (name: string) => ({
+          keyPrefix: name === 'FeedItem' ? '0D5' : '0D7',
+          fields:
+            name === 'FeedItem'
+              ? [
+                  { name: 'Body', type: 'textarea', createable: true },
+                  {
+                    name: 'CreatedById',
+                    type: 'reference',
+                    referenceTo: ['User'],
+                    createable: true,
+                  },
+                  {
+                    name: 'InsertedById',
+                    type: 'reference',
+                    referenceTo: ['User'],
+                    nillable: false,
+                    createable: false,
+                  },
+                  {
+                    name: 'BestCommentId',
+                    type: 'reference',
+                    referenceTo: ['FeedComment'],
+                    createable: false,
+                  },
+                ]
+              : [
+                  {
+                    name: 'FeedItemId',
+                    type: 'reference',
+                    referenceTo: ['FeedItem'],
+                    nillable: false,
+                    createable: true,
+                  },
+                  { name: 'CommentBody', type: 'textarea', createable: true },
+                  {
+                    name: 'ParentId',
+                    type: 'reference',
+                    referenceTo: ['Account'],
+                    createable: false,
+                  },
+                ],
+          recordTypeInfos: [],
+        })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      linker.resolveInsertOrder.mockReturnValue(['FeedItem', 'FeedComment']);
+      fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+        name === 'FeedItem'
+          ? [
+              {
+                Id: POST,
+                Body: 'Kick-off',
+                CreatedById: USER,
+                InsertedById: USER,
+                BestCommentId: null,
+              },
+            ]
+          : [
+              {
+                Id: '0D7Fk00000CmNtAIAV',
+                FeedItemId: POST,
+                CommentBody: 'On the post',
+                ParentId: '001Fk00000AcCtAIAV',
+              },
+            ],
+      );
+      writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+        records.map(() => ({
+          id: name === 'FeedItem' ? NEW_POST : '0D7Fk00000NeWcMIAV',
+          success: true,
+          errors: [],
+        })),
+      );
+
+      await handler.handle(
+        buildMsg(
+          'seed:clone:execute',
+          clonePayload({
+            objects: [{ objectApiName: 'FeedItem' }, { objectApiName: 'FeedComment' }],
+          }),
+        ),
+      );
+
+      expect(writer.insert).toHaveBeenCalledWith(
+        'FeedItem',
+        [{ Body: 'Kick-off', CreatedById: USER }],
+        200,
+      );
+      expect(writer.insert).toHaveBeenLastCalledWith(
+        'FeedComment',
+        [{ FeedItemId: NEW_POST, CommentBody: 'On the post' }],
+        200,
+      );
     });
 
     it('reports execute failures on operation:failed as retryable', async () => {

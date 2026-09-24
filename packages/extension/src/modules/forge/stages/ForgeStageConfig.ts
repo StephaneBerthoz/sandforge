@@ -58,6 +58,11 @@ export interface ForgeStageConfig {
    * size is held to what one call carries, whatever the caller asked.
    */
   readonly files?: { readonly maxFileBytes: number; readonly acceptedAsIs: boolean };
+  /**
+   * Source id to target id of every record the run this one retries left in
+   * the target; empty for a run that retries none.
+   */
+  readonly writtenBefore: ReadonlyMap<string, string>;
 }
 
 /**
@@ -96,5 +101,6 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
           acceptedAsIs: options.files.acceptedAsIs === true,
         }
       : undefined,
+    writtenBefore: new Map(Object.entries(options?.writtenBefore ?? {})),
   };
 }

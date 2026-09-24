@@ -14,24 +14,26 @@ import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ProgressAnnouncer, ProgressBar } from '../../components/ui/ProgressBar';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type {
-  ForgeNodeStatus,
-  ForgeLogEntry,
-  ForgeExecutionResult,
-} from '../../stores/useForgeStore';
+import type { ForgeNodeStatus, ForgeLogEntry } from '../../stores/useForgeStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
 
-/** Status label key used for the execution status display. */
-type ExecutionStatus = 'forging' | 'paused' | 'complete' | 'aborted';
+/** Where the run stands, as the controls set it or its error ended it. */
+type ExecutionStatus = 'forging' | 'paused' | 'aborted';
 
-/** Maps execution status to the i18n key. */
-const STATUS_KEYS: Record<ExecutionStatus, string> = {
+/**
+ * What the top bar says: the run's status, or, once every object on the graph
+ * has settled and the run has not answered, that it is finishing.
+ */
+type ShownStatus = ExecutionStatus | 'finishing';
+
+/** Maps the shown status to the i18n key. */
+const STATUS_KEYS: Record<ShownStatus, string> = {
   forging: 'forge.forging',
   paused: 'forge.paused',
-  complete: 'forge.complete',
+  finishing: 'forge.finishing',
   aborted: 'forge.aborted',
 };
 
@@ -57,14 +59,8 @@ export const ForgeExecution: React.FC = () => {
   const setPhase = useForgeStore((s) => s.setPhase);
   const addLogToStore = useForgeStore((s) => s.addLog);
   const clearLogs = useForgeStore((s) => s.clearLogs);
-  const setResult = useForgeStore((s) => s.setResult);
   const setStoppedAt = useForgeStore((s) => s.setStoppedAt);
   const executionRequestId = useForgeStore((s) => s.executionRequestId);
-  /**
-   * Whether the run copies files. Those are written once every object is, so
-   * its objects all settling is not its end: the run's own answer is.
-   */
-  const copiesFiles = useForgeStore((s) => s.fileCopy.enabled);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
@@ -86,7 +82,7 @@ export const ForgeExecution: React.FC = () => {
 
   // Pause/resume timer when execution status changes
   useEffect(() => {
-    if (isPaused || executionStatus === 'complete' || executionStatus === 'aborted') {
+    if (isPaused || executionStatus === 'aborted') {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -170,16 +166,11 @@ export const ForgeExecution: React.FC = () => {
         return;
       }
 
-      // Terminal states. `forge:progress` alone cannot close the run: on a
-      // backend failure it simply stops arriving, no node reaches a terminal
-      // status, and mission control spins forever with no way out but Abort.
-      if (data.type === 'forge:execute:response') {
-        const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
-        if (payload?.result) setResult(payload.result);
-        setExecutionStatus('complete');
-        setPhase('results');
-        return;
-      }
+      // The run's end. Its answer is the store's to take (`takeRunAnswer`),
+      // which shows the results; its error is this screen's to show.
+      // `forge:progress` alone cannot close the run: on a backend failure it
+      // simply stops arriving, no node reaches a terminal status, and mission
+      // control spins forever with no way out but Abort.
       if (data.type === 'forge:execute:error') {
         const payload = data.payload as { message?: string } | undefined;
         setExecutionStatus('aborted');
@@ -213,38 +204,31 @@ export const ForgeExecution: React.FC = () => {
           ? payload.message
           : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
       addLog(level, logMessage);
-
-      // Check if all nodes are terminal. Not for a run that copies files: its
-      // files are still being written, and leaving now would lose its answer.
-      if (graph && !copiesFiles) {
-        const updatedNodes = graph.nodes.map((n) =>
-          n.objectApiName === objectName ? { ...n, status, progress: progress ?? n.progress } : n,
-        );
-        const allTerminal = updatedNodes.every(
-          (n) => n.status === 'done' || n.status === 'error' || n.status === 'skipped',
-        );
-        if (allTerminal) {
-          setExecutionStatus('complete');
-          setPhase('results');
-        }
-      }
     };
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [
-    graph,
     updateNodeStatus,
     updateNodeCounts,
-    setPhase,
     addLog,
-    setResult,
     setStoppedAt,
     progressRef,
     t,
     executionRequestId,
-    copiesFiles,
   ]);
+
+  /*
+   * Every object on the graph has settled while the run goes on: it is
+   * finishing. Its last steps come after its last object — the lookups filled
+   * in last, the files, the statuses given back, reading back when the target
+   * dated its writes — and its answer says what the whole run did. This screen
+   * used to leave for the results as soon as the last object settled: the
+   * answer came after it had gone, and the results were shown without it. It
+   * stays until the answer takes the page to them.
+   */
+  const finishing = executionStatus === 'forging' && kpis.total > 0 && kpis.settled === kpis.total;
+  const shownStatus: ShownStatus = finishing ? 'finishing' : executionStatus;
 
   /*
    * Time remaining, from the rate the run has achieved so far.
@@ -295,16 +279,20 @@ export const ForgeExecution: React.FC = () => {
         <div className="flex items-center justify-between text-sm">
           <span className="flex items-center gap-2 font-bold text-hue-forge">
             <Flame size={16} />
-            <span data-testid="forge-execution-status">{t(STATUS_KEYS[executionStatus])}</span>
+            <span data-testid="forge-execution-status">{t(STATUS_KEYS[shownStatus])}</span>
           </span>
           <span className="flex items-center gap-3 text-text-secondary tabular-nums">
             <span data-testid="forge-execution-timer">
               {t('forge.elapsed')}: {formatElapsed(elapsed)}
             </span>
-            <span data-testid="forge-execution-eta" className="text-hue-forge">
-              {t('forge.eta')}:{' '}
-              {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
-            </span>
+            {/* Measured on the objects, it has nothing left to count once they
+                have all settled: it read 0:00 while the run went on. */}
+            {!finishing && (
+              <span data-testid="forge-execution-eta" className="text-hue-forge">
+                {t('forge.eta')}:{' '}
+                {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
+              </span>
+            )}
           </span>
         </div>
         <div data-testid="forge-execution-progress">
@@ -314,14 +302,24 @@ export const ForgeExecution: React.FC = () => {
             barClassName="bg-forge"
           />
         </div>
+        {finishing && (
+          <p className="text-xs text-text-secondary" data-testid="forge-execution-finishing">
+            {t('forge.finishingNote')}
+          </p>
+        )}
         <ProgressAnnouncer
-          message={t('a11y.progressAnnouncement', {
-            name: t('nav.forge'),
-            percent: kpis.progress,
-          })}
-          // A stopped run is said by the page, where it stopped: saying the
-          // percentage from here too told nothing more, twice.
-          immediate={executionStatus === 'complete'}
+          message={
+            finishing
+              ? t('forge.finishingNote')
+              : t('a11y.progressAnnouncement', {
+                  name: t('nav.forge'),
+                  percent: kpis.progress,
+                })
+          }
+          // Said at once: at 100% the bar would otherwise be heard as the end.
+          // A stopped run is said by the page, where it stopped, and a finished
+          // one by the results.
+          immediate={finishing}
           testId="forge-progress-status"
         />
       </m.div>
@@ -426,7 +424,7 @@ export const ForgeExecution: React.FC = () => {
             size="md"
             icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
             onClick={handlePauseToggle}
-            disabled={executionStatus === 'complete' || executionStatus === 'aborted'}
+            disabled={executionStatus === 'aborted'}
             data-testid="forge-pause-button"
           >
             {isPaused ? t('forge.resume') : t('forge.pause')}
@@ -436,7 +434,7 @@ export const ForgeExecution: React.FC = () => {
             size="md"
             icon={<Square size={14} />}
             onClick={handleAbort}
-            disabled={executionStatus === 'complete' || executionStatus === 'aborted'}
+            disabled={executionStatus === 'aborted'}
             data-testid="forge-abort-button"
           >
             {t('forge.abort')}

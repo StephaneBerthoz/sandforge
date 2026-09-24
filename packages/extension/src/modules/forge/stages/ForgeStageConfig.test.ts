@@ -73,6 +73,14 @@ describe('resolveStageConfig', () => {
     expect(config.fieldMappings).toEqual({ Account: { Region__c: 'Region__pc' } });
   });
 
+  it('knows what the run it retries wrote, and nothing for a run that retries none', () => {
+    expect(resolveStageConfig(undefined).writtenBefore.size).toBe(0);
+    const config = resolveStageConfig({
+      writtenBefore: { '001000000000001SRC': '001000000000001TGT' },
+    });
+    expect([...config.writtenBefore]).toEqual([['001000000000001SRC', '001000000000001TGT']]);
+  });
+
   it('copies no file unless asked', () => {
     expect(resolveStageConfig(undefined).files).toBeUndefined();
     expect(resolveStageConfig({ dryRun: true }).files).toBeUndefined();

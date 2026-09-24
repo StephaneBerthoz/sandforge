@@ -226,6 +226,15 @@ export interface ForgeState {
   ) => void;
   /** Set the execution result and append to history. */
   setResult: (result: ForgeExecutionResult) => void;
+  /**
+   * Take the extension's answer to a `forge:execute` request: when it answers
+   * the run on screen, keep its result and show the results. An answer to
+   * another request, or one that comes once the run was left, changes nothing.
+   *
+   * @param requestId - The request the answer correlates to.
+   * @param result - The run's result, when the answer carries one.
+   */
+  finishRun: (requestId: unknown, result: ForgeExecutionResult | undefined) => void;
   /** Replace the template list with the one the extension keeps. */
   setTemplates: (templates: ForgeTemplate[]) => void;
   /** Add a saved template, or replace the one with the same id. */
@@ -473,6 +482,28 @@ export const useForgeStore = create<ForgeState>((set) => ({
     }));
   },
 
+  /*
+   * Every panel receives every forge message, so an answer is the run's only
+   * when it correlates to the request that started it; and a run left before
+   * it answered — aborted, back on the input screen — has no screen to show a
+   * result on.
+   */
+  finishRun(requestId: unknown, result: ForgeExecutionResult | undefined): void {
+    set((state) => {
+      if (state.executionRequestId === null || requestId !== state.executionRequestId) {
+        return state;
+      }
+      if (state.phase !== 'execution') return state;
+      // An answer with no result leaves none on screen: a retry's would
+      // otherwise show the run it retried.
+      return {
+        phase: 'results' as ForgePhase,
+        result: result ?? null,
+        ...(result ? { history: [result, ...state.history].slice(0, MAX_HISTORY) } : {}),
+      };
+    });
+  },
+
   setTemplates(templates: ForgeTemplate[]): void {
     set({ templates });
   },
@@ -578,3 +609,44 @@ export const useForgeStore = create<ForgeState>((set) => ({
     set({ ...INITIAL_STATE, templates: [], history: [], logs: [] });
   },
 }));
+
+/**
+ * The extension's answer to a run, taken here rather than by a screen.
+ *
+ * A run's last steps — the lookups filled in last, the files, the statuses
+ * given back, reading back when the target dated its writes — come after its
+ * last object's event, and its answer carries what the whole run did. The
+ * only listener for that answer lived in the execution screen, which left
+ * for the results as soon as the last object settled and took the listener
+ * with it: an answer later than its exit was dropped, and the results showed
+ * no record inserted, no rate from the records read and no Id map. The store
+ * outlives every screen of the page, and the page itself.
+ */
+function takeRunAnswer(event: MessageEvent): void {
+  // SECURITY: Validate origin — only accept messages from the VSCode webview host.
+  if (event.origin && !event.origin.startsWith('vscode-webview://')) return;
+  const data = event.data as
+    | { type?: unknown; correlationId?: unknown; payload?: unknown }
+    | null
+    | undefined;
+  if (!data || typeof data !== 'object' || data.type !== 'forge:execute:response') return;
+  const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
+  useForgeStore.getState().finishRun(data.correlationId, payload?.result);
+}
+
+// HMR-safe listener registration, as the CDC stores do it: re-imported by a
+// hot replace, the module would otherwise stack a listener per reload and
+// keep every answer once per copy.
+let runAnswerListenerRegistered = false;
+function registerRunAnswerListener(): void {
+  if (runAnswerListenerRegistered || typeof window === 'undefined') return;
+  runAnswerListenerRegistered = true;
+  window.addEventListener('message', takeRunAnswer);
+  if (typeof import.meta !== 'undefined' && import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      window.removeEventListener('message', takeRunAnswer);
+      runAnswerListenerRegistered = false;
+    });
+  }
+}
+registerRunAnswerListener();

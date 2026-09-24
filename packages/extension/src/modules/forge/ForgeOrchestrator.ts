@@ -220,13 +220,14 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   /**
    * @param runOptions - Execution inputs that are not part of the user's
    *   config: the RecordType translation table the bridge builds by querying
-   *   both orgs before a run, the method per PII category Review holds, and
-   *   whether Review asked for the files of the records to be copied.
+   *   both orgs before a run, the method per PII category Review holds,
+   *   whether Review asked for the files of the records to be copied, and,
+   *   for a retry, what the run it retries wrote.
    */
   async execute(
     graph: ForgeGraph,
     config: ForgeConfig,
-    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings'> & {
+    runOptions?: Pick<ExecuteOptions, 'recordTypeMappings' | 'writtenBefore'> & {
       anonymizationRules?: ForgeAnonymizationMethods;
       files?: ForgeFileCopyOption;
     },
@@ -252,6 +253,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
             acceptedAsIs: runOptions.files.acceptedAsIs,
           }
         : undefined;
+      const writtenBefore = runOptions?.writtenBefore;
       const scoped: ExecuteOptions | undefined =
         config.inputMode === 'record' && typeof config.recordId === 'string'
           ? {
@@ -266,6 +268,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               recordTypeMappings,
               anonymization,
               files,
+              writtenBefore,
             }
           : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
@@ -274,7 +277,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               config.fieldMappings ||
               recordTypeMappings ||
               anonymization ||
-              files
+              files ||
+              writtenBefore
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
@@ -284,6 +288,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
                 recordTypeMappings,
                 anonymization,
                 files,
+                writtenBefore,
               }
             : undefined;
 

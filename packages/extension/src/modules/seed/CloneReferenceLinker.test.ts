@@ -124,5 +124,73 @@ describe('CloneReferenceLinker', () => {
       const edges = linker.buildEdgesFromDescribe([], new Map());
       expect(edges).toEqual([]);
     });
+
+    it('orders a feed before its comments: the best comment is set by the platform, never by a clone', () => {
+      // The describes the source gave for a feed and its comments. A feed item
+      // points at its best comment through a lookup no record is created with,
+      // and a comment at its feed item through one it may not leave empty.
+      // Counted both ways, the clone's preview stopped on a cycle.
+      const describes = new Map<string, DescribeSObjectResultLike>([
+        [
+          'FeedItem',
+          {
+            fields: [
+              { name: 'Id', type: 'id', createable: false },
+              {
+                name: 'BestCommentId',
+                type: 'reference',
+                referenceTo: ['FeedComment'],
+                nillable: true,
+                createable: false,
+              },
+              {
+                name: 'ParentId',
+                type: 'reference',
+                referenceTo: ['Account', 'Opportunity'],
+                nillable: false,
+                createable: true,
+              },
+            ],
+          },
+        ],
+        [
+          'FeedComment',
+          {
+            fields: [
+              {
+                name: 'FeedItemId',
+                type: 'reference',
+                referenceTo: ['FeedItem'],
+                nillable: false,
+                createable: true,
+              },
+            ],
+          },
+        ],
+      ]);
+      const objects = ['FeedComment', 'FeedItem'];
+
+      const edges = linker.buildEdgesFromDescribe(objects, describes);
+
+      expect(edges.map((e) => `${e.from}->${e.to} ${e.fieldApiName}`)).toEqual([
+        'FeedItem->FeedComment FeedItemId',
+      ]);
+      expect(linker.resolveInsertOrder(objects, edges)).toEqual(['FeedItem', 'FeedComment']);
+    });
+
+    it('still orders by a lookup whose describe does not say whether it is createable', () => {
+      const describes = new Map<string, DescribeSObjectResultLike>([
+        [
+          'Contact',
+          { fields: [{ name: 'AccountId', type: 'reference', referenceTo: ['Account'] }] },
+        ],
+        ['Account', { fields: [] }],
+      ]);
+      const edges = linker.buildEdgesFromDescribe(['Contact', 'Account'], describes);
+      expect(linker.resolveInsertOrder(['Contact', 'Account'], edges)).toEqual([
+        'Account',
+        'Contact',
+      ]);
+    });
   });
 });

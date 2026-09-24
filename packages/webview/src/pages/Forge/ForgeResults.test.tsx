@@ -219,6 +219,15 @@ let mockGraph = makeMockGraph();
 let mockResult = makeMockResult();
 /** What the run reported of the objects it adds beyond the graph, by name. */
 let mockStatusesBeyondGraph: Record<string, string> = {};
+/** The run's choice to copy the files of its records, as Review held it. */
+let mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
+const mockResetNodeStatuses = vi.fn(() => {
+  mockGraph = {
+    ...mockGraph,
+    nodes: mockGraph.nodes.map((n) => ({ ...n, status: 'idle' as const, progress: 0 })),
+  };
+});
+const mockSetExecutionRequestId = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -252,6 +261,10 @@ vi.mock('../../stores/useForgeStore', () => {
         setPhase: mockSetPhase,
         setGraph: mockSetGraph,
         logs: mockLogs,
+        anonymizationRules: RUN_RULES,
+        fileCopy: mockFileCopy,
+        resetNodeStatuses: mockResetNodeStatuses,
+        setExecutionRequestId: mockSetExecutionRequestId,
       }),
     },
   );
@@ -266,6 +279,7 @@ describe('ForgeResults', () => {
     mockGraph = makeMockGraph();
     mockResult = makeMockResult();
     mockStatusesBeyondGraph = {};
+    mockFileCopy = { enabled: false, maxFileSizeMB: 10, acceptedAsIs: false };
   });
 
   it('should render with forge-results test id', () => {
@@ -944,20 +958,75 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
   });
 
-  it('should call setGraph and setPhase on retry', () => {
-    mockGraph = makeMockGraphWithError();
-    mockResult = { ...makeMockResult(), graph: mockGraph };
-    render(<ForgeResults />);
-    const btn = screen.getByTestId('forge-retry-failed');
-    fireEvent.click(btn);
-    expect(mockSetGraph).toHaveBeenCalledTimes(1);
-    const graphArg = mockSetGraph.mock.calls[0][0];
-    const retryNode = graphArg.nodes.find(
-      (n: Record<string, unknown>) => n.objectApiName === 'Opportunity',
-    );
-    expect(retryNode.status).toBe('idle');
-    expect(retryNode.progress).toBe(0);
-    expect(mockSetPhase).toHaveBeenCalledWith('execution');
+  describe('Retry failed', () => {
+    /** A run that failed its opportunities, as the history names it. */
+    function failedRun(): void {
+      mockGraph = makeMockGraphWithError();
+      mockResult = {
+        ...makeMockResult(),
+        graph: mockGraph,
+        forgeId: 'forge-partial',
+      } as typeof mockResult;
+    }
+
+    it('asks the extension to run the clone again against what this run wrote', () => {
+      // The button used to show the execution screen and send nothing: the
+      // screen waited on a run that was never started.
+      failedRun();
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+
+      const [request] = sent<Record<string, unknown>>('forge:execute');
+      expect(request).toMatchObject({ config: RUN_CONFIG, retryOf: 'forge-partial' });
+      expect(request.anonymizationRules).toEqual(RUN_RULES);
+      expect(request).not.toHaveProperty('files');
+      // A new run, from the statuses up: every node back to idle.
+      const graph = request.graph as ForgeGraph;
+      expect(graph.nodes.map((n) => n.status)).toEqual(['idle', 'idle', 'idle', 'idle']);
+      expect(mockResetNodeStatuses).toHaveBeenCalledTimes(1);
+      const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage };
+      expect(mockSetExecutionRequestId).toHaveBeenCalledWith(envelope.payload.id);
+      expect(mockSetPhase).toHaveBeenCalledWith('execution');
+      expect(mockSetGraph).not.toHaveBeenCalled();
+    });
+
+    it('copies the files of what it writes when the run it retries did', () => {
+      failedRun();
+      mockFileCopy = { enabled: true, maxFileSizeMB: 4, acceptedAsIs: true };
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-retry-failed'));
+
+      expect(sent<Record<string, unknown>>('forge:execute')[0].files).toEqual({
+        maxFileSizeMB: 4,
+        acceptedAsIs: true,
+      });
+    });
+
+    it('says what the retry writes, and what it does not write twice', () => {
+      failedRun();
+      render(<ForgeResults />);
+
+      const hint = screen.getByTestId('forge-retry-failed-hint');
+      expect(hint.textContent).toBe(
+        'Retry Failed runs the clone again: what this run could not write is written, linked to what it did write, which is not written a second time.',
+      );
+      expect(screen.getByTestId('forge-retry-failed').getAttribute('aria-describedby')).toBe(
+        hint.id,
+      );
+    });
+
+    it('is offered for an object the run added beyond the graph and could not read', () => {
+      mockResult = {
+        ...makeMockResult(),
+        forgeId: 'forge-unread',
+        readByObject: [{ objectApiName: 'Account', read: 10 }],
+        failedReads: ['PricebookEntry'],
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-retry-failed')).toBeTruthy();
+    });
   });
 
   /* ---- Duration + Timestamp ---- */

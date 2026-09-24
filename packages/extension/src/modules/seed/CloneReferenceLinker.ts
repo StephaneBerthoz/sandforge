@@ -12,6 +12,8 @@ interface DescribeField {
   referenceTo?: string[];
   /** Whether a record may leave it empty; unknown reads as nullable. */
   nillable?: boolean;
+  /** Whether a record can be created with it set; unknown reads as createable. */
+  createable?: boolean;
 }
 
 /** Describe result shape for buildEdgesFromDescribe. */
@@ -109,6 +111,15 @@ export class CloneReferenceLinker {
    * For each object, inspects reference-type fields and creates edges
    * for fields whose referenceTo includes another object in the clone set.
    *
+   * A lookup no record can be created with orders nothing: the clone cannot
+   * set it, so its record goes in whether or not the one it names is there.
+   * Counted, a feed item's best comment — which the platform sets itself —
+   * made a feed item wait for its comments, which cannot go in before it,
+   * and a clone of a feed with its comments stopped on "Cycle detected among
+   * objects: FeedItem, FeedComment" before reading a row. Forge orders its
+   * writes by the lookups a record may not leave empty, and a best comment is
+   * not one.
+   *
    * @param objectApiNames - Object API names in the clone set.
    * @param describeResults - Map of object API name to describe result.
    * @returns Array of AutopilotEdge objects.
@@ -125,6 +136,7 @@ export class CloneReferenceLinker {
       if (!describe) continue;
 
       for (const field of describe.fields) {
+        if (field.createable === false) continue;
         if (field.type === 'reference' && field.referenceTo) {
           for (const refTarget of field.referenceTo) {
             if (objectSet.has(refTarget)) {

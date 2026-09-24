@@ -257,9 +257,12 @@ export class SeedCloneHandler implements DomainHandler {
         ]);
         const leftToThePlatform = matched === undefined ? 0 : matched - recordCount;
 
+        // The lookups the clone links, as its insert order reads them: one no
+        // record is created with is never written, and a feed item's best
+        // comment counted as a dependency the clone does not have.
         const relationships: Array<{ field: string; referenceTo: string }> = [];
         for (const field of describe.fields) {
-          if (field.type !== 'reference') continue;
+          if (field.type !== 'reference' || field.createable === false) continue;
           const target = (field.referenceTo ?? []).find((r) => objectSet.has(r));
           if (target) {
             relationships.push({ field: field.name, referenceTo: target });
@@ -825,6 +828,14 @@ function trimSampleRecord(
  * sourceId -> targetId map. References to source records that were not cloned
  * (out of set, or parent failed) are left untouched — Salesforce rejects them
  * with an explicit per-record error, which is surfaced in the object result.
+ *
+ * A field the target's describe says no record is created with is left out:
+ * the platform sets it, and refuses the whole record that carries one —
+ * "Unable to create/update fields: …", as Sync and Autopilot learnt on real
+ * orgs. The fetcher reads every lookup, and in a real target a feed item has
+ * two it cannot be created with (`InsertedById`, which every row holds, and
+ * `BestCommentId`), a comment two as well (`InsertedById`, `ParentId`): sent,
+ * no feed item and no comment could have gone in.
  */
 function prepareRecordForWrite(
   record: Record<string, unknown>,
@@ -832,9 +843,12 @@ function prepareRecordForWrite(
   objectSet: Set<string>,
   idMap: Map<string, string>,
 ): Record<string, unknown> {
+  const setByThePlatform = new Set(
+    (describe?.fields ?? []).filter((f) => f.createable === false).map((f) => f.name),
+  );
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
-    if (key === 'Id') continue;
+    if (key === 'Id' || setByThePlatform.has(key)) continue;
     out[key] = value;
   }
   if (!describe) return out;

@@ -128,8 +128,6 @@ const makeMockGraph = (): ForgeGraph => ({
 let mockGraph = makeMockGraph();
 /** Id of the forge:execute request that started the run on screen. */
 let mockExecutionRequestId: string | null = null;
-/** Whether the run on screen copies the files of its records. */
-let mockCopiesFiles = false;
 
 vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
@@ -140,9 +138,6 @@ vi.mock('../../stores/useForgeStore', () => {
         },
         get executionRequestId() {
           return mockExecutionRequestId;
-        },
-        get fileCopy() {
-          return { enabled: mockCopiesFiles, maxFileSizeMB: 10, acceptedAsIs: false };
         },
         updateNodeStatus: mockUpdateNodeStatus,
         updateNodeCounts: mockUpdateNodeCounts,
@@ -194,52 +189,53 @@ describe('ForgeExecution', () => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
     mockExecutionRequestId = null;
-    mockCopiesFiles = false;
     mockStoreLogs.length = 0;
   });
 
   describe('a run whose objects have all settled', () => {
-    /** Post a message from the extension host. */
-    function host(type: string, payload: Record<string, unknown>): void {
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: { id: `host-${type}`, type, timestamp: Date.now(), payload },
-          }),
-        );
-      });
-    }
-
-    /** Every object but Contact settled; Contact's end is what the host says next. */
-    function allButContactSettled(): void {
+    /** Every object settled: the last event the run sends about an object has come. */
+    function allSettled(): void {
       mockGraph = {
         ...mockGraph,
         nodes: mockGraph.nodes.map((node) =>
-          node.objectApiName === 'Contact' ? node : { ...node, status: 'done' as const },
+          node.objectApiName === 'Case' ? node : { ...node, status: 'done' as const },
         ),
       };
     }
 
-    it('shows the results once its last object has settled', () => {
-      allButContactSettled();
+    it('stays and says it is finishing: its answer comes after its last object', () => {
+      // Its last steps — the lookups filled in last, the files, the statuses
+      // given back, its write dates — follow the last object's event. The
+      // screen left for the results there, and the answer came too late.
+      allSettled();
       render(<ForgeExecution />);
 
-      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
-
-      expect(mockSetPhase).toHaveBeenCalledWith('results');
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('FINISHING...');
+      expect(screen.getByTestId('forge-execution-finishing').textContent).toBe(
+        'Every object on the graph has settled. The run is finishing; its results follow once it is done.',
+      );
+      expect(mockSetPhase).not.toHaveBeenCalled();
     });
 
-    it('stays on a run that copies files until the run answers: its files come after its objects', () => {
-      mockCopiesFiles = true;
-      allButContactSettled();
+    it('shows no time remaining once there is no object left to measure it on', () => {
+      allSettled();
       render(<ForgeExecution />);
+      expect(screen.queryByTestId('forge-execution-eta')).toBeNull();
+    });
 
-      host('forge:progress', { objectName: 'Contact', status: 'done', progress: 100 });
-      host('forge:progress', { objectName: 'ContentDocument', status: 'running', progress: 50 });
-      expect(mockSetPhase).not.toHaveBeenCalledWith('results');
+    it('keeps its controls: the run can still be paused or aborted while it finishes', () => {
+      allSettled();
+      render(<ForgeExecution />);
+      expect(screen.getByTestId('forge-pause-button').hasAttribute('disabled')).toBe(false);
+      expect(screen.getByTestId('forge-abort-button').hasAttribute('disabled')).toBe(false);
+    });
 
-      host('forge:execute:response', { result: undefined });
-      expect(mockSetPhase).toHaveBeenCalledWith('results');
+    it('says it is paused, not finishing, while the user holds it', () => {
+      allSettled();
+      render(<ForgeExecution />);
+      fireEvent.click(screen.getByTestId('forge-pause-button'));
+      expect(screen.getByTestId('forge-execution-status').textContent).toBe('PAUSED');
+      expect(screen.queryByTestId('forge-execution-finishing')).toBeNull();
     });
   });
 
@@ -502,14 +498,12 @@ describe('ForgeExecution', () => {
       expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
     });
 
-    it('ignores progress and a result belonging to another run', () => {
+    it('ignores progress belonging to another run', () => {
       render(<ForgeExecution />);
 
       deliver('forge:progress', 'wv-forge-other', { objectName: 'Opportunity', status: 'done' });
-      deliver('forge:execute:response', 'wv-forge-other', {});
 
       expect(mockUpdateNodeStatus).not.toHaveBeenCalled();
-      expect(mockSetPhase).not.toHaveBeenCalledWith('results');
       expect(screen.getByTestId('forge-execution-status').textContent).toBe('FORGING...');
     });
 
@@ -596,11 +590,15 @@ describe('ForgeExecution progress for assistive technology', () => {
       return region;
     }
 
-    it('says 100% as soon as the run completes', () => {
+    it('says the run is finishing as soon as its last object settles', () => {
+      // At once, not at the next interval: heard as "100%", the bar said the
+      // run was over while its last steps were still to come.
       const region = runUnderway();
       finish('Opportunity');
-      host('forge:execute:response', {});
-      expect(region.textContent).toBe('Forge progress: 100%');
+      host('forge:progress', { objectName: 'Opportunity', status: 'done', progress: 100 });
+      expect(region.textContent).toBe(
+        'Every object on the graph has settled. The run is finishing; its results follow once it is done.',
+      );
     });
 
     it('records where a failed run stopped, for the page to say so', () => {

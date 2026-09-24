@@ -15,8 +15,14 @@ import {
   AlertTriangle,
   Lightbulb,
 } from 'lucide-react';
-import type { ForgeExecutionError, ForgeGraphNode, ForgeNodeStatus } from '@sandforge/shared';
+import type {
+  ForgeExecuteRequest,
+  ForgeExecutionError,
+  ForgeGraphNode,
+  ForgeNodeStatus,
+} from '@sandforge/shared';
 import { leftOutAsEmptyTable, objectsBeyondTheGraph } from '@sandforge/shared';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
@@ -87,7 +93,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const statusesBeyondGraph = useForgeStore((s) => s.statusesBeyondGraph);
   const forgeAgain = useForgeStore((s) => s.forgeAgain);
   const setPhase = useForgeStore((s) => s.setPhase);
-  const setGraph = useForgeStore((s) => s.setGraph);
   const logs = useForgeStore((s) => s.logs);
   const config = useForgeStore((s) => s.config);
   const anonymizationRules = useForgeStore((s) => s.anonymizationRules);
@@ -204,8 +209,6 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [nodes],
   );
 
-  const failedNodes = useMemo(() => nodes.filter((n) => n.status === 'error'), [nodes]);
-
   // Discovery's empty tables are most of a graph — 315 of the 400 objects a
   // clone of one opportunity between two sandboxes reached — and the table
   // listed each, the "Objects skipped" card and the copied report counted
@@ -246,6 +249,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   // The card added those up, and a clone of one record read as having skipped
   // every row of each table it left out.
   const skippedObjects = useMemo(() => rows.filter((r) => r.status === 'skipped').length, [rows]);
+
+  /** Whether the run failed an object, of the graph or beyond it: what Retry failed is for. */
+  const failedObjects = useMemo(() => rows.some((r) => r.status === 'error'), [rows]);
 
   /** Sorted and filtered rows for the results table. */
   const sortedFilteredRows = useMemo(() => {
@@ -362,27 +368,45 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     });
   }, [result, addNotification, t]);
 
-  /** Retry only failed nodes by resetting them and going back to execution. */
+  /*
+   * Retry what failed: the clone run again against what this run wrote. The
+   * objects that failed need what their rows point at, which this run wrote
+   * and a new run would write a second time, and in a clone of one record
+   * their rows are only known by reading the clone from its root again. So
+   * the extension reads it as this run did, links each row this run wrote to
+   * the record it made of it, and writes the others — the objects that
+   * failed, those skipped for want of them, and a row refused among rows that
+   * went in — filling in the lookups this run had to leave empty at them.
+   *
+   * The button used to put the failed nodes back to idle and show the
+   * execution screen without asking the extension for anything: mission
+   * control waited on a run that was never started.
+   */
   const handleRetryFailed = useCallback(() => {
-    if (!graph || failedNodes.length === 0) return;
-    const retryGraph = {
-      ...graph,
-      nodes: graph.nodes.map((n) =>
-        n.status === 'error'
-          ? {
-              ...n,
-              status: 'idle' as const,
-              progress: 0,
-              errors: [],
-              successCount: 0,
-              failureCount: 0,
-            }
-          : n,
-      ),
-    };
-    setGraph(retryGraph);
+    if (!graph || !config || !result) return;
+    // A new run, from the statuses up, as Review starts one.
+    useForgeStore.getState().resetNodeStatuses();
+    const { graph: retried, anonymizationRules, fileCopy } = useForgeStore.getState();
+    if (!retried) return;
+    // What Review sends, and the run it retries: the extension's history holds
+    // what that run wrote.
+    const requestId = sendBridgeMessage<ForgeExecuteRequest['payload']>('forge:execute', {
+      graph: retried,
+      config,
+      anonymizationRules,
+      ...(fileCopy.enabled
+        ? {
+            files: {
+              maxFileSizeMB: fileCopy.maxFileSizeMB,
+              acceptedAsIs: fileCopy.acceptedAsIs,
+            },
+          }
+        : {}),
+      retryOf: result.forgeId,
+    });
+    useForgeStore.getState().setExecutionRequestId(requestId);
     setPhase('execution');
-  }, [graph, failedNodes, setGraph, setPhase]);
+  }, [graph, config, result, setPhase]);
 
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
@@ -878,12 +902,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forge.exportJson')}
         </Button>
-        {failedNodes.length > 0 && (
+        {failedObjects && result && (
           <Button
             variant="secondary"
             size="md"
             icon={<RefreshCw size={14} />}
             onClick={handleRetryFailed}
+            aria-describedby="forge-retry-failed-hint"
             data-testid="forge-retry-failed"
           >
             {t('forge.retryFailed')}
@@ -899,6 +924,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {t('forge.forgeAgain')}
         </Button>
       </m.div>
+      {/* What the retry writes, and what it does not write twice: a clone run
+          again would otherwise be read as writing everything a second time. */}
+      {failedObjects && result && (
+        <p
+          id="forge-retry-failed-hint"
+          className="text-xs text-text-secondary"
+          data-testid="forge-retry-failed-hint"
+        >
+          {t('forge.retryFailedHint')}
+        </p>
+      )}
 
       {saveOpen && (
         <form

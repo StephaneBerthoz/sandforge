@@ -667,6 +667,54 @@ async function openFrozenLastLoad(
   await page.getByTestId('frozen-removal').waitFor({ timeout: 10_000 });
 }
 
+/** An account and its contacts, as a Forge discovery answers with them. */
+const FORGE_TWO_NODE_GRAPH = {
+  ...FORGE_RUN_GRAPH,
+  nodes: [
+    FORGE_RUN_GRAPH.nodes[0],
+    { ...FORGE_RUN_GRAPH.nodes[0], objectApiName: 'Contact', recordCount: 2, level: 1 },
+  ],
+  totalRecords: 3,
+};
+
+/**
+ * Start a Forge run of that graph from the SOQL tab, up to its execution
+ * screen, and give back the id of its `forge:execute` request: what the
+ * extension correlates the run's progress and its answer to.
+ */
+async function startForgeRun(bridge: MockBridge, page: Page, theme: ScannedTheme): Promise<string> {
+  await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+  await page.getByTestId('forge-tab-soql').click();
+  await page.getByTestId('forge-input-soql').fill(FORGE_AI_DRAFT);
+  await page.getByTestId('forge-target-org').click();
+  await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+  await page.getByTestId('forge-discover-btn').click();
+  await page.waitForSelector('[data-testid="forge-discovery-loading"]', { timeout: 10_000 });
+  await answerAll(page, 'forge:discover', 'forge:discover:response', {
+    graph: FORGE_TWO_NODE_GRAPH,
+  });
+  await page.getByTestId('forge-execute-btn').click();
+  await page.getByTestId('execute-button').click();
+  await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+  const request = await bridge.waitForMessage('forge:execute', { timeout: 10_000 });
+  return String(request.id);
+}
+
+/** The extension saying where the run stands on one object. */
+async function forgeProgress(
+  page: Page,
+  request: string,
+  objectName: string,
+  status: 'done' | 'error',
+): Promise<void> {
+  await sendExtensionMessage(page, {
+    type: 'forge:progress',
+    id: `progress-${objectName}`,
+    correlationId: request,
+    payload: { objectName, status, progress: 100 },
+  });
+}
+
 /** The Forge page with its recent runs listed: one run whose records can be removed. */
 async function openForgeHistory(
   bridge: MockBridge,
@@ -937,6 +985,124 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-empty-tables"]'),
       ).toBeGreaterThan(0);
+    });
+
+    test('Forge finishing a run after its last object, then the results its later answer carries', async ({
+      page,
+    }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await forgeProgress(page, request, 'Contact', 'done');
+
+      // Every object has settled and the run goes on: its statuses, its
+      // write dates and its files come after its last object.
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('FINISHING...');
+      await page.getByTestId('forge-execution-finishing').waitFor({ timeout: 10_000 });
+      const finishing = await checkAccessibility(page);
+      expectNoViolations(finishing);
+      expect(
+        await contrastMeasuredIn(page, finishing, '[data-testid="forge-execution-finishing"]'),
+      ).toBeGreaterThan(0);
+
+      // A second later: the screen that used to take the answer had left.
+      await page.waitForTimeout(1_000);
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:response',
+        id: 'resp-forge-late',
+        correlationId: request,
+        payload: {
+          result: {
+            forgeId: 'forge-run-late',
+            status: 'success',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 9_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 4,
+            createdCount: 4,
+            idRemapTable: {
+              [fakeId('001', 1, 'SRC')]: fakeId('001', 1),
+              [fakeId('003', 1, 'SRC')]: fakeId('003', 1),
+              [fakeId('003', 2, 'SRC')]: fakeId('003', 2),
+              [fakeId('0jM', 1, 'SRC')]: fakeId('0jM', 1),
+            },
+            readByObject: [
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'Contact', read: 2 },
+              { objectApiName: 'ProductSellingModelOption', read: 1 },
+            ],
+          },
+          operationId: 'forge-execute-1',
+        },
+      });
+
+      await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });
+      await expect(page.getByTestId('kpi-value').first()).toHaveText('4');
+      await expect(page.getByTestId('forge-results-table')).toContainText(
+        'ProductSellingModelOption',
+      );
+      await expect(page.getByTestId('forge-id-mapping-row')).toHaveCount(4);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Forge results retrying what failed, and the retry they send', async ({ page }) => {
+      const request = await startForgeRun(bridge, page, theme);
+      await forgeProgress(page, request, 'Account', 'done');
+      await forgeProgress(page, request, 'Contact', 'error');
+      await sendExtensionMessage(page, {
+        type: 'forge:execute:response',
+        id: 'resp-forge-partial',
+        correlationId: request,
+        payload: {
+          result: {
+            forgeId: 'forge-run-partial',
+            status: 'partial',
+            graph: FORGE_TWO_NODE_GRAPH,
+            duration: 3_000,
+            timestamp: '2026-09-01T08:00:00.000Z',
+            idRemapCount: 1,
+            createdCount: 1,
+            idRemapTable: { [fakeId('001', 1, 'SRC')]: fakeId('001', 1) },
+            readByObject: [
+              { objectApiName: 'Account', read: 1 },
+              { objectApiName: 'Contact', read: 2 },
+            ],
+            errors: [
+              {
+                objectApiName: 'Contact',
+                stage: 'insert',
+                failedCount: 2,
+                attemptedCount: 2,
+                samples: [
+                  {
+                    recordSummary: 'LastName=Doe',
+                    messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: Region is required'],
+                  },
+                ],
+              },
+            ],
+          },
+          operationId: 'forge-execute-1',
+        },
+      });
+      await page.getByTestId('forge-retry-failed-hint').waitFor({ timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-retry-failed-hint"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('forge-retry-failed').click();
+
+      await page.waitForSelector('[data-testid="forge-execution"]', { timeout: 10_000 });
+      const runs = await bridge.getMessages('forge:execute');
+      expect(runs).toHaveLength(2);
+      const retry = runs[1].payload as {
+        retryOf?: string;
+        graph: { nodes: Array<{ status: string }> };
+      };
+      expect(retry.retryOf).toBe('forge-run-partial');
+      expect(retry.graph.nodes.map((n) => n.status)).toEqual(['idle', 'idle']);
+      await expect(page.getByTestId('forge-execution-status')).toHaveText('FORGING...');
     });
 
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({

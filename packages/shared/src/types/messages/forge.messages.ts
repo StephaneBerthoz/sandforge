@@ -42,6 +42,12 @@ export interface ForgeExecuteRequest extends BaseMessage {
      * Absent, the run copies no file.
      */
     files?: ForgeFileCopyOption;
+    /**
+     * The run this one retries, by its `forgeId` in the extension's history:
+     * the same clone, run again against what that run wrote. Absent for a
+     * run started from Review.
+     */
+    retryOf?: string;
   };
 }
 

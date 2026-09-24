@@ -384,6 +384,14 @@ export interface ExecuteOptions {
      */
     acceptedAsIs?: boolean;
   };
+  /**
+   * Source id to target id of every record the run this one retries left in
+   * the target: its `idRemapTable`. A retry reads the clone as that run did,
+   * and a row it finds here is linked to its record and never written again,
+   * with the lookups that run had to leave empty on it filled in once this
+   * run writes what they name. Absent for a run that retries none.
+   */
+  writtenBefore?: Readonly<Record<string, string>>;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -716,6 +724,12 @@ interface ExecutionState {
   readonly truncatedObjects: Set<string>;
   /** Nullified cycle FKs queued for the pass-2 UPDATE. */
   readonly pendingFkUpdates: PendingFkUpdate[];
+  /**
+   * The lookups of the rows the run retried wrote that it could not fill in,
+   * at records this run may write: patched once it has, dropped unsaid when it
+   * has not — the run retried reported them. Empty outside a retry.
+   */
+  owedToRowsWrittenBefore: PendingFkUpdate[];
   /**
    * Nodes that were out of scope when their turn came, to be asked again
    * once the rest of the graph has filled the scope cache.
@@ -1101,6 +1115,12 @@ function casesWritten(state: ExecutionState): boolean {
   return state.graph.nodes.some((n) => n.included && n.objectApiName === 'Case');
 }
 
+/** Whether a row read is one the run this one retries wrote: it is in the target already. */
+function wasWrittenBefore(config: ForgeStageConfig, row: Record<string, unknown>): boolean {
+  const id = row['Id'];
+  return typeof id === 'string' && config.writtenBefore.has(id);
+}
+
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
 function statusesByObject(
   owed: ExecutionState['deferredStatuses'],
@@ -1354,6 +1374,7 @@ export class ForgeExecutor {
       errors: [],
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
+      owedToRowsWrittenBefore: [],
       deferredNodes: [],
       turnsAhead: new Set<string>(),
       waitingFor: new Map<string, ForgeGraphNode[]>(),
@@ -1388,6 +1409,12 @@ export class ForgeExecutor {
       failedCount: 0,
       skippedCount: 0,
     };
+    // What the run retried wrote is in the target: its children link to it as
+    // to a record the target already held, and it is none of this run's own —
+    // registered without its object, no removal of this run takes it back.
+    for (const [sourceId, targetId] of config.writtenBefore) {
+      state.remapper.addExisting(sourceId, targetId);
+    }
 
     try {
       return await this.runPasses(state);
@@ -1799,6 +1826,7 @@ export class ForgeExecutor {
         // Parents failed while being written are known only now.
         if (await this.skipForFailedParent(node, state, read.fieldInfos)) continue;
         await this.writeNode(node, state);
+        state.pendingFkUpdates.push(...this.owedNowWritten(state));
 
         // Settle what this node's write has just made resolvable, before the
         // next one reads it. An opportunity's price book is nullified at
@@ -1823,7 +1851,9 @@ export class ForgeExecutor {
       }
     }
 
-    // Pass 2 — patch nullified cycle FKs whose targets are now cloned.
+    // Pass 2 — patch nullified cycle FKs whose targets are now cloned, and the
+    // lookups of rows the run retried wrote at records this run wrote.
+    state.pendingFkUpdates.push(...this.owedNowWritten(state));
     const pass2Error = await patchCycleFkUpdates({
       pendingFkUpdates: state.pendingFkUpdates,
       remapper: state.remapper,
@@ -3045,9 +3075,13 @@ export class ForgeExecutor {
       }
 
       // The records whose files the run copies: the ones it read to clone,
-      // never those of an object mapped by name or of the standard book.
+      // never those of an object mapped by name or of the standard book —
+      // nor a row the run it retries wrote, whose files came with it or were
+      // reported with it: copied again, they would be there twice.
       if (config.files) {
-        const ids = records.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
+        const ids = records.flatMap((r) =>
+          typeof r['Id'] === 'string' && !wasWrittenBefore(config, r) ? [r['Id']] : [],
+        );
         state.fileScope.set(node.objectApiName, ids);
       }
       this.withoutFileContent(state, node.objectApiName, described, records.length > 0);
@@ -3728,17 +3762,97 @@ export class ForgeExecutor {
   }
 
   /**
+   * Owe again the lookups the run this one retries left empty on the rows it
+   * wrote: those naming a record it never wrote, at an object this run
+   * writes. Its first write emptied each — the record named had failed, or
+   * was skipped with its object — and its second pass reported it. Written
+   * now, that record would otherwise stay unlinked from the row that names
+   * it: the price book an opportunity went in without, the quote it syncs.
+   *
+   * Only a lookup the run could write is owed, under the name it writes it
+   * by; one at an object the run does not write can never be filled in.
+   *
+   * @param writable - The fields both orgs let the run write on the object.
+   */
+  private oweLookupsOfRowsWrittenBefore(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    rows: readonly Record<string, unknown>[],
+    fieldInfos: readonly FieldInfo[],
+    writable: ReadonlySet<string>,
+  ): void {
+    const { config } = state;
+    const written = new Set(
+      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    );
+    const excluded = new Set(config.fieldExclusions[node.objectApiName] ?? []);
+    const rename = config.fieldMappings[node.objectApiName] ?? {};
+    const lookups = fieldInfos.filter(
+      (f) =>
+        f.isReference &&
+        f.name !== 'RecordTypeId' &&
+        !excluded.has(f.name) &&
+        (rename[f.name] !== undefined || writable.has(f.name)) &&
+        (f.referenceTo ?? []).some((object) => written.has(object)),
+    );
+    if (lookups.length === 0) return;
+    for (const row of rows) {
+      const sourceId = row['Id'];
+      if (typeof sourceId !== 'string') continue;
+      const newId = config.writtenBefore.get(sourceId);
+      if (!newId) continue;
+      for (const field of lookups) {
+        const value = row[field.name];
+        if (typeof value !== 'string' || !value || config.writtenBefore.has(value)) continue;
+        state.owedToRowsWrittenBefore.push({
+          objectApiName: node.objectApiName,
+          newId,
+          sourceId,
+          fieldName: rename[field.name] ?? field.name,
+          sourceRefId: value,
+        });
+      }
+    }
+  }
+
+  /**
+   * The owed lookups of rows the run retried wrote whose record this run has
+   * now written or found, taken off the list for the pass that patches them.
+   * What is left when the run ends names a record it never wrote either: the
+   * run retried reported it, and it is not said twice.
+   */
+  private owedNowWritten(state: ExecutionState): PendingFkUpdate[] {
+    if (state.owedToRowsWrittenBefore.length === 0) return [];
+    const now: PendingFkUpdate[] = [];
+    const still: PendingFkUpdate[] = [];
+    for (const owed of state.owedToRowsWrittenBefore) {
+      if (state.remapper.get(owed.sourceRefId)) now.push(owed);
+      else still.push(owed);
+    }
+    state.owedToRowsWrittenBefore = still;
+    return now;
+  }
+
+  /**
    * Write one node the read stage has already pulled: describe the target
    * org, hold the node back when its record types are closed to the running
    * user, and the rows whose parent it did not write, expand orphan parents,
-   * clean, translate record types, anonymize and insert.
+   * clean, translate record types, anonymize and insert. A row the run this
+   * one retries wrote is not written: see `writtenBefore`.
    */
   private async writeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
-    const { fieldInfos, createableSet, records, targetSetsPending } = read;
-    // The rows read, less those held back for want of their parent.
+    const { fieldInfos, createableSet, targetSetsPending } = read;
+    // The rows the run this one retries wrote are in the target: linked to,
+    // never written a second time. The others are what this run writes.
+    const writtenBefore = read.records.filter((row) => wasWrittenBefore(config, row));
+    const records =
+      writtenBefore.length > 0
+        ? read.records.filter((row) => !wasWrittenBefore(config, row))
+        : read.records;
+    // The rows to write, less those held back for want of their parent.
     let toWrite = records;
     try {
       // Step 2: describe the *target* org (schema-drift defense) — the only
@@ -3775,6 +3889,28 @@ export class ForgeExecutor {
       const effectiveCreatableSet = targetCreatableSet
         ? intersect(createableSet, targetCreatableSet)
         : createableSet;
+
+      if (writtenBefore.length > 0) {
+        // In the target, so neither created nor failed: linked, as a row the
+        // target already held is, and the rate counts them as the clone's.
+        state.linkedCount += writtenBefore.length;
+        this.oweLookupsOfRowsWrittenBefore(
+          state,
+          node,
+          writtenBefore,
+          fieldInfos,
+          effectiveCreatableSet,
+        );
+        if (records.length === 0) {
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'done',
+            progress: 100,
+            message: `Completed ${node.objectApiName}: 0 succeeded, ${writtenBefore.length} already in the target from the run retried, 0 failed`,
+          });
+          return;
+        }
+      }
 
       // Read from the describe the field sets came from: no second request.
       const targetObject = await this.objectInfoOf(targetOrgId, node.objectApiName);
@@ -4028,8 +4164,9 @@ export class ForgeExecutor {
       // written without it skip, and a lookup at it elsewhere is left empty
       // and reported rather than written as if its rows were there.
       // A row linked to the record the target already held is not a failure:
-      // its children have a parent to point at.
-      const settled = nodeSuccess + nodeUpdated + nodeLinked;
+      // its children have a parent to point at. Nor is one the run retried
+      // wrote.
+      const settled = nodeSuccess + nodeUpdated + nodeLinked + writtenBefore.length;
       const total = settled + nodeFailure;
       const failureRate = total > 0 ? nodeFailure / total : 0;
       // A node whose every failure was the target already holding the row has
@@ -4068,11 +4205,15 @@ export class ForgeExecutor {
             : '';
         const writtenWithTheirEmail =
           withTheirEmail > 0 ? `, ${withTheirEmail} written by the platform with their email` : '';
+        const already =
+          writtenBefore.length > 0
+            ? `, ${writtenBefore.length} already in the target from the run retried`
+            : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${leftToThePlatformNote(state, node.objectApiName)}`,
         });
       }
     } catch (err) {

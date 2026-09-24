@@ -226,6 +226,24 @@ describe('ForgeOrchestrator', () => {
       expect(optionsPassed[2]?.files).toBeUndefined();
     });
 
+    it('hands a retry what the run it retries wrote, in both input modes', async () => {
+      const writtenBefore = { '001000000000001SRC': '001000000000001TGT' };
+      // A full-table run with nothing else to say gave its executor no options.
+      const bare = createMockConfig({
+        inputMode: 'soql',
+        recordId: undefined,
+        soqlQuery: 'SELECT Id FROM Account',
+        maxRecordsPerObject: undefined,
+      });
+
+      await orchestrator.execute(createMockGraph(), createMockConfig(), { writtenBefore });
+      await orchestrator.execute(createMockGraph(), bare, { writtenBefore });
+
+      const optionsPassed = vi.mocked(deps.executor.execute).mock.calls.map((c) => c[4]);
+      expect(optionsPassed[0]?.writtenBefore).toEqual(writtenBefore);
+      expect(optionsPassed[1]?.writtenBefore).toEqual(writtenBefore);
+    });
+
     it('carries what the run did with the files into its result', async () => {
       const files = {
         maxFileBytes: 1_048_576,

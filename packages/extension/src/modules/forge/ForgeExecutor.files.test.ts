@@ -676,4 +676,19 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
     expect(finishedRunStatus(summary)).toBe('partial');
     expect(summary.errors.find((e) => e.objectApiName === 'ContentDocument')?.stage).toBe('insert');
   });
+
+  it('copies on a retry the files of the rows it writes, and none of a row the run it retries wrote', async () => {
+    // The account and the key contact went in with the run retried, and the
+    // contract on them with it: copied again, it would be there twice.
+    const { deps, writes, sent, readable } = fakeOrgs();
+
+    await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', () => undefined, {
+      ...SCOPED,
+      files: FILES,
+      writtenBefore: { [ACCOUNT]: id('001', 401), [KEY_CONTACT]: id('003', 401) },
+    });
+
+    expect(writes).toEqual(['insert Contact', 'file Attachment']);
+    expect(readable(sent[0].record)).toEqual({ LastName: 'Other', AccountId: id('001', 401) });
+  });
 });

@@ -691,6 +691,95 @@ describe('useForgeStore', () => {
     });
   });
 
+  describe('the answer to a run', () => {
+    /** The extension answering `forge:execute` request `correlationId`. */
+    function answer(correlationId: string, result?: ForgeExecutionResult): void {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: `host-${correlationId}`,
+            type: 'forge:execute:response',
+            timestamp: Date.now(),
+            correlationId,
+            payload: result ? { result, operationId: 'forge-execute-1' } : {},
+          },
+        }),
+      );
+    }
+
+    /** A run on screen, started by request `wv-run-1`. */
+    function runOnScreen(): void {
+      getState().setGraph(createMockGraph());
+      getState().setExecutionRequestId('wv-run-1');
+      getState().setPhase('execution');
+    }
+
+    it('keeps the result and shows the results, whatever screen is mounted', () => {
+      // Listened for by the store: the execution screen that listened left
+      // before the run's last steps, and the answer went nowhere.
+      runOnScreen();
+      const result = createMockResult({ forgeId: 'forge-answered', createdCount: 4 });
+
+      answer('wv-run-1', result);
+
+      expect(getState().result).toEqual(result);
+      expect(getState().phase).toBe('results');
+      expect(getState().history.map((r) => r.forgeId)).toEqual(['forge-answered']);
+    });
+
+    it('shows the results of a run whose answer carried no result', () => {
+      runOnScreen();
+      answer('wv-run-1');
+      expect(getState().phase).toBe('results');
+      expect(getState().result).toBeNull();
+    });
+
+    it("never leaves the retried run's result on screen for a retry's answer", () => {
+      getState().setResult(createMockResult({ forgeId: 'forge-retried' }));
+      runOnScreen();
+      answer('wv-run-1');
+      expect(getState().result).toBeNull();
+    });
+
+    it("leaves the run alone on another panel's answer", () => {
+      // Every panel receives every forge message.
+      runOnScreen();
+      answer('wv-run-other', createMockResult());
+      expect(getState().phase).toBe('execution');
+      expect(getState().result).toBeNull();
+      expect(getState().history).toEqual([]);
+    });
+
+    it('takes no answer once the run was left for the input screen', () => {
+      runOnScreen();
+      getState().setPhase('input');
+      answer('wv-run-1', createMockResult());
+      expect(getState().phase).toBe('input');
+      expect(getState().result).toBeNull();
+    });
+
+    it('takes no answer while no run has been started', () => {
+      getState().setPhase('execution');
+      answer('wv-run-1', createMockResult());
+      expect(getState().result).toBeNull();
+    });
+
+    it('ignores an answer from another origin than the webview host', () => {
+      runOnScreen();
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://example.invalid',
+          data: {
+            type: 'forge:execute:response',
+            correlationId: 'wv-run-1',
+            payload: { result: createMockResult() },
+          },
+        }),
+      );
+      expect(getState().phase).toBe('execution');
+    });
+  });
+
   describe('the files of the cloned records', () => {
     const accepted = { enabled: true, maxFileSizeMB: 4, acceptedAsIs: true };
 

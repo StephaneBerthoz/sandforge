@@ -94,10 +94,16 @@ const executePayloadSchema = z.object({
   // no file is read. Never part of the config: a template or a past run does
   // not bring back the acceptance a run that anonymizes needs.
   files: forgeFileCopyOptionSchema.optional(),
+  // The run this one retries, by its id in the history, which holds what it
+  // wrote; absent for a run started from Review.
+  retryOf: z.string().min(1).max(200).optional(),
 });
 
 /** Why a run that copies files was stopped before it started, as the audit trail records it. */
 const FILES_NOT_ACCEPTED = 'FILES_NOT_ACCEPTED';
+
+/** Why a retry was stopped before it started: what the run it retries wrote is not known. */
+const RETRY_UNAVAILABLE = 'RETRY_UNAVAILABLE';
 
 const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
 // The entry is named, never its records: what is removed is what this
@@ -878,7 +884,7 @@ export class ForgeHandler implements DomainHandler {
 
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules, files } = parsed;
+    const { graph, config, anonymizationRules, files, retryOf } = parsed;
 
     // A run that anonymizes its records copies no file the user has not
     // accepted as it is: a file's content cannot be anonymized. Refused before
@@ -902,6 +908,35 @@ export class ForgeHandler implements DomainHandler {
         { code: FILES_NOT_ACCEPTED },
       );
       return;
+    }
+
+    // A retry runs the clone again against what the run it retries wrote,
+    // which only that run's entry in the history holds: without it, every row
+    // that run wrote would be written a second time. Refused before the guard
+    // is asked, as a file copy not accepted is.
+    let writtenBefore: Record<string, string> | undefined;
+    if (retryOf !== undefined) {
+      const base = this.runToRetry(retryOf, config.targetOrgId);
+      if ('refused' in base) {
+        recordWriteRun(this.deps, {
+          action: 'forge_execute',
+          module: 'forge',
+          operationId: msg.id,
+          orgId: config.targetOrgId,
+          outcome: 'stopped',
+          code: RETRY_UNAVAILABLE,
+        });
+        sendHandlerError(
+          this.deps,
+          'forge:execute',
+          'forge:execute:error',
+          msg,
+          new Error(base.refused),
+          { code: RETRY_UNAVAILABLE },
+        );
+        return;
+      }
+      writtenBefore = base.written;
     }
 
     // Production guard check on the target org — same policy as sync/seed
@@ -984,10 +1019,14 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
 
-    // Build a deterministic ID from payload content to detect genuine duplicates
+    // Build a deterministic ID from payload content to detect genuine duplicates.
+    // A retry sends the payload of the run it retries: named apart, it is not
+    // taken for that run sent twice and refused for the minute after it wrote.
     const configKey = `${config.sourceOrgId}:${config.targetOrgId}:${config.recordId ?? ''}`;
     const objectKeys = graph.nodes?.map((n) => n.objectApiName).join(',') ?? '';
-    const forgeOpId = `forge:${configKey}:${objectKeys}:${graph.totalRecords ?? 0}`;
+    const forgeOpId =
+      `forge:${configKey}:${objectKeys}:${graph.totalRecords ?? 0}` +
+      (retryOf !== undefined ? `:retry:${retryOf}` : '');
 
     // Refuse the payload only while an identical run is still in flight, or
     // during a short cooldown after one that actually wrote records. Anything
@@ -1090,11 +1129,15 @@ export class ForgeHandler implements DomainHandler {
         throw new Error('Forge execution was aborted before it started. Nothing was written.');
       }
       startedAt = Date.now();
-      const result = await this.orchestrator.execute(graph, config, {
+      const executed = await this.orchestrator.execute(graph, config, {
         recordTypeMappings,
         anonymizationRules,
         files,
+        writtenBefore,
       });
+      // A retry names the run it retried, which the history walks back to
+      // before a later retry is built on it.
+      const result = retryOf !== undefined ? { ...executed, retryOf } : executed;
 
       // Arm the duplicate cooldown only when the run created something: a
       // failure, or a run that created no record, leaves the recipe
@@ -1156,7 +1199,9 @@ export class ForgeHandler implements DomainHandler {
       // Kept in the history with what it created and where, so those records
       // can be removed from there: the run that went wrong is the one most
       // worth taking back. A run that created nothing is not kept.
-      if (partial) this.keepStoppedRun(partial, graph, config, { startedAt, cancelled });
+      if (partial) {
+        this.keepStoppedRun(partial, graph, config, { startedAt, cancelled, retryOf });
+      }
       recordWriteRun(this.deps, {
         action: 'forge_execute',
         module: 'forge',
@@ -1240,14 +1285,69 @@ export class ForgeHandler implements DomainHandler {
     summary: ExecutionSummary,
     graph: ForgeGraph,
     config: ForgeConfig,
-    run: { startedAt: number; cancelled: boolean },
+    run: { startedAt: number; cancelled: boolean; retryOf?: string },
   ): void {
     if (!summary.createdByObject.some((object) => object.sourceIds.length > 0)) return;
     const result = forgeRunResult(summary, graph, {
       startedAt: run.startedAt,
       status: run.cancelled ? 'partial' : 'failure',
     });
-    this.addToHistory(run.cancelled ? { ...result, cancelled: true } : result, config);
+    this.addToHistory(
+      {
+        ...result,
+        ...(run.cancelled ? { cancelled: true } : {}),
+        ...(run.retryOf !== undefined ? { retryOf: run.retryOf } : {}),
+      },
+      config,
+    );
+  }
+
+  /**
+   * What the run `forgeId` left in `targetOrgId`, for a retry of it: source to
+   * target ids, as its entry in the history keeps them — or why it cannot be
+   * retried.
+   *
+   * A run whose records were removed, or one built on such a run by an
+   * earlier retry, left nothing to link to: a retry of it would write the
+   * rows it failed against records that are gone. A run of another target, or
+   * one recorded before runs kept their ids, says nothing of this target.
+   */
+  private runToRetry(
+    forgeId: string,
+    targetOrgId: string,
+  ): { written: Record<string, string> } | { refused: string } {
+    const history = this.loadHistory();
+    const entry = history.find((e) => e.forgeId === forgeId);
+    if (!entry) {
+      return {
+        refused:
+          'The run to retry is no longer in the history, so what it wrote is not known. Run the clone again from Review.',
+      };
+    }
+    if (entry.targetOrgId !== targetOrgId) {
+      return { refused: 'The run to retry wrote to another org than this one.' };
+    }
+    if (!entry.idRemapTable) {
+      return {
+        refused:
+          'The run to retry kept no record of what it wrote. Run the clone again from Review.',
+      };
+    }
+    const seen = new Set<string>();
+    let run: ForgeExecutionResult | undefined = entry;
+    while (run && !seen.has(run.forgeId)) {
+      seen.add(run.forgeId);
+      if (run.undo) {
+        return {
+          refused:
+            `The records ${run === entry ? 'the run to retry created' : 'a run it was built on created'} ` +
+            `were removed on ${run.undo.removedAt}: there is nothing to retry against. Run the clone again from Review.`,
+        };
+      }
+      const previous: string | undefined = run.retryOf;
+      run = previous === undefined ? undefined : history.find((e) => e.forgeId === previous);
+    }
+    return { written: entry.idRemapTable };
   }
 
   /**

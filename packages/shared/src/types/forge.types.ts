@@ -596,6 +596,13 @@ export interface ForgeExecutionResult {
   targetOrgId?: string;
   /** Set once the records this run created were removed from its target. */
   undo?: ForgeUndoMark;
+  /**
+   * The run this one retried, by its `forgeId`: the rows that run had written
+   * were linked to and never written again, and this run's `idRemapTable`
+   * holds them among the records the target already held. Absent from a run
+   * started from Review.
+   */
+  retryOf?: string;
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];
