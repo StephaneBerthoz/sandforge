@@ -3486,6 +3486,203 @@ describe('ForgeExecutor', () => {
       });
     });
 
+    describe('the categories a product is assigned to', () => {
+      // A category is shared by every product assigned to it, and a catalog
+      // by every category it holds. Read as any parent in scope is, the
+      // category a product's assignment named brought the assignments of
+      // other products, and the catalog every category it holds: run between
+      // two sandboxes, a product's clone carried the twenty-four assignments
+      // of its catalog, where the product has one, and its six categories.
+      const PRODUCT = '01t000000000001AAA';
+      const CATALOG = '0ZS000000000001AAA';
+      const TOOLS = '0ZG000000000001AAA';
+      const TOYS = '0ZG000000000002AAA';
+      const assignment = (n: number, name: string, category: string): FakeRow => ({
+        Id: `0ZR00000000000${n}AAA`,
+        Name: name,
+        ProductId: `01t00000000000${n}AAA`,
+        ProductCategoryId: category,
+        CatalogId: CATALOG,
+      });
+      const tables = (): Record<string, FakeRow[]> => ({
+        Product2: [
+          { Id: PRODUCT, Name: 'Widget' },
+          { Id: '01t000000000002AAA', Name: 'Gadget' },
+          { Id: '01t000000000003AAA', Name: 'Gizmo' },
+        ],
+        ProductCatalog: [{ Id: CATALOG, Name: 'Retail' }],
+        ProductCategory: [
+          { Id: TOOLS, Name: 'Tools', CatalogId: CATALOG, ParentCategoryId: null },
+          { Id: TOYS, Name: 'Toys', CatalogId: CATALOG, ParentCategoryId: null },
+        ],
+        ProductCategoryProduct: [
+          assignment(1, 'Widget in tools', TOOLS),
+          assignment(2, 'Gadget in tools', TOOLS),
+          assignment(3, 'Gizmo in toys', TOYS),
+        ],
+      });
+      const fields: Record<string, FieldInfo[]> = {
+        Product2: [idField, text('Name')],
+        ProductCatalog: [idField, text('Name')],
+        ProductCategory: [
+          idField,
+          text('Name'),
+          lookup('CatalogId', 'ProductCatalog', true),
+          lookup('ParentCategoryId', 'ProductCategory'),
+        ],
+        ProductCategoryProduct: [
+          idField,
+          text('Name'),
+          lookup('ProductId', 'Product2', true),
+          lookup('ProductCategoryId', 'ProductCategory', true),
+          // The category's, set by the platform.
+          { ...lookup('CatalogId', 'ProductCatalog', true), createable: false },
+        ],
+      };
+      const rooted = { rootRecordId: PRODUCT, rootObjectApiName: 'Product2' };
+      const ownAssignment = {
+        Name: 'Widget in tools',
+        ProductId: 'Product2:Widget',
+        ProductCategoryId: 'ProductCategory:Tools',
+      };
+
+      it('clones the assignments of the product, with the category and catalog they name, and no other product of them', async () => {
+        // As discovery walks them: the catalog and the categories come before
+        // the assignments, and at their turn nothing has named either.
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const read = recordReads(orgDeps);
+        const graph = makeGraph(
+          [
+            makeNode('Product2'),
+            makeNode('ProductCatalog'),
+            makeNode('ProductCategory'),
+            makeNode('ProductCategoryProduct'),
+          ],
+          [
+            { ...edge('Product2', 'ProductCategoryProduct'), required: true },
+            { ...edge('ProductCategory', 'ProductCategoryProduct'), required: true },
+            { ...edge('ProductCatalog', 'ProductCategoryProduct'), required: true },
+            { ...edge('ProductCatalog', 'ProductCategory'), required: true },
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(read['ProductCategoryProduct']).toEqual(new Set(['0ZR000000000001AAA']));
+        expect(read['Product2']).toEqual(new Set([PRODUCT]));
+        expect(inserted['ProductCategoryProduct']).toEqual([ownAssignment]);
+        expect(inserted['ProductCategory']).toEqual([
+          { Name: 'Tools', CatalogId: 'ProductCatalog:Retail' },
+        ]);
+        expect(inserted['ProductCatalog']).toEqual([{ Name: 'Retail' }]);
+        expect(inserted['Product2']).toEqual([{ Name: 'Widget' }]);
+        // The catalog, then the category, then the assignment that needs both.
+        const written = Object.keys(inserted);
+        expect(written.indexOf('ProductCatalog')).toBeLessThan(written.indexOf('ProductCategory'));
+        expect(written.indexOf('ProductCategory')).toBeLessThan(
+          written.indexOf('ProductCategoryProduct'),
+        );
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('reads no other category of the catalog when the assignments come before the categories', async () => {
+        // At the edge of the graph, the assignments' lookups unwalked: their
+        // turn comes first, and they have named the category and the catalog
+        // by the categories' turn.
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const read = recordReads(orgDeps);
+        const graph = makeGraph(
+          [
+            makeNode('Product2'),
+            makeNode('ProductCategoryProduct'),
+            makeNode('ProductCatalog'),
+            makeNode('ProductCategory'),
+          ],
+          [
+            { ...edge('Product2', 'ProductCategoryProduct'), required: true },
+            { ...edge('ProductCatalog', 'ProductCategory'), required: true },
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(read['ProductCategory']).toEqual(new Set([TOOLS]));
+        expect(inserted['ProductCategoryProduct']).toEqual([ownAssignment]);
+        expect(inserted['ProductCategory']).toEqual([
+          { Name: 'Tools', CatalogId: 'ProductCatalog:Retail' },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('adds the category and catalog an assignment names when discovery stopped before them', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const graph = makeGraph(
+          [makeNode('Product2'), makeNode('ProductCategoryProduct')],
+          [{ ...edge('Product2', 'ProductCategoryProduct'), required: true }],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(inserted['ProductCategoryProduct']).toEqual([ownAssignment]);
+        expect(inserted['ProductCategory']).toEqual([
+          { Name: 'Tools', CatalogId: 'ProductCatalog:Retail' },
+        ]);
+        expect(inserted['ProductCatalog']).toEqual([{ Name: 'Retail' }]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('still clones every category of a catalog it is rooted at, and their assignments', async () => {
+        // Reached from above, the catalog brings what is under it.
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const graph = makeGraph(
+          [
+            makeNode('ProductCatalog'),
+            makeNode('ProductCategory'),
+            makeNode('ProductCategoryProduct'),
+            makeNode('Product2'),
+          ],
+          [
+            { ...edge('ProductCatalog', 'ProductCategory'), required: true },
+            { ...edge('ProductCategory', 'ProductCategoryProduct'), required: true },
+            { ...edge('ProductCatalog', 'ProductCategoryProduct'), required: true },
+            { ...edge('Product2', 'ProductCategoryProduct'), required: true },
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: CATALOG,
+          rootObjectApiName: 'ProductCatalog',
+        });
+
+        expect(inserted['ProductCategory'].map((r) => r['Name'])).toEqual(['Tools', 'Toys']);
+        expect(inserted['ProductCategoryProduct'].map((r) => r['Name'])).toEqual([
+          'Widget in tools',
+          'Gadget in tools',
+          'Gizmo in toys',
+        ]);
+        expect(inserted['Product2'].map((r) => r['Name'])).toEqual(['Widget', 'Gadget', 'Gizmo']);
+        expect(summary.errors).toEqual([]);
+      });
+    });
+
     describe('the catalog a clone prices from', () => {
       const OPPORTUNITY = '006000000000001AAA';
       const OTHER_OPPORTUNITY = '006000000000002AAA';

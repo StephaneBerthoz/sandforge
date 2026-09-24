@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { Connection } from 'jsforce';
 
 import type { DescribedObject } from './DataQualityScanner.js';
 import {
@@ -6,6 +7,7 @@ import {
   deleteRecords,
   idLists,
   isRecordId,
+  orgSession,
   readRecordsById,
   RECORDS_PER_CALL,
   RELATED_COUNT_LIMIT,
@@ -180,6 +182,21 @@ describe('record removal', () => {
     expect(counts.errors).toEqual([
       { objectApiName: 'Contact', message: 'REQUEST_LIMIT_EXCEEDED' },
     ]);
+  });
+
+  it('overwrites records in the org with the duplicate-rule waiver', async () => {
+    // An erasure, or an order a removal drafts and gives its status back, is
+    // an edit, and a duplicate rule can block an edit as it blocks a create.
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001AAA' }]);
+    const conn = { sobject: vi.fn(() => ({ update })) } as unknown as Connection;
+
+    await orgSession(conn, 'erasure').update('Contact', [
+      { Id: '003000000000001AAA', Email: null },
+    ]);
+
+    expect(update).toHaveBeenCalledWith([{ Id: '003000000000001AAA', Email: null }], {
+      headers: { 'Sforce-Duplicate-Rule-Header': 'allowSave=true' },
+    });
   });
 
   it('calls a write that partly landed partial, and sums the objects', () => {

@@ -1330,6 +1330,82 @@ describe('FrozenDatasetExtractor — the catalog a dossier draws on', () => {
     expect(sourceIdsOf(dataset, 'OpportunityLineItem')).toEqual([LINE]);
   });
 
+  describe('the categories a product is assigned to', () => {
+    const CATALOG = to18('0ZSA00000000cat');
+    const TOOLS = to18('0ZGA00000000too');
+    const TOYS = to18('0ZGA00000000toy');
+    const ASSIGNMENT = to18('0ZRA00000000own');
+    const assigned = (): FrozenDatasetExtractor =>
+      extractorOver(
+        {
+          Product2: [{ Id: PRODUCT }],
+          ProductCatalog: [{ Id: CATALOG }],
+          ProductCategory: [
+            { Id: TOOLS, CatalogId: CATALOG },
+            { Id: TOYS, CatalogId: CATALOG },
+          ],
+          ProductCategoryProduct: [
+            { Id: ASSIGNMENT, ProductId: PRODUCT, ProductCategoryId: TOOLS, CatalogId: CATALOG },
+          ],
+        },
+        {
+          ProductCategory: [id, lookup('CatalogId', ['ProductCatalog'], false)],
+          ProductCategoryProduct: [
+            id,
+            lookup('ProductId', ['Product2'], false),
+            lookup('ProductCategoryId', ['ProductCategory'], false),
+            lookup('CatalogId', ['ProductCatalog'], false),
+          ],
+        },
+      );
+
+    it('reads the category a product is assigned to and its catalog, and no other category of the catalog', async () => {
+      // A catalog is shared by every category it holds. Read as a parent in
+      // scope, the catalog the product's assignment named brought each of its
+      // categories into the product's dossier.
+      const dataset = await assigned().extract({
+        ...makeOptions(makeTmpDir(), []),
+        rootObject: 'Product2',
+        rootRecordIds: [PRODUCT],
+        graph: graphOf(
+          [
+            makeNode('Product2', 0),
+            makeNode('ProductCategoryProduct', 1),
+            makeNode('ProductCategory', 2),
+            makeNode('ProductCatalog', 2),
+          ],
+          [
+            edge('Product2', 'ProductCategoryProduct', 'ProductCategoryProducts'),
+            edge('ProductCategory', 'ProductCategoryProduct', 'CatalogProducts'),
+            edge('ProductCatalog', 'ProductCategoryProduct', 'CatalogProducts'),
+            edge('ProductCatalog', 'ProductCategory', 'Categories'),
+          ],
+        ),
+      });
+
+      expect(sourceIdsOf(dataset, 'ProductCategoryProduct')).toEqual([ASSIGNMENT]);
+      expect(sourceIdsOf(dataset, 'ProductCategory')).toEqual([TOOLS]);
+      expect(sourceIdsOf(dataset, 'ProductCatalog')).toEqual([CATALOG]);
+    });
+
+    it('fetches the category and catalog an assignment names when discovery stopped before them', async () => {
+      // The assignment cannot be loaded without them.
+      const dataset = await assigned().extract({
+        ...makeOptions(makeTmpDir(), []),
+        rootObject: 'Product2',
+        rootRecordIds: [PRODUCT],
+        graph: graphOf(
+          [makeNode('Product2', 0), makeNode('ProductCategoryProduct', 1)],
+          [edge('Product2', 'ProductCategoryProduct', 'ProductCategoryProducts')],
+        ),
+      });
+
+      expect(sourceIdsOf(dataset, 'ProductCategoryProduct')).toEqual([ASSIGNMENT]);
+      expect(sourceIdsOf(dataset, 'ProductCategory')).toEqual([TOOLS]);
+      expect(sourceIdsOf(dataset, 'ProductCatalog')).toEqual([CATALOG]);
+    });
+  });
+
   it('keeps both prices of a product a book sells under two selling models', async () => {
     // A book prices a product once per selling model it is sold under, and
     // each line here uses one of them. Kept one price per book and product,

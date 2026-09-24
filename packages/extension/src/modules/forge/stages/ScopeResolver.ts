@@ -27,8 +27,9 @@ export const PRODUCT_OBJECT = 'Product2';
 
 /**
  * The catalog — prices, products, selling models and the options that join
- * the two, price books — in the order a record-scoped run reads it, once the
- * rest of the graph has been read, but for what its own rows name (see
+ * the two, price books, and the categories products are assigned to with the
+ * catalogs that hold them — in the order a record-scoped run reads it, once
+ * the rest of the graph has been read, but for what its own rows name (see
  * {@link sortNodesAskedAgain}). A node something reaches from above is
  * read at its turn as well, for the rows under what it reached, and read
  * here all the same: the records read after it name rows of it too.
@@ -46,6 +47,14 @@ export const PRODUCT_OBJECT = 'Product2';
  * A selling model is as shared as a price book: every price sold under it
  * points at it, and read as any parent in scope is, the one-time model of a
  * real org would have brought its 275 prices.
+ *
+ * So is a category, which every product assigned to it points at through its
+ * assignment, and the catalog that holds the categories. Read as parents in
+ * scope, the category a product's assignment named and its catalog brought
+ * the whole catalog: run between two sandboxes, a product's clone carried its
+ * twenty-four assignments, where the product has one, and its six
+ * categories, where that assignment names one. They come last: a category
+ * names its catalog, and nothing else of the catalog names either.
  */
 export const CATALOG_READ_ORDER: readonly string[] = [
   PRICEBOOK_ENTRY_OBJECT,
@@ -53,6 +62,8 @@ export const CATALOG_READ_ORDER: readonly string[] = [
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
   PRICEBOOK_OBJECT,
+  'ProductCategory',
+  'ProductCatalog',
 ];
 
 /** The objects of {@link CATALOG_READ_ORDER}. */

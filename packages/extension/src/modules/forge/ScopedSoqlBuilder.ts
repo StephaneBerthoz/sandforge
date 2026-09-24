@@ -102,7 +102,8 @@ export interface ScopedSoqlBuildOpts {
   readObjects?: ReadonlySet<string>;
   /**
    * Objects every record that points at them shares: price books, products
-   * and their prices. Left off, none is.
+   * and their prices, and the categories products are assigned to with their
+   * catalogs. Left off, none is.
    *
    * A row of one brings the rows under it only when the run reached it from
    * above — the root, or a row read under a parent in scope

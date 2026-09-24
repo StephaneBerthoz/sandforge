@@ -405,7 +405,9 @@ async function main(): Promise<void> {
         if (!conn) throw new Error(`No connection for ${orgId}`);
         const results = await conn
           .sobject(objectName)
-          .update(records as unknown as { Id: string }[]);
+          .update(records as unknown as { Id: string }[], {
+            headers: duplicateRuleHeaders(true),
+          });
         const arr = Array.isArray(results) ? results : [results];
         return arr.map((r, i) => ({
           id: r.id ?? (records[i]['Id'] as string) ?? '',

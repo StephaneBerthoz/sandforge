@@ -5,8 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 /**
- * Every path that creates records in a target org sends the duplicate-rule
- * header.
+ * Every path that creates or updates records in a target org sends the
+ * duplicate-rule header.
  *
  * A copy writes rows that look exactly like rows the target already holds —
  * which is what a duplicate rule exists to stop. Salesforce provides a header
@@ -20,6 +20,11 @@ import { join } from 'node:path';
  *  - Sync, 1.28.0 — fourteen of sixteen accounts refused;
  *  - Seed, 1.29.0 — a hundred seeded contacts refused;
  *  - Autopilot, 1.30.0 — every contact of a two-object run refused.
+ *
+ * A rule can block an edit as it blocks a create, and the updates were never
+ * counted: Sync's updates, the clone command's second pass, the masking of an
+ * anonymization and a removal's edits all went without the header after the
+ * creates had it.
  *
  * The shared constant existed from the first of those. What was missing each
  * time was any way to notice that the module next door did not use it, so
@@ -36,22 +41,26 @@ function sourceFiles() {
 }
 
 /**
- * Calls that create records in an org: a `.create(` chained off a
- * `.sobject(...)`, which is the only shape a write to Salesforce takes here.
+ * Calls that create or update records in an org: a `.create(`, `.upsert(` or
+ * `.update(` chained off a `.sobject(...)`, which is the only shape a write
+ * to Salesforce takes here.
  *
  * The look-back matters. A first version of this matched every `.create(` in
  * a file that mentioned `sobject` anywhere, and reported a seed TEMPLATE
  * being saved to local storage as an unguarded org write.
  *
  * The window that follows the call carries ~240 characters, so a header
- * passed on the next line is still seen.
+ * passed on the next line is still seen. A call a comment names is none: the
+ * second pass of a clone explains which `.update(` it is wired onto.
  */
-function orgCreateCalls(text) {
+function orgWriteCalls(text) {
   const calls = [];
   // An upsert creates too, whenever the key it is given matches nothing.
-  const pattern = /\.(create|upsert)\(/g;
+  const pattern = /\.(create|upsert|update)\(/g;
   let match;
   while ((match = pattern.exec(text)) !== null) {
+    const lineStart = text.lastIndexOf('\n', match.index) + 1;
+    if (/^\s*(\*|\/\/|\/\*)/.test(text.slice(lineStart, match.index))) continue;
     const lookBack = text.slice(Math.max(0, match.index - 200), match.index);
     if (!/\.sobject\(/.test(lookBack)) continue;
     calls.push({ at: match.index, window: text.slice(match.index, match.index + 240) });
@@ -64,7 +73,7 @@ function lineOf(text, offset) {
   return text.slice(0, offset).split('\n').length;
 }
 
-test('every create call into a target org waives duplicate rules', () => {
+test('every create or update call into a target org waives duplicate rules', () => {
   const offenders = [];
 
   for (const path of sourceFiles()) {
@@ -73,7 +82,7 @@ test('every create call into a target org waives duplicate rules', () => {
     // the shape every write path uses, through jsforce.
     if (!text.includes('.sobject(')) continue;
 
-    for (const call of orgCreateCalls(text)) {
+    for (const call of orgWriteCalls(text)) {
       if (call.window.includes('duplicateRuleHeaders')) continue;
       // A call that passes headers built elsewhere is fine as long as it says
       // so; anything else is a write that a duplicate rule can refuse.

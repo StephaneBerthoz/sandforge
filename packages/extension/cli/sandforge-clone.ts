@@ -924,7 +924,12 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       if (args.dryRun) return [];
       const c = conns.get(orgId);
       if (!c) throw new Error(`No connection for ${orgId}`);
-      const r = await c.sobject(name).update(records as unknown as { Id: string }[]);
+      // The records the run writes again — the lookups the second pass fills
+      // in, the statuses given back — look like the target's as much as they
+      // did at insert: a rule that blocks an edit refuses them all the same.
+      const r = await c
+        .sobject(name)
+        .update(records as unknown as { Id: string }[], { headers: duplicateRuleHeaders(true) });
       const arr = Array.isArray(r) ? r : [r];
       return arr.map((x, i) => ({
         id: x.id ?? (records[i]['Id'] as string) ?? '',

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Connection } from 'jsforce';
 import type { RelatedRecordCount, RemovalOutcome } from '@sandforge/shared';
+import { duplicateRuleHeaders } from '@sandforge/shared';
 
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -36,10 +37,14 @@ export function orgSession(conn: Connection, context: string): OrgSession {
       checkApiLimits(conn.limitInfo, context);
       return { totalSize: answer.totalSize, records: answer.records };
     },
+    // A duplicate rule can block an edit as it blocks a create: an erasure, or
+    // an order a removal drafts and gives its status back, would be refused.
     update: (objectApiName, records) =>
       conn
         .sobject(objectApiName)
-        .update(records as Array<Record<string, unknown> & { Id: string }>),
+        .update(records as Array<Record<string, unknown> & { Id: string }>, {
+          headers: duplicateRuleHeaders(true),
+        }),
     destroy: (objectApiName, ids) => conn.sobject(objectApiName).destroy(ids),
   };
 }

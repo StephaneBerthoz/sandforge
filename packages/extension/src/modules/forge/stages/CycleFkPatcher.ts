@@ -10,10 +10,12 @@
  * Those batches are bounded by the same REST limit as pass 1.
  * `deps.updateRecords` is wired onto `conn.sobject(name).update(records)`,
  * and jsforce only splits an oversized array when `options.allowRecursive`
- * is set, which that call site does not pass — so the whole array went out
+ * is set, which that call site did not pass — so the whole array went out
  * as one request. Pass 1 was bounded and pass 2, which it feeds, was not:
  * a cyclic clone (Account.ParentId, Contact.ReportsToId) of more than 200
- * records still failed entirely, one stage later.
+ * records still failed entirely, one stage later. The call site passes it
+ * now, with the duplicate-rule header, and this stage still bounds its own
+ * batches.
  */
 
 import type {

@@ -1738,6 +1738,34 @@ describe('DataOpsHandler', () => {
       expect(elsewhere.size).toBeGreaterThan(1);
     });
 
+    it('sends the masked records with the duplicate-rule waiver', async () => {
+      // A duplicate rule can block an edit as it blocks a create, and a masked
+      // record it refuses keeps its real values.
+      const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query: vi.fn(async () => ({
+          records: [{ Id: '003000000000001', FirstName: 'Ada' }],
+          done: true,
+        })),
+        describe: vi.fn().mockResolvedValue(contactDescribe),
+        sobject: vi.fn(() => ({ update })),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle(
+        inboundRequest({
+          id: 'an-waiver',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+        } as BaseMessage),
+      );
+
+      const options = update.mock.calls[0][1] as { headers?: Record<string, string> } | undefined;
+      expect(options?.headers?.['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
+    });
+
     it('tells the model the object and batch size a refused masking used', async () => {
       // Masking fails inside the same write loop as the restore, and needs the
       // same two lines to be answered usefully.

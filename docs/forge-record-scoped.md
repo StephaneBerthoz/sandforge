@@ -19,19 +19,25 @@ unscoped one read about 262 000. That is one measurement on one dataset, not
 a guaranteed ratio: the reduction depends on how wide the root's graph is.
 
 The catalog is the exception to "children through reverse-lookup". A price
-book, a product, a selling model or a price that the clone only reaches
-through a lookup (an opportunity's price book, a line item's price) is cloned
-for what points at it and brings none of the rows under it: it is read once
+book, a product, a selling model, a price, or a category products are
+assigned to and the catalog that holds it, that the clone only reaches
+through a lookup (an opportunity's price book, a line item's price, the
+category a product's assignment names) is cloned for what points at it and
+brings none of the rows under it: it is read once
 those records have been read, and the clone takes the prices its line items
 use, the standard price of each of their products under the same selling
 model, those products and their selling model options, the selling models
 and the books the prices belong to. It writes them in the order the platform
 takes them: products and selling models, their options, standard prices,
 custom prices, then the lines. A clone rooted at a price book or a product
-still reads the prices under it. The catalog comes whatever discovery reached:
-when it stops at its cap before the catalog, the run adds the objects its
-records cannot be written without — a line's price, and that price's product,
-book and selling model — and reads them the same way. One the graph holds and
+still reads the prices under it, and a product's assignments to categories,
+with the category and catalog each names, written before them — not the
+other assignments of those categories, nor the other categories of the
+catalog. The catalog comes whatever discovery
+reached: when it stops at its cap before the catalog, the run adds the
+objects its records cannot be written without — a line's price, and that
+price's product, book and selling model; an assignment's category, and that
+category's catalog — and reads them the same way. One the graph holds and
 leaves out stays out. The items of an activated order come the same way: the
 order is written as a draft and activated once the rest is written, and the
 platform activates no order without a product, so when discovery stopped before

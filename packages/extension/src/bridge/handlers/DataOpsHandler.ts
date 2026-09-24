@@ -1555,11 +1555,14 @@ export class DataOpsHandler implements DomainHandler {
             break;
           }
           const batch = payloads.slice(bi, bi + batchSize);
+          // The waiver the restore's upsert sends: a duplicate rule can block
+          // an edit as it blocks a create, and a masked record that the rule
+          // refuses keeps its real values.
           const updateResults = (await conn
             .sobject(objectName)
-            .update(
-              batch as Array<Record<string, unknown> & { Id: string }>,
-            )) as unknown as JsforceResult[];
+            .update(batch as Array<Record<string, unknown> & { Id: string }>, {
+              headers: duplicateRuleHeaders(true),
+            })) as unknown as JsforceResult[];
           checkApiLimits(conn.limitInfo, `dataops:anonymize update ${objectName}`);
           // Same dropped count as the restore: a record the org refuses keeps
           // its real PII, and reporting only the successes hid exactly that.

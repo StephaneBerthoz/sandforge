@@ -83,7 +83,8 @@ const MAX_PARENT_ROUNDS = 10;
 /**
  * The fields the scoped builder sees, with a dossier record's required
  * lookups into the catalog — prices, products, selling models and their
- * options, price books: `CATALOG_OBJECTS` — no longer marked required.
+ * options, price books, the categories products are assigned to and their
+ * catalogs: `CATALOG_OBJECTS` — no longer marked required.
  *
  * The builder keeps only rows whose required parents it has read, and that
  * is the dossier's edge for most lookups: a quote line whose quote is not in

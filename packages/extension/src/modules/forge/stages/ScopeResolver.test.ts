@@ -471,18 +471,22 @@ describe('the catalog', () => {
     type: 'lookup',
   };
 
-  it('is read prices first, then products and selling models, their options, and price books', () => {
+  it('is read prices first, then products and selling models, their options, price books, and categories before their catalogs', () => {
     expect(CATALOG_READ_ORDER).toEqual([
       'PricebookEntry',
       'Product2',
       'ProductSellingModel',
       'ProductSellingModelOption',
       'Pricebook2',
+      'ProductCategory',
+      'ProductCatalog',
     ]);
     expect([...CATALOG_OBJECTS].sort()).toEqual([
       'Pricebook2',
       'PricebookEntry',
       'Product2',
+      'ProductCatalog',
+      'ProductCategory',
       'ProductSellingModel',
       'ProductSellingModelOption',
     ]);
@@ -1028,6 +1032,8 @@ describe('the catalog a copy follows wherever discovery stopped', () => {
       'PricebookEntry',
       'Product2',
       'ProductSellingModelOption',
+      'ProductCategory',
+      'ProductCatalog',
     ]);
   });
 
@@ -1055,6 +1061,8 @@ describe('the catalog a copy follows wherever discovery stopped', () => {
       'Product2',
       'ProductSellingModel',
       'ProductSellingModelOption',
+      'ProductCategory',
+      'ProductCatalog',
     ]);
   });
 
