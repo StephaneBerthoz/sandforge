@@ -349,8 +349,27 @@ describe('BulkDataWriter', () => {
       await h.writer.update('Account', [{ Id: '001000', Name: 'Renamed' }], 200);
       await h.writer.delete('Account', ['001000'], 200);
 
-      expect(h.sobject.update).toHaveBeenCalledWith([{ Id: '001000', Name: 'Renamed' }]);
+      expect(h.sobject.update).toHaveBeenCalledWith(
+        [{ Id: '001000', Name: 'Renamed' }],
+        expect.anything(),
+      );
       expect(h.sobject.destroy).toHaveBeenCalledWith(['001000']);
+    });
+
+    it('tells Salesforce an updated row is meant to look like the ones already there', async () => {
+      // A duplicate rule can block an edit as it blocks a create, and an
+      // update carries the rows the source holds into an org that holds their
+      // likes. Inserts and upserts said so; an update went without the header
+      // and the rule refused the row.
+      const h = createHarness();
+      h.sobject.update.mockResolvedValue(okResults(1));
+
+      await h.writer.update('Account', [{ Id: '001000', Name: 'Renamed' }], 200);
+
+      const updateOptions = h.sobject.update.mock.calls[0][1] as
+        | { headers?: Record<string, string> }
+        | undefined;
+      expect(updateOptions?.headers?.['Sforce-Duplicate-Rule-Header']).toBe('allowSave=true');
     });
   });
 

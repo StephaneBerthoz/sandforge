@@ -74,7 +74,8 @@ ForgeOrchestrator.execute(graph, config)
        │  written without a parent whose turn is still to come waits for it,
        │  as the members of a cycle come in no order of their own, and a node
        │  read under such a waiting parent is read again under its rows once
-       │  they are read):
+       │  they are read — as is a node read before a parent it cannot be
+       │  written without, put off because nothing had named it at its turn):
        │    1. describeFields (source + target → intersect createable)
        │    2. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
        │       statements when the ID lists outgrow one query URI)

@@ -3053,6 +3053,224 @@ describe('ForgeExecutor', () => {
           );
         });
       });
+
+      describe('a parent put off, nothing having named it at its turn', () => {
+        // A shipment's lines cannot be written without their shipment, and
+        // the two sit in a cycle. At the shipment's turn nothing had named it
+        // yet, so it was put off, and the lines were read under the warehouse
+        // alone: the one line of the shipment the warehouse holds came with
+        // the clone, and the shipment it named was read after, without its
+        // two other lines. Run between two sandboxes, a product's clone read
+        // one of an opportunity's three lines so.
+        const WAREHOUSE = 'a0W000000000001AAA';
+        const SHIPMENT = 'a0S000000000001AAA';
+        const MAIN_LINE = 'a0L000000000001AAA';
+        const lines: FakeRow[] = [
+          {
+            Id: MAIN_LINE,
+            Name: 'From main',
+            Shipment__c: SHIPMENT,
+            Warehouse__c: WAREHOUSE,
+          },
+          {
+            Id: 'a0L000000000002AAA',
+            Name: 'From north',
+            Shipment__c: SHIPMENT,
+            Warehouse__c: 'a0W000000000002AAA',
+          },
+          {
+            Id: 'a0L000000000003AAA',
+            Name: 'Picked up',
+            Shipment__c: SHIPMENT,
+            Warehouse__c: null,
+          },
+          {
+            Id: 'a0L000000000009AAA',
+            Name: 'Elsewhere',
+            Shipment__c: 'a0S000000000009AAA',
+            Warehouse__c: 'a0W000000000002AAA',
+          },
+        ];
+        const shipments: FakeRow[] = [
+          { Id: SHIPMENT, Name: 'Outbound', First_Line__c: null },
+          { Id: 'a0S000000000009AAA', Name: 'Elsewhere', First_Line__c: null },
+        ];
+        const rooted = { rootRecordId: WAREHOUSE, rootObjectApiName: 'Warehouse__c' };
+        const everyLineOfTheShipment = ['From main', 'From north', 'Picked up'];
+
+        /**
+         * A warehouse, the lines it ships, and the shipment they belong to,
+         * with the shipment's turn after the lines' or before it: each in a
+         * cycle with the other, the graph's order stands.
+         */
+        function shippedFrom(first: 'line' | 'shipment') {
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Warehouse__c: [{ Id: WAREHOUSE, Name: 'Main' }],
+              Shipment__c: shipments,
+              Shipment_Line__c: lines,
+            },
+            {
+              Warehouse__c: [idField, text('Name')],
+              Shipment__c: [idField, text('Name'), lookup('First_Line__c', 'Shipment_Line__c')],
+              Shipment_Line__c: [
+                idField,
+                text('Name'),
+                lookup('Shipment__c', 'Shipment__c', true),
+                lookup('Warehouse__c', 'Warehouse__c'),
+              ],
+            },
+          );
+          const cycle =
+            first === 'line'
+              ? [makeNode('Shipment_Line__c'), makeNode('Shipment__c')]
+              : [makeNode('Shipment__c'), makeNode('Shipment_Line__c')];
+          const graph = makeGraph(
+            [makeNode('Warehouse__c'), ...cycle],
+            [
+              edge('Warehouse__c', 'Shipment_Line__c'),
+              { ...edge('Shipment__c', 'Shipment_Line__c'), required: true },
+              edge('Shipment_Line__c', 'Shipment__c'),
+            ],
+          );
+          return { orgDeps, inserted, graph };
+        }
+
+        it('reads again under the shipment, once read, the lines that waited for it', async () => {
+          const { orgDeps, inserted, graph } = shippedFrom('line');
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Shipment__c'].map((r) => r['Name'])).toEqual(['Outbound']);
+          expect(inserted['Shipment_Line__c'].map((r) => r['Name'])).toEqual(
+            everyLineOfTheShipment,
+          );
+          expect(new Set(inserted['Shipment_Line__c'].map((r) => r['Shipment__c']))).toEqual(
+            new Set(['Shipment__c:Outbound']),
+          );
+          // The line of another shipment is none of the clone's.
+          expect(read['Shipment_Line__c']?.has('a0L000000000009AAA')).toBe(false);
+          expect(
+            summary.readByObject.find((r) => r.objectApiName === 'Shipment_Line__c')?.read,
+          ).toBe(3);
+          // The other warehouse is none of the clone's either: its line goes
+          // without it, and the second pass says so.
+          expect(summary.errors.map((e) => e.objectApiName)).toEqual(['__pass2__']);
+          expect(summary.errors[0].samples[0].messages[0]).toContain("'Warehouse__c'");
+        });
+
+        it('reads again under the shipment the lines read at their turn, the shipment put off at its own before', async () => {
+          // Its turn over, the shipment is no parent the lines wait for, and
+          // they were read under the warehouse alone all the same.
+          const { orgDeps, inserted, graph } = shippedFrom('shipment');
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Shipment_Line__c'].map((r) => r['Name'])).toEqual(
+            everyLineOfTheShipment,
+          );
+          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+        });
+
+        it('still reads the lines when the shipment is put off: they are what names it', async () => {
+          // Held back until the shipment was read, the lines named nothing of
+          // it before its second ask, and nothing else did: the shipment was
+          // left out, and every line with it.
+          const { orgDeps, graph } = shippedFrom('line');
+          const sent: string[] = [];
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            if (org === 'src') sent.push(/\bFROM (\w+)/.exec(soql)?.[1] ?? '');
+            return query(org, soql, onTruncated);
+          };
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(sent.indexOf('Shipment_Line__c')).toBeLessThan(sent.indexOf('Shipment__c'));
+          expect(sent.lastIndexOf('Shipment_Line__c')).toBeGreaterThan(sent.indexOf('Shipment__c'));
+        });
+
+        it('says in a dry run what the read under the shipment would add', async () => {
+          const { orgDeps, graph } = shippedFrom('line');
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          const said = progressEvents.map((e) => e.message);
+          expect(said).toContain('[dry-run] Shipment_Line__c: 1 record(s) would be inserted');
+          expect(said).toContain(
+            '[dry-run] Shipment_Line__c: 2 more record(s) would be inserted, under the Shipment__c records read after it',
+          );
+          expect(summary.wouldInsertCount).toBe(1 /* warehouse */ + 1 /* shipment */ + 3);
+        });
+
+        it('reads again under the shipment the lines read before it after the first pass, when a product names one of them', async () => {
+          // The lines had nothing to be read under at their release, and were
+          // put off in turn. The product the warehouse sells names a line, so
+          // the lines are read after the catalog and before the shipment they
+          // name: read then, they were the product's line alone.
+          const PRODUCT = '01t000000000001AAA';
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Warehouse__c: [{ Id: WAREHOUSE, Name: 'Main', Main_Product__c: PRODUCT }],
+              Product2: [{ Id: PRODUCT, Name: 'Widget', Sample_Line__c: MAIN_LINE }],
+              Shipment__c: shipments,
+              Shipment_Line__c: lines,
+            },
+            {
+              Warehouse__c: [idField, text('Name'), lookup('Main_Product__c', 'Product2')],
+              Product2: [idField, text('Name'), lookup('Sample_Line__c', 'Shipment_Line__c')],
+              Shipment__c: [idField, text('Name'), lookup('First_Line__c', 'Shipment_Line__c')],
+              Shipment_Line__c: [idField, text('Name'), lookup('Shipment__c', 'Shipment__c', true)],
+            },
+          );
+          const graph = makeGraph(
+            [
+              makeNode('Warehouse__c'),
+              makeNode('Product2'),
+              makeNode('Shipment_Line__c'),
+              makeNode('Shipment__c'),
+            ],
+            [
+              edge('Product2', 'Warehouse__c'),
+              edge('Shipment_Line__c', 'Product2'),
+              { ...edge('Shipment__c', 'Shipment_Line__c'), required: true },
+              edge('Shipment_Line__c', 'Shipment__c'),
+            ],
+          );
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Shipment_Line__c'].map((r) => r['Name'])).toEqual(
+            everyLineOfTheShipment,
+          );
+          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+        });
+      });
     });
 
     describe('a required lookup at an object the run does not read', () => {

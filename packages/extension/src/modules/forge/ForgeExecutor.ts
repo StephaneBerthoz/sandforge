@@ -772,10 +772,17 @@ interface ExecutionState {
   readonly waitingFor: Map<string, ForgeGraphNode[]>;
   /**
    * Per object that waited for its turn, the nodes read at theirs that depend
-   * on its rows: read again under them once it has been read. See
-   * `readUnderWhatWaited`.
+   * on its rows — and per object put off, the nodes read before it that
+   * cannot be written without its rows: read again under them once it has
+   * been read. See `readUnderWhatWaited`.
    */
   readonly readAgainUnder: Map<string, NodeReadOnce[]>;
+  /**
+   * The objects the first read pass put off (`deferredNodes`) whose second
+   * ask has not come yet. A node read meanwhile under one it cannot be
+   * written without is read again under its rows. See `putOffParentsOf`.
+   */
+  readonly putOffUnread: Set<string>;
   /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
@@ -938,28 +945,68 @@ function pricesFrom(fieldInfos: readonly FieldInfo[]): boolean {
 }
 
 /**
- * The object among `turnsAhead` that the rows of `objectApiName` cannot be
- * written without, if any: the one a lookup they may not leave empty names.
+ * The objects the rows of `objectApiName` cannot be written without, each
+ * named alone by a lookup they may not leave empty.
  *
- * A lookup that can name several objects makes no node wait: its rows are
- * held back one by one (`rowsWithoutTheirParent`). Nor does the catalog,
+ * A lookup that can name several objects names none of them: its rows are
+ * held back one by one (`rowsWithoutTheirParent`). Nor is the catalog one,
  * read after the rest of the graph by what the rows name.
+ */
+function requiredSingleParents(objectApiName: string, fieldInfos: readonly FieldInfo[]): string[] {
+  const parents: string[] = [];
+  for (const field of fieldInfos) {
+    const targets = field.referenceTo ?? [];
+    if (!field.isReference || targets.length !== 1) continue;
+    if (!isRequiredLookup(objectApiName, field.name, field.nillable)) continue;
+    const [parent] = targets;
+    if (parent !== objectApiName && !CATALOG_OBJECTS.has(parent)) parents.push(parent);
+  }
+  return parents;
+}
+
+/**
+ * The object among `turnsAhead` that the rows of `objectApiName` cannot be
+ * written without, if any: see `requiredSingleParents`.
  */
 function requiredParentAhead(
   objectApiName: string,
   fieldInfos: readonly FieldInfo[],
   turnsAhead: ReadonlySet<string>,
 ): string | undefined {
-  for (const field of fieldInfos) {
-    const targets = field.referenceTo ?? [];
-    if (!field.isReference || targets.length !== 1) continue;
-    if (!isRequiredLookup(objectApiName, field.name, field.nillable)) continue;
-    const [parent] = targets;
-    if (parent !== objectApiName && !CATALOG_OBJECTS.has(parent) && turnsAhead.has(parent)) {
-      return parent;
-    }
-  }
-  return undefined;
+  return requiredSingleParents(objectApiName, fieldInfos).find((parent) => turnsAhead.has(parent));
+}
+
+/**
+ * The objects among `putOff` — put off by the first read pass, their second
+ * ask still to come — that the rows of `objectApiName`, read now, cannot be
+ * written without (`requiredSingleParents`) and are read under: the graph has
+ * an edge from each.
+ *
+ * Read before such a parent, the rows are held to the ids of it met so far
+ * rather than to its rows, as they would be before a parent whose turn is
+ * still to come. Holding the node until the parent is read is no way out:
+ * nothing had named the parent at its turn, and the node's rows are often
+ * what does. Made to wait so, the attribute of a product's classification
+ * named no attribute definition before the definition's second ask, which
+ * found nothing, and neither came with the clone, nor what hangs from them.
+ */
+function putOffParentsOf(
+  objectApiName: string,
+  fieldInfos: readonly FieldInfo[],
+  edges: readonly ForgeGraphEdge[],
+  putOff: ReadonlySet<string>,
+): string[] {
+  if (putOff.size === 0) return [];
+  const readUnder = new Set(
+    edges.filter((e) => e.targetObject === objectApiName).map((e) => e.sourceObject),
+  );
+  return [
+    ...new Set(
+      requiredSingleParents(objectApiName, fieldInfos).filter(
+        (parent) => putOff.has(parent) && readUnder.has(parent),
+      ),
+    ),
+  ];
 }
 
 /**
@@ -1505,6 +1552,7 @@ export class ForgeExecutor {
       turnsAhead: new Set<string>(),
       waitingFor: new Map<string, ForgeGraphNode[]>(),
       readAgainUnder: new Map<string, NodeReadOnce[]>(),
+      putOffUnread: new Set<string>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
@@ -1921,12 +1969,17 @@ export class ForgeExecutor {
           'Forge execution was aborted by user request. Remaining objects were not processed.',
         );
       }
+      // Its second ask, whatever it comes to: what is read from now on is
+      // read after it. See `putOffParentsOf`.
+      state.putOffUnread.delete(node.objectApiName);
       // The retry does not relax the rule the first pass applied: a node a
       // failed parent cannot be written without is still skipped, or the run
       // writes children of records that were never created.
       if (await this.skipForFailedParent(node, state)) continue;
       if (twoPhase) {
         await this.readNode(node, state, false, false);
+        // What was read before it under the ids of it met so far, read again
+        // under its rows: see `readUnderWhatWaited`.
         await this.readUnderWhatWaited(node.objectApiName, state);
       } else if (await this.readNode(node, state, false, true)) {
         await this.writeNode(node, state);
@@ -2963,8 +3016,10 @@ export class ForgeExecutor {
   }
 
   /**
-   * Once `objectApiName` has been read, after waiting for its turn, read again
-   * under its rows the nodes read at their own turn while it waited.
+   * Once `objectApiName` has been read, after waiting for its turn or being
+   * put off, read again under its rows the nodes read before it that depend
+   * on them: those read at their own turn while it waited, and those that
+   * cannot be written without it, read before its second ask.
    *
    * A node that waits leaves the order of the pass, which puts parents first,
    * and what was read under it at its turn went by the ids of it met so far:
@@ -2981,6 +3036,14 @@ export class ForgeExecutor {
    *
    * An object that waited and was put off in turn is read with the nodes put
    * off, and what waited for it read again then.
+   *
+   * An object put off, nothing having named it at its turn, is read after
+   * the first pass, and a node that cannot be written without it, read
+   * before that — one that waited for its turn and was read when it ended,
+   * or one whose turn came after — was held to the ids of it met so far. Run
+   * between two sandboxes, a product's clone read an opportunity's lines with
+   * the opportunity put off: one of its three lines came with the clone. Such
+   * a node is read again under its rows too (`putOffParentsOf`).
    */
   private async readUnderWhatWaited(objectApiName: string, state: ExecutionState): Promise<void> {
     const cache = state.scopeCache;
@@ -3019,7 +3082,12 @@ export class ForgeExecutor {
     }
   }
 
-  /** The turn of `objectApiName` in the first read pass is over: the nodes that waited for it take theirs. */
+  /**
+   * The turn of `objectApiName` in the first read pass is over: the nodes that
+   * waited for it take theirs. Put off rather than read, it is read after the
+   * pass, and what they read before it is read again under its rows then
+   * (`putOffParentsOf`).
+   */
   private async endTurn(objectApiName: string, state: ExecutionState): Promise<void> {
     state.turnsAhead.delete(objectApiName);
     const waiting = state.waitingFor.get(objectApiName);
@@ -3111,6 +3179,7 @@ export class ForgeExecutor {
       if (query.kind === 'skip') {
         if (allowDefer && query.reason === UNSCOPED_NO_PARENT_REASON) {
           state.deferredNodes.push(node);
+          state.putOffUnread.add(node.objectApiName);
           return false;
         }
         // Nothing the run read points at it or sits above it, so the clone
@@ -3312,20 +3381,19 @@ export class ForgeExecutor {
         });
       }
       await this.notePastDraft(state, node.objectApiName, records);
-      // Read at its turn while an object it depends on waits for its own:
-      // read again under that object's rows once they are read. See
-      // `readUnderWhatWaited`.
-      if (allowDefer) {
-        const waiting = waitingParentsOf(
-          node.objectApiName,
-          fieldInfos,
-          state.graph.edges,
-          state.waitingFor,
-        );
-        for (const parent of waiting) {
-          const again = state.readAgainUnder.get(parent) ?? [];
-          state.readAgainUnder.set(parent, [...again, { node, fieldInfos }]);
-        }
+      // Read at its turn while an object it depends on waits for its own, or
+      // in either pass before an object it cannot be written without and the
+      // first pass put off: read again under that object's rows once they
+      // are read. See `readUnderWhatWaited`.
+      const readBefore = [
+        ...(allowDefer
+          ? waitingParentsOf(node.objectApiName, fieldInfos, state.graph.edges, state.waitingFor)
+          : []),
+        ...putOffParentsOf(node.objectApiName, fieldInfos, state.graph.edges, state.putOffUnread),
+      ];
+      for (const parent of readBefore) {
+        const again = state.readAgainUnder.get(parent) ?? [];
+        state.readAgainUnder.set(parent, [...again, { node, fieldInfos }]);
       }
 
       // The records whose files the run copies: the ones it read to clone,

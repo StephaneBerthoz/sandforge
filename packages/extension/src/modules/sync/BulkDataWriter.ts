@@ -170,6 +170,10 @@ export class BulkDataWriter {
   /**
    * Update records in the target org (records must carry their `Id`).
    *
+   * With the duplicate-rule header, as an insert and an upsert: a rule can
+   * block an edit as it blocks a create, and the rows an update carries look
+   * like the ones the target holds as much as a new row does.
+   *
    * @param objectName - Salesforce object API name.
    * @param records - Records to update.
    * @param batchSize - REST batch size (small-record path only).
@@ -193,9 +197,9 @@ export class BulkDataWriter {
       (batch) =>
         this.deps.connection
           .sobject(objectName)
-          .update(batch as Array<Record<string, unknown> & { Id: string }>) as unknown as Promise<
-          JsforceResult[]
-        >,
+          .update(batch as Array<Record<string, unknown> & { Id: string }>, {
+            headers: duplicateRuleHeaders(true),
+          }) as unknown as Promise<JsforceResult[]>,
       'Update failed after retries',
     );
   }
