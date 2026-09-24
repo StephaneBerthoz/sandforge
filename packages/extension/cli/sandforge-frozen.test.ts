@@ -327,4 +327,40 @@ describe('messageLines', () => {
       '  FeedComment: 1',
     ]);
   });
+
+  it('names what the objects excludedObjects leaves out cost the records the dataset holds', () => {
+    const lines = messageLines({
+      type: 'frozen:extract:response',
+      payload: {
+        recordCount: 5,
+        datasetDir: '/sas/dataset',
+        manifest: {
+          version: '1.0.0',
+          volumetry: { measured: { Opportunity: 1, OpportunityLineItem: 3, Order: 1 } },
+          coverage: {
+            objects: 50,
+            truncated: true,
+            maxNodes: 50,
+            unboundedObjects: [],
+            filesLeftOut: [],
+            exclusionCosts: [
+              {
+                objectApiName: 'OpportunityLineItem',
+                excludedObject: 'PricebookEntry',
+                count: 3,
+                note:
+                  '3 OpportunityLineItem records cannot be loaded without the PricebookEntry ' +
+                  'their PricebookEntryId names, which excludedObjects leaves out',
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'OpportunityLineItem: 3 OpportunityLineItem records cannot be loaded without the ' +
+        'PricebookEntry their PricebookEntryId names, which excludedObjects leaves out',
+    );
+  });
 });

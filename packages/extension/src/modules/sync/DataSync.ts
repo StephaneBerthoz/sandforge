@@ -274,7 +274,11 @@ export class DataSync {
    *
    * A cancel that stops the second write is answered, not thrown: `cancelled`
    * says so, and the outcomes and notes are those of every record the two
-   * writes sent.
+   * writes sent. So is any other error of the second write: it only ever
+   * tried again rows the first had refused, so it leaves them refused, and the
+   * rows the first wrote stay written, notes and all. Thrown on, the error
+   * reported the object as one failure whole, and nothing said what the first
+   * write had put in the org.
    */
   private async retryWithoutCrossOrgReferences(
     config: SyncObjectConfig,
@@ -320,7 +324,17 @@ export class DataSync {
         config.externalIdField,
       );
     } catch (err: unknown) {
-      if (!(err instanceof WriteCancelledError)) throw err;
+      if (!(err instanceof WriteCancelledError)) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return {
+          outcomes,
+          notes: [
+            `${failedAt.length} record(s) the target refused for a lookup it does not have ` +
+              `could not be written again without ${[...dropped].sort().join(', ')}: ${reason}`,
+          ],
+          cancelled: false,
+        };
+      }
       // The cancel stopped the second write between two batches. It names
       // only the rows tried again: passed on as it was, the run would have
       // counted those alone, and none of the records the first write wrote.

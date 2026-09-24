@@ -45,6 +45,8 @@ export interface ForgeStageConfig {
   readonly upsertMode: 'auto' | 'off';
   /** Per-object field exclusions (stripped before insert even when createable). */
   readonly fieldExclusions: Record<string, string[]>;
+  /** Objects the run leaves out by name, whether discovery reached them or not. */
+  readonly excludedObjects: ReadonlySet<string>;
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   readonly ownerMappings: Record<string, string>;
   /** Per-object extra WHERE fragment appended to the scope-derived clause. */
@@ -86,6 +88,7 @@ export function resolveStageConfig(options: ExecuteOptions | undefined): ForgeSt
     maxOrphanParentExpansions: options?.maxOrphanParentExpansions ?? 20,
     upsertMode: options?.upsertMode === 'auto' ? 'auto' : 'off',
     fieldExclusions: options?.fieldExclusions ?? {},
+    excludedObjects: new Set(options?.excludedObjects ?? []),
     ownerMappings: options?.ownerMappings ?? {},
     objectSoqlFilters: options?.objectSoqlFilters,
     fieldMappings: options?.fieldMappings ?? {},

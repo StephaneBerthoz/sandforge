@@ -44,6 +44,7 @@ import type {
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import { withObjectsLeftOut } from '../src/modules/forge/stages/ScopeResolver.js';
 import { runAnonymization, type PIIFieldInfo } from '../src/modules/forge/ForgeAnonymizer.js';
 import type {
   ExecuteOptions,
@@ -88,6 +89,8 @@ export interface CliArgs {
   json: boolean;
   /** Per-object field exclusions: { Account: ['Description', 'NumberOfEmployees'] }. */
   fieldExclusions: Record<string, string[]>;
+  /** Objects the clone leaves out, whether discovery reaches them or the run would add them. */
+  excludedObjects: string[];
   /** Source User Id → target User Id remap for OwnerId. */
   ownerMappings: Record<string, string>;
   /** Per-object SOQL WHERE filter: { Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30" }. */
@@ -143,6 +146,12 @@ Options:
   --json                 emit JSON summary on stdout (CI mode)  (default: off)
   --exclude <obj.field>  skip a field on an object during clone (repeatable)
                          e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
+  --exclude-object <obj> leave an object out of the clone (repeatable)
+                         e.g. --exclude-object PricebookEntry
+                         Out whether discovery reaches it or the run would
+                         add it past the cap. What it costs is said, not
+                         written: the records that cannot be written without
+                         one of its records, and the orders left drafts.
   --owner-map <src=tgt>  remap OwnerId from source User Id to target User Id (repeatable)
                          e.g. --owner-map 005AB...=005XY...
                          Useful when source records were authored by users
@@ -245,6 +254,16 @@ export function parseArgs(argv: string[]): CliArgs {
       process.exit(2);
     }
     (fieldExclusions[obj] ??= []).push(field);
+  }
+  const excludedObjects: string[] = [];
+  for (const obj of collectRepeated('--exclude-object')) {
+    if (!API_NAME_RE.test(obj)) {
+      process.stderr.write(
+        `Invalid --exclude-object value "${obj}" (must match SObject API name pattern)\n`,
+      );
+      process.exit(2);
+    }
+    if (!excludedObjects.includes(obj)) excludedObjects.push(obj);
   }
   const ownerMappings: Record<string, string> = {};
   for (const raw of collectRepeated('--owner-map')) {
@@ -363,6 +382,7 @@ export function parseArgs(argv: string[]): CliArgs {
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
     fieldExclusions,
+    excludedObjects,
     ownerMappings,
     objectSoqlFilters,
     fieldMappings,
@@ -760,6 +780,9 @@ export function executeOptions(
     expandOrphanParents: args.expandOrphans,
     fieldExclusions:
       Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
+    // By name, to the run: an object discovery never reached is one the run
+    // can add past the cap, and has no node to leave out.
+    excludedObjects: args.excludedObjects.length > 0 ? args.excludedObjects : undefined,
     ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
     objectSoqlFilters:
       Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
@@ -829,10 +852,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   console.log('discovery…');
   const discovery = new GraphDiscoveryService(discoveryDeps);
-  const graph = await discovery.discover(
+  const discovered = await discovery.discover(
     config,
     args.maxNodes === undefined ? undefined : { maxNodes: args.maxNodes },
   );
+  const root = discovered.nodes[0]?.objectApiName;
+  if (root !== undefined && args.excludedObjects.includes(root)) {
+    process.stderr.write(
+      `--exclude-object ${root}: the record to clone is of this object, and nothing would be ` +
+        'left to clone.\n',
+    );
+    process.exit(2);
+  }
+  // Listed as excluded and out of the plan; the run leaves them out as well,
+  // and those discovery never reached, which it would otherwise add.
+  const graph = withObjectsLeftOut(discovered, new Set(args.excludedObjects));
   const plan = new ForgePlanGenerator().generate(graph);
   console.log(
     `graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`,

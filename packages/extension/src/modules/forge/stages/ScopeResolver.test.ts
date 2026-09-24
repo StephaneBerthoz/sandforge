@@ -14,6 +14,7 @@ import {
   sortNodesAskedAgain,
   sortNodesForExecution,
   sortNodesForWriting,
+  withObjectsLeftOut,
 } from './ScopeResolver.js';
 import { RecordScopeCache } from '../RecordScopeCache.js';
 import { ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
@@ -1026,6 +1027,33 @@ describe('the catalog a copy follows wherever discovery stopped', () => {
     expect([...catalogBeyond(graph)]).toEqual([
       'PricebookEntry',
       'Product2',
+      'ProductSellingModelOption',
+    ]);
+  });
+
+  it('leaves out the node of an object excluded by name that discovery reached, and no other', () => {
+    const graph = makeGraph([
+      makeNode('Opportunity'),
+      makeNode('OpportunityLineItem'),
+      makeNode('PricebookEntry'),
+    ]);
+
+    const chosen = withObjectsLeftOut(graph, new Set(['PricebookEntry', 'OrderItem']));
+
+    expect(chosen.nodes.map((n) => [n.objectApiName, n.included])).toEqual([
+      ['Opportunity', true],
+      ['OpportunityLineItem', true],
+      ['PricebookEntry', false],
+    ]);
+    expect(graph.nodes.every((n) => n.included)).toBe(true);
+  });
+
+  it('names none the user left out by name, whether the graph holds it or not', () => {
+    const graph = makeGraph([makeNode('Opportunity'), makeNode('Pricebook2')]);
+
+    expect([...catalogBeyond(graph, new Set(['PricebookEntry', 'Pricebook2']))]).toEqual([
+      'Product2',
+      'ProductSellingModel',
       'ProductSellingModelOption',
     ]);
   });

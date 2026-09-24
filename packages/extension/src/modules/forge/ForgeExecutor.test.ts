@@ -2299,6 +2299,73 @@ describe('ForgeExecutor', () => {
           ]);
         });
 
+        describe('when the user excluded the items by name', () => {
+          /** What the run says of the activated order it leaves a draft. */
+          const LEFT_A_DRAFT_FOR_ITEMS = {
+            objectApiName: 'Order',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 1,
+            samples: [
+              {
+                recordSummary: `Order ${ORDER} Status=Live`,
+                messages: [
+                  'Left a draft: the platform gives Order this status only with OrderItem ' +
+                    'records under it, and OrderItem is excluded from this run.',
+                ],
+              },
+            ],
+          };
+
+          it('reads none of them, and says which orders it leaves drafts instead of asking the target to activate them', async () => {
+            // Excluded on the graph's node alone, an object discovery never
+            // reached was no exclusion: the run added the items all the same.
+            const { orgDeps, inserted, updated, graph } = capped();
+            const read = recordReads(orgDeps);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, excludedObjects: ['OrderItem'] },
+            );
+
+            expect(read['OrderItem']).toBeUndefined();
+            expect(inserted['OrderItem']).toBeUndefined();
+            // Both orders go in as drafts, and the target is not asked what
+            // it refuses: an order activated with no product.
+            expect(inserted['Order'].map((r) => r['Status'])).toEqual(['Open', 'Open']);
+            expect(updated).toEqual([]);
+            expect(summary.errors).toEqual([
+              {
+                ...LEFT_A_DRAFT_FOR_ITEMS,
+                samples: [
+                  {
+                    ...LEFT_A_DRAFT_FOR_ITEMS.samples[0],
+                    recordSummary: `Order Order:First Status=Live`,
+                  },
+                ],
+              },
+            ]);
+          });
+
+          it('says in a dry run which orders a real run leaves drafts', async () => {
+            const { orgDeps, inserted, graph } = capped();
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, dryRun: true, excludedObjects: ['OrderItem'] },
+            );
+
+            expect(inserted).toEqual({});
+            expect(summary.errors).toEqual([LEFT_A_DRAFT_FOR_ITEMS]);
+          });
+        });
+
         it('brings no item when no order it reads is past Draft', async () => {
           const { orgDeps, inserted, updated, graph } = capped({ firstStatus: 'Open' });
 
@@ -5009,6 +5076,51 @@ describe('ForgeExecutor', () => {
         expect(before('PricebookEntry', 'OpportunityLineItem')).toBe(true);
       });
 
+      it('reads no option the user excluded by name, and holds back and names the prices sold under a model', async () => {
+        // The run adds the options discovery left out; excluded by name, they
+        // came all the same.
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+        const refused = platform(orgDeps, inserted);
+        const read = recordReads(orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          {
+            rootRecordId: OPPORTUNITY,
+            rootObjectApiName: 'Opportunity',
+            excludedObjects: ['ProductSellingModelOption'],
+          },
+        );
+
+        expect(read['ProductSellingModelOption']).toBeUndefined();
+        expect(progressEvents.filter((e) => e.objectName === 'ProductSellingModelOption')).toEqual(
+          [],
+        );
+        // None was sent for the target to refuse for want of its option.
+        expect(refused.filter((r) => r.includes('selling model option'))).toEqual([]);
+        expect(
+          inserted['PricebookEntry'].filter((r) => r['ProductSellingModelId'] !== undefined),
+        ).toEqual([]);
+        expect(summary.errors).toContainEqual({
+          objectApiName: 'PricebookEntry',
+          stage: 'scope',
+          failedCount: 2,
+          attemptedCount: 0,
+          samples: [
+            {
+              recordSummary: 'ProductSellingModelId → ProductSellingModelOption (2 records)',
+              messages: [
+                "Not written: a price sold under a selling model needs its product's option " +
+                  'for that model, and ProductSellingModelOption is excluded from this run.',
+              ],
+            },
+          ],
+        });
+      });
+
       it('joins the products its lines name to their selling models when the account supplies products', async () => {
         // A product naming the opportunity's account as its supplier is a
         // child of the account. Read under the account at its turn, and not
@@ -5332,6 +5444,128 @@ describe('ForgeExecutor', () => {
           expect(read['Product2']).toEqual(new Set([1, 2, 3].map(product)));
         });
 
+        describe('when the user excluded the prices by name', () => {
+          /** What the run says of a line held back for the prices left out. */
+          const WITHOUT_PRICE =
+            'Not written: PricebookEntryId may not be left empty, and PricebookEntry is ' +
+            'excluded from this run.';
+          /** The reports of the lines held back, whichever object the run read first. */
+          const linesHeldBack = [
+            {
+              objectApiName: 'OpportunityLineItem',
+              stage: 'scope',
+              failedCount: 4,
+              attemptedCount: 0,
+              samples: [
+                {
+                  recordSummary: 'PricebookEntryId → PricebookEntry (4 records)',
+                  messages: [WITHOUT_PRICE],
+                },
+              ],
+            },
+            {
+              objectApiName: 'QuoteLineItem',
+              stage: 'scope',
+              failedCount: 1,
+              attemptedCount: 0,
+              samples: [
+                {
+                  recordSummary: 'PricebookEntryId → PricebookEntry (1 record)',
+                  messages: [WITHOUT_PRICE],
+                },
+              ],
+            },
+          ];
+
+          it('reads none of them where discovery stopped before them, and says which lines they leave unwritten', async () => {
+            // Excluded on the graph's node alone, an object discovery never
+            // reached was no exclusion: the run added the prices all the same.
+            const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+            const refused = platform(orgDeps, inserted);
+            const read = recordReads(orgDeps);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              cappedGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, excludedObjects: ['PricebookEntry'] },
+            );
+
+            expect(read['PricebookEntry']).toBeUndefined();
+            // Not added to the run at all: no turn, not even one out of scope.
+            expect(progressEvents.filter((e) => e.objectName === 'PricebookEntry')).toEqual([]);
+            expect(read['ProductSellingModel']).toBeUndefined();
+            // The quote line that names its product is held back: its
+            // product is not read for it.
+            expect(read['Product2']).toBeUndefined();
+            expect(inserted['OpportunityLineItem']).toBeUndefined();
+            expect(inserted['QuoteLineItem']).toBeUndefined();
+            // Nothing was sent that the target refuses a line without.
+            expect(refused).toEqual([]);
+            expect(inserted['Opportunity'].map((r) => r['Name'])).toEqual(['Deal']);
+            expect(summary.errors).toHaveLength(2);
+            expect(summary.errors).toEqual(expect.arrayContaining(linesHeldBack));
+            expect(summary.failedCount).toBe(5);
+            // Read to be cloned, and not written: counted among what was read.
+            expect(summary.readByObject).toContainEqual({
+              objectApiName: 'OpportunityLineItem',
+              read: 4,
+            });
+          });
+
+          it('says in a dry run which lines a real run could not write', async () => {
+            const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              cappedGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, dryRun: true, excludedObjects: ['PricebookEntry'] },
+            );
+
+            expect(inserted).toEqual({});
+            const messages = progressEvents.map((e) => e.message);
+            expect(messages).toEqual(
+              expect.arrayContaining([
+                'Held back OpportunityLineItem, nothing written: every record needs ' +
+                  'PricebookEntry, excluded from this run. Objects that cannot be written ' +
+                  'without it will be skipped.',
+                'Held back QuoteLineItem, nothing written: every record needs PricebookEntry, ' +
+                  'excluded from this run. Objects that cannot be written without it will be ' +
+                  'skipped.',
+              ]),
+            );
+            expect(messages.some((m) => m?.startsWith('[dry-run] PricebookEntry'))).toBe(false);
+            expect(summary.errors).toEqual(expect.arrayContaining(linesHeldBack));
+            // The opportunity, its quote and its book: none of the lines.
+            expect(summary.wouldInsertCount).toBe(3);
+          });
+
+          it('leaves out the node of them the graph holds, as it leaves out the others', async () => {
+            const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+            const refused = platform(orgDeps, inserted);
+            const read = recordReads(orgDeps);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph(),
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, excludedObjects: ['PricebookEntry'] },
+            );
+
+            expect(read['PricebookEntry']).toBeUndefined();
+            expect(progressEvents.find((e) => e.objectName === 'PricebookEntry')?.message).toBe(
+              'Skipped PricebookEntry (excluded)',
+            );
+            expect(inserted['OpportunityLineItem']).toBeUndefined();
+            expect(refused).toEqual([]);
+            expect(summary.errors).toEqual(expect.arrayContaining(linesHeldBack));
+          });
+        });
+
         it('brings nothing of the catalog through a lookup that can name several objects', async () => {
           // A feed item's parent can be a product or a price, and says nothing
           // of which: its rows name what they name.
@@ -5443,6 +5677,118 @@ describe('ForgeExecutor', () => {
             rows: [{ Id: 'Order:Order', Status: 'Live' }],
           });
           expect(summary.errors).toEqual([]);
+        });
+
+        describe('an order whose items the excluded prices leave unwritten', () => {
+          const ORDER = '801000000000001AAA';
+          /** The opportunity's activated order, and the item the fourth widget is sold on. */
+          function activatedOrderOfTheDeal() {
+            const orgs = fakeOrgs(
+              {
+                ...tables(),
+                Order: [{ Id: ORDER, Name: 'Order', OpportunityId: OPPORTUNITY, Status: 'Live' }],
+                OrderItem: [
+                  {
+                    Id: '802000000000001AAA',
+                    Name: 'Item',
+                    OrderId: ORDER,
+                    PricebookEntryId: price('custom', 'once', 4),
+                    Product2Id: product(4),
+                  },
+                ],
+              },
+              {
+                ...fields,
+                Order: [
+                  idField,
+                  text('Name'),
+                  lookup('OpportunityId', 'Opportunity'),
+                  text('Status'),
+                ],
+                OrderItem: [
+                  idField,
+                  text('Name'),
+                  lookup('OrderId', 'Order', true),
+                  lookup('PricebookEntryId', 'PricebookEntry', true),
+                  lookup('Product2Id', 'Product2'),
+                ],
+              },
+            );
+            const refused = platform(orgs.orgDeps, orgs.inserted);
+            const query = orgs.orgDeps.queryRecords;
+            orgs.orgDeps.queryRecords = async (org, soql, onTruncated) =>
+              soql === 'SELECT ApiName, StatusCode FROM OrderStatus'
+                ? [
+                    { ApiName: 'Open', StatusCode: 'Draft' },
+                    { ApiName: 'Live', StatusCode: 'Activated' },
+                  ]
+                : query(org, soql, onTruncated);
+            const graph = makeGraph(
+              [makeNode('Opportunity'), makeNode('Order')],
+              [edge('Opportunity', 'Order')],
+            );
+            return { ...orgs, refused, graph };
+          }
+          /** What the run says of the order, named as `named`. */
+          const leftADraft = (named: string) => ({
+            objectApiName: 'Order',
+            stage: 'insert',
+            failedCount: 1,
+            attemptedCount: 1,
+            samples: [
+              {
+                recordSummary: `Order ${named} Status=Live`,
+                messages: [
+                  'Left a draft: the platform gives Order this status only with OrderItem ' +
+                    'records under it, and none of its OrderItem records can be written ' +
+                    'without PricebookEntry, which is excluded from this run.',
+                ],
+              },
+            ],
+          });
+
+          it('writes the order a draft and says so, instead of asking the target to activate it with nothing on it', async () => {
+            const { orgDeps, inserted, updated, refused, graph } = activatedOrderOfTheDeal();
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, excludedObjects: ['PricebookEntry'] },
+            );
+
+            expect(refused).toEqual([]);
+            expect(inserted['OrderItem']).toBeUndefined();
+            expect(inserted['Order']).toEqual([
+              { Name: 'Order', OpportunityId: 'Opportunity:Deal', Status: 'Open' },
+            ]);
+            expect(updated).toEqual([]);
+            // Besides the opportunity's price book, which no price brings.
+            expect(summary.errors).toEqual(
+              expect.arrayContaining([
+                leftADraft('Order:Order'),
+                expect.objectContaining({ objectApiName: 'OrderItem', failedCount: 1 }),
+              ]),
+            );
+          });
+
+          it('says in a dry run which order a real run leaves a draft', async () => {
+            const { orgDeps, graph } = activatedOrderOfTheDeal();
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { ...rooted, dryRun: true, excludedObjects: ['PricebookEntry'] },
+            );
+
+            expect(summary.errors).toEqual([
+              leftADraft(ORDER),
+              expect.objectContaining({ objectApiName: 'OrderItem', failedCount: 1 }),
+            ]);
+          });
         });
       });
     });

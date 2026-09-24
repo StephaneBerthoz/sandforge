@@ -2969,7 +2969,8 @@
       "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
       "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",
       "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}",
-      "leftToThePlatform": "Left out — the platform writes these records, or what they depend on, itself: {{objects}}"
+      "leftToThePlatform": "Left out — the platform writes these records, or what they depend on, itself: {{objects}}",
+      "exclusionCosts": "Cannot be loaded as they are — they need an object excludedObjects leaves out: {{objects}}"
     }
   },
   "grappe": {

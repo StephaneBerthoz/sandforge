@@ -19,10 +19,10 @@ describe('ForgeBatchStrategy', () => {
       expect(result.batchCount).toBe(1);
     });
 
-    it('should return REST for 0 records', () => {
+    it('plans no batch, on REST, for an object with no record', () => {
       const result = strategy.resolve('auto', 0);
       expect(result.api).toBe('rest');
-      expect(result.batchCount).toBe(1);
+      expect(result.batchCount).toBe(0);
     });
 
     it('should return Bulk with multiple batches for large sets', () => {

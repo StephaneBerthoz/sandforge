@@ -42,6 +42,15 @@ the catalog is then read a second time, by id, for those rows only, and they
 bring nothing under them. A clone that leaves price books out takes the
 standard book alone, and reads no price in another book under a product.
 
+An object excluded by name (`ExecuteOptions.excludedObjects`, the clone
+command's `--exclude-object`) stays out whether discovery reached it or the
+run would add it: its node is left out, and none of it is added past the cap.
+What that costs is said, not written: a record that cannot be written without
+one of its records — a line whose price is excluded, a price whose product is —
+is held back, named per object in the run's errors and counted as failed, in a
+dry run too; and an order past Draft left with no item the run writes stays a
+draft, said so instead of refused its status.
+
 ## Pipeline
 
 ```

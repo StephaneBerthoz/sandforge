@@ -4,7 +4,7 @@
  * volumetry, and control outcomes.
  */
 
-import type { FrozenLeftToThePlatform } from '@sandforge/shared';
+import type { FrozenExclusionCost, FrozenLeftToThePlatform } from '@sandforge/shared';
 import { leftToThePlatformNote, type RowsLeftOut } from '../../core/common/platformRecords.js';
 import type { NonReidentificationReport } from './NonReidentificationControl.js';
 
@@ -72,6 +72,12 @@ export interface ManifestCoverage {
    * and from manifests written before it was recorded.
    */
   leftToThePlatform?: FrozenLeftToThePlatform[];
+  /**
+   * Records held that cannot be loaded as they are, for an object
+   * `excludedObjects` leaves out. Absent when none is, and from manifests
+   * written before it was recorded.
+   */
+  exclusionCosts?: FrozenExclusionCost[];
 }
 
 /**
@@ -193,11 +199,13 @@ export function validateManifest(manifest: FrozenManifest): void {
       typeof coverage.maxNodes !== 'number' ||
       !Array.isArray(coverage.unboundedObjects) ||
       !Array.isArray(coverage.filesLeftOut) ||
-      (coverage.leftToThePlatform !== undefined && !Array.isArray(coverage.leftToThePlatform)))
+      (coverage.leftToThePlatform !== undefined && !Array.isArray(coverage.leftToThePlatform)) ||
+      (coverage.exclusionCosts !== undefined && !Array.isArray(coverage.exclusionCosts)))
   ) {
     throw new ManifestError(
       'coverage, when present, needs objects, truncated, maxNodes, unboundedObjects and ' +
-        'filesLeftOut, and a list of what it left to the platform if it names any',
+        'filesLeftOut, and a list of what it left to the platform, or of what its exclusions ' +
+        'cost, if it names any',
     );
   }
 }

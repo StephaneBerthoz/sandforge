@@ -2969,7 +2969,8 @@
       "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",
       "unbounded": "Lidos sem o limite de data, por não terem CreatedDate: {{objects}}",
       "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}",
-      "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}"
+      "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",
+      "exclusionCosts": "Não podem ser carregados como estão — precisam de um objeto que excludedObjects deixa de fora: {{objects}}"
     }
   },
   "grappe": {

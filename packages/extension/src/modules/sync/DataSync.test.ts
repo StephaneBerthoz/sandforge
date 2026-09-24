@@ -414,6 +414,49 @@ describe('DataSync — a lookup the target does not have', () => {
     expect(insert).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps what the first write wrote when the second try fails', async () => {
+    // The second try only sends again rows the first refused. Failed whole —
+    // the connection dropped — it was thrown on, and the object was reported
+    // as one failure: the record the first write had put in the org was
+    // counted nowhere.
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef, { id: '001KEPT', success: true, errors: [] }])
+      .mockRejectedValueOnce(new Error('ECONNRESET'));
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }, { Name: 'Globex' }],
+    );
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ processed: 2, success: 1, failed: 1 });
+    expect(result.errors).toEqual([
+      crossRef.errors[0],
+      '1 record(s) the target refused for a lookup it does not have could not be written ' +
+        'again without Key_Contact__c: ECONNRESET',
+    ]);
+  });
+
+  it('answers each record as the first write left it when the second try fails', async () => {
+    // Real-time replication reads the outcomes to say which change reached
+    // the target: thrown on, the error left it none, the change written among
+    // them.
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef, { id: '001KEPT', success: true, errors: [] }])
+      .mockRejectedValueOnce(new Error('ECONNRESET'));
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const { outcomes } = await sync.write(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [{ Name: 'Acme', Key_Contact__c: '003000000000042AAA' }, { Name: 'Globex' }],
+    );
+
+    expect(outcomes).toEqual([crossRef, { id: '001KEPT', success: true, errors: [] }]);
+  });
+
   it('tells the run every record the write sent when the cancel stops the second try', async () => {
     // What the stopped retry names is the rows it tried again: passed on as
     // it was, the run counted those alone, not the record the first write
@@ -666,6 +709,46 @@ describe('DataSync — a record type the running user cannot use', () => {
       expect.stringMatching(/^1 Account record written without record type Partner/),
       '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
         'that the target does not have.',
+    ]);
+  });
+
+  it('keeps the record type it set aside for the records written when the second try fails', async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { id: '001NEW0', success: true, errors: [] },
+        {
+          id: '',
+          success: false,
+          errors: ['insufficient access rights on cross-reference id: 003000000000042AAA'],
+        },
+      ])
+      .mockRejectedValueOnce(new Error('REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.'));
+    const sync = new DataSync(
+      createDeps({
+        insert,
+        describeTargetFields: async () => ({
+          ...(await describeWithRecordTypes()()),
+          creatable: new Set(['Name', 'RecordTypeId', 'Key_Contact__c']),
+          references: new Set(['Key_Contact__c']),
+        }),
+      }),
+    );
+
+    const result = await sync.sync(
+      createConfig({ operation: 'insert', externalIdField: undefined }),
+      [
+        { Name: 'Acme', RecordTypeId: PARTNER },
+        { Name: 'Globex', RecordTypeId: CUSTOMER, Key_Contact__c: '003000000000042AAA' },
+      ],
+    );
+
+    expect(result).toMatchObject({ processed: 2, success: 1, failed: 1 });
+    expect(result.errors).toEqual([
+      'insufficient access rights on cross-reference id: 003000000000042AAA',
+      expect.stringMatching(/^1 Account record written without record type Partner/),
+      '1 record(s) the target refused for a lookup it does not have could not be written ' +
+        'again without Key_Contact__c: REQUEST_LIMIT_EXCEEDED: TotalRequests Limit exceeded.',
     ]);
   });
 

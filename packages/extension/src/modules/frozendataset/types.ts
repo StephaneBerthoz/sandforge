@@ -17,7 +17,7 @@
  * the referenceId mapping in the sas. FrozenDatasetHandler wires both.
  */
 
-import type { ForgeWrittenBetween } from '@sandforge/shared';
+import type { ForgeWrittenBetween, FrozenExclusionCost } from '@sandforge/shared';
 import type { RowsLeftOut } from '../../core/common/platformRecords.js';
 
 /** A raw record as extracted from the source org, keyed by referenceId. */
@@ -86,6 +86,12 @@ export interface ExtractedDataset {
    * cannot go in without one it does.
    */
   leftToThePlatform?: RowsLeftOut[];
+  /**
+   * The records held that cannot be loaded as they are, for an object
+   * `excludedObjects` leaves out, by object and object excluded. Absent when
+   * none is.
+   */
+  exclusionCosts?: FrozenExclusionCost[];
 }
 
 /** A pseudonymized record of the frozen dataset. */

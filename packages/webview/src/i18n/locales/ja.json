@@ -2830,7 +2830,8 @@
       "truncated": "検出は {{objects}} オブジェクト（上限 {{maxNodes}}）で停止しました。ルートから遠いオブジェクトは読み込まれていないため、このデータセットには欠けがある可能性があります。詳細設定で maxNodes を引き上げて、再実行してください。",
       "unbounded": "CreatedDate がないため日付の上限なしで読み込み: {{objects}}",
       "filesLeftOut": "除外 — 承認済みの keep ルールがないとファイルを仮名化できません: {{objects}}",
-      "leftToThePlatform": "除外 — プラットフォーム自身が書き込むレコード、またはそれに依存するレコード: {{objects}}"
+      "leftToThePlatform": "除外 — プラットフォーム自身が書き込むレコード、またはそれに依存するレコード: {{objects}}",
+      "exclusionCosts": "このままでは読み込めません — excludedObjects が除外するオブジェクトが必要なレコード: {{objects}}"
     }
   },
   "grappe": {

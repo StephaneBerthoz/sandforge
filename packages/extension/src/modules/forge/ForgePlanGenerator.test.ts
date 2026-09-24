@@ -245,6 +245,24 @@ describe('ForgePlanGenerator', () => {
       // 600 records, REST, batchSize=200, batchCount=3
       expect(plan.totalApiCalls).toBe(3);
     });
+
+    it('estimates no call and no time for an object with no record to write', () => {
+      // The writer makes no insert call for an empty object: counted one
+      // each, a graph's empty objects were calls and seconds the run never
+      // spends.
+      const gen = new ForgePlanGenerator({ avgSecondsPerApiCall: 1 });
+      const graph = makeGraph([
+        makeNode({ objectApiName: 'Account', level: 0, recordCount: 100, batchStrategy: 'auto' }),
+        makeNode({ objectApiName: 'Contract', level: 0, recordCount: 0, batchStrategy: 'auto' }),
+        makeNode({ objectApiName: 'Asset', level: 0, recordCount: 0, batchStrategy: 'rest' }),
+      ]);
+
+      const plan = gen.generate(graph);
+
+      expect(plan.totalApiCalls).toBe(1);
+      expect(plan.waves[0].estimatedApiCalls).toBe(1);
+      expect(plan.estimatedDurationSeconds).toBe(1);
+    });
   });
 
   describe('duration estimation', () => {

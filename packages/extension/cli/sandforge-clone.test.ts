@@ -104,6 +104,7 @@ describe('sandforge-clone flag validation', () => {
     ['a --max that is not a number', argv('--max', 'lots')],
     ['an --exclude object name that is not an API name', argv('--exclude', 'Acc ount.Name')],
     ['an --exclude field name that is not an API name', argv('--exclude', 'Account.Bad-Field')],
+    ['an --exclude-object that is not an API name', argv('--exclude-object', 'Price book')],
     ['a --filter object name that is not an API name', argv('--filter', "Ca$e=Status = 'Open'")],
     ['--files-as-is without --files', argv('--files-as-is')],
     ['--max-file-size without --files', argv('--max-file-size', '5')],
@@ -898,6 +899,106 @@ describe('sandforge-clone describes', () => {
       expect(orgs.SRC.asked.sort()).toEqual(['Account', 'Contact']);
       expect(orgs.TGT.asked.sort()).toEqual(['Account', 'Contact']);
     });
+
+    /** Both fake orgs answering for the aliases of `argv`. */
+    function withFakeOrgs() {
+      const orgs = { SRC: fakeOrg(), TGT: fakeOrg() };
+      vi.mocked(loadOrg).mockImplementation(async (alias) => ({
+        alias,
+        username: '',
+        instanceUrl: `https://${alias.toLowerCase()}.example.com`,
+        accessToken: 'token',
+      }));
+      vi.mocked(makeConn).mockImplementation((org) => orgs[org.alias as keyof typeof orgs].conn);
+      return orgs;
+    }
+
+    it('leaves out an object --exclude-object names, and says so where it prints the others', async () => {
+      withFakeOrgs();
+
+      expect(
+        await run(argv('--dry-run', '--skip-preflight', '--exclude-object', 'Contact')),
+      ).toBeUndefined();
+
+      expect(printed).toContain('  Skipped Contact (excluded)');
+      expect(printed.some((line) => line.includes('[dry-run] Contact'))).toBe(false);
+    });
+
+    it('lists an object --exclude-object names as excluded', async () => {
+      withFakeOrgs();
+
+      expect(await run(argv('--list-objects', '--exclude-object', 'Contact'))).toBeUndefined();
+
+      expect(printed.join('\n')).toMatch(/Contact\s+1\s+depth 1\s+\(excluded\)/);
+    });
+
+    it('refuses to leave out the object of the record to clone, before reading a row', async () => {
+      const stderr: string[] = [];
+      vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk));
+        return true;
+      });
+      withFakeOrgs();
+
+      expect(await run(argv('--dry-run', '--exclude-object', 'Account'))).toBe(2);
+
+      expect(stderr.join('')).toContain(
+        '--exclude-object Account: the record to clone is of this object, and nothing would be',
+      );
+      expect(printed.some((line) => line.includes('executing'))).toBe(false);
+    });
+  });
+});
+
+describe('sandforge-clone excluded objects', () => {
+  const node = (objectApiName: string): ForgeGraphNode => ({
+    objectApiName,
+    recordCount: 1,
+    fieldCount: 5,
+    status: 'idle',
+    progress: 0,
+    included: true,
+    piiFields: [],
+    anonymizeFields: [],
+    level: 0,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: 4,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 1,
+    batchStrategy: 'auto',
+  });
+  const graph: ForgeGraph = {
+    nodes: [node('Opportunity'), node('OpportunityLineItem'), node('PricebookEntry')],
+    edges: [],
+    totalRecords: 3,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
+
+  it('hands the run every object named, once, whether discovery reached it or not', () => {
+    // A price the default cap left out has no node to leave out: the run has
+    // to know it by name, or it adds the price past the cap.
+    const args = parseArgs(
+      argv(
+        '--exclude-object',
+        'PricebookEntry',
+        '--exclude-object',
+        'OrderItem',
+        '--exclude-object',
+        'PricebookEntry',
+      ),
+    );
+
+    expect(executeOptions(args, graph, []).excludedObjects).toEqual([
+      'PricebookEntry',
+      'OrderItem',
+    ]);
+  });
+
+  it('leaves out nothing without the flag', () => {
+    expect(executeOptions(parseArgs(argv()), graph, []).excludedObjects).toBeUndefined();
   });
 });
 

@@ -2969,7 +2969,8 @@
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
       "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
-      "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}"
+      "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
+      "exclusionCosts": "No se pueden cargar tal cual — necesitan un objeto que excludedObjects deja fuera: {{objects}}"
     }
   },
   "grappe": {

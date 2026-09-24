@@ -316,6 +316,7 @@ export function messageLines(message: Posted): string[] {
           maxNodes: number;
           unboundedObjects: string[];
           leftToThePlatform?: Array<{ objectApiName: string; note: string }>;
+          exclusionCosts?: Array<{ objectApiName: string; note: string }>;
         };
       };
       return [
@@ -328,6 +329,9 @@ export function messageLines(message: Posted): string[] {
         ...(m.coverage?.leftToThePlatform ?? []).map(
           (left) => `${left.objectApiName}: ${left.note}`,
         ),
+        // In the dataset, and not loadable as they are: excludedObjects left
+        // out what they need.
+        ...(m.coverage?.exclusionCosts ?? []).map((cost) => `${cost.objectApiName}: ${cost.note}`),
         ...Object.entries(m.volumetry.measured)
           .filter(([, n]) => n > 0)
           .map(([name, n]) => `  ${name}: ${n}`),

@@ -162,4 +162,34 @@ describe('what a manifest says was left to the platform', () => {
       }),
     ).toThrow(ManifestError);
   });
+
+  it('keeps what the exclusions cost through a round trip, and reads a manifest written before it', () => {
+    const exclusionCosts = [
+      {
+        objectApiName: 'OpportunityLineItem',
+        excludedObject: 'PricebookEntry',
+        count: 3,
+        note: 'three',
+      },
+    ];
+    const manifest = buildFrozenManifest({
+      ...buildValid(),
+      nonReidentification: passingControl,
+      author: 'stephane',
+      coverage: { ...coverage, exclusionCosts },
+      now: () => NOW,
+    });
+
+    expect(parseManifest(JSON.parse(serializeManifest(manifest))).coverage).toEqual({
+      ...coverage,
+      exclusionCosts,
+    });
+    expect(() => validateManifest({ ...manifest, coverage })).not.toThrow();
+    expect(() =>
+      validateManifest({
+        ...manifest,
+        coverage: { ...coverage, exclusionCosts: 'OpportunityLineItem' as never },
+      }),
+    ).toThrow(ManifestError);
+  });
 });

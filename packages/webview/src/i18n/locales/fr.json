@@ -2969,7 +2969,8 @@
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
       "unbounded": "Lus sans la borne de date, faute de CreatedDate : {{objects}}",
       "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}",
-      "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}"
+      "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
+      "exclusionCosts": "Ne peuvent pas être chargés tels quels — il leur faut un objet qu'excludedObjects laisse de côté : {{objects}}"
     }
   },
   "grappe": {

@@ -1,6 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FrozenGraphCoverage, FrozenLeftToThePlatform } from '@sandforge/shared';
+import type {
+  FrozenExclusionCost,
+  FrozenGraphCoverage,
+  FrozenLeftToThePlatform,
+} from '@sandforge/shared';
 
 /** Props for {@link FrozenCoverageNotes}. */
 export interface FrozenCoverageNotesProps {
@@ -12,6 +16,8 @@ export interface FrozenCoverageNotesProps {
   filesLeftOut?: readonly string[];
   /** Records left out because the platform writes them, or what they depend on, itself. */
   leftToThePlatform?: readonly FrozenLeftToThePlatform[];
+  /** Records held that cannot be loaded as they are, for an object `excludedObjects` leaves out. */
+  exclusionCosts?: readonly FrozenExclusionCost[];
   /** Test id of the list. */
   testId: string;
 }
@@ -29,6 +35,7 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
   unboundedObjects = [],
   filesLeftOut = [],
   leftToThePlatform = [],
+  exclusionCosts = [],
   testId,
 }) => {
   const { t } = useTranslation();
@@ -37,7 +44,8 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
     !truncated &&
     unboundedObjects.length === 0 &&
     filesLeftOut.length === 0 &&
-    leftToThePlatform.length === 0
+    leftToThePlatform.length === 0 &&
+    exclusionCosts.length === 0
   ) {
     return null;
   }
@@ -62,6 +70,15 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
         <li className="text-[11px] text-text-secondary">
           {t('frozen.coverage.leftToThePlatform', {
             objects: leftToThePlatform.map((l) => `${l.objectApiName} (${l.count})`).join(', '),
+          })}
+        </li>
+      )}
+      {exclusionCosts.length > 0 && (
+        <li className="text-[11px] text-status-warning">
+          {t('frozen.coverage.exclusionCosts', {
+            objects: exclusionCosts
+              .map((c) => `${c.objectApiName} (${c.count}) → ${c.excludedObject}`)
+              .join(', '),
           })}
         </li>
       )}

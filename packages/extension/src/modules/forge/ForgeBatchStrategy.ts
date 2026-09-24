@@ -28,6 +28,11 @@ export class ForgeBatchStrategy {
   /**
    * Resolve the concrete batch strategy for a given object.
    *
+   * No record, no batch: the plan adds up these counts as the API calls a run
+   * makes, and the writer makes none for an object with nothing to write.
+   * Held to one batch at least, every empty object of a graph was one call
+   * more in the plan's estimate and its duration.
+   *
    * @param strategy - User-chosen strategy or 'auto'.
    * @param recordCount - Number of records to process.
    * @returns Resolved strategy with API type, batch size, and batch count.
@@ -36,7 +41,7 @@ export class ForgeBatchStrategy {
     const api = strategy === 'auto' ? (recordCount > BULK_THRESHOLD ? 'bulk' : 'rest') : strategy;
 
     const batchSize = api === 'bulk' ? BULK_BATCH_SIZE : REST_BATCH_SIZE;
-    const batchCount = Math.max(1, Math.ceil(recordCount / batchSize));
+    const batchCount = Math.ceil(recordCount / batchSize);
 
     return { api, batchSize, batchCount };
   }

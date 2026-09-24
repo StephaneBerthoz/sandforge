@@ -3513,6 +3513,74 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Frozen dataset extraction naming what it holds and cannot load as it is', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-select-run').click();
+      await bridge.waitForMessage('frozen:select', { timeout: 10_000 });
+      await answerAll(page, 'frozen:select', 'frozen:select:response', {
+        selection: {
+          combinations: [{ combinationKey: 'stage=Won', axisValues: { stage: 'Won' } }],
+          uncovered: [],
+          volumetry: { measured: { Opportunity: 1 }, total: 1, budgetMax: 2500 },
+          selectedAt: '2026-09-20T09:00:00.000Z',
+          selectionPath: '/home/qa/.sandforge-sas/selection.json',
+          graph: { objects: 50, truncated: true, maxNodes: 50 },
+        },
+      });
+      await expect(page.getByTestId('frozen-extract-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-extract-run').click();
+      await bridge.waitForMessage('frozen:extract', { timeout: 10_000 });
+      // Cut at the cap, with records the platform writes itself left out and
+      // records that need an object the configuration excludes.
+      await answerAll(page, 'frozen:extract', 'frozen:extract:response', {
+        datasetDir: '/home/qa/.sandforge-sas/dataset',
+        files: ['manifest.json'],
+        recordCount: 9,
+        manifest: {
+          ...FROZEN_STATUS_WITH_DATASET.manifest,
+          coverage: {
+            objects: 50,
+            truncated: true,
+            maxNodes: 50,
+            unboundedObjects: [],
+            filesLeftOut: [],
+            leftToThePlatform: [
+              {
+                objectApiName: 'FeedItem',
+                count: 1,
+                note: '1 tracked change left out: the platform writes them itself',
+              },
+            ],
+            exclusionCosts: [
+              {
+                objectApiName: 'OpportunityLineItem',
+                excludedObject: 'PricebookEntry',
+                count: 3,
+                note: '3 OpportunityLineItem records cannot be loaded without their price',
+              },
+              {
+                objectApiName: 'Order',
+                excludedObject: 'PricebookEntry',
+                count: 2,
+                note: '2 Order records past Draft will be loaded as drafts and stay so',
+              },
+            ],
+          },
+        },
+      });
+      await expect(page.getByTestId('frozen-extract-coverage')).toContainText(
+        'OpportunityLineItem (3) → PricebookEntry',
+        { timeout: 10_000 },
+      );
+
+      await expectReadable(page, theme);
+    });
+
     test('CSV validation panel listing an error', async ({ page }) => {
       await openCsvImport(bridge, page, theme);
       // The file first: columns are mapped when the object's fields arrive.

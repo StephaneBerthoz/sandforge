@@ -53,4 +53,24 @@ describe('FrozenCoverageNotes', () => {
     expect(text).toContain('the platform writes these records');
     expect(text).toContain('FeedItem (2), FeedComment (1)');
   });
+
+  it('names the records that need an object excludedObjects leaves out, and the object each needs', () => {
+    render(
+      <FrozenCoverageNotes
+        exclusionCosts={[
+          {
+            objectApiName: 'OpportunityLineItem',
+            excludedObject: 'PricebookEntry',
+            count: 3,
+            note: '3 lines',
+          },
+          { objectApiName: 'Order', excludedObject: 'PricebookEntry', count: 2, note: '2 orders' },
+        ]}
+        testId="coverage"
+      />,
+    );
+    const text = screen.getByTestId('coverage').textContent ?? '';
+    expect(text).toContain('Cannot be loaded as they are');
+    expect(text).toContain('OpportunityLineItem (3) → PricebookEntry, Order (2) → PricebookEntry');
+  });
 });

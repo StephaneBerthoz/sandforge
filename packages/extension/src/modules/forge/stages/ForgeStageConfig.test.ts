@@ -14,6 +14,7 @@ describe('resolveStageConfig', () => {
     expect(config.maxOrphanParentExpansions).toBe(20);
     expect(config.upsertMode).toBe('off');
     expect(config.fieldExclusions).toEqual({});
+    expect(config.excludedObjects).toEqual(new Set());
     expect(config.ownerMappings).toEqual({});
     expect(config.fieldMappings).toEqual({});
     expect(config.recordTypeMappings).toBeUndefined();
@@ -56,6 +57,7 @@ describe('resolveStageConfig', () => {
       maxOrphanParentExpansions: 5,
       referenceDataObjects: ['BusinessHours'],
       fieldExclusions: { Account: ['Description'] },
+      excludedObjects: ['PricebookEntry', 'OrderItem'],
       ownerMappings: { '005OLD': '005NEW' },
       objectSoqlFilters: { Case: "Status = 'Open'" },
       fieldMappings: { Account: { Region__c: 'Region__pc' } },
@@ -68,6 +70,7 @@ describe('resolveStageConfig', () => {
     expect(config.maxOrphanParentExpansions).toBe(5);
     expect(config.referenceDataObjects).toEqual(new Set(['BusinessHours']));
     expect(config.fieldExclusions).toEqual({ Account: ['Description'] });
+    expect(config.excludedObjects).toEqual(new Set(['PricebookEntry', 'OrderItem']));
     expect(config.ownerMappings).toEqual({ '005OLD': '005NEW' });
     expect(config.objectSoqlFilters).toEqual({ Case: "Status = 'Open'" });
     expect(config.fieldMappings).toEqual({ Account: { Region__c: 'Region__pc' } });

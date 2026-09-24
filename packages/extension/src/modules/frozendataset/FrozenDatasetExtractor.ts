@@ -26,7 +26,12 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
+import type {
+  ForgeGraph,
+  ForgeGraphEdge,
+  ForgeGraphNode,
+  FrozenExclusionCost,
+} from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
   PRICEBOOK_ENTRY_CURRENCY_FIELD,
@@ -56,6 +61,7 @@ import {
   catalogBeyond,
   followsToItsParent,
   objectsOfId,
+  withObjectsLeftOut,
 } from '../forge/stages/ScopeResolver.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { renderQueryTemplate } from './queryTemplates.js';
@@ -249,6 +255,19 @@ export interface FrozenExtractionOptions {
   sasDir: string;
   /** Per-object fields excluded from the SELECT clause. */
   excludedFields?: Record<string, readonly string[]>;
+  /**
+   * Objects the dataset leaves out, by API name, whether discovery reached
+   * them or not (`FrozenProjectConfig.excludedObjects`): a node of the graph
+   * named here is not read, and none of them is fetched where discovery
+   * stopped short — the catalog a line prices from, the items of an order
+   * past Draft, the options of a selling model, the standard price book.
+   *
+   * Marked on the graph's nodes alone, an object discovery never reached was
+   * no exclusion: extracted at a cap that stopped before the catalog, the
+   * prices came all the same. What leaving one out costs the records held is
+   * said instead (`ExtractedDataset.exclusionCosts`).
+   */
+  excludedObjects?: readonly string[];
   /** Override for the RecordType pull template (`{{TOKEN}}` allowed). */
   recordTypesSoqlTemplate?: string;
   /** Token values (from the sas) for `{{TOKEN}}` placeholders. */
@@ -353,8 +372,15 @@ export class FrozenDatasetExtractor {
       return fields;
     };
 
+    // What the configuration leaves out by name stays out, whether discovery
+    // reached it or the extraction would fetch it past the cap.
+    const leftOut: ReadonlySet<string> = new Set(options.excludedObjects ?? []);
     // An activated order's items, when discovery stopped before them.
-    const forStatuses = await this.withWhatStatusesNeed(options.graph, fieldsOf);
+    const forStatuses = await this.withWhatStatusesNeed(
+      withObjectsLeftOut(options.graph, leftOut),
+      fieldsOf,
+      leftOut,
+    );
     const graph = forStatuses.graph;
     const nodes = [...graph.nodes].filter((n) => n.included).sort((a, b) => a.level - b.level);
     // A required lookup holds a row to the dossier only through an object the
@@ -489,6 +515,7 @@ export class FrozenDatasetExtractor {
       asOfWhere,
       owners,
       leftToThePlatform,
+      leftOut,
     );
     await leaveWhatHangsFromThePlatform(recordsByObject, describe, leftToThePlatform);
 
@@ -496,12 +523,25 @@ export class FrozenDatasetExtractor {
       options,
       recordsByObject,
       asOfWhere,
+      leftOut,
     );
-    await this.addSellingModelOptions(options, recordsByObject, describe, asOfWhere);
+    await this.addSellingModelOptions(
+      { ...options, graph },
+      recordsByObject,
+      describe,
+      asOfWhere,
+      leftOut,
+    );
 
     // Whether the dataset carries the selling models its prices are sold
     // under, so the load writes the lookup that tells two prices apart.
     const sellingModels = (recordsByObject.get(SELLING_MODEL_OBJECT)?.size ?? 0) > 0;
+    const exclusionCosts = await this.exclusionCosts(
+      recordsByObject,
+      describe,
+      leftOut,
+      sellingModels,
+    );
 
     // Stable referenceIds: per object, records sorted by source ID, then
     // numbered — identical exports produce identical referenceIds,
@@ -541,6 +581,7 @@ export class FrozenDatasetExtractor {
       fileFields,
       ...(standardPricebookSourceId ? { standardPricebookSourceId } : {}),
       leftToThePlatform: leftToThePlatform.counts(),
+      ...(exclusionCosts.length > 0 ? { exclusionCosts } : {}),
     };
   }
 
@@ -564,11 +605,16 @@ export class FrozenDatasetExtractor {
    * brings them.
    *
    * An object the graph holds and leaves out stays out, as does one whose
-   * describe fails or has no such lookup.
+   * describe fails or has no such lookup. So does one `excludedObjects`
+   * names, reached or not: the dataset says which records it leaves drafts
+   * for it (`exclusionCosts`).
+   *
+   * @param leftOut - The objects the configuration excludes by name.
    */
   private async withWhatStatusesNeed(
     graph: ForgeGraph,
     fieldsOf: (objectApiName: string) => Promise<ScopableField[]>,
+    leftOut: ReadonlySet<string>,
   ): Promise<{ graph: ForgeGraph; added: Map<string, ChildOfAStatus> }> {
     const held = new Set(graph.nodes.map((n) => n.objectApiName));
     const added = new Map<string, ChildOfAStatus>();
@@ -576,7 +622,13 @@ export class FrozenDatasetExtractor {
     const edges: ForgeGraphEdge[] = [];
     for (const parent of graph.nodes) {
       const child = STATUS_NEEDS_CHILDREN[parent.objectApiName];
-      if (!parent.included || !child || held.has(child.object) || added.has(child.object)) {
+      if (
+        !parent.included ||
+        !child ||
+        held.has(child.object) ||
+        added.has(child.object) ||
+        leftOut.has(child.object)
+      ) {
         continue;
       }
       let fields: ScopableField[];
@@ -673,7 +725,8 @@ export class FrozenDatasetExtractor {
    * cap of fifty objects, discovery stopped before it reached the catalog, and
    * a dossier with three priced lines came out without a single price. An
    * object the graph holds and leaves out — excluded, or empty in the whole
-   * org — stays out (`catalogBeyond`).
+   * org — stays out, as does one `excludedObjects` names that the graph does
+   * not hold (`catalogBeyond`): what that costs is said (`exclusionCosts`).
    *
    * An id a lookup naming several objects holds is looked for in the one
    * object its key prefix says it belongs to. Asked of each of them, a feed
@@ -691,11 +744,12 @@ export class FrozenDatasetExtractor {
     asOfWhere: string,
     owners: KeyPrefixOwners,
     leftToThePlatform: RowsLeftToThePlatform,
+    leftOut: ReadonlySet<string>,
   ): Promise<void> {
     const included = new Set(
       options.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
     );
-    const beyond = catalogBeyond(options.graph);
+    const beyond = catalogBeyond(options.graph, leftOut);
     const fetched = (objectApiName: string): boolean =>
       included.has(objectApiName) || beyond.has(objectApiName);
 
@@ -771,12 +825,18 @@ export class FrozenDatasetExtractor {
    * the custom price needs, since the dataset keeps one standard price per
    * product and currency.
    *
+   * The standard book is read whatever the graph holds, and so it was when
+   * `excludedObjects` named the price books: it stays out then, and the
+   * prices that cannot be loaded without it are said (`exclusionCosts`).
+   *
+   * @param leftOut - The objects the configuration excludes by name.
    * @returns The source id of the standard book, when prices were read.
    */
   private async addStandardPrices(
     options: FrozenExtractionOptions,
     recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
     asOfWhere: string,
+    leftOut: ReadonlySet<string>,
   ): Promise<string | undefined> {
     const entries = recordsByObject.get(PRICEBOOK_ENTRY_OBJECT);
     if (!entries || entries.size === 0) return undefined;
@@ -819,14 +879,16 @@ export class FrozenDatasetExtractor {
       return this.deps.query(`SELECT ${select} FROM ${objectApiName} WHERE ${where}${bound}`);
     };
 
-    let books = recordsByObject.get(PRICEBOOK_OBJECT);
-    if (!books) {
-      books = new Map();
-      recordsByObject.set(PRICEBOOK_OBJECT, books);
-    }
-    if (!books.has(standardId)) {
-      for (const row of await read(PRICEBOOK_OBJECT, `Id = '${sanitizeSoqlValue(standardId)}'`)) {
-        books.set(standardId, withoutEnvelope(row));
+    if (!leftOut.has(PRICEBOOK_OBJECT)) {
+      let books = recordsByObject.get(PRICEBOOK_OBJECT);
+      if (!books) {
+        books = new Map();
+        recordsByObject.set(PRICEBOOK_OBJECT, books);
+      }
+      if (!books.has(standardId)) {
+        for (const row of await read(PRICEBOOK_OBJECT, `Id = '${sanitizeSoqlValue(standardId)}'`)) {
+          books.set(standardId, withoutEnvelope(row));
+        }
       }
     }
 
@@ -869,16 +931,22 @@ export class FrozenDatasetExtractor {
    * all sold under the one-time model, the dataset carried that model and
    * none of the 33 options that sell its products under it.
    *
-   * Left out where the graph leaves the object out, and for a product or a
-   * model the dataset does not hold: an option is written with both.
+   * Left out where the graph leaves the object out, where `excludedObjects`
+   * names it — the graph holds no node of it then, as discovery seldom
+   * reaches one — and for a product or a model the dataset does not hold: an
+   * option is written with both.
+   *
+   * @param leftOut - The objects the configuration excludes by name.
    */
   private async addSellingModelOptions(
     options: FrozenExtractionOptions,
     recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
     describe: (objectApiName: string) => Promise<ScopableField[]>,
     asOfWhere: string,
+    leftOut: ReadonlySet<string>,
   ): Promise<void> {
     if (
+      leftOut.has(SELLING_MODEL_OPTION_OBJECT) ||
       options.graph.nodes.some(
         (n) => n.objectApiName === SELLING_MODEL_OPTION_OBJECT && !n.included,
       )
@@ -930,6 +998,147 @@ export class FrozenDatasetExtractor {
         bucket.set(row.Id, withoutEnvelope(row));
       }
     }
+  }
+
+  /**
+   * What `excludedObjects` costs the records the dataset holds, per object
+   * and object excluded: those a lookup they may not leave empty points,
+   * through a record the dataset does not hold, at an object it leaves out —
+   * a line its price, a price its product or its book — and the prices sold
+   * under a selling model the dataset carries, when it leaves the options
+   * out. And the records past Draft whose status needs rows under them — an
+   * order its items — when it leaves those out, or none of them can be
+   * loaded: the load writes such an order as a draft and activates it once
+   * the rest is written, and the platform activates no order without a
+   * product on it.
+   *
+   * Only said: the records stay in the dataset, as they are. Left out, the
+   * prices were not fetched and nothing told, and the load was left to find
+   * out, line by line, what the exclusion had cost.
+   *
+   * @param leftOut - The objects the configuration excludes by name.
+   * @param sellingModels - Whether the dataset carries the selling models.
+   */
+  private async exclusionCosts(
+    recordsByObject: ReadonlyMap<string, ReadonlyMap<string, Record<string, unknown>>>,
+    describe: (objectApiName: string) => Promise<ScopableField[]>,
+    leftOut: ReadonlySet<string>,
+    sellingModels: boolean,
+  ): Promise<FrozenExclusionCost[]> {
+    if (leftOut.size === 0) return [];
+    const costs: FrozenExclusionCost[] = [];
+    const records = (count: number): string => `record${count === 1 ? '' : 's'}`;
+    /** Per object, its records that cannot be loaded, with the object excluded each needs. */
+    const unloadable = new Map<string, Map<string, string>>();
+    for (const [objectApiName, bucket] of recordsByObject) {
+      if (bucket.size === 0) continue;
+      const lookups = (await describe(objectApiName)).filter(
+        (f) =>
+          f.type === 'reference' &&
+          f.referenceTo.length === 1 &&
+          f.referenceTo[0] !== objectApiName &&
+          leftOut.has(f.referenceTo[0]) &&
+          isRequiredLookup(objectApiName, f.name, f.nillable),
+      );
+      const needsOption =
+        objectApiName === PRICEBOOK_ENTRY_OBJECT &&
+        sellingModels &&
+        leftOut.has(SELLING_MODEL_OPTION_OBJECT);
+      if (lookups.length === 0 && !needsOption) continue;
+      const held = new Map<string, string>();
+      /** Per object excluded, the lookup that names it and how many records need it. */
+      const counts = new Map<string, { field: string; count: number }>();
+      for (const [id, row] of bucket) {
+        let need: { field: string; excluded: string } | undefined;
+        for (const field of lookups) {
+          const value = row[field.name];
+          const target = field.referenceTo[0];
+          if (typeof value !== 'string' || value === '') continue;
+          if (recordsByObject.get(target)?.has(value)) continue;
+          need = { field: field.name, excluded: target };
+          break;
+        }
+        const model = row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD];
+        if (
+          !need &&
+          needsOption &&
+          typeof model === 'string' &&
+          recordsByObject.get(SELLING_MODEL_OBJECT)?.has(model)
+        ) {
+          need = {
+            field: PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+            excluded: SELLING_MODEL_OPTION_OBJECT,
+          };
+        }
+        if (!need) continue;
+        held.set(id, need.excluded);
+        const count = counts.get(need.excluded) ?? { field: need.field, count: 0 };
+        count.count++;
+        counts.set(need.excluded, count);
+      }
+      if (held.size > 0) unloadable.set(objectApiName, held);
+      for (const [excluded, { field, count }] of counts) {
+        costs.push({
+          objectApiName,
+          excludedObject: excluded,
+          count,
+          note:
+            excluded === SELLING_MODEL_OPTION_OBJECT
+              ? `${count} ${objectApiName} ${records(count)} sold under a selling model cannot be ` +
+                `loaded without the option that sells the product under it, and ` +
+                `excludedObjects leaves ${excluded} out`
+              : `${count} ${objectApiName} ${records(count)} cannot be loaded without the ` +
+                `${excluded} named by ${field}, which excludedObjects leaves out`,
+        });
+      }
+    }
+
+    for (const [parent, child] of Object.entries(STATUS_NEEDS_CHILDREN)) {
+      const parents = recordsByObject.get(parent);
+      const lifecycle = STATUS_LIFECYCLES[parent];
+      if (!parents || parents.size === 0 || !lifecycle) continue;
+      const categories = await statusCategories((soql) => this.deps.query(soql), lifecycle);
+      if (!categories) continue;
+      // The records a row under them that can be loaded names, and those a row
+      // that cannot names, with the object excluded that row needs.
+      const loadable = new Set<string>();
+      const notLoadable = new Map<string, string>();
+      const held = unloadable.get(child.object);
+      for (const [id, row] of recordsByObject.get(child.object) ?? []) {
+        const named = row[child.lookup];
+        if (typeof named !== 'string') continue;
+        const excluded = held?.get(id);
+        if (!excluded) loadable.add(named);
+        else if (!notLoadable.has(named)) notLoadable.set(named, excluded);
+      }
+      const counts = new Map<string, number>();
+      for (const [id, row] of parents) {
+        if (!draftStartOf(row.Status, categories)) continue;
+        const excluded = leftOut.has(child.object)
+          ? child.object
+          : loadable.has(id)
+            ? undefined
+            : notLoadable.get(id);
+        if (excluded) counts.set(excluded, (counts.get(excluded) ?? 0) + 1);
+      }
+      for (const [excluded, count] of counts) {
+        const one = count === 1;
+        costs.push({
+          objectApiName: parent,
+          excludedObject: excluded,
+          count,
+          note:
+            `${count} ${parent} ${records(count)} past Draft will be loaded as ` +
+            `${one ? 'a draft' : 'drafts'} and stay so: ` +
+            (excluded === child.object
+              ? `the platform gives ${parent} this status only with ${child.object} records ` +
+                `under it, and excludedObjects leaves ${child.object} out`
+              : `none of ${one ? 'its' : 'their'} ${child.object} records can be loaded ` +
+                `without ${excluded}, which excludedObjects leaves out`),
+        });
+      }
+    }
+    return costs;
   }
 
   /** Explicit SELECT clause: described fields minus exclusions. No SELECT *. */

@@ -1467,6 +1467,103 @@ describe('FrozenDatasetExtractor — the catalog a dossier draws on', () => {
     expect(sourceIdsOf(dataset, 'OpportunityLineItem')).toEqual([LINE]);
     expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([]);
   });
+
+  /** Discovery stopped at the lines, as it does at the default cap: the catalog is past it. */
+  const upToTheLines = (): ForgeGraph =>
+    graphOf(
+      [makeNode('Opportunity', 0), makeNode('OpportunityLineItem', 1)],
+      [edge('Opportunity', 'OpportunityLineItem', 'OpportunityLineItems')],
+    );
+
+  it('fetches no price excludedObjects names past the cap, and says which lines cannot be loaded without it', async () => {
+    // Marked on the graph's node alone, an object discovery never reached
+    // was no exclusion: the extraction fetched the prices all the same.
+    const dataset = await extractorOver(pricedDossier(), lineFields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(),
+      excludedObjects: ['PricebookEntry'],
+    });
+
+    // The line is the dossier's, and stays in it.
+    expect(sourceIdsOf(dataset, 'OpportunityLineItem')).toEqual([LINE]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'Product2')).toEqual([]);
+    expect(dataset.exclusionCosts).toEqual([
+      {
+        objectApiName: 'OpportunityLineItem',
+        excludedObject: 'PricebookEntry',
+        count: 1,
+        note:
+          '1 OpportunityLineItem record cannot be loaded without the PricebookEntry named by ' +
+          'PricebookEntryId, which excludedObjects leaves out',
+      },
+    ]);
+  });
+
+  it('leaves out a node of the graph excludedObjects names', async () => {
+    const dataset = await extractorOver(pricedDossier(), lineFields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: graphOf(
+        [
+          makeNode('Opportunity', 0),
+          makeNode('OpportunityLineItem', 1),
+          makeNode('PricebookEntry', 2),
+        ],
+        [
+          edge('Opportunity', 'OpportunityLineItem', 'OpportunityLineItems'),
+          edge('PricebookEntry', 'OpportunityLineItem', 'OpportunityLineItems'),
+        ],
+      ),
+      excludedObjects: ['PricebookEntry'],
+    });
+
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([]);
+    expect(dataset.exclusionCosts).toEqual([
+      expect.objectContaining({ objectApiName: 'OpportunityLineItem', count: 1 }),
+    ]);
+  });
+
+  it('fetches no price book excludedObjects names, the standard one included, and says which prices cannot be loaded without it', async () => {
+    // The standard book is read whatever the graph holds: it came into the
+    // dataset of a configuration that excluded the price books.
+    const dataset = await extractorOver(pricedDossier(), lineFields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(),
+      excludedObjects: ['Pricebook2'],
+    });
+
+    expect(sourceIdsOf(dataset, 'Pricebook2')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(dataset.exclusionCosts).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        excludedObject: 'Pricebook2',
+        count: 2,
+        note:
+          '2 PricebookEntry records cannot be loaded without the Pricebook2 named by ' +
+          'Pricebook2Id, which excludedObjects leaves out',
+      },
+    ]);
+  });
+
+  it('says nothing of an exclusion that costs the dataset nothing', async () => {
+    const dataset = await extractorOver(pricedDossier(), lineFields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(),
+      excludedObjects: ['Case'],
+    });
+
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(dataset.exclusionCosts).toBeUndefined();
+  });
 });
 
 describe('FrozenDatasetExtractor — the selling model options its prices need', () => {
@@ -1590,6 +1687,32 @@ describe('FrozenDatasetExtractor — the selling model options its prices need',
 
     expect(sourceIdsOf(dataset, 'ProductSellingModel')).toEqual([]);
     expect(sourceIdsOf(dataset, 'ProductSellingModelOption')).toEqual([]);
+  });
+
+  it('reads no option excludedObjects names, and says which prices cannot be loaded without one', async () => {
+    // Nothing points at an option, so the graph holds none: marked on its
+    // nodes alone, the exclusion left the options to be read all the same.
+    const dataset = await extractorOver(tables, fields).extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheLines(),
+      excludedObjects: ['ProductSellingModelOption'],
+    });
+
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(sourceIdsOf(dataset, 'ProductSellingModelOption')).toEqual([]);
+    expect(dataset.exclusionCosts).toEqual([
+      {
+        objectApiName: 'PricebookEntry',
+        excludedObject: 'ProductSellingModelOption',
+        count: 2,
+        note:
+          '2 PricebookEntry records sold under a selling model cannot be loaded without the ' +
+          'option that sells the product under it, and excludedObjects leaves ' +
+          'ProductSellingModelOption out',
+      },
+    ]);
   });
 });
 
@@ -1742,6 +1865,67 @@ describe('FrozenDatasetExtractor — the items an order past Draft needs', () =>
 
     expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([]);
     expect(sent.filter((soql) => soql.includes('FROM OrderItem'))).toEqual([]);
+  });
+
+  it('reads no item excludedObjects names, and says which order will stay a draft', async () => {
+    // Marked on the graph's node alone, an object discovery never reached
+    // was no exclusion: the extraction brought the items all the same.
+    const { extractor, sent } = extractorOverOrders(tables());
+
+    const dataset = await extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheOrders(),
+      excludedObjects: ['OrderItem'],
+    });
+
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([ACTIVATED, DRAFT].sort());
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([]);
+    expect(sent.filter((soql) => soql.includes('FROM OrderItem'))).toEqual([]);
+    // The draft needs no item: only the activated order pays.
+    expect(dataset.exclusionCosts).toEqual([
+      {
+        objectApiName: 'Order',
+        excludedObject: 'OrderItem',
+        count: 1,
+        note:
+          '1 Order record past Draft will be loaded as a draft and stay so: the platform gives ' +
+          'Order this status only with OrderItem records under it, and excludedObjects leaves ' +
+          'OrderItem out',
+      },
+    ]);
+  });
+
+  it('says which order will stay a draft for the prices excludedObjects names, through its items', async () => {
+    const { extractor } = extractorOverOrders(tables());
+
+    const dataset = await extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph: upToTheOrders(),
+      excludedObjects: ['PricebookEntry'],
+    });
+
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([ACTIVATED_ITEM]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([]);
+    expect(dataset.exclusionCosts).toEqual([
+      expect.objectContaining({
+        objectApiName: 'OrderItem',
+        excludedObject: 'PricebookEntry',
+        count: 1,
+      }),
+      {
+        objectApiName: 'Order',
+        excludedObject: 'PricebookEntry',
+        count: 1,
+        note:
+          '1 Order record past Draft will be loaded as a draft and stay so: none of its ' +
+          'OrderItem records can be loaded without PricebookEntry, which excludedObjects ' +
+          'leaves out',
+      },
+    ]);
   });
 
   it('reads every item of the orders when the graph holds the items, drafts included', async () => {

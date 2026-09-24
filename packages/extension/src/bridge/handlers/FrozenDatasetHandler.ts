@@ -983,6 +983,9 @@ export class FrozenDatasetHandler implements DomainHandler {
           asOf: new Date().toISOString(),
           sasDir,
           excludedFields: config.excludedFields,
+          // By name as well: an object discovery never reached has no node
+          // to leave out, and the extraction would fetch it past the cap.
+          excludedObjects: config.excludedObjects,
           tokens,
           guard,
         });
@@ -1133,6 +1136,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           asOf: new Date().toISOString(),
           sasDir,
           excludedFields: config.excludedFields,
+          excludedObjects: config.excludedObjects,
           tokens,
           guard,
         });
@@ -1200,6 +1204,9 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...((extracted.leftToThePlatform ?? []).length > 0
             ? { leftToThePlatform: leftToThePlatformCoverage(extracted.leftToThePlatform ?? []) }
             : {}),
+          // What it holds and cannot load as it is, for an object the
+          // configuration leaves out.
+          ...(extracted.exclusionCosts ? { exclusionCosts: extracted.exclusionCosts } : {}),
         },
       });
 

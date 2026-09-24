@@ -347,6 +347,67 @@ describe('a run that fails partway reports what it wrote', () => {
     expect(failure?.result.objectResults[1].errors).toEqual(['target session expired']);
     expect(failure?.result.totalSuccess).toBe(1);
   });
+
+  it('counts what an object wrote when the try again without a lookup fails', async () => {
+    // The first write put one record in the org and was refused the other
+    // for a lookup the target does not have; sending that one again failed
+    // whole. Reported as "failed: 1" with the error, the object said nothing
+    // of the record in the org, and the run stopped there.
+    const write = vi
+      .fn<(...args: unknown[]) => Promise<OperationOutcome[]>>()
+      .mockResolvedValueOnce([
+        { id: '001000000000001AAA', success: true, errors: [] },
+        {
+          success: false,
+          errors: ['insufficient access rights on cross-reference id: 003000000000042AAA'],
+        },
+      ])
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValue([{ id: '003000000000001AAA', success: true, errors: [] }]);
+    const deps = createMockDeps();
+    deps.dataSync = new DataSync({
+      insert: write,
+      upsert: write,
+      update: write,
+      delete: write,
+      describeTargetFields: async () => ({
+        creatable: new Set(['Name', 'LastName', 'Key_Contact__c']),
+        references: new Set(['Key_Contact__c']),
+      }),
+    });
+    deps.querySource = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { Name: 'Acme' },
+        { Name: 'Globex', Key_Contact__c: '003000000000042AAA' },
+      ])
+      .mockResolvedValueOnce([{ LastName: 'Doe' }]);
+
+    const result = await new SyncOrchestrator(deps).execute(
+      createConfig({
+        objects: [
+          createObjectConfig({ objectApiName: 'Account', operation: 'insert', insertOrder: 0 }),
+          createObjectConfig({ objectApiName: 'Contact', operation: 'insert', insertOrder: 1 }),
+        ],
+      }),
+    );
+
+    expect(result.objectResults).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Account',
+        processed: 2,
+        success: 1,
+        failed: 1,
+        errors: [
+          'insufficient access rights on cross-reference id: 003000000000042AAA',
+          '1 record(s) the target refused for a lookup it does not have could not be written ' +
+            'again without Key_Contact__c: ECONNRESET',
+        ],
+      }),
+      expect.objectContaining({ objectApiName: 'Contact', success: 1, failed: 0 }),
+    ]);
+    expect(result.totalSuccess).toBe(2);
+  });
 });
 
 describe('a mapped sync writes each mapping once', () => {

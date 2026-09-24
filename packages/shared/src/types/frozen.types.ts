@@ -166,6 +166,23 @@ export interface FrozenLeftToThePlatform {
   note: string;
 }
 
+/**
+ * Records of one object a frozen dataset holds that cannot be loaded as they
+ * are, for an object `excludedObjects` leaves out: the record a lookup they
+ * may not leave empty names, or — for an order past Draft — the items it is
+ * activated with.
+ */
+export interface FrozenExclusionCost {
+  /** The object of the records. */
+  objectApiName: string;
+  /** The object left out that they need. */
+  excludedObject: string;
+  /** How many. */
+  count: number;
+  /** What leaving it out costs them, in words. */
+  note: string;
+}
+
 /** Manifest coverage: the graph, plus what was read without the time bound. */
 export interface FrozenManifestCoverage extends FrozenGraphCoverage {
   /** Objects read without `CreatedDate <= asOf`, having no such field. */
@@ -178,6 +195,12 @@ export interface FrozenManifestCoverage extends FrozenGraphCoverage {
    * was recorded.
    */
   leftToThePlatform?: FrozenLeftToThePlatform[];
+  /**
+   * Records held that cannot be loaded as they are, for an object
+   * `excludedObjects` leaves out. Absent when none is, and from manifests
+   * written before it was recorded.
+   */
+  exclusionCosts?: FrozenExclusionCost[];
 }
 
 /** Selection summary returned to the webview (sas IDs redacted). */

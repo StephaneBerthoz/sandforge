@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildFrozenManifest,
+  FrozenDatasetExtractor,
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
@@ -1153,6 +1154,93 @@ describe('FrozenDatasetHandler', () => {
         volumetry: { measured: Record<string, number> };
       };
       expect(selection.volumetry.measured).toEqual({ Opportunity: 1 });
+    });
+
+    /** A selection of the full opportunity, and rules, in the sas of `config`. */
+    async function readyToExtract(config: FrozenProjectConfig): Promise<void> {
+      const sasDir = config.sasDir as string;
+      await writeSelectionToSas(sasDir, {
+        roots: [
+          {
+            rootRecordId: '006000000000002AAA',
+            combinationKey: 'stage=Won',
+            axisValues: { stage: 'Won' },
+          },
+        ],
+        uncovered: [],
+        volumetry: { measured: { Opportunity: 1 }, total: 1, budgetMax: 2500 },
+        selectedAt: '2026-09-01T08:00:00.000Z',
+      });
+      fs.writeFileSync(
+        path.join(sasDir, 'rules.json'),
+        JSON.stringify({
+          rulesVersion: '1.0.0',
+          rules: { 'Opportunity.Name': { generator: 'companyName' } },
+        }),
+      );
+    }
+
+    it('hands the extraction the objects the configuration excludes by name, reached or not', async () => {
+      // Marked on the graph's nodes alone, an object discovery never reached
+      // was no exclusion: past the cap, the extraction fetched the prices of
+      // a configuration that excluded them.
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const extract = vi.spyOn(FrozenDatasetExtractor.prototype, 'extract');
+      onTestFinished(() => extract.mockRestore());
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig({
+        expectedObjects: [],
+        excludedObjects: ['PricebookEntry', 'OrderItem'],
+      });
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:select', { sourceOrgId: 'org-1' }));
+      await readyToExtract(config);
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      // The measure of each candidate at selection, and the extraction.
+      expect(extract.mock.calls.length).toBeGreaterThanOrEqual(2);
+      for (const [options] of extract.mock.calls) {
+        expect(options.excludedObjects).toEqual(['PricebookEntry', 'OrderItem']);
+      }
+    });
+
+    it('records in the manifest what the objects it excludes cost the records it holds', async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const exclusionCosts = [
+        {
+          objectApiName: 'OpportunityLineItem',
+          excludedObject: 'PricebookEntry',
+          count: 1,
+          note:
+            '1 OpportunityLineItem record cannot be loaded without the PricebookEntry named by ' +
+            'PricebookEntryId, which excludedObjects leaves out',
+        },
+      ];
+      const real = FrozenDatasetExtractor.prototype.extract;
+      const extract = vi
+        .spyOn(FrozenDatasetExtractor.prototype, 'extract')
+        .mockImplementation(async function (this: FrozenDatasetExtractor, options) {
+          return { ...(await real.call(this, options)), exclusionCosts };
+        });
+      onTestFinished(() => extract.mockRestore());
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig({ excludedObjects: ['PricebookEntry'] });
+      await readyToExtract(config);
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { exclusionCosts?: unknown };
+      };
+      expect(manifest.coverage.exclusionCosts).toEqual(exclusionCosts);
     });
 
     it('refuses to extract from a selection that kept no root', async () => {

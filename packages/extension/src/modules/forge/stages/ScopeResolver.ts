@@ -80,18 +80,49 @@ export function followsToItsParent(
 
 /**
  * The objects of the catalog a graph does not hold at all: neither among the
- * objects it reads nor among those it leaves out.
+ * objects it reads nor among those it leaves out — and that the user did not
+ * leave out by name.
  *
  * Discovery stops at a cap, and the catalog sits past the records that price
  * from it: run for real at the default cap of fifty objects, a clone of an
  * opportunity held its three line items and not one of their prices. A
  * record's price, its product, its book and its selling model are part of the
  * copy wherever discovery stopped — unless the graph holds the object and
- * leaves it out: excluded, or empty in the whole org.
+ * leaves it out: excluded, or empty in the whole org. Or unless the user
+ * excluded it by name: marked on the graph's node alone, an exclusion of an
+ * object discovery never reached was no exclusion, and it came all the same.
+ *
+ * @param leftOut - The objects the user excluded by name, reached or not.
  */
-export function catalogBeyond(graph: Pick<ForgeGraph, 'nodes'>): Set<string> {
+export function catalogBeyond(
+  graph: Pick<ForgeGraph, 'nodes'>,
+  leftOut: ReadonlySet<string> = new Set(),
+): Set<string> {
   const held = new Set(graph.nodes.map((n) => n.objectApiName));
-  return new Set(CATALOG_READ_ORDER.filter((objectApiName) => !held.has(objectApiName)));
+  return new Set(
+    CATALOG_READ_ORDER.filter(
+      (objectApiName) => !held.has(objectApiName) && !leftOut.has(objectApiName),
+    ),
+  );
+}
+
+/**
+ * The graph with the nodes of the objects the user excluded by name left
+ * out, as a node unchecked on the Forge page is: listed, skipped, and never
+ * read. The objects discovery never reached have no node, and are left out
+ * where a copy would add them (`catalogBeyond`).
+ */
+export function withObjectsLeftOut<G extends Pick<ForgeGraph, 'nodes'>>(
+  graph: G,
+  leftOut: ReadonlySet<string>,
+): G {
+  if (!graph.nodes.some((n) => n.included && leftOut.has(n.objectApiName))) return graph;
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) =>
+      n.included && leftOut.has(n.objectApiName) ? { ...n, included: false } : n,
+    ),
+  };
 }
 
 /**
