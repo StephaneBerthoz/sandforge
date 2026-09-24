@@ -773,4 +773,26 @@ describe('seedOwnIds / seedScopeCache', () => {
     expect([...(cache.get('Account') ?? [])]).toEqual(['001A', '001P']);
     expect([...(cache.scopeOf('Account') ?? [])]).toEqual(['001A']);
   });
+
+  it('leaves the scope open for a read to be done again: every id met until then is in it', () => {
+    const cache = new RecordScopeCache();
+    const fields: FieldInfo[] = [
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'Pricebook2Id',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Pricebook2'],
+      },
+    ];
+    seedScopeCache(cache, 'PricebookEntry', [{ Id: '01uA', Pricebook2Id: '01sA' }], fields, {
+      settle: false,
+    });
+    cache.add('PricebookEntry', ['01uB']);
+
+    expect(cache.isRead('PricebookEntry')).toBe(false);
+    expect([...(cache.scopeOf('PricebookEntry') ?? [])]).toEqual(['01uA', '01uB']);
+    expect([...(cache.get('Pricebook2') ?? [])]).toEqual(['01sA']);
+  });
 });

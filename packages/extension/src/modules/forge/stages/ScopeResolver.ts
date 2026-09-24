@@ -25,8 +25,10 @@ export const PRODUCT_OBJECT = 'Product2';
 
 /**
  * The catalog — prices, products, selling models and the options that join
- * the two, price books — in the order a record-scoped run reads it when
- * nothing reaches it from above.
+ * the two, price books — in the order a record-scoped run reads it, once the
+ * rest of the graph has been read. A node something reaches from above is
+ * read at its turn as well, for the rows under what it reached, and read
+ * here all the same: the records read after it name rows of it too.
  *
  * Every sale priced from the catalog points at it, so its scope is what the
  * clone's records name, and it is read once they all have been: its turn in
@@ -449,6 +451,16 @@ export async function queryNodeRecords(
   return records;
 }
 
+/** How {@link seedOwnIds} and {@link seedScopeCache} leave the node's scope. */
+export interface SeedOptions {
+  /**
+   * Whether the node's read is done, settling its scope. False for a read to
+   * be done again: the scope stays open, and every ID of the object met until
+   * then is one that read fetches. Defaults to true.
+   */
+  settle?: boolean;
+}
+
 /**
  * Register a node's own record IDs in the scope cache. Used by every
  * branch that queried source records — including the reference-data and
@@ -456,19 +468,22 @@ export async function queryNodeRecords(
  *
  * The node's read is done, so its scope is settled here: an ID of this
  * object met later — through the node's own self-lookup, or a lookup of a
- * row read after it — no longer puts its children in scope.
+ * row read after it — no longer puts its children in scope. A read to be done
+ * again leaves it open (`settle: false`).
  */
 export function seedOwnIds(
   scopeCache: RecordScopeCache,
   objectApiName: string,
   records: Record<string, unknown>[],
+  { settle = true }: SeedOptions = {},
 ): void {
   const ownIds: string[] = [];
   for (const rec of records) {
     const id = rec['Id'];
     if (typeof id === 'string' && id) ownIds.push(id);
   }
-  scopeCache.addRead(objectApiName, ownIds);
+  if (settle) scopeCache.addRead(objectApiName, ownIds);
+  else scopeCache.add(objectApiName, ownIds);
 }
 
 /**
@@ -480,8 +495,9 @@ export function seedScopeCache(
   objectApiName: string,
   records: Record<string, unknown>[],
   fieldInfos: FieldInfo[],
+  options: SeedOptions = {},
 ): void {
-  seedOwnIds(scopeCache, objectApiName, records);
+  seedOwnIds(scopeCache, objectApiName, records, options);
 
   const refFieldsWithTargets = fieldInfos.filter(
     (f) => f.isReference && f.referenceTo && f.referenceTo.length > 0,

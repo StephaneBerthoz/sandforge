@@ -2567,6 +2567,443 @@ describe('ForgeExecutor', () => {
         ]);
         expect(summary.errors).toEqual([]);
       });
+
+      it('reads the standard prices of 700 products in statements a request URI holds', async () => {
+        // The standard prices were asked for in one statement naming every
+        // product the custom prices use. Past some six hundred products it no
+        // longer fit the request URI a query travels in, which the org
+        // refuses: the run went on without a single standard price, and the
+        // platform refuses a custom price that has none.
+        const widgets = Array.from({ length: 700 }, (_, i) => i + 1);
+        const widget = (n: number): string => `01t${String(n).padStart(15, '0')}`;
+        const priceOf = (book: 1 | 2, n: number): string =>
+          `01u${book}${String(n).padStart(14, '0')}`;
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Pricebook2: [
+              { Id: STANDARD_BOOK, Name: 'Standard', IsStandard: true },
+              { Id: CUSTOM_BOOK, Name: 'Custom', IsStandard: false },
+            ],
+            Product2: widgets.map((n) => ({ Id: widget(n), Name: `Widget ${n}` })),
+            PricebookEntry: widgets.flatMap((n) => [
+              {
+                Id: priceOf(1, n),
+                Name: `Widget ${n} standard`,
+                Pricebook2Id: STANDARD_BOOK,
+                Product2Id: widget(n),
+                UnitPrice: '10',
+              },
+              {
+                Id: priceOf(2, n),
+                Name: `Widget ${n} custom`,
+                Pricebook2Id: CUSTOM_BOOK,
+                Product2Id: widget(n),
+                UnitPrice: '8',
+              },
+            ]),
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Pricebook2Id: CUSTOM_BOOK }],
+            OpportunityLineItem: widgets.map((n) => ({
+              Id: `00k${String(n).padStart(15, '0')}`,
+              OpportunityId: OPPORTUNITY,
+              PricebookEntryId: priceOf(2, n),
+              Product2Id: widget(n),
+              Quantity: '1',
+            })),
+          },
+          {
+            ...catalogFields,
+            Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+            OpportunityLineItem: [
+              idField,
+              lookup('OpportunityId', 'Opportunity', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+            ],
+          },
+        );
+        // Salesforce refuses a request URI much past 16 000 characters.
+        const sent: string[] = [];
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) => {
+          sent.push(soql);
+          if (encodeURIComponent(soql).length > 16_000) throw new Error('414 URI Too Long');
+          return query(org, soql, onTruncated);
+        };
+        const graph = makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Pricebook2'),
+            makeNode('Product2'),
+            makeNode('OpportunityLineItem'),
+            makeNode('PricebookEntry'),
+          ],
+          [
+            edge('Pricebook2', 'Opportunity'),
+            edge('Opportunity', 'OpportunityLineItem'),
+            { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+            edge('Product2', 'OpportunityLineItem'),
+            edge('Pricebook2', 'PricebookEntry'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        expect(summary.errors).toEqual([]);
+        expect(
+          inserted['PricebookEntry'].filter((row) => row['Pricebook2Id'] === STANDARD_BOOK),
+        ).toHaveLength(widgets.length);
+        expect(sent.filter((soql) => encodeURIComponent(soql).length > 16_000)).toEqual([]);
+      });
+
+      it('writes the standard price of the currency its custom price is in', async () => {
+        // An org with several currencies prices a product once per currency
+        // in each book, and a custom price needs the standard price of its own
+        // currency. One standard price was kept per product, the first read,
+        // in dollars, and the custom price in euros the line uses had none.
+        const tables = catalogTables();
+        tables['PricebookEntry'] = [
+          {
+            ...priceRow('standard', 1, '10'),
+            Name: 'Widget 1 standard USD',
+            CurrencyIsoCode: 'USD',
+          },
+          {
+            ...priceRow('standard', 1, '9'),
+            Id: `${price('standard', 1).slice(0, 15)}EUR`,
+            Name: 'Widget 1 standard EUR',
+            CurrencyIsoCode: 'EUR',
+          },
+          { ...priceRow('custom', 1, '8'), Name: 'Widget 1 custom EUR', CurrencyIsoCode: 'EUR' },
+        ];
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...tables,
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Pricebook2Id: CUSTOM_BOOK }],
+            OpportunityLineItem: [
+              {
+                Id: '00k000000000001AAA',
+                OpportunityId: OPPORTUNITY,
+                PricebookEntryId: price('custom', 1),
+                Product2Id: product(1),
+                Quantity: '1',
+              },
+            ],
+          },
+          {
+            ...catalogFields,
+            PricebookEntry: [...catalogFields['PricebookEntry'], text('CurrencyIsoCode')],
+            Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+            OpportunityLineItem: [
+              idField,
+              lookup('OpportunityId', 'Opportunity', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Pricebook2'),
+            makeNode('Product2'),
+            makeNode('OpportunityLineItem'),
+            makeNode('PricebookEntry'),
+          ],
+          [
+            edge('Pricebook2', 'Opportunity'),
+            edge('Opportunity', 'OpportunityLineItem'),
+            { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+            edge('Product2', 'OpportunityLineItem'),
+            edge('Pricebook2', 'PricebookEntry'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+          'Widget 1 standard USD',
+          'Widget 1 standard EUR',
+          'Widget 1 custom EUR',
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      describe('a catalog the account in scope points at as well', () => {
+        // Two levels around an opportunity take in its account and the
+        // account's children: a product naming the account as its supplier, a
+        // price book made for it. Each such lookup is a read under the account,
+        // so the catalog counted as reached from above and was read at its turn
+        // in parents-first order, before the lines had named any of it — and
+        // never again. The products and books the lines named were left out,
+        // and every price went to the target without them.
+        const QUOTE = '0Q0000000000001AAA';
+        const QUOTE_PRICE = '01u000000000035AAA';
+        const ACCOUNT_BOOK = '01s000000000004AAA';
+        const ACCOUNT_PRICE = '01u000000000044AAA';
+        const rooted = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+        /**
+         * The opportunity's lines price widgets 1 to 3 from its book, and its
+         * quote prices widget 5 from a book of its own. With `own`, the
+         * account also supplies widget 6 and has a book pricing widget 4.
+         */
+        function accountCatalog(own: boolean) {
+          const tables = catalogTables();
+          tables['Product2'] = tables['Product2'].map((row) => ({
+            ...row,
+            Supplier__c: own && row['Id'] === product(6) ? ACCOUNT : null,
+          }));
+          tables['Pricebook2'] = tables['Pricebook2'].map((row) => ({ ...row, Account__c: null }));
+          tables['PricebookEntry'].push({
+            Id: QUOTE_PRICE,
+            Name: 'Widget 5 quotes',
+            Pricebook2Id: QUOTE_BOOK,
+            Product2Id: product(5),
+            UnitPrice: '9',
+          });
+          if (own) {
+            tables['Pricebook2'].push({
+              Id: ACCOUNT_BOOK,
+              Name: 'Acme',
+              IsStandard: false,
+              Account__c: ACCOUNT,
+            });
+            tables['PricebookEntry'].push({
+              Id: ACCOUNT_PRICE,
+              Name: 'Widget 4 acme',
+              Pricebook2Id: ACCOUNT_BOOK,
+              Product2Id: product(4),
+              UnitPrice: '7',
+            });
+          }
+          return fakeOrgs(
+            {
+              ...tables,
+              Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+              Opportunity: [
+                { Id: OPPORTUNITY, Name: 'Deal', AccountId: ACCOUNT, Pricebook2Id: CUSTOM_BOOK },
+              ],
+              OpportunityLineItem: [1, 2, 3].map((n) => ({
+                Id: `00k00000000000${n}AAA`,
+                OpportunityId: OPPORTUNITY,
+                PricebookEntryId: price('custom', n),
+                Product2Id: product(n),
+                Quantity: String(n),
+              })),
+              Quote: [
+                { Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY, Pricebook2Id: QUOTE_BOOK },
+              ],
+              QuoteLineItem: [
+                {
+                  Id: '0QL000000000001AAA',
+                  QuoteId: QUOTE,
+                  PricebookEntryId: QUOTE_PRICE,
+                  Product2Id: product(5),
+                  Quantity: '1',
+                },
+              ],
+            },
+            {
+              ...catalogFields,
+              Account: [idField, text('Name')],
+              Pricebook2: [...catalogFields['Pricebook2'], lookup('Account__c', 'Account')],
+              Product2: [...catalogFields['Product2'], lookup('Supplier__c', 'Account')],
+              Opportunity: [
+                idField,
+                text('Name'),
+                lookup('AccountId', 'Account'),
+                lookup('Pricebook2Id', 'Pricebook2'),
+              ],
+              OpportunityLineItem: [
+                idField,
+                lookup('OpportunityId', 'Opportunity', true),
+                lookup('PricebookEntryId', 'PricebookEntry'),
+                lookup('Product2Id', 'Product2'),
+                text('Quantity'),
+              ],
+              Quote: [
+                idField,
+                text('Name'),
+                lookup('OpportunityId', 'Opportunity'),
+                lookup('Pricebook2Id', 'Pricebook2'),
+              ],
+              QuoteLineItem: [
+                idField,
+                lookup('QuoteId', 'Quote', true),
+                lookup('PricebookEntryId', 'PricebookEntry', true),
+                lookup('Product2Id', 'Product2', true),
+                text('Quantity'),
+              ],
+            },
+          );
+        }
+
+        /** Two levels around the opportunity, the account's children included. */
+        function accountGraph(): ForgeGraph {
+          return makeGraph(
+            [
+              makeNode('Opportunity'),
+              makeNode('Account'),
+              makeNode('Pricebook2'),
+              makeNode('Product2'),
+              makeNode('Quote'),
+              makeNode('OpportunityLineItem'),
+              makeNode('QuoteLineItem'),
+              makeNode('PricebookEntry'),
+            ],
+            [
+              edge('Account', 'Opportunity'),
+              edge('Pricebook2', 'Opportunity'),
+              edge('Account', 'Product2'),
+              edge('Account', 'Pricebook2'),
+              edge('Opportunity', 'Quote'),
+              edge('Pricebook2', 'Quote'),
+              edge('Opportunity', 'OpportunityLineItem'),
+              { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+              edge('Product2', 'OpportunityLineItem'),
+              { ...edge('Quote', 'QuoteLineItem'), required: true },
+              { ...edge('PricebookEntry', 'QuoteLineItem'), required: true },
+              { ...edge('Product2', 'QuoteLineItem'), required: true },
+              { ...edge('Pricebook2', 'PricebookEntry'), required: true },
+              { ...edge('Product2', 'PricebookEntry'), required: true },
+            ],
+          );
+        }
+
+        /** Each price written, by name: the product and the book it was sent with. */
+        const pricesSent = (rows: Array<Record<string, unknown>> = []) =>
+          Object.fromEntries(
+            rows.map((row) => [String(row['Name']), [row['Product2Id'], row['Pricebook2Id']]]),
+          );
+        const names = (rows: Array<Record<string, unknown>> = []): string[] =>
+          rows.map((row) => String(row['Name'])).sort();
+
+        it('clones the products, prices and books its lines name', async () => {
+          const { orgDeps, inserted } = accountCatalog(false);
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            accountGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(read['Product2']).toEqual(new Set([1, 2, 3, 5].map(product)));
+          expect(names(inserted['Product2'])).toEqual([
+            'Widget 1',
+            'Widget 2',
+            'Widget 3',
+            'Widget 5',
+          ]);
+          expect(names(inserted['Pricebook2'])).toEqual(['Custom', 'Quotes']);
+          expect(pricesSent(inserted['PricebookEntry'])).toEqual({
+            'Widget 1 standard': ['Product2:Widget 1', STANDARD_BOOK],
+            'Widget 2 standard': ['Product2:Widget 2', STANDARD_BOOK],
+            'Widget 3 standard': ['Product2:Widget 3', STANDARD_BOOK],
+            'Widget 5 standard': ['Product2:Widget 5', STANDARD_BOOK],
+            'Widget 1 custom': ['Product2:Widget 1', 'Pricebook2:Custom'],
+            'Widget 2 custom': ['Product2:Widget 2', 'Pricebook2:Custom'],
+            'Widget 3 custom': ['Product2:Widget 3', 'Pricebook2:Custom'],
+            'Widget 5 quotes': ['Product2:Widget 5', 'Pricebook2:Quotes'],
+          });
+          expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 1 custom',
+            'PricebookEntry:Widget 2 custom',
+            'PricebookEntry:Widget 3 custom',
+          ]);
+          expect(inserted['QuoteLineItem']).toEqual([
+            {
+              QuoteId: 'Quote:Offer',
+              PricebookEntryId: 'PricebookEntry:Widget 5 quotes',
+              Product2Id: 'Product2:Widget 5',
+              Quantity: '1',
+            },
+          ]);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('still clones what the account reaches of the catalog, with the prices under it', async () => {
+          // The widget the account supplies and the book made for it are
+          // reached from above, and come with their prices as a book a clone
+          // is rooted at does. Read at their turn, they also held every read
+          // after them to what had been named so far: the quote line and the
+          // account's price of a widget no line had named were left out.
+          const { orgDeps, inserted } = accountCatalog(true);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            accountGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(names(inserted['Product2'])).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Widget ${n}`));
+          expect(names(inserted['Pricebook2'])).toEqual(['Acme', 'Custom', 'Quotes']);
+          expect(pricesSent(inserted['PricebookEntry'])).toEqual({
+            ...Object.fromEntries(
+              [1, 2, 3, 4, 5, 6].map((n) => [
+                `Widget ${n} standard`,
+                [`Product2:Widget ${n}`, STANDARD_BOOK],
+              ]),
+            ),
+            ...Object.fromEntries(
+              [1, 2, 3, 6].map((n) => [
+                `Widget ${n} custom`,
+                [`Product2:Widget ${n}`, 'Pricebook2:Custom'],
+              ]),
+            ),
+            'Widget 4 acme': ['Product2:Widget 4', 'Pricebook2:Acme'],
+            'Widget 5 quotes': ['Product2:Widget 5', 'Pricebook2:Quotes'],
+          });
+          expect(inserted['OpportunityLineItem']).toHaveLength(3);
+          expect(inserted['QuoteLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+            'PricebookEntry:Widget 5 quotes',
+          ]);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('says in a dry run what a real run writes of the catalog, once per object', async () => {
+          const real = accountCatalog(true);
+          await new ForgeExecutor(real.orgDeps).execute(
+            accountGraph(),
+            'src',
+            'tgt',
+            () => undefined,
+            rooted,
+          );
+          const { orgDeps, inserted } = accountCatalog(true);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            accountGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          expect(inserted).toEqual({});
+          const said = progressEvents.map((e) => e.message);
+          for (const object of ['Pricebook2', 'Product2', 'PricebookEntry']) {
+            expect(said.filter((m) => m.startsWith(`[dry-run] ${object}:`))).toEqual([
+              `[dry-run] ${object}: ${real.inserted[object].length} record(s) would be inserted`,
+            ]);
+          }
+          expect(summary.wouldInsertCount).toBe(
+            Object.values(real.inserted).reduce((sum, rows) => sum + rows.length, 0),
+          );
+        });
+      });
     });
 
     describe('a catalog sold under selling models', () => {
@@ -2866,6 +3303,45 @@ describe('ForgeExecutor', () => {
         expect(before('ProductSellingModelOption', 'PricebookEntry')).toBe(true);
         expect(before('PricebookEntry', 'QuoteLineItem')).toBe(true);
         expect(before('PricebookEntry', 'OpportunityLineItem')).toBe(true);
+      });
+
+      it('joins the products its lines name to their selling models when the account supplies products', async () => {
+        // A product naming the opportunity's account as its supplier is a
+        // child of the account. Read under the account at its turn, and not
+        // again, the products were the ones the account supplies — none here —
+        // so no option joined a product the prices name to its selling model,
+        // every price was refused for want of its product, and every line went
+        // with them.
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...tables(),
+            Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+            Opportunity: tables().Opportunity.map((row) => ({ ...row, AccountId: ACCOUNT })),
+            Product2: tables().Product2.map((row) => ({ ...row, Supplier__c: null })),
+          },
+          {
+            ...fields,
+            Account: [idField, text('Name')],
+            Opportunity: [...fields['Opportunity'], lookup('AccountId', 'Account')],
+            Product2: [...fields['Product2'], lookup('Supplier__c', 'Account')],
+          },
+        );
+        const refused = platform(orgDeps, inserted);
+        const walked = graph();
+        walked.nodes.push(makeNode('Account'));
+        walked.edges.push(edge('Account', 'Opportunity'), edge('Account', 'Product2'));
+
+        const summary = await new ForgeExecutor(orgDeps).execute(walked, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        expect(refused).toEqual([]);
+        expect(inserted['ProductSellingModelOption']).toHaveLength(3);
+        expect(inserted['PricebookEntry']).toHaveLength(8);
+        expect(inserted['OpportunityLineItem']).toHaveLength(4);
+        expect(inserted['QuoteLineItem']).toHaveLength(1);
+        expect(summary.errors).toEqual([]);
       });
 
       it('reads none of the prices sold under a selling model its lines name', async () => {

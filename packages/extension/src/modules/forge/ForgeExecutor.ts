@@ -49,7 +49,7 @@ import {
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
 import { UNSCOPED_NO_PARENT_REASON } from './ScopedSoqlBuilder.js';
-import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { idLists } from '../dataops/RecordRemoval.js';
 import {
   PRICEBOOK_ENTRY_OBJECT,
@@ -659,8 +659,9 @@ interface ExecutionState {
    */
   readonly deferredNodes: ForgeGraphNode[];
   /**
-   * Catalog nodes put off until the rest of the graph has been read, so
-   * their scope is what the records read point at. See `CATALOG_READ_ORDER`.
+   * Catalog nodes read once the rest of the graph has been read, so their
+   * scope is what the records read point at: those put off, and those read
+   * at their turn for what they reached. See `CATALOG_READ_ORDER`.
    */
   readonly catalogNodes: ForgeGraphNode[];
   /** Rows read from the source, keyed by object, awaiting their write. */
@@ -1298,9 +1299,10 @@ export class ForgeExecutor {
     // One retry, not a loop: a second unscoped verdict means nothing read in
     // this run refers to the object at all.
     //
-    // The catalog put off goes first, prices before products and books: a
-    // price names its product and its book, and what the catalog points at
-    // in turn — a selling model — is among the nodes asked again after it.
+    // The catalog goes first, the nodes put off and those read at their turn
+    // alike, prices before products and books: a price names its product and
+    // its book, and what the catalog points at in turn — a selling model — is
+    // among the nodes asked again after it.
     const catalog = CATALOG_READ_ORDER.flatMap((name) =>
       state.catalogNodes.filter((n) => n.objectApiName === name),
     );
@@ -1850,7 +1852,8 @@ export class ForgeExecutor {
    *
    * Returns true when the node has rows the write stage should carry. The
    * branches that finish here — out of scope, reference data resolved by
-   * name, a dry run — return false having already reported themselves.
+   * name, a dry run — return false having already reported themselves; a
+   * node put off, or read to be read again, returns false as well.
    *
    * `prefetchTargetDescribe` starts the target-org describe alongside the
    * source query, which saves a round-trip when the write follows straight
@@ -2005,6 +2008,28 @@ export class ForgeExecutor {
         }
       }
 
+      // A node of the catalog reached from above is read at its turn for what
+      // it brings — the objects read after it are read under the rows it
+      // reached — and read again with the rest of the catalog, for the rows
+      // the records read since name. Read only here, a product naming the
+      // opportunity's account as its supplier made the clone's products the
+      // account's alone, none of those its lines sold, and every price went
+      // to the target without its product. Until that read its scope stays
+      // open: a lookup a row may not leave empty holds nothing back at it, as
+      // at any catalog object still to be read. The root, read by its id alone
+      // whenever it is read, is left as it is.
+      const scopeCache = state.scopeCache;
+      if (
+        allowDefer &&
+        scopeCache &&
+        CATALOG_OBJECTS.has(node.objectApiName) &&
+        node.objectApiName !== config.rootObjectApiName
+      ) {
+        seedScopeCache(scopeCache, node.objectApiName, records, fieldInfos, { settle: false });
+        state.catalogNodes.push(node);
+        return false;
+      }
+
       // A price book entry is usually read by id — the line items that point
       // at it put it in scope — so the standard entry of the same product is
       // never among the rows, and the platform will not take the custom price
@@ -2012,8 +2037,9 @@ export class ForgeExecutor {
       if (isPricebookEntry(node.objectApiName) && state.standardPricebookId) {
         await this.addStandardPricebookEntries(node, state, records, fieldInfos);
         // A book holds one entry per product — per product and selling model
-        // when the run keeps them — and the target enforces that on insert
-        // whatever `IsActive` says. The source can still hold two.
+        // when the run keeps them, and per currency in an org with several —
+        // and the target enforces that on insert whatever `IsActive` says.
+        // The source can still hold two.
         const deduped = dedupePricebookEntries(records, { sellingModel: state.sellingModels });
         if (deduped.length !== records.length) {
           records.length = 0;
@@ -2084,11 +2110,12 @@ export class ForgeExecutor {
    * read, to be read by what the records point at (`CATALOG_READ_ORDER`).
    *
    * It waits when nothing reaches it from above: it is not the root, and no
-   * parent in scope brings any of its rows. Its turn in parents-first order
-   * comes before the line items that say which prices they use, so read then
-   * it could only go by the rows named so far, and miss the ones named after.
-   * Reached from above — the prices of the book a clone is rooted at — it is
-   * read at its turn as before.
+   * statement of its read is under a parent in scope. Its turn in
+   * parents-first order comes before the line items that say which prices
+   * they use, so read then it could only go by the rows named so far, and
+   * miss the ones named after. Reached from above — the prices of the book a
+   * clone is rooted at — it is read at its turn as well, for the rows under
+   * what it reached, and again with the rest of the catalog: see `readNode`.
    */
   private waitsForWhatPointsAtIt(
     node: ForgeGraphNode,
@@ -2144,25 +2171,25 @@ export class ForgeExecutor {
     }
     if (productIds.size === 0) return;
 
-    const fields = fieldInfos.filter((f) => f.queryable).map((f) => f.name);
-    const selectList = (fields.length > 0 ? fields : ['Id'])
-      .map((f) => assertSoqlIdentifier(f))
-      .join(', ');
-    const inList = [...productIds].map((id) => `'${sanitizeSoqlValue(id)}'`).join(', ');
-    const soql =
-      `SELECT ${selectList} FROM ${assertSoqlIdentifier(node.objectApiName)} ` +
-      `WHERE ${PRICEBOOK_ENTRY_BOOK_FIELD} = '${sanitizeSoqlValue(standardId)}' ` +
-      `AND Product2Id IN (${inList})`;
-
     try {
-      const standardRows = await this.deps.queryRecords(state.sourceOrgId, soql);
+      // The products laid over as many statements as a request URI holds:
+      // named in one, six hundred or so make a query longer than the org
+      // takes, and not one standard price was read.
+      const statements = new ScopedSoqlBuilder().buildJoining({
+        objectApiName: node.objectApiName,
+        selectFields: fieldInfos.filter((f) => f.queryable).map((f) => f.name),
+        split: { field: PRICEBOOK_ENTRY_PRODUCT_FIELD, ids: productIds },
+        whole: { field: PRICEBOOK_ENTRY_BOOK_FIELD, ids: new Set([standardId]) },
+      });
       let added = 0;
-      for (const row of standardRows) {
-        const id = row['Id'];
-        if (typeof id === 'string' && seen.has(id)) continue;
-        if (state.sellingModels && !pricedPairs.has(pairOf(row))) continue;
-        records.push(row);
-        added++;
+      for (const soql of statements) {
+        for (const row of await this.deps.queryRecords(state.sourceOrgId, soql)) {
+          const id = row['Id'];
+          if (typeof id === 'string' && seen.has(id)) continue;
+          if (state.sellingModels && !pricedPairs.has(pairOf(row))) continue;
+          records.push(row);
+          added++;
+        }
       }
       if (added > 0) {
         state.onProgress({

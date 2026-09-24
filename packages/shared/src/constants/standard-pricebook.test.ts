@@ -99,6 +99,36 @@ describe('dedupePricebookEntries', () => {
     expect(kept).toHaveLength(2);
   });
 
+  describe('in an org with several currencies', () => {
+    // A book there holds a product's price once per currency, and a custom
+    // price needs the standard price of its own currency. Keyed on book and
+    // product alone, the euro standard price was dropped behind the dollar
+    // one, and the platform refused the euro custom price for want of it.
+    const prices = [
+      { Id: 'a', Pricebook2Id: '01sCUSTOM', Product2Id: '01t1', CurrencyIsoCode: 'EUR' },
+      { Id: 'b', Pricebook2Id: book, Product2Id: '01t1', CurrencyIsoCode: 'USD' },
+      { Id: 'c', Pricebook2Id: book, Product2Id: '01t1', CurrencyIsoCode: 'EUR' },
+    ];
+
+    it('keeps a price in each currency, which the book holds apart', () => {
+      expect(dedupePricebookEntries(prices).map((r) => r.Id)).toEqual(['a', 'b', 'c']);
+      expect(dedupePricebookEntries(prices, { sellingModel: true }).map((r) => r.Id)).toEqual([
+        'a',
+        'b',
+        'c',
+      ]);
+    });
+
+    it('still keeps one of two prices in the same currency, the active one', () => {
+      const kept = dedupePricebookEntries([
+        { ...prices[2], Id: 'd', IsActive: false },
+        { ...prices[2], Id: 'e', IsActive: true },
+        prices[1],
+      ]);
+      expect(kept.map((r) => r.Id)).toEqual(['e', 'b']);
+    });
+  });
+
   describe('with the selling model in the key', () => {
     // What a real source org held for most of its products: the price from
     // before selling models, deactivated, and the live one-time price.

@@ -102,8 +102,15 @@ export interface PricebookEntryKey {
 }
 
 /**
+ * The field an org with several currencies gives every record, a price
+ * included. Absent from an org with one currency.
+ */
+const CURRENCY_FIELD = 'CurrencyIsoCode';
+
+/**
  * Keep one entry per (book, product), preferring the active one — per (book,
- * product, selling model) when `key.sellingModel` says so.
+ * product, selling model) when `key.sellingModel` says so, and per currency in
+ * an org with several.
  *
  * A price book holds at most one entry per product, and the target enforces
  * it on insert whatever `IsActive` says. A source org can still hold two —
@@ -116,6 +123,10 @@ export interface PricebookEntryKey {
  * they are the same entry, and the rule above holds. Written with them they
  * are two, and read the first way the clone dropped half the standard prices
  * of the products it carried — the ones its custom prices needed.
+ *
+ * An org with several currencies holds a product's price once per currency,
+ * and a custom price needs the standard one of its own currency: the currency
+ * a row carries is part of its key.
  *
  * Order is otherwise preserved, and a row missing either field is left alone:
  * it cannot collide on a pair it does not have.
@@ -136,7 +147,8 @@ export function dedupePricebookEntries<T extends Record<string, unknown>>(
     const sellingModel = key.sellingModel
       ? `|${String(record[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`
       : '';
-    const pair = `${book}|${product}${sellingModel}`;
+    const currency = `|${String(record[CURRENCY_FIELD] ?? '')}`;
+    const pair = `${book}|${product}${sellingModel}${currency}`;
     const seenAt = byPair.get(pair);
     if (seenAt === undefined) {
       byPair.set(pair, kept.length);
