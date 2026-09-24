@@ -604,6 +604,14 @@ export interface ExecutionSummary {
    */
   readByObject: ForgeReadRecords[];
   /**
+   * Objects whose read from the source failed, in the order they failed:
+   * nothing of them was cloned. A run of whole tables counts the rows it
+   * meant to read of each in `failedCount` too; a record-scoped one never
+   * learned how many rows its scope held of them, so it counts none, and an
+   * object here is a failure of the run all the same.
+   */
+  failedReads: string[];
+  /**
    * What the run did with the files of the records it cloned — or, on a dry
    * run, would do. Absent when it was not asked to copy them.
    */
@@ -709,6 +717,8 @@ interface ExecutionState {
    * and only the second read is what it clones.
    */
   readonly readByObject: Map<string, number>;
+  /** Objects whose read from the source failed, in the order they failed. */
+  readonly failedReads: Set<string>;
   /** Per object, the key prefix of its ids in the source org, once the run has told it. */
   readonly sourceKeyPrefixes: Map<string, string>;
   /**
@@ -795,6 +805,19 @@ function requiredParentAhead(
     }
   }
   return undefined;
+}
+
+/**
+ * The rows a run of whole tables reads of a node: the table discovery
+ * counted, and no more than the cap on each object, which its statement
+ * carries as a `LIMIT` (see `buildNodeQuery`).
+ */
+function tableRowsToRead(node: ForgeGraphNode, maxRecordsPerObject: number | undefined): number {
+  const cap =
+    maxRecordsPerObject !== undefined && maxRecordsPerObject > 0
+      ? Math.floor(maxRecordsPerObject)
+      : 0;
+  return cap > 0 ? Math.min(node.recordCount, cap) : node.recordCount;
 }
 
 /**
@@ -1167,6 +1190,7 @@ export class ForgeExecutor {
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
+      failedReads: new Set<string>(),
       sourceKeyPrefixes: new Map<string, string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       sellingModels: runGraph.nodes.some(
@@ -2143,6 +2167,7 @@ export class ForgeExecutor {
         objectApiName,
         read,
       })),
+      failedReads: [...state.failedReads],
       ...(state.files ? { files: structuredClone(state.files) } : {}),
       ...(state.fileContentFieldsLeftOut.size > 0
         ? {
@@ -2575,12 +2600,22 @@ export class ForgeExecutor {
         return false;
       }
       state.failedObjects.add(node.objectApiName);
-      state.failedCount += node.recordCount;
+      state.failedReads.add(node.objectApiName);
+      // What failed is what the read was to bring. A run of whole tables
+      // meant to read the table discovery counted, up to the cap on each
+      // object. A record-scoped one meant to read the rows its scope names,
+      // and a read that failed never learned how many: counted from the
+      // graph, it was every row of the table — thousands of records the clone
+      // never meant to read, on its results, the command's summary and the
+      // audit trail. It counts no row, and the object's failure is what says
+      // how the run ended (`failedReads`).
+      const meantToRead = config.isScoped ? 0 : tableRowsToRead(node, config.maxRecordsPerObject);
+      state.failedCount += meantToRead;
       state.errors.push({
         objectApiName: node.objectApiName,
         stage: 'query',
-        failedCount: node.recordCount,
-        attemptedCount: node.recordCount,
+        failedCount: meantToRead,
+        attemptedCount: meantToRead,
         samples: [
           { recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] },
         ],

@@ -66,6 +66,7 @@ function createMockSummary(overrides?: Partial<ExecutionSummary>): ExecutionSumm
     remapByObject: [],
     createdByObject: [],
     readByObject: [],
+    failedReads: [],
     ...overrides,
   };
 }

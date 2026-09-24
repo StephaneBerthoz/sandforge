@@ -1956,6 +1956,7 @@ describe('ForgeHandler', () => {
           { objectApiName: 'Account', read: 2 },
           { objectApiName: 'Contact', read: 4 },
         ],
+        failedReads: [],
       });
       vi.mocked(orchestrator.execute).mockRejectedValue(stopped);
 
@@ -2020,6 +2021,7 @@ describe('ForgeHandler', () => {
           ? [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }]
           : [],
         readByObject: [{ objectApiName: 'Account', read: createdOne ? 2 : 1 }],
+        failedReads: [],
       });
       return error;
     }

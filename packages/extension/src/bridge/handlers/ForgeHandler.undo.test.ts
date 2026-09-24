@@ -910,6 +910,7 @@ describe('forge:undo', () => {
           { objectApiName: 'Account', read: 2 },
           { objectApiName: 'Contact', read: 2 },
         ],
+        failedReads: [],
       });
       return error;
     }

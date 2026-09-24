@@ -97,6 +97,35 @@ describe('ReportsHandler', () => {
     expect(reports.map((r) => r.id)).toEqual(['sync-new', 'forge-old']);
   });
 
+  it('counts the records a Forge run read, not the rows discovery counted in the tables of its graph', () => {
+    // The graph's counts are of whole tables: the clone of one account and
+    // two of its contacts read 3 rows of the 42 its two tables held.
+    const { deps } = makeDeps({
+      'forge:history': [
+        forgeRun({
+          readByObject: [
+            { objectApiName: 'Account', read: 1 },
+            { objectApiName: 'Contact', read: 2 },
+          ],
+        }),
+      ],
+    });
+
+    const [report] = new ReportsHandler(deps).build().reports;
+
+    expect(report.metadata.recordCount).toBe(3);
+    expect(report.summary).toContain('3 record(s) across 2 object(s)');
+    expect(report.sections[0].content).toMatchObject({ records: 3 });
+  });
+
+  it('counts a Forge run recorded before it said what it read from its graph, as it did', () => {
+    const { deps } = makeDeps({ 'forge:history': [forgeRun()] });
+
+    const [report] = new ReportsHandler(deps).build().reports;
+
+    expect(report.metadata.recordCount).toBe(42);
+  });
+
   it('answers with an empty list — not an error — when nothing has run', async () => {
     // "No runs yet" is a measurement. It is only honest because the page now
     // has a producer: the same zeros used to mean "no feature".

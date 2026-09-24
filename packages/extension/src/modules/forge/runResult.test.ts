@@ -43,6 +43,7 @@ function summary(overrides: Partial<ExecutionSummary> = {}): ExecutionSummary {
       { objectApiName: 'Account', read: 2 },
       { objectApiName: 'Contact', read: 1 },
     ],
+    failedReads: [],
     ...overrides,
   };
 }
@@ -53,7 +54,13 @@ describe('finishedRunStatus', () => {
   });
 
   it('calls a run that failed some records and settled others partial, however it settled them', () => {
-    const failing = { successCount: 0, updatedCount: 0, linkedCount: 0, failedCount: 3 };
+    const failing = {
+      successCount: 0,
+      updatedCount: 0,
+      linkedCount: 0,
+      failedCount: 3,
+      failedReads: [],
+    };
 
     expect(finishedRunStatus({ ...failing, successCount: 1 })).toBe('partial');
     expect(finishedRunStatus({ ...failing, updatedCount: 1 })).toBe('partial');
@@ -62,8 +69,25 @@ describe('finishedRunStatus', () => {
 
   it('calls a run that settled none of the records it tried a failure', () => {
     expect(
-      finishedRunStatus({ successCount: 0, updatedCount: 0, linkedCount: 0, failedCount: 3 }),
+      finishedRunStatus({
+        successCount: 0,
+        updatedCount: 0,
+        linkedCount: 0,
+        failedCount: 3,
+        failedReads: [],
+      }),
     ).toBe('failure');
+  });
+
+  it('calls a run whose reads failed a failure, though a failed read counts no record', () => {
+    // A record-scoped clone never learns how many rows the object it could not
+    // read held: none is counted as failed, and the run did not succeed.
+    const unread = { successCount: 0, updatedCount: 0, linkedCount: 0, failedCount: 0 };
+
+    expect(finishedRunStatus({ ...unread, failedReads: ['Opportunity'] })).toBe('failure');
+    expect(finishedRunStatus({ ...unread, successCount: 2, failedReads: ['Contact'] })).toBe(
+      'partial',
+    );
   });
 });
 

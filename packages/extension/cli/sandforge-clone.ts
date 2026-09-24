@@ -26,7 +26,7 @@
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import { loadOrg, makeConn } from './sfSession.js';
 
-import type { ForgeConfig, ForgeFilesReport, ForgeGraph } from '@sandforge/shared';
+import type { ForgeConfig, ForgeFilesReport, ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import {
   BYTES_PER_MB,
   FILE_COPY_CEILING_MB,
@@ -478,15 +478,18 @@ export async function describeObjectInfo(
 }
 
 /**
- * Whether a run failed outright: records failed and none was created, updated
- * or linked, nor — for a dry run — would have been inserted. A run that linked
- * what it could not create, or wrote over what its external ids matched, has
- * done part of its job. Exported so it can be tested.
+ * Whether a run failed outright: records failed, or the read of an object did,
+ * and none was created, updated or linked, nor — for a dry run — would have
+ * been inserted. A failed read counts no record — the clone never learned how
+ * many of its rows it held — so a run whose every read failed has none failed.
+ * A run that linked what it could not create, or wrote over what its external
+ * ids matched, has done part of its job. Exported so it can be tested.
  */
 export function failedOutright(summary: ExecutionSummary): boolean {
   const settled =
     summary.successCount + summary.updatedCount + summary.linkedCount + summary.wouldInsertCount;
-  return summary.failedCount > 0 && settled === 0;
+  const failed = summary.failedCount > 0 || summary.failedReads.length > 0;
+  return failed && settled === 0;
 }
 
 /**
@@ -559,7 +562,10 @@ export function summaryLines(summary: ExecutionSummary, dryRun = false): string[
       ? [`updated: ${summary.updatedCount} (matched by their external id, not created)`]
       : []),
     `linked:  ${summary.linkedCount} (already in the target, not created)`,
-    `failed:  ${summary.failedCount}`,
+    // A read that failed is the object's failure, counted in no record: the
+    // clone never learned how many of its rows it held.
+    `failed:  ${summary.failedCount}` +
+      (summary.failedReads.length > 0 ? ` (read failed: ${summary.failedReads.join(', ')})` : ''),
     `skipped: ${summary.skippedCount}`,
     `remaps:  ${summary.remapCount}`,
   ];
@@ -635,6 +641,9 @@ export function jsonResult(summary: ExecutionSummary) {
     // Per object, the rows the run read to clone: the size of the clone,
     // where discovery counted each whole table.
     readByObject: summary.readByObject,
+    // The objects whose read failed: a failure of the run each, though none
+    // counts in failedCount, as the clone never learned how many rows it held.
+    failedReads: summary.failedReads,
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),
@@ -659,6 +668,43 @@ export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined
     return undefined;
   }
   return event.message ? `  ${event.message}` : undefined;
+}
+
+/**
+ * Whether discovery left a node out because its table is empty: counted, and
+ * none there. A node whose describe or count failed is left out as well, for
+ * a reason worth its own line.
+ */
+function emptyTableLeftOut(node: ForgeGraphNode): boolean {
+  return !node.included && node.recordCount === 0 && node.status !== 'error';
+}
+
+/**
+ * What prints each object's end of run: {@link objectOutcomeLine}, with the
+ * objects discovery left out for an empty table said in one line — how many —
+ * where the first of them comes. They are most of a graph: a clone of one
+ * opportunity between two sandboxes skipped 350 objects, 315 of them for an
+ * empty table, one line each, and the 35 skipped for a reason worth reading
+ * were lost among them. The other skipped objects keep their line, and one
+ * empty table alone keeps its name. Exported so it can be tested.
+ *
+ * @param graph - The graph the run executes, which says why a node is left out.
+ */
+export function objectOutcomePrinter(
+  graph: ForgeGraph,
+): (event: ForgeProgressEvent) => string | undefined {
+  const emptyTables = new Set(
+    graph.nodes.filter(emptyTableLeftOut).map((node) => node.objectApiName),
+  );
+  let folded = false;
+  return (event) => {
+    if (event.status === 'skipped' && emptyTables.size > 1 && emptyTables.has(event.objectName)) {
+      if (folded) return undefined;
+      folded = true;
+      return `  Skipped ${emptyTables.size} objects (excluded: empty tables; --list-objects names them)`;
+    }
+    return objectOutcomeLine(event);
+  };
 }
 
 /**
@@ -932,13 +978,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''}${args.files ? ', FILES' : ''})`,
   );
   let summary: ExecutionSummary;
+  const outcomeLine = objectOutcomePrinter(graph);
   try {
     summary = await new ForgeExecutor(executorDeps).execute(
       graph,
       args.source,
       args.target,
       (event) => {
-        const line = args.json ? undefined : objectOutcomeLine(event);
+        const line = args.json ? undefined : outcomeLine(event);
         if (line) console.log(line);
       },
       executeOptions(args, graph, recordTypeMappings, (fields) => discovery.personalFields(fields)),

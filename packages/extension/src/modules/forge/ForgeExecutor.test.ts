@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
 import { partialSummaryOf } from './interruptedRun.js';
+import { finishedRunStatus } from './runResult.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { STANDARD_PRICEBOOK_SOQL } from '@sandforge/shared';
@@ -4914,6 +4915,139 @@ describe('ForgeExecutor', () => {
         );
 
         expect(summary.readByObject).toEqual([{ objectApiName: 'Account', read: 1 }]);
+      });
+
+      /** A source read whole: each statement answers every row of its table, up to its LIMIT. */
+      const readWhole = (orgDeps: ForgeExecutorDeps): void => {
+        const everyRow = tables();
+        orgDeps.queryRecords = async (_org, soql) => {
+          const [, object = '', limit] = /^SELECT .+ FROM (\w+)(?: LIMIT (\d+))?$/.exec(soql) ?? [];
+          return (everyRow[object] ?? [])
+            .slice(0, limit === undefined ? undefined : Number(limit))
+            .map((row) => ({ ...row }));
+        };
+      };
+
+      /** Source reads that fail for `object`, and answer as they did for the others. */
+      const failingReadsOf = (object: string, orgDeps: ForgeExecutorDeps): void => {
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) => {
+          if (new RegExp(`\\bFROM ${object}\\b`).test(soql)) {
+            throw new Error('QUERY_TIMEOUT: the query ran for too long');
+          }
+          return query(org, soql, onTruncated);
+        };
+      };
+
+      it('counts no record of an object a record-scoped clone could not read, and names the object', async () => {
+        // Counted from the graph, the failed read of the account's contacts
+        // was every contact of the org: 48 000 records the clone never meant
+        // to read, on its results, the command's summary and the audit trail.
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        failingReadsOf('Contact', orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(summary.failedCount).toBe(0);
+        expect(summary.failedReads).toEqual(['Contact']);
+        expect(summary.errors.filter((e) => e.objectApiName === 'Contact')).toEqual([
+          {
+            objectApiName: 'Contact',
+            stage: 'query',
+            failedCount: 0,
+            attemptedCount: 0,
+            samples: [
+              {
+                recordSummary: '(stage failed before insert)',
+                messages: ['QUERY_TIMEOUT: the query ran for too long'],
+              },
+            ],
+          },
+        ]);
+        // The account was written: the run did part of its job.
+        expect(finishedRunStatus(summary)).toBe('partial');
+      });
+
+      it('ends a record-scoped clone whose every read failed as a failure, with no record counted', async () => {
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        orgDeps.queryRecords = async () => {
+          throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(summary.failedCount).toBe(0);
+        expect(summary.failedReads).toEqual(['Account', 'Contact']);
+        expect(finishedRunStatus(summary)).toBe('failure');
+      });
+
+      it('counts the table a run of whole tables meant to read of an object it could not read', async () => {
+        // Read whole, the table discovery counted is what the read was to bring.
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        readWhole(orgDeps);
+        failingReadsOf('Contact', orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress);
+
+        expect(summary.failedCount).toBe(48_000);
+        expect(summary.failedReads).toEqual(['Contact']);
+        expect(summary.errors.find((e) => e.objectApiName === 'Contact')).toMatchObject({
+          stage: 'query',
+          failedCount: 48_000,
+          attemptedCount: 48_000,
+        });
+      });
+
+      it('counts no more of the table than the cap on each object, which its read carries', async () => {
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        readWhole(orgDeps);
+        failingReadsOf('Contact', orgDeps);
+        const capped = { maxRecordsPerObject: 100 };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          capped,
+        );
+
+        expect(summary.failedCount).toBe(100);
+        expect(summary.errors.find((e) => e.objectApiName === 'Contact')).toMatchObject({
+          failedCount: 100,
+          attemptedCount: 100,
+        });
+      });
+
+      it('ends a run of whole tables whose read failed as a failure, when the graph counted no row', async () => {
+        // A starter template's graph counts none: the failed read added no
+        // record, and the run that read nothing was called a success.
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        readWhole(orgDeps);
+        failingReadsOf('Account', orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          makeGraph([makeNode('Account', { recordCount: 0 })]),
+          'src',
+          'tgt',
+          onProgress,
+        );
+
+        expect(summary.failedCount).toBe(0);
+        expect(summary.failedReads).toEqual(['Account']);
+        expect(finishedRunStatus(summary)).toBe('failure');
       });
     });
   });

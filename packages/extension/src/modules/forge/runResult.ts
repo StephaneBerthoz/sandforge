@@ -17,14 +17,20 @@ export type ForgeRunStatus = ForgeExecutionResult['status'];
 /**
  * The status of a run the executor saw through to its end.
  *
- * A run with no failure succeeded. One that failed some records and settled
- * others — created them, wrote over a match by external id, or linked them
- * to the record the target already held — did part of its job, not none of it.
+ * A run with no failure succeeded: no record failed, and no object's read. A
+ * read that failed is a failure whatever rows it counts — a record-scoped run
+ * never learned how many its scope held, and counts none. One that failed
+ * and settled records as well — created them, wrote over a match by external
+ * id, or linked them to the record the target already held — did part of its
+ * job, not none of it.
  */
 export function finishedRunStatus(
-  summary: Pick<ExecutionSummary, 'successCount' | 'updatedCount' | 'linkedCount' | 'failedCount'>,
+  summary: Pick<
+    ExecutionSummary,
+    'successCount' | 'updatedCount' | 'linkedCount' | 'failedCount' | 'failedReads'
+  >,
 ): ForgeRunStatus {
-  if (summary.failedCount === 0) return 'success';
+  if (summary.failedCount === 0 && summary.failedReads.length === 0) return 'success';
   const settled = summary.successCount + summary.updatedCount + summary.linkedCount;
   return settled > 0 ? 'partial' : 'failure';
 }

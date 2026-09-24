@@ -36,8 +36,15 @@ export interface ReportsResult {
   };
 }
 
-/** Records a Forge run wrote, counted from the graph it executed. */
+/**
+ * Records a Forge run cloned: the rows it read of each object. The graph's
+ * counts are discovery's, of whole tables, which a record-scoped clone reads
+ * a few rows of: summed, they reported the clone of one record as every row
+ * of the tables it touched. A run recorded before it said what it read is
+ * counted from its graph, as it was.
+ */
 function forgeRecordCount(run: ForgeExecutionResult): number {
+  if (run.readByObject) return run.readByObject.reduce((total, r) => total + r.read, 0);
   const nodes = run.graph?.nodes ?? [];
   return nodes.reduce((total, node) => total + (node.recordCount ?? 0), 0);
 }

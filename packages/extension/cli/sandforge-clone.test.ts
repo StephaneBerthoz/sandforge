@@ -17,6 +17,7 @@ import {
   parseArgs,
   summaryLines,
   objectOutcomeLine,
+  objectOutcomePrinter,
 } from './sandforge-clone';
 import type { ExecutionSummary, ForgeProgressEvent } from '../src/modules/forge/ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
@@ -260,6 +261,7 @@ describe('sandforge-clone summary', () => {
     remapByObject: [],
     createdByObject: [],
     readByObject: [],
+    failedReads: [],
     ...overrides,
   });
 
@@ -358,6 +360,23 @@ describe('sandforge-clone summary', () => {
     );
     expect(failedOutright(summary({ successCount: 0, failedCount: 5 }))).toBe(true);
     expect(failedOutright(summary({ successCount: 0, failedCount: 0 }))).toBe(false);
+  });
+
+  it('calls a run whose reads all failed a failure, though a failed read counts no record', () => {
+    // The clone never learned how many rows the object it could not read
+    // held: none is counted, and the command still exits on a failure.
+    const unread = summary({ successCount: 0, failedCount: 0, failedReads: ['Opportunity'] });
+
+    expect(failedOutright(unread)).toBe(true);
+    expect(failedOutright({ ...unread, successCount: 2 })).toBe(false);
+  });
+
+  it('names the objects whose read failed on the failed line, and to a CI job', () => {
+    const unread = summary({ failedCount: 1, failedReads: ['Contact', 'Case'] });
+
+    expect(summaryLines(unread)).toContain('failed:  1 (read failed: Contact, Case)');
+    expect(summaryLines(summary({ failedCount: 1 }))).toContain('failed:  1');
+    expect(jsonResult(unread).failedReads).toEqual(['Contact', 'Case']);
   });
 
   describe('with --files', () => {
@@ -569,6 +588,86 @@ describe('sandforge-clone object outcomes', () => {
     expect(objectOutcomeLine(event('scanning', 'Querying Contact records...'))).toBeUndefined();
     expect(objectOutcomeLine(event('done', ''))).toBeUndefined();
     expect(objectOutcomeLine(event('skipped', ''))).toBeUndefined();
+  });
+
+  describe('of a graph most of which discovery left out', () => {
+    const node = (objectApiName: string, overrides: Partial<ForgeGraphNode>): ForgeGraphNode => ({
+      objectApiName,
+      recordCount: 0,
+      fieldCount: 5,
+      status: 'idle',
+      progress: 0,
+      included: false,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 1,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 4,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 0,
+      batchStrategy: 'auto',
+      ...overrides,
+    });
+    /**
+     * An opportunity, the objects `emptyTables` names, left out for an empty
+     * table, one left out because its count failed, and a campaign nothing
+     * read points at.
+     */
+    const graph = (emptyTables: string[]): ForgeGraph => ({
+      nodes: [
+        node('Opportunity', { recordCount: 1, included: true, level: 0 }),
+        ...emptyTables.map((name) => node(name, {})),
+        node('Survey', {
+          status: 'error',
+          errors: ['Record count unavailable: INSUFFICIENT_ACCESS'],
+        }),
+        node('Campaign', { recordCount: 40, included: true }),
+      ],
+      edges: [],
+      totalRecords: 41,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
+    });
+    const of = (objectName: string, status: ForgeProgressEvent['status'], message: string) => ({
+      objectName,
+      status,
+      progress: 100,
+      message,
+    });
+    /** What the run prints of `events`, line by line. */
+    const printed = (run: ForgeGraph, events: ForgeProgressEvent[]): string[] => {
+      const line = objectOutcomePrinter(run);
+      return events.flatMap((e) => line(e) ?? []);
+    };
+
+    it('says in one line how many objects it left out for an empty table, where the first comes', () => {
+      const lines = printed(graph(['Lead', 'Asset', 'Contract']), [
+        of('Opportunity', 'done', '[dry-run] Opportunity: 1 record(s) would be inserted'),
+        of('Lead', 'skipped', 'Skipped Lead (excluded)'),
+        of('Asset', 'skipped', 'Skipped Asset (excluded)'),
+        of('Survey', 'skipped', 'Skipped Survey (excluded)'),
+        of('Contract', 'skipped', 'Skipped Contract (excluded)'),
+        of('Campaign', 'skipped', 'Skipped Campaign (out of scope: no parent in cache)'),
+      ]);
+
+      expect(lines).toEqual([
+        '  [dry-run] Opportunity: 1 record(s) would be inserted',
+        '  Skipped 3 objects (excluded: empty tables; --list-objects names them)',
+        '  Skipped Survey (excluded)',
+        '  Skipped Campaign (out of scope: no parent in cache)',
+      ]);
+    });
+
+    it('names an empty table when it is the only one left out', () => {
+      expect(
+        printed(graph(['Lead']), [
+          of('Lead', 'skipped', 'Skipped Lead (excluded)'),
+          of('Survey', 'skipped', 'Skipped Survey (excluded)'),
+        ]),
+      ).toEqual(['  Skipped Lead (excluded)', '  Skipped Survey (excluded)']);
+    });
   });
 });
 
