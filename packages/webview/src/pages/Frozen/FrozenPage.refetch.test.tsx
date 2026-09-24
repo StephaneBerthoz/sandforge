@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type {
   BaseMessage,
   FrozenLoadReportInfo,
@@ -174,6 +174,56 @@ describe('FrozenPage — the status it reads again', () => {
     });
 
     expect(answerStatuses(before)).toBe(1);
+  });
+
+  it('reads the status again when a removal is refused for a load recorded since, and offers that one', () => {
+    // The card went on offering the load it showed, and was refused for it
+    // again: the status is the page's, read when it opens, and the refusal's
+    // "open the Load tab again" read nothing.
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    const removal = sentAll('frozen:remove').pop();
+    if (!removal) throw new Error("no 'frozen:remove' was sent");
+    const before = sentAll('frozen:status').length;
+
+    answer(removal, 'frozen:remove:error', {
+      message:
+        'Another load was recorded since this one was shown, and nothing was removed: check ' +
+        'what a removal takes now, then confirm it again.',
+      code: 'LOAD_CHANGED',
+      retryable: false,
+    });
+
+    const reads = sentAll('frozen:status').slice(before);
+    expect(reads).toHaveLength(1);
+    // The load recorded since, as the status now names it.
+    answer(reads[0], 'frozen:status:response', {
+      status: {
+        ...STATUS,
+        lastLoadRecords: {
+          orgId: 'org-dev',
+          loadedAt: '2026-09-24T11:05:00.000Z',
+          created: [{ objectApiName: 'Contact', count: 3 }],
+          linked: 0,
+          recorded: true,
+        },
+      },
+    });
+    expect(answerStatuses(before + 1)).toBe(0);
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+    expect(
+      within(screen.getByTestId('forge-removal-plan'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Contact: 3 records']);
+    // Confirmed, it names the load the status names now.
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(sentAll('frozen:remove').pop()?.payload).toEqual({
+      targetOrgId: 'org-dev',
+      loadedAt: '2026-09-24T11:05:00.000Z',
+    });
   });
 
   it('reads the status once after a removal answers', () => {

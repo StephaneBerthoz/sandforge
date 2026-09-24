@@ -10,23 +10,27 @@
  *   2. what the target already holds is matched: the standard price book,
  *      a selling model by its natural key, the option joining a product and
  *      a model both matched — and on a reload the records its identity keys
- *      find; a reload then purges what earlier loads created and it did not
- *      match, children-before-parents (undeletable objects are DEACTIVATED),
- *      and never a record they only linked;
+ *      find;
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks; an object the
- *      target lacks, or takes no insert of, is left out and listed;
- *   4. technical placeholders for required lookups absent from the records
+ *      target lacks, or takes no insert of, is left out and listed; every
+ *      required field the dataset leaves empty is settled against the
+ *      configuration, and all the gaps are refused at once;
+ *   4. a reload purges what earlier loads created and it did not match,
+ *      children-before-parents (undeletable objects are DEACTIVATED), and
+ *      never a record they only linked;
+ *   5. technical placeholders for required lookups absent from the records
  *      it writes — named, correctly record-typed, never an exclusion;
- *   5. insert pass 1 in topological order — cycle FKs are nullified and
+ *   6. insert pass 1 in topological order — cycle FKs are nullified and
  *      queued, then patched in pass 2 (pattern of forge CycleFkPatcher);
- *   6. PersonContact post-load: the sidecar referenceId→referenceId pairs
+ *   7. PersonContact post-load: the sidecar referenceId→referenceId pairs
  *      are resolved through the persisted mapping and posted as targeted
  *      Account.PersonContactId updates;
- *   7. the referenceId→real-ID mapping is persisted in
+ *   8. the referenceId→real-ID mapping is persisted in
  *      the sas — with what the load created, the target's dates of it, and
  *      the loads before it that it did not purge — and the counting contract
- *      (files minus exclusions) is written for the PostLoadVerifier.
+ *      (files minus exclusions, and the load it counts) is written for the
+ *      PostLoadVerifier.
  *
  * Native anti-duplicate rejections of the target are an EXPLICIT degraded
  * mode: the record is skipped and listed, never an opaque error.
@@ -72,6 +76,7 @@ import {
   withTheRelationItIs,
   type StatusCategories,
 } from '../../core/common/platformRecords.js';
+import type { OperationOutcome } from '../sync/DataSync.js';
 import { leftToThePlatformCoverage } from './manifest.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
@@ -116,6 +121,12 @@ import {
 export interface LoadMappingStore extends ReferenceIdMappingStore {
   /** The loads the stored mapping records, newest first: what a reload purges. */
   previousLoads(): Promise<PreviousLoad[]>;
+  /**
+   * Keep, with each load the mapping records, what a reload's purge left on
+   * the records of that load it did not delete, by record id: the
+   * `LastModifiedDate` the org left on each.
+   */
+  recordStamps(stamps: Readonly<Record<string, string>>): Promise<boolean>;
   readonly filePath: string;
 }
 
@@ -123,6 +134,14 @@ export interface LoadMappingStore extends ReferenceIdMappingStore {
 export interface FrozenDatasetLoaderDeps {
   orgAccess: Omit<TargetOrgAccess, 'count'>;
   writer: FrozenDmlWriter;
+  /**
+   * The writer of what a reload gives back on its way out — the statuses its
+   * purge set to Draft for deletes that did not come — which a cancel must
+   * not stop: `writer` is bound to the load's cancel, and stopped by it,
+   * would leave the orders it deactivated as drafts. Absent, `writer` writes
+   * it.
+   */
+  restoringWriter?: FrozenDmlWriter;
   /**
    * Existing ProductionGuard — tier check on every DML batch. Each decision
    * goes to the caller of `load` through `onGuardDecision`, and the bridge
@@ -169,7 +188,8 @@ export interface FrozenLoadOptions {
    * The load's cancel. Honoured before each write: the purge of each object,
    * each placeholder, each object of the insert pass, and each pass after it.
    * The load then keeps its mapping and stops with
-   * {@link FrozenLoadCancelledError}; nothing after the cancel is written.
+   * {@link FrozenLoadCancelledError}; nothing after the cancel is written but
+   * the statuses a reload's purge set to Draft, given back.
    */
   signal?: AbortSignal;
   /** Clock injection for deterministic tests. */
@@ -414,10 +434,56 @@ function epochOf(value: unknown): number {
 interface PurgePlan {
   /** Per object, the ids to purge. */
   residuals: Map<string, string[]>;
+  /**
+   * Per record to purge, by record key: the latest `LastModifiedDate` it may
+   * carry and still be as its load left it — the target's date of that load's
+   * last write, or a later one a removal or a reload of it left on the record.
+   * Absent for a record of a load the target did not date.
+   */
+  datedBy: Map<string, number>;
   /** The keys of this load's mapping that name a record an earlier load created. */
   carried: LoadCreatedRecords[];
   /** Per object, records of a mapping that does not say what its load created, left in place. */
   leftUnrecorded: Record<string, number>;
+}
+
+/** A record of an earlier load the purge set to Draft for its delete, and the status it had. */
+interface DraftedResidual {
+  objectApiName: string;
+  id: string;
+  /** The Draft status it was set to. */
+  draft: string;
+  /** The status it had, and gets back if it stays in the org. */
+  status: string;
+  /**
+   * Whether it was as its load left it when the purge set it to Draft: only
+   * then is what the purge leaves on it stamped as the purge's doing. A change
+   * someone made stays a change.
+   */
+  unchanged: boolean;
+}
+
+/**
+ * List among the purge's failures a record it set to Draft and leaves there:
+ * with the delete the target refused it, when it did, or on its own.
+ */
+function leftAtDraft(purge: PurgeReport, record: DraftedResidual, reason: string): void {
+  const detail =
+    `Status set to ${record.draft} for the purge, and left there: ${record.status} could ` +
+    `not be given back — ${reason}`;
+  const refused = purge.failures.find(
+    (failure) =>
+      failure.objectApiName === record.objectApiName &&
+      recordKey(failure.recordId) === recordKey(record.id),
+  );
+  if (refused) refused.errors = [...refused.errors, detail];
+  else {
+    purge.failures.push({
+      objectApiName: record.objectApiName,
+      recordId: record.id,
+      errors: [detail],
+    });
+  }
 }
 
 /** A status set aside at insert, to apply once the record is in. */
@@ -554,9 +620,9 @@ export class FrozenDatasetLoader {
       })),
     };
 
-    // 3. Reload: reuse by identity keys, then purge what earlier loads
-    //    created and this one does not reuse (children before parents —
-    //    reverse insertion order; unknown objects last).
+    // 3. What the target already holds, found before anything is written: the
+    //    standard price book, what the platform keeps one of, and on a reload
+    //    what the identity keys find.
     const mapping = new Map<string, string>();
     const reused = new Set<string>();
     // The standard price book is matched, never inserted: every org has
@@ -641,41 +707,6 @@ export class FrozenDatasetLoader {
     // load created and this one finds again is kept, as its own.
     await this.matchByNaturalKey(orgId, loading, mapping, reused);
     await this.matchSellingModelOptions(orgId, loading, mapping, reused);
-    if (options.reload) {
-      let reloadDone = 'Reload pass done';
-      if (!options.pilot) {
-        const plan = await this.planPurge(orgId, previousLoads, mapping);
-        carried = plan.carried;
-        for (const key of carried.flatMap((object) => object.referenceIds)) {
-          const id = mapping.get(key);
-          if (id) settled.add(recordKey(id));
-        }
-        const left = Object.values(plan.leftUnrecorded).reduce((sum, n) => sum + n, 0);
-        if (left > 0) {
-          purge.leftUnrecorded = plan.leftUnrecorded;
-          reloadDone +=
-            ` — ${left} record(s) left in place of a load recorded before loads kept what ` +
-            'they created: it may have linked them';
-        }
-        await this.purgeResiduals(
-          options,
-          plan.residuals,
-          [...groupOrder].reverse(),
-          purge,
-          checkpoint,
-          settled,
-        );
-        // Through its purge, the reload has judged every record of a load
-        // that does not say what it created: purged, reused or left as one
-        // it may have linked. Kept, the load would be judged again at every
-        // reload, and its linked records reported as left each time.
-        for (const previous of previousLoads) {
-          if (previous.created) continue;
-          for (const id of previous.mapping.values()) settled.add(recordKey(id));
-        }
-      }
-      emit({ phase: 'reload', status: 'done', progress: 10, message: reloadDone });
-    }
 
     // 4. RecordType resolution by DeveloperName + PersonContactId strip
     //    (the sidecar restores it post-load — the field does not exist at insert).
@@ -802,12 +833,61 @@ export class FrozenDatasetLoader {
       message: 'Checking required fields',
     });
     const requiredDefaults: FrozenLoadReport['requiredDefaults'] = [];
-    // Everything the dataset needs is settled before the first placeholder is
-    // written. One at a time, a load created the placeholders it could, then
-    // stopped on the first default nobody had declared: technical records
-    // left in the target for a load that did not happen, and one missing
-    // entry reported per attempt.
+    // Everything the dataset needs is settled before the first write: a
+    // reload's purge, the first placeholder. One at a time, a load created the
+    // placeholders it could, then stopped on the first default nobody had
+    // declared: technical records left in the target for a load that did not
+    // happen, and one missing entry reported per attempt.
     const plans = await this.planRequiredFields(options, alignment.objectResults);
+
+    // 6b. Reload: purge what earlier loads created and this one does not
+    //     reuse (children before parents — reverse insertion order; unknown
+    //     objects last), once nothing the load can know in advance refuses
+    //     it. Purged before the required fields were settled, a reload the
+    //     configuration then refused had deleted what the earlier loads
+    //     created, for a load that never wrote a record.
+    if (options.reload) {
+      let reloadDone = 'Reload pass done';
+      if (!options.pilot) {
+        emit({
+          phase: 'reload',
+          status: 'started',
+          progress: 23,
+          message: 'Purging what earlier loads created',
+        });
+        const plan = await this.planPurge(orgId, previousLoads, mapping);
+        carried = plan.carried;
+        for (const key of carried.flatMap((object) => object.referenceIds)) {
+          const id = mapping.get(key);
+          if (id) settled.add(recordKey(id));
+        }
+        const left = Object.values(plan.leftUnrecorded).reduce((sum, n) => sum + n, 0);
+        if (left > 0) {
+          purge.leftUnrecorded = plan.leftUnrecorded;
+          reloadDone +=
+            ` — ${left} record(s) left in place of a load recorded before loads kept what ` +
+            'they created: it may have linked them';
+        }
+        await this.purgeResiduals(
+          options,
+          plan,
+          [...groupOrder].reverse(),
+          purge,
+          checkpoint,
+          settled,
+        );
+        // Through its purge, the reload has judged every record of a load
+        // that does not say what it created: purged, reused or left as one
+        // it may have linked. Kept, the load would be judged again at every
+        // reload, and its linked records reported as left each time.
+        for (const previous of previousLoads) {
+          if (previous.created) continue;
+          for (const id of previous.mapping.values()) settled.add(recordKey(id));
+        }
+      }
+      emit({ phase: 'reload', status: 'done', progress: 24, message: reloadDone });
+    }
+
     // What fills a required field goes into the records the load writes. One
     // it only links is never sent; counted with them, the report said a
     // default had gone into the selling model the load had found by its key.
@@ -1050,18 +1130,28 @@ export class FrozenDatasetLoader {
     await persistMapping();
     const leftOut = leftToThePlatform.counts();
     const untyped = untypedFeedItems.counts();
-    const contractPath = this.writeContract(options, working, perObject, placeholders, now, [
-      ...leftOut.map(({ objectApiName, count }) => ({
-        objectApiName,
-        count,
-        reason: 'left-to-the-platform',
-      })),
-      ...untyped.map(({ objectApiName, count }) => ({
-        objectApiName,
-        count,
-        reason: 'untyped-feed-item',
-      })),
-    ]);
+    const contractPath = this.writeContract(
+      options,
+      working,
+      perObject,
+      placeholders,
+      {
+        now,
+        startedAt,
+      },
+      [
+        ...leftOut.map(({ objectApiName, count }) => ({
+          objectApiName,
+          count,
+          reason: 'left-to-the-platform',
+        })),
+        ...untyped.map(({ objectApiName, count }) => ({
+          objectApiName,
+          count,
+          reason: 'untyped-feed-item',
+        })),
+      ],
+    );
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
     const hasErrors =
@@ -1392,7 +1482,12 @@ export class FrozenDatasetLoader {
     previousLoads: readonly PreviousLoad[],
     mapping: ReadonlyMap<string, string>,
   ): Promise<PurgePlan> {
-    const plan: PurgePlan = { residuals: new Map(), carried: [], leftUnrecorded: {} };
+    const plan: PurgePlan = {
+      residuals: new Map(),
+      datedBy: new Map(),
+      carried: [],
+      leftUnrecorded: {},
+    };
     const namedNow = new Map<string, string>();
     for (const [key, id] of mapping) {
       if (!namedNow.has(recordKey(id))) namedNow.set(recordKey(id), key);
@@ -1443,6 +1538,15 @@ export class FrozenDatasetLoader {
         }
         return;
       }
+      // As its removal reads a record unchanged since the load: modified no
+      // later than the load's last write, or than what a removal left on it.
+      const lastWrite = epochOf(previous.writtenBetween?.last);
+      const stampOf = new Map(
+        Object.entries(previous.removalStamps ?? {}).map(([id, date]) => [
+          recordKey(id),
+          epochOf(date),
+        ]),
+      );
       for (const { objectApiName, referenceIds } of previous.created) {
         for (const key of referenceIds) {
           const id = previous.mapping.get(key);
@@ -1451,8 +1555,13 @@ export class FrozenDatasetLoader {
           if (linkedBy[index].has(record) || seen.has(record)) continue;
           seen.add(record);
           const ownKey = namedNow.get(record);
-          if (ownKey !== undefined) carry(objectApiName, ownKey);
-          else purgeOne(objectApiName, id);
+          if (ownKey !== undefined) {
+            carry(objectApiName, ownKey);
+            continue;
+          }
+          purgeOne(objectApiName, id);
+          const dated = [lastWrite, stampOf.get(record) ?? Number.NaN].filter(Number.isFinite);
+          if (dated.length > 0) plan.datedBy.set(record, Math.max(...dated));
         }
       }
     });
@@ -1498,82 +1607,272 @@ export class FrozenDatasetLoader {
    * insertion order; objects unknown to the current graph last). Undeletable
    * objects are deactivated instead. Each record deleted, found deleted or
    * deactivated is noted in `settled`: no longer the earlier load's.
+   *
+   * An order or a contract past Draft is set to Draft before anything is
+   * deleted, and one the purge leaves in the org — its delete refused, or not
+   * reached when a cancel or a failure stopped the purge — gets its status
+   * back on the way out, as Forge's removal gives it back: see
+   * {@link giveStatusesBack}.
    */
   private async purgeResiduals(
     options: FrozenLoadOptions,
-    residualsByObject: ReadonlyMap<string, string[]>,
+    plan: Pick<PurgePlan, 'residuals' | 'datedBy'>,
     reverseOrder: string[],
     purge: PurgeReport,
     checkpoint: () => Promise<void>,
     settled: Set<string>,
   ): Promise<void> {
-    // An activated order keeps its products and itself from being deleted —
-    // "unable to modify activated order" — and the last load activated them.
-    // Back to a draft first, and the deletes below can do their work.
-    for (const [objectApiName, lifecycle] of Object.entries(STATUS_LIFECYCLES)) {
-      const ids = residualsByObject.get(objectApiName);
-      if (!ids || ids.length === 0) continue;
-      const draft = (await this.statusCategories(options.orgId, lifecycle))?.draft;
-      if (!draft) continue;
+    const residualsByObject = plan.residuals;
+    /** Records set to Draft for their delete, until they get their status back. */
+    const drafted: DraftedResidual[] = [];
+    // Every way out once a status was set to Draft — the purge's end, a
+    // cancel, a write that failed — first gives what the purge leaves in the
+    // org its status back. Stopped between an order set to Draft and its
+    // delete, a reload left the order deactivated, and the load that created
+    // it named with an order modified after it: that load's removal kept the
+    // order as changed since.
+    const giveBack = async (): Promise<void> => {
+      const left = drafted.splice(0);
+      if (left.length > 0) await this.giveStatusesBack(options, left, purge);
+    };
+    const stop = async (): Promise<void> => {
+      if (options.signal?.aborted) await giveBack();
       await checkpoint();
-      await this.checkGuard(options, 'update', objectApiName, ids.length);
-      // A refusal here shows again, with its reason, as the delete that follows.
+    };
+    try {
+      // An activated order keeps its products and itself from being deleted —
+      // "unable to modify activated order" — and the last load activated them.
+      // Back to a draft first, and the deletes below can do their work.
+      await this.draftResiduals(options, plan, drafted, stop);
+      const known = reverseOrder.filter((o) => residualsByObject.has(o));
+      const unknown = [...residualsByObject.keys()].filter((o) => !reverseOrder.includes(o)).sort();
+      for (const objectApiName of [...known, ...unknown]) {
+        const ids = residualsByObject.get(objectApiName) ?? [];
+        const deactivationField = this.config.undeletableObjects?.[objectApiName];
+        if (deactivationField !== undefined) {
+          await stop();
+          await this.checkGuard(options, 'update', objectApiName, ids.length);
+          const outcomes = await this.deps.writer.update(
+            options.orgId,
+            objectApiName,
+            ids.map((id) => ({ Id: id, [deactivationField]: false })),
+          );
+          outcomes.forEach((outcome, i) => {
+            if (outcome.success) {
+              purge.deactivated[objectApiName] = (purge.deactivated[objectApiName] ?? 0) + 1;
+              settled.add(recordKey(ids[i]));
+            } else {
+              purge.failures.push({ objectApiName, recordId: ids[i], errors: outcome.errors });
+            }
+          });
+        } else {
+          // A standard price goes only once the custom prices of its product
+          // have: asked for both in one call, the target refused the standard
+          // one with an UNKNOWN_EXCEPTION. The insert's rule, run backwards.
+          const rounds = isPricebookEntry(objectApiName)
+            ? await this.customPricesFirst(options.orgId, ids)
+            : objectApiName === ACCOUNT_CONTACT_RELATION
+              ? [await this.withoutDirectRelations(options.orgId, ids)]
+              : [ids];
+          for (const round of rounds) {
+            if (round.length === 0) continue;
+            await stop();
+            await this.checkGuard(options, 'delete', objectApiName, round.length);
+            const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
+            // Already gone is what a purge wants: a parent deleted a step
+            // earlier takes its cascading children with it. Run for real, a
+            // reload counted ten of those as failures and called a clean load
+            // one with errors.
+            outcomes.forEach((outcome, i) => {
+              if (outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'))) {
+                purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
+                settled.add(recordKey(round[i]));
+              } else {
+                purge.failures.push({ objectApiName, recordId: round[i], errors: outcome.errors });
+              }
+            });
+          }
+        }
+      }
+    } catch (err: unknown) {
+      await giveBack();
+      throw err;
+    }
+    await giveBack();
+  }
+
+  /**
+   * Set to Draft the records to purge of an object with a status lifecycle —
+   * an order, a contract — that are past Draft, each noted in `drafted` with
+   * the status it had before the call is made: an update the target applied
+   * without answering is given back all the same. A refusal here shows again,
+   * with its reason, as the delete that follows; so does a record whose
+   * status could not be read, which is left as it is.
+   */
+  private async draftResiduals(
+    options: FrozenLoadOptions,
+    plan: Pick<PurgePlan, 'residuals' | 'datedBy'>,
+    drafted: DraftedResidual[],
+    stop: () => Promise<void>,
+  ): Promise<void> {
+    for (const [objectApiName, lifecycle] of Object.entries(STATUS_LIFECYCLES)) {
+      const ids = plan.residuals.get(objectApiName);
+      if (!ids || ids.length === 0) continue;
+      const categories = await this.statusCategories(options.orgId, lifecycle);
+      const draft = categories?.draft;
+      if (!categories || !draft) continue;
+      let rows: Array<Record<string, unknown>>;
+      try {
+        rows = await this.readRecords(
+          options.orgId,
+          objectApiName,
+          ['Status', 'LastModifiedDate'],
+          ids,
+        );
+      } catch {
+        continue;
+      }
+      const pastDraft = rows.flatMap((row): DraftedResidual[] => {
+        const category = categories.categoryOf.get(String(row.Status));
+        if (typeof row.Id !== 'string' || category === undefined || category === 'Draft') {
+          return [];
+        }
+        const datedBy = plan.datedBy.get(recordKey(row.Id)) ?? Number.NaN;
+        return [
+          {
+            objectApiName,
+            id: row.Id,
+            draft,
+            status: String(row.Status),
+            unchanged: epochOf(row.LastModifiedDate) <= datedBy,
+          },
+        ];
+      });
+      if (pastDraft.length === 0) continue;
+      await stop();
+      await this.checkGuard(options, 'update', objectApiName, pastDraft.length);
+      drafted.push(...pastDraft);
       await this.deps.writer.update(
         options.orgId,
         objectApiName,
-        ids.map((id) => ({ Id: id, Status: draft })),
+        pastDraft.map(({ id }) => ({ Id: id, Status: draft })),
       );
     }
-    const known = reverseOrder.filter((o) => residualsByObject.has(o));
-    const unknown = [...residualsByObject.keys()].filter((o) => !reverseOrder.includes(o)).sort();
-    for (const objectApiName of [...known, ...unknown]) {
-      const ids = residualsByObject.get(objectApiName) ?? [];
-      const deactivationField = this.config.undeletableObjects?.[objectApiName];
-      if (deactivationField !== undefined) {
-        await checkpoint();
-        await this.checkGuard(options, 'update', objectApiName, ids.length);
-        const outcomes = await this.deps.writer.update(
+  }
+
+  /**
+   * Give each record the purge set to Draft and leaves in the org the status
+   * it had, then keep what that left on the ones that were as their load left
+   * them with the load that created them (`recordStamps`), as Forge's removal
+   * keeps what it leaves on a run's records: a removal of that load reads the
+   * date as the purge's doing, not as a change made since.
+   *
+   * A record someone gave another status since is left as they left it, and
+   * one the purge deleted is gone. One whose status cannot be given back — an
+   * order whose products the purge deleted is not activated again — is listed
+   * among the purge's failures, and stays at Draft.
+   *
+   * Written through `restoringWriter`, which the load's cancel does not stop,
+   * and never thrown: it runs on the purge's way out, and what stopped the
+   * purge is what the load ends on.
+   */
+  private async giveStatusesBack(
+    options: FrozenLoadOptions,
+    drafted: readonly DraftedResidual[],
+    purge: PurgeReport,
+  ): Promise<void> {
+    const writer = this.deps.restoringWriter ?? this.deps.writer;
+    const stamps: Record<string, string> = {};
+    for (const objectApiName of new Set(drafted.map((record) => record.objectApiName))) {
+      const records = drafted.filter((record) => record.objectApiName === objectApiName);
+      const byKey = new Map(records.map((record) => [recordKey(record.id), record]));
+      let rows: Array<Record<string, unknown>>;
+      try {
+        rows = await this.readRecords(
           options.orgId,
           objectApiName,
-          ids.map((id) => ({ Id: id, [deactivationField]: false })),
+          ['Status'],
+          records.map((record) => record.id),
         );
-        outcomes.forEach((outcome, i) => {
-          if (outcome.success) {
-            purge.deactivated[objectApiName] = (purge.deactivated[objectApiName] ?? 0) + 1;
-            settled.add(recordKey(ids[i]));
-          } else {
-            purge.failures.push({ objectApiName, recordId: ids[i], errors: outcome.errors });
-          }
-        });
-      } else {
-        // A standard price goes only once the custom prices of its product
-        // have: asked for both in one call, the target refused the standard
-        // one with an UNKNOWN_EXCEPTION. The insert's rule, run backwards.
-        const rounds = isPricebookEntry(objectApiName)
-          ? await this.customPricesFirst(options.orgId, ids)
-          : objectApiName === ACCOUNT_CONTACT_RELATION
-            ? [await this.withoutDirectRelations(options.orgId, ids)]
-            : [ids];
-        for (const round of rounds) {
-          if (round.length === 0) continue;
-          await checkpoint();
-          await this.checkGuard(options, 'delete', objectApiName, round.length);
-          const outcomes = await this.deps.writer.delete(options.orgId, objectApiName, round);
-          // Already gone is what a purge wants: a parent deleted a step
-          // earlier takes its cascading children with it. Run for real, a
-          // reload counted ten of those as failures and called a clean load
-          // one with errors.
-          outcomes.forEach((outcome, i) => {
-            if (outcome.success || outcome.errors.some((e) => e.includes('ENTITY_IS_DELETED'))) {
-              purge.deleted[objectApiName] = (purge.deleted[objectApiName] ?? 0) + 1;
-              settled.add(recordKey(round[i]));
-            } else {
-              purge.failures.push({ objectApiName, recordId: round[i], errors: outcome.errors });
-            }
-          });
+      } catch (err: unknown) {
+        for (const record of records) {
+          leftAtDraft(purge, record, `its status was not read back: ${extractErrorMessage(err)}`);
         }
+        continue;
+      }
+      const inDraft = rows.flatMap((row) => {
+        const record = typeof row.Id === 'string' ? byKey.get(recordKey(row.Id)) : undefined;
+        return record && row.Status === record.draft ? [record] : [];
+      });
+      for (let at = 0; at < inDraft.length; at += ID_IN_CHUNK) {
+        const batch = inDraft.slice(at, at + ID_IN_CHUNK);
+        let outcomes: OperationOutcome[];
+        try {
+          await this.checkGuard(options, 'update', objectApiName, batch.length);
+          outcomes = await writer.update(
+            options.orgId,
+            objectApiName,
+            batch.map(({ id, status }) => ({ Id: id, Status: status })),
+          );
+        } catch (err: unknown) {
+          const reason = extractErrorMessage(err);
+          outcomes = batch.map(() => ({ success: false, errors: [reason] }));
+        }
+        batch.forEach((record, index) => {
+          const outcome = outcomes[index];
+          if (outcome?.success) return;
+          leftAtDraft(purge, record, outcome?.errors.join('; ') || 'the org gave no reason');
+        });
+      }
+      const unchanged = inDraft.filter((record) => record.unchanged);
+      if (unchanged.length === 0) continue;
+      try {
+        const dated = await this.readRecords(
+          options.orgId,
+          objectApiName,
+          ['LastModifiedDate'],
+          unchanged.map((record) => record.id),
+        );
+        for (const row of dated) {
+          if (typeof row.Id === 'string' && typeof row.LastModifiedDate === 'string') {
+            stamps[row.Id] = row.LastModifiedDate;
+          }
+        }
+      } catch {
+        // Unstamped: the load's removal reads them as changed since it, and
+        // keeps them unless asked to take those too.
       }
     }
+    if (Object.keys(stamps).length === 0) return;
+    try {
+      await this.deps.mappingStore.recordStamps(stamps);
+    } catch {
+      // As unstamped.
+    }
+  }
+
+  /** Some records of an object by id, with `fields`, {@link ID_IN_CHUNK} ids per query. */
+  private async readRecords(
+    orgId: string,
+    objectApiName: string,
+    fields: readonly string[],
+    ids: readonly string[],
+  ): Promise<Array<Record<string, unknown>>> {
+    const columns = ['Id', ...fields].map(assertSoqlIdentifier).join(', ');
+    const rows: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < ids.length; i += ID_IN_CHUNK) {
+      const inList = ids
+        .slice(i, i + ID_IN_CHUNK)
+        .map((id) => `'${sanitizeSoqlValue(id)}'`)
+        .join(', ');
+      rows.push(
+        ...(await this.deps.orgAccess.query(
+          orgId,
+          `SELECT ${columns} FROM ${assertSoqlIdentifier(objectApiName)} WHERE Id IN (${inList})`,
+        )),
+      );
+    }
+    return rows;
   }
 
   /**
@@ -1653,8 +1952,9 @@ export class FrozenDatasetLoader {
    * Each one needs a declared placeholder (a lookup) or a declared default (a
    * scalar), and a placeholder needs an object to create and, when one is
    * named, a record type the target has. All of it is checked here, reading
-   * only, and every gap goes into one error — so a person fixes the
-   * configuration once, and a refused load has written nothing.
+   * only, before a reload purges anything, and every gap goes into one error
+   * — so a person fixes the configuration once, and a refused load has
+   * written nothing.
    *
    * @throws {LoadConfigError} Listing every gap found.
    */
@@ -1727,7 +2027,7 @@ export class FrozenDatasetLoader {
     if (gaps.length > 0) {
       throw new LoadConfigError(
         `The dataset leaves ${gaps.length} required field(s) empty that the configuration does ` +
-          'not cover. Nothing of the dataset was written. Declare them all, then load again — ' +
+          'not cover. Nothing was written. Declare them all, then load again — ' +
           `records are never silently excluded:\n- ${gaps.join('\n- ')}`,
       );
     }
@@ -2303,13 +2603,17 @@ export class FrozenDatasetLoader {
    * for a type the dataset does not carry — are an exclusion of their own,
    * under their reason, and an object all of whose records were is counted
    * too: none of it is expected.
+   *
+   * The contract names the load it counts by when it began, as the mapping
+   * the load kept names it: a verification reads the records a mapping names
+   * against the contract of the load that wrote it, or not at all.
    */
   private writeContract(
     options: FrozenLoadOptions,
     working: FrozenDataset,
     perObject: PerObjectLoadResult[],
     placeholders: PlaceholderCreation[],
-    now: () => Date,
+    clock: { now: () => Date; startedAt: Date },
     leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
   ): string {
     const leftOf = new Map<string, Record<string, number>>();
@@ -2362,7 +2666,8 @@ export class FrozenDatasetLoader {
       version: 1,
       orgId: options.orgId,
       datasetVersion: working.datasetVersion,
-      writtenAt: now().toISOString(),
+      writtenAt: clock.now().toISOString(),
+      loadStartedAt: clock.startedAt.toISOString(),
       objects,
     });
   }

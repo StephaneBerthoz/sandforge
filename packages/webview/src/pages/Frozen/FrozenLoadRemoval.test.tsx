@@ -122,12 +122,12 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('shows nothing when no load wrote a mapping', () => {
-    const { container } = render(<FrozenLoadRemoval records={undefined} onRemoved={vi.fn()} />);
+    const { container } = render(<FrozenLoadRemoval records={undefined} onAnswered={vi.fn()} />);
     expect(container.textContent).toBe('');
   });
 
   it('names the last load and offers to remove what it created', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     expect(screen.getByTestId('frozen-removal-loaded').textContent).toMatch(
       /^Loaded into DEV-SANDBOX on 2026-09-24 \d\d:\d\d$/,
@@ -138,7 +138,7 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('names the org and the records per object, and keeps the linked ones', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     fireEvent.click(screen.getByTestId('frozen-removal-remove'));
 
@@ -160,7 +160,7 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('sends the load, never its records, once the org name is typed', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     confirmRemoval();
 
@@ -171,7 +171,7 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('asks for the records changed since the load too when the box is ticked', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     confirmRemoval({ includeChanged: true });
 
@@ -179,8 +179,8 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('shows what the removal did per object, and reads the status again once', () => {
-    const onRemoved = vi.fn();
-    const { rerender } = render(<FrozenLoadRemoval records={LOADED} onRemoved={onRemoved} />);
+    const onAnswered = vi.fn();
+    const { rerender } = render(<FrozenLoadRemoval records={LOADED} onAnswered={onAnswered} />);
     confirmRemoval();
 
     answerRemoval('frozen:remove:response', { result: PARTIAL, operationId: 'frozen-remove-7' });
@@ -193,13 +193,13 @@ describe('FrozenLoadRemoval', () => {
       'Contact: 1 deleted · 1 kept, changed since the load',
     );
     // A page that hands a new callback on every render is still asked once.
-    rerender(<FrozenLoadRemoval records={LOADED} onRemoved={() => onRemoved()} />);
-    rerender(<FrozenLoadRemoval records={LOADED} onRemoved={() => onRemoved()} />);
-    expect(onRemoved).toHaveBeenCalledTimes(1);
+    rerender(<FrozenLoadRemoval records={LOADED} onAnswered={() => onAnswered()} />);
+    rerender(<FrozenLoadRemoval records={LOADED} onAnswered={() => onAnswered()} />);
+    expect(onAnswered).toHaveBeenCalledTimes(1);
   });
 
   it('shows a refusal of the whole removal under the load', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
     confirmRemoval();
 
     answerRemoval('frozen:remove:error', {
@@ -211,6 +211,23 @@ describe('FrozenLoadRemoval', () => {
     expect(screen.getByTestId('frozen-removal-error').textContent).toContain(
       'refreshed after the load',
     );
+  });
+
+  it('reads the status again once when a removal is refused', () => {
+    // Refused for a load recorded since it was shown, the card went on
+    // offering the one it showed, and nothing read the status again.
+    const onAnswered = vi.fn();
+    const { rerender } = render(<FrozenLoadRemoval records={LOADED} onAnswered={onAnswered} />);
+    confirmRemoval();
+
+    answerRemoval('frozen:remove:error', {
+      message: 'Another load was recorded since this one was shown, and nothing was removed.',
+      code: 'LOAD_CHANGED',
+      retryable: false,
+    });
+
+    rerender(<FrozenLoadRemoval records={LOADED} onAnswered={() => onAnswered()} />);
+    expect(onAnswered).toHaveBeenCalledTimes(1);
   });
 
   it('does not offer it twice: a load whose records were removed says when', () => {
@@ -227,7 +244,7 @@ describe('FrozenLoadRemoval', () => {
             refused: 0,
           },
         }}
-        onRemoved={vi.fn()}
+        onAnswered={vi.fn()}
       />,
     );
 
@@ -241,7 +258,7 @@ describe('FrozenLoadRemoval', () => {
     render(
       <FrozenLoadRemoval
         records={{ ...LOADED, created: [], linked: 0, recorded: false }}
-        onRemoved={vi.fn()}
+        onAnswered={vi.fn()}
       />,
     );
 
@@ -252,7 +269,7 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('names a load before the last one as such, and offers to remove what it created', () => {
-    render(<FrozenLoadRemoval records={{ ...LOADED, earlier: true }} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={{ ...LOADED, earlier: true }} onAnswered={vi.fn()} />);
 
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Earlier load');
     expect(screen.getByTestId('frozen-removal-earlier').textContent).toBe(
@@ -266,7 +283,7 @@ describe('FrozenLoadRemoval', () => {
   });
 
   it('names the last load as the last one', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Last load');
     expect(screen.queryByTestId('frozen-removal-earlier')).toBeNull();
@@ -274,21 +291,21 @@ describe('FrozenLoadRemoval', () => {
 
   it('says so when the org the load wrote to is no longer registered', () => {
     useOrgStore.setState({ orgs: [] });
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 
     expect(screen.queryByTestId('frozen-removal-remove')).toBeNull();
     expect(screen.getByTestId('frozen-removal-org-gone')).toBeDefined();
   });
 
   it('says a load that created nothing has nothing to remove', () => {
-    render(<FrozenLoadRemoval records={{ ...LOADED, created: [] }} onRemoved={vi.fn()} />);
+    render(<FrozenLoadRemoval records={{ ...LOADED, created: [] }} onAnswered={vi.fn()} />);
 
     expect(screen.queryByTestId('frozen-removal-remove')).toBeNull();
     expect(screen.getByTestId('frozen-removal-nothing')).toBeDefined();
   });
 
   it('removes nothing while a load runs from the page', () => {
-    render(<FrozenLoadRemoval records={LOADED} onRemoved={vi.fn()} busy />);
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} busy />);
 
     expect((screen.getByTestId('frozen-removal-remove') as HTMLButtonElement).disabled).toBe(true);
   });

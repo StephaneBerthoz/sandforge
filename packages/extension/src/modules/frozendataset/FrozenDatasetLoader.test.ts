@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { ProductionGuard, type OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
-import { readCountingContract } from './CountingContract.js';
+import { contractCountsLoad, readCountingContract } from './CountingContract.js';
 import {
   FrozenDatasetLoader,
   FrozenLoadCancelledError,
@@ -17,6 +17,8 @@ import {
 import { LoadGuardError } from './LoadGuards.js';
 import { loadCreatedRecords, loadToRemove } from './loadRecords.js';
 import { standardPriceIds } from '../../core/common/platformRecords.js';
+import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import type { OperationOutcome } from '../sync/DataSync.js';
 import type { FrozenDataset } from './types.js';
 import type {
   FrozenDmlWriter,
@@ -664,7 +666,7 @@ describe('FrozenDatasetLoader — required fields the dataset leaves empty', () 
     const message = (refusal as Error).message;
     expect(message).toContain('requiredFieldDefaults["Account.Tier__c"]');
     expect(message).toContain('requiredFieldDefaults["Contact.Region__c"]');
-    expect(message).toContain('Nothing of the dataset was written');
+    expect(message).toContain('Nothing was written.');
     expect(calls).toEqual([]);
   });
 
@@ -2200,11 +2202,13 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
 
   it('returns an activated order to a draft before deleting what the last load wrote', async () => {
     // The last load activated it; activated, neither it nor its products can
-    // be deleted — "unable to modify activated order".
+    // be deleted — "unable to modify activated order". An order still in
+    // Draft is left as it is.
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
     await seedPreviousMapping(sasDir, {
       'Order-000001': '801OLD-ORDER',
+      'Order-000002': '801OLD-DRAFT',
       'OrderItem-000001': '802OLD-ITEM',
     });
     const calls: DmlCall[] = [];
@@ -2212,13 +2216,20 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
       dataset,
       sasDir,
       writer: makeWriter(calls),
-      queryImpl: async (_org, soql) =>
-        soql.includes('FROM OrderStatus')
+      queryImpl: async (_org, soql) => {
+        if (soql.includes('FROM OrderStatus')) {
+          return [
+            { ApiName: 'ST001', StatusCode: 'Draft' },
+            { ApiName: 'ST002', StatusCode: 'Activated' },
+          ];
+        }
+        return soql.startsWith('SELECT Id, Status, LastModifiedDate FROM Order WHERE')
           ? [
-              { ApiName: 'ST001', StatusCode: 'Draft' },
-              { ApiName: 'ST002', StatusCode: 'Activated' },
+              { Id: '801OLD-ORDER', Status: 'ST002', LastModifiedDate: '2026-09-23T10:00:05Z' },
+              { Id: '801OLD-DRAFT', Status: 'ST001', LastModifiedDate: '2026-09-23T10:00:05Z' },
             ]
-          : [],
+          : [];
+      },
     });
     const loader = new FrozenDatasetLoader(deps);
 
@@ -2227,10 +2238,10 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     const ops = calls.map((c) => `${c.op}:${c.objectApiName}`);
     expect(ops.indexOf('update:Order')).toBeLessThan(ops.indexOf('delete:OrderItem'));
     expect(ops.indexOf('update:Order')).toBeLessThan(ops.indexOf('delete:Order'));
-    expect(calls.find((c) => c.op === 'update' && c.objectApiName === 'Order')?.payload).toEqual([
-      { Id: '801OLD-ORDER', Status: 'ST001' },
+    expect(calls.filter((c) => c.op === 'update').map((c) => c.payload)).toEqual([
+      [{ Id: '801OLD-ORDER', Status: 'ST001' }],
     ]);
-    expect(report.purge.deleted).toMatchObject({ Order: 1, OrderItem: 1 });
+    expect(report.purge.deleted).toMatchObject({ Order: 2, OrderItem: 1 });
   });
 
   it('deletes the custom prices of the last load before the standard ones', async () => {
@@ -2793,6 +2804,45 @@ describe('FrozenDatasetLoader — a cancel', () => {
     );
   });
 
+  it('names in its contract the load it counts, which a load it stopped is not', async () => {
+    // Verified after a cancel, the stopped load's records were counted
+    // against the contract of the load before it.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    const guard = new SasPathGuard(repoRoot);
+    const store = new SasReferenceIdMappingStore(sasDir, { guard });
+    const ended = makeDeps({ dataset, sasDir });
+    const report = await new FrozenDatasetLoader(ended).load(
+      makeOptions(ended, dataset, { now: () => new Date('2026-09-24T10:00:00.000Z') }),
+    );
+    const counted = readCountingContract(guard, report.contractPath);
+    expect(counted.loadStartedAt).toBe('2026-09-24T10:00:00.000Z');
+    expect(contractCountsLoad(counted, (await store.recorded()) ?? { endedAt: '' })).toBe(true);
+
+    const stop = new AbortController();
+    const writer = makeWriter([]);
+    const insert = writer.insert;
+    writer.insert = vi.fn(async (...args: Parameters<FrozenDmlWriter['insert']>) => {
+      stop.abort();
+      return insert(...args);
+    });
+    const stopped = makeDeps({ dataset, sasDir, writer });
+    await expect(
+      new FrozenDatasetLoader(stopped).load(
+        makeOptions(stopped, dataset, {
+          signal: stop.signal,
+          now: () => new Date('2026-09-24T11:00:00.000Z'),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    const last = await store.recorded();
+    expect(last?.startedAt).toBe('2026-09-24T11:00:00.000Z');
+    expect(
+      contractCountsLoad(readCountingContract(guard, report.contractPath), last ?? { endedAt: '' }),
+    ).toBe(false);
+  });
+
   it('writes no contract over a load whose last pass the cancel came during', async () => {
     const dataset = {
       ...makeAccountContactDataset(),
@@ -3246,10 +3296,15 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     expect(await removalPlan(sasDir)).toEqual([{ objectApiName: 'Account', ids: [OLD_ACCOUNT] }]);
   });
 
-  it("keeps what the purge did when a reload's configuration leaves a required field uncovered", async () => {
+  it('refuses a reload whose configuration leaves a required field uncovered before it purges anything', async () => {
+    // The purge came first: refused for a default nobody had declared, the
+    // reload had already deleted what the load before it created, for a load
+    // that wrote no record of the dataset.
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
     await seedEarlierLoad(sasDir);
+    const file = path.join(sasDir, 'referenceid-mapping.json');
+    const before = fs.readFileSync(file, 'utf8');
     const calls: DmlCall[] = [];
     const deps = makeDeps({
       dataset,
@@ -3264,20 +3319,17 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
       new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { reload: true })),
     );
 
-    expect(error).toBeInstanceOf(FrozenLoadFailedError);
-    expect((error as Error).cause).toBeInstanceOf(LoadConfigError);
-    expect(calls.map((c) => `${c.op}:${c.objectApiName}`)).toEqual([
-      'delete:Contact',
-      'delete:Account',
-    ]);
+    expect(error).toBeInstanceOf(LoadConfigError);
     const message = (error as Error).message;
-    expect(message).toContain('Nothing of the dataset was written');
-    expect(message).toContain('purged 2 record(s) that earlier loads created');
-    // Both are gone: no removal and no reload looks for them again.
-    const loads = await recordedLoads(sasDir);
-    expect(loads).toHaveLength(1);
-    expect(loads[0].created).toEqual([]);
-    expect(await removalPlan(sasDir)).toEqual([]);
+    expect(message).toContain('requiredFieldDefaults["Contact.Region__c"]');
+    expect(message).toContain('Nothing was written.');
+    expect(calls).toEqual([]);
+    // The load before it is as it was: its removal, or the next reload, still takes both.
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    expect(await removalPlan(sasDir)).toEqual([
+      { objectApiName: 'Contact', ids: [OLD_CONTACT] },
+      { objectApiName: 'Account', ids: [OLD_ACCOUNT] },
+    ]);
   });
 
   it('keeps its mapping once when what fails comes after it was kept', async () => {
@@ -3341,6 +3393,414 @@ describe('FrozenDatasetLoader — a load that fails part way', () => {
     expect(error).toBeInstanceOf(LoadGuardError);
     expect(calls).toEqual([]);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
+  });
+});
+
+describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes that did not come', () => {
+  // An activated order is set to Draft before the purge deletes it. Stopped
+  // between the two, a reload left the order deactivated, and the load that
+  // created it named with an order modified after it: that load's removal
+  // kept the order as changed since.
+
+  /** The user the session to the target writes as, and someone else. */
+  const USER = '005000000000001AAA';
+  const COLLEAGUE = '005000000000002AAA';
+  const ORDER = '801000000000001AAA';
+  const OTHER_ORDER = '801000000000002AAA';
+  const ITEM = '802000000000001AAA';
+  /** The target's dates of what the earlier load wrote: its order, activated last. */
+  const LOADED = { first: '2026-09-23T10:00:01.000Z', last: '2026-09-23T10:00:05.000Z' };
+  const AT_LOAD = '2026-09-23T10:00:05.000+0000';
+
+  type Row = Record<string, unknown> & { Id: string };
+
+  /**
+   * The target in memory, as the reload and a removal both reach it: the
+   * statuses an order goes through, the earlier load's activated order and
+   * its item, a write dated by the org's clock as the running user, a delete
+   * that takes an order's items along — and that an activated order, or an
+   * item of one, is refused — and what `refuse` refuses besides.
+   */
+  class OrderTarget {
+    readonly rows = new Map<string, Row[]>([
+      [
+        'OrderStatus',
+        [
+          { Id: 'status-1', ApiName: 'ST001', StatusCode: 'Draft' },
+          { Id: 'status-2', ApiName: 'ST002', StatusCode: 'Activated' },
+        ],
+      ],
+      ['Order', [this.loaded(ORDER, { Status: 'ST002' })]],
+      ['OrderItem', [this.loaded(ITEM, { OrderId: ORDER })]],
+    ]);
+    /** A write the target refuses, with its error. */
+    refuse?: (
+      operation: 'update' | 'delete',
+      object: string,
+      record: Record<string, unknown>,
+    ) => string | undefined;
+    private tick = 0;
+    private inserted = 0;
+
+    /** A record the earlier load created, as it left it. */
+    loaded(id: string, fields: Record<string, unknown>): Row {
+      return {
+        Id: id,
+        CreatedDate: AT_LOAD,
+        LastModifiedDate: AT_LOAD,
+        CreatedById: USER,
+        LastModifiedById: USER,
+        ...fields,
+      };
+    }
+
+    /** The org's clock: a second on at every reading. */
+    now(): string {
+      return new Date(Date.parse('2026-09-24T12:00:00.000Z') + 1_000 * ++this.tick).toISOString();
+    }
+
+    row(object: string, id: string): Row | undefined {
+      return (this.rows.get(object) ?? []).find((row) => row.Id === id);
+    }
+
+    /** What a query of the shapes the loader and the removal send answers. */
+    select(soql: string): Row[] {
+      const match = /^SELECT (.+?) FROM (\w+)(?: WHERE (\w+) IN \((.*?)\))?(?: LIMIT \d+)?$/.exec(
+        soql,
+      );
+      if (!match) return [];
+      const [, columns, object, field, list] = match;
+      const wanted = list?.split(', ').map((quoted) => quoted.slice(1, -1));
+      return (this.rows.get(object) ?? [])
+        .filter((row) => !wanted || wanted.includes(String(row[field])))
+        .map((row) => ({
+          Id: row.Id,
+          ...Object.fromEntries(columns.split(', ').map((c) => [c, row[c]])),
+        }));
+    }
+
+    private activated(order: Row | undefined): boolean {
+      return order?.Status === 'ST002';
+    }
+
+    update(object: string, records: Array<Record<string, unknown>>): OperationOutcome[] {
+      return records.map((record) => {
+        const id = String(record.Id);
+        const row = this.row(object, id);
+        if (!row) return { id, success: false, errors: ['ENTITY_IS_DELETED: entity is deleted'] };
+        const refusal = this.refuse?.('update', object, record);
+        if (refusal) return { id, success: false, errors: [refusal] };
+        Object.assign(row, record, { LastModifiedDate: this.now(), LastModifiedById: USER });
+        return { id, success: true, errors: [] };
+      });
+    }
+
+    delete(object: string, ids: string[]): OperationOutcome[] {
+      return ids.map((id) => {
+        const row = this.row(object, id);
+        if (!row) return { id, success: false, errors: ['ENTITY_IS_DELETED: entity is deleted'] };
+        const order = object === 'Order' ? row : this.row('Order', String(row.OrderId));
+        const refusal =
+          this.refuse?.('delete', object, row) ??
+          (this.activated(order)
+            ? 'FIELD_INTEGRITY_EXCEPTION: unable to modify activated order'
+            : undefined);
+        if (refusal) return { id, success: false, errors: [refusal] };
+        this.rows.set(
+          object,
+          (this.rows.get(object) ?? []).filter((r) => r.Id !== id),
+        );
+        if (object === 'Order') {
+          this.rows.set(
+            'OrderItem',
+            (this.rows.get('OrderItem') ?? []).filter((item) => item.OrderId !== id),
+          );
+        }
+        return { id, success: true, errors: [] };
+      });
+    }
+
+    /** The loader's writer: every write answered as the target answers it. */
+    writer(): FrozenDmlWriter {
+      return {
+        insert: vi.fn(async (_org: string, object: string, records: Record<string, unknown>[]) =>
+          records.map((record) => {
+            const id = `${object.slice(0, 3)}${String(++this.inserted).padStart(12, '0')}AAA`;
+            const at = this.now();
+            const created = { CreatedDate: at, LastModifiedDate: at, SystemModstamp: at };
+            this.rows.set(object, [
+              ...(this.rows.get(object) ?? []),
+              { ...record, ...created, Id: id, CreatedById: USER, LastModifiedById: USER },
+            ]);
+            return { id, success: true, errors: [] };
+          }),
+        ),
+        update: vi.fn(async (_org: string, object: string, records: Record<string, unknown>[]) =>
+          this.update(object, records),
+        ),
+        delete: vi.fn(async (_org: string, object: string, ids: string[]) =>
+          this.delete(object, ids),
+        ),
+      };
+    }
+
+    /** The target as a removal of a load reaches it. */
+    removalOrg(): RemovalOrg {
+      const answer = (outcomes: OperationOutcome[]) =>
+        outcomes.map(({ id, success, errors }) => ({
+          id,
+          success,
+          errors: errors.map((error) => ({ statusCode: error.split(':')[0], message: error })),
+        }));
+      return {
+        query: async (soql) => {
+          const records = this.select(soql);
+          return { totalSize: records.length, done: true, records };
+        },
+        destroy: async (object, ids) => answer(this.delete(object, ids)),
+        update: async (object, records) => answer(this.update(object, records)),
+        describe: async (object) => ({
+          name: object,
+          label: object,
+          fields: [],
+          childRelationships:
+            object === 'Order'
+              ? [{ childSObject: 'OrderItem', field: 'OrderId', cascadeDelete: true }]
+              : [],
+        }),
+        describeGlobal: async () => ({
+          sobjects: ['Order', 'OrderItem'].map((name) => ({
+            name,
+            label: name,
+            queryable: true,
+            createable: true,
+            layoutable: true,
+          })),
+        }),
+        serverTime: async () => this.now(),
+        userId: async () => USER,
+      };
+    }
+  }
+
+  /** The mapping of the load that created the order and its item. */
+  async function orderLoaded(sasDir: string): Promise<void> {
+    await new SasReferenceIdMappingStore(sasDir, {
+      guard: new SasPathGuard(repoRoot),
+      now: () => new Date('2026-09-23T10:00:06.000Z'),
+    }).persist(
+      new Map([
+        ['Order-000001', ORDER],
+        ['OrderItem-000001', ITEM],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Order', referenceIds: ['Order-000001'] },
+          { objectApiName: 'OrderItem', referenceIds: ['OrderItem-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+        writtenBetween: LOADED,
+      },
+    );
+  }
+
+  /** The loads the sas records, the last first. */
+  const recordedLoads = (sasDir: string) =>
+    new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recordedLoads();
+
+  /** Remove the load a removal takes next, as the Load tab's card removes it. */
+  async function removeNextLoad(sasDir: string, target: OrderTarget) {
+    const load = loadToRemove(await recordedLoads(sasDir));
+    if (!load?.writtenBetween) throw new Error('no dated load to remove');
+    const outcome = await removeRunRecords(target.removalOrg(), loadCreatedRecords(load), {
+      runStartedAt: new Date(load.writtenBetween.first),
+      runEndedAt: new Date(load.writtenBetween.last),
+      removalStamps: load.removalStamps,
+      removalSpans: load.removalSpans,
+      includeChanged: false,
+    });
+    return outcome.objects.map(
+      (o) =>
+        `${o.objectApiName}: ${o.deleted} deleted, ${o.keptChanged} kept changed, ${o.refused} refused`,
+    );
+  }
+
+  /**
+   * A reload of a dataset without the order, over its target, with the load's
+   * writer stopped by the cancel as the bulk writer is — a write sent once the
+   * cancel came writes nothing — and the cancel coming as the order is set to
+   * Draft.
+   */
+  function reloadCancelledAtTheDraft(target: OrderTarget, sasDir: string) {
+    const dataset = makeAccountContactDataset();
+    const stop = new AbortController();
+    const writes = target.writer();
+    const writer: FrozenDmlWriter = {
+      insert: async (...args) => (stop.signal.aborted ? [] : writes.insert(...args)),
+      update: async (...args) => {
+        if (stop.signal.aborted) return [];
+        const outcomes = await writes.update(...args);
+        if (args[1] === 'Order') stop.abort();
+        return outcomes;
+      },
+      delete: async (...args) => (stop.signal.aborted ? [] : writes.delete(...args)),
+    };
+    const deps = {
+      ...makeDeps({
+        dataset,
+        sasDir,
+        writer,
+        queryImpl: async (_org: string, soql: string) => target.select(soql),
+      }),
+      restoringWriter: writes,
+    };
+    return new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { reload: true, signal: stop.signal }))
+      .catch((e: unknown) => e);
+  }
+
+  it('gives the order its status back when a cancel stops the reload before its delete, and its removal takes it', async () => {
+    const target = new OrderTarget();
+    const sasDir = makeTmpDir();
+    await orderLoaded(sasDir);
+
+    const error = await reloadCancelledAtTheDraft(target, sasDir);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    // Set to Draft for its delete, and given its status back: nothing was deleted.
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    expect(target.row('OrderItem', ITEM)).toBeDefined();
+    // What the reload left on it is its doing, not a change: the removal of
+    // the load that created the order takes it.
+    expect(await removeNextLoad(sasDir, target)).toEqual([
+      'OrderItem: 1 deleted, 0 kept changed, 0 refused',
+      'Order: 1 deleted, 0 kept changed, 0 refused',
+    ]);
+  });
+
+  it('gives it back when Production Guard refuses the delete that follows, without keeping a mapping of its own', async () => {
+    const target = new OrderTarget();
+    const sasDir = makeTmpDir();
+    await orderLoaded(sasDir);
+    const guard = new ProductionGuard();
+    const judge = guard.check.bind(guard);
+    vi.spyOn(guard, 'check').mockImplementation((request) =>
+      request.operation === 'delete'
+        ? {
+            allowed: false,
+            requiresConfirmation: false,
+            requiresApproval: false,
+            blockedReason: 'not on this org',
+            warnings: [],
+            impactSummary: '',
+          }
+        : judge(request),
+    );
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      guard,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+
+    const error = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { reload: true }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    // Nothing created or purged: the mapping names the load that created the
+    // order, with what the reload left on it.
+    const loads = await recordedLoads(sasDir);
+    expect(loads).toHaveLength(1);
+    expect(loads[0].removalStamps).toEqual({
+      [ORDER]: target.row('Order', ORDER)?.LastModifiedDate,
+    });
+    expect(await removeNextLoad(sasDir, target)).toEqual([
+      'OrderItem: 1 deleted, 0 kept changed, 0 refused',
+      'Order: 1 deleted, 0 kept changed, 0 refused',
+    ]);
+  });
+
+  it('gives back the status of an order the target would not let it delete, and names one it could not', async () => {
+    const target = new OrderTarget();
+    target.rows.set('Order', [
+      target.loaded(ORDER, { Status: 'ST002' }),
+      target.loaded(OTHER_ORDER, { Status: 'ST002' }),
+    ]);
+    target.refuse = (operation, object, record) => {
+      if (operation === 'delete' && object === 'Order') return 'DELETE_FAILED: it has invoices';
+      if (operation === 'update' && record.Id === OTHER_ORDER && record.Status === 'ST002') {
+        return 'FIELD_CUSTOM_VALIDATION_EXCEPTION: activation is closed this month';
+      }
+      return undefined;
+    };
+    const sasDir = makeTmpDir();
+    await new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).persist(
+      new Map([
+        ['Order-000001', ORDER],
+        ['Order-000002', OTHER_ORDER],
+      ]),
+      {
+        created: [{ objectApiName: 'Order', referenceIds: ['Order-000001', 'Order-000002'] }],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+        writtenBetween: LOADED,
+      },
+    );
+    const dataset = makeAccountContactDataset();
+    const deps = makeDeps({
+      dataset,
+      sasDir,
+      writer: target.writer(),
+      queryImpl: async (_org, soql) => target.select(soql),
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(
+      makeOptions(deps, dataset, { reload: true }),
+    );
+
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    expect(target.row('Order', OTHER_ORDER)?.Status).toBe('ST001');
+    expect(report.status).toBe('completed-with-errors');
+    expect(report.purge.failures).toEqual([
+      { objectApiName: 'Order', recordId: ORDER, errors: ['DELETE_FAILED: it has invoices'] },
+      {
+        objectApiName: 'Order',
+        recordId: OTHER_ORDER,
+        errors: [
+          'DELETE_FAILED: it has invoices',
+          'Status set to ST001 for the purge, and left there: ST002 could not be given back — ' +
+            'FIELD_CUSTOM_VALIDATION_EXCEPTION: activation is closed this month',
+        ],
+      },
+    ]);
+    // Both stay named with the load that created them, with what the purge left on them.
+    const [, earlier] = await recordedLoads(sasDir);
+    expect(Object.keys(earlier.removalStamps).sort()).toEqual([ORDER, OTHER_ORDER]);
+  });
+
+  it('stamps no order someone changed since the load that created it: that change stays one', async () => {
+    const target = new OrderTarget();
+    Object.assign(target.row('Order', ORDER) ?? {}, {
+      LastModifiedDate: '2026-09-23T15:00:00.000+0000',
+      LastModifiedById: COLLEAGUE,
+    });
+    const sasDir = makeTmpDir();
+    await orderLoaded(sasDir);
+
+    const error = await reloadCancelledAtTheDraft(target, sasDir);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+    const [, earlier] = await recordedLoads(sasDir);
+    expect(earlier.removalStamps).toEqual({});
+    // Its item is refused under an order still activated.
+    expect(await removeNextLoad(sasDir, target)).toEqual([
+      'OrderItem: 0 deleted, 0 kept changed, 1 refused',
+      'Order: 0 deleted, 1 kept changed, 0 refused',
+    ]);
   });
 });
 

@@ -222,7 +222,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       {/* ── Last load, and taking it back ─────────────────────────────── */}
       <FrozenLoadRemoval
         records={status?.lastLoadRecords}
-        onRemoved={onRefetchStatus}
+        onAnswered={onRefetchStatus}
         busy={loadMutation.loading}
       />
 

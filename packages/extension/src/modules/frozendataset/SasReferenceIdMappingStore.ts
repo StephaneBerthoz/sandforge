@@ -60,8 +60,9 @@ interface LoadPayload {
   /** Once the records the load created were removed: when, and how many went each way. */
   removal?: ForgeUndoMark;
   /**
-   * What earlier removals of the load left on records they did not delete, by
-   * record id: the `LastModifiedDate` the org left on each.
+   * What earlier removals of the load left on records they did not delete —
+   * and the purges of reloads that set them to Draft for a delete that did
+   * not come — by record id: the `LastModifiedDate` the org left on each.
    */
   removalStamps?: Record<string, string>;
   /** When earlier removals of the load that wrote to the org ran, and as which user. */
@@ -190,7 +191,10 @@ export interface RecordedLoad {
   writtenBetween?: ForgeWrittenBetween;
   /** Set once the records the load created were removed. */
   removal?: ForgeUndoMark;
-  /** What earlier removals of the load left on the records they did not delete. */
+  /**
+   * What earlier removals of the load left on the records they did not delete,
+   * and reloads on the records they set to Draft and did not delete.
+   */
   removalStamps: Record<string, string>;
   /** When earlier removals of the load that wrote to the org ran, and as which user. */
   removalSpans: ForgeRemovalSpan[];
@@ -335,6 +339,8 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     return [...(last ? [last] : []), ...earlierOf(payload)].map((load) => ({
       mapping: new Map(Object.entries(load.mapping)),
       ...(load.created ? { created: load.created } : {}),
+      ...(load.writtenBetween ? { writtenBetween: load.writtenBetween } : {}),
+      ...(load.removalStamps ? { removalStamps: load.removalStamps } : {}),
     }));
   }
 
@@ -525,6 +531,65 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
     });
     return true;
   }
+
+  /**
+   * Keep what a reload's purge left on records of the loads the file records
+   * that it did not delete, by record id: the `LastModifiedDate` the org left
+   * on each. Each load that names the record keeps it with what its removals
+   * left, so that its removal reads the date as the purge's doing and not as
+   * a change made since the load.
+   *
+   * A reload stopped between setting an activated order to Draft for its
+   * delete and the delete left the load that created the order named with an
+   * order modified after it: its removal kept the order as changed since,
+   * unless told to take those too, for a status the reload had changed and
+   * given back.
+   *
+   * Nothing else of the file changes — not when its mapping was written, which
+   * names a load recorded before loads kept their span.
+   *
+   * @returns Whether a load the file records names one of the records, and the
+   *   file was written.
+   */
+  async recordStamps(stamps: Readonly<Record<string, string>>): Promise<boolean> {
+    const payload = await this.read();
+    const last = loadPartsOf(payload);
+    if (payload === undefined || last === undefined) return false;
+    const loads = [last, ...earlierOf(payload)];
+    const stamped = loads.map((load) => withStamps(load, stamps));
+    if (stamped.every((load, index) => load === loads[index])) return false;
+    const [nextLast, ...nextEarlier] = stamped;
+    await this.write({
+      version: 1,
+      orgId: typeof payload.orgId === 'string' ? payload.orgId : '',
+      ...(payload.organizationId !== undefined ? { organizationId: payload.organizationId } : {}),
+      ...nextLast,
+      ...(nextEarlier.length > 0 ? { earlier: nextEarlier } : {}),
+    });
+    return true;
+  }
+}
+
+/**
+ * A load with `stamps` added to what removals left on its records, for the
+ * records its mapping names: the same load when it names none of them. A
+ * stamp replaces an older one of the same record, whichever length its id is
+ * written in.
+ */
+function withStamps(load: LoadPayload, stamps: Readonly<Record<string, string>>): LoadPayload {
+  const named = new Set(Object.values(load.mapping).map(recordKey));
+  const added = Object.entries(stamps).filter(([id]) => named.has(recordKey(id)));
+  if (added.length === 0) return load;
+  const replaced = new Set(added.map(([id]) => recordKey(id)));
+  return {
+    ...load,
+    removalStamps: {
+      ...Object.fromEntries(
+        Object.entries(load.removalStamps ?? {}).filter(([id]) => !replaced.has(recordKey(id))),
+      ),
+      ...Object.fromEntries(added),
+    },
+  };
 }
 
 /** A load as a removal of it leaves it: what it left on records, when it ran, and its mark. */

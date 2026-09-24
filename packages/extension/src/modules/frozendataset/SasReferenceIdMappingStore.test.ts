@@ -517,6 +517,76 @@ describe('SasReferenceIdMappingStore', () => {
       expect(last.mapping).toEqual(new Map([['Account-000001', SECOND_ACCOUNT]]));
       expect(last.endedAt).toBe('2026-09-24T11:05:00.000Z');
     });
+
+    describe('what a reload left on the records it did not delete', () => {
+      const LEFT_AT = '2026-09-24T12:00:03.000+0000';
+
+      it('keeps it with the load that names the record, and changes nothing else', async () => {
+        const dir = makeTmpDir();
+        await firstLoad(dir);
+        await secondLoad(dir, []);
+        const store = storeAt(dir, '2026-09-24T12:00:00.000Z');
+        const file = path.join(dir, REFERENCEID_MAPPING_FILENAME);
+        const before = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+
+        const written = await store.recordStamps({ [FIRST_ACCOUNT]: LEFT_AT });
+
+        expect(written).toBe(true);
+        const [last, first] = await store.recordedLoads();
+        expect(first.removalStamps).toEqual({ [FIRST_ACCOUNT]: LEFT_AT });
+        expect(last.removalStamps).toEqual({});
+        // Both named as they were, and the mapping written when it was: a load
+        // recorded before loads kept their span is named by that date.
+        expect([last.endedAt, first.endedAt]).toEqual([
+          '2026-09-24T11:05:00.000Z',
+          '2026-09-24T10:05:00.000Z',
+        ]);
+        const after = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+        expect(after.updatedAt).toBe(before.updatedAt);
+        // And a reload is handed it with the load's dates, to judge the record by.
+        const [, previous] = await store.previousLoads();
+        expect(previous).toMatchObject({
+          writtenBetween: { first: '2026-09-24T10:00:02.000Z', last: '2026-09-24T10:04:58.000Z' },
+          removalStamps: { [FIRST_ACCOUNT]: LEFT_AT },
+        });
+      });
+
+      it('replaces an older stamp of the record, whichever length its id is written in', async () => {
+        const dir = makeTmpDir();
+        await firstLoad(dir);
+        const store = storeAt(dir, '2026-09-24T12:00:00.000Z');
+        await store.recordStamps({ [FIRST_ACCOUNT.slice(0, 15)]: '2026-09-24T11:00:00.000+0000' });
+
+        await store.recordStamps({ [FIRST_ACCOUNT]: LEFT_AT });
+
+        expect((await store.recorded())?.removalStamps).toEqual({ [FIRST_ACCOUNT]: LEFT_AT });
+      });
+
+      it('writes nothing for a record no load names', async () => {
+        const dir = makeTmpDir();
+        await firstLoad(dir);
+        const file = path.join(dir, REFERENCEID_MAPPING_FILENAME);
+        const before = fs.readFileSync(file, 'utf8');
+
+        const written = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordStamps({
+          [SECOND_ACCOUNT]: LEFT_AT,
+        });
+
+        expect(written).toBe(false);
+        expect(fs.readFileSync(file, 'utf8')).toBe(before);
+      });
+
+      it('keeps the stamp when the reload then writes its own mapping', async () => {
+        const dir = makeTmpDir();
+        await firstLoad(dir);
+        await storeAt(dir, '2026-09-24T12:00:00.000Z').recordStamps({ [FIRST_ACCOUNT]: LEFT_AT });
+
+        await secondLoad(dir, [FIRST_CONTACT]);
+
+        const [, first] = await storeAt(dir, '2026-09-24T12:00:00.000Z').recordedLoads();
+        expect(first.removalStamps).toEqual({ [FIRST_ACCOUNT]: LEFT_AT });
+      });
+    });
   });
 
   it('keeps the dates the target gave the records a load created', async () => {

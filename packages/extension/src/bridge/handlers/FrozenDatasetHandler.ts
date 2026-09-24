@@ -92,6 +92,7 @@ import {
   TargetRecordTypeIdResolver,
   VolumetryBudgetExceededError,
   buildFrozenManifest,
+  contractCountsLoad,
   createBulkDmlWriter,
   datasetRecordCount,
   leftToThePlatformCoverage,
@@ -101,6 +102,7 @@ import {
   loadTokensFromSas,
   parseManifest,
   parsePseudonymRules,
+  readCountingContract,
   readSelectionFromSas,
   writeSelectionToSas,
   type ControlViolation,
@@ -1363,15 +1365,18 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps.orgManager,
       );
       const robustnessConfig = robustnessConfigOf(this.deps);
-      const bulkWriter = new BulkDataWriter({
-        connection: conn,
-        bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
-        bulkManager: bulkManagerOf(this.deps),
-        retryConfig: robustnessConfig.retry,
-        signal: abortController.signal,
-        onProgress: () => undefined,
-        log: (message) => this.deps.log(message),
-      });
+      const bulkManager = bulkManagerOf(this.deps);
+      const writerStoppedBy = (signal: AbortSignal | undefined): BulkDataWriter =>
+        new BulkDataWriter({
+          connection: conn,
+          bulkExecutor: new BulkApiExecutor(robustnessConfig.bulk.threshold),
+          bulkManager,
+          retryConfig: robustnessConfig.retry,
+          ...(signal ? { signal } : {}),
+          onProgress: () => undefined,
+          log: (message) => this.deps.log(message),
+        });
+      const bulkWriter = writerStoppedBy(abortController.signal);
       // When no mock detection is configured the guard is explicitly
       // disabled (status surfaces mockDetectionConfigured=false) — the
       // remediation is always a config deploy, never a DML on the source.
@@ -1383,6 +1388,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       const loader = new FrozenDatasetLoader({
         orgAccess,
         writer: createBulkDmlWriter(bulkWriter),
+        // The statuses a reload's purge set to Draft are given back on its
+        // way out, whatever stopped it: through the writer above, the cancel
+        // that stopped the reload would stop that write too.
+        restoringWriter: createBulkDmlWriter(writerStoppedBy(undefined)),
         guard: productionGuard,
         mockDetector,
         recordTypeResolver: new TargetRecordTypeIdResolver(orgAccess),
@@ -1540,7 +1549,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       }
       // Its records went: every one would read as missing, and the verdict
       // would blame the load.
-      const removed = (await mappingStore.recorded())?.removal;
+      const last = await mappingStore.recorded();
+      const removed = last?.removal;
       if (removed) {
         sendHandlerError(
           this.deps,
@@ -1551,6 +1561,37 @@ export class FrozenDatasetHandler implements DomainHandler {
             `The records the last load created were removed on ${removed.removedAt}. Load the dataset again, then verify.`,
           ),
           { code: 'LOAD_REMOVED' },
+        );
+        return;
+      }
+      if (!last) {
+        sendHandlerError(
+          this.deps,
+          'frozen:verify',
+          'frozen:verify:error',
+          msg,
+          new Error(
+            'The sas holds no mapping of the last load: nothing names the records to verify. Load the dataset again, then verify.',
+          ),
+          { code: 'NO_LOAD' },
+        );
+        return;
+      }
+      // The records the mapping names are counted against the contract of the
+      // load that wrote them, or not at all. A load that stopped part way
+      // keeps its mapping and writes no contract: verified after it, its
+      // records were judged by the contract of the load before, and the
+      // verdict was written into the manifest.
+      if (!contractCountsLoad(readCountingContract(guard, lastRun.contractPath), last)) {
+        sendHandlerError(
+          this.deps,
+          'frozen:verify',
+          'frozen:verify:error',
+          msg,
+          new Error(
+            'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
+          ),
+          { code: 'LOAD_STOPPED' },
         );
         return;
       }
@@ -1672,7 +1713,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
     if (load.orgId !== parsed.targetOrgId || load.endedAt !== parsed.loadedAt) {
       refuse(
-        'Another load was recorded since this one was shown: open the Load tab again to see what a removal would take.',
+        'Another load was recorded since this one was shown, and nothing was removed: check what a removal takes now, then confirm it again.',
         'LOAD_CHANGED',
       );
       return;

@@ -9,7 +9,9 @@ import {
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
   LoadGuardError,
+  SasPathGuard,
   serializeManifest,
+  writeCountingContract,
   writeSelectionToSas,
 } from '../../modules/frozendataset/index.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
@@ -17,6 +19,7 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { FrozenDatasetHandler, toLoadReportInfo } from './FrozenDatasetHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
 import { inboundRequest } from '../../test/mockFactories.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -884,6 +887,53 @@ describe('FrozenDatasetHandler', () => {
         );
       });
     });
+
+    describe('what a reload gives back as it stops', () => {
+      it('is written through a writer the cancel does not stop, where the load writes through one it does', async () => {
+        // The statuses a stopped reload's purge set to Draft are given back as
+        // it stops. Through the load's own writer, the cancel that stopped the
+        // reload cut that write short: its first batch went, the rest did not.
+        const { config } = writeDataset();
+        wire(config);
+        // Sent in batches of two hundred, as a write under the Bulk API threshold is.
+        deps.robustness = {
+          ...DEFAULT_ROBUSTNESS_CONFIG,
+          bulk: { ...DEFAULT_ROBUSTNESS_CONFIG.bulk, threshold: 10_000 },
+        };
+        const registry = new BackgroundOperationRegistry();
+        handler.setRegistry(registry);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          sobject: () => ({
+            update: async (batch: Array<{ Id: string }>) =>
+              batch.map((record) => ({ id: record.Id, success: true, errors: [] })),
+          }),
+        } as never);
+        const orders = Array.from({ length: 250 }, (_, i) => ({
+          Id: `801${String(i).padStart(15, '0')}`,
+          Status: 'ST002',
+        }));
+        let written: { writer: number; restoringWriter: number } | undefined;
+        loaderLoad.mockImplementation(async () => {
+          registry.abort(registry.getRunning()[0].operationId);
+          const loaderDeps = vi.mocked(FrozenDatasetLoader).mock.calls.at(-1)?.[0];
+          if (!loaderDeps?.restoringWriter) throw new Error('no writer to give statuses back');
+          written = {
+            writer: (await loaderDeps.writer.update('org-2', 'Order', orders)).length,
+            restoringWriter: (await loaderDeps.restoringWriter.update('org-2', 'Order', orders))
+              .length,
+          };
+          throw new FrozenLoadCancelledError({
+            perObject: [],
+            placeholders: [],
+            purge: { deleted: {}, deactivated: {}, failures: [] },
+          });
+        });
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true }));
+
+        expect(written).toEqual({ writer: 200, restoringWriter: 250 });
+      });
+    });
   });
 
   describe('frozen:verify', () => {
@@ -953,9 +1003,137 @@ describe('FrozenDatasetHandler', () => {
 
         const errors = await verifyAfterLoad();
 
-        // Past the check, the verification reads the dataset, which this
-        // sas does not hold: that is the failure, not a refresh.
+        // Past the check, the verification reads what the load left in the
+        // sas, which holds only its mapping: that is the failure, not a refresh.
         expect(errors.map((error) => error.code)).not.toContain('TARGET_REFRESHED');
+      });
+    });
+
+    describe('after a load that stopped part way', () => {
+      // Every load keeps its mapping, a cancelled or failed one included, and
+      // only a load that ended writes a counting contract. Verified after a
+      // cancel, the stopped load's records were counted against the contract
+      // of the load before it, and the verdict written into the manifest.
+      const ENDED_STARTED = '2026-09-24T10:00:00.000Z';
+      const STOPPED_STARTED = '2026-09-24T11:00:00.000Z';
+
+      /**
+       * A sas holding what a load that ended wrote — its mapping, its
+       * counting contract and the manifest of its dataset, verified once —
+       * and the pointers the bridge kept of it.
+       */
+      async function endedLoad(): Promise<{ sasDir: string; manifestPath: string }> {
+        const sasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-stopped-'));
+        tmpDirs.push(sasDir);
+        await new SasReferenceIdMappingStore(sasDir, { orgId: 'org-2' }).persist(
+          new Map([['Account-000001', '001XX00000AbCdEAAA']]),
+          {
+            created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+            startedAt: new Date(ENDED_STARTED),
+          },
+        );
+        const contractPath = writeCountingContract(new SasPathGuard(), sasDir, {
+          version: 1,
+          orgId: 'org-2',
+          datasetVersion: '1.0.0',
+          writtenAt: '2026-09-24T10:05:01.000Z',
+          loadStartedAt: ENDED_STARTED,
+          objects: {
+            Account: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+          },
+        });
+        const datasetDir = path.join(sasDir, 'dataset');
+        fs.mkdirSync(datasetDir, { recursive: true });
+        const manifestPath = path.join(datasetDir, 'manifest.json');
+        const manifest = buildFrozenManifest({
+          version: '1.0.0',
+          source: { orgId: '00D000000000001AAA', decisionDate: '2026-09-01' },
+          saltFingerprint: '0123456789ab',
+          rulesVersion: '1.0.0',
+          volumetry: { budgetMax: 2500, measured: { Account: 1 }, measuredAt: ENDED_STARTED },
+          nonReidentification: { passed: true, checks: [], author: 'qa', checkedAt: ENDED_STARTED },
+          author: 'qa',
+        });
+        manifest.controls.dryRunLoad = {
+          status: 'passed',
+          at: '2026-09-24T10:06:00.000Z',
+          detail: 'post-load check by sandforge: verdict=passed',
+        };
+        fs.writeFileSync(manifestPath, serializeManifest(manifest));
+        deps = createMockDeps({ ...createMockConfig(), sasDir });
+        deps.configStore.set('frozen:lastRun', {
+          contractPath,
+          datasetDir,
+          manifestPath,
+          targetOrgId: 'org-2',
+          status: 'completed',
+          at: '2026-09-24T10:05:02.000Z',
+        });
+        handler = new FrozenDatasetHandler(deps);
+        return { sasDir, manifestPath };
+      }
+
+      /** A load cancelled after it wrote an account: its mapping, and no contract. */
+      async function stoppedLoad(sasDir: string): Promise<void> {
+        await new SasReferenceIdMappingStore(sasDir, { orgId: 'org-2' }).persist(
+          new Map([['Account-000001', '001XX00000FgHiJAAA']]),
+          {
+            created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+            startedAt: new Date(STOPPED_STARTED),
+            earlier: { settled: [] },
+          },
+        );
+      }
+
+      const verify = () => handler.handle(buildMsg('frozen:verify', { targetOrgId: 'org-2' }));
+
+      it('refuses to judge its records by the contract of the load before, and says why', async () => {
+        const { sasDir, manifestPath } = await endedLoad();
+        await stoppedLoad(sasDir);
+        const before = fs.readFileSync(manifestPath, 'utf8');
+        // The org holds the stopped load's account: counted against the
+        // contract of the load before, it passed.
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query: async () => ({ records: [], done: true, totalSize: 1 }),
+        } as never);
+
+        await verify();
+
+        const errors = posted(deps, 'frozen:verify:error');
+        expect(errors.map((error) => error.payload.code)).toEqual(['LOAD_STOPPED']);
+        expect(String(errors[0].payload.message)).toContain(
+          'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract',
+        );
+        expect(posted(deps, 'frozen:verify:result')).toEqual([]);
+        // No verdict written anywhere.
+        expect(fs.readFileSync(manifestPath, 'utf8')).toBe(before);
+        expect(deps.configStore.get('frozen:lastVerify')).toBeUndefined();
+      });
+
+      it('goes on to verify the load its contract counts', async () => {
+        await endedLoad();
+        vi.mocked(getJsforceConnection).mockRejectedValue(
+          new Error('the verification reached the org'),
+        );
+
+        await verify();
+
+        // Past the check, the verification counts the load's records in the
+        // org, which this test does not answer: that is the failure.
+        const errors = posted(deps, 'frozen:verify:error');
+        expect(errors.map((error) => error.payload.code)).toEqual(['VERIFY_ERROR']);
+        expect(String(errors[0].payload.message)).toContain('the verification reached the org');
+      });
+
+      it('refuses when the sas holds no mapping to say which records to count', async () => {
+        const { sasDir } = await endedLoad();
+        fs.rmSync(path.join(sasDir, 'referenceid-mapping.json'));
+
+        await verify();
+
+        expect(posted(deps, 'frozen:verify:error').map((error) => error.payload.code)).toEqual([
+          'NO_LOAD',
+        ]);
       });
     });
   });

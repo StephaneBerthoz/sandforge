@@ -235,6 +235,18 @@ export interface PreviousLoad {
    * from the ones it linked.
    */
   created?: readonly LoadCreatedRecords[];
+  /**
+   * When the target dated the records the load created: a record last
+   * modified no later than `last` is as the load left it. Undefined when the
+   * file does not say.
+   */
+  writtenBetween?: ForgeWrittenBetween;
+  /**
+   * What earlier removals of the load, or reloads that did not delete them,
+   * left on its records, by record id: the `LastModifiedDate` the org left on
+   * each, which was their doing and not a change.
+   */
+  removalStamps?: Readonly<Record<string, string>>;
 }
 
 /**

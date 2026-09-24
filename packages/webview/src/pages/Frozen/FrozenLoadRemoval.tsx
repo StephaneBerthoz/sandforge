@@ -31,8 +31,12 @@ interface RemoveAnswer {
 export interface FrozenLoadRemovalProps {
   /** The records of the load whose mapping the sas holds; absent when none. */
   records: FrozenLoadRecordsInfo | undefined;
-  /** Read the module status again: once the load's records went, it carries the mark. */
-  onRemoved: () => void;
+  /**
+   * Read the module status again, once per answer to a removal: once the
+   * load's records went, it carries the mark; once a removal is refused for a
+   * load the sas no longer holds as shown, it names the one a removal takes now.
+   */
+  onAnswered: () => void;
   /** A load runs from this page: nothing is removed until it ends. */
   busy?: boolean;
 }
@@ -50,7 +54,7 @@ export interface FrozenLoadRemovalProps {
  */
 export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
-  onRemoved,
+  onAnswered,
   busy = false,
 }) => {
   const { t } = useTranslation();
@@ -66,14 +70,22 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   // Once per answer, whatever the caller hands in: a callback made anew on
   // every render of the page asked for the status again on every render the
   // status itself caused.
-  const onRemovedRef = useRef(onRemoved);
+  const onAnsweredRef = useRef(onAnswered);
   useEffect(() => {
-    onRemovedRef.current = onRemoved;
-  }, [onRemoved]);
+    onAnsweredRef.current = onAnswered;
+  }, [onAnswered]);
   const answered = removal.data;
   useEffect(() => {
-    if (answered) onRemovedRef.current();
+    if (answered) onAnsweredRef.current();
   }, [answered]);
+  // A refusal is an answer too. Refused for a load the sas no longer held as
+  // shown — another load recorded since — the card went on offering the one
+  // it showed, and was refused again: the status is the page's, read once
+  // when it opens, and opening the Load tab again read nothing.
+  const refused = removal.error;
+  useEffect(() => {
+    if (refused) onAnsweredRef.current();
+  }, [refused]);
 
   if (!records) return null;
 
