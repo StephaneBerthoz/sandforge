@@ -1922,6 +1922,8 @@
     "tryItNow": "Jetzt ausprobieren",
     "viewChangelog": "Vollständiges Changelog anzeigen",
     "whatsNew": {
+      "fixRound1382": "Klone bringen mit, was ein Datensatz wirklich enthält",
+      "fixRound1382Desc": "Ein Opportunity-Klon mit Produktpositionen funktioniert mit den Standardeinstellungen, die Ergebnisse zählen den Klon statt ganzer Tabellen, jedes Modul überlässt verfolgte Änderungen der Plattform, und ein Eingefrorener Datensatz enthält seine Angebote, Aufträge und Preise.",
       "fixRound1381": "Forge: Korrekturen an Klonen und Entfernungen",
       "fixRound1381Desc": "Ein Opportunity-Klon schreibt die Produkte, die seine Positionen nennen, und jede Währung behält ihren eigenen Preis; ein Lauf, dessen Dateien nicht nachgeschlagen werden konnten, wird vor dem Schreiben abgelehnt; das Entfernen eines Laufs lässt stehen, was ein Kollege währenddessen hinzufügt, und gibt einem Auftrag, den es auf Entwurf gesetzt hat, seinen Status zurück, wenn der Auftrag bleibt.",
       "forgeFiles": "Forge kopiert die Dateien dessen, was es klont",

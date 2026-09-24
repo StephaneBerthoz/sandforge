@@ -1922,6 +1922,8 @@
     "tryItNow": "Essayer maintenant",
     "viewChangelog": "Voir le changelog complet",
     "whatsNew": {
+      "fixRound1382": "Les clonages emportent ce qu'un enregistrement contient vraiment",
+      "fixRound1382Desc": "Un clonage d'opportunité avec lignes de produits fonctionne avec les réglages par défaut, les résultats comptent le clonage et non des tables entières, chaque module laisse les modifications suivies à la plateforme, et un Jeu figé emporte ses devis, commandes et prix.",
       "fixRound1381": "Forge : corrections des clonages et des retraits",
       "fixRound1381Desc": "Un clonage d'opportunité écrit les produits que nomment ses lignes, et chaque devise garde son propre prix ; une exécution dont les fichiers n'ont pas pu être recherchés est refusée avant d'écrire ; le retrait d'une exécution laisse ce qu'un collègue ajoute entre-temps, et rend son statut à une commande qu'il a passée en Brouillon quand elle reste.",
       "forgeFiles": "Forge copie les fichiers de ce qu'il clone",

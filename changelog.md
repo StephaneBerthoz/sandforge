@@ -5,6 +5,51 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.2] - 2026-09-24
+
+Forge and Frozen clone what a record really holds, and report it in numbers
+that add up. Checked on a real pair of sandboxes.
+
+### Fixed
+
+- **An opportunity clone with product lines works at the default settings.**
+  Its prices, products, price books and selling models now come whatever the
+  object cap; before, the lines were refused.
+- **Results count the clone, not the tables it came from**: a run of 272
+  records reads "272 of 272", where it read "272 of 4315".
+- **A read that fails is named**, not counted as a whole table of failures,
+  and the rate never looks complete when an object could not be read.
+- **A feed item is written when its own parent is**: one failed parent object
+  no longer skips every feed item of the run.
+- **Tracked changes are left to the platform** by every module that copies
+  feed items — Forge, Frozen, Autopilot, Sync and Seed's clone — and reported:
+  the platform writes them itself and refuses a copy.
+- **Order actions come with their orders.**
+- **The catalog is read after the records put off to the end**, for the
+  prices and products only they name.
+- **A clone from a price book or a product** brings the other books and
+  products its lines name.
+- **A line brings the prices of its own currency**, not every currency's.
+- **Full-table runs write required parents first.**
+- **The plan breaks each cycle where the run does**, and says when one cannot
+  be broken.
+- **A run cancelled in the middle of an object counts what it wrote**, and the
+  rows still waiting for their key.
+- **A removal cancelled part way no longer blocks the next one.**
+- **A dry run says what the target would refuse**, as a real run does.
+- **Reference data is matched by name** even where the target refuses inserts.
+- **Objects with nothing to clone are no longer listed as errors**; the clone
+  command says why each object was skipped and folds empty tables into one
+  line.
+- **A dry run with files says why the file lookup failed.**
+- **The Skipped card counts objects**, and the Reports page counts the records
+  a run read.
+- **A polymorphic orphan's parent** is looked for in its own object.
+- **Frozen dossiers read their scope both ways**: one opportunity's went from
+  23 records to 249, its quotes, orders and prices included, at any cap.
+- **A Frozen load links the selling model the target already holds**, and
+  carries the options its prices need.
+
 ## [1.38.1] - 2026-09-24
 
 Opportunity clones and run removal, hardened on a real pair of sandboxes.

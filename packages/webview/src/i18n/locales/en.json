@@ -1922,6 +1922,8 @@
     "tryItNow": "Try it now",
     "viewChangelog": "View full changelog",
     "whatsNew": {
+      "fixRound1382": "Clones carry what a record really holds",
+      "fixRound1382Desc": "An opportunity clone with product lines works at the default settings, results count the clone rather than whole tables, every module leaves tracked changes to the platform, and a Frozen Dataset carries its quotes, orders and prices.",
       "fixRound1381": "Forge: fixes to clones and removals",
       "fixRound1381Desc": "An opportunity clone writes the products its lines name, and each currency keeps its own price; a run whose files could not be looked up is refused before it writes; removing a run leaves what a colleague adds meanwhile, and gives an order it set to Draft its status back when the order stays.",
       "forgeFiles": "Forge copies the files of what it clones",

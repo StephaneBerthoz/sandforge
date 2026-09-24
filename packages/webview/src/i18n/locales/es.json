@@ -1922,6 +1922,8 @@
     "tryItNow": "Probar ahora",
     "viewChangelog": "Ver changelog completo",
     "whatsNew": {
+      "fixRound1382": "Las clonaciones llevan lo que un registro contiene de verdad",
+      "fixRound1382Desc": "Una clonación de oportunidad con líneas de producto funciona con la configuración predeterminada, los resultados cuentan la clonación y no tablas enteras, cada módulo deja a la plataforma los cambios con seguimiento, y un Dataset congelado lleva sus presupuestos, pedidos y precios.",
       "fixRound1381": "Forge: correcciones en clonaciones y eliminaciones",
       "fixRound1381Desc": "Una clonación de oportunidad escribe los productos que nombran sus líneas, y cada moneda conserva su propio precio; una ejecución cuyos archivos no se pudieron buscar se rechaza antes de escribir; la eliminación de una ejecución deja lo que un compañero añade mientras tanto, y devuelve su estado a un pedido que pasó a Borrador cuando el pedido se queda.",
       "forgeFiles": "Forge copia los archivos de lo que clona",
