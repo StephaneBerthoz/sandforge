@@ -10,9 +10,17 @@
  * so behind a corporate proxy the extension would stop reaching Salesforce —
  * with every test green, since no test runs behind a proxy.
  *
- * This fails when the installed jsforce depends on undici, until the upgrade
- * wires a dispatcher that honours VS Code's proxy (jsforce's `setDispatcher`)
- * and this gate is changed to check that instead.
+ * Handing jsforce a dispatcher (`setDispatcher`) would not do: it calls
+ * undici's own `fetch`, and what VS Code patches is the global one — the
+ * patch resolves the system proxy and PAC files per request, while a
+ * dispatcher built here would know at most an explicit `http.proxy`. So this
+ * fails when the installed jsforce depends on undici, until jsforce sends
+ * through the global `fetch` or Node's `http` again, or the extension can
+ * resolve a proxy the way VS Code does.
+ *
+ * Read in VS Code's `@vscode/proxy-agent`: `createFetchPatch` wraps
+ * `globalThis.fetch`; `patchUndici` only records an Agent's options for it.
+ * Read in jsforce 3.10.25's `lib/request.js`: `(0, undici_1.fetch)(url, ...)`.
  *
  * Run: node --test scripts/jsforce-transport.test.mjs
  */
@@ -44,8 +52,8 @@ test("the installed jsforce sends its requests through Node's http modules", () 
     transportOf(manifest.dependencies ?? {}),
     'node-http',
     `jsforce ${manifest.version} no longer sends its requests through node-fetch: behind a ` +
-      "proxy the extension would lose Salesforce. Wire jsforce's dispatcher to VS Code's proxy " +
-      'and test behind one before taking this version, then change this gate.',
+      'proxy the extension would lose Salesforce, and a dispatcher would bring back an explicit ' +
+      'proxy at most, not the system one or a PAC file. See the header before taking this version.',
   );
 });
 
