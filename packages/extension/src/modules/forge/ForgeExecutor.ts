@@ -30,7 +30,6 @@ import {
   readsFromAbove,
   seedOwnIds,
   seedScopeCache,
-  getParentObjects,
   sortNodesForExecution,
   sortNodesForWriting,
   type NodeQueryResult,
@@ -225,6 +224,9 @@ export interface ExecuteOptions {
    * - `'keep'`: preserve the original source-org ID. Almost always rejected
    *   by Salesforce for FKs; left as escape hatch and for legacy
    *   compatibility (default outside scoped mode).
+   *
+   * Either way, a reference to an object that failed in the run is emptied
+   * and reported by the second pass: see `cleanNodeRecords`.
    *
    * `RecordTypeId` is preserved unless a `recordTypeMappings` entry exists
    * for the source value, in which case it is translated to the target ID.
@@ -718,8 +720,10 @@ function pricesFrom(fieldInfos: readonly FieldInfo[]): boolean {
 /**
  * The objects a record of `objectApiName` cannot be written without: those
  * behind a required or master-detail edge of the graph, and those behind a
- * lookup its fields say it may not leave empty — which the graph can have
- * lost.
+ * lookup its fields say it may not leave empty. Discovery marks the edges of
+ * every lookup it walked, but not every object had its lookups walked: one at
+ * the edge of the graph was described and no further, a starter template's
+ * graph has no edges at all, and the run adds the selling model options itself.
  */
 function requiredParentsOf(
   objectApiName: string,
@@ -751,8 +755,9 @@ function requiredParentsOf(
  * RecordCleaner (remap/nullify/strip) → BatchWriter (insert/upsert) →
  * CycleFkPatcher (pass-2 cycle FK UPDATE). For each included node the
  * executor queries records from the source org, lets the stages transform
- * and write them, and tracks new ID mappings. Errors on a parent cause
- * dependent children to be skipped.
+ * and write them, and tracks new ID mappings. A parent that fails skips the
+ * children that cannot be written without it; the others lose their lookup at
+ * it, and the second pass reports each one.
  */
 export class ForgeExecutor {
   private readonly deps: ForgeExecutorDeps;
@@ -1209,20 +1214,9 @@ export class ForgeExecutor {
         continue;
       }
 
-      // Check if any parent object has failed
-      const parentObjects = getParentObjects(node.objectApiName, graph);
-      const hasFailedParent = parentObjects.some((p) => state.failedObjects.has(p));
-      if (hasFailedParent) {
-        state.skippedCount++;
-        state.failedObjects.add(node.objectApiName);
-        onProgress({
-          objectName: node.objectApiName,
-          status: 'skipped',
-          progress: 100,
-          message: `Skipped ${node.objectApiName} (parent failed)`,
-        });
-        continue;
-      }
+      // What the graph says the rows cannot do without is known before they
+      // are read; what their own fields say, once `readNode` has them.
+      if (this.skipForFailedParent(node, state)) continue;
 
       const creatableCheck = creatableChecks.get(node.objectApiName);
       if (creatableCheck) {
@@ -1299,20 +1293,10 @@ export class ForgeExecutor {
           'Forge execution was aborted by user request. Remaining objects were not processed.',
         );
       }
-      // The retry does not relax the rule the first pass applied: a node
-      // whose parent failed is still skipped, or the run writes children of
-      // records that were never created.
-      if (getParentObjects(node.objectApiName, graph).some((p) => state.failedObjects.has(p))) {
-        state.skippedCount++;
-        state.failedObjects.add(node.objectApiName);
-        onProgress({
-          objectName: node.objectApiName,
-          status: 'skipped',
-          progress: 100,
-          message: `Skipped ${node.objectApiName} (parent failed)`,
-        });
-        continue;
-      }
+      // The retry does not relax the rule the first pass applied: a node a
+      // failed parent cannot be written without is still skipped, or the run
+      // writes children of records that were never created.
+      if (this.skipForFailedParent(node, state)) continue;
       if (twoPhase) {
         await this.readNode(node, state, false, false);
       } else if (await this.readNode(node, state, false, true)) {
@@ -1340,28 +1324,8 @@ export class ForgeExecutor {
         // a dry run left nothing to write and have already reported.
         const read = state.preread.get(node.objectApiName);
         if (!read) continue;
-        // Only a parent the rows cannot be written without takes them down.
-        // Parents now come first wherever nothing but a cycle stands in the
-        // way, and a failed optional one — the quote synced to an opportunity,
-        // held back for its record type in a real org — skipped the
-        // opportunity and every line behind it, where written first it had
-        // gone in with that lookup left empty. It still is: the second pass
-        // reports the lookup it could not fill in.
-        if (
-          requiredParentsOf(node.objectApiName, graph, read.fieldInfos).some((o) =>
-            state.failedObjects.has(o),
-          )
-        ) {
-          state.skippedCount++;
-          state.failedObjects.add(node.objectApiName);
-          onProgress({
-            objectName: node.objectApiName,
-            status: 'skipped',
-            progress: 100,
-            message: `Skipped ${node.objectApiName} (parent failed)`,
-          });
-          continue;
-        }
+        // Parents failed while being written are known only now.
+        if (this.skipForFailedParent(node, state, read.fieldInfos)) continue;
         await this.writeNode(node, state);
 
         // Settle what this node's write has just made resolvable, before the
@@ -1523,6 +1487,38 @@ export class ForgeExecutor {
   }
 
   /**
+   * Skip a node, and say so, when a parent its rows cannot be written without
+   * failed in this run. Returns whether it was skipped.
+   *
+   * Only such a parent takes a node down. Any failed parent used to: the
+   * quote synced to an opportunity, held back for its record type in a real
+   * org, took the opportunity down with it and every line behind it, when the
+   * opportunity could have gone in with that one lookup left empty. It now
+   * does, and the second pass reports the lookup it could not fill in.
+   *
+   * @param fieldInfos - The node's source fields, once read: a lookup they say
+   *   may not be left empty makes its object one the rows cannot do without,
+   *   whatever the graph says. Before, the graph's edges alone decide.
+   */
+  private skipForFailedParent(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[] = [],
+  ): boolean {
+    const required = requiredParentsOf(node.objectApiName, state.graph, fieldInfos);
+    if (!required.some((parent) => state.failedObjects.has(parent))) return false;
+    state.skippedCount++;
+    state.failedObjects.add(node.objectApiName);
+    state.onProgress({
+      objectName: node.objectApiName,
+      status: 'skipped',
+      progress: 100,
+      message: `Skipped ${node.objectApiName} (parent failed)`,
+    });
+    return true;
+  }
+
+  /**
    * The order a record-scoped run writes its nodes in, once every one of
    * them has been read: required parents first, and the catalog as
    * `catalogWriteEdges` lays it out — its lines being the nodes whose fields,
@@ -1539,14 +1535,16 @@ export class ForgeExecutor {
    * Required parents first, and the catalog as `catalogWriteEdges` lays it
    * out, both read from the fields of the objects written.
    *
-   * The graph keeps one edge per pair of objects, the first discovery met,
-   * and when that was a parent's list of its children it says nothing of a
-   * required lookup: in a real graph, the opportunity's line items, the
-   * quote's lines and the order's items all read as optional. While the
-   * order followed discovery's, the parent happened to come first. With
-   * optional parents breaking ties, an opportunity that points at a quote
-   * pointing back at it waited for it, and its line went first — refused for
-   * want of the opportunity. The fields a run described say it plainly.
+   * The graph keeps one edge per pair of objects, and until discovery kept
+   * the flag of every sighting of a pair, the one it met first — a parent's
+   * list of its children — said nothing of a required lookup: in a real graph
+   * the opportunity's line items, the quote's lines and the order's items all
+   * read as optional. With optional parents breaking ties, an opportunity that
+   * points at a quote pointing back at it waited for it, and its line went
+   * first — refused for want of the opportunity. The fields a run described
+   * say it plainly, and they still say it of what discovery never walked:
+   * the lookups of an object at the edge of the graph, of a starter
+   * template's objects, of the selling model options the run adds.
    *
    * @param fieldsByObject - The source fields of each object the run writes.
    */
@@ -1828,6 +1826,9 @@ export class ForgeExecutor {
       // rows are in, of an object with rows to write.
       const fieldInfos = described.filter((f) => !isFileContentField(f));
       const createableSet = new Set(fieldInfos.filter((f) => f.createable).map((f) => f.name));
+      // A lookup the rows may not leave empty, at an object that failed: none
+      // of them could be written, so none is read.
+      if (this.skipForFailedParent(node, state, fieldInfos)) return false;
 
       const query = buildNodeQuery({
         node,
@@ -2303,6 +2304,7 @@ export class ForgeExecutor {
         fieldInfos,
         remapper,
         referenceFallback: config.referenceFallback,
+        failedObjects: state.failedObjects,
         ownerMappings: config.ownerMappings,
         // Per-node field exclusions and renames are record-invariant —
         // resolved once per node rather than per record.
@@ -2444,8 +2446,9 @@ export class ForgeExecutor {
       }
 
       // Fail-fast on partial-but-mostly-failure: if >50% of records
-      // failed, mark the node as failed so downstream children skip
-      // (their FKs would orphan-nullify and silently corrupt the clone).
+      // failed, mark the node as failed so the objects that cannot be
+      // written without it skip, and a lookup at it elsewhere is left empty
+      // and reported rather than written as if its rows were there.
       // A row linked to the record the target already held is not a failure:
       // its children have a parent to point at.
       const settled = nodeSuccess + nodeUpdated + nodeLinked;
@@ -2468,7 +2471,7 @@ export class ForgeExecutor {
           message:
             settled === 0
               ? `Failed all ${node.objectApiName} records`
-              : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — children will be skipped`,
+              : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — objects that cannot be written without it will be skipped`,
         });
       } else {
         // The rows the target already held are named apart: linked is neither

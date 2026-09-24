@@ -4,7 +4,6 @@ import {
   CATALOG_OBJECTS,
   CATALOG_READ_ORDER,
   catalogWriteEdges,
-  getParentObjects,
   queryNodeRecords,
   readsFromAbove,
   seedOwnIds,
@@ -151,25 +150,6 @@ describe('sortNodesForExecution', () => {
     const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
     expect(message).toContain('Either include the root node');
     expect(message).not.toContain('could not be measured');
-  });
-});
-
-describe('getParentObjects', () => {
-  it('returns source objects of edges targeting the given object', () => {
-    const graph = makeGraph(
-      [makeNode('Account'), makeNode('Contact'), makeNode('Case')],
-      [
-        LOOKUP_EDGE,
-        {
-          sourceObject: 'Case',
-          targetObject: 'Contact',
-          relationshipName: 'Cases',
-          type: 'lookup',
-        },
-      ],
-    );
-    expect(getParentObjects('Contact', graph)).toEqual(['Account', 'Case']);
-    expect(getParentObjects('Account', graph)).toEqual([]);
   });
 });
 

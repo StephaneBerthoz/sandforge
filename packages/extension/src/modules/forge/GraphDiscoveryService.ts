@@ -268,6 +268,17 @@ export class GraphDiscoveryService {
     const edgeMap = new Map<string, ForgeGraphEdge>();
     let skippedDueToCap = 0;
 
+    /**
+     * One edge per pair of objects: the first sighting, unless a later one is
+     * master-detail over a lookup — and required when any sighting said so.
+     *
+     * A parent is usually described before its child, so the pair is first met
+     * in the parent's list of its children, which cannot say whether the
+     * child's field may be left empty. The child's own field, which can, comes
+     * second, and first-come dropped it: in a real graph the opportunity's line
+     * items, the quote's lines and the order's items all read as optional, and
+     * the write order put a line before the record it cannot be written without.
+     */
     const addEdge = (e: ForgeGraphEdge): void => {
       if (isExcludedFromCopy(e.sourceObject) || isExcludedFromCopy(e.targetObject)) return;
       if (e.sourceObject === e.targetObject) return;
@@ -275,9 +286,11 @@ export class GraphDiscoveryService {
       const existing = edgeMap.get(key);
       if (!existing) {
         edgeMap.set(key, e);
-      } else if (e.type === 'master-detail' && existing.type === 'lookup') {
-        edgeMap.set(key, e);
+        return;
       }
+      const kept = e.type === 'master-detail' && existing.type === 'lookup' ? e : existing;
+      const required = existing.required === true || e.required === true;
+      edgeMap.set(key, required ? { ...kept, required } : kept);
     };
 
     // BFS queue: [objectApiName, currentDepth]

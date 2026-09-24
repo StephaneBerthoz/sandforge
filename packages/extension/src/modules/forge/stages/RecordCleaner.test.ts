@@ -74,6 +74,44 @@ describe('cleanNodeRecords', () => {
     expect(out.nullifiedFks).toEqual([]);
   });
 
+  it('empties a lookup at an object that failed in the run under the keep fallback, and keeps the others', () => {
+    // The run tried to write the account and could not: its source id names
+    // nothing the run wrote. An id at an object that did not fail is carried
+    // across as the keep fallback says, and so is an account the run wrote.
+    const remapper = new IdRemapper();
+    remapper.add('001WRITTEN', '001NEW');
+    const fieldInfos: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'Territory__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Territory__c'],
+      },
+    ];
+    const [lost, written] = cleanNodeRecords(
+      makeInput({
+        records: [
+          { Id: '003A', AccountId: '001FAILED', Territory__c: 'a0TKEPT' },
+          { Id: '003B', AccountId: '001WRITTEN', Territory__c: 'a0TKEPT' },
+        ],
+        fieldInfos,
+        remapper,
+        referenceFallback: 'keep',
+        failedObjects: new Set(['Account']),
+        creatableFields: new Set(['Name', 'AccountId', 'Territory__c']),
+      }),
+    );
+
+    expect(lost.cleaned).toEqual({ Territory__c: 'a0TKEPT' });
+    expect(lost.nullifiedFks).toEqual([
+      { field: 'AccountId', sourceRefId: '001FAILED', targetObjects: ['Account'] },
+    ]);
+    expect(written.cleaned).toEqual({ AccountId: '001NEW', Territory__c: 'a0TKEPT' });
+    expect(written.nullifiedFks).toEqual([]);
+  });
+
   it('never nullifies RecordTypeId and never remaps it through the generic remapper', () => {
     const remapper = new IdRemapper();
     remapper.add('012SOURCE', '012ACCIDENTAL');

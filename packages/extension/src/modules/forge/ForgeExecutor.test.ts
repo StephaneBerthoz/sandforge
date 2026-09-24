@@ -258,7 +258,7 @@ describe('ForgeExecutor', () => {
       expect(summary.failedCount).toBe(1);
     });
 
-    it('should mark children as skipped when parent completely fails', async () => {
+    it('should mark children as skipped when a parent they require completely fails', async () => {
       vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
           return [
@@ -269,6 +269,8 @@ describe('ForgeExecutor', () => {
         return [{ id: '003NEW', success: true, errors: [] }];
       });
 
+      // Required: any failed parent used to skip the children, and a child
+      // that can do without it is now written with that lookup left empty.
       const graph = makeGraph(
         [makeNode('Account'), makeNode('Contact')],
         [
@@ -277,6 +279,7 @@ describe('ForgeExecutor', () => {
             targetObject: 'Contact',
             relationshipName: 'Contacts',
             type: 'lookup',
+            required: true,
           },
         ],
       );
@@ -325,11 +328,14 @@ describe('ForgeExecutor', () => {
     });
 
     describe('a parent that mostly failed', () => {
+      // Required: only a parent the rows cannot be written without takes them
+      // down. A failed optional one leaves the lookup at it empty instead.
       const accountToContact: ForgeGraphEdge = {
         sourceObject: 'Account',
         targetObject: 'Contact',
         relationshipName: 'Contacts',
         type: 'lookup',
+        required: true,
       };
 
       /** Ten Accounts of which `failures` are refused by the target org. */
@@ -387,6 +393,143 @@ describe('ForgeExecutor', () => {
         ]);
         const accountEnd = progressEvents.filter((e) => e.objectName === 'Account').pop();
         expect(accountEnd?.status).toBe('done');
+      });
+    });
+
+    describe('a parent that failed in a run that reads whole tables', () => {
+      const ACCOUNT = '001000000000001AAA';
+      const TERRITORY = 'a0T000000000001AAA';
+      const idField: FieldInfo = {
+        name: 'Id',
+        queryable: true,
+        createable: false,
+        isReference: false,
+      };
+      const text = (name: string): FieldInfo => ({
+        name,
+        queryable: true,
+        createable: true,
+        isReference: false,
+      });
+      const lookup = (name: string, target: string, required = false): FieldInfo => ({
+        name,
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: [target],
+        nillable: !required,
+      });
+
+      /**
+       * A run of whole tables — no record to start from, so ids are kept as
+       * they are by default — whose accounts the target refuses, every one. A
+       * contact can do without its account and names a territory the run does
+       * not write; a contract cannot do without its account, which only its
+       * field says: the graph's edge is that of a lookup discovery never
+       * walked.
+       */
+      async function runWithAccountsRefused() {
+        const tables: Record<string, Array<Record<string, unknown>>> = {
+          Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+          Contact: [
+            {
+              Id: '003000000000001AAA',
+              LastName: 'Doe',
+              AccountId: ACCOUNT,
+              Territory__c: TERRITORY,
+            },
+          ],
+          Contract: [{ Id: '800000000000001AAA', Name: 'Frame', AccountId: ACCOUNT }],
+        };
+        const fields: Record<string, FieldInfo[]> = {
+          Account: [idField, text('Name')],
+          Contact: [
+            idField,
+            text('LastName'),
+            lookup('AccountId', 'Account'),
+            lookup('Territory__c', 'Territory__c'),
+          ],
+          Contract: [idField, text('Name'), lookup('AccountId', 'Account', true)],
+        };
+        vi.mocked(deps.describeFields).mockImplementation(
+          async (_org, object) => fields[object] ?? [idField],
+        );
+        vi.mocked(deps.queryRecords).mockImplementation(async (org, soql) => {
+          const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+          return org === 'src' ? (tables[object] ?? []).map((row) => ({ ...row })) : [];
+        });
+        vi.mocked(deps.insertRecords).mockImplementation(async (_org, object, rows) =>
+          rows.map((_, i) =>
+            object === 'Account'
+              ? { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'] }
+              : { id: `${object}NEW${i}`, success: true, errors: [] },
+          ),
+        );
+        deps.updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>(
+          async (_org, _object, rows) =>
+            rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] })),
+        );
+        const graph = makeGraph(
+          [
+            makeNode('Account', { recordCount: 1 }),
+            makeNode('Contact', { recordCount: 1 }),
+            makeNode('Contract', { recordCount: 1 }),
+          ],
+          [
+            {
+              sourceObject: 'Account',
+              targetObject: 'Contact',
+              relationshipName: 'Contacts',
+              type: 'lookup',
+            },
+            {
+              sourceObject: 'Account',
+              targetObject: 'Contract',
+              relationshipName: 'Contracts',
+              type: 'lookup',
+            },
+          ],
+        );
+
+        const summary = await new ForgeExecutor(deps).execute(graph, 'src', 'tgt', onProgress);
+        const sent = (object: string): Array<Record<string, unknown>> =>
+          vi
+            .mocked(deps.insertRecords)
+            .mock.calls.filter((call) => call[1] === object)
+            .flatMap((call) => call[2]);
+        return { summary, sent };
+      }
+
+      it('writes a child that can do without the parent, its lookup at it left empty and reported', async () => {
+        // Skipped like any child of a failed parent, the contact was lost for
+        // a lookup it may leave empty. Written with the source id kept, as a
+        // run of whole tables keeps ids, it would name an account the target
+        // never received.
+        const { summary, sent } = await runWithAccountsRefused();
+
+        expect(sent('Contact')).toHaveLength(1);
+        expect(sent('Contact')[0]).not.toHaveProperty('AccountId');
+        const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
+        expect(pass2?.failedCount).toBe(1);
+        expect(pass2?.samples[0].messages[0]).toContain("'AccountId'");
+        expect(pass2?.samples[0].messages[0]).toContain(ACCOUNT);
+      });
+
+      it('still skips a child that cannot be written without the parent', async () => {
+        const { summary, sent } = await runWithAccountsRefused();
+
+        expect(sent('Contract')).toEqual([]);
+        expect(summary.skippedCount).toBe(1);
+        expect(
+          progressEvents.find((e) => e.objectName === 'Contract' && e.status === 'skipped')
+            ?.message,
+        ).toContain('parent failed');
+      });
+
+      it('keeps the id a lookup gives of a parent that did not fail', async () => {
+        const { sent } = await runWithAccountsRefused();
+
+        expect(sent('Contact')[0]?.['Territory__c']).toBe(TERRITORY);
       });
     });
 

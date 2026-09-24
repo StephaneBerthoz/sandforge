@@ -98,6 +98,12 @@ export interface CleanNodeRecordsInput {
   remapper: IdRemapper;
   /** Orphan-FK handling for this execution. */
   referenceFallback: 'nullify' | 'keep';
+  /**
+   * Objects that failed in this run. A lookup that can point at one of them
+   * and names no record the run wrote is emptied and listed, whatever
+   * `referenceFallback` says — see {@link cleanNodeRecords}.
+   */
+  failedObjects?: ReadonlySet<string>;
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
   /** Field exclusions resolved for this node. */
@@ -128,6 +134,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     fieldInfos,
     remapper,
     referenceFallback,
+    failedObjects,
     ownerMappings,
     excludedFields,
     fieldRename,
@@ -135,6 +142,23 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     picklistValuesByField,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
+  /**
+   * Lookups that can point at an object that failed in this run: emptied, when
+   * they name no record the run wrote, whatever `referenceFallback` says.
+   *
+   * `'keep'` carries an id the run has no counterpart for as it is, because
+   * two sandboxes refreshed from the same production can share it. An object
+   * that failed in this run is not such a case: the run set out to write its
+   * records and could not, so an id of one names in the target either nothing
+   * — and the whole row is refused with it — or a record other than the one
+   * the run meant to write. Emptied, the row goes in, and the second pass
+   * reports the lookup it could not fill in, as it does in a record-scoped run.
+   */
+  const lookupsAtFailed = new Set(
+    fieldInfos
+      .filter((f) => f.isReference && (f.referenceTo ?? []).some((o) => failedObjects?.has(o)))
+      .map((f) => f.name),
+  );
   /**
    * Lookups whose every target is an object no clone creates — one the
    * platform will not take as data, or one every copy leaves out. Computed
@@ -149,27 +173,26 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     // Identify orphan FKs from the ORIGINAL record (pre-remap) so we
     // don't confuse already-remapped target IDs with unmapped sources.
     const nullifiedFks: NullifiedFk[] = [];
-    if (referenceFallback === 'nullify') {
-      for (const field of fieldInfos) {
-        if (!field.isReference) continue;
-        if (field.name === 'RecordTypeId') continue;
-        // A lookup at something no clone creates is not an orphan waiting
-        // for its parent: no wave will ever produce that parent, so pass 2
-        // can only report it as unresolved for ever. Run for real, a single
-        // Opportunity produced three such reports — OwnerId, CreatedById and
-        // LastModifiedById, all pointing at a User — for a record that was
-        // written correctly. Left out of the list, the field is dropped
-        // below and the platform fills it in.
-        if (uncopyableLookups.has(field.name)) continue;
-        const value = r[field.name];
-        if (typeof value !== 'string' || !value) continue;
-        if (remapper.get(value)) continue;
-        nullifiedFks.push({
-          field: field.name,
-          sourceRefId: value,
-          targetObjects: field.referenceTo ?? [],
-        });
-      }
+    for (const field of fieldInfos) {
+      if (!field.isReference) continue;
+      if (referenceFallback !== 'nullify' && !lookupsAtFailed.has(field.name)) continue;
+      if (field.name === 'RecordTypeId') continue;
+      // A lookup at something no clone creates is not an orphan waiting
+      // for its parent: no wave will ever produce that parent, so pass 2
+      // can only report it as unresolved for ever. Run for real, a single
+      // Opportunity produced three such reports — OwnerId, CreatedById and
+      // LastModifiedById, all pointing at a User — for a record that was
+      // written correctly. Left out of the list, the field is dropped
+      // below and the platform fills it in.
+      if (uncopyableLookups.has(field.name)) continue;
+      const value = r[field.name];
+      if (typeof value !== 'string' || !value) continue;
+      if (remapper.get(value)) continue;
+      nullifiedFks.push({
+        field: field.name,
+        sourceRefId: value,
+        targetObjects: field.referenceTo ?? [],
+      });
     }
     // RecordTypeId is owned by RecordTypeMapper (target-org name lookup).
     // Filter from generic remap so source-org RT IDs are not rewritten

@@ -461,6 +461,45 @@ describe('ForgeExecutor, copying the files of the records it clones', () => {
     expect(deps.readFileBody.mock.calls.map((c) => c[2])).toContain(id('068', 1));
   });
 
+  it('writes the contacts of an account it failed to write without a lookup at it, in a full-table run', async () => {
+    // Copying files, a full-table run reads everything before it writes, and
+    // its write pass already wrote a child an optional parent failed for — with
+    // the source id kept, as a run of whole tables keeps ids: the contacts
+    // named in the target an account the run never created.
+    const { deps, sent } = fakeOrgs();
+    const tables = sourceTables();
+    const answer = deps.queryRecords.getMockImplementation()!;
+    deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+      const whole = /^SELECT .+ FROM (\w+)$/.exec(soql);
+      return org === 'src' && whole ? answered(tables[whole[1]] ?? []) : answer(org, soql);
+    });
+    // Every account refused; the contacts written as before.
+    const insertRecords: ForgeExecutorDeps['insertRecords'] = async (org, object, rows) =>
+      object === 'Account'
+        ? rows.map(() => ({
+            id: '',
+            success: false,
+            errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'],
+          }))
+        : deps.insertRecords(org, object, rows);
+    const updateRecords: NonNullable<ForgeExecutorDeps['updateRecords']> = async (_o, _n, rows) =>
+      rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] }));
+
+    const summary = await new ForgeExecutor({ ...deps, insertRecords, updateRecords }).execute(
+      GRAPH,
+      'src',
+      'tgt',
+      () => undefined,
+      { files: FILES },
+    );
+
+    const contacts = sent.filter((s) => s.object === 'Contact').map((s) => s.record);
+    expect(contacts).toEqual([{ LastName: 'Key' }, { LastName: 'Other' }]);
+    const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
+    expect(pass2?.failedCount).toBe(2);
+    expect(pass2?.samples[0].messages[0]).toContain("'AccountId'");
+  });
+
   it('lists on a dry run the files it would copy and their size, and writes nothing', async () => {
     const { deps, writes } = fakeOrgs();
     const events: ForgeProgressEvent[] = [];

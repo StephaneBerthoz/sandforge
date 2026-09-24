@@ -218,15 +218,6 @@ export function catalogWriteEdges(
     }));
 }
 
-/**
- * Get the parent object names for a given object based on graph edges.
- * A parent is an object that appears as sourceObject in an edge
- * where the given object is the targetObject.
- */
-export function getParentObjects(objectApiName: string, graph: ForgeGraph): string[] {
-  return graph.edges.filter((e) => e.targetObject === objectApiName).map((e) => e.sourceObject);
-}
-
 /** Inputs for {@link buildNodeQuery}. */
 export interface NodeQueryInput {
   /** The graph node about to be queried. */

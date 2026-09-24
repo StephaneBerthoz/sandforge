@@ -554,6 +554,125 @@ describe('GraphDiscoveryService', () => {
       );
       expect(mdEdge?.type).toBe('master-detail');
     });
+
+    it('keeps the required flag of the child’s own field when the parent’s list of its children came first', async () => {
+      // As a real org describes them: the opportunity is described first and
+      // lists its line items, which says nothing of whether a line may leave
+      // its opportunity empty. The line's own field says it may not, and it
+      // came second: the edge read as optional.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        const idField = {
+          name: 'Id',
+          type: 'id',
+          referenceTo: [],
+          relationshipName: null,
+          isMasterDetail: false,
+        };
+        if (objectName === 'Opportunity') {
+          return {
+            name: objectName,
+            fields: [idField],
+            childRelationships: [
+              {
+                childSObject: 'OpportunityLineItem',
+                field: 'OpportunityId',
+                relationshipName: 'OpportunityLineItems',
+                isCascadeDelete: true,
+              },
+            ],
+          };
+        }
+        return {
+          name: objectName,
+          fields: [
+            idField,
+            {
+              name: 'OpportunityId',
+              type: 'reference',
+              referenceTo: ['Opportunity'],
+              relationshipName: 'Opportunity',
+              isMasterDetail: true,
+              nillable: false,
+            },
+          ],
+          childRelationships: [],
+        };
+      });
+
+      const graph = await service.discover(
+        createConfig({ recordId: '006XXXXXXXXXXXX', depth: 'full' }),
+      );
+
+      // Still one edge for the pair, named and typed as it was first met: the
+      // graph's other readers see what they saw before, and one more flag.
+      expect(
+        graph.edges.filter(
+          (e) => e.sourceObject === 'Opportunity' && e.targetObject === 'OpportunityLineItem',
+        ),
+      ).toEqual([
+        {
+          sourceObject: 'Opportunity',
+          targetObject: 'OpportunityLineItem',
+          relationshipName: 'OpportunityLineItems',
+          type: 'master-detail',
+          required: true,
+        },
+      ]);
+    });
+
+    it('keeps the required flag when a master-detail sighting takes the place of a lookup', async () => {
+      // The child is described first here, its lookup required; the parent's
+      // list then marks the relationship as cascading. The stronger kind wins,
+      // as before, and no longer takes the flag away.
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) =>
+        objectName === 'Line__c'
+          ? {
+              name: objectName,
+              fields: [
+                {
+                  name: 'Header__c',
+                  type: 'reference',
+                  referenceTo: ['Header__c'],
+                  relationshipName: 'Header__r',
+                  isMasterDetail: false,
+                  nillable: false,
+                },
+              ],
+              childRelationships: [],
+            }
+          : {
+              name: objectName,
+              fields: [],
+              childRelationships: [
+                {
+                  childSObject: 'Line__c',
+                  field: 'Header__c',
+                  relationshipName: 'Lines__r',
+                  isCascadeDelete: true,
+                },
+              ],
+            },
+      );
+
+      const graph = await service.discover(
+        createConfig({
+          inputMode: 'soql',
+          recordId: undefined,
+          soqlQuery: 'SELECT Id FROM Line__c',
+          depth: 'full',
+        }),
+      );
+
+      expect(graph.edges).toEqual([
+        {
+          sourceObject: 'Header__c',
+          targetObject: 'Line__c',
+          relationshipName: 'Lines__r',
+          type: 'master-detail',
+          required: true,
+        },
+      ]);
+    });
   });
 
   describe('estimates', () => {
