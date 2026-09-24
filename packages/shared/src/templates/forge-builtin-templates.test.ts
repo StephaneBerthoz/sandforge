@@ -63,12 +63,15 @@ describe('synthetic forge graph for a starter template', () => {
     expect(graph.nodes.map((n) => n.level)).toEqual([0, 1, 2]);
   });
 
-  it('starts every node idle, included and empty, awaiting the real counts', () => {
+  it('starts every node idle and included, its count marked as one nobody took', () => {
     const [node] = buildSyntheticForgeGraph(['Account']).nodes;
 
     expect(node).toEqual({
       objectApiName: 'Account',
+      // A placeholder, not an empty table: Review read the zero as counted
+      // and put every object of the template under "Skipped (empty)".
       recordCount: 0,
+      recordCountUnknown: true,
       fieldCount: 0,
       status: 'idle',
       progress: 0,

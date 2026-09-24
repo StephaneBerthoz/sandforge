@@ -2461,6 +2461,8 @@
       "willMap": "Wird zugeordnet",
       "skippedExcluded": "Übersprungen (ausgeschlossen)",
       "skippedEmpty": "Übersprungen (leer)",
+      "recordsNotCounted": "Datensätze nicht gezählt",
+      "countsComeWithDiscovery": "Die Datensatzanzahlen liefert die Ermittlung, und dieser Graph hat sie übersprungen: Die Ausführung zählt die Datensätze, während sie sie liest.",
       "cycleCount_one": "{{count}} Zyklus (UPDATE in 2 Durchläufen)",
       "cycleCount_other": "{{count}} Zyklen (UPDATE in 2 Durchläufen)",
       "leftOutCost": "Was die ausgelassenen Objekte kosten",

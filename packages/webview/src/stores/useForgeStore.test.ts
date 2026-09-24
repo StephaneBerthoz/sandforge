@@ -850,6 +850,50 @@ describe('useForgeStore', () => {
       ]);
     });
 
+    it('counts every write of an object, not the last one alone', () => {
+      // The emails that waited for their task are written after the others,
+      // the standard prices before the custom ones: the card said the records
+      // of the last write alone.
+      runOnScreen();
+
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'running',
+        progress: 0,
+        recordCount: 12,
+      });
+      post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'done', progress: 100 });
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'running',
+        progress: 0,
+        recordCount: 3,
+      });
+
+      expect(getState().graph?.nodes[1]).toMatchObject({
+        objectApiName: 'Contact',
+        recordCount: 15,
+      });
+    });
+
+    it('counts a run from its own writes, none of the run before it', () => {
+      runOnScreen();
+      post('forge:progress', 'wv-run-1', {
+        objectName: 'Contact',
+        status: 'running',
+        recordCount: 12,
+      });
+
+      getState().setExecutionRequestId('wv-run-2');
+      post('forge:progress', 'wv-run-2', {
+        objectName: 'Contact',
+        status: 'running',
+        recordCount: 5,
+      });
+
+      expect(getState().graph?.nodes[1]).toMatchObject({ recordCount: 5 });
+    });
+
     it('logs an object that failed as an error, in words of its own when the event has none', () => {
       runOnScreen();
       post('forge:progress', 'wv-run-1', { objectName: 'Contact', status: 'error', progress: 0 });

@@ -2559,6 +2559,37 @@ describe('ForgeHandler', () => {
       expect(errors[0].payload?.message).toContain('aborted before it started');
     });
 
+    it('records a run aborted while record types are read as stopped before it wrote, not as failed', async () => {
+      mockGetConn.mockImplementation(() => new Promise(() => {}));
+
+      const executePromise = handler.handle(
+        buildMsg('forge:execute', { graph: createMockGraph(), config: createMockConfig() }),
+      );
+      await vi.waitFor(() => expect(mockGetConn).toHaveBeenCalled());
+      await handler.handle(buildMsg('forge:abort'));
+      await executePromise;
+
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const [started] = vi
+        .mocked(deps.broker.postToWebview)
+        .mock.calls.map(([m]) => m as BaseMessage & { payload: { operationId?: string } })
+        .filter((m) => m.type === 'operation:started');
+      const trail = vi
+        .mocked(deps.configStore.set)
+        .mock.calls.filter(([key]) => key === 'audit:trail');
+      // Stopped as a run aborted while Production Guard waited is, with the
+      // same reason, under the id its operation messages carried.
+      expect(trail.at(-1)?.[1]).toEqual([
+        expect.objectContaining({
+          action: 'forge_execute',
+          operationId: started.payload.operationId,
+          outcome: 'stopped',
+          objects: [],
+          details: { code: 'ABORTED_BEFORE_START' },
+        }),
+      ]);
+    });
+
     it('refuses the run as soon as Abort is pressed during a record type lookup that hangs', async () => {
       mockGetConn.mockImplementation(() => new Promise(() => {}));
 

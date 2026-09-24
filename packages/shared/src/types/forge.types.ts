@@ -107,6 +107,17 @@ export interface ForgeGraphNode {
   objectApiName: string;
   /** Number of records to be processed for this object */
   recordCount: number;
+  /**
+   * Whether nobody counted this node's records, so its `recordCount` is a
+   * placeholder zero rather than an empty table.
+   *
+   * Discovery counts every table it reaches. A starter template's graph skips
+   * discovery and starts each count at zero, and Review read those zeros as
+   * counted: "Will clone 0 objects", every object of the template "Skipped
+   * (empty)", before a run that clones them all. The run counts what it
+   * reads. Absent on every node discovery counted.
+   */
+  recordCountUnknown?: boolean;
   /** Number of fields included in the operation */
   fieldCount: number;
   /** Current processing status of this node */

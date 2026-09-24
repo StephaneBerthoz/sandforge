@@ -1446,6 +1446,31 @@ for (const theme of SCANNED_THEMES) {
       });
     });
 
+    test('Forge Review of a starter template, saying its record counts come with discovery', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'forge', 'forge-page', { theme, orgs: true });
+      await page.getByTestId('forge-tab-template').click();
+      await page.getByTestId('forge-template-builtin-builtin:account-360').click();
+      await page.getByTestId('forge-template-record-id').fill(fakeId('001', 1));
+      await page.getByTestId('forge-target-org').click();
+      await page.getByTestId(`forge-target-org-option-${QA_SANDBOX.id}`).click();
+      await page.getByTestId('forge-quick-start-template-btn').click();
+
+      // No discovery counted the template's tables: each is cloned, none is
+      // an empty table, and the card says where the counts come from.
+      await page.getByTestId('forge-preview-not-counted').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('forge-preview-clone')).toContainText(
+        '4 objects · records not counted',
+      );
+      await expect(page.getByTestId('forge-preview-skipped-empty')).toHaveText('Skipped (empty)0');
+      const review = await checkAccessibility(page);
+      expectNoViolations(review);
+      expect(
+        await contrastMeasuredIn(page, review, '[data-testid="forge-preview-not-counted"]'),
+      ).toBeGreaterThan(0);
+    });
+
     test('Forge Review copying files while the run anonymizes, then the files it copied', async ({
       page,
     }) => {

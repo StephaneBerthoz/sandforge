@@ -183,6 +183,10 @@ export const forgeConfigSchemaStrict = forgeConfigSchema.refine(
 export const forgeGraphNodeSchema = z.object({
   objectApiName: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
   recordCount: z.number().int().nonnegative(),
+  // Parsing drops what the schema does not name: without it, the graph a run
+  // keeps in its history, which Reuse last graph brings back to Review,
+  // would count a starter template's tables empty.
+  recordCountUnknown: z.boolean().optional(),
   fieldCount: z.number().int().nonnegative(),
   status: forgeNodeStatusSchema,
   progress: z.number().min(0).max(100),

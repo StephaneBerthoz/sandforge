@@ -2348,6 +2348,8 @@
       "willMap": "マッピングされる",
       "skippedExcluded": "スキップ (除外)",
       "skippedEmpty": "スキップ (空)",
+      "recordsNotCounted": "レコード数は未集計",
+      "countsComeWithDiscovery": "レコード数は検出で取得されますが、このグラフは検出をスキップしました。実行時に読み込んだレコードを数えます。",
       "cycleCount_other": "{{count}}個の循環（2 パスの UPDATE）",
       "leftOutCost": "除外したオブジェクトによる影響",
       "leftOutLookup": "{{object}}：{{leftOut}} のレコードを必要とするレコードは書き込まれません（そのレコードをターゲットがすでに保持している場合を除きます）。",

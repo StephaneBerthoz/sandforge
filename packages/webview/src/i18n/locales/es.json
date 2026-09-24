@@ -2461,6 +2461,8 @@
       "willMap": "Se asignará",
       "skippedExcluded": "Omitido (excluido)",
       "skippedEmpty": "Omitido (vacío)",
+      "recordsNotCounted": "registros sin contar",
+      "countsComeWithDiscovery": "El número de registros llega con el descubrimiento, y este grafo lo omitió: la ejecución cuenta los registros a medida que los lee.",
       "cycleCount_one": "{{count}} ciclo (UPDATE en 2 pasadas)",
       "cycleCount_other": "{{count}} ciclos (UPDATE en 2 pasadas)",
       "leftOutCost": "Lo que cuestan los objetos dejados fuera",

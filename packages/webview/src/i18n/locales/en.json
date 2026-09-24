@@ -2461,6 +2461,8 @@
       "willMap": "Will map",
       "skippedExcluded": "Skipped (excluded)",
       "skippedEmpty": "Skipped (empty)",
+      "recordsNotCounted": "records not counted",
+      "countsComeWithDiscovery": "Record counts come with discovery, and this graph skipped it: the run counts the records as it reads them.",
       "cycleCount_one": "{{count}} cycle (2-pass UPDATE)",
       "cycleCount_other": "{{count}} cycles (2-pass UPDATE)",
       "leftOutCost": "What the objects left out cost",

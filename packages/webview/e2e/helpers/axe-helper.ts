@@ -15,40 +15,59 @@ export interface AccessibilityCheckOptions {
 }
 
 /**
- * Wait until nothing on the page is still moving.
+ * Frames the page has to paint in a row with nothing moving before it is taken
+ * as still. framer-motion starts a panel's entrance from an effect, a frame or
+ * two after the one that put the panel on screen: one quiet frame says nothing
+ * of the next.
+ */
+const STILL_FRAMES = 5;
+
+/** How many waits this worker has made, so a wait never counts the frames of the one before. */
+let stillnessWaits = 0;
+
+/**
+ * Wait until nothing on the page is still moving: until it has painted
+ * {@link STILL_FRAMES} frames in a row with no animation running and no inline
+ * style changing.
  *
  * Colour contrast is measured on what is painted at the instant of the scan, and
  * a panel fading in paints its text at part opacity: a step of the Autopilot
  * wizard read 1.45:1 mid-transition. CSS animations and the ones framer-motion
  * hands to the browser show up in `getAnimations()`; the ones it drives frame by
- * frame write inline styles, so those are sampled until two reads agree.
- * Animations that never end (a spinner) are not waited for.
+ * frame write inline styles. Both are read on every frame.
+ *
+ * The animations used to be read once, before the styles were sampled every
+ * 100 ms, and under load a fade began after that one read. What framer-motion
+ * hands to the browser writes no inline style, so two samples agreed while it
+ * ran: the Forge results were scanned with their cards at 0.64 opacity, and
+ * their labels read 4.21:1. Frames are counted rather than milliseconds, so a
+ * page slowed down by load is given the frames it needs to start what it has
+ * to show. Animations that never end (a spinner) are not waited for.
  */
 export async function waitForStillness(page: Page): Promise<void> {
+  stillnessWaits += 1;
   await page.waitForFunction(
-    () =>
-      document
+    ({ wait, frames }) => {
+      const holder = window as unknown as {
+        __sfStillness?: { wait: number; sample: string; still: number };
+      };
+      const moving = document
         .getAnimations()
-        .every(
+        .some(
           (animation) =>
-            animation.playState !== 'running' ||
-            animation.effect?.getComputedTiming().iterations === Infinity,
-        ),
-    undefined,
-    { timeout: 5_000 },
-  );
-  await page.waitForFunction(
-    () => {
-      const holder = window as unknown as { __sfStyleSample?: string };
+            (animation.playState === 'running' || animation.pending) &&
+            animation.effect?.getComputedTiming().iterations !== Infinity,
+        );
       const sample = Array.from(document.querySelectorAll<HTMLElement>('[style]'))
         .map((element) => `${element.style.opacity}|${element.style.transform}`)
         .join(';');
-      const still = holder.__sfStyleSample === sample;
-      holder.__sfStyleSample = sample;
-      return still;
+      const last = holder.__sfStillness;
+      const still = !moving && last?.wait === wait && last.sample === sample ? last.still + 1 : 0;
+      holder.__sfStillness = { wait, sample, still };
+      return still >= frames;
     },
-    undefined,
-    { polling: 100, timeout: 5_000 },
+    { wait: stillnessWaits, frames: STILL_FRAMES },
+    { polling: 'raf', timeout: 5_000 },
   );
 }
 

@@ -2461,6 +2461,8 @@
       "willMap": "Sera mappé",
       "skippedExcluded": "Ignoré (exclu)",
       "skippedEmpty": "Ignoré (vide)",
+      "recordsNotCounted": "enregistrements non comptés",
+      "countsComeWithDiscovery": "Le nombre d'enregistrements vient avec la découverte, que ce graphe a sautée : l'exécution compte les enregistrements au fur et à mesure qu'elle les lit.",
       "cycleCount_one": "{{count}} cycle (UPDATE en 2 passes)",
       "cycleCount_other": "{{count}} cycles (UPDATE en 2 passes)",
       "leftOutCost": "Ce que coûtent les objets laissés de côté",

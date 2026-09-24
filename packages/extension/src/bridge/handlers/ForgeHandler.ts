@@ -1277,7 +1277,12 @@ export class ForgeHandler implements DomainHandler {
         module: 'forge',
         operationId,
         orgId: config.targetOrgId,
-        outcome: 'failure',
+        // Aborted during the record type lookup, the run never reached the
+        // executor and wrote nothing: stopped, as one aborted while the guard
+        // waited is. The trail read it as a run that failed.
+        ...(stoppedBeforeStart
+          ? { outcome: 'stopped' as const, code: ABORTED_BEFORE_START }
+          : { outcome: 'failure' as const }),
         guard: guardDecision,
         ...(tallies
           ? {

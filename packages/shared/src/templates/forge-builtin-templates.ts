@@ -105,13 +105,15 @@ export function getBuiltinTemplateObjects(id: string): readonly string[] {
  * Nodes are created in input order, with `level = index`. Edges are left
  * empty — ForgePlanGenerator's Kahn's-algorithm fallback handles cycle-
  * less graphs correctly. `included = true` everywhere so the user can
- * untoggle in the Review tab.
+ * untoggle in the Review tab. Every count is marked as one nobody took:
+ * the zero is a placeholder, not an empty table.
  */
 export function buildSyntheticForgeGraph(objects: readonly string[]): ForgeGraph {
   return {
     nodes: objects.map((name, idx) => ({
       objectApiName: name,
       recordCount: 0,
+      recordCountUnknown: true,
       fieldCount: 0,
       status: 'idle',
       progress: 0,

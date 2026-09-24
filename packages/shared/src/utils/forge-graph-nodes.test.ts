@@ -71,6 +71,20 @@ describe('leftOutAsEmptyTable', () => {
       }),
     ).toBe(false);
   });
+
+  it('does not hold for a node whose count nobody took, however it was left out', () => {
+    // A starter template's graph skips discovery: its zero is a placeholder,
+    // and the table may hold rows.
+    expect(
+      leftOutAsEmptyTable({
+        included: false,
+        recordCount: 0,
+        recordCountUnknown: true,
+        status: 'idle',
+        errors: [],
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('leftOutByTheUser', () => {

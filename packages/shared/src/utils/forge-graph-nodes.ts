@@ -19,14 +19,20 @@ import type { ForgeExecutionResult, ForgeGraphNode } from '../types/forge.types.
  *
  * A node the user left out is not one of them, whatever it counts: a starter
  * template's graph counts every table 0 until the run reads it, and a table
- * unchecked there read as one discovery had found empty.
+ * unchecked there read as one discovery had found empty. Nor is a node whose
+ * count nobody took, however it came to be left out: its zero is a
+ * placeholder, and the table may hold rows.
  */
 export function leftOutAsEmptyTable(
-  node: Pick<ForgeGraphNode, 'included' | 'recordCount' | 'status' | 'errors' | 'leftOutByUser'>,
+  node: Pick<
+    ForgeGraphNode,
+    'included' | 'recordCount' | 'recordCountUnknown' | 'status' | 'errors' | 'leftOutByUser'
+  >,
 ): boolean {
   return (
     !node.included &&
     node.leftOutByUser !== true &&
+    node.recordCountUnknown !== true &&
     node.recordCount === 0 &&
     node.status !== 'error' &&
     node.errors.length === 0

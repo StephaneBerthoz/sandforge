@@ -248,6 +248,7 @@ const INITIAL_STATE = {
   runClock: null as ForgeRunClock | null,
   stopRequestedAt: null as number | null,
   runsEnded: 0,
+  recordsOfRun: {} as Record<string, number>,
 };
 
 /** Forge state machine store — state and actions. */
@@ -266,6 +267,14 @@ export interface ForgeState {
    * this is the status it shows. Emptied as a run starts.
    */
   statusesBeyondGraph: Record<string, ForgeNodeStatus>;
+  /**
+   * The records the run on screen named of each object, by API name, every
+   * write of the object added up. An object can be written more than once in
+   * a run — the emails that waited for their task after the others, the
+   * standard prices before the custom ones — and its card said the last
+   * write's records alone. Emptied as a run starts.
+   */
+  recordsOfRun: Record<string, number>;
   /** Result of the last execution. */
   result: ForgeExecutionResult | null;
   /** Available forge templates. */
@@ -538,6 +547,7 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
       runError: null,
       stoppedAt: null,
       stopRequestedAt: null,
+      recordsOfRun: {},
       runClock:
         executionRequestId === null
           ? null
@@ -606,10 +616,19 @@ export const useForgeStore = create<ForgeState>((set, get) => ({
     if (!ofRunOnScreen(state, requestId) || state.runError) return;
     const { objectName, status, progress } = update;
     state.updateNodeStatus(objectName, status, progress);
+    // Each write of an object names its own records: the node holds them all,
+    // the first write's in place of discovery's count.
+    const recordCount =
+      update.recordCount === undefined
+        ? undefined
+        : (state.recordsOfRun[objectName] ?? 0) + update.recordCount;
+    if (recordCount !== undefined) {
+      set((s) => ({ recordsOfRun: { ...s.recordsOfRun, [objectName]: recordCount } }));
+    }
     // Counts ride the same event when the executor has them; a status change
     // that knows none leaves the node's own alone.
     state.updateNodeCounts(objectName, {
-      recordCount: update.recordCount,
+      recordCount,
       fieldCount: update.fieldCount,
       createableFieldCount: update.createableFieldCount,
     });

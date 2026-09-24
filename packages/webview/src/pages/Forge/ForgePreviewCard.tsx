@@ -12,6 +12,8 @@ const REFERENCE_DATA_DEFAULTS = new Set(['BusinessHours', 'OperatingHours']);
 interface Bucket {
   cloneObjects: string[];
   cloneRecords: number;
+  /** Whether an object to clone has a count nobody took, so the records it holds are not known. */
+  cloneRecordsUnknown: boolean;
   mappedObjects: string[];
   skippedExcluded: string[];
   skippedOutOfScope: string[];
@@ -23,6 +25,7 @@ function categorize(graph: ForgeGraph): Bucket {
   const skippedExcluded: string[] = [];
   const skippedOutOfScope: string[] = [];
   let cloneRecords = 0;
+  let cloneRecordsUnknown = false;
 
   for (const node of graph.nodes) {
     if (REFERENCE_DATA_DEFAULTS.has(node.objectApiName)) {
@@ -36,6 +39,14 @@ function categorize(graph: ForgeGraph): Bucket {
       (leftOutAsEmptyTable(node) ? skippedOutOfScope : skippedExcluded).push(node.objectApiName);
       continue;
     }
+    // A count nobody took is not an empty table. A starter template's graph
+    // skips discovery, and its zeros read "Will clone 0 objects" with every
+    // object of the template "Skipped (empty)", for a run that reads them all.
+    if (node.recordCountUnknown === true) {
+      cloneObjects.push(node.objectApiName);
+      cloneRecordsUnknown = true;
+      continue;
+    }
     if (node.recordCount === 0) {
       skippedOutOfScope.push(node.objectApiName);
       continue;
@@ -43,7 +54,14 @@ function categorize(graph: ForgeGraph): Bucket {
     cloneObjects.push(node.objectApiName);
     cloneRecords += node.recordCount;
   }
-  return { cloneObjects, cloneRecords, mappedObjects, skippedExcluded, skippedOutOfScope };
+  return {
+    cloneObjects,
+    cloneRecords,
+    cloneRecordsUnknown,
+    mappedObjects,
+    skippedExcluded,
+    skippedOutOfScope,
+  };
 }
 
 interface ForgePreviewCardProps {
@@ -115,13 +133,14 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         {tile(
           <Database size={13} className="text-status-success" />,
           t('forge.preview.willClone', 'Will clone'),
-          `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${t(
-            'common.recordCountFormatted',
-            {
-              count: buckets.cloneRecords,
-              formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
-            },
-          )}`,
+          `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${
+            buckets.cloneRecordsUnknown
+              ? t('forge.preview.recordsNotCounted')
+              : t('common.recordCountFormatted', {
+                  count: buckets.cloneRecords,
+                  formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
+                })
+          }`,
           buckets.cloneObjects,
           'border-status-success/30 bg-status-success/5',
           'forge-preview-clone',
@@ -151,15 +170,27 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
           'forge-preview-skipped-empty',
         )}
       </div>
-      {plan && (
+      {buckets.cloneRecordsUnknown && (
+        <p data-testid="forge-preview-not-counted" className="text-xs text-text-secondary">
+          {t('forge.preview.countsComeWithDiscovery')}
+        </p>
+      )}
+      {plan && (!buckets.cloneRecordsUnknown || cycleCount > 0) && (
         <div className="flex items-center gap-4 text-xs text-text-secondary">
-          <span className="flex items-center gap-1.5">
-            <Zap size={11} />
-            {t('common.apiCallCount', { count: plan.totalApiCalls })}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s
-          </span>
+          {/* The plan reckons its calls and its duration from the counts: from
+              counts nobody took, it said "0 API calls · ~0s" of a run that
+              reads every object of the template. */}
+          {!buckets.cloneRecordsUnknown && (
+            <>
+              <span className="flex items-center gap-1.5">
+                <Zap size={11} />
+                {t('common.apiCallCount', { count: plan.totalApiCalls })}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s
+              </span>
+            </>
+          )}
           {cycleCount > 0 && (
             <span
               data-testid="forge-preview-cycles"

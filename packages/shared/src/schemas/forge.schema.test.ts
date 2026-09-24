@@ -276,6 +276,17 @@ describe('forgeGraphNodeSchema', () => {
     expect(forgeGraphNodeSchema.parse(createValidForgeGraphNode()).leftOutByUser).toBeUndefined();
     expect(() => forgeGraphNodeSchema.parse({ ...leftOut, leftOutByUser: 'yes' })).toThrow();
   });
+
+  it('keeps that nobody counted a node, so the graph a run keeps in its history says so too', () => {
+    // Dropped by the parse, a starter template's zeros would come back from
+    // the history as counted tables, every one of them empty.
+    const uncounted = { ...createValidForgeGraphNode(), recordCount: 0, recordCountUnknown: true };
+    expect(forgeGraphNodeSchema.parse(uncounted).recordCountUnknown).toBe(true);
+    expect(
+      forgeGraphNodeSchema.parse(createValidForgeGraphNode()).recordCountUnknown,
+    ).toBeUndefined();
+    expect(() => forgeGraphNodeSchema.parse({ ...uncounted, recordCountUnknown: 1 })).toThrow();
+  });
 });
 
 // ─── Edge Schema Tests ───────────────────────────────────────────────────────
