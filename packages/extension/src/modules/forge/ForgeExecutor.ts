@@ -59,6 +59,7 @@ import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
+  PRICEBOOK_ENTRY_CURRENCY_FIELD,
   SELLING_MODEL_OBJECT,
   SELLING_MODEL_OPTION_OBJECT,
   isPricebookEntry,
@@ -1209,7 +1210,7 @@ export class ForgeExecutor {
      * A single pass's one order is the one writing needs.
      */
     const twoPhase = config.isScoped === true || config.files !== undefined;
-    const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state, sortedNodes);
+    const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
 
     // The standard price book, when the run carries prices at all. See
     // `standard-pricebook.ts`: the platform refuses a custom price for a
@@ -1687,7 +1688,8 @@ export class ForgeExecutor {
   /**
    * The order a full-table run reads and writes its nodes in, one after the
    * other, when it carries prices: the order a record-scoped run writes them
-   * in. Anything else keeps its parents-first order.
+   * in. Anything else is written in the order the graph's required lookups
+   * set, which is the parents-first order wherever no cycle stands in the way.
    *
    * A full-table run writes each node as soon as it has read it, so the order
    * is settled before anything is read — from the fields of every node,
@@ -1696,13 +1698,17 @@ export class ForgeExecutor {
    * lookups were never walked, went before the prices it could not be
    * written without, as it did in a record-scoped run. A node whose describe
    * fails is ordered as one with no lookup: its own read reports why.
+   *
+   * Without prices the parents-first order was all there was, and it cannot
+   * order a cycle: a quote met before the opportunity it cannot be written
+   * without, which points back at it, went first, and the platform refuses
+   * it there. The plan reads its cycles in this order too.
    */
-  private async singlePassOrder(
-    state: ExecutionState,
-    sortedNodes: ForgeGraphNode[],
-  ): Promise<ForgeGraphNode[]> {
+  private async singlePassOrder(state: ExecutionState): Promise<ForgeGraphNode[]> {
     const included = state.graph.nodes.filter((n) => n.included);
-    if (!included.some((n) => isPricebookEntry(n.objectApiName))) return sortedNodes;
+    if (!included.some((n) => isPricebookEntry(n.objectApiName))) {
+      return sortNodesForWriting(state.graph);
+    }
     const fieldsByObject = new Map<string, readonly FieldInfo[]>();
     for (let i = 0; i < included.length; i += CONCURRENT_DESCRIBE_LIMIT) {
       if (this.isAborted) break;
@@ -1964,6 +1970,9 @@ export class ForgeExecutor {
         maxRecordsPerObject: config.maxRecordsPerObject,
         readObjects: state.readObjects,
         catalog: CATALOG_OBJECTS,
+        // The root's object is read after the first pass only as the catalog
+        // object it is, for the second time: see below.
+        rootReadAgain: !allowDefer && node.objectApiName === config.rootObjectApiName,
       };
       const query = buildNodeQuery(queryInput);
       if (allowDefer && this.waitsForWhatPointsAtIt(node, query, state)) {
@@ -2092,15 +2101,17 @@ export class ForgeExecutor {
       // account's alone, none of those its lines sold, and every price went
       // to the target without its product. Until that read its scope stays
       // open: a lookup a row may not leave empty holds nothing back at it, as
-      // at any catalog object still to be read. The root, read by its id alone
-      // whenever it is read, is left as it is.
+      // at any catalog object still to be read.
+      //
+      // The root's object as well, read again by the ids named since, the
+      // root's among them. Left as it was, a clone rooted at a price book read
+      // no other book: a quote of the book's opportunity priced from another
+      // one went to the target without its book, and the price its line used
+      // was sent without one, which the platform refuses. Between two
+      // sandboxes, the quotes and orders a book's clone read named two other
+      // books, and it read one book.
       const scopeCache = state.scopeCache;
-      if (
-        allowDefer &&
-        scopeCache &&
-        CATALOG_OBJECTS.has(node.objectApiName) &&
-        node.objectApiName !== config.rootObjectApiName
-      ) {
+      if (allowDefer && scopeCache && CATALOG_OBJECTS.has(node.objectApiName)) {
         seedScopeCache(scopeCache, node.objectApiName, records, fieldInfos, { settle: false });
         state.catalogNodes.push(node);
         return false;
@@ -2271,6 +2282,12 @@ export class ForgeExecutor {
    * the ones of the selling models its custom prices are sold under: that is
    * the standard price each needs. A real org held two per product — the
    * price from before selling models, deactivated, and the one-time one.
+   *
+   * In an org with several currencies it takes the ones of the currencies
+   * its custom prices are in. A book prices a product once per currency the
+   * org holds, and taken by product, a line in euros brought the product's
+   * standard prices in every other currency too, which no price the clone
+   * writes needs.
    */
   private async addStandardPricebookEntries(
     node: ForgeGraphNode,
@@ -2280,8 +2297,17 @@ export class ForgeExecutor {
   ): Promise<void> {
     const standardId = state.standardPricebookId;
     if (!standardId) return;
+    // The standard price a custom price needs: of its product, in its currency
+    // — absent from an org with one — and under its selling model when the
+    // run keeps them.
     const pairOf = (row: Record<string, unknown>): string =>
-      `${String(row[PRICEBOOK_ENTRY_PRODUCT_FIELD])}|${String(row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`;
+      [
+        row[PRICEBOOK_ENTRY_PRODUCT_FIELD],
+        state.sellingModels ? row[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] : '',
+        row[PRICEBOOK_ENTRY_CURRENCY_FIELD],
+      ]
+        .map((value) => String(value ?? ''))
+        .join('|');
     const productIds = new Set<string>();
     const pricedPairs = new Set<string>();
     const seen = new Set<string>();
@@ -2312,7 +2338,7 @@ export class ForgeExecutor {
         for (const row of await this.deps.queryRecords(state.sourceOrgId, soql)) {
           const id = row['Id'];
           if (typeof id === 'string' && seen.has(id)) continue;
-          if (state.sellingModels && !pricedPairs.has(pairOf(row))) continue;
+          if (!pricedPairs.has(pairOf(row))) continue;
           records.push(row);
           added++;
         }

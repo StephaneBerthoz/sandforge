@@ -160,6 +160,43 @@ describe('ForgeExecutor', () => {
 
       expect(insertOrder.indexOf('Account')).toBeLessThan(insertOrder.indexOf('Contact'));
     });
+
+    it('writes a full-table cycle in the order its required lookup sets', async () => {
+      // A quote cannot be written without its opportunity, which points back
+      // at the quote synced to it. Discovery met the quote first, and a
+      // full-table run wrote the cycle in the order the graph held it: the
+      // quote went first and the platform refused it for want of the
+      // opportunity, where the plan and a record-scoped run write the
+      // opportunity first and fill in its lookup to the quote afterwards.
+      const insertOrder: string[] = [];
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objectName) => {
+        insertOrder.push(objectName);
+        return [{ id: '001NEW', success: true, errors: [] }];
+      });
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '001OLD', Name: 'Rec' }]);
+      const graph = makeGraph(
+        [makeNode('Quote'), makeNode('Opportunity')],
+        [
+          {
+            sourceObject: 'Opportunity',
+            targetObject: 'Quote',
+            relationshipName: 'Opportunity',
+            type: 'lookup',
+            required: true,
+          },
+          {
+            sourceObject: 'Quote',
+            targetObject: 'Opportunity',
+            relationshipName: 'SyncedQuote',
+            type: 'lookup',
+          },
+        ],
+      );
+
+      await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      expect(insertOrder).toEqual(['Opportunity', 'Quote']);
+    });
   });
 
   describe('ID remapping', () => {
@@ -2775,6 +2812,114 @@ describe('ForgeExecutor', () => {
         expect(summary.errors).toEqual([]);
       });
 
+      it('clones the other books the records of a price book it is rooted at name', async () => {
+        // An opportunity priced from the book has a quote priced from another
+        // one. The book the clone is rooted at was read by its id alone, once,
+        // before anything named another: the quote went to the target without
+        // its book, and its line's price with no book at all.
+        const QUOTE = '0Q0000000000001AAA';
+        const QUOTE_PRICE = '01u000000000035AAA';
+        const UNSOLD_QUOTE_PRICE = '01u000000000036AAA';
+        const tables = catalogTables();
+        tables['PricebookEntry'].push(
+          {
+            Id: QUOTE_PRICE,
+            Name: 'Widget 5 quotes',
+            Pricebook2Id: QUOTE_BOOK,
+            Product2Id: product(5),
+            UnitPrice: '9',
+          },
+          {
+            Id: UNSOLD_QUOTE_PRICE,
+            Name: 'Widget 6 quotes',
+            Pricebook2Id: QUOTE_BOOK,
+            Product2Id: product(6),
+            UnitPrice: '9',
+          },
+        );
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...tables,
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Pricebook2Id: CUSTOM_BOOK }],
+            Quote: [
+              { Id: QUOTE, Name: 'Offer', OpportunityId: OPPORTUNITY, Pricebook2Id: QUOTE_BOOK },
+            ],
+            QuoteLineItem: [
+              {
+                Id: '0QL000000000001AAA',
+                QuoteId: QUOTE,
+                PricebookEntryId: QUOTE_PRICE,
+                Product2Id: product(5),
+                Quantity: '1',
+              },
+            ],
+          },
+          {
+            ...catalogFields,
+            Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+            Quote: [
+              idField,
+              text('Name'),
+              lookup('OpportunityId', 'Opportunity'),
+              lookup('Pricebook2Id', 'Pricebook2'),
+            ],
+            QuoteLineItem: [
+              idField,
+              lookup('QuoteId', 'Quote', true),
+              lookup('PricebookEntryId', 'PricebookEntry', true),
+              lookup('Product2Id', 'Product2', true),
+              text('Quantity'),
+            ],
+          },
+        );
+        const read = recordReads(orgDeps);
+        const graph = makeGraph(
+          [
+            makeNode('Pricebook2'),
+            makeNode('PricebookEntry'),
+            makeNode('Opportunity'),
+            makeNode('Quote'),
+            makeNode('Product2'),
+            makeNode('QuoteLineItem'),
+          ],
+          [
+            { ...edge('Pricebook2', 'PricebookEntry'), required: true },
+            { ...edge('Product2', 'PricebookEntry'), required: true },
+            edge('Pricebook2', 'Opportunity'),
+            edge('Pricebook2', 'Quote'),
+            edge('Opportunity', 'Quote'),
+            { ...edge('Quote', 'QuoteLineItem'), required: true },
+            { ...edge('PricebookEntry', 'QuoteLineItem'), required: true },
+            { ...edge('Product2', 'QuoteLineItem'), required: true },
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: CUSTOM_BOOK,
+          rootObjectApiName: 'Pricebook2',
+        });
+
+        // Named, the other book is read by its id, and brings none of its prices.
+        expect(read['PricebookEntry'].has(QUOTE_PRICE)).toBe(true);
+        expect(read['PricebookEntry'].has(UNSOLD_QUOTE_PRICE)).toBe(false);
+        expect(inserted['Pricebook2'].map((r) => r['Name'])).toEqual(['Custom', 'Quotes']);
+        expect(inserted['Quote']).toEqual([
+          { Name: 'Offer', OpportunityId: 'Opportunity:Deal', Pricebook2Id: 'Pricebook2:Quotes' },
+        ]);
+        expect(
+          inserted['PricebookEntry'].find((r) => r['Name'] === 'Widget 5 quotes'),
+        ).toMatchObject({ Product2Id: 'Product2:Widget 5', Pricebook2Id: 'Pricebook2:Quotes' });
+        expect(inserted['QuoteLineItem']).toEqual([
+          {
+            QuoteId: 'Quote:Offer',
+            PricebookEntryId: 'PricebookEntry:Widget 5 quotes',
+            Product2Id: 'Product2:Widget 5',
+            Quantity: '1',
+          },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
       it('reads the standard prices of 700 products in statements a request URI holds', async () => {
         // The standard prices were asked for in one statement naming every
         // product the custom prices use. Past some six hundred products it no
@@ -2871,6 +3016,7 @@ describe('ForgeExecutor', () => {
         // in each book, and a custom price needs the standard price of its own
         // currency. One standard price was kept per product, the first read,
         // in dollars, and the custom price in euros the line uses had none.
+        // The one in dollars, which no price of the clone is in, stays behind.
         const tables = catalogTables();
         tables['PricebookEntry'] = [
           {
@@ -2936,10 +3082,123 @@ describe('ForgeExecutor', () => {
         });
 
         expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
-          'Widget 1 standard USD',
           'Widget 1 standard EUR',
           'Widget 1 custom EUR',
         ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('takes the standard price of each currency its lines use, and of no other', async () => {
+        // The books price every widget once per currency the org holds. A deal
+        // in euros and one in dollars each use one custom price, and the
+        // standard prices were taken by product: all three currencies of both
+        // widgets, four of them standard prices no price the clone writes needs.
+        const priceIn = (book: 'standard' | 'custom', n: number, currency: string): FakeRow => ({
+          ...priceRow(book, n, book === 'standard' ? '10' : '8'),
+          Id: `${price(book, n).slice(0, 15)}${currency}`,
+          Name: `Widget ${n} ${book} ${currency}`,
+          CurrencyIsoCode: currency,
+        });
+        const tables = catalogTables();
+        tables['PricebookEntry'] = [1, 2].flatMap((n) =>
+          (['standard', 'custom'] as const).flatMap((book) =>
+            ['USD', 'EUR', 'GBP'].map((currency) => priceIn(book, n, currency)),
+          ),
+        );
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...tables,
+            Account: [{ Id: ACCOUNT, Name: 'Acme' }],
+            Opportunity: [
+              {
+                Id: OPPORTUNITY,
+                Name: 'Euro deal',
+                AccountId: ACCOUNT,
+                Pricebook2Id: CUSTOM_BOOK,
+                CurrencyIsoCode: 'EUR',
+              },
+              {
+                Id: OTHER_OPPORTUNITY,
+                Name: 'Dollar deal',
+                AccountId: ACCOUNT,
+                Pricebook2Id: CUSTOM_BOOK,
+                CurrencyIsoCode: 'USD',
+              },
+            ],
+            OpportunityLineItem: [
+              {
+                Id: '00k000000000001AAA',
+                OpportunityId: OPPORTUNITY,
+                PricebookEntryId: priceIn('custom', 1, 'EUR')['Id'],
+                Product2Id: product(1),
+                Quantity: '1',
+              },
+              {
+                Id: '00k000000000002AAA',
+                OpportunityId: OTHER_OPPORTUNITY,
+                PricebookEntryId: priceIn('custom', 2, 'USD')['Id'],
+                Product2Id: product(2),
+                Quantity: '1',
+              },
+            ],
+          },
+          {
+            ...catalogFields,
+            PricebookEntry: [...catalogFields['PricebookEntry'], text('CurrencyIsoCode')],
+            Account: [idField, text('Name')],
+            Opportunity: [
+              idField,
+              text('Name'),
+              lookup('AccountId', 'Account'),
+              lookup('Pricebook2Id', 'Pricebook2'),
+              text('CurrencyIsoCode'),
+            ],
+            OpportunityLineItem: [
+              idField,
+              lookup('OpportunityId', 'Opportunity', true),
+              lookup('PricebookEntryId', 'PricebookEntry'),
+              lookup('Product2Id', 'Product2'),
+              text('Quantity'),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [
+            makeNode('Account'),
+            makeNode('Opportunity'),
+            makeNode('Pricebook2'),
+            makeNode('Product2'),
+            makeNode('OpportunityLineItem'),
+            makeNode('PricebookEntry'),
+          ],
+          [
+            edge('Account', 'Opportunity'),
+            edge('Pricebook2', 'Opportunity'),
+            edge('Opportunity', 'OpportunityLineItem'),
+            { ...edge('PricebookEntry', 'OpportunityLineItem'), required: true },
+            edge('Product2', 'OpportunityLineItem'),
+            edge('Pricebook2', 'PricebookEntry'),
+          ],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: ACCOUNT,
+          rootObjectApiName: 'Account',
+        });
+
+        expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+          'Widget 1 standard EUR',
+          'Widget 2 standard USD',
+          'Widget 1 custom EUR',
+          'Widget 2 custom USD',
+        ]);
+        expect(inserted['OpportunityLineItem'].map((r) => r['PricebookEntryId'])).toEqual([
+          'PricebookEntry:Widget 1 custom EUR',
+          'PricebookEntry:Widget 2 custom USD',
+        ]);
+        expect(progressEvents.map((e) => e.message)).toContain(
+          'Added 2 standard price book entries the custom prices depend on',
+        );
         expect(summary.errors).toEqual([]);
       });
 

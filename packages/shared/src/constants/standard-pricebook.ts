@@ -105,7 +105,7 @@ export interface PricebookEntryKey {
  * The field an org with several currencies gives every record, a price
  * included. Absent from an org with one currency.
  */
-const CURRENCY_FIELD = 'CurrencyIsoCode';
+export const PRICEBOOK_ENTRY_CURRENCY_FIELD = 'CurrencyIsoCode';
 
 /**
  * Keep one entry per (book, product), preferring the active one — per (book,
@@ -147,7 +147,7 @@ export function dedupePricebookEntries<T extends Record<string, unknown>>(
     const sellingModel = key.sellingModel
       ? `|${String(record[PRICEBOOK_ENTRY_SELLING_MODEL_FIELD] ?? '')}`
       : '';
-    const currency = `|${String(record[CURRENCY_FIELD] ?? '')}`;
+    const currency = `|${String(record[PRICEBOOK_ENTRY_CURRENCY_FIELD] ?? '')}`;
     const pair = `${book}|${product}${sellingModel}${currency}`;
     const seenAt = byPair.get(pair);
     if (seenAt === undefined) {

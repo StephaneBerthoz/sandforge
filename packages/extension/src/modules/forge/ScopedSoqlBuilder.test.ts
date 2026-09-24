@@ -284,6 +284,60 @@ describe('ScopedSoqlBuilder', () => {
 
       expect(result.statements[0]).toContain("WHERE Id = '1\\' OR Id != \\''");
     });
+
+    it('reads the root object again by the ids named since, the root among them, and under no parent', () => {
+      // A clone rooted at a price book: a quote read since names another book,
+      // and the book's account is a parent in scope. The second read takes the
+      // two books by id, and none of the account's.
+      const BOOK = '01sXX0000000001AAA';
+      const OTHER_BOOK = '01sXX0000000002AAA';
+      const ACCOUNT_ID = '001XX0000000001AAA';
+      const cache = new RecordScopeCache();
+      cache.add('Pricebook2', [BOOK, OTHER_BOOK]);
+      cache.addRead('Account', [ACCOUNT_ID]);
+      const input = {
+        node: makeNode('Pricebook2'),
+        fields: [lookup('Account__c', 'Account')],
+        selectFields: ['Id', 'Name'],
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Pricebook2',
+            relationshipName: 'Books',
+            type: 'lookup' as const,
+          },
+        ],
+        cache,
+        rootObjectApiName: 'Pricebook2',
+        rootRecordId: BOOK,
+        everyEdge: true,
+      };
+
+      const first = new ScopedSoqlBuilder().build(input);
+      const again = new ScopedSoqlBuilder().build({ ...input, rootReadAgain: true });
+
+      expect(first.statements).toEqual([`SELECT Id, Name FROM Pricebook2 WHERE Id = '${BOOK}'`]);
+      expect(again.statements).toEqual([
+        `SELECT Id, Name FROM Pricebook2 WHERE Id IN ('${BOOK}', '${OTHER_BOOK}')`,
+      ]);
+      expect(again.byIdCount).toBe(1);
+    });
+
+    it('reads the root by its id when read again with nothing cached for its object', () => {
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Pricebook2'),
+        fields: [],
+        selectFields: ['Id'],
+        edges: [],
+        cache: new RecordScopeCache(),
+        rootObjectApiName: 'Pricebook2',
+        rootRecordId: ROOT_ID,
+        rootReadAgain: true,
+      });
+
+      expect(result.scope).toBe('root');
+      expect(result.statements).toEqual([`SELECT Id FROM Pricebook2 WHERE Id = '${ROOT_ID}'`]);
+    });
   });
 
   describe('parent-fk', () => {

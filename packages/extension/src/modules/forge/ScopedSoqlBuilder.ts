@@ -118,6 +118,13 @@ export interface ScopedSoqlBuildOpts {
    * would drop a quote line whose price no line read before had named.
    */
   catalog?: ReadonlySet<string>;
+  /**
+   * The root's object is read a second time, for the rows of it the records
+   * read since name: by the IDs cached for it, the root's among them, rather
+   * than by the root's ID alone. By ID only, as the root is: no row of the
+   * object is read under a parent. Ignored for any other object.
+   */
+  rootReadAgain?: boolean;
 }
 
 /**
@@ -143,7 +150,8 @@ const ZERO_RESULT_WHERE = 'Id = NULL';
  *
  * With `everyEdge`, 2 and 3 are not alternatives: a node with cached IDs is
  * read through its reference fields as well, and the statements of both come
- * back, those by ID first.
+ * back, those by ID first. The root's object, read again (`rootReadAgain`),
+ * is read by its cached IDs alone.
  *
  * If none of the above applies, the query is rewritten to return zero rows
  * (`Id = NULL`) and the result is flagged `scoped: false` so the executor
@@ -169,7 +177,8 @@ export class ScopedSoqlBuilder {
     const reasonSuffix = opts.extraWhere ? ' + extra filter' : '';
     const prefix = `SELECT ${select} FROM ${objectName} WHERE `;
 
-    if (opts.node.objectApiName === opts.rootObjectApiName) {
+    const root = opts.node.objectApiName === opts.rootObjectApiName;
+    if (root && !(opts.rootReadAgain && opts.cache.has(opts.node.objectApiName))) {
       const escapedId = sanitizeSoqlValue(opts.rootRecordId);
       return {
         statements: [`${prefix}Id = '${escapedId}'${extraSuffix}`],
@@ -201,7 +210,7 @@ export class ScopedSoqlBuilder {
       scopeIdCount: ownCount,
       byIdCount: ownStatements.length,
     };
-    if (ownCount > 0 && !opts.everyEdge) return selfCached;
+    if (ownCount > 0 && (!opts.everyEdge || root)) return selfCached;
 
     const fkClauses: InClause[] = [];
     const parentObjectsUsed: string[] = [];

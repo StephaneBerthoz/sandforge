@@ -289,17 +289,155 @@ describe('ForgePlanGenerator', () => {
       expect(plan.cycleResolutions[0].strategy).toBe('nullable_lookup');
     });
 
-    it('should use two_pass strategy when cycle has only master-detail edges', () => {
+    it('says the run cannot break a cycle of master-detail relationships', () => {
+      // Neither side may be left empty, so whichever object is written first
+      // is refused. The plan used to offer a first pass with null references,
+      // which the platform does not take for either of them.
       const graph = makeGraph(
         [makeNode({ objectApiName: 'A', level: 0 }), makeNode({ objectApiName: 'B', level: 0 })],
         [
-          { sourceObject: 'A', targetObject: 'B', relationshipName: 'Bs', type: 'master-detail' },
-          { sourceObject: 'B', targetObject: 'A', relationshipName: 'As', type: 'master-detail' },
+          {
+            sourceObject: 'A',
+            targetObject: 'B',
+            relationshipName: 'Bs',
+            type: 'master-detail',
+            required: true,
+          },
+          {
+            sourceObject: 'B',
+            targetObject: 'A',
+            relationshipName: 'As',
+            type: 'master-detail',
+            required: true,
+          },
         ],
       );
       const plan = generator.generate(graph);
 
-      expect(plan.cycleResolutions[0].strategy).toBe('two_pass');
+      expect(plan.cycleResolutions).toHaveLength(1);
+      expect(plan.cycleResolutions[0].strategy).toBe('unbreakable');
+      expect(plan.cycleResolutions[0].description).toContain('cannot break');
+    });
+
+    it('leaves the optional lookup of a cycle empty, never the required one', () => {
+      // A quote cannot be written without its opportunity, and the
+      // opportunity points back at the quote synced to it. The run writes the
+      // opportunity first and fills in its lookup to the quote in the second
+      // pass; discovery met the quote first, and the plan named no lookup at
+      // all — "inserting with null lookups", the quote's own among them.
+      const graph = makeGraph(
+        [
+          makeNode({ objectApiName: 'Quote', level: 0 }),
+          makeNode({ objectApiName: 'Opportunity', level: 1 }),
+        ],
+        [
+          {
+            sourceObject: 'Opportunity',
+            targetObject: 'Quote',
+            relationshipName: 'Opportunity',
+            type: 'lookup',
+            required: true,
+          },
+          {
+            sourceObject: 'Quote',
+            targetObject: 'Opportunity',
+            relationshipName: 'SyncedQuote',
+            type: 'lookup',
+          },
+        ],
+      );
+      const plan = generator.generate(graph);
+
+      expect(plan.cycleResolutions).toHaveLength(1);
+      const [cycle] = plan.cycleResolutions;
+      expect(cycle.objects).toEqual(['Opportunity', 'Quote']);
+      expect(cycle.strategy).toBe('nullable_lookup');
+      expect(cycle.description).toContain("Opportunity's lookup to Quote");
+      expect(cycle.description).not.toContain("Quote's lookup to Opportunity");
+    });
+
+    it('says a cycle of required lookups cannot be broken', () => {
+      const graph = makeGraph(
+        [makeNode({ objectApiName: 'A', level: 0 }), makeNode({ objectApiName: 'B', level: 0 })],
+        [
+          {
+            sourceObject: 'A',
+            targetObject: 'B',
+            relationshipName: 'A',
+            type: 'lookup',
+            required: true,
+          },
+          {
+            sourceObject: 'B',
+            targetObject: 'A',
+            relationshipName: 'B',
+            type: 'lookup',
+            required: true,
+          },
+        ],
+      );
+      const plan = generator.generate(graph);
+
+      expect(plan.cycleResolutions).toHaveLength(1);
+      expect(plan.cycleResolutions[0].strategy).toBe('unbreakable');
+      expect(plan.cycleResolutions[0].description).toContain('cannot break');
+    });
+
+    it('names the lookups the write order leaves empty, in the order the objects are written', () => {
+      // B cannot be written without A; A and C point at each other's side of
+      // the cycle through optional lookups. The run writes C, then A, then B,
+      // so the one lookup written before its record exists is C's to B.
+      const graph = makeGraph(
+        ['B', 'C', 'A'].map((objectApiName) => makeNode({ objectApiName, level: 0 })),
+        [
+          {
+            sourceObject: 'A',
+            targetObject: 'B',
+            relationshipName: 'A',
+            type: 'lookup',
+            required: true,
+          },
+          { sourceObject: 'B', targetObject: 'C', relationshipName: 'B', type: 'lookup' },
+          { sourceObject: 'C', targetObject: 'A', relationshipName: 'C', type: 'lookup' },
+        ],
+      );
+      const plan = generator.generate(graph);
+
+      expect(plan.cycleResolutions).toHaveLength(1);
+      const [cycle] = plan.cycleResolutions;
+      expect(cycle.objects).toEqual(['C', 'A', 'B']);
+      expect(cycle.strategy).toBe('nullable_lookup');
+      expect(cycle.description).toContain("C's lookup to B");
+      expect(cycle.description).not.toContain("A's lookup to C");
+      expect(cycle.description).not.toContain("B's lookup to A");
+    });
+
+    it('reports no cycle through an object the run leaves out', () => {
+      // Nothing is written for the contact: the account's lookup to it is a
+      // lookup at a record the run does not create, not a cycle to break.
+      const graph = makeGraph(
+        [
+          makeNode({ objectApiName: 'Account', level: 0 }),
+          makeNode({ objectApiName: 'Contact', level: 1, included: false }),
+        ],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'Primary',
+            type: 'lookup',
+          },
+        ],
+      );
+      const plan = generator.generate(graph);
+
+      expect(plan.cycleResolutions).toEqual([]);
     });
   });
 });

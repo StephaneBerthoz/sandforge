@@ -6,12 +6,14 @@
 
 import type {
   ForgeGraph,
+  ForgeGraphEdge,
   ForgeGraphNode,
   ForgePlan,
   ForgeWave,
   ForgeCycleResolution,
 } from '@sandforge/shared';
 import { ForgeBatchStrategy as BatchStrategy } from './ForgeBatchStrategy.js';
+import { sortNodesForWriting } from './stages/ScopeResolver.js';
 
 /**
  * Generates execution plans from Forge dependency graphs.
@@ -181,19 +183,43 @@ export class ForgePlanGenerator {
   }
 
   /**
-   * Detect cycles using Tarjan's SCC algorithm and propose resolutions.
-   * Only SCCs with more than one node are reported as cycles.
+   * Detect the cycles among the objects the run writes, using Tarjan's SCC
+   * algorithm, and say how the run gets through each. Only SCCs with more
+   * than one node are reported as cycles.
+   *
+   * The run writes a cycle in the order `sortNodesForWriting` gives, the
+   * executor's: a lookup whose record comes later in it is left empty at
+   * insert and filled in by the second pass (`CycleFkPatcher`). That holds for
+   * a lookup the record may omit. The order is settled on the ones it may not,
+   * and one of those still pointing at a later record takes its record down:
+   * the insert is refused, and nothing is left for the second pass to fill
+   * in. The plan used to suggest "inserting with null lookups" whatever the
+   * lookups were, named none of them, and offered a first pass with null
+   * references to a cycle of master-detail relationships the platform refuses
+   * at the first insert.
+   *
+   * The order is read from the graph: a run also learns, from the fields it
+   * describes, of required lookups discovery did not walk.
    *
    * @param graph - The graph to analyze.
    * @returns Cycle resolutions with strategy suggestions.
    */
   private detectCycles(graph: ForgeGraph): ForgeCycleResolution[] {
+    // Only the objects the run writes: an object left out writes nothing, so
+    // a lookup at it is not a cycle to break.
+    const included = new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName));
+    const edges = graph.edges.filter(
+      (e) =>
+        e.sourceObject !== e.targetObject &&
+        included.has(e.sourceObject) &&
+        included.has(e.targetObject),
+    );
     // Build adjacency list from edges
     const adj = new Map<string, string[]>();
-    for (const node of graph.nodes) {
-      adj.set(node.objectApiName, []);
+    for (const name of included) {
+      adj.set(name, []);
     }
-    for (const edge of graph.edges) {
+    for (const edge of edges) {
       const list = adj.get(edge.sourceObject);
       if (list) list.push(edge.targetObject);
     }
@@ -273,31 +299,60 @@ export class ForgePlanGenerator {
       }
     };
 
-    for (const node of graph.nodes) {
-      if (!nodeIndex.has(node.objectApiName)) {
-        strongConnect(node.objectApiName);
+    for (const name of included) {
+      if (!nodeIndex.has(name)) {
+        strongConnect(name);
       }
     }
+    if (sccs.length === 0) return [];
 
-    // Convert SCCs to cycle resolutions
-    return sccs.map((objects) => {
-      // Check if any edge in the cycle is nullable (lookup)
-      const hasNullableLookup = graph.edges.some(
+    const position = new Map(
+      sortNodesForWriting(graph).map((node, index) => [node.objectApiName, index]),
+    );
+    const at = (name: string): number => position.get(name) ?? 0;
+    return sccs.map((scc): ForgeCycleResolution => {
+      const members = new Set(scc);
+      const objects = [...scc].sort((a, b) => at(a) - at(b));
+      // The lookups of the cycle written before the record they point at.
+      const early = edges.filter(
         (e) =>
-          objects.includes(e.sourceObject) &&
-          objects.includes(e.targetObject) &&
-          e.type === 'lookup',
+          members.has(e.sourceObject) &&
+          members.has(e.targetObject) &&
+          at(e.targetObject) < at(e.sourceObject),
       );
-
-      const strategy = hasNullableLookup ? 'nullable_lookup' : 'two_pass';
+      const refused = early.filter((e) => e.required === true);
+      if (refused.length > 0) {
+        const children = [...new Set(refused.map((e) => e.targetObject))];
+        const parents = [...new Set(refused.map((e) => e.sourceObject))];
+        const one = children.length === 1;
+        return {
+          objects,
+          strategy: 'unbreakable',
+          description:
+            `The run cannot break this cycle: ${listed(refused.map(lookupOf))} may not be ` +
+            `left empty, and no order writes ${listed(parents)} first. ${listed(children)} ` +
+            `${one ? 'is' : 'are'} refused, and what cannot be written without ` +
+            `${one ? 'it' : 'them'} is skipped.`,
+        };
+      }
       return {
         objects,
-        strategy,
+        strategy: 'nullable_lookup',
         description:
-          strategy === 'nullable_lookup'
-            ? `Break cycle by inserting with null lookups, then updating: ${objects.join(' \u2192 ')}`
-            : `Two-pass insert: first pass with null references, second pass updates: ${objects.join(' \u2192 ')}`,
+          `Written in this order, with ${listed(early.map(lookupOf))} left empty at insert ` +
+          `and filled in by the second pass.`,
       };
     });
   }
+}
+
+/** A lookup as the plan names it: the child's, at the parent. */
+function lookupOf(edge: ForgeGraphEdge): string {
+  return `${edge.targetObject}'s lookup to ${edge.sourceObject}`;
+}
+
+/** Items joined as a sentence lists them: "a", "a and b", "a, b and c". */
+function listed(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }

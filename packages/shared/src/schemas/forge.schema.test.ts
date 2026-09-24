@@ -607,7 +607,7 @@ describe('forgeAnonymizationRulesSchema', () => {
 
 describe('forgeCycleStrategySchema', () => {
   it('should accept all valid cycle strategies', () => {
-    const strategies = ['two_pass', 'upsert_external_id', 'nullable_lookup'];
+    const strategies = ['two_pass', 'upsert_external_id', 'nullable_lookup', 'unbreakable'];
     for (const s of strategies) {
       expect(forgeCycleStrategySchema.parse(s)).toBe(s);
     }

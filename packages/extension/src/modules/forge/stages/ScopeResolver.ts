@@ -250,6 +250,11 @@ export interface NodeQueryInput {
    * `ScopedSoqlBuildOpts.catalog`.
    */
   catalog?: ReadonlySet<string>;
+  /**
+   * The root's object is read a second time (scoped mode). See
+   * `ScopedSoqlBuildOpts.rootReadAgain`.
+   */
+  rootReadAgain?: boolean;
 }
 
 /** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
@@ -340,6 +345,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
       everyEdge: true,
       readObjects: input.readObjects,
       catalog: input.catalog,
+      rootReadAgain: input.rootReadAgain,
     });
     if (!scopeResult.scoped) {
       return { kind: 'skip', reason: scopeResult.reason };

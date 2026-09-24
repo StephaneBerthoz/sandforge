@@ -45,6 +45,7 @@ export const forgeCycleStrategySchema = z.enum([
   'two_pass',
   'upsert_external_id',
   'nullable_lookup',
+  'unbreakable',
 ]);
 
 // ─── Config Schema ──────────────────────────────────────────────────────────

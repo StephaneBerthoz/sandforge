@@ -662,8 +662,16 @@ export type ForgeAnonymizationCategory =
 /** Batch strategy for an object during execution. */
 export type ForgeBatchStrategy = 'rest' | 'bulk' | 'auto';
 
-/** Cycle resolution strategy. */
-export type ForgeCycleStrategy = 'two_pass' | 'upsert_external_id' | 'nullable_lookup';
+/**
+ * Cycle resolution strategy. `unbreakable`: a lookup the record may not leave
+ * empty points at a record no order writes first, so the run cannot get
+ * through the cycle and those records are refused.
+ */
+export type ForgeCycleStrategy =
+  | 'two_pass'
+  | 'upsert_external_id'
+  | 'nullable_lookup'
+  | 'unbreakable';
 
 /** A group of objects that can be processed in parallel. */
 export interface ForgeWave {
