@@ -362,15 +362,28 @@ function frozenOutcome(report: FrozenLoadReport): AuditOutcome {
 
 /**
  * How a load the cancel stopped ended, for the audit trail: never a success,
- * since it did not write the whole dataset; a failure when the org refused
- * every record it was sent, and nothing landed.
+ * since it did not write the whole dataset. Stopped when the cancel came
+ * before it wrote anything and the org had refused nothing — no record
+ * created, none purged — as a run stopped before its first write is recorded;
+ * read as partial, a load that wrote nothing said it had put part of the
+ * dataset in the target. A failure when the org refused every record it was
+ * sent — inserted or purged — and nothing landed.
  */
 function cancelledFrozenOutcome(
-  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders'>,
+  written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
 ): AuditOutcome {
-  const landed = written.perObject.reduce((sum, o) => sum + o.inserted + o.reused, 0);
-  const refused = written.perObject.reduce((sum, o) => sum + o.failed.length, 0);
-  return landed === 0 && written.placeholders.length === 0 && refused > 0 ? 'failure' : 'partial';
+  const total = (counts: Record<string, number>): number =>
+    Object.values(counts).reduce((sum, n) => sum + n, 0);
+  const wrote =
+    written.perObject.reduce((sum, o) => sum + o.inserted, 0) +
+    written.placeholders.length +
+    total(written.purge.deleted) +
+    total(written.purge.deactivated);
+  const refused =
+    written.perObject.reduce((sum, o) => sum + o.failed.length, 0) + written.purge.failures.length;
+  if (wrote === 0 && refused === 0) return 'stopped';
+  const reused = written.perObject.reduce((sum, o) => sum + o.reused, 0);
+  return wrote + reused === 0 ? 'failure' : 'partial';
 }
 
 /**
@@ -1341,6 +1354,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       outcome: AuditOutcome,
       objects?: AuditObjectCounts[],
       carried?: Record<string, number>,
+      code?: string,
     ): void => {
       if (recorded) return;
       recorded = true;
@@ -1354,6 +1368,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         objects,
         source: { origin: 'dataset', label: datasetLabel },
         carried,
+        ...(code ? { code } : {}),
       });
     };
 
@@ -1471,7 +1486,17 @@ export class FrozenDatasetHandler implements DomainHandler {
         // wrote, aborted in the registry — already, when the cancel came
         // through it — and posted as a completion that says so. The page
         // hears it on the load's error channel, which settles its request.
-        recordLoad(cancelledFrozenOutcome(err.written), frozenAuditObjects(err.written));
+        // Stopped before it wrote, it is recorded as a run a check of its own
+        // stopped before it started, under the code that names why: no
+        // decision of Production Guard's, it stays in the trail when those
+        // are not kept.
+        const outcome = cancelledFrozenOutcome(err.written);
+        recordLoad(
+          outcome,
+          frozenAuditObjects(err.written),
+          undefined,
+          outcome === 'stopped' ? 'LOAD_CANCELLED' : undefined,
+        );
         this.registry?.abort(operationId);
         sendOperationCompleted(this.deps, operationId, { aborted: true });
         this.liveTracker?.cancel(operationId);
@@ -1541,6 +1566,34 @@ export class FrozenDatasetHandler implements DomainHandler {
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      // The sas first: the last load's contract is in the sas it wrote to,
+      // and still there unless that sas was moved, emptied or replaced. With
+      // `sasDir` set to another since, every refusal below described that
+      // other sas's mapping — a refresh, a removal, no mapping at all — and a
+      // sas moved there rather than copied ended on the contract it took with
+      // it, as a file that could not be read.
+      const sasChanged = lastRun.contractPath !== countingContractPath(guard, sasDir);
+      const contractThere = await pathExists(lastRun.contractPath);
+      if (sasChanged || !contractThere) {
+        const loadSas = path.dirname(lastRun.contractPath);
+        let message: string;
+        if (!sasChanged) {
+          message = `The sas changed since the last load: ${sasDir} no longer holds the counting contract the last load wrote there. Load the dataset again, then verify.`;
+        } else if (contractThere) {
+          message = `The sas directory changed since the last load: its counting contract is in ${loadSas}, and the mapping read is the one in ${sasDir}. Set sasDir back to the sas the load wrote to, or load the dataset again, then verify.`;
+        } else {
+          message = `The sas directory changed since the last load: the load wrote to ${loadSas}, which no longer holds its counting contract, and the mapping read is the one in ${sasDir}. Move the sas back to ${loadSas} and set sasDir to it, or load the dataset again, then verify.`;
+        }
+        sendHandlerError(
+          this.deps,
+          'frozen:verify',
+          'frozen:verify:error',
+          msg,
+          new Error(message),
+          { code: 'SAS_CHANGED' },
+        );
+        return;
+      }
       const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
       // Verified against a sandbox refreshed since the load, every record
       // would read as missing, and the verdict would blame the load.
@@ -1593,21 +1646,15 @@ export class FrozenDatasetHandler implements DomainHandler {
       // records were judged by the contract of the load before, and the
       // verdict was written into the manifest.
       if (!contractCountsLoad(readCountingContract(guard, lastRun.contractPath), last)) {
-        // The last load's contract is in the sas it wrote to. With `sasDir`
-        // set to another since, the mapping read is that one's, and the
-        // refusal blamed a load that had stopped part way.
-        const sasChanged = lastRun.contractPath !== countingContractPath(guard, sasDir);
         sendHandlerError(
           this.deps,
           'frozen:verify',
           'frozen:verify:error',
           msg,
           new Error(
-            sasChanged
-              ? `The sas directory changed since the last load: its counting contract is in ${path.dirname(lastRun.contractPath)}, and the mapping read is the one in ${sasDir}. Set sasDir back to the sas the load wrote to, or load the dataset again, then verify.`
-              : 'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
+            'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
           ),
-          { code: sasChanged ? 'SAS_CHANGED' : 'LOAD_STOPPED' },
+          { code: 'LOAD_STOPPED' },
         );
         return;
       }

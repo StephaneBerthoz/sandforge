@@ -2966,7 +2966,14 @@
       "excludedObjects": "Objetos não carregados",
       "untypedFeedItems": "Deixados de fora no carregamento — o conjunto de dados não traz o tipo destes itens de feed, ou daqueles de que dependem, então uma alteração rastreada não se distingue de uma publicação; extraia novamente o conjunto de dados para carregá-los: {{objects}}",
       "failedReasons": "Por que os registros falharam",
-      "statusCode": "Código de status"
+      "statusCode": "Código de status",
+      "purge": {
+        "title": "O que a recarga expurgou das cargas anteriores",
+        "deleted": "Excluídos",
+        "deactivated": "Desativados",
+        "leftUnrecorded": "Mantidos no lugar — uma carga registrada antes de as cargas guardarem o que criam pode tê-los vinculado: {{objects}}",
+        "failedReasons": "Por que registros não puderam ser expurgados"
+      }
     },
     "removal": {
       "title": "Última carga",
@@ -2989,6 +2996,7 @@
     },
     "coverage": {
       "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",
+      "truncatedRaised": "A descoberta parou em {{objects}} objetos com um limite de {{maxNodes}} (elevado para os pais sem os quais seus registros não podem ser gravados): objetos mais distantes da raiz não foram lidos, então este conjunto pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",
       "unbounded": "Lidos sem o limite de data, por não terem CreatedDate: {{objects}}",
       "filesLeftOut": "Deixados de fora — seus arquivos não podem ser pseudonimizados sem uma regra keep aprovada: {{objects}}",
       "leftToThePlatform": "Deixados de fora — a própria plataforma grava estes registros, ou aquilo de que dependem: {{objects}}",

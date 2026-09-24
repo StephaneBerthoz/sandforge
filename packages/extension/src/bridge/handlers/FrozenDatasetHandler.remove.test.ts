@@ -15,6 +15,8 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { writeCountingContract } from '../../modules/frozendataset/CountingContract.js';
+import { SasPathGuard } from '../../modules/frozendataset/SasPathGuard.js';
 import { SasReferenceIdMappingStore } from '../../modules/frozendataset/SasReferenceIdMappingStore.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
@@ -712,7 +714,15 @@ describe('frozen:remove', () => {
       store.set(
         'frozen:lastRun',
         {
-          contractPath: path.join(sasDir, 'contract.json'),
+          // The contract the load wrote beside its mapping: a removal leaves it.
+          contractPath: writeCountingContract(new SasPathGuard(), sasDir, {
+            version: 1,
+            orgId: TARGET_ORG,
+            datasetVersion: '1.0.0',
+            writtenAt: LOAD_ENDED,
+            loadStartedAt: LOAD_STARTED,
+            objects: {},
+          }),
           datasetDir: path.join(sasDir, 'dataset'),
           manifestPath: path.join(sasDir, 'dataset', 'manifest.json'),
           targetOrgId: TARGET_ORG,

@@ -601,6 +601,56 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
 };
 
 /**
+ * A reload's report: what its purge took of the earlier loads — deleted, or
+ * deactivated — what it left in place of a load recorded before loads kept
+ * what they created, and what the target would not let it purge, by why.
+ */
+const FROZEN_RELOAD_REPORT_WITH_PURGE = {
+  status: 'completed-with-errors',
+  orgId: QA_SANDBOX.id,
+  mode: { pilot: false, reload: true },
+  startedAt: '2026-09-21T11:00:00.000Z',
+  durationMs: 9_000,
+  alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+  placeholders: [],
+  requiredDefaults: [],
+  perObject: [
+    {
+      objectApiName: 'Opportunity',
+      fromFiles: 1,
+      inserted: 1,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [],
+    },
+  ],
+  pass2: { resolved: 0, unresolved: [] },
+  personContact: { restored: 0, unresolved: [] },
+  statuses: { restored: 0, refused: [] },
+  purge: {
+    deleted: { Contact: 2, Account: 1 },
+    deactivated: { Product2: 1 },
+    failures: [
+      ...['500000000000001AAA', '500000000000002AAA'].map((recordId) => ({
+        objectApiName: 'Case',
+        recordId,
+        errors: ['DELETE_FAILED: Your attempt to delete this record failed'],
+      })),
+      {
+        objectApiName: 'Order',
+        recordId: '801000000000001AAA',
+        errors: [
+          'Status set to Draft for the purge, and left there: Activated could not be given back — INVALID_STATUS',
+        ],
+      },
+    ],
+    leftUnrecorded: { Account: 3 },
+  },
+  mappingPath: '/home/qa/.sandforge-sas/referenceid-mapping.json',
+  contractPath: '/home/qa/.sandforge-sas/counting-contract.json',
+};
+
+/**
  * Assert zero axe violations, with a formatted error message on failure.
  */
 function expectNoViolations(results: Awaited<ReturnType<typeof checkAccessibility>>): void {
@@ -3899,6 +3949,39 @@ for (const theme of STATE_THEMES) {
       });
       await page
         .getByTestId('frozen-report-untyped-feed-items')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset reload report naming what its purge took, left and could not take', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-load-reload').check();
+      await page.getByTestId('frozen-load-run').click();
+      await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      // Per object, what the purge deleted and deactivated; what it left of a
+      // load that did not say what it created; and its refusals, grouped by why.
+      await answerAll(page, 'frozen:load', 'frozen:load:response', {
+        report: FROZEN_RELOAD_REPORT_WITH_PURGE,
+      });
+      const purge = page.getByTestId('frozen-report-purge');
+      await expect(purge.locator('table').first().locator('tbody tr')).toHaveCount(3, {
+        timeout: 10_000,
+      });
+      await expect(
+        page.getByTestId('frozen-report-purge-failures').locator('tbody tr'),
+      ).toHaveCount(2, { timeout: 10_000 });
+      await page
+        .getByTestId('frozen-report-purge-left')
         .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);

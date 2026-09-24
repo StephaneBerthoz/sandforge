@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { FrozenPerObjectLoadResult } from '@sandforge/shared';
-import { failureReasons } from './frozenFailureReasons';
+import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 
 /** One object's results, with its failed records' errors. */
 function failedOf(objectApiName: string, errors: string[][]): FrozenPerObjectLoadResult {
@@ -92,5 +92,52 @@ describe('failureReasons', () => {
 
   it('says nothing of a load where no record failed', () => {
     expect(failureReasons([{ ...failedOf('Account', []), inserted: 3, fromFiles: 3 }])).toEqual([]);
+  });
+});
+
+describe('purgeFailureReasons', () => {
+  it("groups what a reload's purge could not purge by object, status code and message, the most frequent first", () => {
+    const reasons = purgeFailureReasons([
+      {
+        objectApiName: 'Order',
+        recordId: '801000000000001AAA',
+        errors: [
+          'DELETE_FAILED: Your attempt to delete this record failed',
+          'Status set to Draft for the purge, and left there: Activated could not be given back — INVALID_STATUS',
+        ],
+      },
+      ...['500000000000001AAA', '500000000000002AAA'].map((recordId) => ({
+        objectApiName: 'Case',
+        recordId,
+        errors: ['DELETE_FAILED: Your attempt to delete this record failed'],
+      })),
+    ]);
+
+    expect(reasons).toEqual([
+      {
+        objectApiName: 'Case',
+        statusCode: 'DELETE_FAILED',
+        message: 'Your attempt to delete this record failed',
+        count: 2,
+      },
+      {
+        objectApiName: 'Order',
+        statusCode: 'DELETE_FAILED',
+        message: 'Your attempt to delete this record failed',
+        count: 1,
+      },
+      {
+        // The purge's own words, under no code: the order stays a draft.
+        objectApiName: 'Order',
+        statusCode: '',
+        message:
+          'Status set to Draft for the purge, and left there: Activated could not be given back — INVALID_STATUS',
+        count: 1,
+      },
+    ]);
+  });
+
+  it('says nothing of a purge the target refused nothing of', () => {
+    expect(purgeFailureReasons([])).toEqual([]);
   });
 });

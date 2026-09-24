@@ -2966,7 +2966,14 @@
       "excludedObjects": "Objects not loaded",
       "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
       "failedReasons": "Why records failed",
-      "statusCode": "Status code"
+      "statusCode": "Status code",
+      "purge": {
+        "title": "What the reload purged of earlier loads",
+        "deleted": "Deleted",
+        "deactivated": "Deactivated",
+        "leftUnrecorded": "Left in place — a load recorded before loads kept what they created may have linked them: {{objects}}",
+        "failedReasons": "Why records could not be purged"
+      }
     },
     "removal": {
       "title": "Last load",
@@ -2989,6 +2996,7 @@
     },
     "coverage": {
       "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
+      "truncatedRaised": "Discovery stopped at {{objects}} objects at a cap of {{maxNodes}} (raised for the parents their records cannot be written without): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",
       "unbounded": "Read without the date bound, having no CreatedDate: {{objects}}",
       "filesLeftOut": "Left out — their files cannot be pseudonymized without an approved keep rule: {{objects}}",
       "leftToThePlatform": "Left out — the platform writes these records, or what they depend on, itself: {{objects}}",

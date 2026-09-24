@@ -51,9 +51,17 @@ export const FrozenCoverageNotes: React.FC<FrozenCoverageNotesProps> = ({
   }
   return (
     <ul className="flex flex-col gap-0.5" data-testid={testId}>
+      {/* Discovery raises its cap, up to twice it, for the parents a record
+          cannot be written without: past the cap, the note says why, where
+          "400 objects (cap 200)" read as a cap that did not hold. */}
       {truncated && graph && (
         <li className="text-[11px] text-status-warning">
-          {t('frozen.coverage.truncated', { objects: graph.objects, maxNodes: graph.maxNodes })}
+          {t(
+            graph.objects > graph.maxNodes
+              ? 'frozen.coverage.truncatedRaised'
+              : 'frozen.coverage.truncated',
+            { objects: graph.objects, maxNodes: graph.maxNodes },
+          )}
         </li>
       )}
       {unboundedObjects.length > 0 && (

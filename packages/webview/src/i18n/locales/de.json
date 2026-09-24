@@ -2966,7 +2966,14 @@
       "excludedObjects": "Nicht geladene Objekte",
       "untypedFeedItems": "Beim Laden ausgelassen — der Datensatz enthält den Typ dieser Feed-Elemente oder derer, von denen sie abhängen, nicht, sodass sich eine nachverfolgte Änderung nicht von einem Beitrag unterscheiden lässt; extrahieren Sie den Datensatz erneut, um sie zu laden: {{objects}}",
       "failedReasons": "Warum Datensätze fehlgeschlagen sind",
-      "statusCode": "Statuscode"
+      "statusCode": "Statuscode",
+      "purge": {
+        "title": "Was das Neuladen von früheren Ladevorgängen bereinigt hat",
+        "deleted": "Gelöscht",
+        "deactivated": "Deaktiviert",
+        "leftUnrecorded": "Belassen — ein Ladevorgang von vor der Zeit, als Ladevorgänge festhielten, was sie erstellen, kann mit ihnen verknüpft haben: {{objects}}",
+        "failedReasons": "Warum Datensätze nicht bereinigt werden konnten"
+      }
     },
     "removal": {
       "title": "Letzter Ladevorgang",
@@ -2989,6 +2996,7 @@
     },
     "coverage": {
       "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
+      "truncatedRaised": "Die Erkennung endete bei {{objects}} Objekten mit einer Grenze von {{maxNodes}} (angehoben für die übergeordneten Objekte, ohne die ihre Datensätze nicht geschrieben werden können): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieser Datensatz kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",
       "unbounded": "Ohne Datumsgrenze gelesen, da kein CreatedDate vorhanden: {{objects}}",
       "filesLeftOut": "Ausgelassen — ihre Dateien lassen sich ohne genehmigte keep-Regel nicht pseudonymisieren: {{objects}}",
       "leftToThePlatform": "Ausgelassen — diese Datensätze oder das, wovon sie abhängen, schreibt die Plattform selbst: {{objects}}",

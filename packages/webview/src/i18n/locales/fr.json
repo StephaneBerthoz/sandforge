@@ -2966,7 +2966,14 @@
       "excludedObjects": "Objets non chargés",
       "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}",
       "failedReasons": "Pourquoi des enregistrements ont échoué",
-      "statusCode": "Code de statut"
+      "statusCode": "Code de statut",
+      "purge": {
+        "title": "Ce que le rechargement a purgé des chargements précédents",
+        "deleted": "Supprimés",
+        "deactivated": "Désactivés",
+        "leftUnrecorded": "Laissés en place — un chargement enregistré avant que les chargements gardent ce qu'ils créent a pu s'y lier : {{objects}}",
+        "failedReasons": "Pourquoi des enregistrements n'ont pas pu être purgés"
+      }
     },
     "removal": {
       "title": "Dernier chargement",
@@ -2989,6 +2996,7 @@
     },
     "coverage": {
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
+      "truncatedRaised": "La découverte s'est arrêtée à {{objects}} objets pour un plafond de {{maxNodes}} (relevé pour les parents sans lesquels leurs enregistrements ne peuvent pas être écrits) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",
       "unbounded": "Lus sans la borne de date, faute de CreatedDate : {{objects}}",
       "filesLeftOut": "Laissés de côté — leurs fichiers ne peuvent pas être pseudonymisés sans règle keep approuvée : {{objects}}",
       "leftToThePlatform": "Laissés de côté — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",

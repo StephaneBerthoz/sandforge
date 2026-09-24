@@ -2966,7 +2966,14 @@
       "excludedObjects": "Objetos no cargados",
       "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}",
       "failedReasons": "Por qué fallaron los registros",
-      "statusCode": "Código de estado"
+      "statusCode": "Código de estado",
+      "purge": {
+        "title": "Lo que la recarga purgó de las cargas anteriores",
+        "deleted": "Eliminados",
+        "deactivated": "Desactivados",
+        "leftUnrecorded": "Dejados en su sitio — una carga registrada antes de que las cargas guardaran lo que crean pudo haberlos vinculado: {{objects}}",
+        "failedReasons": "Por qué no se pudieron purgar registros"
+      }
     },
     "removal": {
       "title": "Última carga",
@@ -2989,6 +2996,7 @@
     },
     "coverage": {
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
+      "truncatedRaised": "El descubrimiento se detuvo en {{objects}} objetos con un límite de {{maxNodes}} (elevado para los padres sin los que sus registros no se pueden escribir): los objetos más alejados de la raíz no se leyeron, así que a este conjunto pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",
       "unbounded": "Leídos sin el límite de fecha, por no tener CreatedDate: {{objects}}",
       "filesLeftOut": "Excluidos — sus archivos no se pueden seudonimizar sin una regla keep aprobada: {{objects}}",
       "leftToThePlatform": "Excluidos — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",

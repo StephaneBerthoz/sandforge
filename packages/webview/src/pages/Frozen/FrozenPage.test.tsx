@@ -501,6 +501,88 @@ describe('FrozenPage', () => {
     render(<FrozenPage />);
     expect(screen.getByTestId('frozen-load-report')).toBeDefined();
     expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
+    // A load without Reload purges nothing, and says nothing of a purge.
+    expect(screen.queryByTestId('frozen-report-purge')).toBeNull();
+  });
+
+  it('says what a reload purged of earlier loads, what it left in place, and why the target kept the rest', () => {
+    // A reload whose only errors were in its purge read "Completed with
+    // errors" over a report that named none: the purge was counted nowhere.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: true },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Case',
+            fromFiles: 2,
+            inserted: 2,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [],
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: {
+          deleted: { Contact: 2, Account: 1 },
+          deactivated: { Product2: 1 },
+          failures: [
+            ...['500000000000001AAA', '500000000000002AAA'].map((recordId) => ({
+              objectApiName: 'Case',
+              recordId,
+              errors: ['DELETE_FAILED: Your attempt to delete this record failed'],
+            })),
+            {
+              objectApiName: 'Order',
+              recordId: '801000000000001AAA',
+              errors: [
+                'Status set to Draft for the purge, and left there: Activated could not be given back — INVALID_STATUS',
+              ],
+            },
+          ],
+          leftUnrecorded: { Account: 3 },
+        },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+
+    const purge = screen.getByTestId('frozen-report-purge');
+    expect(purge.textContent).toContain('What the reload purged of earlier loads');
+    const rowsOf = (table: Element): Array<Array<string | null>> =>
+      Array.from(table.querySelectorAll('tbody tr')).map((row) =>
+        Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+      );
+    const [purged] = Array.from(purge.querySelectorAll('table'));
+    expect(rowsOf(purged)).toEqual([
+      ['Contact', '2', '0'],
+      ['Account', '1', '0'],
+      ['Product2', '0', '1'],
+    ]);
+    expect(screen.getByTestId('frozen-report-purge-left').textContent).toContain('Account (3)');
+    const failures = screen.getByTestId('frozen-report-purge-failures');
+    expect(failures.textContent).toContain('Why records could not be purged');
+    expect(rowsOf(failures)).toEqual([
+      ['Case', 'DELETE_FAILED', 'Your attempt to delete this record failed', '2'],
+      [
+        'Order',
+        '—',
+        'Status set to Draft for the purge, and left there: Activated could not be given back — INVALID_STATUS',
+        '1',
+      ],
+    ]);
+    // Records of earlier loads, not of this dataset: the load's own failures stay apart.
+    expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
   });
 
   it('renders the load report with removals and skipped duplicates', () => {

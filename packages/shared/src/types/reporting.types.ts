@@ -43,9 +43,10 @@ export type AuditAction =
   | 'cleanup_delete';
 
 /**
- * How a recorded run ended. `stopped` is a run Production Guard stopped before
- * it wrote anything — refused by the guard, or declined at its confirmation;
- * the entry's `guard` says which.
+ * How a recorded run ended. `stopped` is a run stopped before it wrote
+ * anything: by Production Guard — refused by the guard, or declined at its
+ * confirmation, which the entry's `guard` says — or by a check of its own path
+ * or a cancel, which the entry's `details.code` names.
  */
 export type AuditOutcome = 'success' | 'partial' | 'failure' | 'stopped';
 

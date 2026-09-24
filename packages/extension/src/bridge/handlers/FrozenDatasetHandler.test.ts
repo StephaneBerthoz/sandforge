@@ -765,6 +765,127 @@ describe('FrozenDatasetHandler', () => {
         ]);
       });
 
+      describe('a load the cancel stopped before it wrote', () => {
+        /** A reload the cancel stops as the loader stops it, with what it had done by then. */
+        async function cancelledReload(
+          written: ConstructorParameters<typeof FrozenLoadCancelledError>[0],
+          auditLogging = true,
+        ): Promise<ConfigStore> {
+          const { config } = writeDataset();
+          const store = wire(config);
+          deps.services = {
+            getSandforgeSetting: <T>(key: string, fallback: T): T =>
+              key === 'safety.auditLogging' ? (auditLogging as T) : fallback,
+          } as unknown as HandlerDeps['services'];
+          const registry = new BackgroundOperationRegistry();
+          handler.setRegistry(registry);
+          loaderLoad.mockImplementation(async () => {
+            registry.abort(registry.getRunning()[0].operationId);
+            throw new FrozenLoadCancelledError(written, false);
+          });
+          await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', reload: true }));
+          return store;
+        }
+
+        const nothing = { deleted: {}, deactivated: {}, failures: [] };
+
+        it('is recorded as stopped, under the code the page heard', async () => {
+          // Recorded as partial, the trail said a load that wrote nothing had
+          // put part of the dataset in the target.
+          const store = await cancelledReload({ perObject: [], placeholders: [], purge: nothing });
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({
+              action: 'frozen_load',
+              outcome: 'stopped',
+              objects: [],
+              details: { code: 'LOAD_CANCELLED' },
+            }),
+          ]);
+          expect(posted(deps, 'frozen:load:error')[0].payload).toMatchObject({
+            code: 'LOAD_CANCELLED',
+          });
+        });
+
+        it('is recorded as stopped when it had only found records the target already held', async () => {
+          // What a reload finds again is linked, not written, and a load that
+          // wrote nothing keeps no mapping of its own: nothing of it stays.
+          const store = await cancelledReload({
+            perObject: [
+              {
+                objectApiName: 'Account',
+                fromFiles: 2,
+                inserted: 0,
+                reused: 2,
+                skippedDuplicates: [],
+                failed: [],
+              },
+            ],
+            placeholders: [],
+            purge: nothing,
+          });
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({ outcome: 'stopped', details: { code: 'LOAD_CANCELLED' } }),
+          ]);
+        });
+
+        it('is recorded even when Production Guard decisions are not kept: the cancel is no decision of the guard', async () => {
+          const store = await cancelledReload(
+            { perObject: [], placeholders: [], purge: nothing },
+            false,
+          );
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({ outcome: 'stopped', details: { code: 'LOAD_CANCELLED' } }),
+          ]);
+        });
+
+        it('is recorded as failed when the target refused every record its purge sent', async () => {
+          // The purge's deletes are writes too: refused, they left nothing
+          // purged, and the trail said the load had done part of its work.
+          const store = await cancelledReload({
+            perObject: [],
+            placeholders: [],
+            purge: {
+              deleted: {},
+              deactivated: {},
+              failures: [
+                {
+                  objectApiName: 'Case',
+                  recordId: '500000000000001AAA',
+                  errors: ['DELETE_FAILED: Your attempt to delete this record failed'],
+                },
+              ],
+            },
+          });
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({
+              outcome: 'failure',
+              objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 0, failed: 1 })],
+              details: {},
+            }),
+          ]);
+        });
+
+        it('is recorded as partial once its purge deleted a record', async () => {
+          const store = await cancelledReload({
+            perObject: [],
+            placeholders: [],
+            purge: { deleted: { Case: 2 }, deactivated: {}, failures: [] },
+          });
+
+          expect(new AuditTrailStore(store).list().entries).toEqual([
+            expect.objectContaining({
+              outcome: 'partial',
+              objects: [expect.objectContaining({ objectApiName: 'Case', deleted: 2 })],
+              details: {},
+            }),
+          ]);
+        });
+      });
+
       describe('its end, in Live Operations and the recent operations', () => {
         let tracker: LiveOperationTracker;
         let registry: BackgroundOperationRegistry;
@@ -975,9 +1096,18 @@ describe('FrozenDatasetHandler', () => {
       }
 
       async function verifyAfterLoad(): Promise<Array<Record<string, unknown>>> {
-        deps = createMockDeps(await loadedConfig());
+        const config = await loadedConfig();
+        deps = createMockDeps(config);
         deps.configStore.set('frozen:lastRun', {
-          contractPath: '/nowhere/contract.json',
+          // The contract the load wrote beside its mapping, in the sas the
+          // configuration names.
+          contractPath: writeCountingContract(new SasPathGuard(), config.sasDir ?? '', {
+            version: 1,
+            orgId: 'org-2',
+            datasetVersion: '1.0.0',
+            writtenAt: '2026-09-01T08:00:00.000Z',
+            objects: {},
+          }),
           datasetDir: path.join(os.tmpdir(), 'sandforge-frozen-no-dataset'),
           manifestPath: '/nowhere/manifest.json',
           targetOrgId: 'org-2',
@@ -1132,6 +1262,133 @@ describe('FrozenDatasetHandler', () => {
             `and the mapping read is the one in ${other}`,
         );
         expect(posted(deps, 'frozen:verify:result')).toEqual([]);
+      });
+
+      describe('with sasDir set to another sas since', () => {
+        /** A new sas, which `sasDir` now names. */
+        function pointedAtAnotherSas(): string {
+          const other = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-other-'));
+          tmpDirs.push(other);
+          deps.configStore.set('frozen:config', { ...createMockConfig(), sasDir: other });
+          return other;
+        }
+
+        /** The verification's one refusal, and whether it asked the target anything first. */
+        async function refusal(): Promise<{ code: unknown; message: string; askedOrg: boolean }> {
+          await verify();
+          const errors = posted(deps, 'frozen:verify:error');
+          expect(errors).toHaveLength(1);
+          expect(posted(deps, 'frozen:verify:result')).toEqual([]);
+          return {
+            code: errors[0].payload.code,
+            message: String(errors[0].payload.message),
+            askedOrg: vi.mocked(getJsforceConnection).mock.calls.length > 0,
+          };
+        }
+
+        it('says so before the other sas says its target was refreshed', async () => {
+          // The other sas's mapping was written into an org the target no
+          // longer is: the refusal blamed a refresh for what a folder change did.
+          const { sasDir } = await endedLoad();
+          const other = pointedAtAnotherSas();
+          await new SasReferenceIdMappingStore(other, {
+            orgId: 'org-2',
+            organizationId: '00DXX00000AbCdE2A1',
+          }).persist(new Map([['Account-000001', '001XX00000FgHiJAAA']]));
+          vi.mocked(getJsforceConnection).mockResolvedValue({
+            query: async () => ({
+              records: [{ attributes: { type: 'Organization' }, Id: '00Dxx00000FgHiJ3B2' }],
+              done: true,
+              totalSize: 1,
+            }),
+          } as never);
+
+          const { code, message, askedOrg } = await refusal();
+
+          expect(code).toBe('SAS_CHANGED');
+          expect(message).toContain(`its counting contract is in ${sasDir}`);
+          expect(askedOrg).toBe(false);
+        });
+
+        it('says so before the other sas says its last load was removed', async () => {
+          await endedLoad();
+          const other = pointedAtAnotherSas();
+          const store = new SasReferenceIdMappingStore(other, { orgId: 'org-2' });
+          await store.persist(new Map([['Account-000001', '001XX00000FgHiJAAA']]), {
+            created: [{ objectApiName: 'Account', referenceIds: ['Account-000001'] }],
+            startedAt: new Date(STOPPED_STARTED),
+          });
+          const endedAt = (await store.recorded())?.endedAt ?? '';
+          await store.recordRemoval(endedAt, {
+            gone: ['001XX00000FgHiJAAA'],
+            stamps: {},
+            mark: {
+              removedAt: '2026-09-24T12:00:00.000Z',
+              deleted: 1,
+              alreadyGone: 0,
+              kept: 0,
+              refused: 0,
+            },
+          });
+
+          const { code, message } = await refusal();
+
+          expect(code).toBe('SAS_CHANGED');
+          expect(message).toContain(`the mapping read is the one in ${other}`);
+        });
+
+        it('says so before saying the other sas holds no mapping', async () => {
+          await endedLoad();
+          pointedAtAnotherSas();
+
+          const { code } = await refusal();
+
+          expect(code).toBe('SAS_CHANGED');
+        });
+
+        it('says the sas the load wrote to no longer holds its contract when the sas was moved there', async () => {
+          // Moved rather than copied, the sas took the load's contract with it:
+          // read where the load had written it, the contract was a file that
+          // could not be found, and the verification failed on it.
+          const { sasDir } = await endedLoad();
+          const moved = path.join(
+            fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-moved-')),
+            'sas',
+          );
+          tmpDirs.push(path.dirname(moved));
+          fs.renameSync(sasDir, moved);
+          deps.configStore.set('frozen:config', { ...createMockConfig(), sasDir: moved });
+
+          const { code, message, askedOrg } = await refusal();
+
+          expect(code).toBe('SAS_CHANGED');
+          expect(message).toContain(
+            `The sas directory changed since the last load: the load wrote to ${sasDir}, which ` +
+              `no longer holds its counting contract, and the mapping read is the one in ${moved}.`,
+          );
+          expect(message).not.toContain('ENOENT');
+          expect(askedOrg).toBe(false);
+        });
+      });
+
+      it('reads a contract gone from the sas the load wrote to as the sas having changed, not as a file error', async () => {
+        const { sasDir } = await endedLoad();
+        fs.rmSync(path.join(sasDir, 'counting-contract.json'));
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query: async () => ({ records: [], done: true, totalSize: 1 }),
+        } as never);
+
+        await verify();
+
+        const errors = posted(deps, 'frozen:verify:error');
+        expect(errors.map((error) => error.payload.code)).toEqual(['SAS_CHANGED']);
+        expect(String(errors[0].payload.message)).toContain(
+          `${sasDir} no longer holds the counting contract the last load wrote there`,
+        );
+        expect(String(errors[0].payload.message)).not.toContain('ENOENT');
+        expect(posted(deps, 'frozen:verify:result')).toEqual([]);
+        // Told before the mapping of what the sas holds now is read against the target.
+        expect(getJsforceConnection).not.toHaveBeenCalled();
       });
 
       it('goes on to verify the load its contract counts', async () => {

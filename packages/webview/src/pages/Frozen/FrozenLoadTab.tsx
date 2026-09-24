@@ -18,7 +18,8 @@ import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
-import { failureReasons } from './frozenFailureReasons';
+import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
+import type { FrozenFailureReason } from './frozenFailureReasons';
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -32,6 +33,32 @@ function sumPerObject(
   pick: (o: FrozenLoadReportInfo['perObject'][number]) => number,
 ): number {
   return report.perObject.reduce((sum, o) => sum + pick(o), 0);
+}
+
+/** The rows of a table of failure reasons, one per object, status code and message. */
+function reasonRows(reasons: readonly FrozenFailureReason[]): Array<Record<string, unknown>> {
+  return reasons.map((reason) => ({
+    key: `${reason.objectApiName}\u0000${reason.statusCode}\u0000${reason.message}`,
+    object: reason.objectApiName,
+    statusCode: reason.statusCode,
+    message: reason.message,
+    count: reason.count,
+  }));
+}
+
+/**
+ * Per object, what a reload purged of the records earlier loads created —
+ * deleted, or deactivated where the configuration names a field for it — in
+ * the order the purge reached them.
+ */
+function purgedRows(purge: FrozenLoadReportInfo['purge']): Array<Record<string, unknown>> {
+  const objects = new Set([...Object.keys(purge.deleted), ...Object.keys(purge.deactivated)]);
+  return [...objects].map((objectApiName) => ({
+    key: objectApiName,
+    object: objectApiName,
+    deleted: purge.deleted[objectApiName] ?? 0,
+    deactivated: purge.deactivated[objectApiName] ?? 0,
+  }));
 }
 
 /**
@@ -123,13 +150,31 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   );
 
   // Why the failed records failed: the count said how many, and nothing why.
-  const failureRows = failureReasons(loadReport?.perObject ?? []).map((reason) => ({
-    key: `${reason.objectApiName}\u0000${reason.statusCode}\u0000${reason.message}`,
-    object: reason.objectApiName,
-    statusCode: reason.statusCode,
-    message: reason.message,
-    count: reason.count,
-  }));
+  const failureRows = reasonRows(failureReasons(loadReport?.perObject ?? []));
+
+  // What a reload purged of the loads before it, what it left in place, and
+  // why the target kept what it would not let go. Shown nowhere, a reload
+  // whose only errors were in its purge read "Completed with errors" over a
+  // report that named none.
+  const purgeRows = loadReport ? purgedRows(loadReport.purge) : [];
+  const purgeFailureRows = reasonRows(purgeFailureReasons(loadReport?.purge.failures ?? []));
+  const leftUnrecorded = Object.entries(loadReport?.purge.leftUnrecorded ?? {});
+
+  const reasonColumns = [
+    { key: 'object', header: t('frozen.control.object'), sortable: true },
+    {
+      key: 'statusCode',
+      header: t('frozen.report.statusCode'),
+      render: (row: Record<string, unknown>) =>
+        row.statusCode ? <code className="font-mono">{String(row.statusCode)}</code> : '—',
+    },
+    { key: 'message', header: t('frozen.report.reason') },
+    {
+      key: 'count',
+      header: t('frozen.report.affected'),
+      align: 'right' as const,
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
@@ -340,25 +385,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     {t('frozen.report.failedReasons')}
                   </span>
                   <DataTable
-                    columns={[
-                      { key: 'object', header: t('frozen.control.object'), sortable: true },
-                      {
-                        key: 'statusCode',
-                        header: t('frozen.report.statusCode'),
-                        render: (row: Record<string, unknown>) =>
-                          row.statusCode ? (
-                            <code className="font-mono">{String(row.statusCode)}</code>
-                          ) : (
-                            '—'
-                          ),
-                      },
-                      { key: 'message', header: t('frozen.report.reason') },
-                      {
-                        key: 'count',
-                        header: t('frozen.report.affected'),
-                        align: 'right' as const,
-                      },
-                    ]}
+                    columns={reasonColumns}
                     data={failureRows}
                     keyExtractor={(row) => row.key as string}
                   />
@@ -378,6 +405,58 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* A reload's purge of what earlier loads created: what went, what stayed, and why. */}
+              {purgeRows.length + purgeFailureRows.length + leftUnrecorded.length > 0 && (
+                <div className="flex flex-col gap-2" data-testid="frozen-report-purge">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.purge.title')}
+                  </span>
+                  {purgeRows.length > 0 && (
+                    <DataTable
+                      columns={[
+                        { key: 'object', header: t('frozen.control.object'), sortable: true },
+                        {
+                          key: 'deleted',
+                          header: t('frozen.report.purge.deleted'),
+                          align: 'right' as const,
+                        },
+                        {
+                          key: 'deactivated',
+                          header: t('frozen.report.purge.deactivated'),
+                          align: 'right' as const,
+                        },
+                      ]}
+                      data={purgeRows}
+                      keyExtractor={(row) => row.key as string}
+                    />
+                  )}
+                  {leftUnrecorded.length > 0 && (
+                    <p
+                      className="text-[11px] text-text-secondary"
+                      data-testid="frozen-report-purge-left"
+                    >
+                      {t('frozen.report.purge.leftUnrecorded', {
+                        objects: leftUnrecorded
+                          .map(([objectApiName, records]) => `${objectApiName} (${records})`)
+                          .join(', '),
+                      })}
+                    </p>
+                  )}
+                  {purgeFailureRows.length > 0 && (
+                    <div data-testid="frozen-report-purge-failures">
+                      <span className="text-xs font-medium text-text-primary">
+                        {t('frozen.report.purge.failedReasons')}
+                      </span>
+                      <DataTable
+                        columns={reasonColumns}
+                        data={purgeFailureRows}
+                        keyExtractor={(row) => row.key as string}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
