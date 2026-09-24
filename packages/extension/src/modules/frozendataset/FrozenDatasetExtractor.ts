@@ -26,7 +26,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { ForgeGraph } from '@sandforge/shared';
+import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import {
   PRICEBOOK_ENTRY_BOOK_FIELD,
   PRICEBOOK_ENTRY_CURRENCY_FIELD,
@@ -41,7 +41,13 @@ import {
   isRequiredLookup,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
-import { RowsLeftToThePlatform } from '../../core/common/platformRecords.js';
+import {
+  RowsLeftToThePlatform,
+  STATUS_LIFECYCLES,
+  STATUS_NEEDS_CHILDREN,
+  draftStartOf,
+  statusCategories,
+} from '../../core/common/platformRecords.js';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
 import {
@@ -164,6 +170,47 @@ function requiredLookupsOf(objectApiName: string, fields: readonly ScopableField
     .map((f) => f.name);
 }
 
+/** An object the extraction adds for the status of its parent's records, and how its rows name them. */
+interface ChildOfAStatus {
+  /** The object whose records past Draft take their status back only with its rows under them. */
+  readonly parent: string;
+  /** The lookup of its rows that names the parent. */
+  readonly lookup: string;
+}
+
+/**
+ * A node the extraction adds to the graph discovery built: an object
+ * discovery never reached, whose rows the records of another node cannot be
+ * given their status back without. Unmeasured: what the extraction reads of
+ * it is what the dataset holds.
+ *
+ * @param level - One past the node whose records need it.
+ */
+function nodeTheExtractionAdds(
+  objectApiName: string,
+  fields: readonly ScopableField[],
+  level: number,
+): ForgeGraphNode {
+  return {
+    objectApiName,
+    recordCount: 0,
+    fieldCount: fields.length,
+    status: 'idle',
+    progress: 0,
+    included: true,
+    piiFields: [],
+    anonymizeFields: [],
+    level,
+    successCount: 0,
+    failureCount: 0,
+    errors: [],
+    createableFieldCount: 0,
+    estimatedSizeMB: 0,
+    estimatedApiCalls: 0,
+    batchStrategy: 'auto',
+  };
+}
+
 /** Strict ISO instant — validated before interpolation into SOQL literals. */
 const ISO_INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
@@ -254,15 +301,6 @@ export class FrozenDatasetExtractor {
     // `catalog` below.
     cache.addReached(options.rootObject, options.rootRecordIds);
 
-    const nodes = [...options.graph.nodes]
-      .filter((n) => n.included)
-      .sort((a, b) => a.level - b.level);
-    // A required lookup holds a row to the dossier only through an object the
-    // extraction reads. The user of `OwnerId` or `CreatedById` is never read:
-    // held to the users earlier rows named, a contact created by anyone else
-    // was left out of the dataset.
-    const readObjects = new Set(nodes.map((n) => n.objectApiName));
-
     const recordsByObject = new Map<string, Map<string, Record<string, unknown>>>();
     /**
      * The records the dataset leaves to the platform: those it writes itself
@@ -298,17 +336,32 @@ export class FrozenDatasetExtractor {
 
     /** Described fields per object, asked once. */
     const fieldsByObject = new Map<string, ScopableField[]>();
-    /** The fields of an object, described once, with what they say of its reads. */
-    const describe = async (objectApiName: string): Promise<ScopableField[]> => {
+    /** The fields of an object, described once. */
+    const fieldsOf = async (objectApiName: string): Promise<ScopableField[]> => {
       const known = fieldsByObject.get(objectApiName);
       if (known) return known;
       const fields = await this.deps.describeFields(objectApiName);
       fieldsByObject.set(objectApiName, fields);
+      return fields;
+    };
+    /** The fields of an object the extraction reads, with what they say of its reads. */
+    const describe = async (objectApiName: string): Promise<ScopableField[]> => {
+      const fields = await fieldsOf(objectApiName);
       if (!fields.some((f) => f.name === 'CreatedDate')) unbounded.add(objectApiName);
       const files = fields.filter((f) => f.type === 'base64').map((f) => f.name);
       if (files.length > 0) fileFields[objectApiName] = files;
       return fields;
     };
+
+    // An activated order's items, when discovery stopped before them.
+    const forStatuses = await this.withWhatStatusesNeed(options.graph, fieldsOf);
+    const graph = forStatuses.graph;
+    const nodes = [...graph.nodes].filter((n) => n.included).sort((a, b) => a.level - b.level);
+    // A required lookup holds a row to the dossier only through an object the
+    // extraction reads. The user of `OwnerId` or `CreatedById` is never read:
+    // held to the users earlier rows named, a contact created by anyone else
+    // was left out of the dataset.
+    const readObjects = new Set(nodes.map((n) => n.objectApiName));
 
     for (const node of nodes) {
       const fields = await describe(node.objectApiName);
@@ -318,7 +371,7 @@ export class FrozenDatasetExtractor {
         node,
         fields: withCatalogLookupsOpen(node.objectApiName, fields),
         selectFields,
-        edges: options.graph.edges,
+        edges: graph.edges,
         cache,
         // Sentinel: never matches a real node name, so the root object is
         // scoped via the 'self-cached' branch (Id IN <sas selection>)
@@ -370,7 +423,11 @@ export class FrozenDatasetExtractor {
       }
       const rows = leftToThePlatform.keep(
         node.objectApiName,
-        read,
+        await this.keepWhatStatusesNeed(
+          forStatuses.added.get(node.objectApiName),
+          read,
+          recordsByObject,
+        ),
         requiredLookupsOf(node.objectApiName, fields),
       );
       let bucket = recordsByObject.get(node.objectApiName);
@@ -396,9 +453,13 @@ export class FrozenDatasetExtractor {
       // and read under that opportunity's id, its line items came in, and the
       // opportunity with them, fetched as the parent they require.
       cache.addRead(node.objectApiName, ids);
+      // Of the rows reached from above, those the dataset keeps: one left to
+      // the platform, or not needed for the status it was read for, brings
+      // nothing under it.
+      const kept = new Set(ids);
       cache.addReached(
         node.objectApiName,
-        reached.filter((id) => !leftToThePlatform.has(id)),
+        reached.filter((id) => kept.has(id)),
       );
       owners.learnFrom(recordsByObject);
       // Seed parent objects referenced by lookups so their own wave can
@@ -422,7 +483,7 @@ export class FrozenDatasetExtractor {
     }
 
     await this.completeRequiredParents(
-      options,
+      { ...options, graph },
       recordsByObject,
       describe,
       asOfWhere,
@@ -481,6 +542,106 @@ export class FrozenDatasetExtractor {
       ...(standardPricebookSourceId ? { standardPricebookSourceId } : {}),
       leftToThePlatform: leftToThePlatform.counts(),
     };
+  }
+
+  /**
+   * The graph of an extraction, with the rows its records past Draft cannot
+   * be given their status back without, when discovery never reached their
+   * object: an activated order's items (`STATUS_NEEDS_CHILDREN`). Returns the
+   * graph, and the objects added with the object whose status each is added
+   * for.
+   *
+   * A load writes an order past Draft as a draft and activates it once the
+   * rest is written, and the platform activates no order without a product
+   * on it. Extracted for real at the default cap of fifty objects, an
+   * opportunity's dossier held its eleven orders and not one of their items:
+   * the two activated ones, five items between them in the source, would have
+   * been loaded as drafts and left so. The object added is read under the
+   * records in scope as any child is, and keeps only the rows of those past
+   * Draft (`keepWhatStatusesNeed`): a record that goes in as it is needs
+   * none, and the cap is what left its rows out. The prices the rows name
+   * come with the catalog, after them (`completeRequiredParents`), as Forge
+   * brings them.
+   *
+   * An object the graph holds and leaves out stays out, as does one whose
+   * describe fails or has no such lookup.
+   */
+  private async withWhatStatusesNeed(
+    graph: ForgeGraph,
+    fieldsOf: (objectApiName: string) => Promise<ScopableField[]>,
+  ): Promise<{ graph: ForgeGraph; added: Map<string, ChildOfAStatus> }> {
+    const held = new Set(graph.nodes.map((n) => n.objectApiName));
+    const added = new Map<string, ChildOfAStatus>();
+    const nodes: ForgeGraphNode[] = [];
+    const edges: ForgeGraphEdge[] = [];
+    for (const parent of graph.nodes) {
+      const child = STATUS_NEEDS_CHILDREN[parent.objectApiName];
+      if (!parent.included || !child || held.has(child.object) || added.has(child.object)) {
+        continue;
+      }
+      let fields: ScopableField[];
+      try {
+        fields = await fieldsOf(child.object);
+      } catch {
+        continue;
+      }
+      const lookup = fields.find(
+        (f) =>
+          f.name === child.lookup &&
+          f.type === 'reference' &&
+          f.referenceTo.includes(parent.objectApiName),
+      );
+      if (!lookup) continue;
+      added.set(child.object, { parent: parent.objectApiName, lookup: lookup.name });
+      nodes.push(nodeTheExtractionAdds(child.object, fields, parent.level + 1));
+      edges.push({
+        sourceObject: parent.objectApiName,
+        targetObject: child.object,
+        relationshipName: lookup.name,
+        type: 'lookup',
+        required: isRequiredLookup(child.object, lookup.name, lookup.nillable),
+      });
+    }
+    if (added.size === 0) return { graph, added };
+    return {
+      graph: { ...graph, nodes: [...graph.nodes, ...nodes], edges: [...graph.edges, ...edges] },
+      added,
+    };
+  }
+
+  /**
+   * Of the rows read of an object the extraction added for the status of its
+   * parent's records, those under a record past Draft: the rows the load
+   * cannot give that record its status back without, and the only ones the
+   * object was added for. The others are no part of the dataset, as when
+   * discovery stopped before the object. The rows of any other object are
+   * returned as they are.
+   *
+   * Past Draft as the source has it, by the categories of its own statuses:
+   * the extraction knows no target, and the record's status is the source's.
+   * When the source cannot say which of its statuses are drafts, no row is
+   * kept.
+   *
+   * @param child - What the object was added for, when it was.
+   */
+  private async keepWhatStatusesNeed(
+    child: ChildOfAStatus | undefined,
+    rows: Record<string, unknown>[],
+    recordsByObject: ReadonlyMap<string, ReadonlyMap<string, Record<string, unknown>>>,
+  ): Promise<Record<string, unknown>[]> {
+    if (!child) return rows;
+    const lifecycle = STATUS_LIFECYCLES[child.parent];
+    const categories = lifecycle
+      ? await statusCategories((soql) => this.deps.query(soql), lifecycle)
+      : undefined;
+    const pastDraft = new Set<string>();
+    for (const [id, record] of recordsByObject.get(child.parent) ?? []) {
+      if (categories && draftStartOf(record.Status, categories)) pastDraft.add(id);
+    }
+    return rows.filter((row) => {
+      const parent = row[child.lookup];
+      return typeof parent === 'string' && pastDraft.has(parent);
+    });
   }
 
   /**

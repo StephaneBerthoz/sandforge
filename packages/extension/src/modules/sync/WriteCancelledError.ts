@@ -13,6 +13,11 @@ import type { OperationOutcome } from './DataSync.js';
  * ended as a success. The run that catches it ends cancelled, and counts what
  * was written; one that does not fails, which is never a success either.
  *
+ * `notes` are what the write says of the records it wrote, as a result's
+ * notes are (`DataSync.write`): a record type set aside, a lookup dropped.
+ * When a cancel carried the outcomes alone, the records it let into the org
+ * went without a word of what they were written without.
+ *
  * It lives in a module of its own, importing nothing at run time, for the
  * reason `SyncRunFailure` does: the writer that throws it and the
  * orchestrators and handlers that catch it import each other's neighbours.
@@ -21,6 +26,7 @@ export class WriteCancelledError extends Error {
   constructor(
     readonly objectApiName: string,
     readonly written: OperationOutcome[] = [],
+    readonly notes: string[] = [],
   ) {
     super(
       written.length === 0

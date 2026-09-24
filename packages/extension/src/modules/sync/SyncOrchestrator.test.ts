@@ -3,6 +3,7 @@ import { SyncOrchestrator } from './SyncOrchestrator';
 import { SyncRunFailure } from './SyncRunFailure';
 import { WriteCancelledError } from './WriteCancelledError';
 import { DataSync, type OperationOutcome } from './DataSync';
+import { targetWriteFieldsOf } from './targetWriteFields';
 import { FieldMappingService } from './FieldMapping';
 import { TransformPipeline } from './TransformPipeline';
 import type { SyncGrappeEvent, SyncOrchestratorDeps } from './SyncOrchestrator';
@@ -535,6 +536,65 @@ describe('a cancel stops the run before what it has not reached', () => {
       errors: ['REQUIRED_FIELD_MISSING: LastName'],
       upsertSplit: { created: 1, updated: 1 },
     });
+  });
+
+  it('says what the write set aside for the records it wrote before the cancel stopped it', async () => {
+    // A record type closed to the running user is taken off the records and
+    // said beside the outcomes. Built from the outcomes the cancel carried,
+    // the object's result counted the record written without its type, and
+    // said nothing of the type.
+    const CUSTOMER = '012Fk00000RtAbCIAV';
+    const PARTNER = '012Fk00000RtDeFIAV';
+    const recordType = (developerName: string, recordTypeId: string, available: boolean) => ({
+      active: true,
+      available,
+      defaultRecordTypeMapping: available,
+      developerName,
+      master: false,
+      name: developerName,
+      recordTypeId,
+      urls: {},
+    });
+    const write = vi.fn(async (): Promise<OperationOutcome[]> => {
+      throw new WriteCancelledError('Account', [
+        { id: '001000000000001AAA', success: true, errors: [] },
+      ]);
+    });
+    const deps = createMockDeps();
+    deps.dataSync = new DataSync({
+      insert: write,
+      upsert: write,
+      update: write,
+      delete: write,
+      describeTargetFields: async () =>
+        targetWriteFieldsOf({
+          fields: [
+            { name: 'Name', createable: true, type: 'string' },
+            { name: 'RecordTypeId', createable: true, type: 'reference' },
+          ],
+          recordTypeInfos: [
+            recordType('Customer', CUSTOMER, true),
+            recordType('Partner', PARTNER, false),
+          ],
+        }),
+    });
+    deps.querySource = vi.fn().mockResolvedValue([
+      { Name: 'Acme', RecordTypeId: PARTNER },
+      { Name: 'Initech', RecordTypeId: PARTNER },
+    ]);
+
+    const result = await new SyncOrchestrator(deps).execute(
+      createConfig({ objects: [createObjectConfig({ operation: 'insert' })] }),
+    );
+
+    expect(result).toMatchObject({ cancelled: true, totalProcessed: 1, totalSuccess: 1 });
+    expect(result.objectResults).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Account',
+        processed: 1,
+        errors: [expect.stringMatching(/^1 Account record written without record type Partner/)],
+      }),
+    ]);
   });
 
   it('still fails, and says why, when an object fails while a cancel is pending', async () => {

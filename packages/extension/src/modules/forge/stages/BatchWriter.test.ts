@@ -105,6 +105,18 @@ describe('BatchWriter', () => {
     expect(running[running.length - 1].progress).toBe(100);
   });
 
+  it('makes no insert call for a node that read no rows', async () => {
+    // Held to one batch at least, the node sent the target an insert with
+    // nothing in it.
+    const deps = makeDeps();
+    const input = makeInput([]);
+
+    const result = await new BatchWriter(deps).writeNode(input);
+
+    expect(deps.insertRecords).not.toHaveBeenCalled();
+    expect(result).toEqual(emptyBatchWriteResult());
+  });
+
   it('registers source→target mappings and queues nullified FKs for pass 2', async () => {
     const deps = makeDeps();
     const cleanedRecords: CleanedRecord[] = [
@@ -511,9 +523,9 @@ describe('resolveWriteBatching', () => {
     });
   });
 
-  it('keeps at least one batch for an empty node', () => {
+  it('makes no batch for a node with no record to write', () => {
     expect(resolveWriteBatching({ api: 'rest', batchSize: 200, batchCount: 1 }, 0).batchCount).toBe(
-      1,
+      0,
     );
   });
 });
@@ -582,6 +594,25 @@ describe('BatchWriter — relations the platform creates', () => {
     expect(input.remapper.countsByObject()).toEqual([
       { objectApiName: 'AccountContactRelation', created: 1, linked: 1 },
     ]);
+  });
+
+  it('makes no insert call when every relation is one the platform made', async () => {
+    const insertRecords = vi.fn<InsertImpl>();
+    const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+      { Id: '07kDIRECT', AccountId: '001T', ContactId: '003T' },
+    ]);
+    const payload = { AccountId: '001T', ContactId: '003T' };
+    const input = makeInput([], {
+      node: makeNode('AccountContactRelation', 1),
+      records: [payload],
+      cleanedRecords: [{ source: { Id: '07kSRC1' }, cleaned: payload, nullifiedFks: [] }],
+    });
+
+    const result = await new BatchWriter({ insertRecords, queryRecords }).writeNode(input);
+
+    expect(insertRecords).not.toHaveBeenCalled();
+    expect(input.remapper.get('07kSRC1')).toBe('07kDIRECT');
+    expect(result).toMatchObject({ successCount: 0, linkedExistingCount: 1, failureCount: 0 });
   });
 
   it('links a selling model option the target holds for the product and model instead of inserting it', async () => {

@@ -1593,6 +1593,173 @@ describe('FrozenDatasetExtractor — the selling model options its prices need',
   });
 });
 
+describe('FrozenDatasetExtractor — the items an order past Draft needs', () => {
+  const OPPORTUNITY = to18('006A00000000opp');
+  const ACTIVATED = to18('801A00000000act');
+  const DRAFT = to18('801A00000000drf');
+  const ACTIVATED_ITEM = to18('802A00000000act');
+  const DRAFT_ITEM = to18('802A00000000drf');
+  const BOOK = to18('01sA00000000bok');
+  const STANDARD_BOOK = to18('01sA00000000std');
+  const PRODUCT = to18('01tA00000000prd');
+  const PRICE = to18('01uA00000000prc');
+  const STANDARD_PRICE = to18('01uA00000000std');
+  const ORDER_STATUSES = 'SELECT ApiName, StatusCode FROM OrderStatus';
+
+  /**
+   * An opportunity with two orders, one item on each, priced from the
+   * opportunity's book: the first order in `firstStatus`, the second a draft.
+   */
+  function tables(firstStatus = 'Live'): Record<string, FakeRow[]> {
+    return {
+      Opportunity: [{ Id: OPPORTUNITY, Pricebook2Id: BOOK }],
+      Order: [
+        { Id: ACTIVATED, OpportunityId: OPPORTUNITY, Status: firstStatus },
+        { Id: DRAFT, OpportunityId: OPPORTUNITY, Status: 'Open' },
+      ],
+      OrderItem: [
+        { Id: ACTIVATED_ITEM, OrderId: ACTIVATED, PricebookEntryId: PRICE },
+        { Id: DRAFT_ITEM, OrderId: DRAFT, PricebookEntryId: PRICE },
+      ],
+      Pricebook2: [
+        { Id: BOOK, IsStandard: false },
+        { Id: STANDARD_BOOK, IsStandard: true },
+      ],
+      Product2: [{ Id: PRODUCT }],
+      PricebookEntry: [
+        { Id: PRICE, Pricebook2Id: BOOK, Product2Id: PRODUCT, IsActive: true },
+        { Id: STANDARD_PRICE, Pricebook2Id: STANDARD_BOOK, Product2Id: PRODUCT, IsActive: true },
+      ],
+    };
+  }
+  const fields: Record<string, ScopableField[]> = {
+    Opportunity: [id, lookup('Pricebook2Id', ['Pricebook2'])],
+    Order: [
+      id,
+      lookup('OpportunityId', ['Opportunity']),
+      { name: 'Status', type: 'picklist', referenceTo: [] },
+    ],
+    OrderItem: [
+      id,
+      lookup('OrderId', ['Order'], false),
+      lookup('PricebookEntryId', ['PricebookEntry'], false),
+    ],
+    Pricebook2: [id, { name: 'IsStandard', type: 'boolean', referenceTo: [] }],
+    PricebookEntry: [
+      id,
+      lookup('Pricebook2Id', ['Pricebook2'], false),
+      lookup('Product2Id', ['Product2'], false),
+      { name: 'IsActive', type: 'boolean', referenceTo: [] },
+    ],
+  };
+
+  /**
+   * The source in miniature, whose order statuses are `Open`, a draft, and
+   * `Live`, an activated one — or which cannot say, when `statuses` throws.
+   */
+  function extractorOverOrders(
+    rows: Record<string, FakeRow[]>,
+    statuses: () => FakeRow[] = () => [
+      { ApiName: 'Open', StatusCode: 'Draft' },
+      { ApiName: 'Live', StatusCode: 'Activated' },
+    ],
+  ): { extractor: FrozenDatasetExtractor; sent: string[] } {
+    const sent: string[] = [];
+    const extractor = new FrozenDatasetExtractor({
+      query: async (soql) => {
+        sent.push(soql);
+        if (soql === ORDER_STATUSES) return statuses();
+        return soql.includes('FROM RecordType') ? [] : selectRows(rows, soql);
+      },
+      describeFields: async (objectApiName) => fields[objectApiName] ?? [id],
+    });
+    return { extractor, sent };
+  }
+
+  /** Discovery stopped at the orders, as the default cap did around an opportunity. */
+  function upToTheOrders(...more: ForgeGraphNode[]): ForgeGraph {
+    return graphOf(
+      [makeNode('Opportunity', 0), makeNode('Order', 1), ...more],
+      [edge('Opportunity', 'Order', 'Orders')],
+    );
+  }
+
+  function extractFrom(extractor: FrozenDatasetExtractor, graph: ForgeGraph) {
+    return extractor.extract({
+      ...makeOptions(makeTmpDir(), []),
+      rootObject: 'Opportunity',
+      rootRecordIds: [OPPORTUNITY],
+      graph,
+    });
+  }
+
+  it('carries the items of an order past Draft that discovery stopped before, and what they are priced from', async () => {
+    // Extracted for real at the default cap, an opportunity's dossier held
+    // its eleven orders and none of their items. A load writes an activated
+    // order as a draft and activates it once the rest is written, and the
+    // platform activates no order without a product on it.
+    const { extractor } = extractorOverOrders(tables());
+
+    const dataset = await extractFrom(extractor, upToTheOrders());
+
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([ACTIVATED, DRAFT].sort());
+    // A draft goes in as it is and needs no item: the cap left its items
+    // out, and out they stay.
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([ACTIVATED_ITEM]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
+    expect(sourceIdsOf(dataset, 'Product2')).toEqual([PRODUCT]);
+    expect(sourceIdsOf(dataset, 'Pricebook2')).toEqual([BOOK, STANDARD_BOOK].sort());
+  });
+
+  it('brings no item when no order it reads is past Draft', async () => {
+    const { extractor } = extractorOverOrders(tables('Open'));
+
+    const dataset = await extractFrom(extractor, upToTheOrders());
+
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([ACTIVATED, DRAFT].sort());
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([]);
+  });
+
+  it('brings no item when the source cannot say which of its order statuses are drafts', async () => {
+    const { extractor } = extractorOverOrders(tables(), () => {
+      throw new Error("sObject type 'OrderStatus' is not supported.");
+    });
+
+    const dataset = await extractFrom(extractor, upToTheOrders());
+
+    expect(sourceIdsOf(dataset, 'Order')).toEqual([ACTIVATED, DRAFT].sort());
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([]);
+  });
+
+  it('leaves out the items of a graph that holds them and leaves them out', async () => {
+    const { extractor, sent } = extractorOverOrders(tables());
+
+    const dataset = await extractFrom(
+      extractor,
+      upToTheOrders({ ...makeNode('OrderItem', 2), included: false }),
+    );
+
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([]);
+    expect(sent.filter((soql) => soql.includes('FROM OrderItem'))).toEqual([]);
+  });
+
+  it('reads every item of the orders when the graph holds the items, drafts included', async () => {
+    // Discovery reached them: they are the dossier's, whatever the order's
+    // status, as they always were.
+    const { extractor, sent } = extractorOverOrders(tables());
+    const graph = upToTheOrders(makeNode('OrderItem', 2));
+
+    const dataset = await extractFrom(extractor, {
+      ...graph,
+      edges: [...graph.edges, edge('Order', 'OrderItem', 'OrderItems')],
+    });
+
+    expect(sourceIdsOf(dataset, 'OrderItem')).toEqual([ACTIVATED_ITEM, DRAFT_ITEM].sort());
+    expect(sent).not.toContain(ORDER_STATUSES);
+  });
+});
+
 describe('FrozenDatasetExtractor — the parents it fetches by id', () => {
   const OPPORTUNITY = to18('006A00000000opp');
 

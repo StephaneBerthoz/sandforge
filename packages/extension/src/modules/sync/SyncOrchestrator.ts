@@ -158,11 +158,17 @@ export class SyncOrchestrator {
       } catch (err: unknown) {
         // The cancel stopped the object's write: an aborted upload wrote none
         // of it, and a REST write stopped between two batches wrote the
-        // records before. What it wrote stays in the org, so it is counted;
-        // the object is not synced in full, like the ones after it.
+        // records before. What it wrote stays in the org, so it is counted,
+        // with what the write says of it; the object is not synced in full,
+        // like the ones after it.
         if (err instanceof WriteCancelledError) {
           const stopped = withRowsLeftOut(
-            buildObjectResult(objectConfig.objectApiName, objectConfig.operation, err.written),
+            buildObjectResult(
+              objectConfig.objectApiName,
+              objectConfig.operation,
+              err.written,
+              err.notes,
+            ),
             leftOut,
           );
           if (stopped.processed > 0 || stopped.skipped > 0) objectResults.push(stopped);

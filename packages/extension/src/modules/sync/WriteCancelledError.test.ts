@@ -23,9 +23,24 @@ describe('WriteCancelledError', () => {
     const error = new WriteCancelledError('Contact', written);
 
     expect(error.written).toBe(written);
+    expect(error.notes).toEqual([]);
     expect(error.message).toBe(
       'The write of Contact was cancelled after 2 of its records were sent.',
     );
+  });
+
+  it('carries what the write said of the records it wrote', () => {
+    const note =
+      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
+      'that the target does not have.';
+
+    const error = new WriteCancelledError(
+      'Account',
+      [{ id: '001000000000001AAA', success: true, errors: [] }],
+      [note],
+    );
+
+    expect(error.notes).toEqual([note]);
   });
 
   it('is told apart from any other error a write can throw', () => {

@@ -444,6 +444,34 @@ describe('DataSync — a lookup the target does not have', () => {
       crossRef,
     ]);
   });
+
+  it('says which field it dropped for the records it wrote again before a cancel stopped the second try', async () => {
+    // Thrown on with the outcomes alone, the record written without its
+    // lookup went into the org and nothing said which field it had lost.
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([crossRef, crossRef])
+      .mockRejectedValueOnce(
+        new WriteCancelledError('Account', [{ id: '001AGAIN', success: true, errors: [] }]),
+      );
+    const sync = new DataSync(createDeps({ insert, describeTargetFields: describeWithLookup() }));
+
+    const stopped = await sync
+      .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+        { Name: 'Acme', Key_Contact__c: '003000000000042AAA' },
+        { Name: 'Initech', Key_Contact__c: '003000000000043AAA' },
+      ])
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(stopped).toBeInstanceOf(WriteCancelledError);
+    expect((stopped as WriteCancelledError).notes).toEqual([
+      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
+        'that the target does not have.',
+    ]);
+  });
 });
 
 describe('DataSync — a record type the running user cannot use', () => {
@@ -556,6 +584,89 @@ describe('DataSync — a record type the running user cannot use', () => {
 
     expect(result.errors[0]).toBe('REQUIRED_FIELD_MISSING: Name');
     expect(result.errors[1]).toMatch(/^1 Account record written without record type Partner/);
+  });
+
+  it('says the record type it set aside for the records written before a cancel stopped the write', async () => {
+    // A cancel between two batches stops the write after the records before
+    // it went in. Thrown on as it was, the run counted them, and nothing said
+    // they had been written without their record type.
+    const insert = vi.fn().mockRejectedValue(
+      new WriteCancelledError('Account', [
+        { id: '001NEW0', success: true, errors: [] },
+        { id: '001NEW1', success: true, errors: [] },
+      ]),
+    );
+    const sync = new DataSync(
+      createDeps({ insert, describeTargetFields: describeWithRecordTypes() }),
+    );
+
+    const stopped = await sync
+      .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+        { Name: 'Acme', RecordTypeId: PARTNER },
+        { Name: 'Globex', RecordTypeId: CUSTOMER },
+        { Name: 'Initech', RecordTypeId: PARTNER },
+      ])
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(stopped).toBeInstanceOf(WriteCancelledError);
+    expect((stopped as WriteCancelledError).written).toHaveLength(2);
+    // Initech was never sent: one record of the type went in without it.
+    expect((stopped as WriteCancelledError).notes).toEqual([
+      '1 Account record written without record type Partner, which the running user cannot ' +
+        "use in the target org: a new record took the running user's default record type " +
+        '(Customer), an existing one kept its own. Give the running user access to record type ' +
+        'Partner on Account to keep it.',
+    ]);
+  });
+
+  it('keeps the record type it set aside, and the lookup it dropped, when a cancel stops the second try', async () => {
+    const insert = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: '',
+          success: false,
+          errors: ['insufficient access rights on cross-reference id: 003000000000042AAA'],
+        },
+        { id: '001NEW1', success: true, errors: [] },
+      ])
+      .mockRejectedValueOnce(
+        new WriteCancelledError('Account', [{ id: '001NEW0', success: true, errors: [] }]),
+      );
+    const sync = new DataSync(
+      createDeps({
+        insert,
+        describeTargetFields: async () => ({
+          ...(await describeWithRecordTypes()()),
+          creatable: new Set(['Name', 'RecordTypeId', 'Key_Contact__c']),
+          references: new Set(['RecordTypeId', 'Key_Contact__c']),
+        }),
+      }),
+    );
+
+    const stopped = await sync
+      .sync(createConfig({ operation: 'insert', externalIdField: undefined }), [
+        { Name: 'Acme', RecordTypeId: PARTNER, Key_Contact__c: '003000000000042AAA' },
+        { Name: 'Globex', RecordTypeId: CUSTOMER },
+      ])
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(stopped).toBeInstanceOf(WriteCancelledError);
+    expect((stopped as WriteCancelledError).written.map((o) => o.id)).toEqual([
+      '001NEW0',
+      '001NEW1',
+    ]);
+    expect((stopped as WriteCancelledError).notes).toEqual([
+      expect.stringMatching(/^1 Account record written without record type Partner/),
+      '1 record(s) written without Key_Contact__c: the lookup held an id from the source org ' +
+        'that the target does not have.',
+    ]);
   });
 
   it('sends the record type as it is when the running user may use it', async () => {

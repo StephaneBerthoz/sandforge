@@ -164,13 +164,37 @@ export class DataSync {
 
     const closed = this.withoutClosedRecordTypes(config, mappedRecords, target);
 
-    const outcomes = await this.executeOperation(
-      config.objectApiName,
-      config.operation,
-      closed.records,
-      config.batchSize,
-      config.externalIdField,
-    );
+    // Said only of the records that were written: one refused for another
+    // reason carries its own error, and one a cancel kept from being sent has
+    // no outcome.
+    const recordTypeNotes = (outcomes: readonly OperationOutcome[]): string[] =>
+      closed.dropped.flatMap(({ use, indices }) => {
+        const written = indices.filter((i) => outcomes[i]?.success).length;
+        return written > 0
+          ? [recordTypeFallbackNote({ ...use, recordCount: written }, closed.fallback)]
+          : [];
+      });
+
+    let outcomes: OperationOutcome[];
+    try {
+      outcomes = await this.executeOperation(
+        config.objectApiName,
+        config.operation,
+        closed.records,
+        config.batchSize,
+        config.externalIdField,
+      );
+    } catch (err: unknown) {
+      if (!(err instanceof WriteCancelledError)) throw err;
+      // The cancel stopped the write between two batches: the records sent
+      // before it are written, and what was set aside to write them is said
+      // with them. Passed on as it was, the run counted them and never said
+      // which record type they had been written without.
+      throw new WriteCancelledError(config.objectApiName, err.written, [
+        ...recordTypeNotes(err.written),
+        ...err.notes,
+      ]);
+    }
 
     const retried = await this.retryWithoutCrossOrgReferences(
       config,
@@ -179,16 +203,14 @@ export class DataSync {
       target?.references ?? null,
     );
 
-    // Said only of the records that were written: one refused for another
-    // reason carries its own error.
-    const recordTypeNotes = closed.dropped.flatMap(({ use, indices }) => {
-      const written = indices.filter((i) => retried.outcomes[i]?.success).length;
-      return written > 0
-        ? [recordTypeFallbackNote({ ...use, recordCount: written }, closed.fallback)]
-        : [];
-    });
-
-    return { outcomes: retried.outcomes, notes: [...recordTypeNotes, ...retried.notes] };
+    const notes = [...recordTypeNotes(retried.outcomes), ...retried.notes];
+    // Every record has been sent once, and keeps its refusal unless it was
+    // tried again before the cancel: the run is told all of it, what was
+    // dropped to write it, and that it was cancelled.
+    if (retried.cancelled) {
+      throw new WriteCancelledError(config.objectApiName, retried.outcomes, notes);
+    }
+    return { outcomes: retried.outcomes, notes };
   }
 
   /**
@@ -249,14 +271,19 @@ export class DataSync {
    * fields are named in the result — the same trade Forge makes, and better
    * than losing the row. Once, never in a loop: a second refusal is a real
    * one.
+   *
+   * A cancel that stops the second write is answered, not thrown: `cancelled`
+   * says so, and the outcomes and notes are those of every record the two
+   * writes sent.
    */
   private async retryWithoutCrossOrgReferences(
     config: SyncObjectConfig,
     records: Record<string, unknown>[],
     outcomes: OperationOutcome[],
     references: ReadonlySet<string> | null,
-  ): Promise<{ outcomes: OperationOutcome[]; notes: string[] }> {
-    if (!references || references.size === 0) return { outcomes, notes: [] };
+  ): Promise<{ outcomes: OperationOutcome[]; notes: string[]; cancelled: boolean }> {
+    const asItWas = { outcomes, notes: [], cancelled: false };
+    if (!references || references.size === 0) return asItWas;
 
     const failedAt: number[] = [];
     outcomes.forEach((outcome, index) => {
@@ -264,7 +291,7 @@ export class DataSync {
         failedAt.push(index);
       }
     });
-    if (failedAt.length === 0) return { outcomes, notes: [] };
+    if (failedAt.length === 0) return asItWas;
 
     const withoutLookups: Record<string, unknown>[] = [];
     const dropped = new Set<string>();
@@ -280,7 +307,7 @@ export class DataSync {
       }
       withoutLookups.push(stripped);
     }
-    if (dropped.size === 0) return { outcomes, notes: [] };
+    if (dropped.size === 0) return asItWas;
 
     let second: OperationOutcome[];
     let cancelledAt: WriteCancelledError | undefined;
@@ -310,13 +337,10 @@ export class DataSync {
         recovered++;
       }
     });
-    // Every record has been sent once, and keeps its refusal unless it was
-    // tried again before the cancel: the run is told all of it, and that it
-    // was cancelled.
-    if (cancelledAt) throw new WriteCancelledError(config.objectApiName, merged);
     // Carried beside the outcomes, because a successful write has no error
     // list anybody reads: the note has to reach the result on its own or the
-    // dropped field is never mentioned anywhere.
+    // dropped field is never mentioned anywhere. The records tried again
+    // before a cancel are written without it too.
     const notes =
       recovered > 0
         ? [
@@ -324,7 +348,11 @@ export class DataSync {
               `the lookup held an id from the source org that the target does not have.`,
           ]
         : [];
-    return { outcomes: merged, notes };
+    return {
+      outcomes: merged,
+      notes: [...notes, ...(cancelledAt?.notes ?? [])],
+      cancelled: cancelledAt !== undefined,
+    };
   }
 
   private async executeOperation(

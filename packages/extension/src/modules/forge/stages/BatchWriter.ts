@@ -70,7 +70,9 @@ const WRITE_API: ResolvedBatchStrategy['api'] = 'rest';
  * Batch size and count for the transport {@link BatchWriter} actually calls.
  *
  * Honors a strategy that asks for *smaller* batches, clamps one that asks for
- * more than the write API accepts.
+ * more than the write API accepts. No record, no batch: held to one batch at
+ * least, a node that read no rows — or whose every row the target already
+ * held — made an insert call with nothing in it.
  *
  * @param planned - What {@link ForgeBatchStrategyService.resolve} proposed.
  * @param recordCount - Records to write for this node.
@@ -90,7 +92,7 @@ export function resolveWriteBatching(
   return {
     api: WRITE_API,
     batchSize,
-    batchCount: Math.max(1, Math.ceil(recordCount / batchSize)),
+    batchCount: Math.ceil(recordCount / batchSize),
     clamped: batchSize < planned.batchSize,
   };
 }
