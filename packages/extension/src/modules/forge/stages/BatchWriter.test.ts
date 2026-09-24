@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   BatchWriter,
+  emptyBatchWriteResult,
   resolveWriteBatching,
   summarizeRecordForError,
   type WriteNodeInput,
@@ -170,6 +171,31 @@ describe('BatchWriter', () => {
         messages: ['ECONNRESET'],
       },
     ]);
+  });
+
+  it('counts each call in the tally it is given, so a cancel before the next call keeps what the first wrote', async () => {
+    // The cancel is thrown by the checkpoint before the second call: the
+    // result this would have returned never is, and the tally is all the
+    // caller has of the row the first call created.
+    const oneByOne: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'rest', batchSize: 1, batchCount: 3 }),
+    };
+    const records = [0, 1, 2].map((i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+    const waitIfPaused = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('cancelled'));
+    const input = makeInput(records, { waitIfPaused });
+    const tally = emptyBatchWriteResult();
+
+    await expect(new BatchWriter(makeDeps(), oneByOne).writeNode(input, tally)).rejects.toThrow(
+      'cancelled',
+    );
+
+    expect(input.remapper.createdByObject()).toEqual([
+      { objectApiName: 'Account', sourceIds: ['001OLD0'] },
+    ]);
+    expect(tally).toMatchObject({ successCount: 1, failureCount: 0 });
   });
 
   it('counts API-truncated results as failures with an explicit sample', async () => {

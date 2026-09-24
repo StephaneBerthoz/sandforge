@@ -180,6 +180,20 @@ export interface BatchWriteResult {
   pendingFkUpdates: PendingFkUpdate[];
 }
 
+/** A {@link BatchWriteResult} with nothing counted yet. */
+export function emptyBatchWriteResult(): BatchWriteResult {
+  return {
+    successCount: 0,
+    updatedCount: 0,
+    linkedExistingCount: 0,
+    failureCount: 0,
+    alreadyExistsCount: 0,
+    unidentifiedExistingCount: 0,
+    errorSamples: [],
+    pendingFkUpdates: [],
+  };
+}
+
 /**
  * Writes one node's records to the target org in batches, tracking new ID
  * mappings and failure samples along the way.
@@ -199,8 +213,19 @@ export class BatchWriter {
    * Batch and insert (or upsert) the node's records into the target org.
    * Emits the `running` progress events; the caller owns the terminal
    * `done`/`error` node event and the fail-fast bookkeeping.
+   *
+   * @param tally - Where the counts go, as each call is answered. A cancel
+   *   between two calls stops the node at the checkpoint before the next one,
+   *   by throwing, and the counts of the calls before were then lost with the
+   *   result this never returned: the rows they created were in the remap
+   *   table and missing from the run's count of what it created. Passed in,
+   *   the caller keeps them whatever ends the node — and one tally takes the
+   *   rounds of a node written in several. Left out, a tally of the call's own.
    */
-  async writeNode(input: WriteNodeInput): Promise<BatchWriteResult> {
+  async writeNode(
+    input: WriteNodeInput,
+    tally: BatchWriteResult = emptyBatchWriteResult(),
+  ): Promise<BatchWriteResult> {
     const { node, fieldInfos, creatableFields, targetOrgId, remapper } = input;
     // A contact inserted with its account gets its direct relation from the
     // platform, and the relation read from the source is that one: inserted
@@ -213,6 +238,7 @@ export class BatchWriter {
       const oldId = input.cleanedRecords[index]?.source['Id'];
       if (typeof oldId === 'string') remapper.addExisting(oldId, id, node.objectApiName);
     }
+    tally.linkedExistingCount += direct.size;
     const records = input.records.filter((_, i) => !direct.has(i));
     const cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
     const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
@@ -241,15 +267,7 @@ export class BatchWriter {
       message: `Inserting ${records.length} ${node.objectApiName} records in ${batchCount} batch(es)...`,
     });
 
-    let nodeSuccess = 0;
-    let nodeUpdated = 0;
-    let nodeLinked = direct.size;
-    let nodeFailure = 0;
-    let nodeAlreadyExists = 0;
-    let nodeUnidentified = 0;
     let recordOffset = 0;
-    const nodeErrorSamples: ExecutionErrorSample[] = [];
-    const pendingFkUpdates: PendingFkUpdate[] = [];
     /** Duplicates the target did not name, for an object with a natural key. */
     const byNaturalKey: Array<{
       payload: Record<string, unknown>;
@@ -286,9 +304,9 @@ export class BatchWriter {
         // the calls before had written: counted as failed with the whole node,
         // and the lookups those rows owe lost before pass 2 could fill them in.
         const notWritten = records.length - recordOffset;
-        nodeFailure += notWritten;
-        if (nodeErrorSamples.length < 3) {
-          nodeErrorSamples.push({
+        tally.failureCount += notWritten;
+        if (tally.errorSamples.length < 3) {
+          tally.errorSamples.push({
             recordSummary: `${node.objectApiName} batch ${b + 1}/${batchCount}: ${notWritten} record${notWritten === 1 ? '' : 's'} not written`,
             messages: [extractErrorMessage(err)],
           });
@@ -318,8 +336,8 @@ export class BatchWriter {
           // but it is not the run's: counted as updated, and a removal of the
           // run's records must never reach it.
           const updated = result.created === false;
-          if (updated) nodeUpdated++;
-          else nodeSuccess++;
+          if (updated) tally.updatedCount++;
+          else tally.successCount++;
           if (typeof oldId === 'string') {
             if (updated) remapper.addUpdated(oldId, result.id, node.objectApiName);
             else remapper.add(oldId, result.id, node.objectApiName);
@@ -330,7 +348,7 @@ export class BatchWriter {
             const sourceId =
               typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
             for (const nf of built.nullifiedFks) {
-              pendingFkUpdates.push({
+              tally.pendingFkUpdates.push({
                 objectApiName: node.objectApiName,
                 newId: result.id,
                 sourceId,
@@ -346,7 +364,7 @@ export class BatchWriter {
             // record that is. The children link to it; nothing is written to
             // it — no update, and no pass-2 patch of its lookups, which would
             // overwrite a record this run did not create.
-            nodeLinked++;
+            tally.linkedExistingCount++;
             const oldId = cleanedRecords[recordOffset + i]?.source['Id'];
             if (typeof oldId === 'string') {
               remapper.addExisting(oldId, existing.id, node.objectApiName);
@@ -363,14 +381,14 @@ export class BatchWriter {
             });
             continue;
           }
-          nodeFailure++;
-          if (existing.kind === 'unidentified') nodeUnidentified++;
+          tally.failureCount++;
+          if (existing.kind === 'unidentified') tally.unidentifiedExistingCount++;
           // Counted apart because it says something different from a failure:
           // the target already holds the row, so nothing downstream of it is
           // orphaned. See `isAlreadyExistsError`.
-          if (result.errors.every((m) => isAlreadyExistsError(m))) nodeAlreadyExists++;
-          if (nodeErrorSamples.length < 3) {
-            nodeErrorSamples.push({
+          if (result.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
+          if (tally.errorSamples.length < 3) {
+            tally.errorSamples.push({
               recordSummary: summarizeRecordForError(batch[i]),
               messages: result.errors,
             });
@@ -381,9 +399,9 @@ export class BatchWriter {
       // the source batch and prevents IdRemapper cross-contamination.
       if (actual < expected) {
         for (let i = actual; i < expected; i++) {
-          nodeFailure++;
-          if (nodeErrorSamples.length < 3) {
-            nodeErrorSamples.push({
+          tally.failureCount++;
+          if (tally.errorSamples.length < 3) {
+            tally.errorSamples.push({
               recordSummary: summarizeRecordForError(batch[i]),
               messages: [
                 `No result returned for record (API truncated batch: ${actual}/${expected})`,
@@ -425,14 +443,14 @@ export class BatchWriter {
         const id = found[i];
         if (id && typeof duplicate.sourceId === 'string') {
           remapper.addExisting(duplicate.sourceId, id, node.objectApiName);
-          nodeLinked++;
+          tally.linkedExistingCount++;
           return;
         }
-        nodeFailure++;
-        nodeUnidentified++;
-        if (duplicate.errors.every((m) => isAlreadyExistsError(m))) nodeAlreadyExists++;
-        if (nodeErrorSamples.length < 3) {
-          nodeErrorSamples.push({
+        tally.failureCount++;
+        tally.unidentifiedExistingCount++;
+        if (duplicate.errors.every((m) => isAlreadyExistsError(m))) tally.alreadyExistsCount++;
+        if (tally.errorSamples.length < 3) {
+          tally.errorSamples.push({
             recordSummary: summarizeRecordForError(duplicate.payload),
             messages: lookupFailed ? [...duplicate.errors, lookupFailed] : duplicate.errors,
           });
@@ -440,16 +458,7 @@ export class BatchWriter {
       });
     }
 
-    return {
-      successCount: nodeSuccess,
-      updatedCount: nodeUpdated,
-      linkedExistingCount: nodeLinked,
-      failureCount: nodeFailure,
-      alreadyExistsCount: nodeAlreadyExists,
-      unidentifiedExistingCount: nodeUnidentified,
-      errorSamples: nodeErrorSamples,
-      pendingFkUpdates,
-    };
+    return tally;
   }
 
   /**

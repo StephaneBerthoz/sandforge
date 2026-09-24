@@ -42,7 +42,13 @@ import {
   intersect,
   type TargetFieldSets,
 } from './stages/RecordCleaner.js';
-import { BatchWriter, WRITE_API_MAX_BATCH, type PendingFkUpdate } from './stages/BatchWriter.js';
+import {
+  BatchWriter,
+  WRITE_API_MAX_BATCH,
+  emptyBatchWriteResult,
+  type BatchWriteResult,
+  type PendingFkUpdate,
+} from './stages/BatchWriter.js';
 import {
   STATUS_LIFECYCLES,
   draftStartOf,
@@ -674,6 +680,8 @@ interface ExecutionState {
   readonly catalogNodes: ForgeGraphNode[];
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
+  /** Per object, the key prefix of its ids in the source org, once the run has told it. */
+  readonly sourceKeyPrefixes: Map<string, string>;
   /**
    * Objects this run reads or maps, the only ones a required lookup may hold
    * a scoped read to: the included nodes, and the standard price book's
@@ -737,27 +745,78 @@ function pricesFrom(fieldInfos: readonly FieldInfo[]): boolean {
  * every lookup it walked, but not every object had its lookups walked: one at
  * the edge of the graph was described and no further, a starter template's
  * graph has no edges at all, and the run adds the selling model options itself.
+ *
+ * A lookup that can point at several objects names none of them: the object a
+ * row needs is the one its own parent belongs to, and the rows are held back
+ * one by one (`rowsWithoutTheirParent`). Its edges go too, once the fields say
+ * nothing else joins the two objects. Discovery draws one per object such a
+ * lookup can name, required when the lookup is, and master-detail when the
+ * parent's side of it deletes its children with it: a feed item's parent can
+ * be any of 216 objects, and is both.
  */
 function requiredParentsOf(
   objectApiName: string,
   graph: ForgeGraph,
   fieldInfos: readonly FieldInfo[],
 ): string[] {
+  const lookups = fieldInfos.filter((f) => f.isReference);
+  const onlyAmongOthers = (parent: string): boolean => {
+    const naming = lookups.filter((f) => (f.referenceTo ?? []).includes(parent));
+    return naming.length > 0 && naming.every((f) => (f.referenceTo ?? []).length > 1);
+  };
   const parents = new Set(
     graph.edges
       .filter(
         (e) =>
-          e.targetObject === objectApiName && (e.required === true || e.type === 'master-detail'),
+          e.targetObject === objectApiName &&
+          (e.required === true || e.type === 'master-detail') &&
+          !onlyAmongOthers(e.sourceObject),
       )
       .map((e) => e.sourceObject),
   );
-  for (const field of fieldInfos) {
-    if (!field.isReference || !isRequiredLookup(objectApiName, field.name, field.nillable))
+  for (const field of lookups) {
+    const targets = field.referenceTo ?? [];
+    if (targets.length !== 1 || !isRequiredLookup(objectApiName, field.name, field.nillable))
       continue;
-    for (const target of field.referenceTo ?? []) parents.add(target);
+    parents.add(targets[0]);
   }
   parents.delete(objectApiName);
   return [...parents];
+}
+
+/** A row held back for want of its parent: the lookup, and the object its parent belongs to. */
+interface ParentNotWritten {
+  field: string;
+  parentObject: string;
+}
+
+/**
+ * Why the rows held back for want of their parent were not written: one
+ * sample per lookup and parent object, the largest first.
+ */
+function parentNotWrittenSamples(
+  held: ReadonlyMap<number, ParentNotWritten>,
+  failedObjects: ReadonlySet<string>,
+): ExecutionErrorSample[] {
+  const groups = new Map<string, ParentNotWritten & { count: number }>();
+  for (const { field, parentObject } of held.values()) {
+    const key = `${field}|${parentObject}`;
+    const group = groups.get(key) ?? { field, parentObject, count: 0 };
+    group.count++;
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3)
+    .map(({ field, parentObject, count }) => ({
+      recordSummary: `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
+      messages: [
+        `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
+          (failedObjects.has(parentObject)
+            ? 'failed in this run.'
+            : 'was not written by this run.'),
+      ],
+    }));
 }
 
 /** Statuses owed to records written as drafts, by object, in the order they were written. */
@@ -1011,6 +1070,7 @@ export class ForgeExecutor {
       deferredNodes: [],
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
+      sourceKeyPrefixes: new Map<string, string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       sellingModels: runGraph.nodes.some(
         (n) => n.included && n.objectApiName === SELLING_MODEL_OBJECT,
@@ -1316,7 +1376,7 @@ export class ForgeExecutor {
 
       // What the graph says the rows cannot do without is known before they
       // are read; what their own fields say, once `readNode` has them.
-      if (this.skipForFailedParent(node, state)) continue;
+      if (await this.skipForFailedParent(node, state)) continue;
 
       const creatableCheck = creatableChecks.get(node.objectApiName);
       if (creatableCheck) {
@@ -1378,7 +1438,7 @@ export class ForgeExecutor {
       // The retry does not relax the rule the first pass applied: a node a
       // failed parent cannot be written without is still skipped, or the run
       // writes children of records that were never created.
-      if (this.skipForFailedParent(node, state)) continue;
+      if (await this.skipForFailedParent(node, state)) continue;
       if (twoPhase) {
         await this.readNode(node, state, false, false);
       } else if (await this.readNode(node, state, false, true)) {
@@ -1407,7 +1467,7 @@ export class ForgeExecutor {
         const read = state.preread.get(node.objectApiName);
         if (!read) continue;
         // Parents failed while being written are known only now.
-        if (this.skipForFailedParent(node, state, read.fieldInfos)) continue;
+        if (await this.skipForFailedParent(node, state, read.fieldInfos)) continue;
         await this.writeNode(node, state);
 
         // Settle what this node's write has just made resolvable, before the
@@ -1607,15 +1667,32 @@ export class ForgeExecutor {
    *
    * @param fieldInfos - The node's source fields, once read: a lookup they say
    *   may not be left empty makes its object one the rows cannot do without,
-   *   whatever the graph says. Before, the graph's edges alone decide.
+   *   whatever the graph says. Before, the graph's edges decide — and when
+   *   they would skip the node, its fields are asked first: an edge cannot say
+   *   whether its lookup names one object or several, and one that names
+   *   several leaves the rows to decide (`requiredParentsOf`).
    */
-  private skipForFailedParent(
+  private async skipForFailedParent(
     node: ForgeGraphNode,
     state: ExecutionState,
-    fieldInfos: readonly FieldInfo[] = [],
-  ): boolean {
-    const required = requiredParentsOf(node.objectApiName, state.graph, fieldInfos);
-    if (!required.some((parent) => state.failedObjects.has(parent))) return false;
+    fieldInfos?: readonly FieldInfo[],
+  ): Promise<boolean> {
+    const failedParent = (fields: readonly FieldInfo[]): boolean =>
+      requiredParentsOf(node.objectApiName, state.graph, fields).some((parent) =>
+        state.failedObjects.has(parent),
+      );
+    if (!failedParent(fieldInfos ?? [])) return false;
+    if (!fieldInfos) {
+      try {
+        // The describe `readNode` starts with, asked a step earlier.
+        if (!failedParent(await this.deps.describeFields(state.sourceOrgId, node.objectApiName))) {
+          return false;
+        }
+      } catch {
+        // Not described, the node is skipped on the graph's word, as it was
+        // before its fields were asked.
+      }
+    }
     state.skippedCount++;
     state.failedObjects.add(node.objectApiName);
     state.onProgress({
@@ -1625,6 +1702,100 @@ export class ForgeExecutor {
       message: `Skipped ${node.objectApiName} (parent failed)`,
     });
     return true;
+  }
+
+  /**
+   * The rows of a node that cannot be written for want of their parent, by
+   * index: through a lookup they may not leave empty and that can name
+   * several objects, each points at a record of an object this run writes,
+   * and the run has nothing in the target for that record — its object
+   * failed, or the record did not go in.
+   *
+   * Such a lookup takes no node down whole. A feed item's parent can be any
+   * of 216 objects: run for real, the target refused every quote of an
+   * opportunity for its record type, and the clone wrote no feed item at all,
+   * the opportunity's own among them, though the opportunity was written. The
+   * rows are held back one by one instead, before anything is written for
+   * them: sent, each would be refused for want of its parent. A row whose
+   * parent belongs to an object the run does not write goes on as every
+   * lookup does.
+   *
+   * The object a parent belongs to is told by its id's key prefix: see
+   * `sourceKeyPrefixes`.
+   */
+  private async rowsWithoutTheirParent(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+    records: readonly Record<string, unknown>[],
+  ): Promise<Map<number, ParentNotWritten>> {
+    const held = new Map<number, ParentNotWritten>();
+    const lookups = fieldInfos.filter(
+      (f) =>
+        f.isReference &&
+        (f.referenceTo ?? []).length > 1 &&
+        isRequiredLookup(node.objectApiName, f.name, f.nillable),
+    );
+    const unwritten: Array<{ index: number; field: string; id: string }> = [];
+    records.forEach((record, index) => {
+      for (const field of lookups) {
+        const id = record[field.name];
+        if (typeof id === 'string' && id && !state.remapper.get(id)) {
+          unwritten.push({ index, field: field.name, id });
+        }
+      }
+    });
+    if (unwritten.length === 0) return held;
+    const written = new Set(
+      state.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    );
+    written.delete(node.objectApiName);
+    const objectOf = await this.sourceKeyPrefixes(
+      state,
+      new Set(lookups.flatMap((f) => (f.referenceTo ?? []).filter((o) => written.has(o)))),
+    );
+    for (const { index, field, id } of unwritten) {
+      const parentObject = objectOf.get(id.slice(0, 3));
+      if (parentObject && !held.has(index)) held.set(index, { field, parentObject });
+    }
+    return held;
+  }
+
+  /**
+   * The object each source key prefix stands for, among `objects`: the prefix
+   * the ids of the rows the run read of an object begin with, or, for an
+   * object it read nothing of, the one the describe it holds gives, as
+   * `describeObject` answers. Kept for the run once told.
+   */
+  private async sourceKeyPrefixes(
+    state: ExecutionState,
+    objects: ReadonlySet<string>,
+  ): Promise<Map<string, string>> {
+    const unread: string[] = [];
+    for (const objectApiName of objects) {
+      if (state.sourceKeyPrefixes.has(objectApiName)) continue;
+      const row = state.preread
+        .get(objectApiName)
+        ?.records.find((r) => typeof r['Id'] === 'string');
+      if (row) state.sourceKeyPrefixes.set(objectApiName, String(row['Id']).slice(0, 3));
+      else unread.push(objectApiName);
+    }
+    for (let i = 0; i < unread.length; i += CONCURRENT_DESCRIBE_LIMIT) {
+      const wave = unread.slice(i, i + CONCURRENT_DESCRIBE_LIMIT);
+      const described = await Promise.all(
+        wave.map((objectApiName) => this.objectInfoOf(state.sourceOrgId, objectApiName)),
+      );
+      wave.forEach((objectApiName, j) => {
+        const prefix = described[j]?.keyPrefix;
+        if (prefix) state.sourceKeyPrefixes.set(objectApiName, prefix);
+      });
+    }
+    const objectOf = new Map<string, string>();
+    for (const objectApiName of objects) {
+      const prefix = state.sourceKeyPrefixes.get(objectApiName);
+      if (prefix && !objectOf.has(prefix)) objectOf.set(prefix, objectApiName);
+    }
+    return objectOf;
   }
 
   /**
@@ -1956,7 +2127,7 @@ export class ForgeExecutor {
       const createableSet = new Set(fieldInfos.filter((f) => f.createable).map((f) => f.name));
       // A lookup the rows may not leave empty, at an object that failed: none
       // of them could be written, so none is read.
-      if (this.skipForFailedParent(node, state, fieldInfos)) return false;
+      if (await this.skipForFailedParent(node, state, fieldInfos)) return false;
 
       const queryInput: NodeQueryInput = {
         node,
@@ -2368,17 +2539,18 @@ export class ForgeExecutor {
   }
 
   /**
-   * The key prefix and record types of the node's object in the target org,
-   * or `null` when the run has no way to read them. Best effort: a describe
-   * that failed has already been reported by the field-set check.
+   * The key prefix and record types of an object in an org, or `null` when the
+   * run has no way to read them. Best effort: a describe of the target that
+   * failed has already been reported by the field-set check, and one of the
+   * source by the read of the object.
    */
-  private async describeTargetObject(
-    targetOrgId: string,
+  private async objectInfoOf(
+    orgId: string,
     objectApiName: string,
   ): Promise<TargetObjectInfo | null> {
     if (!this.deps.describeObject) return null;
     try {
-      return await this.deps.describeObject(targetOrgId, objectApiName);
+      return await this.deps.describeObject(orgId, objectApiName);
     } catch {
       return null;
     }
@@ -2414,16 +2586,55 @@ export class ForgeExecutor {
   }
 
   /**
+   * Add to the run what the calls of one node did: the rows created, updated,
+   * linked and refused, the lookups owed to the second pass, the rows the
+   * target already held, and the refusals with their samples.
+   */
+  private countWrites(
+    state: ExecutionState,
+    objectApiName: string,
+    written: BatchWriteResult,
+  ): void {
+    state.successCount += written.successCount;
+    state.updatedCount += written.updatedCount;
+    state.linkedCount += written.linkedExistingCount;
+    state.failedCount += written.failureCount;
+    state.pendingFkUpdates.push(...written.pendingFkUpdates);
+    if (written.linkedExistingCount > 0 || written.unidentifiedExistingCount > 0) {
+      state.existingRecords.push({
+        objectApiName,
+        linked: written.linkedExistingCount,
+        unidentified: written.unidentifiedExistingCount,
+      });
+    }
+    if (written.failureCount > 0) {
+      state.errors.push({
+        objectApiName,
+        stage: 'insert',
+        failedCount: written.failureCount,
+        attemptedCount:
+          written.successCount +
+          written.updatedCount +
+          written.linkedExistingCount +
+          written.failureCount,
+        samples: written.errorSamples,
+      });
+    }
+  }
+
+  /**
    * Write one node the read stage has already pulled: describe the target
    * org, hold the node back when its record types are closed to the running
-   * user, expand orphan parents, clean, translate record types, anonymize
-   * and insert.
+   * user, and the rows whose parent it did not write, expand orphan parents,
+   * clean, translate record types, anonymize and insert.
    */
   private async writeNode(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
     const { config, sourceOrgId, targetOrgId, onProgress, remapper } = state;
     const read = state.preread.get(node.objectApiName);
     if (!read) return;
     const { fieldInfos, createableSet, records, targetSetsPending } = read;
+    // The rows read, less those held back for want of their parent.
+    let toWrite = records;
     try {
       // Step 2: describe the *target* org (schema-drift defense) — the only
       // way to detect missing fields/picklist drift before insert.
@@ -2461,7 +2672,7 @@ export class ForgeExecutor {
         : createableSet;
 
       // Read from the describe the field sets came from: no second request.
-      const targetObject = await this.describeTargetObject(targetOrgId, node.objectApiName);
+      const targetObject = await this.objectInfoOf(targetOrgId, node.objectApiName);
 
       // A record type can be active in the target and still be closed to the
       // user the run writes as. Found out at the insert, every record of it
@@ -2506,13 +2717,42 @@ export class ForgeExecutor {
         return;
       }
 
+      // A lookup the rows may not leave empty and that can name several
+      // objects decides row by row: see `rowsWithoutTheirParent`. Counted as
+      // failed, as the rows of a record type held back are — the run read
+      // them to clone them — and said why, per lookup and parent object.
+      const withoutParent = await this.rowsWithoutTheirParent(node, state, fieldInfos, records);
+      if (withoutParent.size > 0) {
+        toWrite = records.filter((_, index) => !withoutParent.has(index));
+        state.failedCount += withoutParent.size;
+        state.errors.push({
+          objectApiName: node.objectApiName,
+          stage: 'scope',
+          failedCount: withoutParent.size,
+          attemptedCount: 0,
+          samples: parentNotWrittenSamples(withoutParent, state.failedObjects),
+        });
+        if (toWrite.length === 0) {
+          state.failedObjects.add(node.objectApiName);
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'error',
+            progress: 100,
+            message:
+              `Held back ${node.objectApiName}, nothing written: every record points at a ` +
+              'parent this run did not write. Objects that cannot be written without it will be skipped.',
+          });
+          return;
+        }
+      }
+
       // Single-hop orphan parent expansion. Runs before the
       // clean stage so expanded parents land in the remapper and children
       // pick up the new target ID instead of orphan-nullifying.
       await state.orphanExpander.expandForNode({
         node,
         fieldInfos,
-        records,
+        records: toWrite,
         sourceOrgId,
         targetOrgId,
         remapper,
@@ -2538,7 +2778,7 @@ export class ForgeExecutor {
 
       const cleanedRecords = cleanNodeRecords({
         objectApiName: node.objectApiName,
-        records,
+        records: toWrite,
         fieldInfos,
         remapper,
         referenceFallback: config.referenceFallback,
@@ -2609,41 +2849,26 @@ export class ForgeExecutor {
         rounds.push({ records: recordsToInsert, cleaned: cleanedRecords });
       }
 
-      const writeResult = {
-        successCount: 0,
-        updatedCount: 0,
-        linkedExistingCount: 0,
-        failureCount: 0,
-        alreadyExistsCount: 0,
-        unidentifiedExistingCount: 0,
-        errorSamples: [] as ExecutionErrorSample[],
-        pendingFkUpdates: [] as PendingFkUpdate[],
-      };
+      // One tally for every round, filled as each call is answered.
+      const writeResult = emptyBatchWriteResult();
       try {
         for (const round of rounds) {
-          const partial = await state.batchWriter.writeNode({
-            node,
-            records: round.records,
-            cleanedRecords: round.cleaned,
-            fieldInfos,
-            creatableFields: effectiveCreatableSet,
-            upsertMode: config.upsertMode,
-            targetOrgId,
-            targetKeyPrefix: targetObject?.keyPrefix,
-            remapper,
-            waitIfPaused: () => this.waitIfPaused(),
-            onProgress,
-          });
-          writeResult.successCount += partial.successCount;
-          writeResult.updatedCount += partial.updatedCount;
-          writeResult.linkedExistingCount += partial.linkedExistingCount;
-          writeResult.failureCount += partial.failureCount;
-          writeResult.alreadyExistsCount += partial.alreadyExistsCount;
-          writeResult.unidentifiedExistingCount += partial.unidentifiedExistingCount;
-          writeResult.pendingFkUpdates.push(...partial.pendingFkUpdates);
-          for (const sample of partial.errorSamples) {
-            if (writeResult.errorSamples.length < 3) writeResult.errorSamples.push(sample);
-          }
+          await state.batchWriter.writeNode(
+            {
+              node,
+              records: round.records,
+              cleanedRecords: round.cleaned,
+              fieldInfos,
+              creatableFields: effectiveCreatableSet,
+              upsertMode: config.upsertMode,
+              targetOrgId,
+              targetKeyPrefix: targetObject?.keyPrefix,
+              remapper,
+              waitIfPaused: () => this.waitIfPaused(),
+              onProgress,
+            },
+            writeResult,
+          );
         }
       } finally {
         // Noted however the node ends: a call that throws, or a cancel between
@@ -2659,6 +2884,12 @@ export class ForgeExecutor {
           if (!targetId || remapper.isExisting(sourceId)) continue;
           state.deferredStatuses.push({ objectApiName: node.objectApiName, id: targetId, status });
         }
+        // Counted however the node ends, for the same reason. Counted only
+        // once it was through, a node a cancel stopped between two calls left
+        // what the calls before had created in the remap table — the removal
+        // takes them back — and out of what the run said it created, with
+        // the rows they had refused out of what it said it lost.
+        this.countWrites(state, node.objectApiName, writeResult);
       }
 
       const nodeSuccess = writeResult.successCount;
@@ -2666,28 +2897,6 @@ export class ForgeExecutor {
       const nodeLinked = writeResult.linkedExistingCount;
       const nodeFailure = writeResult.failureCount;
       const nodeUnidentified = writeResult.unidentifiedExistingCount;
-      state.successCount += nodeSuccess;
-      state.updatedCount += nodeUpdated;
-      state.linkedCount += nodeLinked;
-      state.failedCount += nodeFailure;
-      state.pendingFkUpdates.push(...writeResult.pendingFkUpdates);
-      if (nodeLinked > 0 || nodeUnidentified > 0) {
-        state.existingRecords.push({
-          objectApiName: node.objectApiName,
-          linked: nodeLinked,
-          unidentified: nodeUnidentified,
-        });
-      }
-
-      if (nodeFailure > 0) {
-        state.errors.push({
-          objectApiName: node.objectApiName,
-          stage: 'insert',
-          failedCount: nodeFailure,
-          attemptedCount: nodeSuccess + nodeUpdated + nodeLinked + nodeFailure,
-          samples: writeResult.errorSamples,
-        });
-      }
 
       // Fail-fast on partial-but-mostly-failure: if >50% of records
       // failed, mark the node as failed so the objects that cannot be
@@ -2728,11 +2937,15 @@ export class ForgeExecutor {
           nodeUnidentified > 0
             ? ` (${nodeUnidentified} already in the target without Salesforce naming the record — their children lose the link)`
             : '';
+        const withoutTheirParent =
+          withoutParent.size > 0
+            ? `, ${withoutParent.size} not written for want of their parent`
+            : '';
         onProgress({
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}`,
+          message: `Completed ${node.objectApiName}: ${nodeSuccess} succeeded${updated}${linked}, ${nodeFailure} failed${unidentified}${withoutTheirParent}`,
         });
       }
     } catch (err) {
@@ -2745,14 +2958,15 @@ export class ForgeExecutor {
       // the calls before it wrote; what reaches here stopped the node before
       // any of its rows went out. Those are the rows read, not the graph's
       // count, which is discovery's: zero on a template, and the whole table
-      // for an object a scoped clone reads a few rows of.
+      // for an object a scoped clone reads a few rows of — less the rows held
+      // back for want of their parent, already counted.
       state.failedObjects.add(node.objectApiName);
-      state.failedCount += records.length;
+      state.failedCount += toWrite.length;
       state.errors.push({
         objectApiName: node.objectApiName,
         stage: 'query',
-        failedCount: records.length,
-        attemptedCount: records.length,
+        failedCount: toWrite.length,
+        attemptedCount: toWrite.length,
         samples: [
           { recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] },
         ],

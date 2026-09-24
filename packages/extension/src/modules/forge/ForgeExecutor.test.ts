@@ -908,6 +908,50 @@ describe('ForgeExecutor', () => {
         remapByObject: [{ objectApiName: 'Account', created: 1, linked: 0 }],
       });
     });
+
+    it('keeps what the first call of an object wrote when a cancel falls before its second', async () => {
+      // 450 rows go out in three calls. The cancel lands during the first, so
+      // the second call's checkpoint stops the node with 200 rows answered.
+      const records = Array.from({ length: 450 }, (_, i) => ({
+        Id: `001OLD${String(i).padStart(3, '0')}`,
+        Name: `Record ${i}`,
+      }));
+      vi.mocked(deps.queryRecords).mockResolvedValue(records);
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, _objName, recs) => {
+        executor.abort();
+        return recs.map((_, i) =>
+          i === 0
+            ? { id: '', success: false, errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'] }
+            : { id: `001NEW${String(i).padStart(3, '0')}`, success: true, errors: [] },
+        );
+      });
+      const graph = makeGraph([makeNode('Account', { recordCount: 450, batchStrategy: 'rest' })]);
+
+      const error = await executor.execute(graph, 'src', 'tgt', onProgress).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ForgeAbortedError);
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      const partial = partialSummaryOf(error);
+      const created = records.slice(1, 200).map((r) => r.Id);
+      expect(partial?.createdByObject).toEqual([{ objectApiName: 'Account', sourceIds: created }]);
+      expect(Object.keys(partial?.remapTable ?? {})).toEqual(created);
+      expect(partial?.successCount).toBe(199);
+      expect(partial?.failedCount).toBe(1);
+      expect(partial?.errors).toEqual([
+        {
+          objectApiName: 'Account',
+          stage: 'insert',
+          failedCount: 1,
+          attemptedCount: 200,
+          samples: [
+            {
+              recordSummary: 'Name=Record 0',
+              messages: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: refused'],
+            },
+          ],
+        },
+      ]);
+    });
   });
 
   it('describes the target org while the source query is still running', async () => {
@@ -3911,6 +3955,257 @@ describe('ForgeExecutor', () => {
           '[dry-run] ProductSellingModelOption: 3 record(s) would be inserted',
         );
         expect(summary.errors).toEqual([]);
+      });
+    });
+
+    describe('a required lookup that can point at several objects', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const QUOTE = '0Q0000000000001AAA';
+      const OTHER_QUOTE = '0Q0000000000002AAA';
+      const DEAL_POST = '0D5000000000001AAA';
+      const QUOTE_POST = '0D5000000000002AAA';
+      /** The source org's key prefixes, as the describe the run holds of each object gives them. */
+      const KEY_PREFIXES: Record<string, string> = {
+        Account: '001',
+        Opportunity: '006',
+        Quote: '0Q0',
+        QuoteLineItem: '0QL',
+        FeedItem: '0D5',
+        FeedComment: '0D7',
+      };
+      /** A feed item's parent: it may not be left empty, and it can be one of several objects. */
+      const feedParent: FieldInfo = {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account', 'Opportunity', 'Quote'],
+        nillable: false,
+      };
+      const fields: Record<string, FieldInfo[]> = {
+        Opportunity: [idField, text('Name')],
+        Quote: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+        QuoteLineItem: [idField, text('Description'), lookup('QuoteId', 'Quote', true)],
+        FeedItem: [idField, text('Body'), feedParent],
+        FeedComment: [idField, text('CommentBody'), lookup('FeedItemId', 'FeedItem', true)],
+      };
+      const tables = (): Record<string, FakeRow[]> => ({
+        Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal' }],
+        Quote: [
+          { Id: QUOTE, Name: 'First', OpportunityId: OPPORTUNITY },
+          { Id: OTHER_QUOTE, Name: 'Second', OpportunityId: OPPORTUNITY },
+        ],
+        QuoteLineItem: [{ Id: '0QL000000000001AAA', Description: 'Line', QuoteId: QUOTE }],
+        FeedItem: [
+          { Id: DEAL_POST, Body: 'On the deal', ParentId: OPPORTUNITY },
+          { Id: QUOTE_POST, Body: 'On the first quote', ParentId: QUOTE },
+          { Id: '0D5000000000003AAA', Body: 'On the second quote', ParentId: OTHER_QUOTE },
+        ],
+        FeedComment: [{ Id: '0D7000000000001AAA', CommentBody: 'Reply', FeedItemId: QUOTE_POST }],
+      });
+      /**
+       * The graph discovery draws around an opportunity. A feed item's parent
+       * gets an edge from each object it can name, master-detail because the
+       * parent's side deletes its feed with it, and required because the field
+       * is: what the target describes of a real org.
+       */
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          [
+            makeNode('Opportunity'),
+            makeNode('Quote'),
+            makeNode('QuoteLineItem'),
+            makeNode('FeedItem'),
+            makeNode('FeedComment'),
+          ],
+          [
+            edge('Opportunity', 'Quote'),
+            { ...edge('Quote', 'QuoteLineItem'), type: 'master-detail', required: true },
+            { ...edge('Opportunity', 'FeedItem'), type: 'master-detail', required: true },
+            { ...edge('Quote', 'FeedItem'), type: 'master-detail', required: true },
+            { ...edge('FeedItem', 'FeedComment'), type: 'master-detail', required: true },
+          ],
+        );
+      const scoped = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+      /**
+       * The fake orgs of `tables`, whose target refuses the quotes named, and
+       * which describe each object with its key prefix.
+       */
+      function orgs(refusedQuotes: string[], rows: Record<string, FakeRow[]> = tables()) {
+        const run = fakeOrgs(rows, fields);
+        const insert = run.orgDeps.insertRecords;
+        run.orgDeps.insertRecords = async (org, object, records) => {
+          const results = await insert(org, object, records);
+          if (object !== 'Quote') return results;
+          return results.map((result, i) =>
+            refusedQuotes.includes(String(records[i]['Name']))
+              ? {
+                  id: '',
+                  success: false,
+                  errors: ['INVALID_CROSS_REFERENCE_KEY: invalid cross reference id'],
+                }
+              : result,
+          );
+        };
+        run.orgDeps.describeObject = async (_org, object) => ({
+          keyPrefix: KEY_PREFIXES[object] ?? null,
+          recordTypes: [],
+        });
+        return run;
+      }
+
+      const heldUnderQuotes = (count: number, why: string) => ({
+        objectApiName: 'FeedItem',
+        stage: 'scope',
+        failedCount: count,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: `ParentId → Quote (${count} record${count === 1 ? '' : 's'})`,
+            messages: [
+              `Not written: ParentId may not be left empty, and the Quote it points at ${why}`,
+            ],
+          },
+        ],
+      });
+
+      it('writes the feed item of the opportunity, and holds back and names those of the quotes the target refused', async () => {
+        // Run for real: every quote of the opportunity refused, and not one
+        // feed item written, the opportunity's own among them — the parent of
+        // a feed item can be any of 216 objects, and one of them had failed.
+        const { orgDeps, inserted } = orgs(['First', 'Second']);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+        ]);
+        expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+        // The two quotes the target refused, and the two feed items under them.
+        expect(summary.failedCount).toBe(4);
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
+          status: 'done',
+          message:
+            'Completed FeedItem: 1 succeeded, 0 failed, 2 not written for want of their parent',
+        });
+      });
+
+      it('still skips an object whose lookup at the failed object names that object alone', async () => {
+        const { orgDeps, inserted } = orgs(['First', 'Second']);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['QuoteLineItem']).toBeUndefined();
+        expect(summary.skippedCount).toBe(1);
+        expect(
+          progressEvents.find((e) => e.objectName === 'QuoteLineItem' && e.status === 'skipped')
+            ?.message,
+        ).toBe('Skipped QuoteLineItem (parent failed)');
+      });
+
+      it('holds back the feed item of the one quote refused, and writes that of the quote written', async () => {
+        // One quote of two refused leaves Quote short of failing as a whole:
+        // its other quote is there to post on.
+        const { orgDeps, inserted } = orgs(['First']);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+          { Body: 'On the second quote', ParentId: 'Quote:Second' },
+        ]);
+        expect(summary.errors).toContainEqual(heldUnderQuotes(1, 'was not written by this run.'));
+      });
+
+      it('holds a feed item back whole when every row points at a parent not written, and skips what cannot do without it', async () => {
+        const rows = tables();
+        rows['FeedItem'] = rows['FeedItem'].filter((row) => row['ParentId'] !== OPPORTUNITY);
+        const { orgDeps, inserted } = orgs(['First', 'Second'], rows);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        // Not even an empty call.
+        expect(inserted['FeedItem']).toBeUndefined();
+        expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+        expect(progressEvents.filter((e) => e.objectName === 'FeedItem').pop()).toMatchObject({
+          status: 'error',
+          message:
+            'Held back FeedItem, nothing written: every record points at a parent this run ' +
+            'did not write. Objects that cannot be written without it will be skipped.',
+        });
+        expect(inserted['FeedComment']).toBeUndefined();
+        expect(
+          progressEvents.find((e) => e.objectName === 'FeedComment' && e.status === 'skipped')
+            ?.message,
+        ).toBe('Skipped FeedComment (parent failed)');
+      });
+
+      it('decides row by row in a run of whole tables, telling the parents apart by the ids it read', async () => {
+        // Written as soon as it is read, a node is asked about its parents
+        // before its fields are: the graph's edges alone said a quote had
+        // failed. And without `describeObject` the key prefixes come from the
+        // rows read.
+        const { orgDeps, inserted } = orgs(['First', 'Second']);
+        delete orgDeps.describeObject;
+        const everyRow = tables();
+        orgDeps.queryRecords = async (_org, soql) => {
+          const object = /^SELECT .+ FROM (\w+)$/.exec(soql)?.[1] ?? '';
+          return (everyRow[object] ?? []).map((row) => ({ ...row }));
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress);
+
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+        ]);
+        expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+        expect(
+          progressEvents.some((e) => e.objectName === 'FeedItem' && e.status === 'skipped'),
+        ).toBe(false);
+      });
+
+      it('tells the object of a parent it read nothing of by the key prefix its describe gives', async () => {
+        // The quotes' read failed: no id of a quote was read, and the prefix
+        // comes from the describe the run holds of Quote.
+        const { orgDeps, inserted } = orgs([]);
+        const everyRow = tables();
+        orgDeps.queryRecords = async (_org, soql) => {
+          const object = /^SELECT .+ FROM (\w+)$/.exec(soql)?.[1] ?? '';
+          if (object === 'Quote') throw new Error('QUERY_TIMEOUT: the query ran for too long');
+          return (everyRow[object] ?? []).map((row) => ({ ...row }));
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress);
+
+        expect(inserted['FeedItem']).toEqual([
+          { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
+        ]);
+        expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
       });
     });
   });
