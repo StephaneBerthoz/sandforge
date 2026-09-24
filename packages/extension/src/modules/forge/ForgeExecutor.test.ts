@@ -5526,9 +5526,13 @@ describe('ForgeExecutor', () => {
       /**
        * A clone of the account from a source holding `cases`, and a comment
        * under the first, into a target that refuses cases. `fails` makes the
-       * source's read or describe of cases fail.
+       * source's read or describe of cases fail; `dryRun` writes nothing.
        */
-      async function cloneRefusingCases(cases: FakeRow[], fails?: 'read' | 'describe') {
+      async function cloneRefusingCases(
+        cases: FakeRow[],
+        fails?: 'read' | 'describe',
+        dryRun = false,
+      ) {
         const tables: Record<string, FakeRow[]> = {
           Account: [{ Id: ACCOUNT, Name: 'Root' }],
           Case: cases,
@@ -5563,6 +5567,7 @@ describe('ForgeExecutor', () => {
         const summary = await new ForgeExecutor(deps).execute(GRAPH, 'src', 'tgt', onProgress, {
           rootRecordId: ACCOUNT,
           rootObjectApiName: 'Account',
+          dryRun,
         });
         const reads = vi
           .mocked(deps.queryRecords)
@@ -5603,6 +5608,31 @@ describe('ForgeExecutor', () => {
         // the comment is not read, as when the object was not read at all.
         expect(reads.some((soql) => soql.includes('FROM CaseComment'))).toBe(false);
         expect(inserted).toEqual(['Account']);
+      });
+
+      it('says in a dry run what a real run would refuse, and counts none of it as to be inserted', async () => {
+        const cases = [
+          { Id: FIRST_CASE, Name: 'First', AccountId: ACCOUNT },
+          { Id: SECOND_CASE, Name: 'Second', AccountId: ACCOUNT },
+        ];
+        const real = await cloneRefusingCases(cases);
+        progressEvents = [];
+        const dry = await cloneRefusingCases(cases, undefined, true);
+
+        expect(dry.summary.errors).toEqual([NOT_CREATEABLE]);
+        expect(dry.summary.errors).toEqual(real.summary.errors);
+        expect(dry.summary.skippedCount).toBe(real.summary.skippedCount);
+        // The account alone, as the real run wrote it alone: listed as well,
+        // the cases and the comment under them were three records "to be
+        // inserted" that a real run never writes.
+        expect(real.summary.successCount).toBe(1);
+        expect(dry.summary.wouldInsertCount).toBe(1);
+        expect(progressEvents.some((e) => e.message.startsWith('[dry-run] Case'))).toBe(false);
+        expect(dry.reads.filter((soql) => soql.includes('FROM Case '))).toEqual([
+          `SELECT Id, Name, AccountId FROM Case WHERE AccountId IN ('${ACCOUNT}') LIMIT 1`,
+        ]);
+        expect(dry.reads.some((soql) => soql.includes('FROM CaseComment'))).toBe(false);
+        expect(dry.inserted).toEqual([]);
       });
 
       it.each(['read', 'describe'] as const)(
@@ -5670,7 +5700,7 @@ describe('ForgeExecutor', () => {
       expect(deps.insertRecords).not.toHaveBeenCalled();
     });
 
-    it('asks nothing on a dry run or about an excluded object', async () => {
+    it('asks on a dry run as on a real run, and nothing about an excluded object', async () => {
       const check = vi.fn<CreatableCheck>().mockResolvedValue(true);
       deps.isObjectCreatable = check;
       executor = new ForgeExecutor(deps);
@@ -5678,8 +5708,9 @@ describe('ForgeExecutor', () => {
       await executor.execute(makeGraph([makeNode('Account')]), 'src', 'tgt', onProgress, {
         dryRun: true,
       });
-      expect(check).not.toHaveBeenCalled();
+      expect(check.mock.calls).toEqual([['tgt', 'Account']]);
 
+      check.mockClear();
       await executor.execute(
         makeGraph([makeNode('Account'), makeNode('Contact', { included: false })]),
         'src',
@@ -5688,6 +5719,40 @@ describe('ForgeExecutor', () => {
       );
       expect(check.mock.calls).toEqual([['tgt', 'Account']]);
     });
+
+    it.each([
+      ['a run', false],
+      ['a dry run', true],
+    ] as const)(
+      '%s matches reference data by name in a target that refuses to insert it',
+      async (_run, dryRun) => {
+        const SOURCE_HOURS = '01m000000000001SRC';
+        const TARGET_HOURS = '01m000000000001AAA';
+        vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+          orgId === 'tgt'
+            ? [{ Id: TARGET_HOURS, Name: 'Default' }]
+            : [{ Id: SOURCE_HOURS, Name: 'Default' }],
+        );
+        deps.isObjectCreatable = vi.fn<CreatableCheck>().mockResolvedValue(false);
+        executor = new ForgeExecutor(deps);
+
+        const summary = await executor.execute(
+          makeGraph([makeNode('BusinessHours')]),
+          'src',
+          'tgt',
+          onProgress,
+          { dryRun },
+        );
+
+        // Matching writes nothing: the refusal is no reason to leave the rows
+        // unmatched, and the records pointing at them without their hours.
+        expect(summary.errors).toEqual([]);
+        expect(summary.skippedCount).toBe(0);
+        expect(summary.linkedCount).toBe(1);
+        expect(summary.remapTable).toEqual({ [SOURCE_HOURS]: TARGET_HOURS });
+        expect(deps.insertRecords).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('records the target already holds', () => {

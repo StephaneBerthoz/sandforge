@@ -2272,6 +2272,7 @@
     "inserted": "Insertados",
     "linkedExisting": "Vinculados a existentes",
     "skipped": "Omitidos",
+    "objectsSkipped": "Objetos omitidos",
     "idRemaps": "Reasignaciones de ID",
     "successRate": "Tasa de éxito",
     "saveTemplate": "Guardar como plantilla",

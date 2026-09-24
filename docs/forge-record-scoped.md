@@ -42,11 +42,12 @@ ForgeOrchestrator.execute(graph, config)
        │    RecordScopeCache + ScopedSoqlBuilder
        │
        ├─ before the node loop: isObjectCreatable for every included object
-       │    (target), six describes in flight at a time. An object the target
-       │    refuses is skipped: at most one row of it is read, into no scope,
-       │    and it is an error only when the clone holds records of it. A
-       │    check that failed is reported for that object, which is still
-       │    attempted.
+       │    but reference data (target), on a dry run too, six describes in
+       │    flight at a time. An object the target refuses is skipped: at most
+       │    one row of it is read, into no scope, and it is an error only when
+       │    the clone holds records of it. A check that failed is reported for
+       │    that object, which is still attempted. Reference data is matched
+       │    by name, never inserted, so it is not asked about.
        │
        ├─ for each node (root-first, then topo):
        │    1. describeFields (source + target → intersect createable)

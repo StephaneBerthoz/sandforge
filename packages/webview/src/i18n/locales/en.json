@@ -2272,6 +2272,7 @@
     "inserted": "Inserted",
     "linkedExisting": "Linked to existing",
     "skipped": "Skipped",
+    "objectsSkipped": "Objects skipped",
     "idRemaps": "ID Remaps",
     "successRate": "Success Rate",
     "saveTemplate": "Save as Template",

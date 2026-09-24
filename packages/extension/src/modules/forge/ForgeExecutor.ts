@@ -421,7 +421,9 @@ export interface ForgeExecutorDeps {
    * AuditTrail variants, etc. When provided, the executor consults this
    * before scheduling inserts so unsupported nodes are skipped cleanly
    * rather than failing record-by-record at runtime — with an error when
-   * the clone holds records of them, which it then cannot write.
+   * the clone holds records of them, which it then cannot write. A dry run
+   * consults it as well; reference data, matched by name and never
+   * inserted, is not asked about.
    */
   isObjectCreatable?: (orgId: string, objectName: string) => Promise<boolean>;
   /**
@@ -659,7 +661,7 @@ interface ExecutionState {
   readonly failedObjects: Set<string>;
   /**
    * Objects the target refuses inserts on: read for whether the clone holds
-   * any record of them, never written. Empty on a dry run, which asks nothing.
+   * any record of them, never written — on a dry run as on a real one.
    */
   readonly notCreatable: Set<string>;
   readonly errors: ExecutionObjectError[];
@@ -1333,10 +1335,26 @@ export class ForgeExecutor {
     // not wait for the describes of a graph that will not be executed, and the
     // node loop below turns the stop into ForgeAbortedError. A name left out of
     // the map falls through exactly as when the dep is absent.
+    //
+    // A dry run asks too: the check is a describe of the target, a read.
+    // Without it, a dry run listed as "would be inserted" what a real run
+    // refuses — run between two sandboxes, a RevenueTransactionErrorLog record
+    // the real run of the same clone could not write.
+    //
+    // Reference data is left out: matched by name in the target, it is never
+    // inserted, so whether the target takes inserts of it says nothing about
+    // the run. Asked, a refusal skipped rows the run only had to find, and the
+    // records pointing at them lost the link.
     const creatableChecks = new Map<string, PromiseSettledResult<boolean>>();
     const isObjectCreatable = this.deps.isObjectCreatable;
-    if (!config.dryRun && isObjectCreatable) {
-      const names = [...new Set(sortedNodes.filter((n) => n.included).map((n) => n.objectApiName))];
+    if (isObjectCreatable) {
+      const names = [
+        ...new Set(
+          sortedNodes
+            .filter((n) => n.included && !config.referenceDataObjects.has(n.objectApiName))
+            .map((n) => n.objectApiName),
+        ),
+      ];
       for (let i = 0; i < names.length; i += CONCURRENT_DESCRIBE_LIMIT) {
         if (this.isAborted) break;
         const wave = names.slice(i, i + CONCURRENT_DESCRIBE_LIMIT);

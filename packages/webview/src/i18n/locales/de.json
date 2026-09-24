@@ -2272,6 +2272,7 @@
     "inserted": "Eingefügt",
     "linkedExisting": "Mit Vorhandenem verknüpft",
     "skipped": "Übersprungen",
+    "objectsSkipped": "Übersprungene Objekte",
     "idRemaps": "ID-Neuzuordnungen",
     "successRate": "Erfolgsrate",
     "saveTemplate": "Als Vorlage speichern",

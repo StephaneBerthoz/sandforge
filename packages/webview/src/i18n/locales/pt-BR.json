@@ -2272,6 +2272,7 @@
     "inserted": "Inseridos",
     "linkedExisting": "Vinculados a existentes",
     "skipped": "Ignorados",
+    "objectsSkipped": "Objetos ignorados",
     "idRemaps": "Remapeamentos de ID",
     "successRate": "Taxa de sucesso",
     "saveTemplate": "Salvar como modelo",

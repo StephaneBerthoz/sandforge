@@ -2272,6 +2272,7 @@
     "inserted": "Insérés",
     "linkedExisting": "Rattachés à l'existant",
     "skipped": "Ignorés",
+    "objectsSkipped": "Objets ignorés",
     "idRemaps": "Remappages ID",
     "successRate": "Taux de réussite",
     "saveTemplate": "Enregistrer comme modèle",

@@ -99,10 +99,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Records the target already held and named: linked to, neither created nor failed. */
   const linked = result?.linkedExistingCount ?? 0;
 
-  const skipped = useMemo(
-    () => nodes.filter((n) => n.status === 'skipped').reduce((sum, n) => sum + n.recordCount, 0),
-    [nodes],
-  );
+  // Objects, not records: the run keeps no count of the records of an object
+  // it skips, and the count a node carries is discovery's, of its whole table.
+  // The card added those up, and a clone of one record read as having skipped
+  // every row of each table it left out.
+  const skippedObjects = useMemo(() => nodes.filter((n) => n.status === 'skipped').length, [nodes]);
 
   const idRemaps = result?.idRemapCount ?? 0;
 
@@ -184,7 +185,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       '',
       `- Inserted: ${String(inserted)}`,
       `- Linked to existing: ${String(linked)}`,
-      `- Skipped: ${String(skipped)}`,
+      `- Objects skipped: ${String(skippedObjects)}`,
       `- ID Remaps: ${String(idRemaps)}`,
       `- Success Rate: ${String(successRate)}%`,
       '',
@@ -210,7 +211,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     }
 
     return lines.join('\n');
-  }, [inserted, linked, skipped, idRemaps, successRate, nodes, existingRecords]);
+  }, [inserted, linked, skippedObjects, idRemaps, successRate, nodes, existingRecords]);
 
   /** Copy a markdown report summary to the clipboard. */
   const handleCopyReport = useCallback(async () => {
@@ -354,8 +355,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         )}
         <KPICard
           icon="debug-step-over"
-          label={t('forge.skipped')}
-          value={skipped}
+          label={t('forge.objectsSkipped')}
+          value={skippedObjects}
           variant="warning"
         />
         <KPICard icon="arrow-swap" label={t('forge.idRemaps')} value={idRemaps} variant="default" />

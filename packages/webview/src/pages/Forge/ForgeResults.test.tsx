@@ -289,11 +289,41 @@ describe('ForgeResults', () => {
     expect(values[0].textContent).toBe('28');
   });
 
-  it('should display correct skipped count in KPI', () => {
+  it('counts the objects the run skipped, not the records discovery counted in their tables', () => {
+    // A node's count is discovery's, of its whole table: a clone of one record
+    // that skipped a large table read as having skipped every row of it.
+    const largeTable: ForgeGraphNode = {
+      ...makeMockGraph().nodes[2],
+      objectApiName: 'CaseHistory',
+      recordCount: 48_000,
+    };
+    mockGraph = { ...mockGraph, nodes: [...mockGraph.nodes, largeTable] };
     render(<ForgeResults />);
-    const values = screen.getAllByTestId('kpi-value');
-    // skipped = Case with 5 records (status=skipped)
-    expect(values[1].textContent).toBe('5');
+
+    const card = screen.getAllByTestId('kpi-card')[1];
+    expect(card.textContent).toContain('Objects skipped');
+    expect(within(card).getByTestId('kpi-value').textContent).toBe('2');
+  });
+
+  it('says in the copied report how many objects the run skipped', async () => {
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      render(<ForgeResults />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('forge-copy-report'));
+      });
+
+      const report = writeText.mock.calls[0]?.[0] ?? '';
+      expect(report).toContain('- Objects skipped: 1\n');
+      expect(report).not.toContain('- Skipped:');
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
   });
 
   it('should display idRemaps from result.idRemapCount, not inserted', () => {

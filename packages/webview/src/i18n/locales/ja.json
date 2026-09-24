@@ -2166,6 +2166,7 @@
     "inserted": "挿入済み",
     "linkedExisting": "既存にリンク",
     "skipped": "スキップ",
+    "objectsSkipped": "スキップしたオブジェクト",
     "idRemaps": "ID付け替え",
     "successRate": "成功率",
     "saveTemplate": "テンプレートとして保存",
