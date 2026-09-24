@@ -686,6 +686,16 @@ interface ExecutionState {
    */
   readonly deferredNodes: ForgeGraphNode[];
   /**
+   * The included objects whose turn in a record-scoped run's first read pass
+   * has not come yet. Empty outside that pass.
+   */
+  readonly turnsAhead: Set<string>;
+  /**
+   * Per object, the nodes whose read waits for its turn: a lookup their rows
+   * cannot leave empty points at it. See `requiredParentAhead`.
+   */
+  readonly waitingFor: Map<string, ForgeGraphNode[]>;
+  /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
    * at their turn for what they reached. See `sortNodesAskedAgain`.
@@ -760,6 +770,31 @@ function pricesFrom(fieldInfos: readonly FieldInfo[]): boolean {
   return fieldInfos.some(
     (f) => f.isReference && (f.referenceTo ?? []).includes(PRICEBOOK_ENTRY_OBJECT),
   );
+}
+
+/**
+ * The object among `turnsAhead` that the rows of `objectApiName` cannot be
+ * written without, if any: the one a lookup they may not leave empty names.
+ *
+ * A lookup that can name several objects makes no node wait: its rows are
+ * held back one by one (`rowsWithoutTheirParent`). Nor does the catalog,
+ * read after the rest of the graph by what the rows name.
+ */
+function requiredParentAhead(
+  objectApiName: string,
+  fieldInfos: readonly FieldInfo[],
+  turnsAhead: ReadonlySet<string>,
+): string | undefined {
+  for (const field of fieldInfos) {
+    const targets = field.referenceTo ?? [];
+    if (!field.isReference || targets.length !== 1) continue;
+    if (!isRequiredLookup(objectApiName, field.name, field.nillable)) continue;
+    const [parent] = targets;
+    if (parent !== objectApiName && !CATALOG_OBJECTS.has(parent) && turnsAhead.has(parent)) {
+      return parent;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -1127,6 +1162,8 @@ export class ForgeExecutor {
       truncatedObjects: new Set<string>(),
       pendingFkUpdates: [],
       deferredNodes: [],
+      turnsAhead: new Set<string>(),
+      waitingFor: new Map<string, ForgeGraphNode[]>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
@@ -1332,6 +1369,11 @@ export class ForgeExecutor {
      */
     const twoPhase = config.isScoped === true || config.files !== undefined;
     const runOrder = twoPhase ? sortedNodes : await this.singlePassOrder(state);
+    // A scoped read takes its turns in this order, save a node that waits for
+    // a parent still to come: see `readInTurn`.
+    if (twoPhase && state.scopeCache) {
+      for (const node of runOrder) if (node.included) state.turnsAhead.add(node.objectApiName);
+    }
 
     // The standard price book, when the run carries prices at all. See
     // `standard-pricebook.ts`: the platform refuses a custom price for a
@@ -1453,7 +1495,10 @@ export class ForgeExecutor {
 
       // What the graph says the rows cannot do without is known before they
       // are read; what their own fields say, once `readNode` has them.
-      if (await this.skipForFailedParent(node, state)) continue;
+      if (await this.skipForFailedParent(node, state)) {
+        await this.endTurn(node.objectApiName, state);
+        continue;
+      }
 
       const creatableCheck = creatableChecks.get(node.objectApiName);
       if (creatableCheck) {
@@ -1483,7 +1528,7 @@ export class ForgeExecutor {
       }
 
       if (twoPhase) {
-        await this.readNode(node, state, true, false);
+        await this.readInTurn(node, state);
       } else if (await this.readNode(node, state, false, true)) {
         await this.writeNode(node, state);
       }
@@ -2205,6 +2250,43 @@ export class ForgeExecutor {
   }
 
   /**
+   * A node's turn in the first read pass of a two-pass run: it is read, then
+   * the nodes that waited for it take their turn.
+   *
+   * Unless a lookup its rows may not leave empty points at an object whose
+   * turn is still to come: then it waits for that turn. The order of the pass
+   * puts parents first, but it cannot order the members of a cycle, and read
+   * before such a parent, the rows are held to the ids of it the run has met
+   * so far rather than to its rows. Run for real, an opportunity's order
+   * actions came before its orders: lookups that can name nearly any object
+   * had put an opportunity's id and a quote's in scope as orders, the actions
+   * were read under those, and none of the eleven that the orders read
+   * afterwards hold came with them.
+   */
+  private async readInTurn(node: ForgeGraphNode, state: ExecutionState): Promise<void> {
+    state.turnsAhead.delete(node.objectApiName);
+    await this.readNode(node, state, true, false);
+    const waits = [...state.waitingFor.values()].some((nodes) => nodes.includes(node));
+    if (!waits) await this.endTurn(node.objectApiName, state);
+  }
+
+  /** The turn of `objectApiName` in the first read pass is over: the nodes that waited for it take theirs. */
+  private async endTurn(objectApiName: string, state: ExecutionState): Promise<void> {
+    state.turnsAhead.delete(objectApiName);
+    const waiting = state.waitingFor.get(objectApiName);
+    if (!waiting) return;
+    state.waitingFor.delete(objectApiName);
+    for (const node of waiting) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      await this.readInTurn(node, state);
+    }
+  }
+
+  /**
    * Read one node from the source org: describe its fields, resolve its
    * scope, query its rows, and seed the scope cache with what they point at.
    *
@@ -2243,6 +2325,18 @@ export class ForgeExecutor {
       // A lookup the rows may not leave empty, at an object that failed: none
       // of them could be written, so none is read.
       if (await this.skipForFailedParent(node, state, fieldInfos)) return false;
+
+      // A lookup the rows may not leave empty, at an object whose turn is
+      // still to come: the node waits for that turn. See `readInTurn`. Not
+      // the root, read by its id whatever it points at: every scope starts
+      // from it, and the parents it names are read by what it names.
+      if (allowDefer && node.objectApiName !== config.rootObjectApiName) {
+        const parent = requiredParentAhead(node.objectApiName, fieldInfos, state.turnsAhead);
+        if (parent) {
+          state.waitingFor.set(parent, [...(state.waitingFor.get(parent) ?? []), node]);
+          return false;
+        }
+      }
 
       const queryInput: NodeQueryInput = {
         node,

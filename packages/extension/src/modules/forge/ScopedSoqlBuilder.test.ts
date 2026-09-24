@@ -1143,6 +1143,43 @@ describe('ScopedSoqlBuilder', () => {
     });
   });
 
+  describe('rows read by their ids', () => {
+    it('lays the ids over as many statements as the field list leaves room for', () => {
+      // Four hundred fields leave room for fewer than two hundred ids a
+      // statement: a fixed count of ids is what sent a query past the URI the
+      // org takes.
+      const wide = Array.from(
+        { length: 420 },
+        (_, i) => `Price_Attribute_${String(i).padStart(3, '0')}__c`,
+      );
+      const ids = Array.from({ length: 700 }, (_, i) => `01t${String(i).padStart(15, '0')}`);
+
+      const statements = new ScopedSoqlBuilder().buildById({
+        objectApiName: 'Product2',
+        selectFields: ['Id', ...wide],
+        ids: new Set(ids),
+        extraWhere: 'CreatedDate <= 2026-08-01T00:00:00Z',
+      });
+
+      for (const soql of statements) {
+        expect(encodeURIComponent(soql).length).toBeLessThanOrEqual(15_800);
+        expect(soql).toMatch(/ WHERE Id IN \('01t\d{15}'(, '01t\d{15}')*\) AND \(CreatedDate <= /);
+        expect((soql.match(/01t\d{15}/g) ?? []).length).toBeLessThan(200);
+      }
+      expect(statements.flatMap((soql) => soql.match(/01t\d{15}/g) ?? [])).toEqual(ids);
+    });
+
+    it('writes no statement for no id', () => {
+      expect(
+        new ScopedSoqlBuilder().buildById({
+          objectApiName: 'Product2',
+          selectFields: ['Id'],
+          ids: new Set(),
+        }),
+      ).toEqual([]);
+    });
+  });
+
   describe('a catalog', () => {
     const CATALOG: ReadonlySet<string> = new Set(['PricebookEntry', 'Product2', 'Pricebook2']);
     const READ = new Set(['Opportunity', 'Quote', 'QuoteLineItem', ...CATALOG]);

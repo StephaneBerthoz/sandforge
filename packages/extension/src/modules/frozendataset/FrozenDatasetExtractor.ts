@@ -34,12 +34,15 @@ import {
   PRICEBOOK_ENTRY_PRODUCT_FIELD,
   PRICEBOOK_ENTRY_SELLING_MODEL_FIELD,
   PRICEBOOK_OBJECT,
+  SELLING_MODEL_OBJECT,
   STANDARD_PRICEBOOK_SOQL,
   dedupePricebookEntries,
+  isRequiredLookup,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { RecordScopeCache } from '../forge/RecordScopeCache.js';
 import { ScopedSoqlBuilder, type ScopableField } from '../forge/ScopedSoqlBuilder.js';
+import { CATALOG_OBJECTS } from '../forge/stages/ScopeResolver.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { renderQueryTemplate } from './queryTemplates.js';
 import type { ExtractedDataset, ExtractedRecord, RecordTypeMapEntry } from './types.js';
@@ -58,24 +61,19 @@ export const RT_MAP_FILE_NAME = 'rt-map.json';
 const MAX_PARENT_ROUNDS = 10;
 
 /**
- * The catalog: products, price books and their prices — reference data every
- * dossier draws on and none owns.
- */
-const CATALOG_OBJECTS: ReadonlySet<string> = new Set(['Product2', 'Pricebook2', 'PricebookEntry']);
-
-/**
  * The fields the scoped builder sees, with a dossier record's required
- * lookups into the catalog no longer marked required.
+ * lookups into the catalog — prices, products, selling models and their
+ * options, price books: `CATALOG_OBJECTS` — no longer marked required.
  *
  * The builder keeps only rows whose required parents it has read, and that
- * is the dossier's edge for most lookups: a quote whose opportunity is not
- * in the dossier is not the dossier's. Into the catalog it is the wrong
- * edge. A price is read when scope reaches it, and scope reached an order's
- * price book only after the prices had been read: run for real, every item
- * of two activated orders was left out, and the orders loaded with no
- * product. Those lookups stay open, and {@link completeRequiredParents}
- * fetches the prices they name. The catalog's own lookups keep the edge, so
- * a price book is not read whole for one of its products.
+ * is the dossier's edge for most lookups: a quote line whose quote is not in
+ * the dossier is not the dossier's. Into the catalog it is the wrong edge. A
+ * price is read when scope reaches it, and scope reached an order's price
+ * book only after the prices had been read: run for real, every item of two
+ * activated orders was left out, and the orders loaded with no product.
+ * Those lookups stay open, and {@link completeRequiredParents} fetches the
+ * prices they name. The catalog's own lookups keep the edge, so a price book
+ * is not read whole for one of its products.
  */
 function withCatalogLookupsOpen(objectApiName: string, fields: ScopableField[]): ScopableField[] {
   if (CATALOG_OBJECTS.has(objectApiName)) return fields;
@@ -85,9 +83,6 @@ function withCatalogLookupsOpen(objectApiName: string, fields: ScopableField[]):
       : f,
   );
 }
-
-/** Ids per `IN` list when records are fetched by id. */
-const PRODUCT_CHUNK = 200;
 
 /**
  * A row as Salesforce holds it: jsforce wraps each one in an `attributes`
@@ -102,6 +97,47 @@ function withoutEnvelope(row: Record<string, unknown>): Record<string, unknown> 
   return copy;
 }
 
+/**
+ * Which object a record id belongs to, told by its key prefix: the three
+ * characters every id of an object begins with.
+ *
+ * Learnt from the rows the extraction holds, every row of an object carrying
+ * its prefix, and for a prefix none of them has, from the org, asked once.
+ */
+class KeyPrefixOwners {
+  private readonly owners = new Map<string, string>();
+  private fromOrg: Promise<void> | undefined;
+
+  constructor(private readonly keyPrefixes: FrozenExtractorDeps['keyPrefixes']) {}
+
+  /** Note the prefix of each object the extraction holds a row of. */
+  learnFrom(recordsByObject: ReadonlyMap<string, ReadonlyMap<string, unknown>>): void {
+    for (const [objectApiName, bucket] of recordsByObject) {
+      const first = bucket.keys().next();
+      if (!first.done) this.owners.set(first.value.slice(0, 3), objectApiName);
+    }
+  }
+
+  /** The object `id` belongs to, or `undefined` when neither the rows held nor the org says. */
+  async ownerOf(id: string): Promise<string | undefined> {
+    const prefix = id.slice(0, 3);
+    if (!this.owners.has(prefix) && this.keyPrefixes) {
+      this.fromOrg ??= this.keyPrefixes().then(
+        (prefixes) => {
+          for (const [objectApiName, keyPrefix] of prefixes) {
+            if (!this.owners.has(keyPrefix)) this.owners.set(keyPrefix, objectApiName);
+          }
+        },
+        // Unanswered, an id stays unplaced, and is looked for in each object
+        // its lookup names.
+        () => undefined,
+      );
+      await this.fromOrg;
+    }
+    return this.owners.get(prefix);
+  }
+}
+
 /** Strict ISO instant — validated before interpolation into SOQL literals. */
 const ISO_INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
@@ -111,6 +147,13 @@ export interface FrozenExtractorDeps {
   query: (soql: string) => Promise<Record<string, unknown>[]>;
   /** Describe the fields of an object (scope detection + SELECT clause). */
   describeFields: (objectApiName: string) => Promise<ScopableField[]>;
+  /**
+   * The key prefix of each object of the org — the three characters its
+   * record ids begin with — by object. Asked when an id met through a lookup
+   * that can name several objects begins with a prefix no row read so far
+   * has; left out, such an id is looked for in each of them.
+   */
+  keyPrefixes?: () => Promise<ReadonlyMap<string, string>>;
 }
 
 /** Extraction inputs. */
@@ -180,6 +223,10 @@ export class FrozenDatasetExtractor {
 
     const cache = new RecordScopeCache();
     cache.add(options.rootObject, options.rootRecordIds);
+    // The roots are reached from above, as every row read under a parent in
+    // scope is: a row of the catalog brings the rows under it only then. See
+    // `catalog` below.
+    cache.addReached(options.rootObject, options.rootRecordIds);
 
     const nodes = [...options.graph.nodes]
       .filter((n) => n.included)
@@ -212,18 +259,22 @@ export class FrozenDatasetExtractor {
 
     /** Described fields per object, asked once. */
     const fieldsByObject = new Map<string, ScopableField[]>();
+    /** The fields of an object, described once, with what they say of its reads. */
+    const describe = async (objectApiName: string): Promise<ScopableField[]> => {
+      const known = fieldsByObject.get(objectApiName);
+      if (known) return known;
+      const fields = await this.deps.describeFields(objectApiName);
+      fieldsByObject.set(objectApiName, fields);
+      if (!fields.some((f) => f.name === 'CreatedDate')) unbounded.add(objectApiName);
+      const files = fields.filter((f) => f.type === 'base64').map((f) => f.name);
+      if (files.length > 0) fileFields[objectApiName] = files;
+      return fields;
+    };
 
     for (const node of nodes) {
-      let fields = fieldsByObject.get(node.objectApiName);
-      if (!fields) {
-        fields = await this.deps.describeFields(node.objectApiName);
-        fieldsByObject.set(node.objectApiName, fields);
-      }
+      const fields = await describe(node.objectApiName);
       const selectFields = this.selectFields(node.objectApiName, fields, options.excludedFields);
       const hasCreatedDate = fields.some((f) => f.name === 'CreatedDate');
-      if (!hasCreatedDate) unbounded.add(node.objectApiName);
-      const files = fields.filter((f) => f.type === 'base64').map((f) => f.name);
-      if (files.length > 0) fileFields[node.objectApiName] = files;
       const built = this.soqlBuilder.build({
         node,
         fields: withCatalogLookupsOpen(node.objectApiName, fields),
@@ -254,16 +305,29 @@ export class FrozenDatasetExtractor {
         // price no line named took the place of the one two quote lines used.
         everyEdge: !CATALOG_OBJECTS.has(node.objectApiName),
         readObjects,
+        // And a row of the catalog met through a lookup brings nothing under
+        // it: the opportunity's price book is also the book of every other
+        // sale priced from it. Read as any parent in scope, it brought the
+        // quotes and orders that use it, another opportunity's among them.
+        // Only a catalog row the extraction reached from above — a root, or
+        // a row read under a parent in scope — brings what is under it.
+        catalog: CATALOG_OBJECTS,
       });
       if (!built.scoped) {
         // Unscoped node (no path to the root) — nothing to pull.
         continue;
       }
       // A selection too large for one query URI arrives as several
-      // statements; the bucket below already keeps one row per Id.
+      // statements; the bucket below already keeps one row per Id. The
+      // statements past the first `byIdCount` read rows under a parent in
+      // scope: rows reached from above.
       const rows: Record<string, unknown>[] = [];
-      for (const soql of built.statements) {
-        rows.push(...(await this.deps.query(soql)));
+      const reached: string[] = [];
+      for (const [index, soql] of built.statements.entries()) {
+        const answered = await this.deps.query(soql);
+        rows.push(...answered);
+        if (index < built.byIdCount) continue;
+        for (const row of answered) if (typeof row.Id === 'string') reached.push(row.Id);
       }
       let bucket = recordsByObject.get(node.objectApiName);
       if (!bucket) {
@@ -288,6 +352,7 @@ export class FrozenDatasetExtractor {
       // and read under that opportunity's id, its line items came in, and the
       // opportunity with them, fetched as the parent they require.
       cache.addRead(node.objectApiName, ids);
+      cache.addReached(node.objectApiName, reached);
       // Seed parent objects referenced by lookups so their own wave can
       // use the 'self-cached' branch (mirrors ForgeExecutor behavior).
       for (const field of fields) {
@@ -307,19 +372,17 @@ export class FrozenDatasetExtractor {
       }
     }
 
-    await this.completeRequiredParents(
-      options,
-      nodes.map((n) => n.objectApiName),
-      recordsByObject,
-      fieldsByObject,
-      asOfWhere,
-    );
+    await this.completeRequiredParents(options, recordsByObject, describe, asOfWhere);
 
     const standardPricebookSourceId = await this.addStandardPrices(
       options,
       recordsByObject,
       asOfWhere,
     );
+
+    // Whether the dataset carries the selling models its prices are sold
+    // under, so the load writes the lookup that tells two prices apart.
+    const sellingModels = (recordsByObject.get(SELLING_MODEL_OBJECT)?.size ?? 0) > 0;
 
     // Stable referenceIds: per object, records sorted by source ID, then
     // numbered — identical exports produce identical referenceIds,
@@ -328,9 +391,15 @@ export class FrozenDatasetExtractor {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([objectApiName, bucket]) => {
         let rows = [...bucket.values()].sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
-        // A book holds one price per product, and the target enforces it on
-        // insert whatever `IsActive` says; a source can still hold two.
-        if (objectApiName === PRICEBOOK_ENTRY_OBJECT) rows = dedupePricebookEntries(rows);
+        // A book holds one price per product — per product and selling model
+        // where the dataset carries the models — and the target enforces it
+        // on insert whatever `IsActive` says; a source can still hold two.
+        // Keyed on the product alone, a product sold under two models kept
+        // one of its prices, and a line priced under the other was left
+        // pointing at a price the dataset did not hold.
+        if (objectApiName === PRICEBOOK_ENTRY_OBJECT) {
+          rows = dedupePricebookEntries(rows, { sellingModel: sellingModels });
+        }
         const records: ExtractedRecord[] = rows.map((fields, index) => ({
           referenceId: `${objectApiName}-${String(index + 1).padStart(6, '0')}`,
           sourceId: String(fields.Id),
@@ -369,31 +438,67 @@ export class FrozenDatasetExtractor {
    * load can leave empty, a required one it cannot. In practice these are the
    * catalog lookups {@link withCatalogLookupsOpen} leaves open; every other
    * required lookup was held to parents already read.
+   *
+   * Required as the platform has it, not only as the describe says: an
+   * opportunity's line reads as nullable and is refused without its price
+   * (`platform-required-fields.ts` in shared). And a price keeps its selling
+   * model, optional as that lookup is: a book prices a product once per model
+   * it is sold under, and a price loaded without its model is the product's
+   * other price over again.
+   *
+   * The parents are looked for among the objects the extraction reads, and
+   * in the catalog whatever the graph holds: a line whose price, product or
+   * book the dataset leaves out cannot be loaded. Run for real at the default
+   * cap of fifty objects, discovery stopped before it reached the catalog, and
+   * a dossier with three priced lines came out without a single price. An
+   * object the graph holds and leaves out — excluded, or empty in the whole
+   * org — stays out.
+   *
+   * An id a lookup naming several objects holds is looked for in the one
+   * object its key prefix says it belongs to. Asked of each of them, a feed
+   * item's parent and an error log's record cost some fifty queries a pass,
+   * every one bound to come back empty.
    */
   private async completeRequiredParents(
     options: FrozenExtractionOptions,
-    objectsInGraph: readonly string[],
     recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
-    fieldsByObject: ReadonlyMap<string, ScopableField[]>,
+    describe: (objectApiName: string) => Promise<ScopableField[]>,
     asOfWhere: string,
   ): Promise<void> {
-    const inGraph = new Set(objectsInGraph);
+    const included = new Set(
+      options.graph.nodes.filter((n) => n.included).map((n) => n.objectApiName),
+    );
+    const leftOut = new Set(
+      options.graph.nodes.filter((n) => !n.included).map((n) => n.objectApiName),
+    );
+    const fetched = (objectApiName: string): boolean =>
+      included.has(objectApiName) ||
+      (CATALOG_OBJECTS.has(objectApiName) && !leftOut.has(objectApiName));
+    const owners = new KeyPrefixOwners(this.deps.keyPrefixes);
+
     const asked = new Map<string, Set<string>>();
     for (let round = 0; round < MAX_PARENT_ROUNDS; round++) {
+      owners.learnFrom(recordsByObject);
       const missing = new Map<string, Set<string>>();
       for (const [objectApiName, bucket] of recordsByObject) {
-        const required = (fieldsByObject.get(objectApiName) ?? []).filter(
-          (f) => f.type === 'reference' && f.nillable === false,
+        const followed = (await describe(objectApiName)).filter(
+          (f) =>
+            f.type === 'reference' &&
+            (isRequiredLookup(objectApiName, f.name, f.nillable) ||
+              (objectApiName === PRICEBOOK_ENTRY_OBJECT &&
+                f.name === PRICEBOOK_ENTRY_SELLING_MODEL_FIELD)),
         );
         for (const row of bucket.values()) {
-          for (const field of required) {
+          for (const field of followed) {
             const id = row[field.name];
             if (typeof id !== 'string' || id === '') continue;
-            // A polymorphic lookup names several objects; the id belongs to
-            // one, and asking the others costs a query that returns nothing.
-            for (const target of field.referenceTo) {
-              if (!inGraph.has(target) || recordsByObject.get(target)?.has(id)) continue;
-              if (asked.get(target)?.has(id)) continue;
+            let targets = field.referenceTo.filter(fetched);
+            if (field.referenceTo.length > 1 && targets.length > 0) {
+              const owner = await owners.ownerOf(id);
+              if (owner !== undefined) targets = targets.includes(owner) ? [owner] : [];
+            }
+            for (const target of targets) {
+              if (recordsByObject.get(target)?.has(id) || asked.get(target)?.has(id)) continue;
               missing.set(target, (missing.get(target) ?? new Set()).add(id));
             }
           }
@@ -402,26 +507,22 @@ export class FrozenDatasetExtractor {
       if (missing.size === 0) return;
       for (const [target, ids] of missing) {
         asked.set(target, new Set([...(asked.get(target) ?? []), ...ids]));
-        const fields = fieldsByObject.get(target) ?? [];
-        const select = this.selectFields(target, fields, options.excludedFields)
-          .map((f) => assertSoqlIdentifier(f))
-          .join(', ');
-        const bound = fields.some((f) => f.name === 'CreatedDate') ? ` AND ${asOfWhere}` : '';
+        const fields = await describe(target);
         let bucket = recordsByObject.get(target);
         if (!bucket) {
           bucket = new Map();
           recordsByObject.set(target, bucket);
         }
-        const list = [...ids];
-        for (let i = 0; i < list.length; i += PRODUCT_CHUNK) {
-          const inList = list
-            .slice(i, i + PRODUCT_CHUNK)
-            .map((id) => `'${sanitizeSoqlValue(id)}'`)
-            .join(', ');
-          const rows = await this.deps.query(
-            `SELECT ${select} FROM ${assertSoqlIdentifier(target)} WHERE Id IN (${inList})${bound}`,
-          );
-          for (const row of rows) {
+        // As many ids a statement as the request URI holds once the field
+        // list is written in front of them, as every read of the extraction.
+        const statements = this.soqlBuilder.buildById({
+          objectApiName: target,
+          selectFields: this.selectFields(target, fields, options.excludedFields),
+          ids,
+          extraWhere: fields.some((f) => f.name === 'CreatedDate') ? asOfWhere : undefined,
+        });
+        for (const soql of statements) {
+          for (const row of await this.deps.query(soql)) {
             if (typeof row.Id === 'string' && !bucket.has(row.Id)) {
               bucket.set(row.Id, withoutEnvelope(row));
             }

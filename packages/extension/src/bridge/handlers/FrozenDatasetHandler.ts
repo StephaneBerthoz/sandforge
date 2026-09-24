@@ -625,16 +625,33 @@ export class FrozenDatasetHandler implements DomainHandler {
         );
         return result.piiFields.map((p) => p.fieldApiName);
       },
-      describeGlobal: async (orgId) => {
-        const cached = this.describeGlobalCache.get(orgId);
-        if (cached) return cached;
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const r = await conn.describeGlobal();
-        const formatted = r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
-        this.describeGlobalCache.set(orgId, formatted);
-        return formatted;
-      },
+      describeGlobal: (orgId) => this.describeGlobal(orgId),
     });
+  }
+
+  /** The objects of an org and the key prefix of each, described once and kept. */
+  private async describeGlobal(
+    orgId: string,
+  ): Promise<Array<{ name: string; keyPrefix: string | null }>> {
+    const cached = this.describeGlobalCache.get(orgId);
+    if (cached) return cached;
+    const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+    const r = await conn.describeGlobal();
+    const formatted = r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+    this.describeGlobalCache.set(orgId, formatted);
+    return formatted;
+  }
+
+  /**
+   * The key prefix of each object of an org, by object: which object an id
+   * belongs to, for the extractor. The describe discovery already asked for.
+   */
+  private async keyPrefixes(orgId: string): Promise<ReadonlyMap<string, string>> {
+    const prefixes = new Map<string, string>();
+    for (const { name, keyPrefix } of await this.describeGlobal(orgId)) {
+      if (keyPrefix) prefixes.set(name, keyPrefix);
+    }
+    return prefixes;
   }
 
   /**
@@ -909,6 +926,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         query,
         describeFields: (objectApiName) =>
           this.describeScopableFields(parsed.sourceOrgId, objectApiName),
+        keyPrefixes: () => this.keyPrefixes(parsed.sourceOrgId),
       });
       // One graph for the run: it is the root object's, whichever root asks.
       let graphOnce: Promise<ForgeGraph> | undefined;
@@ -1063,6 +1081,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         query: (soql) => queryAll(conn, soql),
         describeFields: (objectApiName) =>
           this.describeScopableFields(parsed.sourceOrgId, objectApiName),
+        keyPrefixes: () => this.keyPrefixes(parsed.sourceOrgId),
       });
 
       const author = parsed.author ?? 'sandforge';

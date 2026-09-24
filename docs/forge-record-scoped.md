@@ -49,7 +49,9 @@ ForgeOrchestrator.execute(graph, config)
        │    that object, which is still attempted. Reference data is matched
        │    by name, never inserted, so it is not asked about.
        │
-       ├─ for each node (root-first, then topo):
+       ├─ for each node (root-first, then topo; a node whose rows cannot be
+       │  written without a parent whose turn is still to come waits for it,
+       │  as the members of a cycle come in no order of their own):
        │    1. describeFields (source + target → intersect createable)
        │    2. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
        │       statements when the ID lists outgrow one query URI)

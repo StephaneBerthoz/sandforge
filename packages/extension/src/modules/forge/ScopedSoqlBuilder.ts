@@ -365,6 +365,24 @@ export class ScopedSoqlBuilder {
     );
   }
 
+  /**
+   * Rows of an object by their ids, laid over as many statements as fit a
+   * query URI: the statements a scope's own ids are read with. No statement
+   * when there is no id.
+   */
+  buildById(opts: ByIdOpts): string[] {
+    const objectName = assertSoqlIdentifier(opts.objectApiName);
+    return packInClauses(
+      {
+        prefix: `SELECT ${this.formatSelect(opts.selectFields)} FROM ${objectName} WHERE `,
+        suffix: opts.extraWhere ? ` AND (${opts.extraWhere})` : '',
+        wrap: false,
+        objectApiName: opts.objectApiName,
+      },
+      [{ field: 'Id', ids: opts.ids }],
+    );
+  }
+
   private formatSelect(selectFields: string[]): string {
     if (selectFields.length === 0) return 'Id';
     return selectFields.map((f) => assertSoqlIdentifier(f)).join(', ');
@@ -381,6 +399,18 @@ export interface JoiningOpts {
   split: { field: string; ids: ReadonlySet<string> };
   /** The lookup every statement carries whole, and the ids. */
   whole: { field: string; ids: ReadonlySet<string> };
+  /** Extra WHERE fragment, appended as `AND (...)` as in {@link ScopedSoqlBuildOpts}. */
+  extraWhere?: string;
+}
+
+/** Inputs to {@link ScopedSoqlBuilder.buildById}. */
+export interface ByIdOpts {
+  /** The object read. */
+  objectApiName: string;
+  /** Fields of the SELECT clause. */
+  selectFields: string[];
+  /** The ids of the rows read. */
+  ids: ReadonlySet<string>;
   /** Extra WHERE fragment, appended as `AND (...)` as in {@link ScopedSoqlBuildOpts}. */
   extraWhere?: string;
 }

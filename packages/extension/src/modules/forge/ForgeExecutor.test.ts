@@ -2442,6 +2442,147 @@ describe('ForgeExecutor', () => {
       expect(summary.errors[1].samples[0].messages[0]).toContain("'SyncedQuoteId'");
     });
 
+    describe('a parent whose turn comes after its child', () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const FIRST_ORDER = '801000000000001AAA';
+      const SECOND_ORDER = '801000000000002AAA';
+      const ELSEWHERE_ORDER = '801000000000009AAA';
+
+      /**
+       * An opportunity with two orders, each with its action, and the graph
+       * discovery leaves them in: the opportunity names one of its orders, so
+       * the two sit in a cycle, and the actions come before the orders.
+       */
+      function ordersOfAnOpportunity() {
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Last_Order__c: FIRST_ORDER }],
+            Order: [
+              { Id: FIRST_ORDER, Name: 'First', OpportunityId: OPPORTUNITY },
+              { Id: SECOND_ORDER, Name: 'Second', OpportunityId: OPPORTUNITY },
+              { Id: ELSEWHERE_ORDER, Name: 'Elsewhere', OpportunityId: '006000000000009AAA' },
+            ],
+            OrderAction: [
+              { Id: '8OA000000000001AAA', Name: 'Add first', OrderId: FIRST_ORDER },
+              { Id: '8OA000000000002AAA', Name: 'Add second', OrderId: SECOND_ORDER },
+              { Id: '8OA000000000009AAA', Name: 'Add elsewhere', OrderId: ELSEWHERE_ORDER },
+            ],
+          },
+          {
+            Opportunity: [idField, text('Name'), lookup('Last_Order__c', 'Order')],
+            Order: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+            OrderAction: [idField, text('Name'), lookup('OrderId', 'Order', true)],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Opportunity'), makeNode('OrderAction'), makeNode('Order')],
+          [
+            edge('Opportunity', 'Order'),
+            edge('Order', 'Opportunity'),
+            { ...edge('Order', 'OrderAction'), required: true },
+          ],
+        );
+        return { orgDeps, inserted, graph };
+      }
+
+      it('reads the action of every order of the opportunity, after the orders', async () => {
+        // Read at its turn, the action was held to the orders met so far —
+        // the one the opportunity names — and not to the orders under it.
+        // Run for real, the orders met so far were an opportunity's id and a
+        // quote's, put in scope as orders by lookups that can name nearly
+        // any object: none of the eleven actions came with the clone.
+        const { orgDeps, inserted, graph } = ordersOfAnOpportunity();
+        const read = recordReads(orgDeps);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        expect([...(read['OrderAction'] ?? [])].sort()).toEqual([
+          '8OA000000000001AAA',
+          '8OA000000000002AAA',
+        ]);
+        expect(inserted['Order'].map((r) => r['Name'])).toEqual(['First', 'Second']);
+        expect(inserted['OrderAction'].map((r) => r['OrderId'])).toEqual([
+          'Order:First',
+          'Order:Second',
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('reads the root first, whatever parent it cannot be written without', async () => {
+        // Every scope starts from the root. Held back until its account's
+        // turn, the account was read by the ids named before the root was
+        // read — a contact's — and the root's own account was never read.
+        const ROOT_ACCOUNT = '001000000000001AAA';
+        const OTHER_ACCOUNT = '001000000000002AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Order: [{ Id: FIRST_ORDER, Name: 'Root order', AccountId: ROOT_ACCOUNT }],
+            Contact: [
+              {
+                Id: '003000000000001AAA',
+                LastName: 'Buyer',
+                Last_Order__c: FIRST_ORDER,
+                AccountId: OTHER_ACCOUNT,
+              },
+            ],
+            Account: [
+              { Id: ROOT_ACCOUNT, Name: 'Root account' },
+              { Id: OTHER_ACCOUNT, Name: 'Other account' },
+            ],
+          },
+          {
+            Order: [idField, text('Name'), lookup('AccountId', 'Account', true)],
+            Contact: [
+              idField,
+              text('LastName'),
+              lookup('Last_Order__c', 'Order'),
+              lookup('AccountId', 'Account'),
+            ],
+            Account: [idField, text('Name'), lookup('Primary_Contact__c', 'Contact')],
+          },
+        );
+        // A cycle through all three: the order the graph lists them in stands.
+        const graph = makeGraph(
+          [makeNode('Order'), makeNode('Contact'), makeNode('Account')],
+          [
+            { ...edge('Account', 'Order'), required: true },
+            edge('Order', 'Contact'),
+            edge('Contact', 'Account'),
+          ],
+        );
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: FIRST_ORDER,
+          rootObjectApiName: 'Order',
+        });
+
+        expect(inserted['Account'].map((r) => r['Name']).sort()).toEqual([
+          'Other account',
+          'Root account',
+        ]);
+        expect(inserted['Order']).toEqual([
+          expect.objectContaining({ Name: 'Root order', AccountId: 'Account:Root account' }),
+        ]);
+      });
+
+      it('lists what a dry run would insert of them', async () => {
+        const { orgDeps, graph } = ordersOfAnOpportunity();
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+          dryRun: true,
+        });
+
+        expect(progressEvents.map((e) => e.message)).toContain(
+          '[dry-run] OrderAction: 2 record(s) would be inserted',
+        );
+      });
+    });
+
     describe('a required lookup at an object the run does not read', () => {
       const FIRST_USER = '005000000000001AAA';
       const SECOND_USER = '005000000000002AAA';
