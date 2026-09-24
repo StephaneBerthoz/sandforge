@@ -242,6 +242,12 @@ export interface PreviousLoad {
    */
   writtenBetween?: ForgeWrittenBetween;
   /**
+   * When the load wrote its last record, on this machine's clock — or, for a
+   * file that does not say, when its mapping was written: what its removal
+   * dates a load the target did not date by.
+   */
+  endedAt?: string;
+  /**
    * What earlier removals of the load, or reloads that did not delete them,
    * left on its records, by record id: the `LastModifiedDate` the org left on
    * each, which was their doing and not a change.

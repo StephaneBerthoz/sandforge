@@ -2956,7 +2956,9 @@
       "statuses": "Statuses applied after insert: {{restored}} — refused: {{refused}}",
       "leftToThePlatform": "Left out at load — the platform writes these records, or what they depend on, itself: {{objects}}",
       "excludedObjects": "Objects not loaded",
-      "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}"
+      "untypedFeedItems": "Left out at load — the dataset does not carry the type of these feed items, or of those they depend on, so a tracked change cannot be told from a post; extract the dataset again to load them: {{objects}}",
+      "failedReasons": "Why records failed",
+      "statusCode": "Status code"
     },
     "removal": {
       "title": "Last load",
@@ -2965,7 +2967,7 @@
       "earlierNote": "A load before the last one: the loads after it left its records in {{org}}.",
       "remove": "Remove the records this load created",
       "removeTitle": "Remove this load's records from {{org}}",
-      "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
+      "removeDescription": "Deletes from {{org}} the records this load created, children before their parents; they go to its recycle bin. After a reload, these include the records earlier loads created that the reload found again and kept as its own. Records the load linked to or reused, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the load, or one that records added since depend on, is kept unless you include it below.",
       "includeChanged": "Also remove the records changed since the load, and what was added to them since",
       "removing": "Removing the records this load created…",
       "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them, except those the load may have linked to.",

@@ -487,7 +487,11 @@ describe('SasReferenceIdMappingStore', () => {
       await secondLoad(dir, []);
 
       const previous = await storeAt(dir, '2026-09-24T12:00:00.000Z').previousLoads();
-      expect(previous[1]).toEqual({ mapping: new Map([['Account-000001', FIRST_ACCOUNT]]) });
+      // Named by when its mapping was written, which is what its removal dates it by.
+      expect(previous[1]).toEqual({
+        mapping: new Map([['Account-000001', FIRST_ACCOUNT]]),
+        endedAt: '2026-09-24T10:05:00.000Z',
+      });
     });
 
     it('records the removal of the load before in its own entry, and forgets what went everywhere', async () => {

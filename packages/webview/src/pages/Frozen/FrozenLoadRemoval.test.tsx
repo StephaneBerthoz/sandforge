@@ -159,6 +159,20 @@ describe('FrozenLoadRemoval', () => {
     expect(sent('frozen:remove')).toBeUndefined();
   });
 
+  it('says, before anything goes, that after a reload it takes what earlier loads created and the reload kept', () => {
+    // A reload keeps as its own the records earlier loads created that it
+    // finds again, and its removal takes them: the card spoke only of the
+    // records "this load created".
+    render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'After a reload, these include the records earlier loads created that the reload found ' +
+        'again and kept as its own.',
+    );
+  });
+
   it('sends the load, never its records, once the org name is typed', () => {
     render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} />);
 

@@ -2956,7 +2956,9 @@
       "statuses": "Statuts appliqués après l'insertion : {{restored}} — refusés : {{refused}}",
       "leftToThePlatform": "Laissés de côté au chargement — la plateforme écrit elle-même ces enregistrements, ou ce dont ils dépendent : {{objects}}",
       "excludedObjects": "Objets non chargés",
-      "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}"
+      "untypedFeedItems": "Laissés de côté au chargement — le jeu de données ne porte pas le type de ces éléments de fil, ou de ceux dont ils dépendent : une modification suivie ne se distingue pas d'une publication ; extrayez à nouveau le jeu de données pour les charger : {{objects}}",
+      "failedReasons": "Pourquoi des enregistrements ont échoué",
+      "statusCode": "Code de statut"
     },
     "removal": {
       "title": "Dernier chargement",
@@ -2965,7 +2967,7 @@
       "earlierNote": "Un chargement antérieur au dernier : les chargements suivants ont laissé ses enregistrements dans {{org}}.",
       "remove": "Supprimer les enregistrements créés par ce chargement",
       "removeTitle": "Supprimer de {{org}} les enregistrements de ce chargement",
-      "removeDescription": "Supprime de {{org}} les enregistrements créés par ce chargement, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels le chargement s'est lié ou qu'il a réutilisés, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le chargement, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
+      "removeDescription": "Supprime de {{org}} les enregistrements créés par ce chargement, les enfants avant leurs parents ; ils vont dans sa corbeille. Après un rechargement, ils comprennent les enregistrements que des chargements antérieurs ont créés et que le rechargement a retrouvés et gardés comme les siens. Les enregistrements auxquels le chargement s'est lié ou qu'il a réutilisés, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis le chargement, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
       "includeChanged": "Supprimer aussi les enregistrements modifiés depuis le chargement, et ce qui leur a été ajouté depuis",
       "removing": "Suppression des enregistrements créés par ce chargement…",
       "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",

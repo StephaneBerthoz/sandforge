@@ -93,6 +93,7 @@ import {
   VolumetryBudgetExceededError,
   buildFrozenManifest,
   contractCountsLoad,
+  countingContractPath,
   createBulkDmlWriter,
   datasetRecordCount,
   leftToThePlatformCoverage,
@@ -1384,6 +1385,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         ? new CustomMetadataCalloutMockDetector(orgAccess, config.mockDetection)
         : { areCalloutsMocked: async (): Promise<boolean> => true };
       const mappingStore = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const targetClock = removalOrg(conn, 'frozen:load');
 
       const loader = new FrozenDatasetLoader({
         orgAccess,
@@ -1398,6 +1400,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         mappingStore,
         config: this.toLoadConfig(config),
         sasGuard: guard,
+        // The target's clock, read as the removal of a load reads it: what a
+        // reload judges the records of a load the target did not date by.
+        serverTime: () => targetClock.serverTime(),
       });
 
       const targetOrg = this.deps.orgManager.getOrg(parsed.targetOrgId);
@@ -1583,15 +1588,21 @@ export class FrozenDatasetHandler implements DomainHandler {
       // records were judged by the contract of the load before, and the
       // verdict was written into the manifest.
       if (!contractCountsLoad(readCountingContract(guard, lastRun.contractPath), last)) {
+        // The last load's contract is in the sas it wrote to. With `sasDir`
+        // set to another since, the mapping read is that one's, and the
+        // refusal blamed a load that had stopped part way.
+        const sasChanged = lastRun.contractPath !== countingContractPath(guard, sasDir);
         sendHandlerError(
           this.deps,
           'frozen:verify',
           'frozen:verify:error',
           msg,
           new Error(
-            'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
+            sasChanged
+              ? `The sas directory changed since the last load: its counting contract is in ${path.dirname(lastRun.contractPath)}, and the mapping read is the one in ${sasDir}. Set sasDir back to the sas the load wrote to, or load the dataset again, then verify.`
+              : 'The last load stopped part way — it was cancelled, or failed once it had written — and wrote no counting contract: the one in the sas counts an earlier load, and would judge this one by it. Load the dataset again, then verify.',
           ),
-          { code: 'LOAD_STOPPED' },
+          { code: sasChanged ? 'SAS_CHANGED' : 'LOAD_STOPPED' },
         );
         return;
       }

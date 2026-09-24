@@ -261,7 +261,8 @@ export interface FrozenExtractionOptions {
    * them or not (`FrozenProjectConfig.excludedObjects`): a node of the graph
    * named here is not read, and none of them is fetched where discovery
    * stopped short — the catalog a line prices from, the items of an order
-   * past Draft, the options of a selling model, the standard price book.
+   * past Draft, the options of a selling model. The standard price book stays
+   * when the price books are named here: the load matches it, never writes it.
    *
    * Marked on the graph's nodes alone, an object discovery never reached was
    * no exclusion: extracted at a cap that stopped before the catalog, the
@@ -524,7 +525,6 @@ export class FrozenDatasetExtractor {
       options,
       recordsByObject,
       asOfWhere,
-      leftOut,
     );
     await this.addSellingModelOptions(
       { ...options, graph },
@@ -826,18 +826,18 @@ export class FrozenDatasetExtractor {
    * the custom price needs, since the dataset keeps one standard price per
    * product and currency.
    *
-   * The standard book is read whatever the graph holds, and so it was when
-   * `excludedObjects` named the price books: it stays out then, and the
-   * prices that cannot be loaded without it are said (`exclusionCosts`).
+   * The standard book is read whatever the graph holds, and whether
+   * `excludedObjects` names the price books or not: the load matches it and
+   * never writes it, as Forge's clone matches it with the price books left
+   * out. Left out with the others, it took every standard price with it, and
+   * the lines priced from it.
    *
-   * @param leftOut - The objects the configuration excludes by name.
    * @returns The source id of the standard book, when prices were read.
    */
   private async addStandardPrices(
     options: FrozenExtractionOptions,
     recordsByObject: Map<string, Map<string, Record<string, unknown>>>,
     asOfWhere: string,
-    leftOut: ReadonlySet<string>,
   ): Promise<string | undefined> {
     const entries = recordsByObject.get(PRICEBOOK_ENTRY_OBJECT);
     if (!entries || entries.size === 0) return undefined;
@@ -880,16 +880,14 @@ export class FrozenDatasetExtractor {
       return this.deps.query(`SELECT ${select} FROM ${objectApiName} WHERE ${where}${bound}`);
     };
 
-    if (!leftOut.has(PRICEBOOK_OBJECT)) {
-      let books = recordsByObject.get(PRICEBOOK_OBJECT);
-      if (!books) {
-        books = new Map();
-        recordsByObject.set(PRICEBOOK_OBJECT, books);
-      }
-      if (!books.has(standardId)) {
-        for (const row of await read(PRICEBOOK_OBJECT, `Id = '${sanitizeSoqlValue(standardId)}'`)) {
-          books.set(standardId, withoutEnvelope(row));
-        }
+    let books = recordsByObject.get(PRICEBOOK_OBJECT);
+    if (!books) {
+      books = new Map();
+      recordsByObject.set(PRICEBOOK_OBJECT, books);
+    }
+    if (!books.has(standardId)) {
+      for (const row of await read(PRICEBOOK_OBJECT, `Id = '${sanitizeSoqlValue(standardId)}'`)) {
+        books.set(standardId, withoutEnvelope(row));
       }
     }
 

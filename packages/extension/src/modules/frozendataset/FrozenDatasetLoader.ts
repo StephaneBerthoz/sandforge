@@ -13,7 +13,8 @@
  *      find;
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
  *      DeveloperName and picklist RecordType-gap checks; an object the
- *      target lacks, or takes no insert of, is left out and listed; every
+ *      target lacks, or takes no insert of, is left out, listed, and its
+ *      records to write counted as failed; every
  *      required field the dataset leaves empty is settled against the
  *      configuration, and all the gaps are refused at once;
  *   4. a reload purges what earlier loads created and it did not match,
@@ -80,6 +81,7 @@ import type { OperationOutcome } from '../sync/DataSync.js';
 import { leftToThePlatformCoverage } from './manifest.js';
 import { insertionGroups, orderWithinGroup } from '../../core/common/insertionOrder.js';
 import { catalogWriteEdges } from '../forge/stages/ScopeResolver.js';
+import { CLOCK_LEEWAY_MS } from '../forge/ForgeRunRemoval.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { assertLoadGuards, LoadGuardError } from './LoadGuards.js';
 import { SchemaAligner } from './SchemaAligner.js';
@@ -155,6 +157,15 @@ export interface FrozenDatasetLoaderDeps {
   mappingStore: LoadMappingStore;
   config?: FrozenLoadConfig;
   sasGuard?: SasPathGuard;
+  /**
+   * The target's clock now, as it writes a date. A load the target did not
+   * date is dated, by its removal, by this machine's clock read on the
+   * target's; a reload's purge reads the target's clock the same way to tell
+   * which records of such a load are as it left them. Absent, or unanswered,
+   * none of them is, and what the purge leaves on them is not kept as its
+   * doing.
+   */
+  serverTime?: () => Promise<string>;
 }
 
 /** Options of one load run. */
@@ -187,9 +198,9 @@ export interface FrozenLoadOptions {
   /**
    * The load's cancel. Honoured before each write: the purge of each object,
    * each placeholder, each object of the insert pass, and each pass after it.
-   * The load then keeps its mapping and stops with
-   * {@link FrozenLoadCancelledError}; nothing after the cancel is written but
-   * the statuses a reload's purge set to Draft, given back.
+   * The load then keeps its mapping, once it created or purged a record, and
+   * stops with {@link FrozenLoadCancelledError}; nothing after the cancel is
+   * written but the statuses a reload's purge set to Draft, given back.
    */
   signal?: AbortSignal;
   /** Clock injection for deterministic tests. */
@@ -206,14 +217,21 @@ export class LoadConfigError extends Error {
 
 /**
  * Raised when the load's cancel stops it between two writes. The mapping is
- * kept by then, so a reload finds what the load wrote; `written` says what
- * that was, for the audit trail.
+ * kept by then, so a reload finds what the load wrote — unless it created or
+ * purged nothing, and the mapping is left as it was; `written` says what that
+ * was, for the audit trail.
  */
 export class FrozenLoadCancelledError extends Error {
-  constructor(readonly written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>) {
+  constructor(
+    readonly written: Pick<FrozenLoadReport, 'perObject' | 'placeholders' | 'purge'>,
+    /** Whether the load kept a mapping of its own: false when it created or purged nothing. */
+    mappingKept = true,
+  ) {
     super(
-      'The load was cancelled before it had written the whole dataset. What it wrote is kept in ' +
-        'the mapping: a reload reuses or purges it.',
+      mappingKept
+        ? 'The load was cancelled before it had written the whole dataset. What it wrote is kept ' +
+            'in the mapping: a reload reuses or purges it.'
+        : 'The load was cancelled before it created or purged a record: the mapping is left as it was.',
     );
     this.name = 'FrozenLoadCancelledError';
   }
@@ -671,6 +689,15 @@ export class FrozenDatasetLoader {
       mappingKept = true;
     };
 
+    /**
+     * Whether this load created a record, or purged one an earlier load
+     * created: known from the moment the target answers the write.
+     */
+    const wroteSome = (): boolean =>
+      created.list().length > 0 ||
+      Object.keys(purge.deleted).length > 0 ||
+      Object.keys(purge.deactivated).length > 0;
+
     /*
      * Stop at a cancel, before the next write. A load read no cancel: once
      * started it purged, inserted and patched to its end. The mapping is kept
@@ -678,23 +705,25 @@ export class FrozenDatasetLoader {
      * reload then finds and purges what this load wrote, and the records of
      * those loads it had not purged yet; a removal takes either. Kept as this
      * load's alone, the mapping would lose them.
+     *
+     * A load that created and purged nothing keeps no mapping of its own, as
+     * one that fails before its first write keeps none. Cancelled at its first
+     * purge, a reload kept one with nothing in it: the load before it read as
+     * an earlier one, and a verification refused the last load as one that
+     * stopped part way.
      */
     const checkpoint = async (): Promise<void> => {
       if (!options.signal?.aborted) return;
-      await persistMapping();
-      throw new FrozenLoadCancelledError({ perObject, placeholders, purge });
+      const wrote = wroteSome();
+      if (wrote) await persistMapping();
+      throw new FrozenLoadCancelledError({ perObject, placeholders, purge }, wrote);
     };
 
-    // What a failure keeps from here on, as the cancel does: a record this
-    // load created, or one of an earlier load it purged, is known from the
-    // moment the target answers the write.
+    // What a failure keeps from here on, as the cancel does.
     running.load = {
       keepMapping: persistMapping,
       mappingKept: () => mappingKept,
-      wroteSome: () =>
-        created.list().length > 0 ||
-        Object.keys(purge.deleted).length > 0 ||
-        Object.keys(purge.deactivated).length > 0,
+      wroteSome,
       written: { perObject, placeholders, purge },
     };
 
@@ -746,8 +775,12 @@ export class FrozenDatasetLoader {
     >();
     /** Lookups the target will not take empty, per object — from its describe. */
     const requiredLookups = new Map<string, Set<string>>();
-    /** Objects the target takes no insert of, left out with records to write. */
-    const refusedObjects: string[] = [];
+    /**
+     * Objects the load sends nothing of — the target lacks them, or takes no
+     * insert of them — counted as the insert would have counted them: the
+     * records the load links as reused, the ones it had to write as failed.
+     */
+    const lostObjects = new Map<string, PerObjectLoadResult>();
     for (const objectData of loading.objects) {
       const objectApiName = objectData.objectApiName;
       // An extraction writes a file for every object of the graph, and most
@@ -757,28 +790,34 @@ export class FrozenDatasetLoader {
       // first required field of the first empty object, demanding a default
       // for records that did not exist.
       if (objectData.records.length === 0) continue;
-      let describe;
-      try {
-        describe = await this.deps.orgAccess.describe(orgId, objectApiName);
-      } catch (err) {
-        alignment.excludedObjects.push({
-          objectApiName,
-          reason: `Not present in target org: ${err instanceof Error ? err.message : String(err)}`,
-        });
-        continue;
-      }
-      // An object the target takes no insert of is not sent. Run for real, a
-      // load sent the error log one of the dossier's quotes had, and the
-      // target refused it — "entity type cannot be inserted" — as its describe
-      // said it would. A record the load only links is no insert; one it has
-      // to write is lost, and that is an error, as Forge counts it.
-      const toWrite = objectData.records.filter((r) => !reused.has(r.referenceId)).length;
-      if (describe.createable === false && toWrite > 0) {
-        refusedObjects.push(objectApiName);
-        const reason =
-          `Not createable in target org: ${toWrite} record${toWrite === 1 ? '' : 's'} ` +
-          'of the dataset not loaded';
+      // A record the load only links is no insert; one it has to write is
+      // lost with its object, and that is an error, as Forge counts it.
+      const toWrite = objectData.records.filter((r) => !reused.has(r.referenceId));
+      /*
+       * Leave the object out, listed with `reason`, and count its records as
+       * the insert would have, each lost one with `error`. Listed and nothing
+       * more, an object the target lacks ended the load completed, its
+       * records lost all the same; and of one it takes no insert of, the
+       * records the load links were counted nowhere, and those it could not
+       * write were missing from the audit trail.
+       */
+      const leaveOut = (reason: string, error: string): void => {
         alignment.excludedObjects.push({ objectApiName, reason });
+        lostObjects.set(objectApiName, {
+          objectApiName,
+          fromFiles:
+            working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
+            objectData.records.length,
+          inserted: 0,
+          reused: objectData.records.length - toWrite.length,
+          skippedDuplicates: [],
+          failed: toWrite.map((r) => ({
+            objectApiName,
+            referenceId: r.referenceId,
+            errors: [error],
+          })),
+        });
+        if (toWrite.length === 0) return;
         emit({
           phase: 'align',
           objectName: objectApiName,
@@ -786,6 +825,25 @@ export class FrozenDatasetLoader {
           progress: 12,
           message: `Skipped ${objectApiName} — ${reason}`,
         });
+      };
+      let describe;
+      try {
+        describe = await this.deps.orgAccess.describe(orgId, objectApiName);
+      } catch (err) {
+        const reason = `Not present in target org: ${err instanceof Error ? err.message : String(err)}`;
+        leaveOut(reason, reason);
+        continue;
+      }
+      // An object the target takes no insert of is not sent. Run for real, a
+      // load sent the error log one of the dossier's quotes had, and the
+      // target refused it — "entity type cannot be inserted" — as its describe
+      // said it would.
+      if (describe.createable === false && toWrite.length > 0) {
+        leaveOut(
+          `Not createable in target org: ${toWrite.length} record${toWrite.length === 1 ? '' : 's'} ` +
+            'of the dataset not loaded',
+          'Not createable in target org: the running user may not insert it',
+        );
         continue;
       }
       requiredLookups.set(
@@ -972,7 +1030,11 @@ export class FrozenDatasetLoader {
     for (const objectApiName of insertOrder) {
       const aligned = alignedByObject.get(objectApiName);
       if (!aligned) {
-        continue; // object excluded from target — listed in alignment.excludedObjects
+        // Left out at alignment, and listed there: counted where its insert
+        // would have been.
+        const lost = lostObjects.get(objectApiName);
+        if (lost) perObject.push(lost);
+        continue;
       }
       await checkpoint();
       objectIndex++;
@@ -1139,6 +1201,7 @@ export class FrozenDatasetLoader {
         now,
         startedAt,
       },
+      new Set(lostObjects.keys()),
       [
         ...leftOut.map(({ objectApiName, count }) => ({
           objectApiName,
@@ -1155,7 +1218,6 @@ export class FrozenDatasetLoader {
     emit({ phase: 'persist', status: 'done', progress: 98, message: 'Sas artifacts written' });
 
     const hasErrors =
-      refusedObjects.length > 0 ||
       perObject.some((o) => o.failed.length > 0) ||
       pass2.unresolved.length > 0 ||
       personContact.unresolved.length > 0 ||
@@ -1507,6 +1569,17 @@ export class FrozenDatasetLoader {
     /** Unrecorded records that may be the standard price book, asked about once. */
     const maybeStandardBook: string[] = [];
 
+    // A load the target did not date is dated, by its removal, by this
+    // machine's clock as it wrote its last record, read on the target's with
+    // the gap between the two measured as the removal starts, give or take
+    // the removal's leeway (`runSpan` in ForgeRunRemoval). Its records are
+    // judged here by that same end, the gap measured now. Judged by none, an
+    // order of it the purge set to Draft and gave back was never stamped, and
+    // the removal of the load kept it as changed since.
+    const aheadMs = previousLoads.some((previous) => previous.created && !previous.writtenBetween)
+      ? await this.targetClockAheadMs()
+      : Number.NaN;
+
     // What a load that says what it created linked, per load; and every
     // record any of them linked, which a load that does not say what it
     // created never has purged on its word.
@@ -1540,7 +1613,9 @@ export class FrozenDatasetLoader {
       }
       // As its removal reads a record unchanged since the load: modified no
       // later than the load's last write, or than what a removal left on it.
-      const lastWrite = epochOf(previous.writtenBetween?.last);
+      const lastWrite = previous.writtenBetween
+        ? epochOf(previous.writtenBetween.last)
+        : epochOf(previous.endedAt) + aheadMs + CLOCK_LEEWAY_MS;
       const stampOf = new Map(
         Object.entries(previous.removalStamps ?? {}).map(([id, date]) => [
           recordKey(id),
@@ -1583,6 +1658,24 @@ export class FrozenDatasetLoader {
       }
     }
     return plan;
+  }
+
+  /**
+   * How far the target's clock runs ahead of this machine's, read as Forge's
+   * removal reads it: the target's time against this machine's halfway
+   * through the call that asks it. NaN when the target does not tell it, or
+   * nothing was given to ask it with.
+   */
+  private async targetClockAheadMs(): Promise<number> {
+    const serverTime = this.deps.serverTime;
+    if (!serverTime) return Number.NaN;
+    const before = Date.now();
+    try {
+      const now = epochOf(await serverTime());
+      return now - (before + Date.now()) / 2;
+    } catch {
+      return Number.NaN;
+    }
   }
 
   /**
@@ -2605,7 +2698,8 @@ export class FrozenDatasetLoader {
    * records the load left out before sending anything — to the platform, or
    * for a type the dataset does not carry — are an exclusion of their own,
    * under their reason, and an object all of whose records were is counted
-   * too: none of it is expected.
+   * too: none of it is expected. The records of an object the load did not
+   * send (`lost`) are one too: no write of theirs failed.
    *
    * The contract names the load it counts by when it began, as the mapping
    * the load kept names it: a verification reads the records a mapping names
@@ -2617,6 +2711,7 @@ export class FrozenDatasetLoader {
     perObject: PerObjectLoadResult[],
     placeholders: PlaceholderCreation[],
     clock: { now: () => Date; startedAt: Date },
+    lost: ReadonlySet<string>,
     leftOut: ReadonlyArray<{ objectApiName: string; count: number; reason: string }>,
   ): string {
     const leftOf = new Map<string, Record<string, number>>();
@@ -2646,7 +2741,8 @@ export class FrozenDatasetLoader {
         exclusionReasons['duplicate-skipped'] = result.skippedDuplicates.length;
       }
       if (result.failed.length > 0) {
-        exclusionReasons['dml-failed'] = result.failed.length;
+        const reason = lost.has(result.objectApiName) ? 'object-not-loaded' : 'dml-failed';
+        exclusionReasons[reason] = result.failed.length;
       }
       let left = 0;
       for (const [reason, count] of Object.entries(leftOf.get(result.objectApiName) ?? {})) {

@@ -1603,9 +1603,10 @@ describe('FrozenDatasetExtractor — the catalog a dossier draws on', () => {
     ]);
   });
 
-  it('fetches no price book excludedObjects names, the standard one included, and says which prices cannot be loaded without it', async () => {
-    // The standard book is read whatever the graph holds: it came into the
-    // dataset of a configuration that excluded the price books.
+  it('fetches no price book excludedObjects names but the standard one, which the load matches, and says which prices cannot be loaded without theirs', async () => {
+    // Left out with the others, the standard book took every standard price
+    // with it, as Forge's clone never does: it matches the target's own
+    // whether the price books are in the graph or not.
     const dataset = await extractorOver(pricedDossier(), lineFields).extract({
       ...makeOptions(makeTmpDir(), []),
       rootObject: 'Opportunity',
@@ -1614,15 +1615,16 @@ describe('FrozenDatasetExtractor — the catalog a dossier draws on', () => {
       excludedObjects: ['Pricebook2'],
     });
 
-    expect(sourceIdsOf(dataset, 'Pricebook2')).toEqual([]);
+    expect(sourceIdsOf(dataset, 'Pricebook2')).toEqual([STANDARD_BOOK]);
+    expect(dataset.standardPricebookSourceId).toBe(STANDARD_BOOK);
     expect(sourceIdsOf(dataset, 'PricebookEntry')).toEqual([PRICE, STANDARD_PRICE].sort());
     expect(dataset.exclusionCosts).toEqual([
       {
         objectApiName: 'PricebookEntry',
         excludedObject: 'Pricebook2',
-        count: 2,
+        count: 1,
         note:
-          '2 PricebookEntry records cannot be loaded without the Pricebook2 named by ' +
+          '1 PricebookEntry record cannot be loaded without the Pricebook2 named by ' +
           'Pricebook2Id, which excludedObjects leaves out',
       },
     ]);

@@ -340,6 +340,7 @@ export class SasReferenceIdMappingStore implements ReferenceIdMappingStore {
       mapping: new Map(Object.entries(load.mapping)),
       ...(load.created ? { created: load.created } : {}),
       ...(load.writtenBetween ? { writtenBetween: load.writtenBetween } : {}),
+      endedAt: endedAtOf(load),
       ...(load.removalStamps ? { removalStamps: load.removalStamps } : {}),
     }));
   }

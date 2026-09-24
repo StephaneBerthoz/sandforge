@@ -1110,6 +1110,30 @@ describe('FrozenDatasetHandler', () => {
         expect(deps.configStore.get('frozen:lastVerify')).toBeUndefined();
       });
 
+      it('says the sas changed since the last load, not that the load stopped, when it did', async () => {
+        // Pointed at another sas since, the verification read that sas's
+        // mapping against the last load's contract, which is where the load's
+        // sas was, and said the last load had stopped part way.
+        const { sasDir } = await endedLoad();
+        const other = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-other-'));
+        tmpDirs.push(other);
+        await stoppedLoad(other);
+        deps.configStore.set('frozen:config', { ...createMockConfig(), sasDir: other });
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          query: async () => ({ records: [], done: true, totalSize: 1 }),
+        } as never);
+
+        await verify();
+
+        const errors = posted(deps, 'frozen:verify:error');
+        expect(errors.map((error) => error.payload.code)).toEqual(['SAS_CHANGED']);
+        expect(String(errors[0].payload.message)).toContain(
+          `The sas directory changed since the last load: its counting contract is in ${sasDir}, ` +
+            `and the mapping read is the one in ${other}`,
+        );
+        expect(posted(deps, 'frozen:verify:result')).toEqual([]);
+      });
+
       it('goes on to verify the load its contract counts', async () => {
         await endedLoad();
         vi.mocked(getJsforceConnection).mockRejectedValue(

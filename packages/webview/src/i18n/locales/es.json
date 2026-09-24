@@ -2956,7 +2956,9 @@
       "statuses": "Estados aplicados tras la inserción: {{restored}} — rechazados: {{refused}}",
       "leftToThePlatform": "Excluidos en la carga — la plataforma escribe ella misma estos registros, o aquello de lo que dependen: {{objects}}",
       "excludedObjects": "Objetos no cargados",
-      "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}"
+      "untypedFeedItems": "Excluidos en la carga — el conjunto de datos no incluye el tipo de estos elementos de noticias, o de aquellos de los que dependen, así que un cambio registrado no se distingue de una publicación; extraiga de nuevo el conjunto de datos para cargarlos: {{objects}}",
+      "failedReasons": "Por qué fallaron los registros",
+      "statusCode": "Código de estado"
     },
     "removal": {
       "title": "Última carga",
@@ -2965,7 +2967,7 @@
       "earlierNote": "Una carga anterior a la última: las cargas posteriores dejaron sus registros en {{org}}.",
       "remove": "Eliminar los registros que creó esta carga",
       "removeTitle": "Eliminar de {{org}} los registros de esta carga",
-      "removeDescription": "Elimina de {{org}} los registros que creó esta carga, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la carga o que reutilizó, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la carga, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
+      "removeDescription": "Elimina de {{org}} los registros que creó esta carga, los hijos antes que sus padres; van a su papelera de reciclaje. Tras una recarga, entre ellos están los registros que crearon cargas anteriores y que la recarga volvió a encontrar y conservó como suyos. Los registros a los que se vinculó la carga o que reutilizó, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde la carga, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
       "includeChanged": "Eliminar también los registros modificados desde la carga, y lo que se les añadió desde entonces",
       "removing": "Eliminando los registros que creó esta carga…",
       "notRecorded": "Cargado antes de que las cargas guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Una recarga los purga, salvo los que la carga pudo haber vinculado.",

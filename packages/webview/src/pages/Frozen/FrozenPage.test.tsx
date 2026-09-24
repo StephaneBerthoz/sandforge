@@ -411,6 +411,98 @@ describe('FrozenPage', () => {
     expect(screen.queryByTestId('frozen-report-excluded')).toBeNull();
   });
 
+  it('says why records failed: per object, each status code and message, with how many', () => {
+    // The report counted the failed records and never said why: the reasons
+    // were in the report the page held, and nowhere on it.
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed-with-errors',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: {
+          excludedObjects: [],
+          removals: [],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Contact',
+            fromFiles: 3,
+            inserted: 0,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: ['Contact-000001', 'Contact-000002', 'Contact-000003'].map((referenceId) => ({
+              objectApiName: 'Contact',
+              referenceId,
+              errors: [
+                referenceId === 'Contact-000003'
+                  ? 'INVALID_EMAIL_ADDRESS: Email: invalid email address'
+                  : 'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+              ],
+            })),
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    const failures = screen.getByTestId('frozen-report-failures');
+    expect(failures.textContent).toContain('Why records failed');
+    const rows = Array.from(failures.querySelectorAll('tbody tr')).map((row) =>
+      Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent),
+    );
+    expect(rows).toEqual([
+      ['Contact', 'REQUIRED_FIELD_MISSING', 'Required fields are missing: [LastName]', '2'],
+      ['Contact', 'INVALID_EMAIL_ADDRESS', 'Email: invalid email address', '1'],
+    ]);
+  });
+
+  it('shows no failure reasons for a load where no record failed', () => {
+    useFrozenStore.setState({
+      tab: 'load',
+      status: statusFixture(),
+      loadReport: {
+        status: 'completed',
+        orgId: 'org-2',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-08-01T11:00:00Z',
+        durationMs: 1_000,
+        alignment: { excludedObjects: [], removals: [], adjustments: [], recordTypeIssues: [] },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [
+          {
+            objectApiName: 'Contact',
+            fromFiles: 1,
+            inserted: 1,
+            reused: 0,
+            skippedDuplicates: [],
+            failed: [],
+          },
+        ],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '/tmp/sas/referenceid-mapping.json',
+        contractPath: '/tmp/sas/counting-contract.json',
+      },
+    });
+    render(<FrozenPage />);
+    expect(screen.getByTestId('frozen-load-report')).toBeDefined();
+    expect(screen.queryByTestId('frozen-report-failures')).toBeNull();
+  });
+
   it('renders the load report with removals and skipped duplicates', () => {
     useFrozenStore.setState({
       tab: 'load',

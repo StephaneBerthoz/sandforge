@@ -525,8 +525,9 @@ const FROZEN_STATUS_WITH_DATASET = {
 };
 
 /**
- * A pilot load's report: one object the target takes no insert of, and feed
- * items a dataset extracted before their type was kept could not load.
+ * A pilot load's report: one object the target takes no insert of, contacts
+ * the target refused, and feed items a dataset extracted before their type was
+ * kept could not load.
  */
 const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
   status: 'completed-with-errors',
@@ -555,6 +556,36 @@ const FROZEN_LOAD_REPORT_WITH_LEFT_OUT = {
       reused: 0,
       skippedDuplicates: [],
       failed: [],
+    },
+    {
+      objectApiName: 'Contact',
+      fromFiles: 3,
+      inserted: 0,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: ['Contact-000001', 'Contact-000002', 'Contact-000003'].map((referenceId) => ({
+        objectApiName: 'Contact',
+        referenceId,
+        errors: [
+          referenceId === 'Contact-000003'
+            ? 'INVALID_EMAIL_ADDRESS: Email: invalid email address'
+            : 'REQUIRED_FIELD_MISSING: Required fields are missing: [LastName]',
+        ],
+      })),
+    },
+    {
+      objectApiName: 'RevenueTransactionErrorLog',
+      fromFiles: 1,
+      inserted: 0,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [
+        {
+          objectApiName: 'RevenueTransactionErrorLog',
+          referenceId: 'RevenueTransactionErrorLog-000001',
+          errors: ['Not createable in target org: the running user may not insert it'],
+        },
+      ],
     },
   ],
   pass2: { resolved: 0, unresolved: [] },
@@ -3720,14 +3751,18 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-run').click();
       await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
-      // An object the target takes no insert of, and feed items the dataset
-      // cannot type, beside the lines every report carries.
+      // An object the target takes no insert of, records it refused, grouped
+      // by why, and feed items the dataset cannot type, beside the lines
+      // every report carries.
       await answerAll(page, 'frozen:load', 'frozen:load:response', {
         report: FROZEN_LOAD_REPORT_WITH_LEFT_OUT,
       });
       await page
         .getByTestId('frozen-report-excluded')
         .waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('frozen-report-failures').locator('tbody tr')).toHaveCount(3, {
+        timeout: 10_000,
+      });
       await page
         .getByTestId('frozen-report-untyped-feed-items')
         .waitFor({ state: 'visible', timeout: 10_000 });

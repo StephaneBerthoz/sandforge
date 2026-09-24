@@ -18,6 +18,7 @@ import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
+import { failureReasons } from './frozenFailureReasons';
 
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
@@ -120,6 +121,15 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       errors: s.errors.join('; '),
     })),
   );
+
+  // Why the failed records failed: the count said how many, and nothing why.
+  const failureRows = failureReasons(loadReport?.perObject ?? []).map((reason) => ({
+    key: `${reason.objectApiName}\u0000${reason.statusCode}\u0000${reason.message}`,
+    object: reason.objectApiName,
+    statusCode: reason.statusCode,
+    message: reason.message,
+    count: reason.count,
+  }));
 
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
@@ -323,6 +333,37 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   }
                 />
               </div>
+
+              {failureRows.length > 0 && (
+                <div data-testid="frozen-report-failures">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.failedReasons')}
+                  </span>
+                  <DataTable
+                    columns={[
+                      { key: 'object', header: t('frozen.control.object'), sortable: true },
+                      {
+                        key: 'statusCode',
+                        header: t('frozen.report.statusCode'),
+                        render: (row: Record<string, unknown>) =>
+                          row.statusCode ? (
+                            <code className="font-mono">{String(row.statusCode)}</code>
+                          ) : (
+                            '—'
+                          ),
+                      },
+                      { key: 'message', header: t('frozen.report.reason') },
+                      {
+                        key: 'count',
+                        header: t('frozen.report.affected'),
+                        align: 'right' as const,
+                      },
+                    ]}
+                    data={failureRows}
+                    keyExtractor={(row) => row.key as string}
+                  />
+                </div>
+              )}
 
               {/* Each object the load did not send, and why: the target lacks it, or takes no insert of it. */}
               {loadReport.alignment.excludedObjects.length > 0 && (

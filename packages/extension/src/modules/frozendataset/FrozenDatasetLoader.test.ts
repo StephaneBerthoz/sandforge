@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -310,21 +310,51 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contactPayload[0]).not.toHaveProperty('GhostField__c');
   });
 
-  it('excludes an object absent from the target org and lists it', async () => {
+  it('excludes an object absent from the target org, lists it, and says the load had errors', async () => {
+    // Its records are lost as surely as those of an object the target takes no
+    // insert of, which end the load with errors: this one ended completed.
     const dataset = makeAccountContactDataset();
     const calls: DmlCall[] = [];
     const describes = describeFromDataset(dataset);
     delete describes.Contact; // Contact does not exist in the target
+    const progress: Array<{ objectName?: string; status: string }> = [];
     const deps = makeDeps({ dataset, describes, writer: makeWriter(calls) });
     const loader = new FrozenDatasetLoader(deps);
 
-    const report = await loader.load(makeOptions(deps, dataset));
+    const report = await loader.load(
+      makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+    );
 
     expect(report.alignment.excludedObjects).toHaveLength(1);
     expect(report.alignment.excludedObjects[0].objectApiName).toBe('Contact');
     expect(calls.map((c) => c.objectApiName)).toEqual(['Account']);
+    expect(report.status).toBe('completed-with-errors');
+    expect(progress).toContainEqual(
+      expect.objectContaining({ objectName: 'Contact', status: 'error' }),
+    );
+    // Counted with the records the target refused, for the report and the audit trail.
+    expect(report.perObject.find((o) => o.objectApiName === 'Contact')).toEqual({
+      objectApiName: 'Contact',
+      fromFiles: 1,
+      inserted: 0,
+      reused: 0,
+      skippedDuplicates: [],
+      failed: [
+        {
+          objectApiName: 'Contact',
+          referenceId: 'Contact-000001',
+          errors: ['Not present in target org: sObject Contact not found'],
+        },
+      ],
+    });
     const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
-    expect(contract.objects.Contact).toBeUndefined();
+    expect(contract.objects.Contact).toEqual({
+      fromFiles: 1,
+      exclusionReasons: { 'object-not-loaded': 1 },
+      excluded: 1,
+      added: 0,
+      expected: 0,
+    });
   });
 
   it('sends nothing of an object the target takes no insert of, and says the load had errors', async () => {
@@ -361,8 +391,84 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(progress).toContainEqual(
       expect.objectContaining({ objectName: 'RevenueTransactionErrorLog', status: 'error' }),
     );
+    expect(
+      report.perObject.find((o) => o.objectApiName === 'RevenueTransactionErrorLog'),
+    ).toMatchObject({
+      inserted: 0,
+      reused: 0,
+      failed: [
+        {
+          objectApiName: 'RevenueTransactionErrorLog',
+          referenceId: 'RevenueTransactionErrorLog-000001',
+          errors: ['Not createable in target org: the running user may not insert it'],
+        },
+      ],
+    });
     const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
-    expect(contract.objects.RevenueTransactionErrorLog).toBeUndefined();
+    expect(contract.objects.RevenueTransactionErrorLog).toMatchObject({
+      exclusionReasons: { 'object-not-loaded': 1 },
+      expected: 0,
+    });
+  });
+
+  it('counts, of an object the target takes no insert of, the records it links and the ones it could not write', async () => {
+    // Excluded whole, the standard book the load matches was counted nowhere,
+    // and the custom book it had to write was in no failure and no audit.
+    const dataset: FrozenDataset = {
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Pricebook2',
+          records: [
+            { referenceId: 'Pricebook2-000001', fields: { Name: 'Standard' } },
+            { referenceId: 'Pricebook2-000002', fields: { Name: 'Resellers' } },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+      standardPricebook: 'Pricebook2-000001',
+    };
+    const describes = describeFromDataset(dataset);
+    describes.Pricebook2.createable = false;
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({
+      dataset,
+      describes,
+      writer: makeWriter(calls),
+      queryImpl: async (_org, soql) =>
+        soql.includes('IsStandard = true') ? [{ Id: '01sTARGETSTANDARD' }] : [],
+    });
+
+    const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+    expect(calls).toEqual([]);
+    expect(report.status).toBe('completed-with-errors');
+    expect(report.alignment.excludedObjects).toEqual([
+      {
+        objectApiName: 'Pricebook2',
+        reason: 'Not createable in target org: 1 record of the dataset not loaded',
+      },
+    ]);
+    expect(report.perObject).toEqual([
+      {
+        objectApiName: 'Pricebook2',
+        fromFiles: 2,
+        inserted: 0,
+        reused: 1,
+        skippedDuplicates: [],
+        failed: [
+          {
+            objectApiName: 'Pricebook2',
+            referenceId: 'Pricebook2-000002',
+            errors: ['Not createable in target org: the running user may not insert it'],
+          },
+        ],
+      },
+    ]);
+    // The book it links is in the org, and the verification counts it.
+    const contract = readCountingContract(new SasPathGuard(repoRoot), report.contractPath);
+    expect(contract.objects.Pricebook2).toMatchObject({ fromFiles: 2, excluded: 1, expected: 1 });
   });
 
   it('counts no error for an object the target takes no insert of when it only links its records', async () => {
@@ -2843,6 +2949,57 @@ describe('FrozenDatasetLoader — a cancel', () => {
     ).toBe(false);
   });
 
+  it('keeps no mapping of its own when a reload is cancelled before it wrote anything', async () => {
+    // Cancelled at its first purge, a reload kept a mapping of its own, with
+    // nothing in it: the load before it read as an earlier one, and the last
+    // load as one that stopped part way, which no verification would take.
+    const dataset = makeAccountContactDataset();
+    const sasDir = makeTmpDir();
+    const store = new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) });
+    await store.persist(
+      new Map([
+        ['Account-000001', '001OLD-ACCOUNT'],
+        ['Contact-000001', '003OLD-CONTACT'],
+      ]),
+      {
+        created: [
+          { objectApiName: 'Account', referenceIds: ['Account-000001'] },
+          { objectApiName: 'Contact', referenceIds: ['Contact-000001'] },
+        ],
+        startedAt: new Date('2026-09-23T10:00:00.000Z'),
+      },
+    );
+    const before = fs.readFileSync(store.filePath, 'utf8');
+    const stop = new AbortController();
+    stop.abort();
+    const calls: DmlCall[] = [];
+    const deps = makeDeps({ dataset, sasDir, writer: makeWriter(calls) });
+
+    const error: unknown = await new FrozenDatasetLoader(deps)
+      .load(makeOptions(deps, dataset, { reload: true, signal: stop.signal }))
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+    expect((error as Error).message).toBe(
+      'The load was cancelled before it created or purged a record: the mapping is left as it was.',
+    );
+    expect(calls).toEqual([]);
+    expect(fs.readFileSync(store.filePath, 'utf8')).toBe(before);
+  });
+
+  it('keeps no mapping when a first load is cancelled before its first write', async () => {
+    const dataset = makeAccountContactDataset();
+    const stop = new AbortController();
+    stop.abort();
+    const deps = makeDeps({ dataset });
+
+    await expect(
+      new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset, { signal: stop.signal })),
+    ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+    expect(fs.existsSync(path.join(deps.sasDir, 'referenceid-mapping.json'))).toBe(false);
+  });
+
   it('writes no contract over a load whose last pass the cancel came during', async () => {
     const dataset = {
       ...makeAccountContactDataset(),
@@ -3608,13 +3765,21 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
   const recordedLoads = (sasDir: string) =>
     new SasReferenceIdMappingStore(sasDir, { guard: new SasPathGuard(repoRoot) }).recordedLoads();
 
-  /** Remove the load a removal takes next, as the Load tab's card removes it. */
+  /**
+   * Remove the load a removal takes next, as the Load tab's card removes it:
+   * dated by the target's dates of what it wrote, or, for a load the target
+   * did not date, by this machine's clock as it began and as it ended.
+   */
   async function removeNextLoad(sasDir: string, target: OrderTarget) {
     const load = loadToRemove(await recordedLoads(sasDir));
-    if (!load?.writtenBetween) throw new Error('no dated load to remove');
+    if (!load) throw new Error('no load to remove');
+    const span = load.writtenBetween;
+    const began = Date.parse(load.startedAt ?? '');
+    const ended = Date.parse(load.endedAt);
     const outcome = await removeRunRecords(target.removalOrg(), loadCreatedRecords(load), {
-      runStartedAt: new Date(load.writtenBetween.first),
-      runEndedAt: new Date(load.writtenBetween.last),
+      ...(span
+        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+        : { runDurationMs: ended - began, runRecordedAt: new Date(ended) }),
       removalStamps: load.removalStamps,
       removalSpans: load.removalSpans,
       includeChanged: false,
@@ -3631,7 +3796,11 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
    * cancel came writes nothing — and the cancel coming as the order is set to
    * Draft.
    */
-  function reloadCancelledAtTheDraft(target: OrderTarget, sasDir: string) {
+  function reloadCancelledAtTheDraft(
+    target: OrderTarget,
+    sasDir: string,
+    clock: Pick<FrozenDatasetLoaderDeps, 'serverTime'> = {},
+  ) {
     const dataset = makeAccountContactDataset();
     const stop = new AbortController();
     const writes = target.writer();
@@ -3653,6 +3822,7 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
         queryImpl: async (_org: string, soql: string) => target.select(soql),
       }),
       restoringWriter: writes,
+      ...clock,
     };
     return new FrozenDatasetLoader(deps)
       .load(makeOptions(deps, dataset, { reload: true, signal: stop.signal }))
@@ -3794,13 +3964,109 @@ describe('FrozenDatasetLoader — the orders a reload set to Draft for deletes t
 
     expect(error).toBeInstanceOf(FrozenLoadCancelledError);
     expect(target.row('Order', ORDER)?.Status).toBe('ST002');
-    const [, earlier] = await recordedLoads(sasDir);
-    expect(earlier.removalStamps).toEqual({});
+    // Nothing created or purged: the mapping names the load that created the
+    // order, and nothing the reload left on it.
+    const loads = await recordedLoads(sasDir);
+    expect(loads).toHaveLength(1);
+    expect(loads[0].removalStamps).toEqual({});
     // Its item is refused under an order still activated.
     expect(await removeNextLoad(sasDir, target)).toEqual([
       'OrderItem: 0 deleted, 0 kept changed, 1 refused',
       'Order: 0 deleted, 1 kept changed, 0 refused',
     ]);
+  });
+
+  describe('of a load the target did not date', () => {
+    // A load whose dates could not all be read back is dated, by its removal,
+    // by this machine's clock as it ended, read on the target's. The purge
+    // judged its records by no date at all: the order it gave back was never
+    // stamped, and the removal of that load kept it as changed since.
+
+    /** The mapping of the load that created the order and its item, undated by the target. */
+    async function orderLoadedUndated(sasDir: string): Promise<void> {
+      await new SasReferenceIdMappingStore(sasDir, {
+        guard: new SasPathGuard(repoRoot),
+        now: () => new Date('2026-09-23T10:00:06.000Z'),
+      }).persist(
+        new Map([
+          ['Order-000001', ORDER],
+          ['OrderItem-000001', ITEM],
+        ]),
+        {
+          created: [
+            { objectApiName: 'Order', referenceIds: ['Order-000001'] },
+            { objectApiName: 'OrderItem', referenceIds: ['OrderItem-000001'] },
+          ],
+          startedAt: new Date('2026-09-23T10:00:00.000Z'),
+        },
+      );
+    }
+
+    beforeEach(() => {
+      // This machine's clock, a few seconds behind the target's.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-24T12:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('stamps what it gave back of a record as that load left it, and the removal of that load takes it', async () => {
+      const target = new OrderTarget();
+      const sasDir = makeTmpDir();
+      await orderLoadedUndated(sasDir);
+
+      const error = await reloadCancelledAtTheDraft(target, sasDir, {
+        serverTime: async () => target.now(),
+      });
+
+      expect(error).toBeInstanceOf(FrozenLoadCancelledError);
+      expect(target.row('Order', ORDER)?.Status).toBe('ST002');
+      const [load] = await recordedLoads(sasDir);
+      expect(load.writtenBetween).toBeUndefined();
+      expect(load.removalStamps).toEqual({
+        [ORDER]: target.row('Order', ORDER)?.LastModifiedDate,
+      });
+      expect(await removeNextLoad(sasDir, target)).toEqual([
+        'OrderItem: 1 deleted, 0 kept changed, 0 refused',
+        'Order: 1 deleted, 0 kept changed, 0 refused',
+      ]);
+    });
+
+    it('stamps no order someone changed since that load', async () => {
+      const target = new OrderTarget();
+      Object.assign(target.row('Order', ORDER) ?? {}, {
+        LastModifiedDate: '2026-09-23T15:00:00.000+0000',
+        LastModifiedById: COLLEAGUE,
+      });
+      const sasDir = makeTmpDir();
+      await orderLoadedUndated(sasDir);
+
+      await reloadCancelledAtTheDraft(target, sasDir, { serverTime: async () => target.now() });
+
+      const [load] = await recordedLoads(sasDir);
+      expect(load.removalStamps).toEqual({});
+      expect(await removeNextLoad(sasDir, target)).toEqual([
+        'OrderItem: 0 deleted, 0 kept changed, 1 refused',
+        'Order: 0 deleted, 1 kept changed, 0 refused',
+      ]);
+    });
+
+    it('stamps nothing when the target does not tell its clock: no date says what is as that load left it', async () => {
+      const target = new OrderTarget();
+      const sasDir = makeTmpDir();
+      await orderLoadedUndated(sasDir);
+
+      await reloadCancelledAtTheDraft(target, sasDir, {
+        serverTime: async () => {
+          throw new Error('INVALID_SESSION_ID');
+        },
+      });
+
+      const [load] = await recordedLoads(sasDir);
+      expect(load.removalStamps).toEqual({});
+    });
   });
 });
 

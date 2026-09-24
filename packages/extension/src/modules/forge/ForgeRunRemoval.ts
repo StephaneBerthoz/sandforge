@@ -49,9 +49,10 @@ const DEPENDENT_DATE_COLUMNS: readonly (readonly string[])[] = [
 /**
  * Leeway on a date this machine's clock gave, once read on the org's: the
  * drift of one clock from the other between a run and its removal, and the
- * second the org rounds its dates to.
+ * second the org rounds its dates to. A Frozen reload judges the records of a
+ * load the org did not date by it too, as that load's removal will.
  */
-const CLOCK_LEEWAY_MS = 10_000;
+export const CLOCK_LEEWAY_MS = 10_000;
 
 /**
  * The code the org refuses a delete with while other records still hang from
