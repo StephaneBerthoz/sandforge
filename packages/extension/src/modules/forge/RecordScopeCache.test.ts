@@ -87,6 +87,27 @@ describe('RecordScopeCache', () => {
     expect([...(cache.scopeOf('Pricebook2') ?? [])]).toEqual(['01sSTANDARD', '01sCUSTOM']);
   });
 
+  it('adds to the scope of an object read again the rows that read took, and no id met since', () => {
+    const cache = new RecordScopeCache();
+    cache.addRead('Note__c', ['a0N1']);
+    cache.add('Note__c', ['a0N9']);
+
+    cache.addReadAgain('Note__c', ['a0N2', '']);
+
+    expect(cache.scopeOf('Note__c')).toEqual(new Set(['a0N1', 'a0N2']));
+    expect(cache.get('Note__c')).toEqual(new Set(['a0N1', 'a0N9', 'a0N2']));
+  });
+
+  it('settles the scope of an object first read by a later read to the rows it took', () => {
+    const cache = new RecordScopeCache();
+    cache.add('Product2', ['01t1', '01t9']);
+
+    cache.addReadAgain('Product2', ['01t1']);
+
+    expect(cache.isRead('Product2')).toBe(true);
+    expect(cache.scopeOf('Product2')).toEqual(new Set(['01t1']));
+  });
+
   it('forgets what was read on clear', () => {
     const cache = new RecordScopeCache();
     cache.addRead('Account', ['001A']);

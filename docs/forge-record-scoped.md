@@ -36,12 +36,17 @@ leaves out stays out. The items of an activated order come the same way: the
 order is written as a draft and activated once the rest is written, and the
 platform activates no order without a product, so when discovery stopped before
 the items the run adds them — those of the orders past Draft, and their prices.
+The records read after the catalog, under what its rows
+name (the classification a product is based on), can name rows of it in turn:
+the catalog is then read a second time, by id, for those rows only, and they
+bring nothing under them. A clone that leaves price books out takes the
+standard book alone, and reads no price in another book under a product.
 
 ## Pipeline
 
 ```
 ForgeOrchestrator.discover()  →  ForgeGraph (BFS schema)
-ForgePlanGenerator.generate() →  ForgePlan  (Kahn's topo waves)
+ForgePlanGenerator.generate() →  ForgePlan  (waves by level, each cycle one node)
 ForgeOrchestrator.execute(graph, config)
   └ ForgeExecutor.execute(graph, source, target, onProgress, options)
        │
@@ -58,7 +63,9 @@ ForgeOrchestrator.execute(graph, config)
        │
        ├─ for each node (root-first, then topo; a node whose rows cannot be
        │  written without a parent whose turn is still to come waits for it,
-       │  as the members of a cycle come in no order of their own):
+       │  as the members of a cycle come in no order of their own, and a node
+       │  read under such a waiting parent is read again under its rows once
+       │  they are read):
        │    1. describeFields (source + target → intersect createable)
        │    2. ScopedSoqlBuilder.build → SOQL with WHERE (split into several
        │       statements when the ID lists outgrow one query URI)
@@ -137,11 +144,19 @@ recorded, read on the org's clock.
 | `rootRecordId`         | —                                        | enables scope-aware mode                                                       |
 | `rootObjectApiName`    | —                                        | resolved from `recordId` keyPrefix; required with `rootRecordId`               |
 | `dryRun`               | `false`                                  | runs every step except `insertRecords`, used by the recipe                     |
-| `referenceFallback`    | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper                  |
+| `referenceFallback`    | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper (see below)      |
 | `recordTypeMappings`   | built by the extension before each run   | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
 | `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
 | `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 | `files`                | — (no file read)                         | `{ maxFileBytes, acceptedAsIs }`: copy the files of the cloned records         |
+
+`'keep'` holds for the records the run does not write, whose ids a sandbox
+refreshed from the same production can share with the source. A lookup at the
+one object it can name, which the run writes, is emptied at insert and filled
+in by the second pass whichever fallback is set: kept, a cycle's lookup at a
+record written after it named the target's own record rather than the copy,
+or nothing, and the platform refused the whole row. The plan's cycles say so
+for either kind of run.
 
 ## Error structure
 

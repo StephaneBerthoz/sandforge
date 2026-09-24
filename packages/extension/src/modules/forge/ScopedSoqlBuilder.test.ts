@@ -669,6 +669,44 @@ describe('ScopedSoqlBuilder', () => {
       ]);
     });
 
+    it('reads under the one parent it is asked to, and neither by id nor under another parent', () => {
+      // A node read at its turn is read again under a parent whose rows came
+      // after it: what it holds by id, and under its other parents, is read.
+      const cache = new RecordScopeCache();
+      cache.addRead('Case', ['500000000000001AAA']);
+      cache.addRead('Account', ['001000000000001AAA']);
+      cache.add('Contact', ['003000000000001AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('Contact'),
+        fields: [
+          { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+          { name: 'Case__c', type: 'reference', referenceTo: ['Case'] },
+        ],
+        selectFields: ['Id'],
+        edges: [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'A',
+            type: 'lookup',
+          },
+          { sourceObject: 'Case', targetObject: 'Contact', relationshipName: 'C', type: 'lookup' },
+        ],
+        cache,
+        rootObjectApiName: 'Contact',
+        rootRecordId: '003000000000001AAA',
+        everyEdge: true,
+        under: new Set(['Account']),
+      });
+
+      expect(result.statements).toEqual([
+        "SELECT Id FROM Contact WHERE AccountId IN ('001000000000001AAA')",
+      ]);
+      expect(result.scope).toBe('parent-fk');
+      expect(result.byIdCount).toBe(0);
+    });
+
     it('lays both reads under the URI limit and asks for every id once', () => {
       const ids = (prefix: string, count: number): string[] =>
         Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(15, '0')}`);
@@ -1297,6 +1335,46 @@ describe('ScopedSoqlBuilder', () => {
         "AND (PricebookEntryId IN ('01u000000000001AAA'))",
       );
       expect(readLines().statements[0]).not.toContain('Product2Id');
+    });
+
+    it('holds a price to the books the run took, not to a book a record named since', () => {
+      // No book is read: the standard one is matched, and settled as all the
+      // run has of the object. An opportunity read later names a custom book,
+      // which the run never takes; held to it too, the product's price in it
+      // was read, and refused at write for want of its book.
+      const STANDARD_BOOK = '01s000000000001AAA';
+      const PRODUCT = '01t000000000001AAA';
+      const cache = new RecordScopeCache();
+      cache.add('Pricebook2', [STANDARD_BOOK]);
+      cache.addRead('Pricebook2', []);
+      cache.addRead('Product2', [PRODUCT]);
+      cache.addReached('Product2', [PRODUCT]);
+      cache.add('Pricebook2', ['01s000000000002AAA']);
+
+      const result = new ScopedSoqlBuilder().build({
+        node: makeNode('PricebookEntry'),
+        fields: priceFields,
+        selectFields: ['Id'],
+        edges: [
+          {
+            sourceObject: 'Product2',
+            targetObject: 'PricebookEntry',
+            relationshipName: 'PricebookEntries',
+            type: 'lookup',
+          },
+        ],
+        cache,
+        rootObjectApiName: 'Product2',
+        rootRecordId: PRODUCT,
+        everyEdge: true,
+        readObjects: READ,
+        catalog: CATALOG,
+      });
+
+      expect(result.statements).toEqual([
+        `SELECT Id FROM PricebookEntry WHERE (Product2Id IN ('${PRODUCT}')) ` +
+          `AND (Pricebook2Id IN ('${STANDARD_BOOK}')) AND (Product2Id IN ('${PRODUCT}'))`,
+      ]);
     });
   });
 });

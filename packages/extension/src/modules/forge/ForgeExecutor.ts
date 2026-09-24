@@ -24,6 +24,7 @@ import { resolveStageConfig, type ForgeStageConfig } from './stages/ForgeStageCo
 import {
   buildNodeQuery,
   CATALOG_OBJECTS,
+  CATALOG_READ_ORDER,
   catalogBeyond,
   catalogWriteEdges,
   followsToItsParent,
@@ -249,7 +250,10 @@ export interface ExecuteOptions {
    *   compatibility (default outside scoped mode).
    *
    * Either way, a reference to an object that failed in the run is emptied
-   * and reported by the second pass: see `cleanNodeRecords`.
+   * and reported by the second pass, and a lookup at the one object it can
+   * name, which the run writes, is emptied at insert and filled in by the
+   * second pass: see `cleanNodeRecords`. `'keep'` holds for the ids of
+   * records the run does not write.
    *
    * `RecordTypeId` is preserved unless a `recordTypeMappings` entry exists
    * for the source value, in which case it is translated to the target ID.
@@ -677,6 +681,12 @@ interface PrereadNode {
   > | null;
 }
 
+/** A node read once and to be read again, with the source fields its read described. */
+interface NodeReadOnce {
+  readonly node: ForgeGraphNode;
+  readonly fieldInfos: readonly FieldInfo[];
+}
+
 interface ExecutionState {
   /** Normalized stage configuration resolved from `ExecuteOptions`. */
   readonly config: ForgeStageConfig;
@@ -722,6 +732,12 @@ interface ExecutionState {
    */
   readonly waitingFor: Map<string, ForgeGraphNode[]>;
   /**
+   * Per object that waited for its turn, the nodes read at theirs that depend
+   * on its rows: read again under them once it has been read. See
+   * `readUnderWhatWaited`.
+   */
+  readonly readAgainUnder: Map<string, NodeReadOnce[]>;
+  /**
    * Catalog nodes read once the rest of the graph has been read, so their
    * scope is what the records read point at: those put off, and those read
    * at their turn for what they reached. See `sortNodesAskedAgain`.
@@ -751,6 +767,12 @@ interface ExecutionState {
    * object once that book is matched.
    */
   readonly readObjects: Set<string>;
+  /**
+   * Objects the run writes, or links to what the target holds: the included
+   * nodes, less those the target refuses inserts on. A lookup at one of them
+   * names a record the run means to write. See `cleanNodeRecords`.
+   */
+  readonly writtenObjects: Set<string>;
   /**
    * Whether the run carries selling models, so a price keeps its own: a book
    * then holds one price per product and selling model, and a custom price
@@ -874,6 +896,47 @@ function requiredParentAhead(
     }
   }
   return undefined;
+}
+
+/**
+ * The objects waiting for their turn (`requiredParentAhead`) that the rows of
+ * `objectApiName`, read now, are read under: the graph has an edge from one,
+ * and a lookup of theirs names it, which may be one they cannot leave empty.
+ *
+ * @param waitingFor - Per object, the nodes waiting for its turn.
+ */
+function waitingParentsOf(
+  objectApiName: string,
+  fieldInfos: readonly FieldInfo[],
+  edges: readonly ForgeGraphEdge[],
+  waitingFor: ReadonlyMap<string, readonly ForgeGraphNode[]>,
+): string[] {
+  const waiting = new Set([...waitingFor.values()].flat().map((n) => n.objectApiName));
+  if (waiting.size === 0) return [];
+  const readUnder = new Set(
+    edges.filter((e) => e.targetObject === objectApiName).map((e) => e.sourceObject),
+  );
+  const parents = new Set<string>();
+  for (const field of fieldInfos) {
+    if (!field.isReference) continue;
+    for (const parent of field.referenceTo ?? []) {
+      if (parent !== objectApiName && waiting.has(parent) && readUnder.has(parent)) {
+        parents.add(parent);
+      }
+    }
+  }
+  return [...parents];
+}
+
+/**
+ * The ids of `objectApiName` that rows read since its read have named and
+ * that read did not take — every id named of it, when it was not read.
+ */
+function namedSinceItsRead(cache: RecordScopeCache, objectApiName: string): Set<string> {
+  const named = cache.get(objectApiName) ?? new Set<string>();
+  if (!cache.isRead(objectApiName)) return new Set(named);
+  const taken = cache.scopeOf(objectApiName);
+  return new Set([...named].filter((id) => !taken?.has(id)));
 }
 
 /**
@@ -1294,6 +1357,7 @@ export class ForgeExecutor {
       deferredNodes: [],
       turnsAhead: new Set<string>(),
       waitingFor: new Map<string, ForgeGraphNode[]>(),
+      readAgainUnder: new Map<string, NodeReadOnce[]>(),
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
       readByObject: new Map<string, number>(),
@@ -1301,6 +1365,7 @@ export class ForgeExecutor {
       sourceKeyPrefixes: new Map<string, string>(),
       keyPrefixesAsked: new Set<string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
+      writtenObjects: new Set<string>(),
       sellingModels: runGraph.nodes.some(
         (n) => n.included && n.objectApiName === SELLING_MODEL_OBJECT,
       ),
@@ -1599,6 +1664,11 @@ export class ForgeExecutor {
         wave.forEach((name, j) => creatableChecks.set(name, settled[j]));
       }
     }
+    for (const node of graph.nodes) {
+      const check = creatableChecks.get(node.objectApiName);
+      if (!node.included || (check?.status === 'fulfilled' && !check.value)) continue;
+      state.writtenObjects.add(node.objectApiName);
+    }
 
     for (const node of runOrder) {
       // Abort is checked per node, not only per batch: waitIfPaused() runs
@@ -1697,10 +1767,14 @@ export class ForgeExecutor {
       if (await this.skipForFailedParent(node, state)) continue;
       if (twoPhase) {
         await this.readNode(node, state, false, false);
+        await this.readUnderWhatWaited(node.objectApiName, state);
       } else if (await this.readNode(node, state, false, true)) {
         await this.writeNode(node, state);
       }
     }
+
+    // What the records read after the catalog named of it, read by id.
+    await this.readCatalogAgain(state);
 
     // The files of what was read, chosen and measured while nothing is
     // written yet: a run whose files do not fit in the target stops here.
@@ -2620,7 +2694,66 @@ export class ForgeExecutor {
     state.turnsAhead.delete(node.objectApiName);
     await this.readNode(node, state, true, false);
     const waits = [...state.waitingFor.values()].some((nodes) => nodes.includes(node));
-    if (!waits) await this.endTurn(node.objectApiName, state);
+    if (waits) return;
+    await this.readUnderWhatWaited(node.objectApiName, state);
+    await this.endTurn(node.objectApiName, state);
+  }
+
+  /**
+   * Once `objectApiName` has been read, after waiting for its turn, read again
+   * under its rows the nodes read at their own turn while it waited.
+   *
+   * A node that waits leaves the order of the pass, which puts parents first,
+   * and what was read under it at its turn went by the ids of it met so far:
+   * run between two sandboxes, a product's quote lines were read while the
+   * opportunity's lines waited for the opportunity, and two lines of the
+   * synced quote, tied to the opportunity's lines, were left out without an
+   * error. Holding such a node back until the waiting one is read would keep
+   * what it names from the nodes read in between: made to wait, the quote
+   * lines named no quote before the opportunity's turn, which found nothing,
+   * and the orders were read before the account was known, four of eleven.
+   * So the node is read at its turn, as before, and again under the rows that
+   * came late. What its turn read under the waiting object is read already;
+   * the nodes under it read since do not see the rows added.
+   *
+   * An object that waited and was put off in turn is read with the nodes put
+   * off, and what waited for it read again then.
+   */
+  private async readUnderWhatWaited(objectApiName: string, state: ExecutionState): Promise<void> {
+    const cache = state.scopeCache;
+    const again = state.readAgainUnder.get(objectApiName);
+    if (!cache || !again || !cache.isRead(objectApiName)) return;
+    state.readAgainUnder.delete(objectApiName);
+    for (const { node, fieldInfos } of again) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      if (state.failedObjects.has(node.objectApiName)) continue;
+      const fields = [...fieldInfos];
+      const query = buildNodeQuery({
+        node,
+        edges: state.graph.edges,
+        fieldInfos: fields,
+        scopedBuilder: state.scopedBuilder,
+        scopeCache: cache,
+        rootObjectApiName: state.config.rootObjectApiName,
+        rootRecordId: state.config.rootRecordId,
+        extraWhere: state.config.objectSoqlFilters?.[node.objectApiName],
+        readObjects: state.readObjects,
+        catalog: CATALOG_OBJECTS,
+        under: new Set([objectApiName]),
+      });
+      if (query.kind !== 'query') continue;
+      await this.readMore(
+        state,
+        node,
+        fields,
+        query.statements,
+        `under the ${objectApiName} records read after it`,
+      );
+    }
   }
 
   /** The turn of `objectApiName` in the first read pass is over: the nodes that waited for it take theirs. */
@@ -2895,6 +3028,21 @@ export class ForgeExecutor {
         });
       }
       await this.notePastDraft(state, node.objectApiName, records);
+      // Read at its turn while an object it depends on waits for its own:
+      // read again under that object's rows once they are read. See
+      // `readUnderWhatWaited`.
+      if (allowDefer) {
+        const waiting = waitingParentsOf(
+          node.objectApiName,
+          fieldInfos,
+          state.graph.edges,
+          state.waitingFor,
+        );
+        for (const parent of waiting) {
+          const again = state.readAgainUnder.get(parent) ?? [];
+          state.readAgainUnder.set(parent, [...again, { node, fieldInfos }]);
+        }
+      }
 
       // The records whose files the run copies: the ones it read to clone,
       // never those of an object mapped by name or of the standard book.
@@ -3182,6 +3330,213 @@ export class ForgeExecutor {
   ): boolean {
     if (!state.scopeCache || !CATALOG_OBJECTS.has(node.objectApiName)) return false;
     return query.kind === 'skip' || !readsFromAbove(query);
+  }
+
+  /**
+   * Read the catalog again, by id, for the rows the records read after it
+   * named and no read took. Nothing is read when they named none.
+   *
+   * The catalog is read once the rest of the graph has been, by what the
+   * records name, and what its rows name is read after it: the classification
+   * a product is based on, and the records under that classification. Those
+   * can name the catalog in turn — a classification's default product, which
+   * no line sells — and its read was over: the record went to the target
+   * without the product, and the second pass reported the lookup.
+   *
+   * A row read here was met through a lookup, and brings nothing under it: no
+   * price of a product, no product of a book. It brings what it cannot be
+   * written without, as the catalog's read does, in the same order — a
+   * price's book, product and selling model, the standard price a custom one
+   * needs, the options that sell a product under a selling model. What it
+   * names outside the catalog is not read again: a record the run did not
+   * read, whose lookup at it is left empty and reported.
+   */
+  private async readCatalogAgain(state: ExecutionState): Promise<void> {
+    const cache = state.scopeCache;
+    if (!cache) return;
+    const { config } = state;
+    const catalog = CATALOG_READ_ORDER.flatMap((name) =>
+      state.catalogNodes.filter(({ node }) => node.objectApiName === name),
+    ).filter(
+      ({ node }) =>
+        !state.failedObjects.has(node.objectApiName) &&
+        !state.notCreatable.has(node.objectApiName) &&
+        !config.referenceDataObjects.has(node.objectApiName),
+    );
+    if (!catalog.some(({ node }) => namedSinceItsRead(cache, node.objectApiName).size > 0)) return;
+
+    /** The objects this read found rows of: new products or selling models want their options. */
+    const found = new Set<string>();
+    for (const { node, fieldInfos } of catalog) {
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+      const objectApiName = node.objectApiName;
+      const fields = [...fieldInfos];
+      const extraWhere = config.objectSoqlFilters?.[objectApiName];
+      let statements: string[];
+      if (objectApiName === SELLING_MODEL_OPTION_OBJECT) {
+        if (!found.has(PRODUCT_OBJECT) && !found.has(SELLING_MODEL_OBJECT)) continue;
+        const options = buildNodeQuery({
+          node,
+          edges: state.graph.edges,
+          fieldInfos: fields,
+          scopedBuilder: state.scopedBuilder,
+          scopeCache: cache,
+          rootObjectApiName: config.rootObjectApiName,
+          rootRecordId: config.rootRecordId,
+          extraWhere,
+          readObjects: state.readObjects,
+          catalog: CATALOG_OBJECTS,
+        });
+        if (options.kind !== 'query') continue;
+        statements = options.statements;
+      } else {
+        const named = namedSinceItsRead(cache, objectApiName);
+        if (named.size === 0) continue;
+        const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+        statements = new ScopedSoqlBuilder().buildById({
+          objectApiName,
+          selectFields: selectFields.length > 0 ? selectFields : ['Id'],
+          ids: named,
+          extraWhere,
+        });
+      }
+      const fresh = await this.readMore(
+        state,
+        node,
+        fields,
+        statements,
+        'named by records read after the catalog',
+        async (rows) => {
+          // Matched, never cloned, as when the catalog's read met it.
+          if (objectApiName === PRICEBOOK_OBJECT && state.standardPricebookId) {
+            return rows.filter((row) => row['Id'] !== state.standardPricebookId);
+          }
+          if (isPricebookEntry(objectApiName) && state.standardPricebookId) {
+            await this.addStandardPricebookEntries(node, state, rows, fields);
+            return dedupePricebookEntries(rows, { sellingModel: state.sellingModels });
+          }
+          return rows;
+        },
+      );
+      if (fresh.length > 0) found.add(objectApiName);
+    }
+  }
+
+  /**
+   * Read more rows of a node, by `statements`, and add those the run did not
+   * hold to it: to its scope, to what the write pass writes, to what the run
+   * says it read of it and, on a dry run, to what it says it would insert.
+   * The rows its read took stand whatever this read does: one that fails is
+   * reported, and the records that named the rows it was to bring lose their
+   * lookup at them, which the second pass reports.
+   *
+   * @param note - What a dry run says of the rows added, after their count.
+   * @param keep - The rows of the object the run keeps, of those read that it
+   *   did not hold: a price comes with the standard price it needs.
+   * @returns The rows added.
+   */
+  private async readMore(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    fields: FieldInfo[],
+    statements: string[],
+    note: string,
+    keep: (rows: Record<string, unknown>[]) => Promise<Record<string, unknown>[]> = async (rows) =>
+      rows,
+  ): Promise<Record<string, unknown>[]> {
+    const cache = state.scopeCache;
+    if (!cache) return [];
+    const { config } = state;
+    const objectApiName = node.objectApiName;
+    // The cap on each object counts the rows its first read took.
+    const cap = config.maxRecordsPerObject ? Math.floor(config.maxRecordsPerObject) : 0;
+    const room = cap > 0 ? cap - (state.readByObject.get(objectApiName) ?? 0) : 0;
+    if (cap > 0 && room <= 0) return [];
+    const wasRead = cache.isRead(objectApiName);
+    /** What the run holds of the object already: the rows its read took. */
+    const held = new Set(wasRead ? (cache.scopeOf(objectApiName) ?? []) : []);
+    const unheld = (row: Record<string, unknown>): boolean =>
+      typeof row['Id'] !== 'string' || !held.has(row['Id']);
+    try {
+      const rows = await queryNodeRecords(
+        {
+          kind: 'query',
+          statements: room > 0 ? statements.map((s) => `${s} LIMIT ${room}`) : statements,
+          ...(room > 0 ? { limit: room } : {}),
+          byIdCount: statements.length,
+        },
+        (soql) =>
+          this.deps.queryRecords(state.sourceOrgId, soql, () =>
+            state.truncatedObjects.add(objectApiName),
+          ),
+      );
+      const read = rows.filter(unheld);
+      this.leaveToThePlatform(state, objectApiName, read, fields);
+      const fresh = (await keep(read)).filter(unheld);
+      // What the rows name is met; what the object holds is what the reads took.
+      seedScopeCache(cache, objectApiName, fresh, fields, {
+        settle: false,
+        keyPrefixes: await this.keyPrefixesNamedBy(state, fields),
+      });
+      cache.addReadAgain(
+        objectApiName,
+        fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : [])),
+      );
+      if (fresh.length === 0) return [];
+      if (config.files) {
+        const ids = fresh.flatMap((r) => (typeof r['Id'] === 'string' ? [r['Id']] : []));
+        state.fileScope.set(objectApiName, [...(state.fileScope.get(objectApiName) ?? []), ...ids]);
+      }
+      // Left out of scope by its read, the object was counted as skipped.
+      if (!wasRead) state.skippedCount--;
+      let added = fresh.length;
+      if (!config.dryRun) {
+        const before = state.preread.get(objectApiName);
+        const earlier = before?.records ?? [];
+        // A book holds one price per product — and selling model, and
+        // currency — whichever read took it.
+        const records = isPricebookEntry(objectApiName)
+          ? dedupePricebookEntries([...earlier, ...fresh], { sellingModel: state.sellingModels })
+          : [...earlier, ...fresh];
+        added = records.length - earlier.length;
+        state.preread.set(
+          objectApiName,
+          before
+            ? { ...before, records }
+            : {
+                fieldInfos: fields,
+                createableSet: new Set(fields.filter((f) => f.createable).map((f) => f.name)),
+                records,
+                targetSetsPending: null,
+              },
+        );
+      }
+      state.readByObject.set(objectApiName, (state.readByObject.get(objectApiName) ?? 0) + added);
+      if (config.dryRun) {
+        state.wouldInsertCount += added;
+        state.onProgress({
+          objectName: objectApiName,
+          status: 'done',
+          progress: 100,
+          message: `[dry-run] ${objectApiName}: ${added} more record(s) would be inserted, ${note}`,
+        });
+      }
+      return fresh;
+    } catch (err) {
+      if (err instanceof ForgeAbortedError) throw err;
+      state.errors.push({
+        objectApiName,
+        stage: 'query',
+        failedCount: 0,
+        attemptedCount: 0,
+        samples: [{ recordSummary: `(more rows, ${note})`, messages: [extractErrorMessage(err)] }],
+      });
+      return [];
+    }
   }
 
   /**
@@ -3552,6 +3907,7 @@ export class ForgeExecutor {
         remapper,
         referenceFallback: config.referenceFallback,
         failedObjects: state.failedObjects,
+        writtenObjects: state.writtenObjects,
         ownerMappings: config.ownerMappings,
         // Per-node field exclusions and renames are record-invariant —
         // resolved once per node rather than per record.

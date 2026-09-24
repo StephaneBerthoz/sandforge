@@ -2769,6 +2769,223 @@ describe('ForgeExecutor', () => {
           '[dry-run] OrderAction: 2 record(s) would be inserted',
         );
       });
+
+      describe('a record read under an action that waits for its order', () => {
+        // A note hangs from an order action, and some notes name the
+        // opportunity too. The action waits for the orders, whose turn comes
+        // after the note's: read at its turn, the note was read under the
+        // opportunity alone, and the notes of the actions read later were left
+        // out without an error.
+        const ACTION_NOTE = 'a0N000000000001AAA';
+        const DEAL_NOTE = 'a0N000000000002AAA';
+
+        /**
+         * The opportunity's orders and their actions, with a note on the first
+         * action, one on the second that also names the opportunity, and one
+         * on an action of another deal. The note's lookup at the action is
+         * optional, or, with `required`, one it may not leave empty.
+         */
+        function notedOrders(required: boolean) {
+          const { orgDeps, inserted } = fakeOrgs(
+            {
+              Opportunity: [{ Id: OPPORTUNITY, Name: 'Deal', Last_Order__c: FIRST_ORDER }],
+              Order: [
+                { Id: FIRST_ORDER, Name: 'First', OpportunityId: OPPORTUNITY },
+                { Id: SECOND_ORDER, Name: 'Second', OpportunityId: OPPORTUNITY },
+                { Id: ELSEWHERE_ORDER, Name: 'Elsewhere', OpportunityId: '006000000000009AAA' },
+              ],
+              OrderAction: [
+                { Id: '8OA000000000001AAA', Name: 'Add first', OrderId: FIRST_ORDER },
+                { Id: '8OA000000000002AAA', Name: 'Add second', OrderId: SECOND_ORDER },
+                { Id: '8OA000000000009AAA', Name: 'Add elsewhere', OrderId: ELSEWHERE_ORDER },
+              ],
+              Order_Note__c: [
+                {
+                  Id: ACTION_NOTE,
+                  Name: 'On the first action',
+                  Order_Action__c: '8OA000000000001AAA',
+                  Opportunity__c: null,
+                },
+                {
+                  Id: DEAL_NOTE,
+                  Name: 'On the deal',
+                  Order_Action__c: '8OA000000000002AAA',
+                  Opportunity__c: OPPORTUNITY,
+                },
+                {
+                  Id: 'a0N000000000009AAA',
+                  Name: 'Elsewhere',
+                  Order_Action__c: '8OA000000000009AAA',
+                  Opportunity__c: null,
+                },
+              ],
+            },
+            {
+              Opportunity: [idField, text('Name'), lookup('Last_Order__c', 'Order')],
+              Order: [idField, text('Name'), lookup('OpportunityId', 'Opportunity')],
+              OrderAction: [idField, text('Name'), lookup('OrderId', 'Order', true)],
+              Order_Note__c: [
+                idField,
+                text('Name'),
+                lookup('Order_Action__c', 'OrderAction', required),
+                lookup('Opportunity__c', 'Opportunity'),
+              ],
+            },
+          );
+          // A cycle through the opportunity and its orders: the graph's order
+          // stands, the action's turn first, then the note's, then the orders'.
+          const graph = makeGraph(
+            [
+              makeNode('Opportunity'),
+              makeNode('OrderAction'),
+              makeNode('Order_Note__c'),
+              makeNode('Order'),
+            ],
+            [
+              edge('Opportunity', 'Order'),
+              edge('Order', 'Opportunity'),
+              { ...edge('Order', 'OrderAction'), required: true },
+              { ...edge('OrderAction', 'Order_Note__c'), required },
+              edge('Opportunity', 'Order_Note__c'),
+            ],
+          );
+          return { orgDeps, inserted, graph };
+        }
+        const rooted = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+        const written = [
+          {
+            Name: 'On the deal',
+            Order_Action__c: 'OrderAction:Add second',
+            Opportunity__c: 'Opportunity:Deal',
+          },
+          { Name: 'On the first action', Order_Action__c: 'OrderAction:Add first' },
+        ];
+
+        it('reads again under the actions, once read, a note read at its turn through an optional lookup', async () => {
+          const { orgDeps, inserted, graph } = notedOrders(false);
+          const read = recordReads(orgDeps);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(read['Order_Note__c']).toEqual(new Set([ACTION_NOTE, DEAL_NOTE]));
+          expect(inserted['Order_Note__c']).toEqual(written);
+          expect(summary.readByObject.find((r) => r.objectApiName === 'Order_Note__c')?.read).toBe(
+            2,
+          );
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('reads again under the actions, once read, a note held to them by a lookup it may not leave empty', async () => {
+          const { orgDeps, inserted, graph } = notedOrders(true);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Order_Note__c']).toEqual(written);
+          expect(summary.errors).toEqual([]);
+        });
+
+        it('still reads the note at its turn, before the orders: what it names is known to what comes after', async () => {
+          // Held back until the actions were read, the note named nothing
+          // before the orders' turn. Run between two sandboxes, quote lines
+          // held back so named no quote before the opportunity's turn, and the
+          // orders were read without the account, four of eleven.
+          const { orgDeps, graph } = notedOrders(false);
+          const sent: string[] = [];
+          const query = orgDeps.queryRecords;
+          orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            if (org === 'src') sent.push(/\bFROM (\w+)/.exec(soql)?.[1] ?? '');
+            return query(org, soql, onTruncated);
+          };
+
+          await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, rooted);
+
+          expect(sent.indexOf('Order_Note__c')).toBeLessThan(sent.indexOf('Order'));
+          expect(sent.lastIndexOf('Order_Note__c')).toBeGreaterThan(sent.indexOf('OrderAction'));
+        });
+
+        it('reads under the notes read again the comments of those notes only, not of one an order named since', async () => {
+          // An order pins a note of another deal: named after the notes were
+          // read, it is a note no read takes, and a comment under it is not the
+          // clone's.
+          const { orgDeps, inserted, graph } = notedOrders(false);
+          const query = orgDeps.queryRecords;
+          const extra: Record<string, FakeRow[]> = {
+            Note_Comment__c: [
+              { Id: 'a0K000000000001AAA', Name: 'On the first action', Note__c: ACTION_NOTE },
+              { Id: 'a0K000000000009AAA', Name: 'Elsewhere', Note__c: 'a0N000000000009AAA' },
+            ],
+          };
+          orgDeps.queryRecords = async (org, soql, onTruncated) => {
+            const rows = await query(org, soql, onTruncated);
+            if (/\bFROM Note_Comment__c\b/.test(soql)) return selectRows(extra, soql);
+            return /\bFROM Order\b/.test(soql)
+              ? rows.map((row) =>
+                  row['Id'] === FIRST_ORDER
+                    ? { ...row, Pinned_Note__c: 'a0N000000000009AAA' }
+                    : row,
+                )
+              : rows;
+          };
+          const describe = orgDeps.describeFields;
+          orgDeps.describeFields = async (org, object) => {
+            if (object === 'Note_Comment__c') {
+              return [idField, text('Name'), lookup('Note__c', 'Order_Note__c', true)];
+            }
+            const fields = await describe(org, object);
+            return object === 'Order'
+              ? [...fields, lookup('Pinned_Note__c', 'Order_Note__c')]
+              : fields;
+          };
+          graph.nodes.push(makeNode('Note_Comment__c'));
+          graph.edges.push({ ...edge('Order_Note__c', 'Note_Comment__c'), required: true });
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(inserted['Note_Comment__c']).toEqual([
+            { Name: 'On the first action', Note__c: 'Order_Note__c:On the first action' },
+          ]);
+          expect(summary.errors.filter((e) => e.objectApiName !== '__pass2__')).toEqual([]);
+        });
+
+        it('says in a dry run what the second read would add', async () => {
+          const { orgDeps, graph } = notedOrders(false);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            graph,
+            'src',
+            'tgt',
+            onProgress,
+            { ...rooted, dryRun: true },
+          );
+
+          const said = progressEvents.map((e) => e.message);
+          expect(said).toContain('[dry-run] Order_Note__c: 1 record(s) would be inserted');
+          expect(said).toContain(
+            '[dry-run] Order_Note__c: 1 more record(s) would be inserted, under the OrderAction records read after it',
+          );
+          expect(summary.wouldInsertCount).toBe(
+            1 /* opportunity */ + 2 /* orders */ + 2 /* actions */ + 2 /* notes */,
+          );
+        });
+      });
     });
 
     describe('a required lookup at an object the run does not read', () => {
@@ -2910,6 +3127,77 @@ describe('ForgeExecutor', () => {
         expect(inserted['PricebookEntry']).toEqual([
           { Product2Id: 'Product2:Widget', Pricebook2Id: STANDARD_BOOK, UnitPrice: '10' },
         ]);
+      });
+
+      it('reads no price of the product in a book a record names, when the graph leaves price books out', async () => {
+        // The standard book is all the run takes of the object. The deal the
+        // product names is priced from a custom book, which the run never
+        // clones: held to every book the rows read had named, the product's
+        // price in that book was read, and sent without its book. Run between
+        // two sandboxes with price books left out, a product's clone read three
+        // such prices beside its standard ones.
+        const PRODUCT = '01t000000000001AAA';
+        const STANDARD_BOOK = '01s000000000001AAA';
+        const CUSTOM_BOOK = '01s000000000002AAA';
+        const DEAL = '006000000000001AAA';
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            Product2: [{ Id: PRODUCT, Name: 'Widget', Launch_Deal__c: DEAL }],
+            Opportunity: [{ Id: DEAL, Name: 'Launch', Pricebook2Id: CUSTOM_BOOK }],
+            Pricebook2: [
+              { Id: STANDARD_BOOK, IsStandard: true },
+              { Id: CUSTOM_BOOK, IsStandard: false },
+            ],
+            PricebookEntry: [
+              {
+                Id: '01u000000000001AAA',
+                Product2Id: PRODUCT,
+                Pricebook2Id: STANDARD_BOOK,
+                UnitPrice: '10',
+              },
+              {
+                Id: '01u000000000002AAA',
+                Product2Id: PRODUCT,
+                Pricebook2Id: CUSTOM_BOOK,
+                UnitPrice: '8',
+              },
+            ],
+          },
+          {
+            Product2: [idField, text('Name'), lookup('Launch_Deal__c', 'Opportunity')],
+            Opportunity: [idField, text('Name'), lookup('Pricebook2Id', 'Pricebook2')],
+            PricebookEntry: [
+              idField,
+              lookup('Product2Id', 'Product2', true),
+              lookup('Pricebook2Id', 'Pricebook2', true),
+              text('UnitPrice'),
+            ],
+          },
+        );
+        const read = recordReads(orgDeps);
+        const graph = makeGraph(
+          [
+            makeNode('Product2'),
+            makeNode('Opportunity'),
+            makeNode('PricebookEntry'),
+            makeNode('Pricebook2', { included: false }),
+          ],
+          [edge('Opportunity', 'Product2'), edge('Product2', 'PricebookEntry')],
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          rootRecordId: PRODUCT,
+          rootObjectApiName: 'Product2',
+        });
+
+        expect(read['PricebookEntry']).toEqual(new Set(['01u000000000001AAA']));
+        expect(inserted['PricebookEntry']).toEqual([
+          { Product2Id: 'Product2:Widget', Pricebook2Id: STANDARD_BOOK, UnitPrice: '10' },
+        ]);
+        // The deal's own lookup at its book is the one left empty: the book is left out.
+        const pass2 = summary.errors.find((e) => e.objectApiName === '__pass2__');
+        expect(pass2?.failedCount).toBe(1);
+        expect(pass2?.samples[0].recordSummary).toContain(`Opportunity source=${DEAL}`);
       });
     });
 
@@ -3359,6 +3647,263 @@ describe('ForgeExecutor', () => {
             { Name: 'Widget 6', BasedOnId: 'ProductClassification:Legacy' },
           ]);
           expect(summary.errors).toEqual([]);
+        });
+
+        describe('a record under a classification that names a product', () => {
+          // A classification is read by what the products name, after the
+          // catalog, and so is every row under it. The default product of a
+          // hardware classification is one no line sells: the catalog had
+          // been read by then, and the row went to the target without it.
+          const HARDWARE_DEFAULT = 'a0C000000000001AAA';
+
+          /** The asset's org, with a default product for each classification. */
+          function defaultsOrgs(defaults: FakeRow[]) {
+            const orgs = assetOrgs();
+            const tables: Record<string, FakeRow[]> = { Classification_Default__c: defaults };
+            const fields: Record<string, FieldInfo[]> = {
+              Classification_Default__c: [
+                idField,
+                text('Name'),
+                lookup('Classification__c', 'ProductClassification', true),
+                lookup('Default_Product__c', 'Product2'),
+              ],
+            };
+            const query = orgs.orgDeps.queryRecords;
+            orgs.orgDeps.queryRecords = async (org, soql, onTruncated) =>
+              /\bFROM Classification_Default__c\b/.test(soql)
+                ? selectRows(tables, soql)
+                : query(org, soql, onTruncated);
+            const describe = orgs.orgDeps.describeFields;
+            orgs.orgDeps.describeFields = async (org, object) =>
+              fields[object] ?? describe(org, object);
+            return orgs;
+          }
+
+          /** The asset's graph, with the defaults read under their classification. */
+          function defaultsGraph(): ForgeGraph {
+            const graph = assetGraph();
+            graph.nodes.push(makeNode('Classification_Default__c'));
+            graph.edges.push(
+              { ...edge('ProductClassification', 'Classification_Default__c'), required: true },
+              edge('Product2', 'Classification_Default__c'),
+            );
+            return graph;
+          }
+
+          it('reads the catalog again for the product only that record names, and writes both', async () => {
+            const { orgDeps, inserted } = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Product__c: product(5),
+              },
+              {
+                Id: 'a0C000000000002AAA',
+                Name: 'Services default',
+                Classification__c: '11B000000000003AAA',
+                Default_Product__c: product(4),
+              },
+            ]);
+            const read = recordReads(orgDeps);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              defaultsGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+            );
+
+            // Read by its id, the product brings nothing under it: no price.
+            expect(read['Product2']).toEqual(new Set([product(1), product(6), product(5)]));
+            expect(read['PricebookEntry']).toEqual(
+              new Set([price('custom', 1), price('standard', 1), OLD_PRICE, price('standard', 6)]),
+            );
+            expect(inserted['Product2']).toEqual([
+              { Name: 'Widget 1', BasedOnId: 'ProductClassification:Hardware' },
+              { Name: 'Widget 6', BasedOnId: 'ProductClassification:Legacy' },
+              { Name: 'Widget 5', BasedOnId: 'ProductClassification:Hardware' },
+            ]);
+            expect(inserted['Classification_Default__c']).toEqual([
+              {
+                Name: 'Hardware default',
+                Classification__c: 'ProductClassification:Hardware',
+                Default_Product__c: 'Product2:Widget 5',
+              },
+            ]);
+            expect(
+              Object.fromEntries(summary.readByObject.map((r) => [r.objectApiName, r.read])),
+            ).toMatchObject({ Product2: 3, Classification_Default__c: 1 });
+            expect(summary.errors).toEqual([]);
+          });
+
+          it('brings with a price only that record names its product, its book and its standard price', async () => {
+            const PROMO_BOOK = '01s000000000005AAA';
+            const PROMO_PRICE = '01u000000000055AAA';
+            const orgs = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Price__c: PROMO_PRICE,
+              },
+            ]);
+            const query = orgs.orgDeps.queryRecords;
+            const promo: Record<string, FakeRow[]> = {
+              Pricebook2: [{ Id: PROMO_BOOK, Name: 'Promo', IsStandard: false }],
+              PricebookEntry: [
+                {
+                  Id: PROMO_PRICE,
+                  Name: 'Widget 5 promo',
+                  Pricebook2Id: PROMO_BOOK,
+                  Product2Id: product(5),
+                  UnitPrice: '7',
+                },
+              ],
+            };
+            orgs.orgDeps.queryRecords = async (org, soql, onTruncated) => {
+              const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+              const rows = await query(org, soql, onTruncated);
+              return promo[object] && /\bWHERE Id IN\b/.test(soql)
+                ? [...rows, ...selectRows(promo, soql)]
+                : rows;
+            };
+            const describe = orgs.orgDeps.describeFields;
+            orgs.orgDeps.describeFields = async (org, object) =>
+              object === 'Classification_Default__c'
+                ? [
+                    idField,
+                    text('Name'),
+                    lookup('Classification__c', 'ProductClassification', true),
+                    lookup('Default_Price__c', 'PricebookEntry'),
+                  ]
+                : describe(org, object);
+            const { orgDeps, inserted } = orgs;
+            const graph = defaultsGraph();
+            graph.edges.push(edge('PricebookEntry', 'Classification_Default__c'));
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              graph,
+              'src',
+              'tgt',
+              onProgress,
+              { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+            );
+
+            expect(inserted['Pricebook2'].map((r) => r['Name'])).toEqual([
+              'Custom',
+              'Quotes',
+              'Promo',
+            ]);
+            expect(inserted['Product2'].map((r) => r['Name'])).toEqual([
+              'Widget 1',
+              'Widget 6',
+              'Widget 5',
+            ]);
+            // The standard price first, as the platform takes a custom one only after it.
+            expect(inserted['PricebookEntry'].map((r) => r['Name'])).toEqual([
+              'Widget 1 standard',
+              'Widget 6 standard',
+              'Widget 5 standard',
+              'Widget 1 custom',
+              'Widget 6 quotes',
+              'Widget 5 promo',
+            ]);
+            expect(inserted['PricebookEntry'].at(-1)).toMatchObject({
+              Product2Id: 'Product2:Widget 5',
+              Pricebook2Id: 'Pricebook2:Promo',
+            });
+            expect(inserted['Classification_Default__c']).toEqual([
+              {
+                Name: 'Hardware default',
+                Classification__c: 'ProductClassification:Hardware',
+                Default_Price__c: 'PricebookEntry:Widget 5 promo',
+              },
+            ]);
+            expect(summary.errors).toEqual([]);
+          });
+
+          it('says in a dry run the rows the second read would add', async () => {
+            const { orgDeps } = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Product__c: product(5),
+              },
+            ]);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              defaultsGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity', dryRun: true },
+            );
+
+            const said = progressEvents.map((e) => e.message);
+            expect(said).toContain('[dry-run] Product2: 2 record(s) would be inserted');
+            expect(said).toContain(
+              '[dry-run] Product2: 1 more record(s) would be inserted, named by records read after the catalog',
+            );
+            expect(summary.readByObject.find((r) => r.objectApiName === 'Product2')?.read).toBe(3);
+          });
+
+          it('reads no more of an object than the cap on each object, its first read counted', async () => {
+            const { orgDeps } = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Product__c: product(5),
+              },
+            ]);
+            const read = recordReads(orgDeps);
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              defaultsGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              {
+                rootRecordId: OPPORTUNITY,
+                rootObjectApiName: 'Opportunity',
+                maxRecordsPerObject: 2,
+              },
+            );
+
+            expect(read['Product2']).toEqual(new Set([product(1), product(6)]));
+            expect(summary.readByObject.find((r) => r.objectApiName === 'Product2')?.read).toBe(2);
+          });
+
+          it('reads the catalog once when the records under a classification name what it read', async () => {
+            const { orgDeps } = defaultsOrgs([
+              {
+                Id: HARDWARE_DEFAULT,
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Product__c: product(1),
+              },
+            ]);
+            const sent: string[] = [];
+            const query = orgDeps.queryRecords;
+            orgDeps.queryRecords = async (org, soql, onTruncated) => {
+              if (org === 'src') sent.push(soql);
+              return query(org, soql, onTruncated);
+            };
+
+            const summary = await new ForgeExecutor(orgDeps).execute(
+              defaultsGraph(),
+              'src',
+              'tgt',
+              onProgress,
+              { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' },
+            );
+
+            expect(sent.filter((soql) => /\bFROM Product2\b/.test(soql))).toHaveLength(1);
+            expect(summary.errors).toEqual([]);
+          });
         });
       });
 
@@ -4514,6 +5059,70 @@ describe('ForgeExecutor', () => {
           written.indexOf('PricebookEntry'),
         );
         expect(written.indexOf('PricebookEntry')).toBeLessThan(written.indexOf('QuoteLineItem'));
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('brings with a price a record read after the catalog names the option its product is sold under', async () => {
+        // The fourth widget is sold on another deal only. A classification's
+        // record names its price: read again for it, the catalog brings the
+        // widget, its standard price, and the option that sells it under the
+        // one-time model, which the platform takes no price without.
+        const HARDWARE = '11B000000000001AAA';
+        const base = tables();
+        const { orgDeps, inserted } = fakeOrgs(
+          {
+            ...base,
+            Product2: base.Product2.map((row) => ({ ...row, BasedOnId: HARDWARE })),
+            ProductClassification: [{ Id: HARDWARE, Name: 'Hardware' }],
+            Classification_Default__c: [
+              {
+                Id: 'a0C000000000001AAA',
+                Name: 'Hardware default',
+                Classification__c: HARDWARE,
+                Default_Price__c: price('custom', 'once', 4),
+              },
+            ],
+          },
+          {
+            ...fields,
+            Product2: [...fields.Product2, lookup('BasedOnId', 'ProductClassification')],
+            ProductClassification: [idField, text('Name')],
+            Classification_Default__c: [
+              idField,
+              text('Name'),
+              lookup('Classification__c', 'ProductClassification', true),
+              lookup('Default_Price__c', 'PricebookEntry'),
+            ],
+          },
+        );
+        const refused = platform(orgDeps, inserted);
+        const walked = graph();
+        walked.nodes.push(makeNode('ProductClassification'), makeNode('Classification_Default__c'));
+        walked.edges.push(
+          edge('ProductClassification', 'Product2'),
+          { ...edge('ProductClassification', 'Classification_Default__c'), required: true },
+          edge('PricebookEntry', 'Classification_Default__c'),
+        );
+
+        const summary = await new ForgeExecutor(orgDeps).execute(walked, 'src', 'tgt', onProgress, {
+          rootRecordId: OPPORTUNITY,
+          rootObjectApiName: 'Opportunity',
+        });
+
+        expect(refused).toEqual([]);
+        expect(inserted['ProductSellingModelOption'].map((r) => r['Product2Id'])).toEqual([
+          'Product2:Widget 1',
+          'Product2:Widget 2',
+          'Product2:Widget 3',
+          'Product2:Widget 4',
+        ]);
+        expect(inserted['Classification_Default__c']).toEqual([
+          {
+            Name: 'Hardware default',
+            Classification__c: 'ProductClassification:Hardware',
+            Default_Price__c: 'PricebookEntry:Widget 4 custom once',
+          },
+        ]);
         expect(summary.errors).toEqual([]);
       });
 
@@ -6303,6 +6912,110 @@ describe('ForgeExecutor', () => {
       const pass2Error = summary.errors.find((e) => e.objectApiName === '__pass2__');
       expect(pass2Error).toBeDefined();
       expect(pass2Error?.samples[0].messages[0]).toContain('could not be resolved');
+    });
+
+    describe('in a run that reads whole tables', () => {
+      const ACCOUNT = '001000000000001AAA';
+      const CONTACT = '003000000000001AAA';
+      const TERRITORY = 'a0T000000000001AAA';
+      const reference = (name: string, target: string): FieldInfo => ({
+        name,
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: [target],
+      });
+
+      /**
+       * An account naming its primary contact, and the contact under it: a
+       * cycle, written account first. A run of whole tables keeps the ids of
+       * what it does not write — the account's territory — by default.
+       */
+      async function accountsAndContacts() {
+        const tables: Record<string, Array<Record<string, unknown>>> = {
+          Account: [
+            { Id: ACCOUNT, Name: 'Acme', Primary_Contact__c: CONTACT, Territory__c: TERRITORY },
+          ],
+          Contact: [{ Id: CONTACT, LastName: 'Doe', AccountId: ACCOUNT }],
+        };
+        const fields: Record<string, FieldInfo[]> = {
+          Account: [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Name', queryable: true, createable: true, isReference: false },
+            reference('Primary_Contact__c', 'Contact'),
+            reference('Territory__c', 'Territory__c'),
+          ],
+          Contact: [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'LastName', queryable: true, createable: true, isReference: false },
+            reference('AccountId', 'Account'),
+          ],
+        };
+        vi.mocked(deps.describeFields).mockImplementation(async (_org, object) => fields[object]);
+        vi.mocked(deps.queryRecords).mockImplementation(async (org, soql) => {
+          const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
+          return org === 'src' ? (tables[object] ?? []).map((row) => ({ ...row })) : [];
+        });
+        vi.mocked(deps.insertRecords).mockImplementation(async (_org, object, rows) =>
+          rows.map((_, i) => ({ id: `${object}NEW${i}`, success: true, errors: [] })),
+        );
+        const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>(
+          async (_org, _object, rows) =>
+            rows.map((row) => ({ id: String(row['Id']), success: true, errors: [] })),
+        );
+        const graph = makeGraph(
+          [makeNode('Account', { recordCount: 1 }), makeNode('Contact', { recordCount: 1 })],
+          [
+            {
+              sourceObject: 'Account',
+              targetObject: 'Contact',
+              relationshipName: 'Contacts',
+              type: 'lookup',
+            },
+            {
+              sourceObject: 'Contact',
+              targetObject: 'Account',
+              relationshipName: 'PrimaryContact',
+              type: 'lookup',
+            },
+          ],
+        );
+
+        const summary = await new ForgeExecutor({ ...deps, updateRecords }).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+        );
+        const sent = (object: string): Array<Record<string, unknown>> =>
+          vi
+            .mocked(deps.insertRecords)
+            .mock.calls.filter((call) => call[1] === object)
+            .flatMap((call) => call[2]);
+        return { summary, sent, updateRecords };
+      }
+
+      it('leaves the lookup at a record written later empty at insert, and fills it in with the copy', async () => {
+        // Sent with the source's id, as ids are kept in such a run, the lookup
+        // named a contact the target never received — refused with the whole
+        // account — or, in a sandbox refreshed from the same production, the
+        // target's own contact rather than the one the run wrote. The plan
+        // says the second pass fills it in; nothing ever did.
+        const { summary, sent, updateRecords } = await accountsAndContacts();
+
+        expect(sent('Account')[0]).not.toHaveProperty('Primary_Contact__c');
+        expect(updateRecords).toHaveBeenCalledWith('tgt', 'Account', [
+          { Id: 'AccountNEW0', Primary_Contact__c: 'ContactNEW0' },
+        ]);
+        expect(sent('Contact')[0]).toMatchObject({ AccountId: 'AccountNEW0' });
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('still keeps the id of a record the run does not write', async () => {
+        const { sent } = await accountsAndContacts();
+
+        expect(sent('Account')[0]?.['Territory__c']).toBe(TERRITORY);
+      });
     });
   });
 

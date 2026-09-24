@@ -105,6 +105,13 @@ export interface CleanNodeRecordsInput {
    * `referenceFallback` says — see {@link cleanNodeRecords}.
    */
   failedObjects?: ReadonlySet<string>;
+  /**
+   * Objects this run writes, or links to records the target holds. A lookup
+   * that can point at one of them only and names no record the run has
+   * written yet is emptied, and filled in by the second pass, whatever
+   * `referenceFallback` says — see {@link cleanNodeRecords}.
+   */
+  writtenObjects?: ReadonlySet<string>;
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
   /** Field exclusions resolved for this node. */
@@ -136,6 +143,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     remapper,
     referenceFallback,
     failedObjects,
+    writtenObjects,
     ownerMappings,
     excludedFields,
     fieldRename,
@@ -161,6 +169,28 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       .map((f) => f.name),
   );
   /**
+   * Lookups at one object, which this run writes: emptied when they name no
+   * record the run has written yet, and filled in by the second pass once it
+   * has, whatever `referenceFallback` says.
+   *
+   * `'keep'` carries the id of a record the run does not write, which a
+   * sandbox refreshed from the same production can share with the source. A
+   * record the run writes is not such a case. A cycle's lookup at a record
+   * written after it, sent as it was read, named in such a sandbox the
+   * target's own record and not the copy the run wrote — which every other
+   * lookup of the copies points at — and in any other target nothing, which
+   * cost the whole row. A lookup that can point at several objects is left
+   * to `referenceFallback`: its id can name a record of any of them.
+   */
+  const lookupsAtWritten = new Set(
+    fieldInfos
+      .filter((f) => {
+        const targets = f.referenceTo ?? [];
+        return f.isReference && targets.length === 1 && writtenObjects?.has(targets[0]) === true;
+      })
+      .map((f) => f.name),
+  );
+  /**
    * Lookups whose every target is an object no clone creates — one the
    * platform will not take as data, or one every copy leaves out. Computed
    * once per node rather than per record. The second list was missing: run
@@ -176,7 +206,13 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const nullifiedFks: NullifiedFk[] = [];
     for (const field of fieldInfos) {
       if (!field.isReference) continue;
-      if (referenceFallback !== 'nullify' && !lookupsAtFailed.has(field.name)) continue;
+      if (
+        referenceFallback !== 'nullify' &&
+        !lookupsAtFailed.has(field.name) &&
+        !lookupsAtWritten.has(field.name)
+      ) {
+        continue;
+      }
       if (field.name === 'RecordTypeId') continue;
       // A lookup at something no clone creates is not an orphan waiting
       // for its parent: no wave will ever produce that parent, so pass 2

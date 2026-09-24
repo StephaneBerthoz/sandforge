@@ -112,6 +112,46 @@ describe('cleanNodeRecords', () => {
     expect(written.nullifiedFks).toEqual([]);
   });
 
+  it('empties a lookup at an object the run writes under the keep fallback, for the second pass to fill in', () => {
+    // The account is written later in the run: its source id names, in the
+    // target, nothing or a record other than the copy. Kept across are the
+    // ids of what the run does not write, and a lookup that can name several
+    // objects, whose id may be any of theirs.
+    const fieldInfos: FieldInfo[] = [
+      ...FIELDS,
+      {
+        name: 'Territory__c',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Territory__c'],
+      },
+      {
+        name: 'WhatId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account', 'Case'],
+      },
+    ];
+    const [out] = cleanNodeRecords(
+      makeInput({
+        records: [
+          { Id: '003A', AccountId: '001LATER', Territory__c: 'a0TKEPT', WhatId: '500KEPT' },
+        ],
+        fieldInfos,
+        referenceFallback: 'keep',
+        writtenObjects: new Set(['Account', 'Contact']),
+        creatableFields: new Set(['Name', 'AccountId', 'Territory__c', 'WhatId']),
+      }),
+    );
+
+    expect(out.cleaned).toEqual({ Territory__c: 'a0TKEPT', WhatId: '500KEPT' });
+    expect(out.nullifiedFks).toEqual([
+      { field: 'AccountId', sourceRefId: '001LATER', targetObjects: ['Account'] },
+    ]);
+  });
+
   it('never nullifies RecordTypeId and never remaps it through the generic remapper', () => {
     const remapper = new IdRemapper();
     remapper.add('012SOURCE', '012ACCIDENTAL');

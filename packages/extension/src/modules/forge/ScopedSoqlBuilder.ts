@@ -125,6 +125,12 @@ export interface ScopedSoqlBuildOpts {
    * object is read under a parent. Ignored for any other object.
    */
   rootReadAgain?: boolean;
+  /**
+   * Read only the rows under these parents in scope: none by the ids cached
+   * for the object, none under another parent. A node read already is read
+   * again so under a parent whose rows came after it.
+   */
+  under?: ReadonlySet<string>;
 }
 
 /**
@@ -177,7 +183,7 @@ export class ScopedSoqlBuilder {
     const reasonSuffix = opts.extraWhere ? ' + extra filter' : '';
     const prefix = `SELECT ${select} FROM ${objectName} WHERE `;
 
-    const root = opts.node.objectApiName === opts.rootObjectApiName;
+    const root = opts.node.objectApiName === opts.rootObjectApiName && !opts.under;
     if (root && !(opts.rootReadAgain && opts.cache.has(opts.node.objectApiName))) {
       const escapedId = sanitizeSoqlValue(opts.rootRecordId);
       return {
@@ -191,7 +197,7 @@ export class ScopedSoqlBuilder {
       };
     }
 
-    const ownIds = opts.cache.get(opts.node.objectApiName);
+    const ownIds = opts.under ? undefined : opts.cache.get(opts.node.objectApiName);
     const ownCount = ownIds?.size ?? 0;
     const ownStatements =
       ownIds && ownCount > 0
@@ -218,6 +224,7 @@ export class ScopedSoqlBuilder {
 
     for (const edge of opts.edges) {
       if (edge.targetObject !== opts.node.objectApiName) continue;
+      if (opts.under && !opts.under.has(edge.sourceObject)) continue;
       // A lookup from an object to itself (`ParentId`, `ReportsToId`) brings
       // nothing: discovery keeps no such edge, and read under this node's own
       // cached IDs it would take one level of a hierarchy — a key contact's
@@ -272,7 +279,12 @@ export class ScopedSoqlBuilder {
      *
      * A catalog object whose read is still to come holds nothing back either:
      * it is read by the ids the rows name, this row's among them (see
-     * `catalog`).
+     * `catalog`). Once read, it holds the row to the rows the run took of it,
+     * and not to an id a row read since has named, which no read takes. With
+     * no price book to read, the run takes the standard book alone, matched in
+     * the target: held to every book the rows had named, a product's clone
+     * read its prices in the books of the deals it was sold in — books it does
+     * not clone — and each was refused for want of its book.
      */
     const requiredTerms: InClause[] = [];
     for (const field of opts.fields) {
@@ -280,9 +292,10 @@ export class ScopedSoqlBuilder {
       const ids = new Set<string>();
       for (const target of field.referenceTo) {
         if (!opts.readObjects?.has(target)) continue;
-        if (opts.catalog?.has(target) && !opts.cache.isRead(target)) continue;
-        const cached = opts.cache.get(target);
-        if (cached) for (const id of cached) ids.add(id);
+        const catalogTarget = opts.catalog?.has(target) === true;
+        if (catalogTarget && !opts.cache.isRead(target)) continue;
+        const held = catalogTarget ? opts.cache.scopeOf(target) : opts.cache.get(target);
+        if (held) for (const id of held) ids.add(id);
       }
       if (ids.size === 0) continue;
       requiredTerms.push({ field: assertSoqlIdentifier(field.name), ids });

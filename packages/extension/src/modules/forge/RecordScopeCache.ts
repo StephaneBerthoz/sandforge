@@ -51,6 +51,23 @@ export class RecordScopeCache {
     this.readScopes.set(objectApiName, new Set(this.map.get(objectApiName)));
   }
 
+  /**
+   * Add the IDs a later read of `objectApiName` returned, and settle its scope
+   * as it was with them added: the rows that read took join it, and no ID
+   * met of the object since its first read does — no read fetched those.
+   * Settled with every ID met, as {@link addRead} settles a read that asked
+   * for all of them, a note an order pinned after the notes were read became
+   * one in scope, and the comments under it were read into the clone.
+   */
+  addReadAgain(objectApiName: string, ids: Iterable<string>): void {
+    const read = [...ids].filter((id) => id);
+    this.add(objectApiName, read);
+    this.readScopes.set(
+      objectApiName,
+      new Set([...(this.readScopes.get(objectApiName) ?? []), ...read]),
+    );
+  }
+
   /** Get the set of IDs cached for an object, or undefined if none. */
   get(objectApiName: string): ReadonlySet<string> | undefined {
     return this.map.get(objectApiName);

@@ -135,6 +135,63 @@ describe('ForgePlanGenerator', () => {
       expect(plan.waves[2].objectApiNames).toEqual(['OpportunityLineItem']);
       expect(plan.totalRecords).toBe(800);
     });
+
+    describe('a cycle', () => {
+      const link = (sourceObject: string, targetObject: string): ForgeGraphEdge => ({
+        sourceObject,
+        targetObject,
+        relationshipName: `${sourceObject}To${targetObject}`,
+        type: 'lookup',
+      });
+      /**
+       * An account and its primary contact point at each other, under a
+       * territory; the contact's cases and their comments hang below, and a
+       * product stands apart.
+       */
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          ['Territory__c', 'Account', 'Contact', 'Case', 'CaseComment', 'Product2'].map(
+            (objectApiName) => makeNode({ objectApiName }),
+          ),
+          [
+            link('Territory__c', 'Account'),
+            link('Account', 'Contact'),
+            link('Contact', 'Account'),
+            link('Contact', 'Case'),
+            link('Case', 'CaseComment'),
+          ],
+        );
+
+      it('places the nodes after a cycle by their own dependencies, not in the last wave', () => {
+        // Nodes of a cycle never come free in Kahn's algorithm, nor does
+        // anything below them: a cycle and every object under it were put in
+        // one last wave, a case beside the comments that cannot come before it.
+        const plan = generator.generate(graph());
+
+        expect(plan.waves.map((w) => w.objectApiNames)).toEqual([
+          ['Territory__c', 'Product2'],
+          ['Account', 'Contact'],
+          ['Case'],
+          ['CaseComment'],
+        ]);
+      });
+
+      it('keeps the members of a cycle in one wave, after what either of them needs', () => {
+        const withParent = graph();
+        withParent.nodes.push(makeNode({ objectApiName: 'Region__c' }));
+        withParent.edges.push(link('Region__c', 'Territory__c'), link('Product2', 'Contact'));
+
+        const plan = generator.generate(withParent);
+
+        expect(plan.waves.map((w) => w.objectApiNames)).toEqual([
+          ['Product2', 'Region__c'],
+          ['Territory__c'],
+          ['Account', 'Contact'],
+          ['Case'],
+          ['CaseComment'],
+        ]);
+      });
+    });
   });
 
   describe('excluded nodes', () => {

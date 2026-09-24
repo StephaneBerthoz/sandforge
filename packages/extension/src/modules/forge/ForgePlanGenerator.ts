@@ -1,13 +1,13 @@
 /**
  * ForgePlanGenerator generates a ForgePlan from a ForgeGraph.
- * Groups nodes by topological level into waves, detects cycles using
- * Tarjan's SCC algorithm, and estimates API calls and duration.
+ * Finds the cycles with Tarjan's SCC algorithm, groups nodes into waves by
+ * their level in the graph whose cycles are each taken as one node, and
+ * estimates API calls and duration.
  */
 
 import type {
   ForgeGraph,
   ForgeGraphEdge,
-  ForgeGraphNode,
   ForgePlan,
   ForgeWave,
   ForgeCycleResolution,
@@ -46,12 +46,11 @@ export class ForgePlanGenerator {
       };
     }
 
-    // Compute topological level via Kahn's algorithm.
-    // Edges are parent→child (source must be inserted before target),
-    // so a node's wave is its longest path from any root in the included subgraph.
-    // Falls back to node.level (BFS depth) when the topo grouping is unusable
-    // (e.g. the included subgraph is fully cyclic).
-    const topoLevel = this.computeTopoLevels(graph, includedNodes);
+    // Edges are parent→child (source must be inserted before target), so a
+    // node's wave is its longest path from any root in the included subgraph,
+    // the members of a cycle counted as one node.
+    const { edges, components } = cyclesOf(graph);
+    const topoLevel = this.computeTopoLevels(edges, components);
 
     const levelMap = new Map<number, string[]>();
     for (const node of includedNodes) {
@@ -93,7 +92,7 @@ export class ForgePlanGenerator {
       };
     });
 
-    const cycleResolutions = this.detectCycles(graph);
+    const cycleResolutions = this.detectCycles(graph, edges, components);
 
     const totalRecords = waves.reduce((s, w) => s + w.totalRecords, 0);
     const totalApiCalls = waves.reduce((s, w) => s + w.estimatedApiCalls, 0);
@@ -109,201 +108,82 @@ export class ForgePlanGenerator {
   }
 
   /**
-   * Compute the topological level of each included node using Kahn's
-   * algorithm restricted to the included subgraph. Nodes participating in
-   * a cycle never reach in-degree zero and are bucketed at maxLevel + 1
-   * so they execute last (after all acyclic dependencies are satisfied).
+   * The level of each included node: the longest path to it from a node
+   * nothing points at, the members of a cycle counted as one node.
    *
-   * @param graph - The full dependency graph.
-   * @param includedNodes - Nodes that survived `n.included === true` filtering.
-   * @returns Map of objectApiName → topological level (0 = no in-degree).
+   * Taken node by node, as Kahn's algorithm takes them, a member of a cycle
+   * never comes free, and nor does anything below it: a cycle and every
+   * object under it were put in one last wave, the comments on a contact's
+   * cases beside the cases they cannot come before. Taken as one node, a
+   * cycle sits after what any of its members needs, and each node after it
+   * where its own parents put it.
+   *
+   * @param edges - The edges between two included objects, none to itself.
+   * @param components - The included objects grouped by cycle, each object
+   *   alone in its group when it is in none, in the order
+   *   {@link stronglyConnected} finds them: a group after every group it
+   *   points at.
+   * @returns Map of objectApiName → level (0 = nothing points at it).
    */
   private computeTopoLevels(
-    graph: ForgeGraph,
-    includedNodes: ForgeGraphNode[],
+    edges: readonly ForgeGraphEdge[],
+    components: readonly (readonly string[])[],
   ): Map<string, number> {
-    const includedSet = new Set(includedNodes.map((n) => n.objectApiName));
-    const inDegree = new Map<string, number>();
-    // Adjacency map (source -> [targets]). Built once in O(E); turns the
-    // hot inner loop from O(E) per dequeue into O(out-degree). Without
-    // this, big graphs (350 nodes × 3000 edges) blocked the event loop
-    // ~80-150ms per plan generation.
-    const outgoing = new Map<string, string[]>();
-    for (const node of includedNodes) {
-      inDegree.set(node.objectApiName, 0);
+    const componentOf = new Map<string, number>();
+    components.forEach((members, index) => {
+      for (const name of members) componentOf.set(name, index);
+    });
+    const outgoing = new Map<number, number[]>();
+    for (const edge of edges) {
+      const from = componentOf.get(edge.sourceObject);
+      const to = componentOf.get(edge.targetObject);
+      if (from === undefined || to === undefined || from === to) continue;
+      const list = outgoing.get(from);
+      if (list) list.push(to);
+      else outgoing.set(from, [to]);
     }
-    for (const edge of graph.edges) {
-      if (edge.sourceObject === edge.targetObject) continue;
-      if (!includedSet.has(edge.sourceObject)) continue;
-      if (!includedSet.has(edge.targetObject)) continue;
-      inDegree.set(edge.targetObject, (inDegree.get(edge.targetObject) ?? 0) + 1);
-      const list = outgoing.get(edge.sourceObject);
-      if (list) list.push(edge.targetObject);
-      else outgoing.set(edge.sourceObject, [edge.targetObject]);
+    // Found children first, so taken backwards: parents first.
+    const componentLevel = components.map(() => 0);
+    for (let index = components.length - 1; index >= 0; index--) {
+      for (const child of outgoing.get(index) ?? []) {
+        componentLevel[child] = Math.max(componentLevel[child], componentLevel[index] + 1);
+      }
     }
-
     const level = new Map<string, number>();
-    const queue: string[] = [];
-    for (const [name, deg] of inDegree) {
-      if (deg === 0) {
-        level.set(name, 0);
-        queue.push(name);
-      }
-    }
-
-    while (queue.length > 0) {
-      const name = queue.shift()!;
-      const myLevel = level.get(name) ?? 0;
-      const targets = outgoing.get(name);
-      if (!targets) continue;
-      for (const target of targets) {
-        const newDeg = (inDegree.get(target) ?? 1) - 1;
-        inDegree.set(target, newDeg);
-        const candidateLevel = myLevel + 1;
-        const existing = level.get(target);
-        if (existing === undefined || candidateLevel > existing) {
-          level.set(target, candidateLevel);
-        }
-        if (newDeg === 0) {
-          queue.push(target);
-        }
-      }
-    }
-
-    let maxLevel = 0;
-    for (const v of level.values()) {
-      if (v > maxLevel) maxLevel = v;
-    }
-    for (const node of includedNodes) {
-      if (!level.has(node.objectApiName)) {
-        level.set(node.objectApiName, maxLevel + 1);
-      }
-    }
+    for (const [name, index] of componentOf) level.set(name, componentLevel[index]);
     return level;
   }
 
   /**
-   * Detect the cycles among the objects the run writes, using Tarjan's SCC
-   * algorithm, and say how the run gets through each. Only SCCs with more
-   * than one node are reported as cycles.
+   * Say how the run gets through each cycle among the objects it writes: the
+   * groups of {@link stronglyConnected} with more than one object.
    *
    * The run writes a cycle in the order `sortNodesForWriting` gives, the
    * executor's: a lookup whose record comes later in it is left empty at
-   * insert and filled in by the second pass (`CycleFkPatcher`). That holds for
-   * a lookup the record may omit. The order is settled on the ones it may not,
-   * and one of those still pointing at a later record takes its record down:
-   * the insert is refused, and nothing is left for the second pass to fill
-   * in. The plan used to suggest "inserting with null lookups" whatever the
-   * lookups were, named none of them, and offered a first pass with null
-   * references to a cycle of master-detail relationships the platform refuses
-   * at the first insert.
+   * insert and filled in by the second pass (`CycleFkPatcher`) — in a run of
+   * whole tables as well, which keeps the source's ids of what it does not
+   * write only. That holds for a lookup the record may omit. The order is
+   * settled on the ones it may not, and one of those still pointing at a later
+   * record takes its record down: the insert is refused, and nothing is left
+   * for the second pass to fill in. The plan used to suggest "inserting with
+   * null lookups" whatever the lookups were, named none of them, and offered a
+   * first pass with null references to a cycle of master-detail relationships
+   * the platform refuses at the first insert.
    *
    * The order is read from the graph: a run also learns, from the fields it
    * describes, of required lookups discovery did not walk.
    *
    * @param graph - The graph to analyze.
+   * @param edges - The edges between two objects the run writes, none to itself.
+   * @param components - The objects the run writes, grouped by cycle.
    * @returns Cycle resolutions with strategy suggestions.
    */
-  private detectCycles(graph: ForgeGraph): ForgeCycleResolution[] {
-    // Only the objects the run writes: an object left out writes nothing, so
-    // a lookup at it is not a cycle to break.
-    const included = new Set(graph.nodes.filter((n) => n.included).map((n) => n.objectApiName));
-    const edges = graph.edges.filter(
-      (e) =>
-        e.sourceObject !== e.targetObject &&
-        included.has(e.sourceObject) &&
-        included.has(e.targetObject),
-    );
-    // Build adjacency list from edges
-    const adj = new Map<string, string[]>();
-    for (const name of included) {
-      adj.set(name, []);
-    }
-    for (const edge of edges) {
-      const list = adj.get(edge.sourceObject);
-      if (list) list.push(edge.targetObject);
-    }
-
-    // Tarjan's SCC — iterative implementation.
-    //
-    // Recursive Tarjan blew the call stack at >10K-node depth on
-    // forged graphs (nodes are bounded server-side now, but this is
-    // defense-in-depth — 50 is the realistic cap, but the algorithm
-    // shouldn't be one-edge-away from RangeError on any input).
-    //
-    // The iterative form simulates the recursion stack with an explicit
-    // "frame" array. Each frame remembers (node v, edge iterator index i).
-    // On the way down we push child frames; on the way up we propagate
-    // lowLink and emit SCCs. Equivalent to the recursive form, O(V+E).
-    let index = 0;
-    const nodeIndex = new Map<string, number>();
-    const lowLink = new Map<string, number>();
-    const onStack = new Set<string>();
-    const stack: string[] = [];
-    const sccs: string[][] = [];
-
-    interface Frame {
-      v: string;
-      neighbors: string[];
-      i: number;
-    }
-
-    const strongConnect = (root: string): void => {
-      const callStack: Frame[] = [];
-      nodeIndex.set(root, index);
-      lowLink.set(root, index);
-      index++;
-      stack.push(root);
-      onStack.add(root);
-      callStack.push({ v: root, neighbors: adj.get(root) ?? [], i: 0 });
-
-      while (callStack.length > 0) {
-        const frame = callStack[callStack.length - 1];
-        if (frame.i < frame.neighbors.length) {
-          const w = frame.neighbors[frame.i++];
-          if (!nodeIndex.has(w)) {
-            // Recurse: push child frame, continue loop.
-            nodeIndex.set(w, index);
-            lowLink.set(w, index);
-            index++;
-            stack.push(w);
-            onStack.add(w);
-            callStack.push({ v: w, neighbors: adj.get(w) ?? [], i: 0 });
-          } else if (onStack.has(w)) {
-            lowLink.set(frame.v, Math.min(lowLink.get(frame.v)!, nodeIndex.get(w)!));
-          }
-          continue;
-        }
-        // All neighbors visited — pop this frame.
-        const v = frame.v;
-        callStack.pop();
-        // Propagate lowLink to parent frame (matches the recursive
-        // `lowLink[v] = min(lowLink[v], lowLink[w])` after recursion).
-        const parent = callStack[callStack.length - 1];
-        if (parent) {
-          lowLink.set(parent.v, Math.min(lowLink.get(parent.v)!, lowLink.get(v)!));
-        }
-        // Emit SCC root.
-        if (lowLink.get(v) === nodeIndex.get(v)) {
-          const scc: string[] = [];
-          let w: string;
-          do {
-            w = stack.pop()!;
-            onStack.delete(w);
-            scc.push(w);
-          } while (w !== v);
-          if (scc.length > 1) {
-            sccs.push(scc);
-          }
-        }
-      }
-    };
-
-    for (const name of included) {
-      if (!nodeIndex.has(name)) {
-        strongConnect(name);
-      }
-    }
+  private detectCycles(
+    graph: ForgeGraph,
+    edges: readonly ForgeGraphEdge[],
+    components: readonly (readonly string[])[],
+  ): ForgeCycleResolution[] {
+    const sccs = components.filter((members) => members.length > 1);
     if (sccs.length === 0) return [];
 
     const position = new Map(
@@ -344,6 +224,108 @@ export class ForgePlanGenerator {
       };
     });
   }
+}
+
+/**
+ * The edges between two objects the run writes, none from an object to
+ * itself, and the objects it writes grouped by cycle: an object left out
+ * writes nothing, so a lookup at it is not a cycle to break.
+ */
+function cyclesOf(graph: ForgeGraph): { edges: ForgeGraphEdge[]; components: string[][] } {
+  const included = graph.nodes.filter((n) => n.included).map((n) => n.objectApiName);
+  const names = new Set(included);
+  const edges = graph.edges.filter(
+    (e) =>
+      e.sourceObject !== e.targetObject && names.has(e.sourceObject) && names.has(e.targetObject),
+  );
+  return { edges, components: stronglyConnected(included, edges) };
+}
+
+/**
+ * The strongly connected components of `names` under `edges` (Tarjan), an
+ * object alone in its own when it is in no cycle, each found after every
+ * component it points at.
+ *
+ * Iterative: the recursive form blew the call stack at >10K-node depth on
+ * forged graphs (nodes are bounded server-side now, but this is
+ * defense-in-depth — 50 is the realistic cap, but the algorithm shouldn't be
+ * one-edge-away from RangeError on any input). An explicit "frame" array
+ * simulates the recursion: each frame remembers (node v, edge iterator index
+ * i); on the way down child frames are pushed, on the way up lowLink is
+ * propagated and components are emitted. Equivalent to the recursive form,
+ * O(V+E).
+ */
+function stronglyConnected(names: readonly string[], edges: readonly ForgeGraphEdge[]): string[][] {
+  const adj = new Map<string, string[]>();
+  for (const name of names) adj.set(name, []);
+  for (const edge of edges) adj.get(edge.sourceObject)?.push(edge.targetObject);
+
+  let index = 0;
+  const nodeIndex = new Map<string, number>();
+  const lowLink = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const components: string[][] = [];
+
+  interface Frame {
+    v: string;
+    neighbors: string[];
+    i: number;
+  }
+
+  const strongConnect = (root: string): void => {
+    const callStack: Frame[] = [];
+    nodeIndex.set(root, index);
+    lowLink.set(root, index);
+    index++;
+    stack.push(root);
+    onStack.add(root);
+    callStack.push({ v: root, neighbors: adj.get(root) ?? [], i: 0 });
+
+    while (callStack.length > 0) {
+      const frame = callStack[callStack.length - 1];
+      if (frame.i < frame.neighbors.length) {
+        const w = frame.neighbors[frame.i++];
+        if (!nodeIndex.has(w)) {
+          // Recurse: push child frame, continue loop.
+          nodeIndex.set(w, index);
+          lowLink.set(w, index);
+          index++;
+          stack.push(w);
+          onStack.add(w);
+          callStack.push({ v: w, neighbors: adj.get(w) ?? [], i: 0 });
+        } else if (onStack.has(w)) {
+          lowLink.set(frame.v, Math.min(lowLink.get(frame.v)!, nodeIndex.get(w)!));
+        }
+        continue;
+      }
+      // All neighbors visited — pop this frame.
+      const v = frame.v;
+      callStack.pop();
+      // Propagate lowLink to parent frame (matches the recursive
+      // `lowLink[v] = min(lowLink[v], lowLink[w])` after recursion).
+      const parent = callStack[callStack.length - 1];
+      if (parent) {
+        lowLink.set(parent.v, Math.min(lowLink.get(parent.v)!, lowLink.get(v)!));
+      }
+      // Emit the component rooted at v.
+      if (lowLink.get(v) === nodeIndex.get(v)) {
+        const component: string[] = [];
+        let w: string;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          component.push(w);
+        } while (w !== v);
+        components.push(component);
+      }
+    }
+  };
+
+  for (const name of names) {
+    if (!nodeIndex.has(name)) strongConnect(name);
+  }
+  return components;
 }
 
 /** A lookup as the plan names it: the child's, at the parent. */

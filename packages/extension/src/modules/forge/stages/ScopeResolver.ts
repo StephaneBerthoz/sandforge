@@ -158,7 +158,8 @@ export interface CatalogNodeAskedAgain {
  * a product is based on, the proration policy of a selling model option: it
  * is read by the ids those rows name. So is whatever the graph reads under
  * one of those, which waits for its rows. What such a node names of the
- * catalog comes too late for its one read.
+ * catalog comes too late for its read, and is read by a second one
+ * (`readCatalogAgain` in the executor).
  *
  * The fields of a catalog node's turn say what its rows can name — any
  * object one of its lookups can point at — and the graph's edges what a node
@@ -388,6 +389,11 @@ export interface NodeQueryInput {
    * `ScopedSoqlBuildOpts.rootReadAgain`.
    */
   rootReadAgain?: boolean;
+  /**
+   * Read only the rows under these parents (scoped mode). See
+   * `ScopedSoqlBuildOpts.under`.
+   */
+  under?: ReadonlySet<string>;
 }
 
 /** The statements that read one node's records, as {@link queryNodeRecords} runs them. */
@@ -479,6 +485,7 @@ export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
       readObjects: input.readObjects,
       catalog: input.catalog,
       rootReadAgain: input.rootReadAgain,
+      under: input.under,
     });
     if (!scopeResult.scoped) {
       return { kind: 'skip', reason: scopeResult.reason };
