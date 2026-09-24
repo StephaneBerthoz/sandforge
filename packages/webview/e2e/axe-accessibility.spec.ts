@@ -675,6 +675,7 @@ for (const theme of SCANNED_THEMES) {
           timestamp: '2026-09-01T08:00:00.000Z',
           idRemapCount: 1,
           createdCount: 1,
+          readByObject: [{ objectApiName: 'Account', read: 1 }],
         },
       });
       await page.waitForSelector('[data-testid="forge-results"]', { timeout: 10_000 });

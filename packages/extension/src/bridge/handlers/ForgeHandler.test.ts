@@ -1952,6 +1952,10 @@ describe('ForgeHandler', () => {
           { objectApiName: 'Contact', created: 3, linked: 0 },
         ],
         createdByObject: [],
+        readByObject: [
+          { objectApiName: 'Account', read: 2 },
+          { objectApiName: 'Contact', read: 4 },
+        ],
       });
       vi.mocked(orchestrator.execute).mockRejectedValue(stopped);
 
@@ -2015,6 +2019,7 @@ describe('ForgeHandler', () => {
         createdByObject: createdOne
           ? [{ objectApiName: 'Account', sourceIds: [CREATED_SOURCE] }]
           : [],
+        readByObject: [{ objectApiName: 'Account', read: createdOne ? 2 : 1 }],
       });
       return error;
     }

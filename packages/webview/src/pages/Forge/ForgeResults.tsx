@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   Lightbulb,
 } from 'lucide-react';
-import type { ForgeExecutionError } from '@sandforge/shared';
+import type { ForgeExecutionError, ForgeGraphNode } from '@sandforge/shared';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
@@ -122,18 +122,46 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   /** Per object, the rows the target refused because it already held them. */
   const existingRecords = useMemo(() => result?.existingRecords ?? [], [result?.existingRecords]);
 
-  /** Records the run set out to write. */
-  const plannedRecords = useMemo(
-    () => result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0),
-    [result, nodes],
+  /**
+   * Per object, the rows the run read to clone it; null for a result recorded
+   * before the run said what it read.
+   */
+  const readByObject = useMemo(
+    () =>
+      result?.readByObject
+        ? new Map(result.readByObject.map((r) => [r.objectApiName, r.read]))
+        : null,
+    [result?.readByObject],
   );
 
+  // What the Records column says of a node: what the run read of it, nothing
+  // for an object it did not read. The graph's count is discovery's, of the
+  // whole table, which a record-scoped clone reads a few rows of: a clone of
+  // one opportunity listed every table it touched in full. A result recorded
+  // before the run said what it read still shows those counts, as it did.
+  const recordsOf = useCallback(
+    (node: ForgeGraphNode): number | undefined =>
+      readByObject ? readByObject.get(node.objectApiName) : node.recordCount,
+    [readByObject],
+  );
+
+  // Records the run set out to write: the ones it read. Counted from the
+  // graph, the rate and the "written" line measured a clone of one
+  // opportunity between two sandboxes, 272 records read, against the 4 315
+  // rows discovery counted in the tables of its graph.
+  const plannedRecords = useMemo(() => {
+    if (result?.readByObject) return result.readByObject.reduce((sum, r) => sum + r.read, 0);
+    return result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0);
+  }, [result, nodes]);
+
   // A record linked to the one the target already held is in the target, and
-  // its children point at it: for the rate, it made it.
+  // its children point at it: for the rate, it made it. A run with nothing to
+  // write did all it had to, unless it failed outright: then it read nothing
+  // because each read it tried failed.
   const successRate = useMemo(() => {
-    if (plannedRecords === 0) return 100;
+    if (plannedRecords === 0) return result?.status === 'failure' ? 0 : 100;
     return Math.round(((inserted + linked) / plannedRecords) * 100);
-  }, [plannedRecords, inserted, linked]);
+  }, [plannedRecords, inserted, linked, result?.status]);
 
   const anonymizedFieldCount = useMemo(
     () => nodes.reduce((sum, n) => sum + n.anonymizeFields.length, 0),
@@ -153,9 +181,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     if (statusFilter !== 'all') {
       filtered = filtered.filter((n) => n.status === statusFilter);
     }
+    // Records sort as the column shows them; an object the run did not read
+    // sorts below one it read none of.
+    const valueOf = (node: ForgeGraphNode): string | number =>
+      sortField === 'recordCount' ? (recordsOf(node) ?? -1) : node[sortField];
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
+      const aVal = valueOf(a);
+      const bVal = valueOf(b);
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
@@ -164,7 +196,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       }
       return 0;
     });
-  }, [nodes, statusFilter, sortField, sortDir]);
+  }, [nodes, statusFilter, sortField, sortDir, recordsOf]);
 
   /** Handle sort column click. */
   const handleSort = useCallback((field: SortField) => {
@@ -198,7 +230,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     for (const node of nodes) {
       const errorText = node.errors.length > 0 ? node.errors.join(', ') : '-';
       lines.push(
-        `| ${node.objectApiName} | ${String(node.recordCount)} | ${node.status} | ${errorText} |`,
+        `| ${node.objectApiName} | ${String(recordsOf(node) ?? '-')} | ${node.status} | ${errorText} |`,
       );
     }
 
@@ -211,7 +243,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     }
 
     return lines.join('\n');
-  }, [inserted, linked, skippedObjects, idRemaps, successRate, nodes, existingRecords]);
+  }, [inserted, linked, skippedObjects, idRemaps, successRate, nodes, recordsOf, existingRecords]);
 
   /** Copy a markdown report summary to the clipboard. */
   const handleCopyReport = useCallback(async () => {
@@ -502,7 +534,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   className="border-b border-subtle last:border-b-0"
                 >
                   <td className="px-4 py-2 font-mono text-text-primary">{node.objectApiName}</td>
-                  <td className="px-4 py-2 tabular-nums text-text-primary">{node.recordCount}</td>
+                  <td className="px-4 py-2 tabular-nums text-text-primary">
+                    {recordsOf(node) ?? '-'}
+                  </td>
                   <td className="px-4 py-2">
                     <span
                       className={cn(

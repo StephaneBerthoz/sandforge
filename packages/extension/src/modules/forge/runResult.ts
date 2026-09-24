@@ -64,6 +64,10 @@ export function forgeRunResult(
     // The table alone cannot say which of its rows the run created: it
     // maps the standard price book and reference data matched by name too.
     idRemapCreated: summary.createdByObject,
+    // What the run read to clone, per object: the graph's counts are
+    // discovery's, of whole tables, and a record-scoped clone is a few rows
+    // of each.
+    readByObject: summary.readByObject,
     errors: summary.errors,
     // A read cut short by a bound is not an error and not a success: the
     // clone is short by an unknown number of rows, and only the summary

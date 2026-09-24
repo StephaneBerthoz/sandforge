@@ -39,6 +39,10 @@ function summary(overrides: Partial<ExecutionSummary> = {}): ExecutionSummary {
       { objectApiName: 'Account', sourceIds: ['001000000000001SRC'] },
       { objectApiName: 'Contact', sourceIds: ['003000000000001SRC'] },
     ],
+    readByObject: [
+      { objectApiName: 'Account', read: 2 },
+      { objectApiName: 'Contact', read: 1 },
+    ],
     ...overrides,
   };
 }
@@ -90,9 +94,24 @@ describe('forgeRunResult', () => {
       existingRecords: [{ objectApiName: 'Account', linked: 1, unidentified: 0 }],
       idRemapByObject: summary().remapByObject,
       idRemapCreated: summary().createdByObject,
+      readByObject: summary().readByObject,
       errors: [],
       truncatedObjects: [],
     });
+  });
+
+  it('says per object what the run read, which the counts of the graph it ran do not', () => {
+    // The graph's counts are discovery's, of whole tables: the clone of one
+    // opportunity was measured against every row of each table it touched.
+    const tables: ForgeGraph = { ...GRAPH, totalRecords: 48_000 };
+
+    const result = forgeRunResult(summary(), tables, { startedAt: Date.now(), status: 'success' });
+
+    expect(result.readByObject).toEqual([
+      { objectApiName: 'Account', read: 2 },
+      { objectApiName: 'Contact', read: 1 },
+    ]);
+    expect(result.graph.totalRecords).toBe(48_000);
   });
 
   it('says how many records an upsert wrote over only for a run that did', () => {

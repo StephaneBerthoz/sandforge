@@ -340,6 +340,149 @@ describe('ForgeResults', () => {
     expect(values[3].textContent).toBe('80%');
   });
 
+  describe('a run that says what it read', () => {
+    /**
+     * A record-scoped clone: discovery counted each whole table, and the run
+     * read one account and three contacts. Cases were left out.
+     */
+    function clonedFromLargeTables(): void {
+      const [account, contact, cases] = makeMockGraph().nodes;
+      mockGraph = {
+        ...makeMockGraph(),
+        nodes: [
+          { ...account, recordCount: 16_000 },
+          { ...contact, recordCount: 48_000 },
+          { ...cases, recordCount: 9_000 },
+        ],
+        totalRecords: 73_000,
+      };
+      mockResult = Object.assign(makeMockResult(), {
+        graph: mockGraph,
+        createdCount: 3,
+        readByObject: [
+          { objectApiName: 'Account', read: 1 },
+          { objectApiName: 'Contact', read: 3 },
+        ],
+      });
+    }
+
+    /** The Records cell of each row, by object, in the order the table shows them. */
+    function recordsColumn(): Array<[string, string]> {
+      return screen.getAllByTestId('forge-results-row').map((row) => {
+        const cells = row.querySelectorAll('td');
+        return [cells[0].textContent ?? '', cells[1].textContent ?? ''];
+      });
+    }
+
+    it('measures what it wrote against the records it read, not the tables they were cut from', () => {
+      clonedFromLargeTables();
+      render(<ForgeResults />);
+
+      expect(screen.getByTestId('forge-results-status').textContent).toBe(
+        'Forge finished. Written: 3 of 4.',
+      );
+      const rate = screen.getAllByTestId('kpi-card')[3];
+      expect(rate.textContent).toContain('Success Rate');
+      expect(within(rate).getByTestId('kpi-value').textContent).toBe('75%');
+    });
+
+    it('shows per object the records it read, and none for an object it did not read', () => {
+      clonedFromLargeTables();
+      render(<ForgeResults />);
+
+      expect(recordsColumn()).toEqual([
+        ['Account', '1'],
+        ['Case', '-'],
+        ['Contact', '3'],
+      ]);
+    });
+
+    it('sorts the records column by what it read, an object it did not read first', () => {
+      clonedFromLargeTables();
+      mockResult = Object.assign(mockResult, {
+        readByObject: [
+          { objectApiName: 'Account', read: 3 },
+          { objectApiName: 'Contact', read: 1 },
+        ],
+      });
+      render(<ForgeResults />);
+
+      fireEvent.click(screen.getByTestId('forge-results-sort-records'));
+
+      expect(recordsColumn()).toEqual([
+        ['Case', '-'],
+        ['Contact', '1'],
+        ['Account', '3'],
+      ]);
+    });
+
+    it('copies the records it read of each object into the report', async () => {
+      clonedFromLargeTables();
+      const writeText = vi.fn((_text: string) => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      try {
+        render(<ForgeResults />);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('forge-copy-report'));
+        });
+
+        const report = writeText.mock.calls[0]?.[0] ?? '';
+        expect(report).toContain('| Account | 1 | done | - |');
+        expect(report).toContain('| Contact | 3 | done | FIELD_INTEGRITY_EXCEPTION |');
+        expect(report).toContain('| Case | - | skipped | - |');
+        expect(report).toContain('- Success Rate: 75%');
+      } finally {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    });
+
+    it('rates a run that read nothing because each of its reads failed at nothing written', () => {
+      clonedFromLargeTables();
+      mockResult = Object.assign(mockResult, {
+        status: 'failure' as const,
+        createdCount: 0,
+        readByObject: [],
+      });
+      render(<ForgeResults />);
+
+      const rate = screen.getAllByTestId('kpi-card')[3];
+      expect(within(rate).getByTestId('kpi-value').textContent).toBe('0%');
+      expect(screen.getByTestId('forge-results-status').textContent).toBe(
+        'Forge finished. Written: 0 of 0.',
+      );
+    });
+
+    it('rates a run that had nothing to write at all it had to do', () => {
+      clonedFromLargeTables();
+      mockResult = Object.assign(mockResult, {
+        status: 'success' as const,
+        createdCount: 0,
+        readByObject: [{ objectApiName: 'Account', read: 0 }],
+      });
+      render(<ForgeResults />);
+
+      const rate = screen.getAllByTestId('kpi-card')[3];
+      expect(within(rate).getByTestId('kpi-value').textContent).toBe('100%');
+    });
+
+    it('keeps the counts of the graph for a result recorded before the run said what it read', () => {
+      render(<ForgeResults />);
+
+      expect(recordsColumn()).toEqual([
+        ['Account', '10'],
+        ['Case', '5'],
+        ['Contact', '20'],
+      ]);
+      expect(screen.getByTestId('forge-results-status').textContent).toBe(
+        'Forge finished. Written: 28 of 35.',
+      );
+    });
+  });
+
   it('should render results table with correct rows', () => {
     render(<ForgeResults />);
     const table = screen.getByTestId('forge-results-table');
@@ -431,6 +574,22 @@ describe('ForgeResults', () => {
         maxRecordsPerObject: 200,
       });
       expect(JSON.stringify(template)).not.toContain('org-source');
+    });
+
+    it('keeps with the template the records the run read, not the rows of the tables it read them from', () => {
+      mockResult = Object.assign(makeMockResult(), {
+        readByObject: [
+          { objectApiName: 'Account', read: 1 },
+          { objectApiName: 'Contact', read: 3 },
+        ],
+      });
+      openForm();
+      fill('Energy accounts');
+
+      fireEvent.click(screen.getByTestId('forge-save-template-submit'));
+
+      const [{ template }] = sent<{ template: Record<string, unknown> }>('forge:templates:save');
+      expect(template.recordCount).toBe(4);
     });
 
     it('lists the template only once the extension answered that it kept it', () => {

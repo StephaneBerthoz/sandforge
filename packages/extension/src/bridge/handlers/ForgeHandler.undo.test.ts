@@ -906,6 +906,10 @@ describe('forge:undo', () => {
           { objectApiName: 'Contact', created: 2, linked: 0 },
         ],
         createdByObject: entry.idRemapCreated ?? [],
+        readByObject: [
+          { objectApiName: 'Account', read: 2 },
+          { objectApiName: 'Contact', read: 2 },
+        ],
       });
       return error;
     }

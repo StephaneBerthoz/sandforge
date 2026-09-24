@@ -6,6 +6,7 @@ import type {
   ForgeGraphEdge,
   ForgeGraphNode,
   ForgeNodeStatus,
+  ForgeReadRecords,
   ForgeRemapObjectCounts,
   ForgeWrittenBetween,
 } from '@sandforge/shared';
@@ -593,6 +594,13 @@ export interface ExecutionSummary {
    */
   createdByObject: ForgeCreatedRecords[];
   /**
+   * Per object, the rows the run read from the source to clone — to write, to
+   * find in the target by name, or, on a dry run, that it would have inserted
+   * — in the order it read them. The graph's counts are discovery's, of whole
+   * tables; these are the clone's. An object it did not read is not listed.
+   */
+  readByObject: ForgeReadRecords[];
+  /**
    * What the run did with the files of the records it cloned — or, on a dry
    * run, would do. Absent when it was not asked to copy them.
    */
@@ -682,6 +690,12 @@ interface ExecutionState {
   readonly catalogNodes: ForgeGraphNode[];
   /** Rows read from the source, keyed by object, awaiting their write. */
   readonly preread: Map<string, PrereadNode>;
+  /**
+   * Per object, the rows read to clone it, as its last read left them: a node
+   * of the catalog is read at its turn and again once the rest has been read,
+   * and only the second read is what it clones.
+   */
+  readonly readByObject: Map<string, number>;
   /** Per object, the key prefix of its ids in the source org, once the run has told it. */
   readonly sourceKeyPrefixes: Map<string, string>;
   /**
@@ -1072,6 +1086,7 @@ export class ForgeExecutor {
       deferredNodes: [],
       catalogNodes: [],
       preread: new Map<string, PrereadNode>(),
+      readByObject: new Map<string, number>(),
       sourceKeyPrefixes: new Map<string, string>(),
       readObjects: new Set(runGraph.nodes.filter((n) => n.included).map((n) => n.objectApiName)),
       sellingModels: runGraph.nodes.some(
@@ -2001,6 +2016,10 @@ export class ForgeExecutor {
       updatedSourceIds: state.remapper.updatedSourceIds(),
       remapByObject: state.remapper.countsByObject(),
       createdByObject: state.remapper.createdByObject(),
+      readByObject: [...state.readByObject].map(([objectApiName, read]) => ({
+        objectApiName,
+        read,
+      })),
       ...(state.files ? { files: structuredClone(state.files) } : {}),
       ...(state.fileContentFieldsLeftOut.size > 0
         ? {
@@ -2231,6 +2250,8 @@ export class ForgeExecutor {
       // takes it too: it only reads the target, and skipped, the dry run
       // listed as "would be inserted" rows a real run links.
       if (config.referenceDataObjects.has(node.objectApiName)) {
+        // Rows of the clone all the same: each is linked, or reported unmatched.
+        state.readByObject.set(node.objectApiName, records.length);
         const refResolve = await state.referenceDataMapper.resolve(
           node.objectApiName,
           records,
@@ -2334,6 +2355,12 @@ export class ForgeExecutor {
         state.fileScope.set(node.objectApiName, ids);
       }
       this.withoutFileContent(state, node.objectApiName, described, records.length > 0);
+
+      // The rows the run clones of the object, the standard book left out and
+      // the standard prices in: what it sets out to write, and on a dry run
+      // what it would insert. The graph's count is discovery's, of the whole
+      // table, of which a record-scoped clone reads a few rows.
+      state.readByObject.set(node.objectApiName, records.length);
 
       if (config.dryRun) {
         onProgress({

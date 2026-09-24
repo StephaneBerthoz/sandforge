@@ -632,6 +632,9 @@ export function jsonResult(summary: ExecutionSummary) {
     remapTable: summary.remapTable,
     existingSourceIds: summary.existingSourceIds,
     updatedSourceIds: summary.updatedSourceIds,
+    // Per object, the rows the run read to clone: the size of the clone,
+    // where discovery counted each whole table.
+    readByObject: summary.readByObject,
     // Only with --files: what became of the files. The ones copied are in
     // remapTable too, under their document or attachment id.
     ...(summary.files ? { files: summary.files } : {}),
@@ -647,10 +650,14 @@ export function jsonResult(summary: ExecutionSummary) {
  * The line an object's end of run prints, or nothing for a step on the way.
  * The executor says what each object came to — `--dry-run`'s "would be
  * inserted" counts among them — and the run passed it a callback that
- * dropped every word. Exported so it can be tested.
+ * dropped every word. A skipped object is printed too, with the reason the
+ * executor gives: with the objects written and failed alone, a clone that
+ * left objects out named none of them. Exported so it can be tested.
  */
 export function objectOutcomeLine(event: ForgeProgressEvent): string | undefined {
-  if (event.status !== 'done' && event.status !== 'error') return undefined;
+  if (event.status !== 'done' && event.status !== 'error' && event.status !== 'skipped') {
+    return undefined;
+  }
   return event.message ? `  ${event.message}` : undefined;
 }
 

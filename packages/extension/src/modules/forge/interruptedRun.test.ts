@@ -21,6 +21,7 @@ const TWO_ACCOUNTS: ExecutionSummary = {
   createdByObject: [
     { objectApiName: 'Account', sourceIds: ['001000000000001', '001000000000002'] },
   ],
+  readByObject: [{ objectApiName: 'Account', read: 2 }],
 };
 
 describe('interruptedRun', () => {

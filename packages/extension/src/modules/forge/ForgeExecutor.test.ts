@@ -3483,6 +3483,31 @@ describe('ForgeExecutor', () => {
           expect(summary.errors).toEqual([]);
         });
 
+        it('counts what it read of each object as what it wrote of it, the catalog read twice included', async () => {
+          // The widget the account supplies and its book are read at their
+          // turn, and read again once the lines have named what they price:
+          // the second read is what the run clones.
+          const { orgDeps, inserted } = accountCatalog(true);
+
+          const summary = await new ForgeExecutor(orgDeps).execute(
+            accountGraph(),
+            'src',
+            'tgt',
+            onProgress,
+            rooted,
+          );
+
+          expect(
+            Object.fromEntries(summary.readByObject.map((r) => [r.objectApiName, r.read])),
+          ).toEqual(
+            Object.fromEntries(
+              Object.entries(inserted).map(([object, rows]) => [object, rows.length]),
+            ),
+          );
+          expect(summary.readByObject.find((r) => r.objectApiName === 'Product2')?.read).toBe(6);
+          expect(summary.errors).toEqual([]);
+        });
+
         it('says in a dry run what a real run writes of the catalog, once per object', async () => {
           const real = accountCatalog(true);
           await new ForgeExecutor(real.orgDeps).execute(
@@ -4206,6 +4231,138 @@ describe('ForgeExecutor', () => {
           { Body: 'On the deal', ParentId: 'Opportunity:Deal' },
         ]);
         expect(summary.errors).toContainEqual(heldUnderQuotes(2, 'failed in this run.'));
+      });
+    });
+
+    describe('what the run read of each object', () => {
+      /**
+       * The graph discovery builds around an account: the count of each node
+       * is the whole table's, the one account among thousands and the contacts
+       * of every account. Cases are left out, and nothing read points at a lead.
+       */
+      const graph = (): ForgeGraph =>
+        makeGraph(
+          [
+            makeNode('Account', { recordCount: 16_000 }),
+            makeNode('Contact', { recordCount: 48_000 }),
+            makeNode('Case', { recordCount: 9_000, included: false }),
+            makeNode('Lead', { recordCount: 12_000 }),
+          ],
+          [edge('Account', 'Contact')],
+        );
+      const tables = (): Record<string, FakeRow[]> => ({
+        Account: [
+          { Id: ACCOUNT, Name: 'Root' },
+          { Id: ELSEWHERE_ACCOUNT, Name: 'Elsewhere' },
+        ],
+        Contact: [
+          { Id: KEY_CONTACT, LastName: 'Key', AccountId: ACCOUNT },
+          { Id: OTHER_CONTACT, LastName: 'Other', AccountId: ACCOUNT },
+          { Id: ELSEWHERE_CONTACT, LastName: 'Elsewhere', AccountId: ELSEWHERE_ACCOUNT },
+        ],
+        Case: [{ Id: '500000000000001AAA', Subject: 'Left out', AccountId: ACCOUNT }],
+        Lead: [{ Id: '00Q000000000001AAA', LastName: 'Unrelated' }],
+      });
+      const fields: Record<string, FieldInfo[]> = {
+        Account: [idField, text('Name')],
+        Contact: [idField, text('LastName'), lookup('AccountId', 'Account')],
+        Case: [idField, text('Subject'), lookup('AccountId', 'Account')],
+        Lead: [idField, text('LastName')],
+      };
+      const rooted = { rootRecordId: ACCOUNT, rootObjectApiName: 'Account' };
+      const readOf = (summary: { readByObject: Array<{ objectApiName: string; read: number }> }) =>
+        Object.fromEntries(summary.readByObject.map((r) => [r.objectApiName, r.read]));
+
+      it('counts the rows a record-scoped clone read of each object, not the rows discovery counted in its table', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(summary.readByObject).toEqual([
+          { objectApiName: 'Account', read: 1 },
+          { objectApiName: 'Contact', read: 2 },
+        ]);
+        expect(inserted['Contact'].map((r) => r['LastName'])).toEqual(['Key', 'Other']);
+      });
+
+      it('counts what a dry run would insert of each object, as a real run reads it', async () => {
+        const { orgDeps, inserted } = fakeOrgs(tables(), fields);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          { ...rooted, dryRun: true },
+        );
+
+        expect(summary.readByObject).toEqual([
+          { objectApiName: 'Account', read: 1 },
+          { objectApiName: 'Contact', read: 2 },
+        ]);
+        expect(summary.wouldInsertCount).toBe(3);
+        expect(inserted).toEqual({});
+      });
+
+      it('counts every row a run that reads whole tables read of each object', async () => {
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        // Read whole, a table comes back with no WHERE to select its rows.
+        const everyRow = tables();
+        orgDeps.queryRecords = async (_org, soql) =>
+          (everyRow[/^SELECT .+ FROM (\w+)$/.exec(soql)?.[1] ?? ''] ?? []).map((row) => ({
+            ...row,
+          }));
+
+        const summary = await new ForgeExecutor(orgDeps).execute(graph(), 'src', 'tgt', onProgress);
+
+        expect(readOf(summary)).toEqual({ Account: 2, Contact: 3, Lead: 1 });
+      });
+
+      it('counts the rows it read of an object the target then refused', async () => {
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        const insert = orgDeps.insertRecords;
+        orgDeps.insertRecords = async (org, object, rows) =>
+          object === 'Contact'
+            ? rows.map(() => ({ id: '', success: false, errors: ['INVALID_FIELD: refused'] }))
+            : insert(org, object, rows);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(readOf(summary)).toEqual({ Account: 1, Contact: 2 });
+        expect(summary.failedCount).toBe(2);
+      });
+
+      it('lists no object whose read failed: the run never learned how many rows the clone held of it', async () => {
+        const { orgDeps } = fakeOrgs(tables(), fields);
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) => {
+          if (/\bFROM Contact\b/.test(soql)) {
+            throw new Error('QUERY_TIMEOUT: the query ran for too long');
+          }
+          return query(org, soql, onTruncated);
+        };
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph(),
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(summary.readByObject).toEqual([{ objectApiName: 'Account', read: 1 }]);
       });
     });
   });
@@ -5355,6 +5512,27 @@ describe('ForgeExecutor', () => {
 
       expect(deps.insertRecords).not.toHaveBeenCalled();
       expect(summary.wouldInsertCount ?? 0).toBe(0);
+      expect(summary.linkedCount).toBe(1);
+    });
+
+    it('counts the reference data it read among the rows of the clone, found by name or not', async () => {
+      vi.mocked(deps.queryRecords).mockImplementation(async (orgId) =>
+        orgId === 'tgt'
+          ? [{ Id: '01m000000000001AAA', Name: 'Default' }]
+          : [
+              { Id: '01m000000000001SRC', Name: 'Default' },
+              { Id: '01m000000000002SRC', Name: 'Weekend' },
+            ],
+      );
+
+      const summary = await executor.execute(
+        makeGraph([makeNode('BusinessHours', { recordCount: 40 })]),
+        'src',
+        'tgt',
+        onProgress,
+      );
+
+      expect(summary.readByObject).toEqual([{ objectApiName: 'BusinessHours', read: 2 }]);
       expect(summary.linkedCount).toBe(1);
     });
 

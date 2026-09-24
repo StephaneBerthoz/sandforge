@@ -245,6 +245,18 @@ export interface ForgeRemapObjectCounts {
 }
 
 /**
+ * The rows of one object a Forge run read from the source to clone: the
+ * records of it the clone held, whatever each came to — created, updated,
+ * linked to one the target already held, failed or held back.
+ */
+export interface ForgeReadRecords {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Rows read. */
+  read: number;
+}
+
+/**
  * The rows of one object a Forge run created, by their source ids — the keys
  * `idRemapTable` maps to the records written in the target.
  */
@@ -553,6 +565,18 @@ export interface ForgeExecutionResult {
    * cannot have its records removed from the history.
    */
   idRemapCreated?: ForgeCreatedRecords[];
+  /**
+   * Per object, the rows the run read from the source to clone, objects in
+   * the order it read them: what the run set out to write.
+   *
+   * The graph's counts are discovery's, a count of each whole table. That is
+   * what a run that reads whole tables reads; a record-scoped clone of a few
+   * hundred records was measured against the tables they were cut from, tens
+   * of thousands of rows. An object the run did not read — left out, skipped
+   * before its read, or whose read failed — is not listed. Optional for runs
+   * recorded before it.
+   */
+  readByObject?: ForgeReadRecords[];
   /**
    * The org the run wrote to, by its id in this machine's org registry.
    *

@@ -259,6 +259,7 @@ describe('sandforge-clone summary', () => {
     updatedSourceIds: [],
     remapByObject: [],
     createdByObject: [],
+    readByObject: [],
     ...overrides,
   });
 
@@ -307,6 +308,17 @@ describe('sandforge-clone summary', () => {
       successCount: 0,
       wouldInsertCount: 7,
     });
+  });
+
+  it('gives a CI job the rows the run read of each object, the size of the clone', () => {
+    // Discovery counts each whole table; a record-scoped clone reads a few
+    // rows of each, and nothing in the summary said how many.
+    const readByObject = [
+      { objectApiName: 'Opportunity', read: 1 },
+      { objectApiName: 'OpportunityLineItem', read: 3 },
+    ];
+
+    expect(jsonResult(summary({ readByObject })).readByObject).toEqual(readByObject);
   });
 
   it('does not call a dry run that found records to insert a failure', () => {
@@ -541,10 +553,22 @@ describe('sandforge-clone object outcomes', () => {
     expect(objectOutcomeLine(event('error', 'Contact: 1 failed'))).toBe('  Contact: 1 failed');
   });
 
-  it('prints nothing for a step on the way or a skipped object', () => {
+  it('prints a skipped object with the reason it was skipped, as it prints the others', () => {
+    expect(
+      objectOutcomeLine(
+        event('skipped', 'Skipped Contact (out of scope: no parent in cache and not the root)'),
+      ),
+    ).toBe('  Skipped Contact (out of scope: no parent in cache and not the root)');
+    expect(objectOutcomeLine(event('skipped', 'Skipped Contact (parent failed)'))).toBe(
+      '  Skipped Contact (parent failed)',
+    );
+  });
+
+  it('prints nothing for a step on the way, or an end that says nothing', () => {
     expect(objectOutcomeLine(event('running', 'Contact: reading'))).toBeUndefined();
-    expect(objectOutcomeLine(event('skipped', 'Contact: nothing to clone'))).toBeUndefined();
+    expect(objectOutcomeLine(event('scanning', 'Querying Contact records...'))).toBeUndefined();
     expect(objectOutcomeLine(event('done', ''))).toBeUndefined();
+    expect(objectOutcomeLine(event('skipped', ''))).toBeUndefined();
   });
 });
 

@@ -71,9 +71,17 @@ ForgeOrchestrator.execute(graph, config)
        │    against the target's FileStorageMB; after the records, each file
        │    is read and written in one request of its own (FileCopier)
        │
-       └─ summary { successCount, failedCount, skippedCount, errors[], files?,
-                    fileContentFieldsLeftOut?, writtenBetween? }
+       └─ summary { successCount, failedCount, skippedCount, errors[],
+                    readByObject[], files?, fileContentFieldsLeftOut?,
+                    writtenBetween? }
 ```
+
+`readByObject` is, per object, the rows the run read to clone — on a dry run,
+the rows it would insert — the standard price book left out and the standard
+prices it adds counted in. The results measure what the run wrote against
+these, not against the graph's counts: discovery counts each whole table, of
+which a record-scoped clone reads a few rows. An object the run did not read —
+left out, skipped before its read, or whose read failed — is not listed.
 
 A run asked to copy files reads every object before it writes one, whatever
 its input mode: the files are measured against the target before anything is
