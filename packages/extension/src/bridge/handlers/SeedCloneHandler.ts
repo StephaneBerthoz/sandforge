@@ -50,12 +50,15 @@ import {
   RowsLeftToThePlatform,
   TASK,
   existingActivityRelations,
+  giveLinkedRelationsTheirFlags,
   lookupsThePlatformFills,
   rowsACopySends,
   tasksWrittenWithEmails,
   waitsForItsTask,
   type RequiredLookup,
+  type SoqlQuery,
 } from '../../core/common/platformRecords.js';
+import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import {
   carriesRecordType,
   findUnavailableRecordTypes,
@@ -669,6 +672,14 @@ export class SeedCloneHandler implements DomainHandler {
       };
 
       /**
+       * A read of the target, every page of it. Asked of two hundred events at
+       * a time, the target answers with every relation they hold, and one
+       * page stops at two thousand rows: an event's invitees fill pages, and
+       * a relation past the first was sent again beside the one it held.
+       */
+      const readTarget: SoqlQuery = (soql) => queryAll(targetConn, soql);
+
+      /**
        * Of the tasks read, those the platform wrote with an email the clone
        * wrote: the task that email names in the target, by the task's source
        * id. The platform writes the task of an email that is not on a case as
@@ -694,10 +705,9 @@ export class SeedCloneHandler implements DomainHandler {
         if (asked.length === 0) return new Map();
         let found: Map<string, string>;
         try {
-          found = await tasksWrittenWithEmails(
-            async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
-            [...new Set(asked.map((id) => emailOfTask.get(id) ?? ''))],
-          );
+          found = await tasksWrittenWithEmails(readTarget, [
+            ...new Set(asked.map((id) => emailOfTask.get(id) ?? '')),
+          ]);
         } catch (err: unknown) {
           // Not looked up, the tasks go as read, and one may stand beside the
           // platform's.
@@ -730,11 +740,7 @@ export class SeedCloneHandler implements DomainHandler {
         if (ACTIVITY_OF_RELATION[objectApiName] === undefined) return new Map();
         let held: Map<number, string>;
         try {
-          held = await existingActivityRelations(
-            async (soql) => (await targetConn.query<Record<string, unknown>>(soql)).records,
-            objectApiName,
-            writeRecords,
-          );
+          held = await existingActivityRelations(readTarget, objectApiName, writeRecords);
         } catch (err: unknown) {
           // Not looked up, the relations go as read, the platform's among
           // them.
@@ -932,8 +938,13 @@ export class SeedCloneHandler implements DomainHandler {
           objectApiName === TASK
             ? await tasksWrittenWithTheirEmail(sourceRecords)
             : await relationsTheTargetHolds(objectApiName, sourceRecords, writeRecords);
+        /** Each row linked to, with the id of the record linked in its place. */
+        const linkedRows: Array<readonly [Record<string, unknown>, string]> = [];
         if (linked.size > 0) {
           const sent = sourceRecords.map((record) => !linked.has(String(record['Id'])));
+          sourceRecords.forEach((record, i) => {
+            if (!sent[i]) linkedRows.push([record, linked.get(String(record['Id'])) ?? '']);
+          });
           sourceRecords = sourceRecords.filter((_, i) => sent[i]);
           writeRecords = writeRecords.filter((_, i) => sent[i]);
           owed = owed.filter((_, i) => sent[i]);
@@ -949,6 +960,29 @@ export class SeedCloneHandler implements DomainHandler {
         if (stopped) {
           cancelled = true;
           if (outcomes.length === 0) break;
+        }
+        // The relation the platform wrote for an event's who is no invitee:
+        // one the event also invited gets the flag back, when the target lets
+        // it be updated. See `giveLinkedRelationsTheirFlags`.
+        if (!cancelled && linkedRows.length > 0) {
+          const describe = describeMap.get(objectApiName);
+          const flagsNotKept = await giveLinkedRelationsTheirFlags(
+            objectApiName,
+            linkedRows,
+            (field) => describe?.fields.find((f) => f.name === field)?.updateable !== false,
+            async (records) => {
+              try {
+                return await writer.update(objectApiName, records, defaultBatchSize);
+              } catch (updateErr: unknown) {
+                if (!(updateErr instanceof WriteCancelledError)) throw updateErr;
+                cancelled = true;
+                return updateErr.written;
+              }
+            },
+          );
+          if (flagsNotKept && !cancelled) {
+            this.deps.log(`[seed:clone] ${objectApiName}: ${flagsNotKept}`);
+          }
         }
 
         const objectResult: CloneObjectResult = {

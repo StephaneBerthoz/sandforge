@@ -9,6 +9,7 @@ import {
   emailWriteEdges,
   existingActivityRelations,
   existingSellingModelOptions,
+  giveLinkedRelationsTheirFlags,
   leftToThePlatformNote,
   leftToThePlatformReason,
   leftToThePlatformSummary,
@@ -21,6 +22,7 @@ import {
   waitsForItsTask,
   withTheRelationItIs,
   writtenByThePlatform,
+  type RelationUpdate,
   type SoqlQuery,
 } from './platformRecords.js';
 
@@ -330,6 +332,103 @@ describe('existingActivityRelations', () => {
     );
 
     expect(query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('giveLinkedRelationsTheirFlags', () => {
+  /** An update the target takes whole, one success per record. */
+  const takes = () =>
+    vi.fn<RelationUpdate>(async (records) => records.map(() => ({ success: true, errors: [] })));
+
+  it("gives the relation linked for an event's who the invitee flag its row had, and says nothing", async () => {
+    // The platform writes the who's relation as it writes the event, not an
+    // invitee: linked to in place of the row, the who was no longer invited.
+    const update = takes();
+
+    const note = await giveLinkedRelationsTheirFlags(
+      'EventRelation',
+      [
+        [{ Id: '0RESRC1', IsParent: true, IsInvitee: true }, '0REWHO'],
+        [{ Id: '0RESRC2', IsParent: true, IsInvitee: 'true' }, '0REWHO2'],
+        [{ Id: '0RESRC3', IsParent: true, IsInvitee: false }, '0REWHO3'],
+      ],
+      () => true,
+      update,
+    );
+
+    expect(update).toHaveBeenCalledWith([
+      { Id: '0REWHO', IsInvitee: true },
+      { Id: '0REWHO2', IsInvitee: true },
+    ]);
+    expect(note).toBeUndefined();
+  });
+
+  it('writes nothing and says so when the target does not let the flag be updated', async () => {
+    const update = takes();
+
+    const note = await giveLinkedRelationsTheirFlags(
+      'EventRelation',
+      [
+        [{ IsInvitee: true }, '0REWHO'],
+        [{ IsInvitee: true }, '0REWHO2'],
+      ],
+      (field) => field !== 'IsInvitee',
+      update,
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    expect(note).toBe('2 linked without IsInvitee: the target does not let it be updated');
+  });
+
+  it('says which updates the target refused, and why', async () => {
+    const update = vi.fn<RelationUpdate>(async (records) =>
+      records.map((_, i) =>
+        i === 0
+          ? { success: true, errors: [] }
+          : { success: false, errors: ['INVALID_FIELD_FOR_INSERT_UPDATE: IsInvitee'] },
+      ),
+    );
+
+    const note = await giveLinkedRelationsTheirFlags(
+      'EventRelation',
+      [
+        [{ IsInvitee: true }, '0REWHO'],
+        [{ IsInvitee: true }, '0REWHO2'],
+      ],
+      () => true,
+      update,
+    );
+
+    expect(note).toBe(
+      '1 linked without IsInvitee: the target refused the update, INVALID_FIELD_FOR_INSERT_UPDATE: IsInvitee',
+    );
+  });
+
+  it('lets an update that throws reach the caller, as any other write of its run', async () => {
+    await expect(
+      giveLinkedRelationsTheirFlags(
+        'EventRelation',
+        [[{ IsInvitee: true }, '0REWHO']],
+        () => true,
+        async () => {
+          throw new Error('Production guard refused update on EventRelation');
+        },
+      ),
+    ).rejects.toThrow('Production guard refused update on EventRelation');
+  });
+
+  it('asks nothing of a task relation, which carries no such flag', async () => {
+    const update = takes();
+
+    const note = await giveLinkedRelationsTheirFlags(
+      'TaskRelation',
+      [[{ IsInvitee: true, IsWhat: false }, '0RTWHO']],
+      () => true,
+      update,
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    expect(note).toBeUndefined();
   });
 });
 

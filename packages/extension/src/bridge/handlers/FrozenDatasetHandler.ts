@@ -818,6 +818,8 @@ export class FrozenDatasetHandler implements DomainHandler {
               value: p.value,
               active: p.active ?? true,
             })),
+            // What a flag given back to a relation the load linked to reads.
+            updateable: f.updateable !== false,
           })),
           // The REST describe carries each record type's developerName;
           // jsforce's type for it leaves the field out.

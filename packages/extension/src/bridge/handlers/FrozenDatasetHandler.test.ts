@@ -1007,6 +1007,34 @@ describe('FrozenDatasetHandler', () => {
           expect.objectContaining({ createable: true }),
         );
       });
+
+      it('says which fields no update can set', async () => {
+        // The loader gives a relation it linked to a flag its row carried only
+        // where the target lets an update set it.
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(getJsforceConnection).mockResolvedValue({
+          describe: async (name: string) => ({
+            name,
+            createable: true,
+            fields: [
+              { name: 'IsWhat', type: 'boolean', createable: true, updateable: false },
+              { name: 'IsInvitee', type: 'boolean', createable: true, updateable: true },
+            ],
+            recordTypeInfos: [],
+          }),
+        } as never);
+        loaderLoad.mockImplementation(async () => report());
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+
+        const [{ orgAccess }] = vi.mocked(FrozenDatasetLoader).mock.calls[0];
+        const described = await orgAccess.describe('org-2', 'EventRelation');
+        expect(described.fields.map((f) => [f.name, f.updateable])).toEqual([
+          ['IsWhat', false],
+          ['IsInvitee', true],
+        ]);
+      });
     });
 
     describe('what a reload gives back as it stops', () => {

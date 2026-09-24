@@ -26,10 +26,12 @@ import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js
 import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
+  FLAGS_THE_PLATFORM_LEAVES,
   NATURAL_KEYS,
   directAccountContactRelations,
   existingActivityRelations,
   existingSellingModelOptions,
+  giveLinkedRelationsTheirFlags,
   recordsByNaturalKey,
 } from '../../../core/common/platformRecords.js';
 import { logger } from '../../../logger.js';
@@ -182,6 +184,12 @@ export interface BatchWriteResult {
   errorSamples: ExecutionErrorSample[];
   /** Nullified cycle FKs of successfully inserted records — pass-2 input. */
   pendingFkUpdates: PendingFkUpdate[];
+  /**
+   * What the node's line says of the relations linked to without a flag
+   * their row carried: see `giveLinkedRelationsTheirFlags`. Absent when every
+   * flag went back, or there was none to give.
+   */
+  flagsNotKept?: string;
 }
 
 /**
@@ -221,7 +229,7 @@ export class BatchWriter {
 
   constructor(
     private readonly deps: Pick<ForgeExecutorDeps, 'insertRecords' | 'upsertRecords'> &
-      Partial<Pick<ForgeExecutorDeps, 'queryRecords'>>,
+      Partial<Pick<ForgeExecutorDeps, 'queryRecords' | 'updateRecords' | 'describeFields'>>,
     batchStrategy?: ForgeBatchStrategyService,
   ) {
     this.batchStrategy = batchStrategy ?? new ForgeBatchStrategyService();
@@ -258,6 +266,12 @@ export class BatchWriter {
       if (typeof oldId === 'string') remapper.addExisting(oldId, id, node.objectApiName);
     }
     tally.linkedExistingCount += direct.size;
+    const flagsNotKept = await this.giveFlagsBack(node.objectApiName, targetOrgId, input, direct);
+    if (flagsNotKept) {
+      tally.flagsNotKept = tally.flagsNotKept
+        ? `${tally.flagsNotKept}, ${flagsNotKept}`
+        : flagsNotKept;
+    }
     const records = input.records.filter((_, i) => !direct.has(i));
     const cleanedRecords = input.cleanedRecords.filter((_, i) => !direct.has(i));
     const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
@@ -538,6 +552,42 @@ export class BatchWriter {
       objectApiName,
       keyFields,
       payloads,
+    );
+  }
+
+  /**
+   * Give the relations linked to before the insert the flags their source
+   * rows carried and the platform's relation lacks — an event's who the event
+   * also invites — when the target's describe lets them be updated: what the
+   * node's line says of those it could not. See
+   * `giveLinkedRelationsTheirFlags`. A run given no update of the target
+   * asks nothing.
+   */
+  private async giveFlagsBack(
+    objectApiName: string,
+    targetOrgId: string,
+    input: WriteNodeInput,
+    linked: ReadonlyMap<number, string>,
+  ): Promise<string | undefined> {
+    const update = this.deps.updateRecords;
+    if (!update || linked.size === 0 || !FLAGS_THE_PLATFORM_LEAVES[objectApiName]) {
+      return undefined;
+    }
+    const rows: Array<readonly [Record<string, unknown>, string]> = [];
+    for (const [index, id] of linked) {
+      const source = input.cleanedRecords[index]?.source;
+      if (source) rows.push([source, id]);
+    }
+    // The target's describe, which the run read for its field sets: a
+    // describe that cannot say leaves the target to answer the update.
+    const described = await this.deps
+      .describeFields?.(targetOrgId, objectApiName)
+      .catch(() => undefined);
+    return giveLinkedRelationsTheirFlags(
+      objectApiName,
+      rows,
+      (field) => described?.find((f) => f.name === field)?.updateable !== false,
+      (records) => update(targetOrgId, objectApiName, records),
     );
   }
 

@@ -65,6 +65,7 @@ import {
   emailWriteEdges,
   existingActivityRelations,
   existingSellingModelOptions,
+  giveLinkedRelationsTheirFlags,
   leftToThePlatformNote,
   lookupsThePlatformFills,
   recordsByNaturalKey,
@@ -775,6 +776,8 @@ export class FrozenDatasetLoader {
     >();
     /** Lookups the target will not take empty, per object — from its describe. */
     const requiredLookups = new Map<string, Set<string>>();
+    /** Fields no update can set, per object — from its describe. */
+    const fixedAtInsert = new Map<string, Set<string>>();
     /**
      * Objects the load sends nothing of — the target lacks them, or takes no
      * insert of them — counted as the insert would have counted them: the
@@ -846,6 +849,10 @@ export class FrozenDatasetLoader {
         );
         continue;
       }
+      fixedAtInsert.set(
+        objectApiName,
+        new Set(describe.fields.filter((f) => f.updateable === false).map((f) => f.name)),
+      );
       requiredLookups.set(
         objectApiName,
         new Set(
@@ -997,34 +1004,64 @@ export class FrozenDatasetLoader {
     );
     const emailsAfterTheirTask: Array<{ referenceId: string; fields: Record<string, unknown> }> =
       [];
+    /**
+     * How the email object's first write ended while some of its emails
+     * waited for their task, and the object's notes: said as a step, and
+     * again in the line the write of those ends the object with. Said as each
+     * write ended, an email on a case beside another ended the object in two
+     * lines, the second with the emails that had waited alone.
+     */
+    let emailsWrittenFirst: { status: 'done' | 'error'; message: string; notes: string } | null =
+      null;
     let objectIndex = 0;
     let taskTurnOver = false;
     const insertEmailsAfterTheirTask = async (): Promise<void> => {
       taskTurnOver = true;
       const emails = emailsAfterTheirTask.splice(0, emailsAfterTheirTask.length);
+      const first = emailsWrittenFirst;
+      emailsWrittenFirst = null;
       if (emails.length === 0) return;
-      await checkpoint();
-      const late = await this.insertObject(
-        options,
-        EMAIL_MESSAGE,
-        0,
-        emails,
-        refIndex,
-        mapping,
-        reused,
-        pendingFk,
-        duplicatePatterns,
-        created,
-      );
+      const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
+      let late: PerObjectLoadResult | undefined;
+      try {
+        await checkpoint();
+        late = await this.insertObject(
+          options,
+          EMAIL_MESSAGE,
+          0,
+          emails,
+          refIndex,
+          mapping,
+          reused,
+          pendingFk,
+          duplicatePatterns,
+          created,
+        );
+      } finally {
+        // Stopped before the emails that waited went in: the first write
+        // ends the object.
+        if (!late && first) {
+          emit({
+            phase: 'insert',
+            objectName: EMAIL_MESSAGE,
+            status: first.status,
+            progress,
+            message: `${first.message}${first.notes}`,
+          });
+        }
+      }
       const at = perObject.findIndex((o) => o.objectApiName === EMAIL_MESSAGE);
       if (at >= 0) perObject[at] = mergeResults(perObject[at], late);
       else perObject.push(late);
+      const lateCounts = `${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed`;
       emit({
         phase: 'insert',
         objectName: EMAIL_MESSAGE,
-        status: late.failed.length > 0 ? 'error' : 'done',
-        progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-        message: `${EMAIL_MESSAGE} after their task: ${late.inserted} inserted, ${late.reused} reused, ${late.skippedDuplicates.length} duplicates skipped, ${late.failed.length} failed`,
+        status: late.failed.length > 0 || first?.status === 'error' ? 'error' : 'done',
+        progress,
+        message: first
+          ? `${first.message}; after their task: ${lateCounts}${first.notes}`
+          : `${EMAIL_MESSAGE} after their task: ${lateCounts}`,
       });
     };
     for (const objectApiName of insertOrder) {
@@ -1051,8 +1088,17 @@ export class FrozenDatasetLoader {
       if (objectApiName === TASK) {
         await this.matchTasksWrittenWithEmails(orgId, working, aligned, mapping, reused);
       }
+      /** What the object's line says of the relations linked to without a flag their row carried. */
+      let flagsNotKept: string | undefined;
       if (ACTIVITY_OF_RELATION[objectApiName] !== undefined) {
-        await this.matchActivityRelations(orgId, objectApiName, aligned, mapping, reused);
+        flagsNotKept = await this.matchActivityRelations(
+          options,
+          objectApiName,
+          aligned,
+          mapping,
+          reused,
+          fixedAtInsert.get(objectApiName) ?? new Set(),
+        );
       }
       const fromFiles =
         working.objects.find((o) => o.objectApiName === objectApiName)?.records.length ??
@@ -1113,6 +1159,7 @@ export class FrozenDatasetLoader {
       }
       perObject.push(objectResult);
       const leftOutNote = [
+        ...(flagsNotKept ? [flagsNotKept] : []),
         ...leftToThePlatform
           .counts(objectApiName)
           .map(({ why, count }) => leftToThePlatformNote(count, why)),
@@ -1126,13 +1173,23 @@ export class FrozenDatasetLoader {
         objectApiName === EMAIL_MESSAGE && emailsAfterTheirTask.length > 0
           ? `, ${emailsAfterTheirTask.length} on a case waiting for ${emailsAfterTheirTask.length === 1 ? 'its task' : 'their tasks'}`
           : '';
-      emit({
-        phase: 'insert',
-        objectName: objectApiName,
-        status: objectResult.failed.length > 0 ? 'error' : 'done',
-        progress: 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1)),
-        message: `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}${leftOutNote}`,
-      });
+      const status = objectResult.failed.length > 0 ? 'error' : 'done';
+      const progress = 25 + Math.round((55 * objectIndex) / Math.max(insertOrder.length, 1));
+      const message = `${objectApiName}: ${objectResult.inserted} inserted, ${objectResult.reused} reused, ${objectResult.skippedDuplicates.length} duplicates skipped, ${objectResult.failed.length} failed${waiting}`;
+      if (waiting) {
+        // A step on the way: the write of the emails that wait for their task
+        // ends the object, in one line with this one. See `emailsWrittenFirst`.
+        emailsWrittenFirst = { status, message, notes: leftOutNote };
+        emit({ phase: 'insert', objectName: objectApiName, status: 'started', progress, message });
+      } else {
+        emit({
+          phase: 'insert',
+          objectName: objectApiName,
+          status,
+          progress,
+          message: `${message}${leftOutNote}`,
+        });
+      }
       if (objectApiName === TASK) await insertEmailsAfterTheirTask();
     }
     // Emails still waiting for their task — the task object never had its
@@ -2409,14 +2466,23 @@ export class FrozenDatasetLoader {
    * platform wrote for its activity's who as it took the activity — to the
    * one it holds. See `existingActivityRelations`; a relation to the
    * activity's what never comes this far (`PLATFORM_WRITTEN_ROWS`).
+   *
+   * The relation the platform wrote for an event's who is no invitee: one the
+   * event also invited gets the flag back, when the target lets it be
+   * updated. What the object's line says of those that did not is returned.
+   * See `giveLinkedRelationsTheirFlags`.
+   *
+   * @param fixedAtInsert - The object's fields no update can set, as the target describes it.
    */
   private async matchActivityRelations(
-    orgId: string,
+    options: FrozenLoadOptions,
     objectApiName: string,
     aligned: Array<{ referenceId: string; fields: Record<string, unknown> }>,
     mapping: Map<string, string>,
     reused: Set<string>,
-  ): Promise<void> {
+    fixedAtInsert: ReadonlySet<string>,
+  ): Promise<string | undefined> {
+    const { orgId } = options;
     const activity = ACTIVITY_OF_RELATION[objectApiName];
     const idOf = (value: unknown): string | undefined =>
       typeof value === 'string' ? mapping.get(value) : undefined;
@@ -2432,6 +2498,15 @@ export class FrozenDatasetLoader {
       mapping.set(aligned[index].referenceId, id);
       reused.add(aligned[index].referenceId);
     }
+    return giveLinkedRelationsTheirFlags(
+      objectApiName,
+      [...held].map(([index, id]) => [aligned[index].fields, id] as const),
+      (field) => !fixedAtInsert.has(field),
+      async (records) => {
+        await this.checkGuard(options, 'update', objectApiName, records.length);
+        return this.deps.writer.update(orgId, objectApiName, records);
+      },
+    );
   }
 
   /**

@@ -30,6 +30,12 @@ export interface TargetFieldDescribe {
   /** Restricted picklist: values outside the active set are rejected at insert. */
   restrictedPicklist?: boolean;
   picklistValues?: Array<{ value: string; active: boolean }>;
+  /**
+   * Whether an update can set the field: false for one the target takes at
+   * insert or never. Absent, taken as true, and the target says whether it
+   * takes the update.
+   */
+  updateable?: boolean;
 }
 
 /** Minimal target-org object describe consumed by the load phase. */

@@ -20,6 +20,7 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
 const writer = vi.hoisted(() => ({
   insert: vi.fn(),
   upsert: vi.fn(),
+  update: vi.fn(),
 }));
 const fetcher = vi.hoisted(() => ({
   fetchRecords: vi.fn(),
@@ -1029,6 +1030,182 @@ describe('SeedCloneHandler', () => {
           });
         },
       );
+
+      describe('of an event', () => {
+        const EVENT = '00UFk00000AcTvAIAV';
+        const NEW_EVENT = '00UFk00000NeWaAIAV';
+        const PLATFORM_TO_OTHER = '0RXFk00000PlAtOIAV';
+
+        /**
+         * Clone two contacts, an event whose who is the first, and `relations`
+         * of it; the target answers the relations it holds with `pages`, one
+         * after the other, and describes `IsInvitee` as `updateable`.
+         */
+        async function cloneAnEvent(options: {
+          relations: Array<Record<string, unknown>>;
+          pages: Array<Array<Record<string, unknown>>>;
+          updateable?: boolean;
+        }) {
+          const { relations, pages, updateable = true } = options;
+          const reference = (name: string, ...referenceTo: string[]) => ({
+            name,
+            type: 'reference',
+            referenceTo,
+          });
+          const page = (index: number) => ({
+            records: pages[index] ?? [],
+            done: index >= pages.length - 1,
+            ...(index < pages.length - 1 ? { nextRecordsUrl: `/next/${index + 1}` } : {}),
+          });
+          const query = vi.fn(async (soql: string) =>
+            soql.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+              ? page(0)
+              : { records: [], done: true },
+          );
+          const queryMore = vi.fn(async (url: string) => page(Number(url.split('/').pop())));
+          mockGetConn.mockResolvedValue({
+            describe: vi.fn(async (name: string) => ({
+              keyPrefix: null,
+              fields:
+                name === 'EventRelation'
+                  ? [
+                      reference('EventId', 'Event'),
+                      reference('RelationId', 'Contact', 'Lead'),
+                      { name: 'IsParent', type: 'boolean' },
+                      { name: 'IsInvitee', type: 'boolean', updateable },
+                      { name: 'IsWhat', type: 'boolean' },
+                    ]
+                  : name === 'Event'
+                    ? [{ name: 'Subject', type: 'string' }, reference('WhoId', 'Contact', 'Lead')]
+                    : [{ name: 'LastName', type: 'string' }],
+              recordTypeInfos: [],
+            })),
+            query,
+            queryMore,
+            limitInfo: undefined,
+          } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+          linker.resolveInsertOrder.mockReturnValue(['Contact', 'Event', 'EventRelation']);
+          fetcher.fetchRecords.mockImplementation(async (_conn: unknown, name: string) =>
+            name === 'Contact'
+              ? [
+                  { Id: WHO, LastName: 'Who' },
+                  { Id: OTHER, LastName: 'Other' },
+                ]
+              : name === 'Event'
+                ? [{ Id: EVENT, Subject: 'Visit', WhoId: WHO }]
+                : relations,
+          );
+          writer.insert.mockImplementation(async (name: string, records: unknown[]) =>
+            name === 'Contact'
+              ? [
+                  { id: NEW_WHO, success: true, errors: [] },
+                  { id: NEW_OTHER, success: true, errors: [] },
+                ]
+              : records.map(() => ({
+                  id: name === 'Event' ? NEW_EVENT : '0RXFk00000NeWrAIAV',
+                  success: true,
+                  errors: [],
+                })),
+          );
+          writer.update.mockImplementation(async (_name: string, records: unknown[]) =>
+            records.map(() => ({ success: true, errors: [] })),
+          );
+
+          await handler.handle(
+            buildMsg(
+              'seed:clone:execute',
+              clonePayload({
+                objects: [
+                  { objectApiName: 'Contact' },
+                  { objectApiName: 'Event' },
+                  { objectApiName: 'EventRelation' },
+                ],
+              }),
+            ),
+          );
+
+          const [response] = posted(deps, 'seed:clone:execute:response');
+          return {
+            queryMore,
+            inserted: writer.insert.mock.calls
+              .filter((c) => c[0] === 'EventRelation')
+              .flatMap((c) => c[1] as unknown[]),
+            updated: writer.update.mock.calls.filter((c) => c[0] === 'EventRelation'),
+            result: (
+              response.payload as unknown as {
+                objectResults: Array<{ objectApiName: string; linkedCount?: number }>;
+              }
+            ).objectResults.find((r) => r.objectApiName === 'EventRelation'),
+          };
+        }
+
+        it('reads every page of the relations the target holds', async () => {
+          // Asked of two hundred events at a time, the target answers with
+          // every relation they hold, two thousand to a page: the relation on
+          // the page after was sent again beside the one the target held.
+          const { queryMore, inserted, result } = await cloneAnEvent({
+            relations: [
+              { Id: TO_THE_WHO, EventId: EVENT, RelationId: WHO, IsWhat: false },
+              { Id: TO_THE_OTHER, EventId: EVENT, RelationId: OTHER, IsWhat: false },
+            ],
+            pages: [
+              [{ Id: PLATFORM_TO_OTHER, EventId: NEW_EVENT, RelationId: NEW_OTHER }],
+              [{ Id: PLATFORM_RELATION, EventId: NEW_EVENT, RelationId: NEW_WHO }],
+            ],
+          });
+
+          expect(queryMore).toHaveBeenCalledWith('/next/1');
+          expect(inserted).toEqual([]);
+          expect(result).toMatchObject({ linkedCount: 2 });
+        });
+
+        it("gives the relation it links for the event's who the invitee flag its row carried", async () => {
+          // The platform writes the relation to the who as it takes the event,
+          // not an invitee: linked to in place of the row, the who was no
+          // longer invited.
+          const { inserted, updated, result } = await cloneAnEvent({
+            relations: [
+              {
+                Id: TO_THE_WHO,
+                EventId: EVENT,
+                RelationId: WHO,
+                IsParent: true,
+                IsInvitee: true,
+                IsWhat: false,
+              },
+            ],
+            pages: [[{ Id: PLATFORM_RELATION, EventId: NEW_EVENT, RelationId: NEW_WHO }]],
+          });
+
+          expect(inserted).toEqual([]);
+          expect(updated).toEqual([
+            ['EventRelation', [{ Id: PLATFORM_RELATION, IsInvitee: true }], 200],
+          ]);
+          expect(result).toMatchObject({ linkedCount: 1 });
+        });
+
+        it('writes nothing to it and says so when the target does not let the flag be updated', async () => {
+          const { updated } = await cloneAnEvent({
+            relations: [
+              {
+                Id: TO_THE_WHO,
+                EventId: EVENT,
+                RelationId: WHO,
+                IsParent: true,
+                IsInvitee: true,
+                IsWhat: false,
+              },
+            ],
+            pages: [[{ Id: PLATFORM_RELATION, EventId: NEW_EVENT, RelationId: NEW_WHO }]],
+            updateable: false,
+          });
+
+          expect(updated).toEqual([]);
+          expect(deps.log).toHaveBeenCalledWith(
+            '[seed:clone] EventRelation: 1 linked without IsInvitee: the target does not let it be updated',
+          );
+        });
+      });
     });
 
     it('leaves out the fields the target does not have, and names them in the result', async () => {

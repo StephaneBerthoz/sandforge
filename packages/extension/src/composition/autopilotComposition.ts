@@ -1,7 +1,7 @@
 import type { Connection } from 'jsforce';
 import { duplicateRuleHeaders, sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
-import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
+import { queryAll, queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import { toSaveOutcomes } from '../core/common/existingRecordMatch';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { GrappeConfig } from '@sandforge/shared';
@@ -111,6 +111,7 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
          */
         type TargetDescribe = {
           creatable: ReadonlySet<string>;
+          fixedAtInsert: ReadonlySet<string>;
           recordTypes: RecordTypeAvailability[];
           keyPrefix: string | null;
           lookups: DescribedLookup[];
@@ -132,6 +133,11 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             creatable: new Set(
               (described.fields as Array<{ name: string; createable?: boolean }>)
                 .filter((f) => f.createable === true)
+                .map((f) => f.name),
+            ),
+            fixedAtInsert: new Set(
+              (described.fields as Array<{ name: string; updateable?: boolean }>)
+                .filter((f) => f.updateable === false)
                 .map((f) => f.name),
             ),
             recordTypes: parseRecordTypeInfos(described.recordTypeInfos),
@@ -208,12 +214,13 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               },
               // The standard price book on each side, the relations the
               // platform made, the statuses a lifecycle starts with, and a
-              // duplicate a refusal does not name. Every one of them is a
-              // bounded read: a single page answers it.
+              // duplicate a refusal does not name. Each is a bounded read but
+              // one: asked of two hundred activities at a time, the target
+              // answers with every relation they hold, and an event's
+              // invitees take it past a page. The target is read to its last.
               querySource: async (soql) =>
                 (await source.query<Record<string, unknown>>(soql)).records,
-              queryTarget: async (soql) =>
-                (await target.query<Record<string, unknown>>(soql)).records,
+              queryTarget: async (soql) => queryAll<Record<string, unknown>>(target, soql),
               describeKeyPrefix: async (objectApiName: string) =>
                 (await describeTarget(target, objectApiName)).keyPrefix,
               // What each lookup may point at and when it may be set: which
@@ -232,6 +239,10 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
               // connection describe once.
               describeCreateableFields: async (objectApiName: string) =>
                 (await describeTarget(target, objectApiName)).creatable,
+              // From the same describe: where a flag given back to a relation
+              // the run linked to can be set.
+              describeFieldsFixedAtInsert: async (objectApiName: string) =>
+                (await describeTarget(target, objectApiName)).fixedAtInsert,
               // From the same describe: no request of its own. A record type
               // closed to the running user is what the run tells the user to
               // change in the target, so that answer is not kept past this

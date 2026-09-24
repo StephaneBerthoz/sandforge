@@ -8064,6 +8064,117 @@ describe('ForgeExecutor', () => {
       });
     });
 
+    describe("an event's who the event also invites", () => {
+      const WHO = '003000000000001AAA';
+      const EVENT = '00U000000000001AAA';
+      const TO_THE_WHO = '0RE000000000001AAA';
+      const PLATFORM_RELATION = '0RE000000000009AAA';
+
+      /**
+       * A contact, an event whose who it is, and the event's one relation to
+       * it, a parent and an invitee at once; a target that writes the event's
+       * relation to its who as it takes the event, not an invitee, and
+       * describes `IsInvitee` as `updateable`.
+       */
+      function invitedWho(updateable: boolean) {
+        const run = fakeOrgs(
+          {
+            Contact: [{ Id: WHO, LastName: 'Who' }],
+            Event: [{ Id: EVENT, Subject: 'Visit', WhoId: WHO }],
+            EventRelation: [
+              {
+                Id: TO_THE_WHO,
+                EventId: EVENT,
+                RelationId: WHO,
+                IsParent: true,
+                IsInvitee: true,
+                IsWhat: false,
+              },
+            ],
+          },
+          {
+            Contact: [idField, text('LastName')],
+            Event: [idField, text('Subject'), lookup('WhoId', 'Contact')],
+            EventRelation: [
+              idField,
+              lookup('EventId', 'Event', true),
+              lookup('RelationId', 'Contact', true),
+              text('IsParent'),
+              { ...text('IsInvitee'), updateable },
+              text('IsWhat'),
+            ],
+          },
+        );
+        const target: Record<string, FakeRow[]> = { EventRelation: [] };
+        const insert = run.orgDeps.insertRecords;
+        run.orgDeps.insertRecords = async (org, object, records) => {
+          const results = await insert(org, object, records);
+          if (object === 'Event') {
+            results.forEach((result, i) =>
+              target['EventRelation'].push({
+                Id: PLATFORM_RELATION,
+                EventId: result.id,
+                RelationId: String(records[i]['WhoId']),
+              }),
+            );
+          }
+          return results;
+        };
+        const query = run.orgDeps.queryRecords;
+        run.orgDeps.queryRecords = async (org, soql, onTruncated) =>
+          org === 'tgt' ? selectRows(target, soql) : query(org, soql, onTruncated);
+        const graph = makeGraph(
+          [makeNode('Contact'), makeNode('Event'), makeNode('EventRelation')],
+          [
+            edge('Contact', 'Event'),
+            { ...edge('Event', 'EventRelation'), required: true },
+            edge('Contact', 'EventRelation'),
+          ],
+        );
+        return { ...run, graph };
+      }
+      const scoped = { rootRecordId: WHO, rootObjectApiName: 'Contact' };
+
+      it('gives the relation it links for the who the invitee flag the source row had', async () => {
+        // Linked to in place of the row, the who was no longer invited.
+        const { orgDeps, graph, inserted, updated } = invitedWho(true);
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+          scoped,
+        );
+
+        expect(inserted['EventRelation'] ?? []).toEqual([]);
+        expect(summary.remapTable[TO_THE_WHO]).toBe(PLATFORM_RELATION);
+        expect(updated).toContainEqual({
+          object: 'EventRelation',
+          rows: [{ Id: PLATFORM_RELATION, IsInvitee: true }],
+        });
+        expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
+          status: 'done',
+          message:
+            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 failed',
+        });
+      });
+
+      it('says on the line that ends the relations when the target does not let the flag be updated', async () => {
+        const { orgDeps, graph, updated } = invitedWho(false);
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, scoped);
+
+        expect(updated.filter((u) => u.object === 'EventRelation')).toEqual([]);
+        expect(progressEvents.filter((e) => e.objectName === 'EventRelation').pop()).toMatchObject({
+          status: 'done',
+          message:
+            'Completed EventRelation: 0 succeeded, 1 linked to records already in the target, 0 ' +
+            'failed, 1 linked without IsInvitee: the target does not let it be updated',
+        });
+      });
+    });
+
     describe('what the run read of each object', () => {
       /**
        * The graph discovery builds around an account: the count of each node

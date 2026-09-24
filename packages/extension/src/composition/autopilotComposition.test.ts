@@ -316,6 +316,8 @@ interface FakeObject {
   lookups?: Record<string, string>;
   /** Other fields the target takes. */
   fields?: string[];
+  /** Of those, the ones no update can set. */
+  fixedAtInsert?: string[];
   rows?: Record<string, unknown>[];
   keyPrefix?: string;
 }
@@ -328,6 +330,8 @@ function fakeDataOrg(
   objects: Record<string, FakeObject>,
   options: {
     soql?: (query: string) => Record<string, unknown>[] | undefined;
+    /** Any other SOQL answered a page at a time, the pages in order. */
+    pages?: (query: string) => Record<string, unknown>[][] | undefined;
     create?: (objectName: string, records: Record<string, unknown>[]) => unknown[];
     update?: (objectName: string, records: Record<string, unknown>[]) => unknown[];
   } = {},
@@ -355,7 +359,7 @@ function fakeDataOrg(
       type: 'string',
       nillable: true,
       createable: true,
-      updateable: true,
+      updateable: !(object.fixedAtInsert ?? []).includes(field),
       unique: false,
       externalId: false,
       referenceTo: [],
@@ -381,9 +385,23 @@ function fakeDataOrg(
         .map((row) => ({ ...row }));
       return { totalSize: records.length, done: true, records };
     }
+    const paged = options.pages?.(soql);
+    if (paged) {
+      pending = paged;
+      return pageOf(0);
+    }
     const records = options.soql?.(soql) ?? [];
     return { totalSize: records.length, done: true, records };
   });
+  /** The pages of the answer being read, and one of them as the API gives it. */
+  let pending: Record<string, unknown>[][] = [];
+  const pageOf = (index: number) => ({
+    totalSize: pending.flat().length,
+    done: index >= pending.length - 1,
+    records: pending[index] ?? [],
+    ...(index < pending.length - 1 ? { nextRecordsUrl: `/query/next-${index + 1}` } : {}),
+  });
+  const queryMore = vi.fn(async (url: string) => pageOf(Number(url.split('-').pop())));
   const sobject = vi.fn((objectName: string) => ({
     create: vi.fn(async (records: Record<string, unknown>[]) => {
       created.push({ objectName, records });
@@ -406,9 +424,10 @@ function fakeDataOrg(
       sobjects: Object.keys(objects).map((name) => globalSObject(name)),
     })),
     query,
+    queryMore,
     sobject,
   } as unknown as AutopilotConnection;
-  return { conn, created, updated, sobject };
+  return { conn, created, updated, sobject, queryMore };
 }
 
 /** Scan, plan and run what `selected` reaches, through the composition's own wiring. */
@@ -501,6 +520,99 @@ describe('autopilotComposition — the rules a copy needs', () => {
     const contact = target.created.find((call) => call.objectName === 'Contact');
     expect(contact?.records[0]['AccountId']).toBe(ACCOUNT_18);
     expect(result.objectOutcomes?.['Account']).toMatchObject({ written: 0, linked: 1, failed: 0 });
+  });
+
+  it('reads every page of the relations the target holds for the events the run wrote', async () => {
+    // Asked of two hundred events at a time, the target answers with every
+    // relation they hold, two thousand to a page: an event's invitees fill
+    // pages, and a relation past the first was sent again beside the one the
+    // target held.
+    const objects = {
+      Contact: {
+        keyPrefix: '003',
+        rows: [
+          { Id: 'conWho', Name: 'Who' },
+          { Id: 'conOther', Name: 'Other' },
+        ],
+      },
+      Event: {
+        keyPrefix: '00U',
+        lookups: { WhoId: 'Contact' },
+        rows: [{ Id: 'evtSrc', Name: 'Visit', WhoId: 'conWho' }],
+      },
+      EventRelation: {
+        keyPrefix: '0RE',
+        lookups: { EventId: 'Event', RelationId: 'Contact' },
+        rows: [
+          { Id: 'relWho', EventId: 'evtSrc', RelationId: 'conWho' },
+          { Id: 'relOther', EventId: 'evtSrc', RelationId: 'conOther' },
+        ],
+      },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects, {
+      pages: (query) =>
+        query.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+          ? [
+              [{ Id: '0REOTHER', EventId: 'Event-new-0', RelationId: 'Contact-new-1' }],
+              [{ Id: '0REWHO', EventId: 'Event-new-0', RelationId: 'Contact-new-0' }],
+            ]
+          : undefined,
+    });
+
+    const { result } = await compose(['EventRelation'], source.conn, target.conn);
+
+    expect(target.queryMore).toHaveBeenCalledWith('/query/next-1');
+    expect(target.created.filter((call) => call.objectName === 'EventRelation')).toEqual([]);
+    expect(result.objectOutcomes?.['EventRelation']).toMatchObject({ linked: 2, failed: 0 });
+  });
+
+  it.each([
+    ["gives the relation it links for an event's who the invitee flag its row carried", [], 1],
+    ['writes nothing to it when the target does not let the flag be updated', ['IsInvitee'], 0],
+  ])('%s', async (_, fixedAtInsert: string[], updates) => {
+    // The platform writes the relation to the who as it takes the event, not
+    // an invitee: linked to in place of a row that was, the who was no longer
+    // invited.
+    const objects = {
+      Contact: { keyPrefix: '003', rows: [{ Id: 'conWho', Name: 'Who' }] },
+      Event: {
+        keyPrefix: '00U',
+        lookups: { WhoId: 'Contact' },
+        rows: [{ Id: 'evtSrc', Name: 'Visit', WhoId: 'conWho' }],
+      },
+      EventRelation: {
+        keyPrefix: '0RE',
+        lookups: { EventId: 'Event', RelationId: 'Contact' },
+        fields: ['IsParent', 'IsInvitee', 'IsWhat'],
+        fixedAtInsert: ['IsWhat', ...fixedAtInsert],
+        rows: [
+          {
+            Id: 'relWho',
+            EventId: 'evtSrc',
+            RelationId: 'conWho',
+            IsParent: true,
+            IsInvitee: true,
+            IsWhat: false,
+          },
+        ],
+      },
+    };
+    const source = fakeDataOrg(objects);
+    const target = fakeDataOrg(objects, {
+      soql: (query) =>
+        query.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+          ? [{ Id: '0REWHO', EventId: 'Event-new-0', RelationId: 'Contact-new-0' }]
+          : undefined,
+    });
+
+    await compose(['EventRelation'], source.conn, target.conn);
+
+    expect(target.updated.filter((call) => call.objectName === 'EventRelation')).toEqual(
+      updates === 0
+        ? []
+        : [{ objectName: 'EventRelation', records: [{ Id: '0REWHO', IsInvitee: true }] }],
+    );
   });
 
   it("matches each org's standard price book instead of inserting the source one", async () => {

@@ -46,6 +46,8 @@ interface ForgeObjectDescribe {
     /** Active picklist values only. */
     picklistValues: string[];
     externalId: boolean;
+    /** True unless the org says an update cannot set the field. */
+    updateable: boolean;
   }>;
   childRelationships: Array<{
     childSObject: string;
@@ -78,6 +80,7 @@ function toForgeObjectDescribe(
         .filter((p) => p?.active !== false && typeof p?.value === 'string')
         .map((p) => p.value as string),
       externalId: f.externalId === true,
+      updateable: f.updateable !== false,
     })),
     childRelationships: (meta.childRelationships ?? []).map((cr) => ({
       childSObject: cr.childSObject,
@@ -391,6 +394,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
               nillable: f.nillable,
               picklistValues: f.picklistValues,
               externalId: f.externalId,
+              updateable: f.updateable,
             }));
           },
           isObjectCreatable: async (orgId, objectName) =>

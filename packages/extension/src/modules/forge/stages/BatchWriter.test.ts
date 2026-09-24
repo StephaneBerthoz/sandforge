@@ -717,6 +717,79 @@ describe('BatchWriter — relations the platform creates', () => {
     expect(input.remapper.existingSourceIds()).toEqual(['0RESRC1']);
     expect(result).toMatchObject({ successCount: 1, linkedExistingCount: 1, failureCount: 0 });
   });
+
+  describe("an event's who the event also invites", () => {
+    /**
+     * Write the relation of an event to its who, one relation that is a
+     * parent and an invitee at once, which the target holds as the platform
+     * wrote it with the event: not an invitee. The target describes
+     * `IsInvitee` as `updateable`.
+     */
+    async function writeTheWhoInvited(updateable: boolean) {
+      const insertRecords = vi
+        .fn<InsertImpl>()
+        .mockImplementation(async (_org, _obj, recs) =>
+          recs.map((_, i) => ({ id: `0RENEW${i}`, success: true, errors: [] })),
+        );
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>(
+        async (_org, _obj, recs) =>
+          recs.map((r) => ({ id: String(r['Id']), success: true, errors: [] })),
+      );
+      const describeFields = vi.fn<ForgeExecutorDeps['describeFields']>(async () => [
+        { name: 'IsInvitee', queryable: true, createable: true, isReference: false, updateable },
+      ]);
+      const queryRecords = vi.fn(async (_org: string, _soql: string) => [
+        { Id: '0REPLATFORM', EventId: '00UE', RelationId: '003WHO' },
+      ]);
+      const payload = {
+        EventId: '00UE',
+        RelationId: '003WHO',
+        IsParent: true,
+        IsInvitee: true,
+        IsWhat: false,
+      };
+      const input = makeInput([], {
+        node: makeNode('EventRelation', 1),
+        records: [payload],
+        cleanedRecords: [
+          { source: { Id: '0RESRC1', ...payload }, cleaned: payload, nullifiedFks: [] },
+        ],
+      });
+
+      const result = await new BatchWriter({
+        insertRecords,
+        queryRecords,
+        updateRecords,
+        describeFields,
+      }).writeNode(input);
+      return { insertRecords, updateRecords, describeFields, input, result };
+    }
+
+    it('gives the relation it links to the invitee flag its row carried', async () => {
+      // Linked to in place of the row, the who was no longer invited.
+      const { insertRecords, updateRecords, describeFields, input, result } =
+        await writeTheWhoInvited(true);
+
+      expect(insertRecords).not.toHaveBeenCalled();
+      expect(describeFields).toHaveBeenCalledWith('tgt', 'EventRelation');
+      expect(updateRecords).toHaveBeenCalledWith('tgt', 'EventRelation', [
+        { Id: '0REPLATFORM', IsInvitee: true },
+      ]);
+      expect(input.remapper.get('0RESRC1')).toBe('0REPLATFORM');
+      expect(result).toMatchObject({ successCount: 0, linkedExistingCount: 1, failureCount: 0 });
+      expect(result.flagsNotKept).toBeUndefined();
+    });
+
+    it('writes nothing to it and says so when the target does not let the flag be updated', async () => {
+      const { updateRecords, result } = await writeTheWhoInvited(false);
+
+      expect(updateRecords).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        linkedExistingCount: 1,
+        flagsNotKept: '1 linked without IsInvitee: the target does not let it be updated',
+      });
+    });
+  });
 });
 
 describe('BatchWriter — duplicates found by their natural key', () => {

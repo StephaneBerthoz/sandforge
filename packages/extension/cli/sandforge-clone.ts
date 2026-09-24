@@ -989,6 +989,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         picklistValues: (f.picklistValues ?? [])
           .filter((p) => p?.active !== false && typeof p?.value === 'string')
           .map((p) => p.value as string),
+        updateable: f.updateable !== false,
       }));
     },
     isObjectCreatable: async (orgId, name) => (await describe(orgId, name)).createable !== false,

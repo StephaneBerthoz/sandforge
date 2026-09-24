@@ -1114,6 +1114,102 @@ describe('AutopilotExecutor — records the platform owns or makes', () => {
     },
   );
 
+  describe("an event's who the event also invites", () => {
+    /**
+     * Copy a contact, an event whose who it is, and the event's one relation
+     * to it, a parent and an invitee at once, into a target that holds the
+     * relation the platform wrote for the who, not an invitee.
+     */
+    async function copyTheInvitedWho(deps: Partial<AutopilotExecutorDeps>) {
+      const rows = {
+        Contact: [{ Id: 'conWho' }],
+        Event: [{ Id: 'evtSrc', WhoId: 'conWho' }],
+        EventRelation: [
+          {
+            Id: 'relWho',
+            EventId: 'evtSrc',
+            RelationId: 'conWho',
+            IsParent: true,
+            IsInvitee: true,
+            IsWhat: false,
+          },
+        ],
+      };
+      const executorDeps = makeDeps({
+        query: sourceOf(rows),
+        remapper: new RecordIdRemapper(),
+        queryTarget: vi.fn<SoqlQuery>(async () => [
+          { Id: 'relPLATFORM', EventId: '00UTA', RelationId: '003TWHO' },
+        ]),
+        batchSize: 200,
+        ...deps,
+      });
+      vi.mocked(executorDeps.insert)
+        .mockResolvedValueOnce(written('003TWHO'))
+        .mockResolvedValueOnce(written('00UTA'));
+      const edges = [
+        makeEdge({ from: 'Contact' as ApiName, to: 'Event' as ApiName, fieldApiName: 'WhoId' }),
+        makeEdge({
+          from: 'Event' as ApiName,
+          to: 'EventRelation' as ApiName,
+          fieldApiName: 'EventId',
+          required: true,
+        }),
+        makeEdge({
+          from: 'Contact' as ApiName,
+          to: 'EventRelation' as ApiName,
+          fieldApiName: 'RelationId',
+        }),
+      ];
+      const result = await new AutopilotExecutor(executorDeps).execute(
+        wavesOf('Contact', 'Event', 'EventRelation'),
+        edges,
+        [],
+        countsOf(rows),
+      );
+      return { executorDeps, result };
+    }
+
+    it('gives the relation it links the invitee flag the row carried', async () => {
+      // Linked to in place of the row, the who was no longer invited.
+      const update = updateAll();
+
+      const { executorDeps, result } = await copyTheInvitedWho({
+        update,
+        describeFieldsFixedAtInsert: async () => new Set(['IsWhat']),
+      });
+
+      expect(vi.mocked(executorDeps.insert).mock.calls.map(([name]) => name)).toEqual([
+        'Contact',
+        'Event',
+      ]);
+      expect(update).toHaveBeenCalledWith('EventRelation', [
+        { Id: 'relPLATFORM', IsInvitee: true },
+      ]);
+      expect(result.objectOutcomes?.['EventRelation']).toMatchObject({ linked: 1, failed: 0 });
+    });
+
+    it('writes nothing to it and says so when the target does not let the flag be updated', async () => {
+      const warn = vi.spyOn(logger, 'warn');
+      const update = updateAll();
+
+      await copyTheInvitedWho({
+        update,
+        describeFieldsFixedAtInsert: async () => new Set(['IsWhat', 'IsInvitee']),
+      });
+
+      expect(update).not.toHaveBeenCalledWith('EventRelation', expect.anything());
+      expect(warn).toHaveBeenCalledWith(
+        'Autopilot linked relations without a flag their rows carried',
+        {
+          objectApiName: 'EventRelation',
+          note: '1 linked without IsInvitee: the target does not let it be updated',
+        },
+      );
+      warn.mockRestore();
+    });
+  });
+
   describe('a record born a draft', () => {
     const orderStatuses = [
       { ApiName: 'ST001', StatusCode: 'Draft' },

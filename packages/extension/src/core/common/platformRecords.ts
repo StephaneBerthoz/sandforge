@@ -602,6 +602,80 @@ export async function existingActivityRelations(
 }
 
 /**
+ * Per relation object, the flags a row read from the source can carry and
+ * the relation the platform writes for the activity's who does not.
+ *
+ * An event's who the event also invites holds one relation, a parent and an
+ * invitee at once. The platform writes the relation to the who as it writes
+ * the event, not an invitee: linked to in place of the row read
+ * (`existingActivityRelations`), it left the who uninvited. A task relation
+ * carries no such flag.
+ */
+export const FLAGS_THE_PLATFORM_LEAVES: Readonly<Record<string, readonly string[]>> = {
+  [EVENT_RELATION]: ['IsInvitee'],
+};
+
+/** A write of the target's records of one object, one outcome per record. */
+export type RelationUpdate = (
+  records: Array<Record<string, unknown> & { Id: string }>,
+) => Promise<ReadonlyArray<{ readonly success: boolean; readonly errors: readonly string[] }>>;
+
+/**
+ * Give each relation linked in place of a row read from the source the flags
+ * of {@link FLAGS_THE_PLATFORM_LEAVES} the row carried: an update of the
+ * relation, when the target's describe lets the flag be updated. A flag the
+ * describe does not let be updated, or an update the target refuses, is left
+ * as the platform wrote it and said in the note returned for the object's
+ * line; none when every flag went back. The relation stays linked either way:
+ * its children and the run's count have it. A flag is carried when the row
+ * says `true`, as a boolean or as the text a file keeps it as. An update that
+ * throws reaches the caller, as any other write of its run does.
+ *
+ * @param linked - Each row read, and the id of the relation linked in its place.
+ * @param updatable - Whether the target's describe of the object lets a field be updated.
+ * @param update - The update of the target's relations.
+ */
+export async function giveLinkedRelationsTheirFlags(
+  objectApiName: string,
+  linked: ReadonlyArray<readonly [row: Record<string, unknown>, id: string]>,
+  updatable: (field: string) => boolean,
+  update: RelationUpdate,
+): Promise<string | undefined> {
+  const flags = FLAGS_THE_PLATFORM_LEAVES[objectApiName] ?? [];
+  const fixed = flags.filter((flag) => !updatable(flag));
+  /** How many relations were left without a flag, by the flag and why, in the order first met. */
+  const without = new Map<string, number>();
+  const leftWithout = (flag: string, why: string): void => {
+    const key = `${flag}: ${why}`;
+    without.set(key, (without.get(key) ?? 0) + 1);
+  };
+  const updates: Array<Record<string, unknown> & { Id: string }> = [];
+  for (const [row, id] of linked) {
+    const carried = flags.filter((flag) => String(row[flag]) === 'true');
+    for (const flag of carried.filter((f) => fixed.includes(f))) {
+      leftWithout(flag, 'the target does not let it be updated');
+    }
+    const given = carried.filter((flag) => !fixed.includes(flag));
+    if (given.length > 0) {
+      updates.push({ Id: id, ...Object.fromEntries(given.map((flag) => [flag, true])) });
+    }
+  }
+  if (updates.length > 0) {
+    const outcomes = await update(updates);
+    updates.forEach((record, i) => {
+      const outcome = outcomes[i];
+      if (outcome?.success) return;
+      const why = `the target refused the update, ${outcome?.errors[0] ?? 'without saying why'}`;
+      for (const flag of Object.keys(record).filter((key) => key !== 'Id')) {
+        leftWithout(flag, why);
+      }
+    });
+  }
+  if (without.size === 0) return undefined;
+  return [...without].map(([why, count]) => `${count} linked without ${why}`).join(', ');
+}
+
+/**
  * Objects whose status follows a lifecycle, and the object listing each
  * status with its category. A record is born in the Draft category and moves
  * on afterwards — run for real, an activated order was refused: "for a new

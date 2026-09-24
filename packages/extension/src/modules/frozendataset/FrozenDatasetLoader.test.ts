@@ -4720,6 +4720,113 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
     expect(mapping.get(ref('EventRelation', 1))).toBe('0REPLATFORM');
   });
 
+  describe("an event's who the event also invites", () => {
+    /**
+     * A contact, an event whose who it is, and the event's one relation to
+     * it, a parent and an invitee at once, as a dataset keeps the flags: in
+     * text.
+     */
+    const invitedWho = (): FrozenDataset => ({
+      datasetVersion: '1.0.0',
+      objects: [
+        {
+          objectApiName: 'Contact',
+          records: [{ referenceId: ref('Contact'), fields: { LastName: 'Who' } }],
+        },
+        {
+          objectApiName: 'Event',
+          records: [
+            { referenceId: ref('Event'), fields: { Subject: 'Visit', WhoId: ref('Contact') } },
+          ],
+        },
+        {
+          objectApiName: 'EventRelation',
+          records: [
+            {
+              referenceId: ref('EventRelation'),
+              fields: {
+                EventId: ref('Event'),
+                RelationId: ref('Contact'),
+                IsParent: 'true',
+                IsInvitee: 'true',
+                IsWhat: 'false',
+              },
+            },
+          ],
+        },
+      ],
+      recordTypes: {},
+      personContactSidecar: [],
+    });
+
+    /**
+     * Load it into a target that holds the relation the platform wrote for
+     * the event's who, not an invitee, and describes `IsInvitee` as
+     * `updateable`.
+     */
+    async function load(updateable: boolean) {
+      const dataset = invitedWho();
+      const describes = describeFromDataset(dataset);
+      describes.EventRelation.fields = describes.EventRelation.fields.map((f) =>
+        f.name === 'IsInvitee' ? { ...f, updateable } : f,
+      );
+      const calls: DmlCall[] = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes,
+        writer: makeWriter(calls),
+        queryImpl: async (_org, soql) =>
+          soql.startsWith('SELECT Id, EventId, RelationId FROM EventRelation')
+            ? [{ Id: '0REPLATFORM', EventId: real('Event', 2), RelationId: real('Contact', 1) }]
+            : [],
+      });
+      const report = await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+      const line = progress.filter(
+        (e) => e.objectName === 'EventRelation' && e.status !== 'started',
+      );
+      return { calls, report, line };
+    }
+
+    it('gives the relation it links the invitee flag the row carried', async () => {
+      // Linked to in place of the row, the who was no longer invited.
+      const { calls, report, line } = await load(true);
+
+      expect(insertedOf(calls, 'EventRelation')).toEqual([]);
+      expect(calls.filter((c) => c.op === 'update' && c.objectApiName === 'EventRelation')).toEqual(
+        [
+          {
+            op: 'update',
+            objectApiName: 'EventRelation',
+            payload: [{ Id: '0REPLATFORM', IsInvitee: true }],
+          },
+        ],
+      );
+      expect(report.perObject.find((o) => o.objectApiName === 'EventRelation')).toMatchObject({
+        inserted: 0,
+        reused: 1,
+        failed: [],
+      });
+      expect(line.map((e) => e.message)).toEqual([
+        'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed',
+      ]);
+    });
+
+    it("writes nothing to it and says so on the object's line when the target does not let the flag be updated", async () => {
+      const { calls, line } = await load(false);
+
+      expect(calls.filter((c) => c.op === 'update' && c.objectApiName === 'EventRelation')).toEqual(
+        [],
+      );
+      expect(line.map((e) => e.message)).toEqual([
+        'EventRelation: 0 inserted, 1 reused, 0 duplicates skipped, 0 failed, ' +
+          '1 linked without IsInvitee: the target does not let it be updated',
+      ]);
+    });
+  });
+
   it('writes the task first and names it on an email on a case, which may name it', async () => {
     const dataset = emailDataset(true);
     const calls: DmlCall[] = [];
@@ -4842,6 +4949,158 @@ describe('FrozenDatasetLoader — an email, its task and their relations', () =>
         guard: new SasPathGuard(repoRoot),
       }).load();
       expect(mapping.get(ref('Task', 1))).toBe('00TPLATFORM');
+    });
+
+    /** The lines that end the email object, as the load said them. */
+    function emailEnds(progress: readonly FrozenLoadProgressEvent[]): FrozenLoadProgressEvent[] {
+      return progress.filter((e) => e.objectName === 'EmailMessage' && e.status !== 'started');
+    }
+
+    it('ends the email object in one line, with what each of its two writes came to', async () => {
+      // Said as each write ended, the emails ended in two lines, the second
+      // with the emails that had waited for their task alone: two read as
+      // two objects.
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        writer: withCaseIds(platformWriter(calls, emails)),
+        queryImpl: platformReads(emails),
+      });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+
+      expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
+        [
+          'done',
+          'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+            'waiting for their tasks; after their task: 2 inserted, 0 reused, 0 duplicates ' +
+            'skipped, 0 failed',
+        ],
+      ]);
+      // The first write's end is a step on the way, said as one.
+      expect(
+        progress.filter((e) => e.objectName === 'EmailMessage').map((e) => [e.status, e.message]),
+      ).toContainEqual([
+        'started',
+        'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+          'waiting for their tasks',
+      ]);
+    });
+
+    it('ends the email object in one line as a failure when its first write failed', async () => {
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const writer = withCaseIds(platformWriter(calls, emails));
+      const insert = writer.insert;
+      writer.insert = vi.fn(
+        async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) =>
+          objectApiName === 'EmailMessage' && records.some((r) => !r.ActivityId)
+            ? records.map(() => ({
+                id: '',
+                success: false,
+                errors: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: no offer by email'],
+              }))
+            : insert(org, objectApiName, records),
+      );
+      const deps = makeDeps({ dataset, writer, queryImpl: platformReads(emails) });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+
+      expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
+        [
+          'error',
+          'EmailMessage: 0 inserted, 0 reused, 0 duplicates skipped, 1 failed, 2 on a case ' +
+            'waiting for their tasks; after their task: 2 inserted, 0 reused, 0 duplicates ' +
+            'skipped, 0 failed',
+        ],
+      ]);
+    });
+
+    it('ends the email object with its first write when a cancel stops the load before the emails that waited', async () => {
+      const dataset = mixedDataset();
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const stop = new AbortController();
+      const writer = withCaseIds(platformWriter(calls, emails));
+      const insert = writer.insert;
+      writer.insert = vi.fn(
+        async (org: string, objectApiName: string, records: Array<Record<string, unknown>>) => {
+          if (objectApiName === 'Task') stop.abort();
+          return insert(org, objectApiName, records);
+        },
+      );
+      const deps = makeDeps({ dataset, writer, queryImpl: platformReads(emails) });
+
+      await expect(
+        new FrozenDatasetLoader(deps).load(
+          makeOptions(deps, dataset, {
+            signal: stop.signal,
+            onProgress: (e) => progress.push(e),
+          }),
+        ),
+      ).rejects.toBeInstanceOf(FrozenLoadCancelledError);
+
+      expect(emailEnds(progress).map((e) => [e.status, e.message])).toEqual([
+        [
+          'done',
+          'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+            'waiting for their tasks',
+        ],
+      ]);
+    });
+
+    it("says what became of the object's other rows on the line that ends it", async () => {
+      // An email that cannot go in without a row the platform writes itself
+      // is left out with it: said on the step, the note was followed by a
+      // line that ended the object without it.
+      const dataset = mixedDataset();
+      dataset.objects.unshift({
+        objectApiName: 'FeedItem',
+        records: [{ referenceId: ref('FeedItem'), fields: { Type: 'TrackedChange' } }],
+      });
+      dataset.objects
+        .find((o) => o.objectApiName === 'EmailMessage')
+        ?.records.push({
+          referenceId: ref('EmailMessage', 4),
+          fields: { Subject: '', Status: '3', Change__c: ref('FeedItem') },
+        });
+      const describes = describeFromDataset(dataset);
+      describes.EmailMessage.fields = describes.EmailMessage.fields.map((f) =>
+        f.name === 'Change__c' ? { ...f, nillable: false, referenceTo: ['FeedItem'] } : f,
+      );
+      const calls: DmlCall[] = [];
+      const emails: Array<Record<string, unknown>> = [];
+      const progress: FrozenLoadProgressEvent[] = [];
+      const deps = makeDeps({
+        dataset,
+        describes,
+        writer: withCaseIds(platformWriter(calls, emails)),
+        queryImpl: platformReads(emails),
+      });
+
+      await new FrozenDatasetLoader(deps).load(
+        makeOptions(deps, dataset, { onProgress: (e) => progress.push(e) }),
+      );
+
+      const note = '1 left out: Change__c names a tracked change, which the platform writes itself';
+      expect(emailEnds(progress).map((e) => e.message)).toEqual([
+        'EmailMessage: 1 inserted, 0 reused, 0 duplicates skipped, 0 failed, 2 on a case ' +
+          'waiting for their tasks; after their task: 2 inserted, 0 reused, 0 duplicates ' +
+          `skipped, 0 failed, ${note}`,
+      ]);
+      expect(
+        progress.filter((e) => e.objectName === 'EmailMessage' && e.message.includes(note)),
+      ).toHaveLength(1);
     });
   });
 });

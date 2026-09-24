@@ -12,7 +12,7 @@ import type {
 import { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgeOrchestratorDeps } from '../../modules/forge/ForgeOrchestrator.js';
 import { ForgeAbortedError, ForgeExecutor } from '../../modules/forge/ForgeExecutor.js';
-import type { ForgeExecutorDeps } from '../../modules/forge/ForgeExecutor.js';
+import type { ForgeExecutorDeps, ForgeProgressEvent } from '../../modules/forge/ForgeExecutor.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
@@ -1495,6 +1495,111 @@ describe('ForgeHandler', () => {
         processedRecords: 10,
         currentStep: 'Completed Account: 10 succeeded, 0 failed',
       });
+    });
+
+    it('counts every write of an object written twice, the emails that waited for their task with the others', async () => {
+      // The email node ends once the emails that waited for their task are
+      // in, and each of its two writes names its own records: the count kept
+      // the last one named, the emails that had waited alone.
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      const account = createMockGraph().nodes[0];
+      const graph = {
+        ...createMockGraph(),
+        nodes: [
+          { ...account, objectApiName: 'EmailMessage' },
+          { ...account, objectApiName: 'Task', level: 1 },
+        ],
+      };
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        const events: ForgeProgressEvent[] = [
+          {
+            objectName: 'EmailMessage',
+            status: 'running',
+            progress: 0,
+            recordCount: 1,
+            message: 'Inserting 1 EmailMessage records in 1 batch(es)...',
+          },
+          {
+            objectName: 'EmailMessage',
+            status: 'running',
+            progress: 100,
+            message:
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks',
+          },
+          {
+            objectName: 'Task',
+            status: 'running',
+            progress: 0,
+            recordCount: 2,
+            message: 'Inserting 2 Task records in 1 batch(es)...',
+          },
+          {
+            objectName: 'Task',
+            status: 'done',
+            progress: 100,
+            message: 'Completed Task: 2 succeeded, 0 failed',
+          },
+          {
+            objectName: 'EmailMessage',
+            status: 'running',
+            progress: 0,
+            recordCount: 2,
+            message: 'Inserting 2 EmailMessage records in 1 batch(es)...',
+          },
+          {
+            objectName: 'EmailMessage',
+            status: 'done',
+            progress: 100,
+            message:
+              'Completed EmailMessage: 1 succeeded, 0 failed, 2 on a case waiting for their tasks; after their task: 2 succeeded, 0 failed',
+          },
+        ];
+        for (const event of events) listener?.(event);
+        return createMockResult();
+      });
+
+      await execute(graph);
+
+      expect(tracker.getAll()[0]).toMatchObject({ processedRecords: 5 });
+    });
+
+    it('counts both rounds of the price book entries, the standard prices before the others', async () => {
+      let listener: ProgressListener | undefined;
+      vi.mocked(orchestrator.on).mockImplementation((_type, l) => {
+        listener = l as ProgressListener;
+        return vi.fn();
+      });
+      const account = createMockGraph().nodes[0];
+      const graph = {
+        ...createMockGraph(),
+        nodes: [{ ...account, objectApiName: 'PricebookEntry' }],
+      };
+      vi.mocked(orchestrator.execute).mockImplementation(async () => {
+        for (const recordCount of [2, 3]) {
+          listener?.({
+            objectName: 'PricebookEntry',
+            status: 'running',
+            progress: 0,
+            recordCount,
+            message: `Inserting ${recordCount} PricebookEntry records in 1 batch(es)...`,
+          });
+        }
+        listener?.({
+          objectName: 'PricebookEntry',
+          status: 'done',
+          progress: 100,
+          message: 'Completed PricebookEntry: 5 succeeded, 0 failed',
+        });
+        return createMockResult();
+      });
+
+      await execute(graph);
+
+      expect(tracker.getAll()[0]).toMatchObject({ processedRecords: 5 });
     });
 
     it('ends a clone that threw as failed, with its error', async () => {

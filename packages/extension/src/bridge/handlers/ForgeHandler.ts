@@ -1430,6 +1430,10 @@ export class ForgeHandler implements DomainHandler {
    * share of the graph's objects settled, and the records of those objects.
    * The executor names the records of an object when it starts writing it and
    * counts nothing per record, so the count moves object by object.
+   *
+   * An object written in two goes names the records of each: the emails that
+   * waited for their task after the others, the standard prices before the
+   * others. Kept as the last one named, the count held the second go alone.
    */
   private liveProgressOf(
     operationId: string,
@@ -1441,7 +1445,7 @@ export class ForgeHandler implements DomainHandler {
     let records = 0;
     return (event) => {
       if (typeof event.recordCount === 'number') {
-        recordsOf.set(event.objectName, event.recordCount);
+        recordsOf.set(event.objectName, (recordsOf.get(event.objectName) ?? 0) + event.recordCount);
       }
       const terminal =
         event.status === 'done' || event.status === 'error' || event.status === 'skipped';

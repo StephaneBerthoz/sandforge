@@ -219,6 +219,12 @@ export interface FieldInfo {
    * `DUPLICATE_VALUE` on a previously cloned target row.
    */
   externalId?: boolean;
+  /**
+   * Whether an update can set the field, as the org describes it. Read of the
+   * target for a flag given back to a relation the run linked to; unknown
+   * reads as updateable, and the target says whether it takes the update.
+   */
+  updateable?: boolean;
 }
 
 /** Optional execution mode parameters. */
@@ -5187,6 +5193,9 @@ export class ForgeExecutor {
             ? `, ${writtenBefore.length} already in the target from the run retried`
             : '';
         const waitForTheirTask = waiting > 0 ? `, ${waitingForTheirTask(waiting)}` : '';
+        // A relation linked to without a flag its row carried: the who the
+        // event also invites, which the platform's relation leaves out.
+        const flagsNotKept = writeResult.flagsNotKept ? `, ${writeResult.flagsNotKept}` : '';
         // What else became of the object's rows, said once, on the line that
         // ends the node: after the emails that waited for their task, if any.
         const notes =
@@ -5198,7 +5207,7 @@ export class ForgeExecutor {
           objectName: node.objectApiName,
           status: 'done',
           progress: 100,
-          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${notes}`,
+          message: `${completed}: ${nodeSuccess} succeeded${updated}${linked}${writtenWithTheirEmail}${already}, ${nodeFailure} failed${unidentified}${withoutTheirParent}${waitForTheirTask}${flagsNotKept}${notes}`,
         });
       }
     } catch (err) {

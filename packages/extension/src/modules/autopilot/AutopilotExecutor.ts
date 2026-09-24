@@ -50,6 +50,7 @@ import {
   ACCOUNT_CONTACT_RELATION,
   ACTIVITY_OF_RELATION,
   EMAIL_MESSAGE,
+  FLAGS_THE_PLATFORM_LEAVES,
   NATURAL_KEYS,
   RowsLeftToThePlatform,
   STATUS_LIFECYCLES,
@@ -57,6 +58,7 @@ import {
   directAccountContactRelations,
   draftStartOf,
   existingActivityRelations,
+  giveLinkedRelationsTheirFlags,
   lookupsThePlatformFills,
   recordsByNaturalKey,
   statusCategories,
@@ -259,6 +261,13 @@ export interface AutopilotExecutorDeps {
    * Optional, so a caller that cannot describe keeps the previous behaviour.
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * The object's fields no update can set in the TARGET org, from the same
+   * describe: a flag given back to a relation the run linked to is sent only
+   * where an update can set it (`giveLinkedRelationsTheirFlags`). Without it
+   * the target says whether it takes the update.
+   */
+  describeFieldsFixedAtInsert?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
    * The object's record types in the TARGET org, as the running user sees
    * them — read from the describe `describeCreateableFields` already made.
@@ -1193,6 +1202,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
         if (typeof sourceId === 'string') mappings.push([sourceId, id]);
       }
       state.linked += held.size;
+      await this.giveFlagsBack(
+        objectApiName,
+        [...held].map(([index, id]) => [payload[index], id] as const),
+        state,
+      );
       payload = payload.filter((_, index) => !held.has(index));
     }
     // The task the platform wrote with one of the run's emails is the one
@@ -1282,6 +1296,40 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     }
 
     this.register(objectApiName, mappings);
+  }
+
+  /**
+   * Give the relations linked to in place of rows read the flags the rows
+   * carried and the platform's relation lacks — an event's who the event also
+   * invites — where the target's describe lets an update set them, and say
+   * what it could not give. See `giveLinkedRelationsTheirFlags`. A run given
+   * no update of the target asks nothing.
+   */
+  private async giveFlagsBack(
+    objectApiName: string,
+    linked: ReadonlyArray<readonly [Record<string, unknown>, string]>,
+    state: ObjectState,
+  ): Promise<void> {
+    const update = this.deps.update;
+    if (!update || linked.length === 0 || !FLAGS_THE_PLATFORM_LEAVES[objectApiName]) return;
+    const fixed = await this.deps
+      .describeFieldsFixedAtInsert?.(objectApiName)
+      .catch(() => undefined);
+    const flagsNotKept = await giveLinkedRelationsTheirFlags(
+      objectApiName,
+      linked,
+      (field) => !fixed?.has(field),
+      async (records) => {
+        state.apiCallsUsed++;
+        return update(objectApiName, records);
+      },
+    );
+    if (flagsNotKept) {
+      logger.warn('Autopilot linked relations without a flag their rows carried', {
+        objectApiName,
+        note: flagsNotKept,
+      });
+    }
   }
 
   /**
