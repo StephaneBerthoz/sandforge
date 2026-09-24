@@ -400,6 +400,68 @@ describe('forge:undo', () => {
     expect(history()[0].undo).toBeUndefined();
   });
 
+  it('keeps on the entry what a cancelled removal left on the account and when it ran, and the next removal takes the account', async () => {
+    // Deleting the contacts restamps their account, a roll-up counting them,
+    // as modified by the session's user, and feed tracking records the change
+    // on the account; Live Operations cancels meanwhile. The next removal
+    // comes a minute later.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      org.accountChildren.push({
+        childSObject: 'FeedItem',
+        field: 'ParentId',
+        cascadeDelete: true,
+      });
+      org.onDelete((object) => {
+        const account = (org.rows.get('Account') ?? [])[0];
+        if (object !== 'Contact' || !account) return;
+        const now = org.orgNow();
+        Object.assign(account, { LastModifiedDate: now, LastModifiedById: USER });
+        org.rows.set('FeedItem', [
+          {
+            Id: id('0D5', 1),
+            ParentId: account.Id,
+            CreatedDate: now,
+            LastModifiedDate: now,
+            CreatedById: USER,
+          },
+        ]);
+        const [running] = registry.getRunning();
+        if (running) registry.abort(running.operationId);
+      });
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'cancelled',
+        objects: [{ objectApiName: 'Contact', deleted: 2 }],
+      });
+      expect(history()[0].undo).toBeUndefined();
+      expect(history()[0].removalStamps).toEqual({
+        [id('001', 1)]: org.rows.get('Account')?.[0].LastModifiedDate,
+      });
+      expect(history()[0].removalSpans).toEqual([
+        { first: expect.any(String), last: expect.any(String), userId: USER.slice(0, 15) },
+      ]);
+
+      org.onDelete(() => {});
+      vi.setSystemTime(Date.now() + 60_000);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', alreadyGone: 2 },
+          { objectApiName: 'Account', deleted: 1, keptChanged: 0, keptDependents: 0 },
+        ],
+      });
+      expect(org.rows.get('Account')).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('lists a finished removal as completed in the registry and in Live Operations', async () => {
     const events: string[] = [];
     registry.onEvent((_, type) => events.push(type));

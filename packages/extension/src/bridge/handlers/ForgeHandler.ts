@@ -1498,9 +1498,10 @@ export class ForgeHandler implements DomainHandler {
    * delete — a production org is refused, a missing guard refuses too — and
    * the removal runs on the background registry, listed in Live Operations,
    * where Cancel stops it before its next call to the org — but for giving
-   * back a status it set to Draft for a delete. The audit trail records it
-   * whatever the outcome, and the entry is marked once records went, so the
-   * removal is not offered twice.
+   * back a status it set to Draft for a delete, and reading what it left on
+   * the records it leaves. The audit trail records it whatever the outcome,
+   * and the entry is marked once records went, so the removal is not offered
+   * twice.
    */
   private async handleUndo(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(undoPayloadSchema, msg, 'forge:undo:error', this.deps);
@@ -1648,6 +1649,7 @@ export class ForgeHandler implements DomainHandler {
           ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
           : { runDurationMs: entry.duration, runRecordedAt: new Date(entry.timestamp) }),
         ...(entry.removalStamps ? { removalStamps: entry.removalStamps } : {}),
+        ...(entry.removalSpans ? { removalSpans: entry.removalSpans } : {}),
         includeChanged,
         signal: stop.signal,
         onProgress: (settled, of, objectApiName) => {
@@ -1681,12 +1683,13 @@ export class ForgeHandler implements DomainHandler {
 
       // Marked once records went, or none was left to go. A removal stopped
       // part way, or one that deleted nothing, is offered again — with what
-      // it wrote to the records it left, which the next one does not read as
-      // a change since the run.
+      // it wrote to the records it left, and when it ran, which the next one
+      // reads as its doing, not as changes since the run.
       const mark =
         result.status === 'success' || result.status === 'partial' ? undoMark(result) : undefined;
       const stamped = Object.keys(outcome.stamps).length > 0;
-      if (mark || stamped) {
+      const ran = outcome.span;
+      if (mark || stamped || ran) {
         this.saveHistory(
           this.loadHistory().map((e) =>
             e.forgeId === forgeId
@@ -1694,6 +1697,7 @@ export class ForgeHandler implements DomainHandler {
                   ...e,
                   ...(mark ? { undo: mark } : {}),
                   ...(stamped ? { removalStamps: { ...e.removalStamps, ...outcome.stamps } } : {}),
+                  ...(ran ? { removalSpans: [...(e.removalSpans ?? []), ran] } : {}),
                 }
               : e,
           ),

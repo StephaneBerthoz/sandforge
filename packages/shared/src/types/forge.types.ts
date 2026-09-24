@@ -457,6 +457,20 @@ export interface ForgeWrittenBetween {
 }
 
 /**
+ * When one removal of a run's records ran, by the target org's clock, and as
+ * which user: what that user created in the org meanwhile is the org's answer
+ * to the removal, not a record added since the run.
+ */
+export interface ForgeRemovalSpan {
+  /** When it started, ISO 8601, to the second. */
+  first: string;
+  /** The latest the org can have dated what it made the org write, ISO 8601. */
+  last: string;
+  /** The id of the user it ran as. */
+  userId: string;
+}
+
+/**
  * Result returned after a Forge operation completes.
  *
  * Includes the final graph state, timing information, and the
@@ -580,13 +594,22 @@ export interface ForgeExecutionResult {
    */
   writtenBetween?: ForgeWrittenBetween;
   /**
-   * What removals of the run's records wrote to records they left in the
-   * org — an order set to Draft for a delete that did not happen, then given
-   * its status back — by record id: the `LastModifiedDate` the org left on
-   * each. A later removal reads a record modified no later than that as
-   * unchanged since the run. Absent until a removal wrote to one.
+   * What removals of the run's records left on records they did not delete —
+   * an order set to Draft for a delete that did not happen, then given its
+   * status back; an opportunity whose amount changed as its line items went —
+   * by record id: the `LastModifiedDate` the org left on each. A later removal
+   * reads a record modified no later than that as unchanged since the run.
+   * Absent until a removal left one.
    */
   removalStamps?: Record<string, string>;
+  /**
+   * When the removals of the run's records that wrote to the org ran, and as
+   * which user: what the org created in answer to one of them — a tracked
+   * change in an opportunity's feed, as its amount changed with its line
+   * items — a later removal takes for that removal's doing, not for a record
+   * added since the run. Absent until a removal wrote.
+   */
+  removalSpans?: ForgeRemovalSpan[];
   /**
    * The configuration that produced this run, minus the org ids.
    *

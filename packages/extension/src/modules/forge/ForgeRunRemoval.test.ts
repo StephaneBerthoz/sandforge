@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { ForgeRunObjectRecords } from '@sandforge/shared';
+import { describe, expect, it, vi } from 'vitest';
+import type { ForgeRunObjectRecords, ForgeUndoObjectResult } from '@sandforge/shared';
 
 import { removeRunRecords, type RemovalOrg, type RunRemovalOptions } from './ForgeRunRemoval.js';
 
@@ -554,7 +554,7 @@ describe('removeRunRecords', () => {
     expect(outcome.objects[1]).toMatchObject({ deleted: 1 });
   });
 
-  it('stops before its next call to the org once cancelled, saying what it did by then', async () => {
+  it('stops before its next delete once cancelled, saying what it did by then', async () => {
     const org = new FakeOrg();
     const contacts = Array.from({ length: 250 }, (_, i) => id('003', i + 1));
     org.add('Contact', ...contacts.map((c) => runRow(c)));
@@ -1097,6 +1097,337 @@ describe('removeRunRecords', () => {
     });
   });
 
+  describe('a record the org restamps as the removal deletes, and the removal leaves', () => {
+    const ACCOUNT = id('001', 1);
+    const BOOK = id('01s', 1);
+    const OPPORTUNITY = id('006', 1);
+    const LINE_ITEMS = [id('00k', 1), id('00k', 2)];
+    const PLAN = [
+      { objectApiName: 'OpportunityLineItem', ids: LINE_ITEMS },
+      { objectApiName: 'Opportunity', ids: [OPPORTUNITY] },
+      { objectApiName: 'Pricebook2', ids: [BOOK] },
+      { objectApiName: 'Account', ids: [ACCOUNT] },
+    ];
+
+    /**
+     * A cloned opportunity with its line items, its account and its price
+     * book, written by the user the removal runs as. Deleting a line item
+     * changes the opportunity's amount: the org dates the opportunity then,
+     * as modified by the user who deleted the item, and feed tracking records
+     * the change on it, as created by that user — as a sandbox did. It
+     * refuses the price book while an opportunity is priced from it.
+     */
+    function opportunityWithLineItems(): FakeOrg {
+      const org = new FakeOrg();
+      const written = (recordId: string, fields: Record<string, unknown> = {}): Row =>
+        runRow(recordId, { ...fields, LastModifiedById: USER });
+      org.add('Account', written(ACCOUNT));
+      org.add('Pricebook2', written(BOOK));
+      org.add('Opportunity', written(OPPORTUNITY, { AccountId: ACCOUNT, Pricebook2Id: BOOK }));
+      org.add(
+        'OpportunityLineItem',
+        ...LINE_ITEMS.map((item) => written(item, { OpportunityId: OPPORTUNITY })),
+      );
+      org.relationships.set('Opportunity', [
+        { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+        { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+      ]);
+      org.relationships.set('Account', [
+        { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+      ]);
+      org.relationships.set('Pricebook2', [
+        { childSObject: 'Opportunity', field: 'Pricebook2Id', cascadeDelete: false },
+      ]);
+      org.refuse = (object, row) =>
+        object === 'Pricebook2' &&
+        (org.rows.get('Opportunity') ?? []).some((o) => o.Pricebook2Id === row.Id)
+          ? {
+              statusCode: 'DELETE_FAILED',
+              message: 'this price book is associated with the following opportunities',
+            }
+          : undefined;
+      org.onDelete = (object, row) => {
+        const opportunity = (org.rows.get('Opportunity') ?? []).find(
+          (o) => o.Id === row.OpportunityId,
+        );
+        if (object !== 'OpportunityLineItem' || !opportunity) return;
+        const now = org.now();
+        Object.assign(opportunity, { LastModifiedDate: now, LastModifiedById: USER });
+        org.add('FeedItem', {
+          Id: id('0D5', (org.rows.get('FeedItem') ?? []).length + 1),
+          ParentId: opportunity.Id,
+          CreatedDate: now,
+          LastModifiedDate: now,
+          CreatedById: USER,
+        });
+      };
+      return org;
+    }
+
+    /** Stops the removal once the line items are deleted, before the opportunity's turn. */
+    function cancelledAfterLineItems(): Partial<RunRemovalOptions> {
+      const stop = new AbortController();
+      return {
+        signal: stop.signal,
+        onProgress: (settled, _total, objectApiName) => {
+          if (objectApiName === 'OpportunityLineItem' && settled === LINE_ITEMS.length) {
+            stop.abort();
+          }
+        },
+      };
+    }
+
+    const counts = (outcome: { objects: ForgeUndoObjectResult[] }): unknown[] =>
+      outcome.objects.map((o) => [
+        o.objectApiName,
+        o.deleted,
+        o.alreadyGone,
+        o.keptChanged,
+        o.keptDependents,
+        o.refused,
+      ]);
+
+    it('names the stamp its line items left on the opportunity when cancelled, and when it ran: the next removal takes the opportunity', async () => {
+      // The next removal comes a minute later: what the org wrote in answer
+      // to the first cannot pass for the next one's own doing.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const org = opportunityWithLineItems();
+        const started = Math.floor(Date.now() / 1000) * 1000;
+
+        const first = await removeRunRecords(org, PLAN, options(cancelledAfterLineItems()));
+        const restamped = String((org.rows.get('Opportunity') ?? [])[0].LastModifiedDate);
+        vi.setSystemTime(Date.now() + 60_000);
+        const second = await removeRunRecords(
+          org,
+          PLAN,
+          options({
+            removalStamps: first.stamps,
+            removalSpans: first.span ? [first.span] : [],
+          }),
+        );
+
+        expect(first.cancelled).toBe(true);
+        expect(counts(first)).toEqual([['OpportunityLineItem', 2, 0, 0, 0, 0]]);
+        // Modified after the run ended, by the removal's doing.
+        expect(Date.parse(restamped)).toBeGreaterThan(Date.parse(RUN_ENDED));
+        expect(first.stamps).toEqual({ [OPPORTUNITY]: restamped });
+        expect(first.span).toEqual({
+          first: new Date(started).toISOString(),
+          last: expect.any(String),
+          userId: USER.slice(0, 15),
+        });
+        expect(Date.parse(first.span?.last ?? '')).toBeGreaterThan(Date.parse(restamped));
+        // The tracked changes the first removal made the org write go with the opportunity.
+        expect(counts(second)).toEqual([
+          ['OpportunityLineItem', 0, 2, 0, 0, 0],
+          ['Opportunity', 1, 0, 0, 0, 0],
+          ['Pricebook2', 1, 0, 0, 0, 0],
+          ['Account', 1, 0, 0, 0, 0],
+        ]);
+        expect([...org.rows.values()].flat()).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ['by its user while it ran', USER, '2026-09-20T12:00:30.000Z', 1],
+      ['by someone else while it ran', COLLEAGUE, '2026-09-20T12:00:30.000Z', 0],
+      ['by its user once it was over', USER, '2026-09-20T12:05:00.000Z', 0],
+      ['by its user before it started', USER, '2026-09-20T11:30:00.000Z', 0],
+    ])(
+      "takes a task created since the run for an earlier removal's doing only when created by its user while it ran: %s",
+      async (_when, creator, createdAt, deleted) => {
+        const { org, plan } = accountWithContacts();
+        org.add('Task', {
+          Id: id('00T', 1),
+          WhatId: ACCOUNT,
+          CreatedDate: createdAt,
+          LastModifiedDate: createdAt,
+          CreatedById: creator,
+        });
+
+        const outcome = await removeRunRecords(
+          org,
+          plan,
+          options({
+            removalSpans: [
+              {
+                first: '2026-09-20T12:00:00.000Z',
+                last: '2026-09-20T12:01:00.000Z',
+                userId: USER,
+              },
+            ],
+          }),
+        );
+
+        expect(outcome.objects[1]).toMatchObject({
+          objectApiName: 'Account',
+          deleted,
+          keptDependents: 1 - deleted,
+        });
+      },
+    );
+
+    it('names no stamp for a record someone else modified last, which the next removal keeps as changed', async () => {
+      // A colleague edits the opportunity once its line items are gone.
+      const org = opportunityWithLineItems();
+      const rollUp = org.onDelete;
+      org.onDelete = (object, row) => {
+        rollUp?.(object, row);
+        const opportunity = (org.rows.get('Opportunity') ?? [])[0];
+        if (object === 'OpportunityLineItem' && opportunity) {
+          Object.assign(opportunity, { LastModifiedDate: org.now(), LastModifiedById: COLLEAGUE });
+        }
+      };
+
+      const first = await removeRunRecords(org, PLAN, options(cancelledAfterLineItems()));
+      const second = await removeRunRecords(
+        org,
+        PLAN,
+        options({
+          removalStamps: first.stamps,
+          removalSpans: first.span ? [first.span] : [],
+        }),
+      );
+
+      expect(first.stamps).toEqual({});
+      expect(counts(second)).toEqual([
+        ['OpportunityLineItem', 0, 2, 0, 0, 0],
+        ['Opportunity', 0, 0, 1, 0, 0],
+        ['Pricebook2', 0, 0, 0, 0, 1],
+        ['Account', 0, 0, 0, 1, 0],
+      ]);
+      expect(second.stamps).toEqual({});
+      expect(org.has('Opportunity', OPPORTUNITY)).toBe(true);
+    });
+
+    it('names, as it ends, the stamp its deletes left on a record it keeps, which a later removal takes once nothing holds it', async () => {
+      // A task logged on the account since the run holds it; deleting the
+      // account's contacts restamps it, a roll-up counting them.
+      const { org, plan } = accountWithContacts();
+      org.add('Task', {
+        Id: id('00T', 1),
+        WhatId: ACCOUNT,
+        CreatedDate: AFTER_RUN,
+        LastModifiedDate: AFTER_RUN,
+        CreatedById: COLLEAGUE,
+      });
+      org.onDelete = (object, row) => {
+        const account = (org.rows.get('Account') ?? []).find((a) => a.Id === row.AccountId);
+        if (object === 'Contact' && account) {
+          Object.assign(account, { LastModifiedDate: org.now(), LastModifiedById: USER });
+        }
+      };
+
+      const first = await removeRunRecords(org, plan, options());
+      // The colleague deletes the task.
+      org.rows.set('Task', []);
+      const second = await removeRunRecords(org, plan, options({ removalStamps: first.stamps }));
+
+      expect(first.objects[1]).toMatchObject({ keptDependents: 1, heldBy: ['Task'] });
+      expect(first.stamps).toEqual({ [ACCOUNT]: expect.any(String) });
+      expect(second.objects[1]).toMatchObject({ deleted: 1, keptChanged: 0 });
+      expect(org.has('Account', ACCOUNT)).toBe(false);
+    });
+
+    it('leaves unstamped the records it cannot read back', async () => {
+      const org = opportunityWithLineItems();
+      org.failingQueries.push(/^SELECT Id, LastModifiedDate, LastModifiedById FROM Opportunity /);
+
+      const outcome = await removeRunRecords(org, PLAN, options(cancelledAfterLineItems()));
+
+      expect(outcome.cancelled).toBe(true);
+      expect(counts(outcome)).toEqual([['OpportunityLineItem', 2, 0, 0, 0, 0]]);
+      expect(outcome.stamps).toEqual({});
+    });
+
+    it('reads nothing back when it is cancelled before it wrote', async () => {
+      const org = opportunityWithLineItems();
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        PLAN,
+        options({ signal: stop.signal, onProgress: () => stop.abort() }),
+      );
+
+      expect(outcome).toMatchObject({ cancelled: true, stamps: {} });
+      expect(outcome.span).toBeUndefined();
+      expect(org.deletes).toEqual([]);
+      expect(org.queries.filter((q) => q.includes('LastModifiedById'))).toEqual([]);
+    });
+
+    it('reads nothing back once every record of the run went', async () => {
+      const org = opportunityWithLineItems();
+
+      const outcome = await removeRunRecords(org, PLAN, options());
+
+      expect(outcome.stamps).toEqual({});
+      expect([...org.rows.values()].flat()).toEqual([]);
+      expect(org.queries.filter((q) => q.includes('LastModifiedById'))).toEqual([]);
+    });
+
+    it('reads back no object that keeps no modified date, and so no one who modified it', async () => {
+      // An email message's relations keep a system stamp alone, and the org
+      // deletes them only with their message: refused, then taken along.
+      const org = new FakeOrg();
+      const message = id('02s', 1);
+      const relations = [1, 2].map((n) => id('0ER', n));
+      org.columns.set('EmailMessageRelation', [
+        'Id',
+        'EmailMessageId',
+        'CreatedDate',
+        'SystemModstamp',
+      ]);
+      org.relationships.set('EmailMessage', [
+        { childSObject: 'EmailMessageRelation', field: 'EmailMessageId', cascadeDelete: true },
+      ]);
+      org.notWorked.add('EmailMessageRelation');
+      org.add('Account', runRow(ACCOUNT));
+      org.add('EmailMessage', runRow(message));
+      org.add(
+        'EmailMessageRelation',
+        ...relations.map((relation) => ({
+          Id: relation,
+          EmailMessageId: message,
+          CreatedDate: DURING_RUN,
+          SystemModstamp: DURING_RUN,
+        })),
+      );
+      org.refuse = (object) =>
+        object === 'EmailMessageRelation'
+          ? {
+              statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY',
+              message: 'can be updated only in a draft state',
+            }
+          : undefined;
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(
+        org,
+        [
+          { objectApiName: 'EmailMessageRelation', ids: relations },
+          { objectApiName: 'EmailMessage', ids: [message] },
+          { objectApiName: 'Account', ids: [ACCOUNT] },
+        ],
+        options({
+          signal: stop.signal,
+          onProgress: (settled, _total, objectApiName) => {
+            if (objectApiName === 'EmailMessage' && settled === 3) stop.abort();
+          },
+        }),
+      );
+
+      expect(outcome.cancelled).toBe(true);
+      expect(org.deletes.map((d) => d.object)).toEqual(['EmailMessageRelation', 'EmailMessage']);
+      expect(org.queries.filter((q) => q.includes('LastModifiedById'))).toEqual([
+        `SELECT Id, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${ACCOUNT}')`,
+      ]);
+    });
+  });
+
   describe("the org's clock, never this machine's", () => {
     /** A run's opportunity and line item, whose delete the org answers with a feed item. */
     function opportunityWithLineItem() {
@@ -1169,6 +1500,8 @@ describe('removeRunRecords', () => {
         heldBy: ['FeedItem'],
       });
       expect(org.has('Opportunity', opportunity)).toBe(true);
+      // Nor for a later removal's.
+      expect(outcome.span).toBeUndefined();
     });
 
     it("dates a run that kept no dates by its records': from the first created, for as long as it took", async () => {
